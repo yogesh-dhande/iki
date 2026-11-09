@@ -1,0 +1,17 @@
+[project]
+name = "iki-cli"
+version = "0.1.0.dev0"
+description = "The `iki` command-line tool: plugin authoring, validation and local runs."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Iki Authors" }]
+dependencies = []
+
+[project.scripts]
+iki = "iki_cli.main:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"

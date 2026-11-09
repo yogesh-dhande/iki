@@ -1,0 +1,65 @@
+name: External PR policy
+
+# Iki does not accept pull requests from outside contributors yet (ADR 0021).
+# This closes any PR opened by someone without write access, with a polite
+# note pointing to issues instead.
+#
+# pull_request_target runs with a token for the base repo, so it is only
+# safe when it never checks out or runs code from the PR. This workflow
+# doesn't: it reads PR metadata through env vars and calls the GitHub API.
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] PR code is never checked out or run
+    types: [opened, reopened]
+
+permissions: {}
+
+concurrency:
+  group: external-prs-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  close-external:
+    name: Close PRs from outside contributors
+    # Dependabot's PRs are ours. Only GitHub can create a `[bot]` login.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # comment on and close the PR
+    steps:
+      - name: Check author's access and close if external
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -euo pipefail
+
+          # Returns admin | write | read | none. A 404 means the author is not
+          # a collaborator at all. Any other API error fails the job without
+          # closing, so an outage never closes a maintainer's PR.
+          if ! perm=$(gh api "repos/$REPO/collaborators/$AUTHOR/permission" --jq .permission 2>err.txt); then
+            if grep -q "HTTP 404" err.txt; then
+              perm=none
+            else
+              cat err.txt >&2
+              echo "::error::Could not check the author's access; leaving the PR open."
+              exit 1
+            fi
+          fi
+          echo "Author access: $perm"
+
+          case "$perm" in
+            admin|write)
+              echo "Author has write access; nothing to do."
+              exit 0
+              ;;
+          esac
+
+          gh pr close "$PR" --repo "$REPO" --comment "$(cat <<EOF
+          Thanks for your interest in Iki! We aren't accepting pull requests from outside contributors yet, so this PR has been closed automatically.
+
+          If you found a bug or want to suggest a change, please open an issue instead. To report a security problem, follow [SECURITY.md]($GITHUB_SERVER_URL/$REPO/blob/HEAD/SECURITY.md) and don't post it publicly.
+          EOF
+          )"

@@ -1,0 +1,37 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+coverage/
+
+# Rust
+target/
+
+# Local environment and secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key

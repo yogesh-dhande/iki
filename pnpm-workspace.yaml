@@ -1,0 +1,12 @@
+packages:
+  - "web/app"
+  - "web/packages/*"
+
+# Supply-chain hardening.
+# Refuse package versions published less than 3 days ago, which gives the
+# registry time to pull compromised releases before they reach us.
+minimumReleaseAge: 4320
+# Dependency install scripts never run unless a package is listed here.
+onlyBuiltDependencies: []
+strictDepBuilds: true
+engineStrict: true
