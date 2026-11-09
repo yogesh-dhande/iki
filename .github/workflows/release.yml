@@ -100,7 +100,9 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           file "target/$TARGET/release/iki-worker"
-          file "target/$TARGET/release/iki-worker" | grep -q "statically linked"
+          # Rust's musl targets produce static PIE executables ("static-pie linked").
+          file "target/$TARGET/release/iki-worker" | grep -Eq "static(-pie|ally) linked"
+          ! file "target/$TARGET/release/iki-worker" | grep -q "interpreter"
       - name: Smoke test
         if: matrix.target != 'x86_64-apple-darwin'
         env:
