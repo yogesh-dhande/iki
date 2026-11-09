@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["image", "environment", "allowedHosts", "secretKey", "database"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
+        "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Deployment name, e.g. prod"
+    },
+    "allowedHosts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "https": { "type": "boolean" },
+    "forwardedAllowIps": { "type": "string", "minLength": 1 },
+    "log": {
+      "type": "object",
+      "properties": {
+        "level": { "enum": ["DEBUG", "INFO", "WARNING", "ERROR"] },
+        "format": { "enum": ["json", "console"] }
+      }
+    },
+    "secretKey": {
+      "type": "object",
+      "required": ["existingSecret", "key"],
+      "properties": {
+        "existingSecret": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 }
+      }
+    },
+    "database": {
+      "type": "object",
+      "required": ["existingSecret", "uriKey", "sslmode"],
+      "properties": {
+        "existingSecret": { "type": "string", "minLength": 1 },
+        "uriKey": { "type": "string", "minLength": 1 },
+        "sslmode": { "enum": ["verify-full", "verify-ca", "require"] },
+        "caSecret": {
+          "type": "object",
+          "properties": { "name": { "type": "string" }, "key": { "type": "string" } }
+        },
+        "pool": {
+          "type": "object",
+          "properties": {
+            "minSize": { "type": "integer", "minimum": 0 },
+            "maxSize": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "otel": {
+      "type": "object",
+      "properties": {
+        "endpoint": { "type": "string" },
+        "resourceAttributes": { "type": "string" }
+      }
+    },
+    "web": {
+      "type": "object",
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

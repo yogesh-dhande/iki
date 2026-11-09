@@ -1,0 +1,42 @@
+# Values for the Iki chart in the local kind cluster (used by the Tiltfile).
+image:
+  # Tilt builds this image and rewrites the reference to the exact build.
+  repository: iki-server
+  tag: dev
+environment: dev
+allowedHosts: ["localhost", "127.0.0.1"]
+# Local access is plain HTTP through port-forwards.
+https: false
+forwardedAllowIps: "127.0.0.1"
+log:
+  level: INFO
+  format: json
+secretKey:
+  existingSecret: iki-secret-key
+  key: secret-key
+database:
+  # Created by CloudNativePG for the iki-db cluster.
+  existingSecret: iki-db-app
+  uriKey: uri
+  sslmode: verify-full
+  caSecret:
+    name: iki-db-ca
+    key: ca.crt
+otel:
+  endpoint: http://otel-lgtm.iki.svc:4318
+  resourceAttributes: k8s.cluster.name=kind-iki
+web:
+  replicas: 1
+  podDisruptionBudget:
+    enabled: false
+networkPolicy:
+  enabled: true
+  egress:
+    database:
+      to:
+        - podSelector:
+            matchLabels: { cnpg.io/cluster: iki-db }
+    otel:
+      to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: otel-lgtm }

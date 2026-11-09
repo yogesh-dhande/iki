@@ -38,3 +38,11 @@ def test_configure_is_idempotent() -> None:
     second = telemetry.configure_telemetry(service_version="z", environment="w")
     assert first is not None
     assert first is second
+
+
+def test_health_checks_stay_ahead_of_the_otel_middleware() -> None:
+    from django.conf import settings
+
+    assert settings.MIDDLEWARE[0] == telemetry.HEALTH_MIDDLEWARE
+    assert settings.MIDDLEWARE.count(telemetry.HEALTH_MIDDLEWARE) == 1
+    assert any("opentelemetry" in m for m in settings.MIDDLEWARE[1:])

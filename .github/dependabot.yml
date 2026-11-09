@@ -27,6 +27,7 @@ updates:
     cooldown: { default-days: 7 }
 
   - package-ecosystem: docker
-    directories: ["/server"]
+    # Dockerfiles and the image references in the dev Kubernetes manifests.
+    directories: ["/server", "/deploy/dev/manifests"]
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }

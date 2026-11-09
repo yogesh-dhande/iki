@@ -30,6 +30,22 @@ DEFAULT_SERVICE_NAME = "iki-server"
 EXCLUDED_URLS = "healthz/"
 
 
+HEALTH_MIDDLEWARE = "iki_server.health.HealthCheckMiddleware"
+
+
+def _keep_health_checks_first() -> None:
+    """Moves the health check middleware back in front of OpenTelemetry's.
+
+    The Django instrumentation inserts its middleware at the very front, and
+    that middleware validates the Host header. Kubelet probes send the pod IP
+    as Host, so they would be rejected before reaching the health checks.
+    """
+    from django.conf import settings
+
+    middleware = [m for m in settings.MIDDLEWARE if m != HEALTH_MIDDLEWARE]
+    settings.MIDDLEWARE = [HEALTH_MIDDLEWARE, *middleware]
+
+
 @dataclass(frozen=True)
 class TelemetryState:
     tracer_provider: TracerProvider
@@ -105,6 +121,7 @@ def configure_telemetry(
         meter_provider=meter_provider,
         excluded_urls=EXCLUDED_URLS,
     )
+    _keep_health_checks_first()
     PsycopgInstrumentor().instrument(
         tracer_provider=tracer_provider,
         meter_provider=meter_provider,

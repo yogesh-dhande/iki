@@ -1,0 +1,74 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $egress := .Values.networkPolicy.egress }}
+# Default deny: Iki pods accept and send nothing except what is listed below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" . }}-default-deny
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "iki.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" . }}-egress
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "iki.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Egress]
+  egress:
+    # DNS through the cluster resolver only.
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- with $egress.database.to }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        {{- range $egress.database.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+    {{- end }}
+    {{- if and .Values.otel.endpoint $egress.otel.to }}
+    - to:
+        {{- toYaml $egress.otel.to | nindent 8 }}
+      ports:
+        {{- range $egress.otel.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+    {{- end }}
+{{- with .Values.networkPolicy.ingressFrom }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" $ }}-web-ingress
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" $ "component" "web") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - { protocol: TCP, port: 8000 }
+{{- end }}
+{{- end }}

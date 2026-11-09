@@ -26,7 +26,7 @@ server.
 | `worker/`   | Rust workspace: the `iki-worker` agent and `iki-protocol` wire types |
 | `docs/adr/` | Architecture Decision Records                                        |
 
-More directories (`spec/`, `codegen/`, `plugins/`, `deploy/`, `sdk/python/`) arrive
+More directories (`spec/`, `codegen/`, `plugins/`, `sdk/python/`) arrive
 as the features that need them land.
 
 ## Development
@@ -45,6 +45,9 @@ make check   # run every check CI runs: lint, format, types, tests
 make fmt     # format all code
 make help    # list all tasks
 ```
+
+To run the whole stack on a local Kubernetes cluster (Postgres, S3, Keycloak,
+Grafana), see [deploy/dev/README.md](deploy/dev/README.md): `make dev-up`.
 
 ## Contributing
 

@@ -1,0 +1,104 @@
+# Default values for the Iki chart.
+#
+# Values marked "required" have no default; the chart refuses to render
+# without them (see values.schema.json). Every default is the secure choice.
+
+image:
+  repository: ghcr.io/ikisci/iki-server
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # Pin by digest in production (sha256:...). It takes precedence over the tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# required: name of this deployment, e.g. "prod". Attached to logs and traces.
+environment: ""
+
+# required: host names users reach Iki on, e.g. ["iki.example.com"].
+allowedHosts: []
+
+# Clients reach Iki over HTTPS (TLS terminated by your ingress or load
+# balancer). Turns on HTTPS redirects, secure cookies and HSTS. Only local
+# development sets this to false.
+https: true
+
+# Proxies whose X-Forwarded-For/-Proto headers are trusted. "*" is safe only
+# because the NetworkPolicy below admits traffic from the ingress alone.
+forwardedAllowIps: "*"
+
+log:
+  level: INFO
+  format: json
+
+secretKey:
+  # required: Secret holding Django's SECRET_KEY.
+  existingSecret: ""
+  key: secret-key
+
+database:
+  # required: Secret holding a postgres:// connection URI.
+  existingSecret: ""
+  uriKey: uri
+  # libpq sslmode. verify-full checks the certificate and the host name.
+  sslmode: verify-full
+  # Secret holding the CA that signed the database's certificate. Leave the
+  # name empty to use the image's system CA bundle (e.g. for RDS with the
+  # AWS bundle baked in).
+  caSecret:
+    name: ""
+    key: ca.crt
+  pool:
+    minSize: 2
+    maxSize: 10
+
+otel:
+  # OTLP/HTTP collector endpoint, e.g. http://otel-collector:4318. Empty
+  # means traces and metrics are not exported.
+  endpoint: ""
+  # Extra resource attributes, e.g. "k8s.cluster.name=prod-us-east-1".
+  resourceAttributes: ""
+
+web:
+  replicas: 2
+  resources:
+    requests: { cpu: 250m, memory: 384Mi }
+    limits: { memory: 768Mi }
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+migrate:
+  # Runs `iki-server migrate` as a Helm pre-install/pre-upgrade hook.
+  enabled: true
+  activeDeadlineSeconds: 1800
+  # How long to wait for Postgres to accept connections before migrating.
+  waitForDatabaseSeconds: 300
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+networkPolicy:
+  enabled: true
+  # Peers allowed to reach the web pods, typically your ingress controller.
+  # An empty list admits no in-cluster traffic (port-forwards still work).
+  ingressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+  # Egress destinations. DNS is always allowed.
+  egress:
+    database:
+      ports: [5432]
+      to: []
+    otel:
+      ports: [4318]
+      to: []

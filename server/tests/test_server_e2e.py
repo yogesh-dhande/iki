@@ -60,9 +60,10 @@ def collector() -> Iterator[FakeCollector]:
     thread.join()
 
 
-def get(url: str) -> tuple[int, dict[str, object]]:
+def get(url: str, host: str | None = None) -> tuple[int, dict[str, object]]:
+    request = urllib.request.Request(url, headers={"Host": host} if host else {})  # noqa: S310
     try:
-        with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310 - local test URL
+        with urllib.request.urlopen(request, timeout=5) as resp:  # noqa: S310 - local test URL
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as err:
         with err:
@@ -113,6 +114,11 @@ def test_server_serves_probes_logs_json_and_exports_traces(collector: FakeCollec
             200,
             {"status": "ok", "checks": {"database": "ok", "migrations": "ok"}},
         )
+
+        # Kubelet probes send the pod IP and port as Host, which isn't in ALLOWED_HOSTS.
+        for path in ("/healthz/live", "/healthz/ready"):
+            status, _ = get(f"http://127.0.0.1:{port}{path}", host="10.244.0.13:8000")
+            assert status == 200, path
 
         status, _ = get(f"http://127.0.0.1:{port}/missing?token=secret")
         assert status == 404

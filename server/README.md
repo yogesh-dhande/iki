@@ -9,6 +9,7 @@ The import package is `iki_server`, so it never shadows the client SDK's
 The `iki-server` command wraps Django's management commands:
 
 ```console
+iki-server wait_for_database  # block until Postgres accepts connections
 iki-server migrate        # apply database migrations
 iki-server serve          # run the ASGI server (uvicorn) on :8000
 iki-server check --deploy # Django's production readiness checks

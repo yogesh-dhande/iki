@@ -1,6 +1,6 @@
 # 0014. Kubernetes-only deployment with Helm and reference OpenTofu modules
 
-- Status: Accepted
+- Status: Accepted (development object store amended by [0022](0022-seaweedfs-for-development-object-storage.md))
 - Date: 2026-11-09
 
 ## Context

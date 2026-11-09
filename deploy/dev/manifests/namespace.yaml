@@ -1,0 +1,11 @@
+# Everything Iki runs in development lives here, under the same Pod Security
+# "restricted" profile production uses.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iki
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

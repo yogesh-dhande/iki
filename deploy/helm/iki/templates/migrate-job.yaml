@@ -1,0 +1,72 @@
+{{- if .Values.migrate.enabled }}
+# Applies database migrations before any new web pod starts. As a Helm hook it
+# runs before the release's other resources exist, so it references only
+# Secrets that the operator created beforehand. A failed migration fails the
+# install or upgrade, and the old pods keep serving.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "iki.fullname" . }}-migrate
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    # Keep the last run for inspection; replace it on the next upgrade.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "iki.labels" . | nindent 8 }}
+        {{- include "iki.selectorLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "iki.podSecurityContext" . | nindent 8 }}
+      initContainers:
+        # Waits for Postgres, so a database that is still starting or failing
+        # over delays the upgrade instead of failing it.
+        - name: wait-for-database
+          image: {{ include "iki.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["wait_for_database", "--timeout", {{ .Values.migrate.waitForDatabaseSeconds | quote }}]
+          env:
+            {{- include "iki.env" . | nindent 12 }}
+            - name: IKI_DB_POOL
+              value: "false"
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "iki.volumeMounts" . | nindent 12 }}
+      containers:
+        - name: migrate
+          image: {{ include "iki.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate", "--no-input"]
+          env:
+            {{- include "iki.env" . | nindent 12 }}
+            # One short-lived connection is enough for migrations.
+            - name: IKI_DB_POOL
+              value: "false"
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "iki.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "iki.volumes" . | nindent 8 }}
+{{- end }}

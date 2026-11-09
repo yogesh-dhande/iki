@@ -16,6 +16,9 @@ concurrency:
 
 env:
   UV_VERSION: "0.13.7"
+  HELM_VERSION: "v4.3.1"
+  TILT_VERSION: "0.37.8"
+  TILT_SHA256: "e39513f958705d30524d55f68b1d46fbef2b46a0da568efd00e6383dee6be44f"
   FORCE_COLOR: "1"
 
 jobs:
@@ -76,6 +79,9 @@ jobs:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python }}
           enable-cache: true
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
       - name: Install (locked)
         run: uv sync --locked
       - name: Ruff lint
@@ -84,7 +90,9 @@ jobs:
         run: uv run --no-sync ruff format --check
       - name: mypy (strict)
         run: uv run --no-sync mypy
-      - name: pytest
+      - name: Helm lint (strict)
+        run: make check-chart
+      - name: pytest (includes Helm chart policy tests)
         run: uv run --no-sync pytest --cov --cov-report=term-missing
 
   web:
@@ -167,12 +175,51 @@ jobs:
           docker run --rm --entrypoint python iki-server:ci \
             -c "import psycopg; assert psycopg.pq.__impl__ == 'c', psycopg.pq.__impl__"
 
+  dev-cluster:
+    name: Dev cluster end to end (kind + Tilt)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Create kind cluster
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
+        with:
+          version: v0.33.0
+          cluster_name: iki
+          config: deploy/dev/kind-config.yaml
+          wait: 120s
+      - name: Install Tilt (checksum verified)
+        run: |
+          curl -fsSL -o /tmp/tilt.tar.gz \
+            "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz"
+          echo "${TILT_SHA256}  /tmp/tilt.tar.gz" | sha256sum --check
+          sudo tar -xzf /tmp/tilt.tar.gz -C /usr/local/bin tilt
+          tilt version
+      - name: Bring up the dev cluster and run end-to-end checks
+        run: make dev-ci
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl --context kind-iki get pods -A -o wide || true
+          kubectl --context kind-iki -n iki get events --sort-by=.lastTimestamp | tail -50 || true
+          for d in iki-web keycloak seaweedfs otel-lgtm; do
+            echo "--- logs: $d"; kubectl --context kind-iki -n iki logs "deploy/$d" --tail=100 || true
+          done
+          kubectl --context kind-iki -n iki logs job/iki-migrate --tail=100 || true
+
   # A single required status check for branch protection: it passes only when
   # every job above passed.
   ci-ok:
     name: CI passed
     if: always()
-    needs: [workflows, python, web, rust, server-image]
+    needs: [workflows, python, web, rust, server-image, dev-cluster]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}

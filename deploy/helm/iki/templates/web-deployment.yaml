@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "iki.fullname" . }}-web
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  {{- if not .Values.web.autoscaling.enabled }}
+  replicas: {{ .Values.web.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" . "component" "web") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 25%
+  template:
+    metadata:
+      labels:
+        {{- include "iki.labels" . | nindent 8 }}
+        {{- include "iki.selectorLabels" (dict "ctx" . "component" "web") | nindent 8 }}
+      {{- with .Values.web.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "iki.fullname" . }}-web
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "iki.podSecurityContext" . | nindent 8 }}
+      # Readiness drops first, then preStop gives load balancers time to stop
+      # sending traffic, then uvicorn drains in-flight requests (30s).
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: web
+          image: {{ include "iki.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve"]
+          env:
+            {{- include "iki.env" . | nindent 12 }}
+            - name: IKI_FORWARDED_ALLOW_IPS
+              value: {{ .Values.forwardedAllowIps | quote }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            httpGet: { path: /healthz/live, port: http }
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /healthz/live, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /healthz/ready, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              sleep: { seconds: 5 }
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "iki.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "iki.volumes" . | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "iki.selectorLabels" (dict "ctx" . "component" "web") | nindent 14 }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "iki.selectorLabels" (dict "ctx" . "component" "web") | nindent 14 }}
+      {{- with .Values.web.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

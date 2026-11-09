@@ -1,0 +1,15 @@
+{{- if .Values.web.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "iki.fullname" . }}-web
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  minAvailable: {{ .Values.web.podDisruptionBudget.minAvailable }}
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" . "component" "web") | nindent 6 }}
+{{- end }}

@@ -1,0 +1,8 @@
+Iki {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Check the rollout:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "iki.fullname" . }}-web
+
+Readiness (database reachable, migrations applied):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "iki.fullname" . }}-web 8000:8000
+  curl http://localhost:8000/healthz/ready

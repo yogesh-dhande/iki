@@ -1,6 +1,6 @@
 # 0005. Postgres as the only stateful service, plus S3 object storage
 
-- Status: Accepted
+- Status: Accepted (development object store amended by [0022](0022-seaweedfs-for-development-object-storage.md))
 - Date: 2026-11-09
 
 ## Context
