@@ -9,7 +9,7 @@ deployed with the same Helm chart as production (`deploy/helm/iki`).
 - Docker, with about 6 GB of memory available to it
 - `kind`, `kubectl`, `helm` (v4) and `tilt`. On macOS:
   `brew install kind kubernetes-cli helm tilt-dev/tap/tilt`
-- `jq` and `curl` for the end-to-end checks
+- `jq`, `curl` and [`uv`](https://docs.astral.sh/uv/) for the end-to-end checks
 
 ## Usage
 
