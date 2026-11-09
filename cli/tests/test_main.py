@@ -4,6 +4,13 @@ from iki_cli import __version__
 from iki_cli.main import main
 
 
+@pytest.fixture(autouse=True)
+def _plain_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Python 3.14's argparse colors help when FORCE_COLOR is set (as in CI).
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.setenv("NO_COLOR", "1")
+
+
 def test_version_flag_prints_version_and_exits_cleanly(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         main(["--version"])
