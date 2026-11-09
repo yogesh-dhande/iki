@@ -1,0 +1,55 @@
+{{- if .Values.maintenance.enabled }}
+# Daily housekeeping: deletes expired sessions (they're already ignored; this
+# keeps the table small).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "iki.fullname" . }}-maintenance
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: maintenance
+spec:
+  schedule: {{ .Values.maintenance.schedule | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            {{- include "iki.labels" . | nindent 12 }}
+            {{- include "iki.selectorLabels" (dict "ctx" . "component" "maintenance") | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          enableServiceLinks: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- include "iki.podSecurityContext" . | nindent 12 }}
+          containers:
+            - name: clear-expired-sessions
+              image: {{ include "iki.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args: ["clear_expired_sessions"]
+              env:
+                {{- include "iki.env" . | nindent 16 }}
+                - name: IKI_DB_POOL
+                  value: "false"
+              resources:
+                {{- toYaml .Values.maintenance.resources | nindent 16 }}
+              securityContext:
+                {{- include "iki.containerSecurityContext" . | nindent 16 }}
+              volumeMounts:
+                {{- include "iki.volumeMounts" . | nindent 16 }}
+          volumes:
+            {{- include "iki.volumes" . | nindent 12 }}
+{{- end }}

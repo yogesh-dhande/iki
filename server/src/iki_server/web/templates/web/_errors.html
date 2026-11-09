@@ -1,0 +1,10 @@
+{# Error summary at the top of a form: announced on load, each error links to its field. #}
+{% if form.errors %}
+<div class="alert alert-error" role="alert" aria-labelledby="error-summary-title" data-focus-on-load>
+  <h2 class="alert-title" id="error-summary-title">There’s a problem</h2>
+  <ul>
+    {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+    {% for field in form %}{% for error in field.errors %}<li><a href="#{{ field.auto_id }}">{{ field.label }}: {{ error }}</a></li>{% endfor %}{% endfor %}
+  </ul>
+</div>
+{% endif %}

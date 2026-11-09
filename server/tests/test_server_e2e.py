@@ -5,6 +5,7 @@ probes over HTTP, JSON logs on stdout, and traces exported over OTLP.
 import http.server
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -15,6 +16,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 from django.conf import settings
@@ -70,7 +72,9 @@ def get(url: str, host: str | None = None) -> tuple[int, dict[str, object]]:
             return err.code, {}
 
 
-def test_server_serves_probes_logs_json_and_exports_traces(collector: FakeCollector) -> None:
+def test_server_serves_probes_logs_json_and_exports_traces(
+    collector: FakeCollector, tmp_path: Path
+) -> None:
     db = settings.DATABASES["default"]
     port = free_port()
     env = {
@@ -79,6 +83,7 @@ def test_server_serves_probes_logs_json_and_exports_traces(collector: FakeCollec
         "IKI_SECRET_KEY": "e2e-" + "s" * 60,
         "IKI_ALLOWED_HOSTS": "127.0.0.1",
         "IKI_ENVIRONMENT": "e2e",
+        "IKI_ENCRYPTION_KEYS": settings.IKI_ENCRYPTION_KEYS[0],
         "IKI_DATABASE_URL": (
             f"postgres://{db['USER']}:{db['PASSWORD']}@{db['HOST']}:{db['PORT']}/{db['NAME']}"
         ),
@@ -86,10 +91,21 @@ def test_server_serves_probes_logs_json_and_exports_traces(collector: FakeCollec
         "IKI_HTTPS": "false",
         "IKI_PORT": str(port),
         "IKI_HOST": "127.0.0.1",
+        "IKI_STATIC_ROOT": str(tmp_path / "static"),
         "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{collector.port}",
         "OTEL_BSP_SCHEDULE_DELAY": "100",
         "OTEL_METRIC_EXPORT_INTERVAL": "100000",
     }
+    # Static files are collected at image build time; do the same here.
+    collected = subprocess.run(
+        [sys.executable, "-m", "iki_server.manage", "collectstatic", "--noinput"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert collected.returncode == 0, collected.stdout + collected.stderr
     proc = subprocess.Popen(
         [sys.executable, "-m", "iki_server.manage", "serve"],
         env=env,
@@ -122,6 +138,16 @@ def test_server_serves_probes_logs_json_and_exports_traces(collector: FakeCollec
 
         status, _ = get(f"http://127.0.0.1:{port}/missing?token=secret")
         assert status == 404
+
+        # Pages render and link to content-hashed static files with long-lived caching.
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/setup/", timeout=5) as resp:
+            page = resp.read().decode()
+            assert "Content-Security-Policy" in resp.headers
+        css = re.search(r'href="(/static/iki/iki\.[0-9a-f]{12}\.css)"', page)
+        assert css, page
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{css.group(1)}", timeout=5) as resp:
+            assert resp.status == 200
+            assert "immutable" in resp.headers["Cache-Control"]
 
         deadline = time.monotonic() + 10
         while "/v1/traces" not in collector.paths and time.monotonic() < deadline:

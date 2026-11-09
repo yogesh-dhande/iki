@@ -18,6 +18,10 @@ environment: ""
 # required: host names users reach Iki on, e.g. ["iki.example.com"].
 allowedHosts: []
 
+# required: the address users open Iki at, e.g. https://iki.example.com.
+# Used in links Iki prints or sends, such as the one-time setup link.
+publicUrl: ""
+
 # Clients reach Iki over HTTPS (TLS terminated by your ingress or load
 # balancer). Turns on HTTPS redirects, secure cookies and HSTS. Only local
 # development sets this to false.
@@ -35,6 +39,22 @@ secretKey:
   # required: Secret holding Django's SECRET_KEY.
   existingSecret: ""
   key: secret-key
+
+encryptionKeys:
+  # required: Secret holding the keys that encrypt secrets Iki stores in its
+  # database (such as the identity provider's client secret): comma-separated
+  # Fernet keys, the first one encrypting. Generate a key with
+  #   openssl rand -base64 32 | tr '+/' '-_'
+  # To rotate: prepend a new key, upgrade, run `iki-server rotate_encryption`,
+  # then remove the old key.
+  existingSecret: ""
+  key: keys
+
+sessions:
+  # Sign-in sessions end after this much inactivity...
+  idleTimeoutMinutes: 480
+  # ...and this long after sign-in, however active.
+  maxAgeHours: 24
 
 database:
   # required: Secret holding a postgres:// connection URI.
@@ -87,6 +107,14 @@ migrate:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 512Mi }
 
+maintenance:
+  # Daily housekeeping (deletes expired sessions), as a CronJob.
+  enabled: true
+  schedule: "17 3 * * *"
+  resources:
+    requests: { cpu: 50m, memory: 192Mi }
+    limits: { memory: 384Mi }
+
 networkPolicy:
   enabled: true
   # Peers allowed to reach the web pods, typically your ingress controller.
@@ -102,3 +130,25 @@ networkPolicy:
     otel:
       ports: [4318]
       to: []
+    # Web pods call the identity provider's discovery, token and userinfo
+    # endpoints. The default allows HTTPS to public addresses only: private
+    # ranges, link-local (cloud metadata services) and loopback stay blocked.
+    # Narrow it to your provider's ranges if you can.
+    identityProvider:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+              - ::1/128

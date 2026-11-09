@@ -6,3 +6,6 @@ worker/target/
 .venv/
 # Helm templates are Go templates, not YAML.
 deploy/helm/*/templates/
+# Django templates: Prettier does not understand template tags.
+server/src/**/templates/
+.static/

@@ -5,7 +5,14 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/coverage/**", "**/node_modules/**", "worker/target/**", ".venv/**"],
+    ignores: [
+      "**/dist/**",
+      "**/coverage/**",
+      "**/node_modules/**",
+      "worker/target/**",
+      ".venv/**",
+      "**/.static/**",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
@@ -21,6 +28,20 @@ export default tseslint.config(
   {
     files: ["**/*.js"],
     ...tseslint.configs.disableTypeChecked,
+  },
+  {
+    // Django's static scripts run in the browser as plain scripts, without a bundler.
+    files: ["server/src/**/static/**/*.js"],
+    languageOptions: {
+      sourceType: "script",
+      globals: {
+        document: "readonly",
+        history: "readonly",
+        navigator: "readonly",
+        setTimeout: "readonly",
+        window: "readonly",
+      },
+    },
   },
   prettier,
 );

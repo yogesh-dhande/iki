@@ -3,6 +3,14 @@ Iki {{ .Chart.AppVersion }} is deployed as release "{{ .Release.Name }}" in name
 Check the rollout:
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "iki.fullname" . }}-web
 
+First install? Set up sign-in with a one-time link (valid for 60 minutes):
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "iki.fullname" . }}-web -- iki-server setup_link
+Open the link it prints and follow the wizard. It connects your identity
+provider; whoever signs in at the end becomes the first administrator.
+
+Sign-in broken later (for example after changing identity providers)?
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "iki.fullname" . }}-web -- iki-server setup_link --recover
+
 Readiness (database reachable, migrations applied):
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "iki.fullname" . }}-web 8000:8000
   curl http://localhost:8000/healthz/ready

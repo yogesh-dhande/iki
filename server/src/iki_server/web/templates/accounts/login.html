@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<section class="card card-centered">
+  <h1>Sign in{% if organization_name %} to {{ organization_name }}{% endif %}</h1>
+  <p class="muted">Iki uses your organization’s single sign-on.</p>
+  <form method="post" action="{{ sign_in_url }}" data-busy-form>
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="button button-primary button-block" type="submit" data-busy-text="Redirecting to {{ provider.display_name }}…">Continue with {{ provider.display_name }}</button>
+  </form>
+</section>
+{% endblock %}

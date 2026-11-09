@@ -9,6 +9,7 @@ PROD_ENV = {
     "IKI_ALLOWED_HOSTS": "iki.example.com",
     "IKI_ENVIRONMENT": "prod",
     "IKI_DATABASE_URL": "postgres://iki:pw@db.example.com:5432/iki",
+    "IKI_ENCRYPTION_KEYS": "ZXhhbXBsZS1rZXktZm9yLXNldHRpbmdzLXRlc3RzLTE=",
     "DJANGO_SETTINGS_MODULE": "iki_server.settings",
 }
 
@@ -30,12 +31,27 @@ def test_production_settings_pass_djangos_deployment_checks() -> None:
     assert result.returncode == 0, result.stderr + result.stdout
 
 
-@pytest.mark.parametrize("missing", ["IKI_SECRET_KEY", "IKI_ALLOWED_HOSTS", "IKI_DATABASE_URL"])
+@pytest.mark.parametrize(
+    "missing", ["IKI_SECRET_KEY", "IKI_ALLOWED_HOSTS", "IKI_DATABASE_URL", "IKI_ENCRYPTION_KEYS"]
+)
 def test_required_settings_fail_fast(missing: str) -> None:
     env = {k: v for k, v in PROD_ENV.items() if k != missing}
     result = run_manage("check", env=env)
     assert result.returncode != 0
     assert missing in result.stderr
+
+
+def test_invalid_encryption_keys_are_rejected() -> None:
+    result = run_manage("check", env={**PROD_ENV, "IKI_ENCRYPTION_KEYS": "not-a-fernet-key"})
+    assert result.returncode != 0
+    assert "IKI_ENCRYPTION_KEYS: key 1 is not a Fernet key" in result.stderr
+
+
+def test_cookies_use_host_prefixes_over_https() -> None:
+    from django.conf import settings
+
+    assert settings.SESSION_COOKIE_NAME == "__Host-iki_session"
+    assert settings.CSRF_COOKIE_NAME == "__Host-iki_csrf"
 
 
 def test_non_postgres_database_is_rejected() -> None:

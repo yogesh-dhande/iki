@@ -33,6 +33,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY server/src server/src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable
+# Static files, content-hashed and compressed. Settings need their required
+# values to load; collectstatic touches neither the database nor the keys,
+# so throwaway values are generated for this one command.
+ENV IKI_STATIC_ROOT=/opt/iki/static
+RUN key() { /opt/iki/venv/bin/python -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"; } \
+ && IKI_SECRET_KEY="$(key)" IKI_ENCRYPTION_KEYS="$(key)" IKI_ALLOWED_HOSTS=localhost \
+    IKI_ENVIRONMENT=build IKI_DATABASE_URL=postgres://build@localhost/build \
+    /opt/iki/venv/bin/iki-server collectstatic --noinput --verbosity 0
 
 # --- Runtime ------------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS runtime
@@ -44,7 +52,9 @@ RUN apt-get update \
  && useradd --system --uid 10001 --gid iki --no-create-home --home-dir /nonexistent \
       --shell /usr/sbin/nologin iki
 COPY --from=build /opt/iki/venv /opt/iki/venv
+COPY --from=build /opt/iki/static /opt/iki/static
 ENV PATH=/opt/iki/venv/bin:$PATH \
+    IKI_STATIC_ROOT=/opt/iki/static \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PSYCOPG_IMPL=c

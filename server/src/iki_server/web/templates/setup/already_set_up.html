@@ -1,0 +1,17 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Already set up{% endblock %}
+{% block wizard %}
+<h1>Iki is already set up</h1>
+<p><a class="button button-primary" href="{% url 'login' %}">Sign in</a></p>
+<details class="disclosure">
+  <summary>Sign-in is broken?</summary>
+  <p>An operator can reconfigure sign-in with a recovery link:</p>
+  <pre class="code"><code>kubectl exec deploy/iki-web -- iki-server setup_link --recover</code></pre>
+  {% include "web/_errors.html" %}
+  <form method="post" id="setup-token-form" data-busy-form novalidate>
+    {% csrf_token %}
+    {% include "web/_field.html" with field=form.token %}
+    <button class="button" type="submit" data-busy-text="Checking…">Continue</button>
+  </form>
+</details>
+{% endblock %}

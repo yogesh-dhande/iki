@@ -31,11 +31,11 @@ data:
           "implicitFlowEnabled": false,
           "directAccessGrantsEnabled": false,
           "serviceAccountsEnabled": false,
-          "redirectUris": ["http://localhost:8000/*"],
-          "webOrigins": ["http://localhost:8000"],
+          "redirectUris": ["http://localhost:8000/accounts/oidc/*"],
+          "webOrigins": [],
           "attributes": {
             "pkce.code.challenge.method": "S256",
-            "post.logout.redirect.uris": "http://localhost:8000/*"
+            "post.logout.redirect.uris": "http://localhost:8000/signed-out/"
           }
         }
       ],
@@ -93,10 +93,11 @@ spec:
           args: ["start-dev", "--import-realm", "--http-port=8080"]
           env:
             - { name: KC_HEALTH_ENABLED, value: "true" }
-            # Browsers reach Keycloak through a port-forward on localhost:8080;
-            # in-cluster services use the Service name for back-channel calls.
-            - { name: KC_HOSTNAME, value: "http://localhost:8080" }
-            - { name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true" }
+            # One URL everywhere, so the OIDC issuer matches for browsers and
+            # for Iki: browsers resolve *.localhost to loopback (Tilt forwards
+            # 8080), and the cluster's CoreDNS rewrites the name to this
+            # Service (configured by deploy/dev/up.sh).
+            - { name: KC_HOSTNAME, value: "http://keycloak.iki.localhost:8080" }
             - { name: KC_LOG_CONSOLE_OUTPUT, value: json }
             - { name: JAVA_OPTS_KC_HEAP, value: "-XX:MaxRAMPercentage=70" }
           envFrom:

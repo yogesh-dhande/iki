@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Welcome, {{ user.get_short_name }}</h1>
+  <p>You’re signed in to Iki as <strong>{{ user.email }}</strong>.</p>
+  <p class="muted">Projects, entities and runs will appear here as they arrive in upcoming releases.</p>
+</section>
+{% endblock %}

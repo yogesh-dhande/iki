@@ -15,8 +15,10 @@ CHART = Path(__file__).resolve().parents[1]
 
 REQUIRED = {
     "environment": "prod",
+    "publicUrl": "https://iki.example.com",
     "allowedHosts": ["iki.example.com"],
     "secretKey": {"existingSecret": "iki-secret-key"},
+    "encryptionKeys": {"existingSecret": "iki-encryption-keys"},
     "database": {"existingSecret": "iki-db"},
 }
 
@@ -52,6 +54,9 @@ def pod_specs(docs: list[Manifest]) -> Iterator[tuple[str, Manifest]]:
     for doc in docs:
         if doc["kind"] in ("Deployment", "Job", "StatefulSet", "DaemonSet"):
             yield f"{doc['kind']}/{doc['metadata']['name']}", doc["spec"]["template"]["spec"]
+        elif doc["kind"] == "CronJob":
+            template = doc["spec"]["jobTemplate"]["spec"]["template"]
+            yield f"CronJob/{doc['metadata']['name']}", template["spec"]
 
 
 def by_kind(docs: list[Manifest], kind: str) -> list[Manifest]:
@@ -61,10 +66,12 @@ def by_kind(docs: list[Manifest], kind: str) -> list[Manifest]:
 def test_chart_renders_expected_resources() -> None:
     kinds = sorted(f"{d['kind']}/{d['metadata']['name']}" for d in manifests())
     assert kinds == [
+        "CronJob/iki-maintenance",
         "Deployment/iki-web",
         "Job/iki-migrate",
         "NetworkPolicy/iki-default-deny",
         "NetworkPolicy/iki-egress",
+        "NetworkPolicy/iki-web-identity-provider",
         "PodDisruptionBudget/iki-web",
         "Service/iki-web",
         "ServiceAccount/iki-web",
@@ -119,6 +126,9 @@ def test_image_digest_takes_precedence_over_tag() -> None:
         ({"allowedHosts": []}, "/allowedHosts"),
         ({"secretKey": {"existingSecret": ""}}, "/secretKey/existingSecret"),
         ({"database": {"existingSecret": ""}}, "/database/existingSecret"),
+        ({"encryptionKeys": {"existingSecret": ""}}, "/encryptionKeys/existingSecret"),
+        ({"publicUrl": ""}, "/publicUrl"),
+        ({"publicUrl": "https://iki.example.com/path?x"}, "/publicUrl"),
     ],
 )
 def test_required_values_are_enforced_by_the_schema(override: dict[str, Any], message: str) -> None:
@@ -210,3 +220,41 @@ def test_database_ca_is_mounted_when_configured() -> None:
         assert env["IKI_DB_SSLROOTCERT"] == "/etc/iki/db-ca/ca.crt", name
         mounts = {m["mountPath"] for m in spec["containers"][0]["volumeMounts"]}
         assert "/etc/iki/db-ca" in mounts, name
+
+
+def test_maintenance_cronjob_clears_expired_sessions_daily() -> None:
+    (cron,) = by_kind(manifests(), "CronJob")
+    assert cron["spec"]["concurrencyPolicy"] == "Forbid"
+    (container,) = cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+    assert container["args"] == ["clear_expired_sessions"]
+    assert not by_kind(manifests({"maintenance": {"enabled": False}}), "CronJob")
+
+
+def test_encryption_keys_and_public_url_reach_every_container() -> None:
+    for name, pod in pod_specs(manifests()):
+        for container in pod.get("initContainers", []) + pod["containers"]:
+            env = {e["name"]: e for e in container["env"]}
+            assert env["IKI_ENCRYPTION_KEYS"]["valueFrom"]["secretKeyRef"] == {
+                "name": "iki-encryption-keys",
+                "key": "keys",
+            }, name
+            assert env["IKI_PUBLIC_URL"]["value"] == "https://iki.example.com", name
+
+
+def test_only_web_pods_reach_the_identity_provider_and_only_public_https() -> None:
+    (policy,) = [
+        p
+        for p in by_kind(manifests(), "NetworkPolicy")
+        if p["metadata"]["name"] == "iki-web-identity-provider"
+    ]
+    spec = policy["spec"]
+    assert spec["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "web"
+    (rule,) = spec["egress"]
+    assert rule["ports"] == [{"protocol": "TCP", "port": 443}]
+    v4, v6 = (peer["ipBlock"] for peer in rule["to"])
+    assert v4["cidr"] == "0.0.0.0/0"
+    for private in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"):
+        assert private in v4["except"]
+    assert v6["cidr"] == "::/0"
+    assert "fc00::/7" in v6["except"]
+    assert "fe80::/10" in v6["except"]

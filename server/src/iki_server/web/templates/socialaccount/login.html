@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<section class="card card-centered">
+  <h1>Continue with {{ provider.name }}</h1>
+  <p class="muted">You’ll be redirected to your identity provider to sign in.</p>
+  <form method="post" data-busy-form>
+    {% csrf_token %}
+    <button class="button button-primary button-block" type="submit" data-busy-text="Redirecting…">Continue</button>
+  </form>
+</section>
+{% endblock %}

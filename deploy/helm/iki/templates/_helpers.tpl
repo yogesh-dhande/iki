@@ -59,6 +59,8 @@ capabilities:
 {{- define "iki.env" -}}
 - name: IKI_ENVIRONMENT
   value: {{ .Values.environment | quote }}
+- name: IKI_PUBLIC_URL
+  value: {{ .Values.publicUrl | quote }}
 - name: IKI_ALLOWED_HOSTS
   value: {{ join "," .Values.allowedHosts | quote }}
 - name: IKI_HTTPS
@@ -72,6 +74,15 @@ capabilities:
     secretKeyRef:
       name: {{ .Values.secretKey.existingSecret }}
       key: {{ .Values.secretKey.key }}
+- name: IKI_ENCRYPTION_KEYS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.encryptionKeys.existingSecret }}
+      key: {{ .Values.encryptionKeys.key }}
+- name: IKI_SESSION_IDLE_TIMEOUT_MINUTES
+  value: {{ .Values.sessions.idleTimeoutMinutes | quote }}
+- name: IKI_SESSION_MAX_AGE_HOURS
+  value: {{ .Values.sessions.maxAgeHours | quote }}
 - name: IKI_DATABASE_URL
   valueFrom:
     secretKeyRef:

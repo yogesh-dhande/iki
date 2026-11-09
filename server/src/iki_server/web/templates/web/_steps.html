@@ -1,0 +1,10 @@
+<nav aria-label="Setup progress">
+  <ol class="steps">
+    {% for name in steps %}
+    <li class="{% if forloop.counter < step %}step-done{% elif forloop.counter == step %}step-current{% endif %}"{% if forloop.counter == step %} aria-current="step"{% endif %}>
+      <span class="step-number" aria-hidden="true">{{ forloop.counter }}</span>
+      <span class="step-name">{{ name }}{% if forloop.counter < step %}<span class="visually-hidden"> (done)</span>{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ol>
+</nav>

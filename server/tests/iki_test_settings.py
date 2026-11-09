@@ -16,8 +16,16 @@ _TEST_ENV = {
     "IKI_DB_POOL": "false",
     "IKI_HTTPS": "true",
     "OTEL_SDK_DISABLED": "false",
+    # Test-only Fernet key (URL-safe base64 of 32 bytes).
+    "IKI_ENCRYPTION_KEYS": "dGVzdC1vbmx5LWtleS1kby1ub3QtdXNlLWFueXdoZXI=",
 }
 for _key, _value in _TEST_ENV.items():
     os.environ.setdefault(_key, _value)
 
 from iki_server.settings import *  # noqa: E402, F403
+
+# Tests render templates without running collectstatic first.
+STORAGES = {"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}}
+# Serve static files straight from the apps' static/ directories.
+SERVESTATIC_USE_FINDERS = True
+SERVESTATIC_AUTOREFRESH = True

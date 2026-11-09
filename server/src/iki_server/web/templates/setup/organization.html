@@ -1,0 +1,12 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Organization · Setup{% endblock %}
+{% block wizard %}
+<h1>Name your organization</h1>
+<p>This Iki installation serves one organization.</p>
+{% include "web/_errors.html" %}
+<form method="post" data-busy-form novalidate>
+  {% csrf_token %}
+  {% include "web/_field.html" with field=form.organization_name %}
+  <button class="button button-primary" type="submit" data-busy-text="Saving…">Continue</button>
+</form>
+{% endblock %}

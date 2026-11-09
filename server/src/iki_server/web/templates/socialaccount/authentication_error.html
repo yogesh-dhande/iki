@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Couldn’t sign in{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Couldn’t sign you in</h1>
+  <div class="alert alert-error" role="alert">
+    <p>Your identity provider didn’t complete the sign-in. This can happen if the sign-in took too long, was started in another tab, or the provider rejected Iki’s request.</p>
+  </div>
+  <p>Try again. If it keeps happening, ask your administrator; the details are in Iki’s logs.</p>
+  <p><a class="button button-primary" href="{% url 'login' %}">Try again</a></p>
+</section>
+{% endblock %}

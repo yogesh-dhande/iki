@@ -6,7 +6,8 @@ get() { kc get secret "$1" -o "jsonpath={.data.$2}" | base64 -d; }
 
 cat <<INFO
 Iki            http://localhost:8000
-Keycloak       http://localhost:8080   admin / $(get keycloak-dev KC_BOOTSTRAP_ADMIN_PASSWORD)
+Keycloak       http://keycloak.iki.localhost:8080   admin / $(get keycloak-dev KC_BOOTSTRAP_ADMIN_PASSWORD)
+  issuer       http://keycloak.iki.localhost:8080/realms/iki
   realm "iki"  users alice, bob        password $(get keycloak-dev IKI_DEV_USER_PASSWORD)
   client       iki-web                 secret   $(get keycloak-dev IKI_DEV_OIDC_CLIENT_SECRET)
 Grafana        http://localhost:3000   admin / $(get grafana-dev admin-password)

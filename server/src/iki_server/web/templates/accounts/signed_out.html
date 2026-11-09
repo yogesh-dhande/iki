@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Signed out{% endblock %}
+{% block content %}
+<section class="card card-centered">
+  <h1>You’re signed out of Iki</h1>
+  <p class="muted">You may still be signed in to your organization’s identity provider. On a shared computer, sign out there too.</p>
+  <p><a class="button button-primary" href="{% url 'login' %}">Sign in again</a></p>
+</section>
+{% endblock %}

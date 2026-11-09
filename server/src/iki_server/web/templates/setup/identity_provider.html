@@ -1,0 +1,28 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Identity provider · Setup{% endblock %}
+{% block wizard %}
+<h1>Connect your identity provider</h1>
+<p>Everyone signs in to Iki through your organization’s OpenID Connect provider, such as Okta, Microsoft Entra ID, Google Workspace or Keycloak. Iki has no passwords of its own.</p>
+<div class="panel">
+  <h2 class="panel-title">1. Register Iki with your provider</h2>
+  <p>Create a <strong>web application</strong> (confidential client) using the authorization code flow, with this redirect URI:</p>
+  <div class="copy-row">
+    <code class="copy-value" id="redirect-uri">{{ redirect_uri }}</code>
+    <button class="button button-quiet" type="button" data-copy="redirect-uri">Copy</button>
+  </div>
+  <p class="muted">Iki asks for the <code>openid</code>, <code>profile</code> and <code>email</code> scopes and uses PKCE.</p>
+</div>
+<h2 class="section-title">2. Enter its details</h2>
+{% include "web/_errors.html" %}
+<form method="post" data-busy-form novalidate>
+  {% csrf_token %}
+  {% include "web/_field.html" with field=form.display_name %}
+  {% include "web/_field.html" with field=form.issuer %}
+  {% include "web/_field.html" with field=form.client_id %}
+  {% include "web/_field.html" with field=form.client_secret %}
+  <div class="actions">
+    <button class="button button-primary" type="submit" data-busy-text="Checking the provider…">Check and continue</button>
+    {% if not recovery %}<a class="button button-quiet" href="{% url 'setup:organization' %}">Back</a>{% endif %}
+  </div>
+</form>
+{% endblock %}

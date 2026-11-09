@@ -1,0 +1,18 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Finish · Setup{% endblock %}
+{% block wizard %}
+<h1>Finish setup</h1>
+<p>Sign-in through <strong>{{ provider.display_name }}</strong> works. You signed in as:</p>
+<dl class="summary">
+  <dt>Name</dt><dd>{{ user.name|default:"—" }}</dd>
+  <dt>Email</dt><dd>{{ user.email }}</dd>
+</dl>
+<p>Finishing turns on sign-in through {{ provider.display_name }} for everyone{% if recovery %}, replacing the previous configuration,{% endif %} and makes this account an <strong>administrator</strong>.</p>
+<form method="post" data-busy-form>
+  {% csrf_token %}
+  <div class="actions">
+    <button class="button button-primary" type="submit" data-busy-text="Finishing…">Finish setup</button>
+    <a class="button button-quiet" href="{% url 'setup:identity_provider' %}">Change provider</a>
+  </div>
+</form>
+{% endblock %}

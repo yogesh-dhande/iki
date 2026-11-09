@@ -16,6 +16,7 @@ __pycache__/
 .coverage
 coverage.xml
 htmlcov/
+.static/
 dist/
 build/
 *.egg-info/

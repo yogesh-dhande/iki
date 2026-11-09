@@ -38,6 +38,20 @@ helm upgrade --install cnpg "$CNPG_CHART" \
 
 kc apply -f "$HERE/manifests/namespace.yaml" >/dev/null
 
+# Keycloak's URL is http://keycloak.iki.localhost:8080 for browsers (which
+# resolve *.localhost to loopback, where Tilt forwards the port) and for pods
+# (CoreDNS rewrites the name to the Keycloak Service). Same URL, same issuer.
+KEYCLOAK_REWRITE="rewrite name exact keycloak.iki.localhost keycloak.iki.svc.cluster.local answer auto"
+corefile=$(kc -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')
+if ! grep -qF "$KEYCLOAK_REWRITE" <<<"$corefile"; then
+  log "Pointing keycloak.iki.localhost at the in-cluster Keycloak (CoreDNS)"
+  patched=$(awk -v rule="    $KEYCLOAK_REWRITE" '{print} /^\.:53 \{/ {print rule}' <<<"$corefile")
+  kc -n kube-system create configmap coredns --from-literal=Corefile="$patched" \
+    --dry-run=client -o yaml | kc apply -f - >/dev/null
+  kc -n kube-system rollout restart deploy/coredns >/dev/null
+  kc -n kube-system rollout status deploy/coredns --timeout=120s >/dev/null
+fi
+
 # Random development credentials, created once per cluster and never written
 # to the repo. `make dev-creds` prints them.
 rand() { openssl rand -base64 "$1" | tr -d '/+=\n' | cut -c1-"$2"; }
@@ -51,6 +65,8 @@ ensure_secret() {
 }
 
 ensure_secret iki-secret-key --from-literal=secret-key="$(rand 64 64)"
+# Fernet key: URL-safe base64 of 32 random bytes.
+ensure_secret iki-encryption-keys --from-literal=keys="$(openssl rand -base64 32 | tr '+/' '-_')"
 ensure_secret keycloak-dev \
   --from-literal=KC_BOOTSTRAP_ADMIN_USERNAME=admin \
   --from-literal=KC_BOOTSTRAP_ADMIN_PASSWORD="$(rand 24 24)" \

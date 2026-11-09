@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Not set up yet{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Iki isn’t set up yet</h1>
+  <p>Sign-in becomes available once an operator finishes setup. Operators start it from the cluster:</p>
+  <pre class="code"><code>kubectl exec deploy/iki-web -- iki-server setup_link</code></pre>
+  <p class="muted">The command prints a one-time link to the setup wizard.</p>
+</section>
+{% endblock %}

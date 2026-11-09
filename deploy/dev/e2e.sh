@@ -29,7 +29,14 @@ echo "Iki dev cluster end-to-end checks"
 # Wait for any rollout in progress, so logs and execs hit the current pods.
 kc rollout status deploy/iki-web --timeout=180s >/dev/null
 
-forward svc/iki-web 18000 8000
+# A port-forward to the Service could land on a pod that is still shutting
+# down after the rollout; forward to a ready pod that isn't terminating.
+web_pod=$(kc get pods -l app.kubernetes.io/component=web -o json | jq -r '
+  [.items[] | select(.metadata.deletionTimestamp == null)
+            | select([.status.containerStatuses[]?.ready] | all and length > 0)]
+  | .[0].metadata.name // empty')
+[ -n "$web_pod" ] || fail "no ready web pod"
+forward "pod/$web_pod" 18000 8000
 forward svc/keycloak 18080 8080
 forward svc/seaweedfs 18333 8333
 forward svc/otel-lgtm 13200 3200
@@ -72,13 +79,20 @@ probe() { # probe <host> <port>: exit 0 if a TCP connection succeeds within 3s
     2>/dev/null
 }
 probe iki-db-rw 5432 || fail "web pod cannot reach Postgres"
-if probe keycloak 8080; then fail "web pod reached Keycloak; default-deny egress is not enforced"; fi
-pass "egress is default-deny: Postgres allowed, everything else blocked"
+probe keycloak.iki.localhost 8080 || fail "web pod cannot reach Keycloak (the identity provider)"
+if probe seaweedfs 8333; then fail "web pod reached SeaweedFS; default-deny egress is not enforced"; fi
+if probe otel-lgtm 3000; then fail "web pod reached Grafana; only the OTLP port is allowed"; fi
+pass "egress is default-deny: Postgres, Keycloak and OTLP allowed, everything else blocked"
 
 # --- Keycloak -------------------------------------------------------------------
 issuer=$(curl -fsS http://127.0.0.1:18080/realms/iki/.well-known/openid-configuration | jq -r .issuer)
-[ "$issuer" = "http://localhost:8080/realms/iki" ] || fail "unexpected issuer: $issuer"
+[ "$issuer" = "http://keycloak.iki.localhost:8080/realms/iki" ] || fail "unexpected issuer: $issuer"
 pass "Keycloak serves the iki realm (issuer $issuer)"
+
+# --- Sign-in ----------------------------------------------------------------------
+# The real wizard and Keycloak's real login page, driven like a browser.
+uv run --quiet python "$(dirname "${BASH_SOURCE[0]}")/sso.py" --check \
+  --iki-port 18000 --keycloak-port 18080
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------
 anon=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18333/)

@@ -166,7 +166,12 @@ jobs:
             -e IKI_ALLOWED_HOSTS=iki.example.com \
             -e IKI_ENVIRONMENT=ci \
             -e IKI_DATABASE_URL=postgres://iki:unused@db.invalid/iki \
+            -e IKI_ENCRYPTION_KEYS="$(openssl rand -base64 32 | tr '+/' '-_')" \
             iki-server:ci check --deploy --fail-level WARNING
+      - name: Static files are collected into the image
+        run: |
+          docker run --rm --entrypoint sh iki-server:ci -c \
+            'ls /opt/iki/static/staticfiles.json /opt/iki/static/iki/iki.*.css.gz >/dev/null'
       - name: Runs as non-root with psycopg's C implementation
         run: |
           test "$(docker run --rm --entrypoint id iki-server:ci -u)" = "10001"

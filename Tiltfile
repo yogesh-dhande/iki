@@ -24,7 +24,12 @@ k8s_resource(
     labels=['deps'],
 )
 k8s_resource('seaweedfs', port_forwards=['8333:8333'], labels=['deps'])
-k8s_resource('keycloak', port_forwards=['8080:8080'], labels=['deps'])
+k8s_resource(
+    'keycloak',
+    port_forwards=['8080:8080'],
+    labels=['deps'],
+    links=[link('http://keycloak.iki.localhost:8080/admin/', 'Keycloak admin')],
+)
 k8s_resource(
     'otel-lgtm',
     port_forwards=['3000:3000'],
@@ -55,5 +60,8 @@ k8s_resource(
     resource_deps=['iki-migrate', 'otel-lgtm'],
     port_forwards=['8000:8000'],
     labels=['iki'],
-    links=[link('http://localhost:8000/healthz/ready', 'Readiness')],
+    links=[
+        link('http://localhost:8000/', 'Iki'),
+        link('http://localhost:8000/healthz/ready', 'Readiness'),
+    ],
 )

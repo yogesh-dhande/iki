@@ -35,8 +35,9 @@ check-image: ## Build the server image and scan it (grype)
 .PHONY: check-chart
 check-chart: ## Helm lint (strict) with the minimum required values
 	helm lint --strict deploy/helm/iki \
-	  --set environment=ci --set 'allowedHosts={iki.example.com}' \
-	  --set secretKey.existingSecret=s --set database.existingSecret=d
+	  --set environment=ci --set publicUrl=https://iki.example.com \
+	  --set 'allowedHosts={iki.example.com}' --set secretKey.existingSecret=s \
+	  --set encryptionKeys.existingSecret=e --set database.existingSecret=d
 	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml
 
 .PHONY: check-python
@@ -79,6 +80,10 @@ dev-ci: ## Bring the dev cluster up headless and run the end-to-end checks
 	deploy/dev/up.sh
 	tilt ci --timeout 20m
 	deploy/dev/e2e.sh
+
+.PHONY: dev-sso
+dev-sso: ## Set up sign-in on the dev cluster through the wizard (bob becomes admin)
+	uv run python deploy/dev/sso.py
 
 .PHONY: dev-e2e
 dev-e2e: ## Run the end-to-end checks against a running dev cluster

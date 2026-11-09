@@ -1,0 +1,17 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Set up Iki{% endblock %}
+{% block wizard %}
+<h1>Set up Iki</h1>
+<p>Open the link printed by <code>iki-server setup_link</code>. It fills in the code below for you.</p>
+{% include "web/_errors.html" %}
+<form method="post" id="setup-token-form" data-busy-form novalidate>
+  {% csrf_token %}
+  {% include "web/_field.html" with field=form.token %}
+  <button class="button button-primary" type="submit" data-busy-text="Checking…">Continue</button>
+</form>
+<details class="disclosure">
+  <summary>Don’t have a link?</summary>
+  <p>Run this where you manage the cluster. It prints a link that works once, for 60 minutes:</p>
+  <pre class="code"><code>kubectl exec deploy/iki-web -- iki-server setup_link</code></pre>
+</details>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "setup/_layout.html" %}
+{% block title %}Sign in · Setup{% endblock %}
+{% block wizard %}
+<h1>Sign in to finish</h1>
+<p>Sign in with <strong>{{ provider.display_name }}</strong> to prove the connection works. You’ll confirm on the next page, and then become Iki’s first administrator.</p>
+<dl class="summary">
+  <dt>Issuer</dt><dd><code>{{ provider.issuer }}</code></dd>
+  <dt>Client ID</dt><dd><code>{{ provider.client_id }}</code></dd>
+  <dt>Redirect URI</dt><dd><code>{{ redirect_uri }}</code></dd>
+</dl>
+<form method="post" action="{{ sign_in_url }}" data-busy-form>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <div class="actions">
+    <button class="button button-primary" type="submit" data-busy-text="Redirecting to {{ provider.display_name }}…">Continue with {{ provider.display_name }}</button>
+    <a class="button button-quiet" href="{% url 'setup:identity_provider' %}">Change details</a>
+  </div>
+</form>
+<p class="muted">If sign-in fails, check that the redirect URI is registered exactly as shown and that the client secret is current.</p>
+{% endblock %}

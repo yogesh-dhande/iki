@@ -4,6 +4,7 @@ image:
   repository: iki-server
   tag: dev
 environment: dev
+publicUrl: http://localhost:8000
 allowedHosts: ["localhost", "127.0.0.1"]
 # Local access is plain HTTP through port-forwards.
 https: false
@@ -14,6 +15,9 @@ log:
 secretKey:
   existingSecret: iki-secret-key
   key: secret-key
+encryptionKeys:
+  existingSecret: iki-encryption-keys
+  key: keys
 database:
   # Created by CloudNativePG for the iki-db cluster.
   existingSecret: iki-db-app
@@ -40,3 +44,9 @@ networkPolicy:
       to:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: otel-lgtm }
+    # Keycloak runs in the cluster, on plain HTTP.
+    identityProvider:
+      ports: [8080]
+      to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: keycloak }

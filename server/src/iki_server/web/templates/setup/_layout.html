@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block main_class %}page-wizard{% endblock %}
+{% block header_actions %}{% endblock %}
+{% block content %}
+{% if step %}{% include "web/_steps.html" %}{% endif %}
+{% if recovery %}
+<div class="alert alert-warning" role="note">
+  <p><strong>Recovery mode.</strong> You’re reconfiguring sign-in for an installation that’s already set up. Whoever signs in at the end becomes an administrator.</p>
+</div>
+{% endif %}
+<section class="card">
+  {% block wizard %}{% endblock %}
+</section>
+{% endblock %}
