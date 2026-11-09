@@ -6,7 +6,7 @@ Please **do not** open a public issue, discussion or pull request for a
 security problem.
 
 Report it privately through GitHub's
-[private vulnerability reporting](https://github.com/ikisci/iki/security/advisories/new).
+[private vulnerability reporting](../../security/advisories/new).
 Include what you found, how to reproduce it, and the impact you expect.
 
 What to expect:

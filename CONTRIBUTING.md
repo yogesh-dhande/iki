@@ -4,7 +4,7 @@
 > in early development and its architecture is still settling. PRs from
 > anyone without write access to the repo are closed automatically.
 >
-> You can still help: [open an issue](https://github.com/ikisci/iki/issues/new)
+> You can still help: [open an issue](../../issues/new)
 > to report a bug or suggest a change. To report a vulnerability, follow
 > [SECURITY.md](SECURITY.md) instead, and don't post it publicly.
 
