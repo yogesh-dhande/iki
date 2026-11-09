@@ -1,0 +1,7 @@
+# Grype policy for container images (CI and publishing).
+# Fail on any high or critical vulnerability that has a fix available:
+# those are fixed by updating the base image or a dependency. Unfixed ones
+# are reported but don't block, since there is nothing to update to.
+fail-on-severity: high
+only-fixed: true
+ignore: []

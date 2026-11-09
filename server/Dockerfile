@@ -3,7 +3,10 @@
 # Iki server image. Build from the repository root:
 #   docker build -f server/Dockerfile -t iki-server .
 #
-# Every base image is pinned by digest; Dependabot proposes updates.
+# Every base image is pinned by digest; Dependabot proposes updates. The
+# runtime stage also applies Debian security updates at build time, because
+# official base images can lag days behind Debian security fixes. The SBOM and
+# provenance published with each image record exactly what it contains.
 
 ARG PYTHON_IMAGE=python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
@@ -34,6 +37,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # --- Runtime ------------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS runtime
 RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends libpq5 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 iki \

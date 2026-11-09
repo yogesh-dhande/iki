@@ -20,6 +20,12 @@ We ask that you give us a reasonable time to release a fix before disclosing the
 issue publicly. We will not take legal action against good-faith research that
 follows this policy.
 
+## Verifying what we publish
+
+Images, charts and binaries are signed with Sigstore cosign and carry SLSA
+build provenance and SBOM attestations. See
+[docs/supply-chain.md](docs/supply-chain.md) for how to verify them.
+
 ## Supported versions
 
 Iki has not had a release yet. Once it does, security fixes are backported to

@@ -17,8 +17,6 @@ concurrency:
 env:
   UV_VERSION: "0.13.7"
   HELM_VERSION: "v4.3.1"
-  TILT_VERSION: "0.37.8"
-  TILT_SHA256: "e39513f958705d30524d55f68b1d46fbef2b46a0da568efd00e6383dee6be44f"
   FORCE_COLOR: "1"
 
 jobs:
@@ -174,6 +172,48 @@ jobs:
           test "$(docker run --rm --entrypoint id iki-server:ci -u)" = "10001"
           docker run --rm --entrypoint python iki-server:ci \
             -c "import psycopg; assert psycopg.pq.__impl__ == 'c', psycopg.pq.__impl__"
+      - name: Install Grype and Syft (pinned, checksum verified)
+        run: scripts/ci/install-tools.sh grype syft
+      - name: Vulnerability scan (fails on fixable high/critical)
+        run: grype iki-server:ci --config .grype.yaml
+      - name: SBOM (CycloneDX)
+        run: syft iki-server:ci -o cyclonedx-json=iki-server.cdx.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: iki-server-sbom
+          path: iki-server.cdx.json
+          retention-days: 30
+
+  dependencies:
+    name: Dependency vulnerabilities and licenses
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Install OSV-Scanner and cargo-deny (pinned, checksum verified)
+        run: scripts/ci/install-tools.sh osv-scanner cargo-deny
+      - name: Scan all lockfiles
+        run: make check-deps
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          config-file: ./.github/dependency-review-config.yml
 
   dev-cluster:
     name: Dev cluster end to end (kind + Tilt)
@@ -195,13 +235,8 @@ jobs:
           cluster_name: iki
           config: deploy/dev/kind-config.yaml
           wait: 120s
-      - name: Install Tilt (checksum verified)
-        run: |
-          curl -fsSL -o /tmp/tilt.tar.gz \
-            "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz"
-          echo "${TILT_SHA256}  /tmp/tilt.tar.gz" | sha256sum --check
-          sudo tar -xzf /tmp/tilt.tar.gz -C /usr/local/bin tilt
-          tilt version
+      - name: Install Tilt (pinned, checksum verified)
+        run: scripts/ci/install-tools.sh tilt
       - name: Bring up the dev cluster and run end-to-end checks
         run: make dev-ci
       - name: Diagnostics on failure
@@ -215,11 +250,12 @@ jobs:
           kubectl --context kind-iki -n iki logs job/iki-migrate --tail=100 || true
 
   # A single required status check for branch protection: it passes only when
-  # every job above passed.
+  # every job above passed (dependency review is skipped outside pull requests).
   ci-ok:
     name: CI passed
     if: always()
-    needs: [workflows, python, web, rust, server-image, dev-cluster]
+    needs:
+      [workflows, python, web, rust, server-image, dependencies, dependency-review, dev-cluster]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -230,7 +266,7 @@ jobs:
         run: |
           echo "Job results: $RESULTS"
           for r in $RESULTS; do
-            if [ "$r" != "success" ]; then
+            if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
               echo "::error::A required job did not succeed ($r)."
               exit 1
             fi

@@ -38,6 +38,8 @@ Requirements:
   (`corepack enable`), which provides the pinned pnpm
 - [rustup](https://rustup.rs/), which installs the Rust toolchain pinned in
   `worker/rust-toolchain.toml`
+- Helm, plus the supply-chain scanners used by `make check`:
+  `brew install helm osv-scanner cargo-deny grype syft`
 
 ```console
 make setup   # install dependencies from the lockfiles

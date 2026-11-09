@@ -1,0 +1,295 @@
+name: Release
+
+# Builds, signs and publishes release artifacts for a version tag (vX.Y.Z):
+#   - iki-worker binaries for Linux (static, musl) and macOS, amd64 and arm64,
+#     each with a cosign keyless signature bundle, SLSA build provenance and a
+#     CycloneDX SBOM attestation, plus a SHA256SUMS file;
+#   - the Helm chart, pushed to ghcr.io as an OCI artifact, signed and attested;
+#   - a GitHub release with all of the above.
+# Container images are published by publish.yml on the same tag.
+#
+# Run it manually (workflow_dispatch) for a dry run: everything is built,
+# signed and verified, but nothing is published.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: v
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN: ${{ github.run_number }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            version="${REF_NAME#v}"
+            # A tag must match the versions committed in the repo.
+            chart=$(awk '/^version:/ {print $2}' deploy/helm/iki/Chart.yaml)
+            cargo=$(awk -F'"' '/^version =/ {print $2; exit}' worker/Cargo.toml)
+            for found in "$chart" "$cargo"; do
+              if [ "$found" != "$version" ]; then
+                echo "::error::Tag $REF_NAME doesn't match committed version $found"
+                exit 1
+              fi
+            done
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            version="0.0.0-dryrun.$RUN"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+
+  worker:
+    name: iki-worker ${{ matrix.target }}
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, runner: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-musl, runner: ubuntu-24.04-arm }
+          - { target: aarch64-apple-darwin, runner: macos-15 }
+          - { target: x86_64-apple-darwin, runner: macos-15 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      - name: Install pinned toolchain and target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: rustup target add "$TARGET"
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET" -p iki-worker
+      - name: Check the Linux binary is fully static
+        if: contains(matrix.target, 'musl')
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          file "target/$TARGET/release/iki-worker"
+          file "target/$TARGET/release/iki-worker" | grep -q "statically linked"
+      - name: Smoke test
+        if: matrix.target != 'x86_64-apple-darwin'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          "target/$TARGET/release/iki-worker" --version
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          name="iki-worker-$VERSION-$TARGET"
+          mkdir -p "../dist/$name"
+          cp "target/$TARGET/release/iki-worker" ../LICENSE ../NOTICE "../dist/$name/"
+          tar -C ../dist -czf "../dist/$name.tar.gz" "$name"
+          rm -rf "../dist/$name"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: worker-${{ matrix.target }}
+          path: dist/*.tar.gz
+          retention-days: 7
+
+  sign-worker:
+    name: Sign and attest worker binaries
+    needs: [version, worker]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # keyless signing: GitHub OIDC token for Sigstore
+      attestations: write # store provenance and SBOM attestations on GitHub
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: worker-*
+          path: dist
+          merge-multiple: true
+      - name: Install Syft (pinned, checksum verified)
+        run: scripts/ci/install-tools.sh syft
+      - name: Checksums and SBOM
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          (cd dist && sha256sum ./*.tar.gz | sed 's| \./| |' > SHA256SUMS && cat SHA256SUMS)
+          syft scan dir:worker --source-name iki-worker --source-version "$VERSION" \
+            -o "cyclonedx-json=dist/iki-worker-$VERSION.cdx.json"
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Sign (keyless)
+        run: |
+          for f in dist/*.tar.gz dist/SHA256SUMS; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f" > /dev/null
+          done
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
+      - name: Attest SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
+          sbom-path: dist/iki-worker-${{ needs.version.outputs.version }}.cdx.json
+      - name: Verify signatures and attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          for f in dist/*.tar.gz dist/SHA256SUMS; do
+            cosign verify-blob "$f" --bundle "$f.sigstore.json" \
+              --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          done
+          echo "cosign signatures verified"
+          for f in dist/*.tar.gz; do
+            gh attestation verify "$f" --repo "$REPO" --predicate-type https://slsa.dev/provenance/v1 > /dev/null
+            gh attestation verify "$f" --repo "$REPO" --predicate-type https://cyclonedx.org/bom > /dev/null
+          done
+          echo "SLSA provenance and SBOM attestations verified"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: worker-signed
+          path: dist/
+          retention-days: 7
+
+  chart:
+    name: Package Helm chart
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      - name: Package
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          helm package deploy/helm/iki --version "$VERSION" --app-version "$VERSION" -d dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chart
+          path: dist/*.tgz
+          retention-days: 7
+
+  publish-chart:
+    name: Publish Helm chart
+    needs: [version, chart]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write # push the chart to ghcr.io
+      id-token: write # keyless signing
+      attestations: write # provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chart
+          path: dist
+      - name: Push
+        id: push
+        env:
+          OWNER: ${{ github.repository_owner }}
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          repo="ghcr.io/${OWNER,,}/charts"
+          echo "$TOKEN" | helm registry login ghcr.io -u "$ACTOR" --password-stdin
+          out=$(helm push dist/*.tgz "oci://$repo" 2>&1)
+          echo "$out"
+          digest=$(sed -n 's/^Digest: //p' <<< "$out")
+          echo "ref=$repo/iki" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Sign (keyless)
+        env:
+          REF: ${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$REF"
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.ref }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Verify
+        env:
+          REF: ${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}
+          IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
+        run: |
+          cosign verify "$REF" --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          echo "chart signature verified"
+
+  github-release:
+    name: GitHub release
+    needs: [version, sign-worker, chart, publish-chart]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "{worker-signed,chart}"
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          prerelease=()
+          case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" dist/* --repo "$REPO" --verify-tag --generate-notes "${prerelease[@]}"

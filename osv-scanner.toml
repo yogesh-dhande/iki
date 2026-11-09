@@ -1,0 +1,80 @@
+# OSV-Scanner configuration: vulnerability exceptions and license corrections.
+# Run with `make check-deps`. Every exception states why it is safe and when
+# it expires; an expired ignore fails CI again.
+
+# --- Vulnerability exceptions -------------------------------------------------
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = """minimatch (DoS via glob-pattern amplification) is pulled in only by ESLint, \
+a development tool, and only ever sees glob patterns from our own lint config, so the \
+attack isn't reachable. The fix is minimatch 11, which ESLint's config-array doesn't \
+accept yet. Remove this once ESLint moves to minimatch 11."""
+
+# --- License corrections -----------------------------------------------------
+# deps.dev reports these with missing or non-SPDX license data; the values
+# below are taken from each project's LICENSE file.
+
+[[PackageOverrides]]
+name = "colorama"
+ecosystem = "PyPI"
+license.override = ["BSD-3-Clause"]
+
+[[PackageOverrides]]
+name = "sqlparse"
+ecosystem = "PyPI"
+license.override = ["BSD-3-Clause"]
+
+[[PackageOverrides]]
+# Windows-only transitive dependency of the Docker SDK used by tests.
+name = "pywin32"
+ecosystem = "PyPI"
+license.override = ["PSF-2.0"]
+
+# Iki's own workspace packages (Apache-2.0, see LICENSE).
+[[PackageOverrides]]
+name = "iki-server"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0"]
+
+[[PackageOverrides]]
+name = "iki-cli"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0"]
+
+[[PackageOverrides]]
+name = "iki-protocol"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
+[[PackageOverrides]]
+name = "iki-worker"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
+# --- License exceptions --------------------------------------------------------
+# psycopg (LGPL-3.0) is the PostgreSQL driver Django supports; there is no
+# non-LGPL alternative. Iki uses it unmodified as a dynamically imported
+# library, which LGPL permits in Apache-2.0 software, and images ship its
+# license text. This exception covers psycopg alone, not LGPL in general.
+
+[[PackageOverrides]]
+name = "psycopg"
+ecosystem = "PyPI"
+license.ignore = true
+
+[[PackageOverrides]]
+name = "psycopg-binary"
+ecosystem = "PyPI"
+license.ignore = true
+
+[[PackageOverrides]]
+name = "psycopg-c"
+ecosystem = "PyPI"
+license.ignore = true
+
+[[PackageOverrides]]
+name = "psycopg-pool"
+ecosystem = "PyPI"
+license.ignore = true

@@ -16,12 +16,21 @@ setup: ## Install all toolchains' dependencies from the lockfiles
 	cd worker && cargo fetch --locked
 
 .PHONY: check
-check: check-workflows check-chart check-python check-web check-rust ## Run every CI check locally (except dev-ci)
+check: check-workflows check-chart check-deps check-python check-web check-rust ## Run every CI check locally (except dev-ci)
 
 .PHONY: check-workflows
 check-workflows: ## Lint GitHub workflows (actionlint, zizmor)
 	uvx --from actionlint-py==1.7.12.25 actionlint
 	uvx zizmor==1.32.0 --persona=auditor .github/
+
+.PHONY: check-deps
+check-deps: ## Vulnerabilities and licenses in every lockfile (osv-scanner, cargo-deny)
+	scripts/supply-chain/check-deps.sh
+
+.PHONY: check-image
+check-image: ## Build the server image and scan it (grype)
+	docker build -f server/Dockerfile -t iki-server:scan .
+	grype iki-server:scan --config .grype.yaml
 
 .PHONY: check-chart
 check-chart: ## Helm lint (strict) with the minimum required values

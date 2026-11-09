@@ -1,0 +1,29 @@
+# Pull-request gate for newly added or changed dependencies.
+# Keep the license list in sync with scripts/supply-chain/allowed-licenses.txt.
+fail-on-severity: moderate
+fail-on-scopes: [runtime, development, unknown]
+allow-licenses:
+  - 0BSD
+  - Apache-2.0
+  - BlueOak-1.0.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - MIT
+  - MIT-0
+  - MPL-2.0
+  - PSF-2.0
+  - Python-2.0
+  - Unicode-3.0
+  - Unlicense
+  - Zlib
+# psycopg is LGPL-3.0; see the exception in osv-scanner.toml.
+allow-dependencies-licenses:
+  - pkg:pypi/psycopg
+  - pkg:pypi/psycopg-binary
+  - pkg:pypi/psycopg-c
+  - pkg:pypi/psycopg-pool
+# Mirrors the time-limited exception in osv-scanner.toml.
+allow-ghsas:
+  - GHSA-g3hv-75wg-m249
+comment-summary-in-pr: never

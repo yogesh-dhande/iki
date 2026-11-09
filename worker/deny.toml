@@ -1,0 +1,31 @@
+# cargo-deny policy for the Rust workspace. Run with `make check-deps`.
+
+[graph]
+all-features = true
+
+[advisories]
+# Fail on any RustSec advisory: vulnerabilities, unmaintained or yanked crates.
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Keep in sync with scripts/supply-chain/allowed-licenses.txt.
+allow = [
+  "0BSD", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "MIT-0",
+  "MPL-2.0", "Unicode-3.0", "Unlicense", "Zlib",
+]
+confidence-threshold = 0.9
+# The allowlist is shared with the other ecosystems; not every entry is used yet.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+# Crates may only come from crates.io: no git dependencies, no other registries.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

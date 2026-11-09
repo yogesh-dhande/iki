@@ -1,0 +1,18 @@
+# SPDX identifiers of licenses allowed for third-party dependencies.
+# All are permissive and compatible with distributing Iki under Apache-2.0.
+# Anything else needs a reviewed exception (see osv-scanner.toml and
+# worker/deny.toml).
+0BSD
+Apache-2.0
+BlueOak-1.0.0
+BSD-2-Clause
+BSD-3-Clause
+ISC
+MIT
+MIT-0
+MPL-2.0
+PSF-2.0
+Python-2.0
+Unicode-3.0
+Unlicense
+Zlib
