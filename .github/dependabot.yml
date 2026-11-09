@@ -20,6 +20,13 @@ updates:
     cooldown: { default-days: 7 }
     groups:
       js-dev: { dependency-type: development }
+    ignore:
+      # Node types must match the Node major we run (24 LTS, see .node-version).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint supports TypeScript <6.1; move to 7 together with it.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: cargo
     directory: /worker
