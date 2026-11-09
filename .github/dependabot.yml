@@ -25,3 +25,8 @@ updates:
     directory: /worker
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }
+
+  - package-ecosystem: docker
+    directories: ["/server"]
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }

@@ -1,0 +1,11 @@
+# Allowlist: only what image builds need is sent to the Docker daemon.
+*
+!pyproject.toml
+!uv.lock
+!LICENSE
+!NOTICE
+!server/
+!cli/
+server/tests/
+**/__pycache__/
+**/*.pyc
