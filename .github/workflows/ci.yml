@@ -274,6 +274,9 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
+      # The checks sign in through Keycloak in Chromium.
+      - name: Install Chromium
+        run: uv run playwright install --with-deps chromium
       - name: Bring up the dev cluster and run end-to-end checks
         run: make dev-ci
       - name: Diagnostics on failure
