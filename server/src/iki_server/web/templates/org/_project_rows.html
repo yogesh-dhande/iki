@@ -1,0 +1,14 @@
+<ul class="rows">
+  {% for project in projects %}
+  <li class="row">
+    <div class="row-main">
+      <a class="row-title" href="{% url 'org:project_detail' project.slug %}">{{ project.name }}</a>
+      <span class="row-meta">{{ project.team.name }}{% if project.description %} · {{ project.description|truncatechars:90 }}{% endif %}</span>
+    </div>
+    <div class="row-tags">
+      {% if project.archived_at %}<span class="badge badge-muted">Archived</span>{% endif %}
+      {% if project.my_role %}<span class="badge">{% for value, label in role_labels.items %}{% if value == project.my_role %}{{ label }}{% endif %}{% endfor %}</span>{% else %}<span class="badge badge-muted">Not a member</span>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>

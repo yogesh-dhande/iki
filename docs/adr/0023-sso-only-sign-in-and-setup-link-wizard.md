@@ -54,13 +54,12 @@ logs, values or Git.
 3. Sign in through the provider. Until setup finishes, the new provider
    works only for sessions that hold the setup grant.
 4. Confirm. The provider is enabled, and the person who signed in becomes
-   the first administrator (`is_superuser` until org roles land with teams
-   and projects). The grant and its token are revoked.
+   the first Org Admin (ADR 0024). The grant and its token are revoked.
 
 **Break-glass recovery uses the same path.** `setup_link --recover`
 reconfigures sign-in on an installation that is already set up, for example
 after an identity provider migration. Whoever completes it becomes an
-administrator. The UI marks recovery mode clearly, and it is logged.
+Org Admin. The UI marks recovery mode clearly, and it is logged.
 
 **Identity rules:**
 

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Teams{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Teams</h1></div>
+{% if teams %}
+<ul class="rows">
+  {% for team in teams %}
+  <li class="row">
+    <div class="row-main">
+      <a class="row-title" href="{% url 'org:team_detail' team.slug %}">{{ team.name }}</a>
+      <span class="row-meta">{{ team.member_count }} member{{ team.member_count|pluralize }}{% if team.description %} · {{ team.description|truncatechars:90 }}{% endif %}</span>
+    </div>
+    {% if team.archived_at %}<div class="row-tags"><span class="badge badge-muted">Archived</span></div>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<section class="card empty"><p>{% if can_create %}No teams yet. Create the first one below.{% else %}You’re not in a team yet. Ask an Org Admin to add you to one.{% endif %}</p></section>
+{% endif %}
+{% if can_create %}
+<section class="card form-card">
+  <h2 class="section-title">Create a team</h2>
+  <p class="muted">Projects belong to teams. Team members can create projects, and a project can grant a role to a whole team.</p>
+  {% include "web/_errors.html" %}
+  <form method="post" data-busy-form novalidate>
+    {% csrf_token %}
+    {% include "web/_field.html" with field=form.name %}
+    {% include "web/_field.html" with field=form.description %}
+    <button class="button button-primary" type="submit" data-busy-text="Creating…">Create team</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

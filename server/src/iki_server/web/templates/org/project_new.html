@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}New project{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>New project</h1>
+  {% if has_teams %}
+  <p>You’ll be the project’s Admin and can invite others.</p>
+  {% include "web/_errors.html" %}
+  <form method="post" data-busy-form novalidate>
+    {% csrf_token %}
+    {% include "web/_field.html" with field=form.team %}
+    {% include "web/_field.html" with field=form.name %}
+    {% include "web/_field.html" with field=form.description %}
+    <div class="actions">
+      <button class="button button-primary" type="submit" data-busy-text="Creating…">Create project</button>
+      <a class="button button-quiet" href="{% url 'org:project_list' %}">Cancel</a>
+    </div>
+  </form>
+  {% else %}
+  <p>Projects belong to teams, and you’re not in a team yet.</p>
+  <p>{% if nav_people %}<a href="{% url 'org:team_list' %}">Create a team</a> and add yourself to it.{% else %}Ask an Org Admin to add you to a team.{% endif %}</p>
+  {% endif %}
+</section>
+{% endblock %}

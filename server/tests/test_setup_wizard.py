@@ -9,9 +9,15 @@ from django.utils import timezone
 from fake_idp import FakeIdP
 
 from iki_server.accounts.models import IdentityProvider, User
+from iki_server.org.models import OrgRole, OrgRoleAssignment
 from iki_server.setup.models import Installation, SetupToken
 
 pytestmark = pytest.mark.django_db
+
+
+def org_roles(user: User) -> set[str]:
+    return set(OrgRoleAssignment.objects.filter(user=user).values_list("role", flat=True))
+
 
 ADMIN = {"sub": "admin-1", "email": "Ada@Example.com", "name": "Ada Lovelace"}
 SCIENTIST = {"sub": "sci-1", "email": "rosalind@example.com", "name": "Rosalind Franklin"}
@@ -41,7 +47,7 @@ def test_wizard_configures_sso_and_makes_the_first_person_to_sign_in_admin(
     admin = User.objects.get()
     # The domain is normalized to lower case; the local part keeps its case.
     assert (admin.email, admin.name) == ("Ada@example.com", "Ada Lovelace")
-    assert admin.is_superuser and admin.is_staff
+    assert org_roles(admin) == {OrgRole.ORG_ADMIN}
     assert not admin.has_usable_password()
     # The setup link is spent and the grant is gone.
     assert SetupToken.objects.get().revoked_at is not None
@@ -65,7 +71,7 @@ def test_people_sign_in_after_setup_without_becoming_admins(
     assert home.status_code == 200
     assert "Welcome, Rosalind" in home.content.decode()
     user = User.objects.get(email="rosalind@example.com")
-    assert not user.is_superuser and not user.is_staff
+    assert org_roles(user) == set()
 
 
 def test_setup_link_works_once(client: Browser, fake_idp: FakeIdP) -> None:
@@ -174,7 +180,7 @@ def test_recovery_reconfigures_sign_in(client: Browser, fake_idp: FakeIdP) -> No
     assert path_of(response) == "/setup/done/"
     provider = IdentityProvider.objects.get()
     assert provider.client_secret == "rotated-secret" != old_secret
-    assert User.objects.get(email="rosalind@example.com").is_superuser
+    assert org_roles(User.objects.get(email="rosalind@example.com")) == {OrgRole.ORG_ADMIN}
 
 
 def test_setup_link_needs_a_base_url(settings: object) -> None:

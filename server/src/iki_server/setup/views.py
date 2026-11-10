@@ -32,6 +32,8 @@ from django.views.decorators.http import require_http_methods
 from iki_server.accounts.adapters import LOGIN_PROVIDER_SESSION_KEY
 from iki_server.accounts.models import IdentityProvider, User, new_provider_id
 from iki_server.accounts.oidc import DiscoveryError, discover
+from iki_server.org import services
+from iki_server.org.models import OrgRole
 from iki_server.setup import grants
 from iki_server.setup.forms import IdentityProviderForm, OrganizationForm, TokenForm
 from iki_server.setup.models import Installation
@@ -238,8 +240,7 @@ def complete(request: HttpRequest) -> HttpResponse:
                 is_enabled=False, enabled_at=None
             )
             IdentityProvider.objects.filter(pk=provider.pk).update(is_enabled=True, enabled_at=now)
-            user.is_staff = user.is_superuser = True
-            user.save(update_fields=["is_staff", "is_superuser"])
+            services.grant_org_role(user, OrgRole.ORG_ADMIN, by=None)
             installation = Installation.get()
             if installation.setup_completed_at is None:
                 installation.setup_completed_at = now

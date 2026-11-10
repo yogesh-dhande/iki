@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Projects</h1>
+  {% if can_create_project %}<a class="button button-primary" href="{% url 'org:project_new' %}">New project</a>{% endif %}
+</div>
+{% if projects %}
+{% include "org/_project_rows.html" with projects=projects %}
+{% else %}
+<section class="card empty">
+  <p>You’re not in any projects yet.{% if can_create_project %} <a href="{% url 'org:project_new' %}">Create one</a>.{% else %} Ask a project Admin to add you, or an Org Admin to add you to a team.{% endif %}</p>
+</section>
+{% endif %}
+{% endblock %}

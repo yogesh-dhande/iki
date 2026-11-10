@@ -36,11 +36,13 @@ IKI_PUBLIC_URL: str = env.str("IKI_PUBLIC_URL", default="")
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
+    "django.contrib.messages",
     "django.contrib.staticfiles",
     "iki_server.core",
     # Before allauth, so Iki's templates override allauth's.
     "iki_server.web",
     "iki_server.accounts",
+    "iki_server.org",
     "iki_server.setup",
     "allauth",
     "allauth.account",
@@ -61,6 +63,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "iki_server.accounts.session_policy.SessionPolicyMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -80,11 +83,17 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.template.context_processors.csp",
                 "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
                 "iki_server.web.context_processors.installation",
+                "iki_server.org.context_processors.navigation",
             ],
         },
     }
 ]
+
+# Confirmation messages ("Added Ada to Structural Biology") live in the
+# server-side session, not in a cookie.
+MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
 
 # --- Database ---------------------------------------------------------------
 # Postgres is the only supported database. Connections come from psycopg's

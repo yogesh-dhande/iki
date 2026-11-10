@@ -9,7 +9,9 @@ from django.test import Client
 from fake_idp import FakeIdP
 
 if TYPE_CHECKING:
-    from django.test.client import _MonkeyPatchedWSGIResponse as Response
+    from django.test.client import _MonkeyPatchedWSGIResponse
+
+    Response = _MonkeyPatchedWSGIResponse
 else:
     Response = Any
 

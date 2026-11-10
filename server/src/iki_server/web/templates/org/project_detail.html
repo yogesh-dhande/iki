@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+{% include "org/_project_header.html" %}
+{% if project.archived_at %}
+<div class="alert alert-warning" role="note"><p>This project is archived and read-only.{% if can_manage_project %} You can restore it in <a href="{% url 'org:project_settings' project.slug %}">Settings</a>.{% endif %}</p></div>
+{% endif %}
+{% if not can_read %}
+<section class="card">
+  <h2 class="section-title">You’re not a member of this project</h2>
+  <p>As an Org Admin you can see that it exists and who its members are, but not its data. To work in it, add yourself as an Admin. This is recorded.</p>
+  {% if admin_count == 0 %}<p><strong>This project has no Admins.</strong> Add yourself to manage it, then hand it to someone on the team.</p>{% endif %}
+  <form method="post" action="{% url 'org:project_join' project.slug %}">
+    {% csrf_token %}
+    <button class="button button-primary" type="submit">Add me as Admin</button>
+  </form>
+</section>
+{% else %}
+<section class="card">
+  {% if project.description %}<p>{{ project.description|linebreaksbr }}</p>{% endif %}
+  <dl class="summary">
+    <dt>Team</dt><dd><a href="{% url 'org:team_detail' project.team.slug %}">{{ project.team.name }}</a></dd>
+    <dt>Your role</dt><dd><strong>{{ role.label }}</strong>: {{ role_description }}</dd>
+    <dt>Created</dt><dd><time datetime="{{ project.created_at|date:'c' }}">{{ project.created_at|date:"j M Y" }}</time></dd>
+  </dl>
+  <p class="muted">Entities, runs and views will appear here as they arrive in upcoming releases.</p>
+</section>
+{% endif %}
+{% endblock %}

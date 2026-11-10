@@ -1,12 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Setup complete{% endblock %}
 {% block main_class %}page-wizard{% endblock %}
+{% block nav %}{% endblock %}
 {% block content %}
 {% include "web/_steps.html" %}
 <section class="card">
   <h1>Iki is ready</h1>
   <div class="alert alert-success" role="status"><p>Setup is complete. Everyone in your organization can now sign in with your identity provider.</p></div>
-  <p>You’re an administrator. People get an Iki account the first time they sign in.</p>
+  <p>You’re an Org Admin. People get an Iki account the first time they sign in, with no access to anything until they join a team or project.</p>
+  <h2>Next steps</h2>
+  <ol>
+    <li><a href="{% url 'org:team_list' %}">Create a team</a> and add people to it once they’ve signed in.</li>
+    <li>Team members create projects and invite others.</li>
+  </ol>
   <p><a class="button button-primary" href="{% url 'home' %}">Go to Iki</a></p>
 </section>
 {% endblock %}

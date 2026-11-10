@@ -1,7 +1,16 @@
-{# One form field with label, help text and errors. Django links the help and error ids through aria-describedby and sets aria-invalid. #}
+{# One form field with label, help text and errors. Django links the help and error ids through aria-describedby and sets aria-invalid. Radio and checkbox groups get a fieldset and legend. #}
+{% if field.use_fieldset %}
+<fieldset class="field field-choices{% if field.errors %} field-invalid{% endif %}"{% if field.help_text %} aria-describedby="{{ field.auto_id }}_helptext"{% endif %}>
+  <legend>{{ field.label }}{% if not field.field.required %} <span class="optional">(optional)</span>{% endif %}</legend>
+  {% if field.errors %}<p class="field-error" id="{{ field.auto_id }}_error">{{ field.errors|join:" " }}</p>{% endif %}
+  {% if field.help_text %}<p class="field-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
+  <div class="choices">{% for choice in field %}<label class="choice" for="{{ choice.id_for_label }}">{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>{% endfor %}</div>
+</fieldset>
+{% else %}
 <div class="field{% if field.errors %} field-invalid{% endif %}">
   <label for="{{ field.auto_id }}">{{ field.label }}{% if not field.field.required %} <span class="optional">(optional)</span>{% endif %}</label>
   {% if field.errors %}<p class="field-error" id="{{ field.auto_id }}_error">{{ field.errors|join:" " }}</p>{% endif %}
   {{ field.as_widget }}
   {% if field.help_text %}<p class="field-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
 </div>
+{% endif %}

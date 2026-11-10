@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Settings · {{ team.name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'org:team_detail' team.slug %}">{{ team.name }}</a></p>
+    <h1>Team settings</h1>
+  </div>
+</div>
+<div class="columns">
+  <section class="card">
+    <h2 class="section-title">Details</h2>
+    {% include "web/_errors.html" %}
+    <form method="post" data-busy-form novalidate>
+      {% csrf_token %}
+      {% include "web/_field.html" with field=form.name %}
+      {% include "web/_field.html" with field=form.description %}
+      <button class="button button-primary" type="submit" data-busy-text="Saving…">Save</button>
+    </form>
+  </section>
+  <section class="card">
+    {% if team.archived_at %}
+    <h2 class="section-title">Restore</h2>
+    <p>Restoring lets the team’s members create projects again.</p>
+    <form method="post">{% csrf_token %}<button class="button button-primary" type="submit" name="action" value="restore">Restore team</button></form>
+    {% else %}
+    <h2 class="section-title">Archive</h2>
+    <p>An archived team can’t get new projects. Its existing projects, members and their access stay as they are. Nothing is deleted.</p>
+    <form method="post">{% csrf_token %}<button class="button button-quiet button-danger" type="submit" name="action" value="archive">Archive team</button></form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

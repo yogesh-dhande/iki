@@ -1,0 +1,11 @@
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'org:team_detail' project.team.slug %}">{{ project.team.name }}</a></p>
+    <h1>{{ project.name }}{% if project.archived_at %} <span class="badge badge-muted">Archived</span>{% endif %}</h1>
+  </div>
+</div>
+<nav class="tabs" aria-label="Project">
+  <a href="{% url 'org:project_detail' project.slug %}"{% if request.resolver_match.url_name == "project_detail" %} aria-current="page"{% endif %}>Overview</a>
+  <a href="{% url 'org:project_members' project.slug %}"{% if request.resolver_match.url_name == "project_members" %} aria-current="page"{% endif %}>Members</a>
+  {% if can_manage_project or request.resolver_match.url_name == "project_settings" %}<a href="{% url 'org:project_settings' project.slug %}"{% if request.resolver_match.url_name == "project_settings" %} aria-current="page"{% endif %}>Settings</a>{% endif %}
+</nav>

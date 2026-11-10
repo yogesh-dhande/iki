@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from html.parser import HTMLParser
 from typing import Any, NoReturn
 from urllib.parse import urljoin, urlsplit
@@ -26,6 +27,8 @@ import requests
 import urllib3.util.connection
 
 IKI = "http://localhost:8000"
+#: The web workload to exec into and read logs from (``--web``).
+WEB = {"target": "deploy/iki-web"}
 ISSUER = "http://keycloak.iki.localhost:8080/realms/iki"
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
@@ -147,12 +150,12 @@ def keycloak_sign_in(
 
 def setup_link() -> str:
     try:
-        out = kubectl("exec", "deploy/iki-web", "-c", "web", "--", "iki-server", "setup_link")
+        out = kubectl("exec", WEB["target"], "-c", "web", "--", "iki-server", "setup_link")
     except RuntimeError as error:
         if "already set up" not in str(error):
             raise
         out = kubectl(
-            "exec", "deploy/iki-web", "-c", "web", "--", "iki-server", "setup_link", "--recover"
+            "exec", WEB["target"], "-c", "web", "--", "iki-server", "setup_link", "--recover"
         )
     match = re.search(r"(http://localhost:8000/setup/)#(\S+)", out)
     if not match:
@@ -160,7 +163,8 @@ def setup_link() -> str:
     return match.group(2)
 
 
-def set_up(admin: str) -> None:
+def set_up(admin: str) -> requests.Session:
+    """Runs the wizard; returns the admin's signed-in browser."""
     session = browser()
     response = submit(session, f"{IKI}/setup/", {"token": setup_link()}, form_id="setup-token-form")
     if urlsplit(response.url).path == "/setup/organization/":
@@ -187,10 +191,46 @@ def set_up(admin: str) -> None:
     response = submit(session, response.url)
     if urlsplit(response.url).path != "/setup/done/" or "Iki is ready" not in response.text:
         fail(f"finishing setup landed on {response.url}")
-    ok(f"setup finished through Keycloak; {admin} is an administrator")
+    ok(f"setup finished through Keycloak; {admin} is an Org Admin")
+    return session
 
 
-def check(user: str) -> None:
+def post(session: requests.Session, url: str, data: dict[str, str]) -> requests.Response:
+    """Posts like a page's form: CSRF token from the page at ``url``."""
+    _, inputs = form(session.get(url), index=0)
+    token = inputs["csrfmiddlewaretoken"]
+    return session.post(url, data={"csrfmiddlewaretoken": token, **data}, headers={"Origin": IKI})
+
+
+def teams_and_projects(admin: requests.Session, member: requests.Session, email: str) -> None:
+    """The Org Admin creates a team and adds someone; they create a project in it."""
+    name = f"E2E {int(time.time())}"
+    response = post(admin, f"{IKI}/teams/", {"name": name})
+    team_path = urlsplit(response.url).path
+    if not team_path.startswith("/teams/e2e-"):
+        fail(f"creating a team landed on {response.url}")
+    response = post(admin, f"{IKI}{team_path}", {"person": email})
+    if "Added " not in response.text:
+        fail(f"adding {email} to the team failed (HTTP {response.status_code})")
+    ok("the Org Admin created a team and added a member")
+
+    page = member.get(f"{IKI}/projects/new/")
+    team_id = re.search(rf'<option value="([0-9a-f-]+)"[^>]*>{re.escape(name)}</option>', page.text)
+    if not team_id:
+        fail("the new team isn't offered on the new project page")
+    response = post(member, f"{IKI}/projects/new/", {"team": team_id.group(1), "name": "Atlas"})
+    project_path = urlsplit(response.url).path
+    if "You’re its Admin" not in response.text:
+        fail(f"creating a project landed on {response.url} (HTTP {response.status_code})")
+    ok("the team member created a project and became its Admin")
+
+    page = admin.get(f"{IKI}{project_path}")
+    if "You’re not a member of this project" not in page.text:
+        fail("the Org Admin can read a project they're not a member of")
+    ok("the Org Admin sees the project exists, but not its data")
+
+
+def check(user: str, admin: requests.Session) -> None:
     session = browser()
     login = session.get(f"{IKI}/login/")
     if login.status_code != 200 or "Continue with Keycloak" not in login.text:
@@ -221,6 +261,8 @@ def check(user: str) -> None:
         fail("session cookie must be HttpOnly and end with the browser session")
     ok(f"{user} signed in through Keycloak with PKCE; session cookie is HttpOnly")
 
+    teams_and_projects(admin, session, f"{user}@iki.test")
+
     action, inputs = form(session.get(f"{IKI}/"))
     response = session.post(action, data=inputs, headers={"Origin": IKI})
     if urlsplit(response.url).path != "/signed-out/":
@@ -229,14 +271,15 @@ def check(user: str) -> None:
         fail("still signed in after signing out")
     ok("sign-out ends the session")
 
-    logs = kubectl("logs", "deploy/iki-web", "-c", "web", "--since=5m")
+    logs = kubectl("logs", WEB["target"], "-c", "web", "--since=5m")
     events = [json.loads(line) for line in logs.splitlines() if line.startswith("{")]
     names = {e.get("event") for e in events}
-    if not {"setup_completed", "signed_in", "signed_out"} <= names:
+    expected = {"setup_completed", "signed_in", "signed_out", "team_created", "project_created"}
+    if not expected <= names:
         fail(f"expected sign-in events in the web logs, found {sorted(n for n in names if n)}")
     if any("code=" in line or "state=" in line for line in logs.splitlines()):
         fail("OAuth code or state leaked into the web logs")
-    ok("setup, sign-in and sign-out are logged; no OAuth codes in the logs")
+    ok("setup, sign-in, changes and sign-out are logged; no OAuth codes in the logs")
 
 
 def main() -> None:
@@ -245,11 +288,15 @@ def main() -> None:
     parser.add_argument("--admin", default="bob", help="Keycloak user who finishes setup")
     parser.add_argument("--iki-port", type=int, default=8000)
     parser.add_argument("--keycloak-port", type=int, default=8080)
+    parser.add_argument(
+        "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
+    )
     args = parser.parse_args()
+    WEB["target"] = args.web
     route(args.iki_port, args.keycloak_port)
-    set_up(args.admin)
+    admin = set_up(args.admin)
     if args.check:
-        check("alice")
+        check("alice", admin)
 
 
 if __name__ == "__main__":

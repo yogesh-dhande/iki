@@ -27,6 +27,9 @@ LOGIN_PROVIDER_SESSION_KEY = "_iki_login_provider"
 
 
 class AccountAdapter(DefaultAccountAdapter):
+    def add_message(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        """Iki's pages say what happened themselves; allauth's generic messages are dropped."""
+
     def is_open_for_signup(self, request: HttpRequest) -> bool:
         # No local sign-up. Accounts are created on first sign-in through SSO.
         return False

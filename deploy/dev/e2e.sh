@@ -51,7 +51,7 @@ status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18000/e2e-prob
 [ "$status" = 404 ] || fail "unknown path returned $status"
 sleep 1
 
-logs=$(kc logs deploy/iki-web --since=10m)
+logs=$(kc logs "pod/$web_pod" -c web --since=10m)
 echo "$logs" | jq -e -s 'length > 0' >/dev/null || fail "web logs are not JSON lines"
 pass "every web log line is JSON"
 request=$(echo "$logs" | jq -c 'select(.event == "request" and .path == "/e2e-probe")' | tail -1)
@@ -74,7 +74,7 @@ done
 
 # --- Network policy -------------------------------------------------------------
 probe() { # probe <host> <port>: exit 0 if a TCP connection succeeds within 3s
-  kc exec deploy/iki-web -c web -- python -c \
+  kc exec "pod/$web_pod" -c web -- python -c \
     "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(s.connect_ex(('$1', $2)))" \
     2>/dev/null
 }
@@ -92,7 +92,7 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
 uv run --quiet python "$(dirname "${BASH_SOURCE[0]}")/sso.py" --check \
-  --iki-port 18000 --keycloak-port 18080
+  --iki-port 18000 --keycloak-port 18080 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------
 anon=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18333/)

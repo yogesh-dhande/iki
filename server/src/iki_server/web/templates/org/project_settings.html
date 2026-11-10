@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Settings · {{ project.name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+{% include "org/_project_header.html" %}
+<div class="columns">
+  <section class="card">
+    <h2 class="section-title">Details</h2>
+    {% if project.archived_at %}
+    <p class="muted">Restore the project to change its details.</p>
+    {% else %}
+    {% include "web/_errors.html" %}
+    <form method="post" data-busy-form novalidate>
+      {% csrf_token %}
+      {% include "web/_field.html" with field=form.name %}
+      {% include "web/_field.html" with field=form.description %}
+      <button class="button button-primary" type="submit" data-busy-text="Saving…">Save</button>
+    </form>
+    {% endif %}
+  </section>
+  <section class="card">
+    {% if project.archived_at %}
+    <h2 class="section-title">Restore</h2>
+    <p>Restoring makes the project editable again for its members.</p>
+    <form method="post">{% csrf_token %}<button class="button button-primary" type="submit" name="action" value="restore">Restore project</button></form>
+    {% else %}
+    <h2 class="section-title">Archive</h2>
+    <p>Archiving makes the project read-only and hides it from home pages. Nothing is deleted, and you can restore it at any time.</p>
+    <form method="post">{% csrf_token %}<button class="button button-quiet button-danger" type="submit" name="action" value="archive">Archive project</button></form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

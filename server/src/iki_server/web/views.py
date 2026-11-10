@@ -5,12 +5,12 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
-from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
+from iki_server.org import views as org_views
 from iki_server.setup.models import Installation
 from iki_server.web.ratelimit import RateLimiter, client_key
 
@@ -24,12 +24,7 @@ csp_report_limiter = RateLimiter(limit_per_minute=30)
 def home(request: HttpRequest) -> HttpResponse:
     if not Installation.get().is_set_up:
         return redirect("setup:start")
-    return _home(request)
-
-
-@login_required
-def _home(request: HttpRequest) -> HttpResponse:
-    return render(request, "web/home.html")
+    return org_views.home(request)
 
 
 def _without_query(url: Any) -> str | None:  # noqa: ANN401

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'org:team_list' %}">Teams</a></p>
+    <h1>{{ team.name }}{% if team.archived_at %} <span class="badge badge-muted">Archived</span>{% endif %}</h1>
+  </div>
+  <div class="actions">
+    {% if can_create_project %}<a class="button button-primary" href="{% url 'org:project_new' %}?team={{ team.slug }}">New project</a>{% endif %}
+    {% if can_manage %}<a class="button button-quiet" href="{% url 'org:team_settings' team.slug %}">Settings</a>{% endif %}
+  </div>
+</div>
+{% if team.archived_at %}<div class="alert alert-warning" role="note"><p>This team is archived, so it can’t get new projects. Its existing projects and members are unchanged.</p></div>{% endif %}
+{% if team.description %}<p>{{ team.description|linebreaksbr }}</p>{% endif %}
+
+<h2>Projects</h2>
+{% if projects %}
+{% include "org/_project_rows.html" with projects=projects %}
+{% else %}
+<p class="muted">No projects you can see.</p>
+{% endif %}
+
+<h2>Members</h2>
+<ul class="rows" aria-label="Members">
+  {% for membership in members %}
+  <li class="row">
+    <div class="row-main">
+      <span class="row-title">{{ membership.user.get_full_name }}{% if membership.user == user %} <span class="muted">(you)</span>{% endif %}</span>
+      <span class="row-meta">{{ membership.user.email }}{% if not membership.user.is_active %} · deactivated{% endif %}</span>
+    </div>
+    {% if can_manage %}
+    <form class="row-actions" method="post" action="{% url 'org:team_member_remove' team.slug membership.user.pk %}">
+      {% csrf_token %}
+      <button class="button button-quiet button-danger" type="submit" aria-label="Remove {{ membership.user.get_full_name }} from {{ team.name }}">Remove</button>
+    </form>
+    {% endif %}
+  </li>
+  {% empty %}
+  <li class="row"><span class="muted">No members yet.</span></li>
+  {% endfor %}
+</ul>
+
+{% if can_manage %}
+<section class="card form-card">
+  <h2 class="section-title">Add a member</h2>
+  {% include "web/_errors.html" %}
+  <form method="post" data-busy-form novalidate>
+    {% csrf_token %}
+    {% include "web/_field.html" with field=form.person %}
+    <button class="button button-primary" type="submit" data-busy-text="Adding…">Add member</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

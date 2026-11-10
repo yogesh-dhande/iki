@@ -53,3 +53,4 @@ supersedes the old one, and update the old one's status.
 | [0021](0021-license-and-contribution-model.md)                   | Apache-2.0 license, maintainer-only contributions for now, one reviewed change per commit | Accepted |
 | [0022](0022-seaweedfs-for-development-object-storage.md)         | SeaweedFS replaces MinIO as the development S3 stand-in                                   | Accepted |
 | [0023](0023-sso-only-sign-in-and-setup-link-wizard.md)           | Single sign-on only, set up through a one-time link                                       | Accepted |
+| [0024](0024-project-access-and-org-admin-boundaries.md)          | Project access comes only from membership                                                 | Accepted |

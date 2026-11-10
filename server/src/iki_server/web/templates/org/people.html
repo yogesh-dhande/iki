@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}People{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>People</h1></div>
+<p class="muted">Everyone who has signed in to Iki. People get an account the first time they sign in through your identity provider.</p>
+<ul class="rows">
+  {% for person in people %}
+  <li class="row">
+    <div class="row-main">
+      <a class="row-title" href="{% url 'org:person' person.pk %}">{{ person.get_full_name }}</a>
+      <span class="row-meta">{{ person.email }} · {{ person.team_count }} team{{ person.team_count|pluralize }}</span>
+    </div>
+    <div class="row-tags">
+      {% if not person.is_active %}<span class="badge badge-muted">Deactivated</span>{% endif %}
+      {% for assignment in person.org_roles.all %}<span class="badge">{{ assignment.get_role_display }}</span>{% endfor %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

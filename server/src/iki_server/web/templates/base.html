@@ -18,6 +18,13 @@
       <span class="brand-name">iki</span>
       {% if organization_name %}<span class="brand-org">{{ organization_name }}</span>{% endif %}
     </a>
+    {% block nav %}{% if user.is_authenticated %}
+    <nav class="site-nav" aria-label="Main">
+      <a href="{% url 'org:project_list' %}"{% if request.resolver_match.url_name|slice:":7" == "project" %} aria-current="page"{% endif %}>Projects</a>
+      <a href="{% url 'org:team_list' %}"{% if request.resolver_match.url_name|slice:":4" == "team" %} aria-current="page"{% endif %}>Teams</a>
+      {% if nav_people %}<a href="{% url 'org:people' %}"{% if request.resolver_match.url_name == "people" or request.resolver_match.url_name == "person" %} aria-current="page"{% endif %}>People</a>{% endif %}
+    </nav>
+    {% endif %}{% endblock %}
     {% block header_actions %}
     {% if user.is_authenticated %}
     <form class="header-actions" method="post" action="{% url 'logout' %}">
@@ -29,6 +36,7 @@
     {% endblock %}
   </header>
   <main id="main" class="{% block main_class %}page-narrow{% endblock %}" tabindex="-1">
+    {% include "web/_messages.html" %}
     {% block content %}{% endblock %}
   </main>
   <footer class="site-footer">

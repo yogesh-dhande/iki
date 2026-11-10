@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ subject.get_full_name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'org:people' %}">People</a></p>
+    <h1>{{ subject.get_full_name }}{% if not subject.is_active %} <span class="badge badge-muted">Deactivated</span>{% endif %}</h1>
+  </div>
+</div>
+<dl class="summary">
+  <dt>Email</dt><dd>{{ subject.email }}</dd>
+  <dt>Joined</dt><dd><time datetime="{{ subject.date_joined|date:'c' }}">{{ subject.date_joined|date:"j M Y" }}</time></dd>
+  <dt>Last sign-in</dt><dd>{% if subject.last_login %}<time datetime="{{ subject.last_login|date:'c' }}">{{ subject.last_login|date:"j M Y, H:i" }}</time>{% else %}—{% endif %}</dd>
+  <dt>Teams</dt><dd>{% for team in teams %}<a href="{% url 'org:team_detail' team.slug %}">{{ team.name }}</a>{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</dd>
+</dl>
+<div class="columns">
+  <section class="card">
+    <h2 class="section-title">Org roles</h2>
+    <p class="muted">Org roles cover the whole organization. Access to project data comes only from project membership.</p>
+    {% include "web/_errors.html" %}
+    <form method="post" data-busy-form>
+      {% csrf_token %}
+      {% include "web/_field.html" with field=form.roles %}
+      <button class="button button-primary" type="submit" data-busy-text="Saving…">Save roles</button>
+    </form>
+  </section>
+  <section class="card">
+    {% if subject.is_active %}
+    <h2 class="section-title">Deactivate</h2>
+    {% if is_self %}
+    <p class="muted">You can’t deactivate yourself.</p>
+    {% else %}
+    <p>Deactivating signs {{ subject.get_short_name }} out everywhere at once and stops them signing in. Their memberships stay, so reactivating restores their access.</p>
+    <form method="post">{% csrf_token %}<button class="button button-quiet button-danger" type="submit" name="action" value="deactivate">Deactivate</button></form>
+    {% endif %}
+    {% else %}
+    <h2 class="section-title">Reactivate</h2>
+    <p>Reactivating lets {{ subject.get_short_name }} sign in again with their previous access.</p>
+    <form method="post">{% csrf_token %}<button class="button button-primary" type="submit" name="action" value="activate">Reactivate</button></form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

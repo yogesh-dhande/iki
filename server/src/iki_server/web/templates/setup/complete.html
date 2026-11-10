@@ -7,7 +7,7 @@
   <dt>Name</dt><dd>{{ user.name|default:"—" }}</dd>
   <dt>Email</dt><dd>{{ user.email }}</dd>
 </dl>
-<p>Finishing turns on sign-in through {{ provider.display_name }} for everyone{% if recovery %}, replacing the previous configuration,{% endif %} and makes this account an <strong>administrator</strong>.</p>
+<p>Finishing turns on sign-in through {{ provider.display_name }} for everyone{% if recovery %}, replacing the previous configuration,{% endif %} and makes this account an <strong>Org Admin</strong>, who manages people, teams and settings.</p>
 <form method="post" data-busy-form>
   {% csrf_token %}
   <div class="actions">

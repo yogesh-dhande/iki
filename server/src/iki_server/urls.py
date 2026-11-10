@@ -11,6 +11,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("logout/", accounts.logout, name="logout"),
     path("signed-out/", accounts.signed_out, name="signed_out"),
     path("setup/", include("iki_server.setup.urls")),
+    path("", include("iki_server.org.urls")),
     path("accounts/", include(accounts.allauth_urlpatterns)),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

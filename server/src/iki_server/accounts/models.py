@@ -9,7 +9,6 @@ from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
-from django.contrib.auth.models import PermissionsMixin
 from django.contrib.sessions.base_session import AbstractBaseSession
 from django.db import models
 from django.db.models import Q
@@ -42,7 +41,14 @@ class UserManager(BaseUserManager["User"]):
         )
 
 
-class User(AbstractBaseUser, PermissionsMixin):
+class User(AbstractBaseUser):
+    """Someone who signs in through the identity provider.
+
+    What they may do comes only from org roles and project memberships,
+    decided by :mod:`iki_server.org.permissions`. Django's own permission
+    and group tables are not used.
+    """
+
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     email = models.EmailField(max_length=254, unique=True, db_collation=CASE_INSENSITIVE)
     #: Full name as the identity provider reports it.
@@ -50,8 +56,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(
         default=True, help_text="Inactive users can't sign in, and their sessions end at once."
     )
-    #: Can open operations tooling (Django admin). Org roles arrive with teams and projects.
-    is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
 
     objects: ClassVar[UserManager] = UserManager()
