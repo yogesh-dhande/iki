@@ -74,6 +74,31 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
 {{- end }}
+{{- if and .Values.files.bucket $egress.objectStorage.to }}
+---
+# Web pods, task runners and maintenance (which cancels abandoned uploads)
+# reach object storage. The migrate Job doesn't.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" $ }}-object-storage
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "iki.name" $ }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ $.Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [web, tasks, maintenance] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- toYaml $egress.objectStorage.to | nindent 8 }}
+      ports:
+        {{- range $egress.objectStorage.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
 {{- if and .Values.oauth.clientMetadataDocuments $egress.clientMetadataDocuments.to }}
 ---
 # Only web pods fetch apps' Client ID Metadata Documents.

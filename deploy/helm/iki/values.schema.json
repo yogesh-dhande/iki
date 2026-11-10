@@ -210,6 +210,50 @@
         }
       }
     },
+    "files": {
+      "type": "object",
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "pattern": "^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])?$"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^(https?://.+)?$"
+        },
+        "publicEndpoint": {
+          "type": "string",
+          "pattern": "^(https?://.+)?$"
+        },
+        "credentials": {
+          "type": "object",
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            },
+            "accessKeyIdKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "secretAccessKeyKey": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "maxUploadSize": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)$"
+        }
+      }
+    },
     "database": {
       "type": "object",
       "required": ["existingSecret", "uriKey", "sslmode", "migrator"],

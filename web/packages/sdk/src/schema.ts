@@ -196,6 +196,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Files you can read
+         * @description Oldest first. Files are read through the projects they were added to.
+         */
+        get: operations["iki_server_api_files_list_files"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A file */
+        get: operations["iki_server_api_files_get_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a file
+         * @description Redirects to a signed URL that works for five minutes. It downloads the file under
+         *     its name, rather than opening it in the browser.
+         */
+        get: operations["iki_server_api_files_download_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -616,6 +674,92 @@ export interface paths {
         post?: never;
         /** Remove someone from a team */
         delete: operations["iki_server_api_teams_remove_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your uploads
+         * @description Newest first.
+         */
+        get: operations["iki_server_api_files_list_uploads"];
+        put?: never;
+        /**
+         * Start adding a file
+         * @description Answers with the parts to send. An empty file needs none, and is ready at once.
+         */
+        post: operations["iki_server_api_files_start_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of your uploads */
+        get: operations["iki_server_api_files_get_upload"];
+        put?: never;
+        post?: never;
+        /**
+         * Cancel an upload
+         * @description What of it arrived is deleted. A finished upload stays as it is.
+         */
+        delete: operations["iki_server_api_files_cancel_upload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{upload_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish an upload
+         * @description Once every part has arrived. Iki then checks the bytes (202), and the upload becomes
+         *     ready, or fails if they don't match its SHA-256. Finishing it again changes nothing.
+         */
+        post: operations["iki_server_api_files_complete_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{upload_id}/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign an upload's parts again
+         * @description New URLs, when the earlier ones expired before every part was sent.
+         */
+        post: operations["iki_server_api_files_sign_parts"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1323,6 +1467,54 @@ export interface components {
              */
             values: string[];
         };
+        /** FileFilters */
+        FileFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /** Project */
+            project?: string | null;
+        };
+        /** FileOut */
+        FileOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * External
+             * @description Registered where it already was, rather than uploaded.
+             */
+            external: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** @description Where it was added. Null if you can't see it. */
+            project: components["schemas"]["ProjectRef"] | null;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+        };
         /** InboxFilters */
         InboxFilters: {
             /**
@@ -1538,6 +1730,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[FileOut] */
+        Page_FileOut_: {
+            /** Items */
+            items: components["schemas"]["FileOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[InventoryOut] */
         Page_InventoryOut_: {
             /** Items */
@@ -1628,6 +1830,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[UploadOut] */
+        Page_UploadOut_: {
+            /** Items */
+            items: components["schemas"]["UploadOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[UserOut] */
         Page_UserOut_: {
             /** Items */
@@ -1647,6 +1859,29 @@ export interface components {
              * @description Pass as cursor for the next page; null at the end.
              */
             next_cursor: string | null;
+        };
+        /** PartOut */
+        PartOut: {
+            /** Number */
+            number: number;
+            /**
+             * Size
+             * @description Bytes this part must hold.
+             */
+            size: number;
+            /**
+             * Url
+             * @description PUT the part's bytes here. It works for an hour.
+             */
+            url: string;
+        };
+        /** PartsIn */
+        PartsIn: {
+            /**
+             * Numbers
+             * @description The parts to sign again; all of them if left out.
+             */
+            numbers?: number[] | null;
         };
         /** PersonRef */
         PersonRef: {
@@ -1963,6 +2198,59 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** StartedOut */
+        StartedOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed.
+             */
+            error: string;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description Unfinished then, it's cancelled.
+             */
+            expires_at: string;
+            /** @description The file it became, once ready. */
+            file: components["schemas"]["FileOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** Part Count */
+            part_count: number;
+            /** Part Size */
+            part_size: number;
+            /**
+             * Parts
+             * @description Every part, with where to send it.
+             */
+            parts: components["schemas"]["PartOut"][];
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+        };
         /** SummaryOut */
         SummaryOut: {
             /** Unread */
@@ -2054,6 +2342,83 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** UploadIn */
+        UploadIn: {
+            /**
+             * Media Type
+             * @description Such as chemical/x-pdb.
+             */
+            media_type: string;
+            /**
+             * Name
+             * @description Its file name, such as 1abc.pdb.
+             */
+            name: string;
+            /**
+             * Project
+             * Format: uuid
+             * @description The project to add it to. It needs you as an Editor.
+             */
+            project: string;
+            /**
+             * Sha256
+             * @description Of its bytes, as hex: Iki checks them.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+        };
+        /** UploadOut */
+        UploadOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed.
+             */
+            error: string;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description Unfinished then, it's cancelled.
+             */
+            expires_at: string;
+            /** @description The file it became, once ready. */
+            file: components["schemas"]["FileOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** Part Count */
+            part_count: number;
+            /** Part Size */
+            part_size: number;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
         /** UserFilters */
         UserFilters: {
@@ -2551,6 +2916,74 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EntityTypeOut"];
                 };
+            };
+        };
+    };
+    iki_server_api_files_list_files: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                project?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_FileOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_get_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_download_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Found */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3310,6 +3743,154 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_files_list_uploads: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_UploadOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_start_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_get_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_cancel_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_files_complete_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_sign_parts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartOut"][];
+                };
             };
         };
     };

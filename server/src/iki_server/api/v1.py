@@ -7,6 +7,8 @@ and any OpenAPI viewer can read the document instead.
 
 from typing import Any
 
+import structlog
+from botocore.exceptions import BotoCoreError, ClientError
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import Http404, HttpRequest, HttpResponse
 from ninja import NinjaAPI
@@ -14,6 +16,7 @@ from ninja.errors import AuthenticationError, HttpError, ValidationError
 
 from iki_server.api import (
     entities,
+    files,
     me,
     notifications,
     projects,
@@ -25,6 +28,8 @@ from iki_server.api import (
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import BearerAuth, SessionAuth
 from iki_server.org.services import Refused
+
+logger = structlog.get_logger("iki.api")
 
 api = NinjaAPI(
     title="Iki API",
@@ -39,7 +44,17 @@ api = NinjaAPI(
     openapi_url="/openapi.json",
 )
 
-for module in (me, users, service_accounts, teams, projects, entities, notifications, webhooks):
+for module in (
+    me,
+    users,
+    service_accounts,
+    teams,
+    projects,
+    entities,
+    files,
+    notifications,
+    webhooks,
+):
     api.add_router("", module.router)
 
 
@@ -81,6 +96,20 @@ def _not_found(request: HttpRequest, exc: Exception) -> HttpResponse:
 @api.exception_handler(PermissionDenied)
 def _forbidden(request: HttpRequest, exc: PermissionDenied) -> HttpResponse:
     return response(Problem(403))
+
+
+@api.exception_handler(BotoCoreError)
+@api.exception_handler(ClientError)
+def _storage_unavailable(request: HttpRequest, exc: Exception) -> HttpResponse:
+    logger.error("storage_error", error=str(exc), exc_info=exc)
+    return response(
+        Problem(
+            503,
+            "Iki can’t reach its file storage right now. Try again shortly.",
+            code="storage_unavailable",
+            headers={"Retry-After": "30"},
+        )
+    )
 
 
 @api.exception_handler(Exception)

@@ -95,3 +95,13 @@ k8s_resource(
     ],
 )
 k8s_resource('iki-tasks', resource_deps=['iki-migrate', 'otel-lgtm'], labels=['iki'])
+
+# Gives the dev bucket the CORS and lifecycle rules Iki needs (browser
+# uploads from localhost:8000 and the web dev server), once the web pod is up.
+local_resource(
+    'storage-setup',
+    cmd='kubectl --context kind-iki -n iki exec deploy/iki-web -c web -- '
+    + 'python -m iki_server.manage setup_storage --enable-versioning',
+    resource_deps=['iki-web', 'seaweedfs'],
+    labels=['iki'],
+)

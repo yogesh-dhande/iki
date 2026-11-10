@@ -173,3 +173,49 @@ def test_local_plugins_need_a_development_server(tmp_path: Path) -> None:
     assert "only for development" in result.stderr
     result = run_manage("check", env={**env, "IKI_ALLOW_LOCAL_PLUGINS": "true"})
     assert result.returncode == 0, result.stderr
+
+
+def _files_settings(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return run_manage(
+        "shell",
+        "-c",
+        "from django.conf import settings as s; "
+        "print(s.IKI_FILES_BUCKET or '-', s.IKI_FILES_MAX_UPLOAD_BYTES, "
+        "' '.join(s.SECURE_CSP['connect-src']))",
+        env={**PROD_ENV, **env},
+    )
+
+
+def test_pages_may_connect_to_the_file_store_and_nowhere_else() -> None:
+    off = _files_settings({})
+    assert off.returncode == 0, off.stderr
+    assert off.stdout.splitlines()[-1] == f"- {100 * 1024**3} 'self'"
+    aws = _files_settings({"IKI_FILES_BUCKET": "acme-iki", "IKI_FILES_REGION": "eu-west-1"})
+    assert aws.stdout.splitlines()[-1].endswith(
+        "'self' https://acme-iki.s3.eu-west-1.amazonaws.com"
+    )
+    compatible = _files_settings(
+        {
+            "IKI_FILES_BUCKET": "iki",
+            "IKI_FILES_ENDPOINT_URL": "https://s3.internal:9000",
+            "IKI_FILES_PUBLIC_ENDPOINT_URL": "https://files.example.com/s3",
+            "IKI_FILES_MAX_UPLOAD_SIZE": "2GiB",
+        }
+    )
+    assert (
+        compatible.stdout.splitlines()[-1] == f"iki {2 * 1024**3} 'self' https://files.example.com"
+    )
+
+
+@pytest.mark.parametrize(
+    ("env", "message"),
+    [
+        ({"IKI_FILES_ENDPOINT_URL": "http://s3.internal:9000"}, "files would travel unencrypted"),
+        ({"IKI_FILES_ENDPOINT_URL": "s3.internal:9000"}, "must be a URL"),
+        ({"IKI_FILES_MAX_UPLOAD_SIZE": "lots"}, "IKI_FILES_MAX_UPLOAD_SIZE must be a size"),
+    ],
+)
+def test_file_storage_settings_are_checked(env: dict[str, str], message: str) -> None:
+    result = _files_settings({"IKI_FILES_BUCKET": "iki", **env})
+    assert result.returncode != 0
+    assert message in result.stderr

@@ -32,6 +32,23 @@ name = "pywin32"
 ecosystem = "PyPI"
 license.override = ["PSF-2.0"]
 
+# The AWS SDK, for object storage: Apache-2.0 (LICENSE in each repository).
+[[PackageOverrides]]
+name = "boto3"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0"]
+
+[[PackageOverrides]]
+name = "botocore"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0"]
+
+# botocore's date parsing: dual-licensed, Apache-2.0 and BSD-3-Clause (its LICENSE).
+[[PackageOverrides]]
+name = "python-dateutil"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0", "BSD-3-Clause"]
+
 # Iki's own workspace packages (Apache-2.0, see LICENSE).
 [[PackageOverrides]]
 name = "iki-server"

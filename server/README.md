@@ -129,6 +129,12 @@ and the server refuses to start without them.
 | `IKI_EMAIL_ALLOW_PLAINTEXT`           | `false`       | Allow `smtp://` (no encryption) with HTTPS on: only for a relay in your network     |
 | `IKI_WEBHOOK_ALLOWED_NETWORKS`        | unset         | Comma-separated CIDRs of internal networks webhooks may send to                     |
 | `IKI_WEBHOOK_CA_FILE`                 | unset         | CA bundle (PEM) trusted for webhook receivers, as well as the public CAs            |
+| `IKI_FILES_BUCKET`                    | unset         | S3 bucket for files; unset, the files API answers 503                               |
+| `IKI_FILES_PREFIX`                    | unset         | Prefix for every key Iki writes, so deployments can share a bucket                  |
+| `IKI_FILES_REGION`                    | `us-east-1`   | The bucket's region                                                                 |
+| `IKI_FILES_ENDPOINT_URL`              | unset         | An S3-compatible store's URL; unset for AWS S3                                      |
+| `IKI_FILES_PUBLIC_ENDPOINT_URL`       | the endpoint  | Where browsers and workers reach the store, which signed URLs name                  |
+| `IKI_FILES_MAX_UPLOAD_SIZE`           | `100GiB`      | The largest file one upload may add                                                 |
 | `IKI_WEBHOOK_ALLOW_HTTP`              | `false`       | Development only: plain `http://` receivers; refused with HTTPS on                  |
 | `IKI_TASKS_CONCURRENCY`               | `4`           | `iki-server tasks`: tasks one runner runs at once                                   |
 | `IKI_TASKS_GRACE_SECONDS`             | `25`          | `iki-server tasks`: time running tasks get to finish after SIGTERM                  |
@@ -229,6 +235,35 @@ server's certificate verified. Org Admins can send a test email at
 Settings → Email, and can choose to leave the details out of emails, so
 they only say there's something new in Iki. Emails are marked as automatic
 (`Auto-Submitted`), so out-of-office replies stay quiet.
+
+## Files
+
+Files live in object storage (ADR 0036). Iki keeps each content once, under
+its SHA-256, and checks every upload against the hash its sender declared.
+
+1. `POST /api/v1/uploads` with the file's project, name, media type, size and
+   SHA-256. The answer lists its parts (64 MiB each, or more for very large
+   files), each with a URL signed for an hour.
+2. `PUT` each part's bytes to its URL, in any order or in parallel.
+   `POST /api/v1/uploads/{id}/parts` signs them again if the URLs expire.
+3. `POST /api/v1/uploads/{id}/complete`. The upload is `checking` while Iki
+   reads the bytes back, then `ready` with its `file`, or `failed` if they
+   don't match. `upload.finished` arrives on `/api/v1/events`.
+
+- `GET /api/v1/files/{id}` describes a file. `…/content` redirects to a URL
+  that downloads it, signed for five minutes. Files are read through the
+  project they were added to.
+- Uploads left unfinished for a day are cancelled by `iki-server maintain`.
+- On AWS, give the pods' service account an IAM role with `s3:GetObject`,
+  `s3:PutObject`, `s3:DeleteObject`, `s3:ListMultipartUploadParts` and
+  `s3:AbortMultipartUpload` on the keys under the prefix, and `s3:ListBucket`
+  on the bucket for that prefix. Without `s3:ListBucket`, S3 answers 403
+  rather than 404 for a missing object. Turn on versioning and default
+  encryption. Browsers send parts straight to the bucket, so it needs a CORS
+  rule allowing `PUT` from Iki's public URL. `iki-server setup_storage` adds
+  that rule, and lifecycle rules that clear abandoned uploads; `--check`
+  only reports what's missing, for buckets managed elsewhere (OpenTofu, for
+  example).
 
 ## Webhooks
 

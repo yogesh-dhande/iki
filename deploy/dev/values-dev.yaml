@@ -31,6 +31,16 @@ webhooks:
   # because https is false here).
   allowedNetworks: ["10.96.0.0/16"]
   allowHttp: true
+files:
+  # SeaweedFS (deploy/dev/manifests/seaweedfs.yaml), with the keys up.sh made.
+  # Browsers reach it through Tilt's port-forward, so signed URLs name that.
+  bucket: iki
+  endpoint: http://seaweedfs.iki.svc:8333
+  publicEndpoint: http://localhost:8333
+  credentials:
+    existingSecret: seaweedfs-s3
+    accessKeyIdKey: access-key
+    secretAccessKeyKey: secret-key
 database:
   # The app's least-privileged role (iki_app), created by up.sh and managed
   # by CloudNativePG.
@@ -75,6 +85,11 @@ networkPolicy:
       to:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: mailpit }
+    objectStorage:
+      ports: [8333]
+      to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: seaweedfs }
     webhooks:
       ports: [8080]
       to:

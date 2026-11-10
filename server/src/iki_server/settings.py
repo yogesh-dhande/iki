@@ -420,6 +420,55 @@ IKI_WEBHOOK_CA_FILE: str = env.str("IKI_WEBHOOK_CA_FILE", default="")
 if IKI_WEBHOOK_CA_FILE and not Path(IKI_WEBHOOK_CA_FILE).is_file():
     raise environ.ImproperlyConfigured(f"IKI_WEBHOOK_CA_FILE: no file at {IKI_WEBHOOK_CA_FILE}")
 
+# --- Files ------------------------------------------------------------------
+# Object storage for entities' files (ADR 0036): S3, or an S3-compatible store
+# such as SeaweedFS in development. Credentials come from the standard AWS
+# chain (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or the pod's IAM role).
+# Without a bucket, the files API answers 503.
+
+IKI_FILES_BUCKET: str = env.str("IKI_FILES_BUCKET", default="")
+#: Every key Iki writes starts with this, so one bucket can serve several deployments.
+IKI_FILES_PREFIX: str = env.str("IKI_FILES_PREFIX", default="").strip("/")
+IKI_FILES_REGION: str = env.str("IKI_FILES_REGION", default="us-east-1")
+#: For S3-compatible stores; empty for AWS S3.
+IKI_FILES_ENDPOINT_URL: str = env.str("IKI_FILES_ENDPOINT_URL", default="")
+#: Where browsers and workers reach the store, if not the same address (signed URLs name it).
+IKI_FILES_PUBLIC_ENDPOINT_URL: str = env.str(
+    "IKI_FILES_PUBLIC_ENDPOINT_URL", default=IKI_FILES_ENDPOINT_URL
+)
+try:
+    from iki_spec.model import parse_size as _parse_size
+
+    IKI_FILES_MAX_UPLOAD_BYTES: int = _parse_size(
+        env.str("IKI_FILES_MAX_UPLOAD_SIZE", default="100GiB")
+    )
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_FILES_MAX_UPLOAD_SIZE must be a size such as 100GiB: {_error}"
+    ) from None
+for _name, _url in (
+    ("IKI_FILES_ENDPOINT_URL", IKI_FILES_ENDPOINT_URL),
+    ("IKI_FILES_PUBLIC_ENDPOINT_URL", IKI_FILES_PUBLIC_ENDPOINT_URL),
+):
+    if _url.startswith("http://") and HTTPS:
+        raise environ.ImproperlyConfigured(
+            f"{_name} is plain HTTP, so files would travel unencrypted; it's only for "
+            "development (IKI_HTTPS=false)."
+        )
+    if _url and not _url.startswith(("http://", "https://")):
+        raise environ.ImproperlyConfigured(f"{_name} must be a URL such as https://s3.example.com")
+if IKI_FILES_BUCKET:
+    # Browsers send upload parts straight to the store, so pages may connect to it (only).
+    from urllib.parse import urlsplit as _urlsplit
+
+    _store = _urlsplit(IKI_FILES_PUBLIC_ENDPOINT_URL)
+    SECURE_CSP["connect-src"] = [
+        CSP.SELF,
+        f"{_store.scheme}://{_store.netloc}"
+        if IKI_FILES_PUBLIC_ENDPOINT_URL
+        else f"https://{IKI_FILES_BUCKET}.s3.{IKI_FILES_REGION}.amazonaws.com",
+    ]
+
 # --- Background tasks -------------------------------------------------------
 # Django's Tasks framework on Postgres; ``iki-server tasks`` runs them.
 

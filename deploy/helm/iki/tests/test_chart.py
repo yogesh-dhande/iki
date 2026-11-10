@@ -525,3 +525,66 @@ def test_plain_http_webhooks_need_https_off() -> None:
 def test_webhook_networks_must_be_cidrs() -> None:
     error = render({"webhooks": {"allowedNetworks": ["lims.internal"]}}, ok=False)
     assert "allowedNetworks" in str(error)
+
+
+FILES: dict[str, Any] = {"files": {"bucket": "iki-files", "prefix": "prod"}}
+
+
+def test_files_are_off_unless_a_bucket_is_set_and_then_reach_every_container() -> None:
+    for name, spec in pod_specs(manifests()):
+        env = {e["name"] for e in spec["containers"][0]["env"]}
+        assert not {v for v in env if v.startswith(("IKI_FILES_", "AWS_"))}, name
+    for name, spec in pod_specs(manifests(FILES)):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert variables["IKI_FILES_BUCKET"] == "iki-files", name
+        assert variables["IKI_FILES_PREFIX"] == "prod", name
+        assert variables["IKI_FILES_ENDPOINT_URL"] == "", name
+        assert variables["IKI_FILES_MAX_UPLOAD_SIZE"] == "100GiB", name
+        # No keys: on AWS, the service account's IAM role gives access.
+        assert "AWS_ACCESS_KEY_ID" not in variables, name
+
+
+def test_storage_keys_come_only_from_a_secret() -> None:
+    values = {
+        "files": {
+            "bucket": "iki",
+            "endpoint": "https://s3.internal.example.com",
+            "credentials": {"existingSecret": "iki-s3"},
+        }
+    }
+    for name, spec in pod_specs(manifests(values)):
+        variables = {e["name"]: e for e in spec["containers"][0]["env"]}
+        assert variables["AWS_ACCESS_KEY_ID"]["valueFrom"]["secretKeyRef"] == {
+            "name": "iki-s3",
+            "key": "access-key-id",
+        }, name
+        assert variables["AWS_SECRET_ACCESS_KEY"]["valueFrom"]["secretKeyRef"]["key"] == (
+            "secret-access-key"
+        ), name
+        # Signed URLs name the endpoint unless a public one is given.
+        assert variables["IKI_FILES_PUBLIC_ENDPOINT_URL"]["value"] == (
+            "https://s3.internal.example.com"
+        ), name
+
+
+def test_only_web_task_and_maintenance_pods_reach_object_storage() -> None:
+    def policy(docs: list[Manifest]) -> list[Manifest]:
+        return [
+            p
+            for p in by_kind(docs, "NetworkPolicy")
+            if p["metadata"]["name"] == "iki-object-storage"
+        ]
+
+    assert not policy(manifests())
+    (on,) = policy(manifests(FILES))
+    selector = {e["key"]: e["values"] for e in on["spec"]["podSelector"]["matchExpressions"]}
+    assert selector["app.kubernetes.io/component"] == ["web", "tasks", "maintenance"]
+    (rule,) = on["spec"]["egress"]
+    assert rule["ports"] == [{"protocol": "TCP", "port": 443}]
+    v4, _ = (peer["ipBlock"] for peer in rule["to"])
+    assert "169.254.0.0/16" in v4["except"]
+
+
+def test_the_upload_size_is_checked_by_the_schema() -> None:
+    error = render({"files": {"bucket": "iki", "maxUploadSize": "lots"}}, ok=False)
+    assert "maxUploadSize" in str(error)

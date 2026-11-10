@@ -409,5 +409,5 @@ def test_maintenance_deletes_finished_tasks_after_their_keep_time() -> None:
     finished(TaskResultStatus.FAILED, 31)
     out = StringIO()
     call_command("maintain", stdout=out)
-    assert ", 2 finished task(s) and 0 old webhook deliveries." in out.getvalue()
+    assert ", 2 finished task(s) and 0 old webhook deliveries," in out.getvalue()
     assert set(TaskRecord.objects.values_list("pk", flat=True)) == {r.pk for r in kept}

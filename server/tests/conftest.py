@@ -22,6 +22,14 @@ POSTGRES_IMAGE = (
     "postgres:18.6-trixie@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42"
 )
 
+#: The development and CI object store (ADR 0022), pinned like deploy/dev/manifests/seaweedfs.yaml.
+SEAWEEDFS_IMAGE = (
+    "chrislusf/seaweedfs:4.52"
+    "@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59"
+)
+S3_ACCESS_KEY = "ikitestaccesskey0001"
+S3_SECRET_KEY = "ikitest-only-secret-key-not-used-anywhere"
+
 SPAN_EXPORTER = InMemorySpanExporter()
 
 
@@ -186,6 +194,82 @@ def saml_idp(settings: Any) -> Iterator["FakeSamlIdP"]:
     server.server_close()
     thread.join()
     csp.clear_cache()
+
+
+@pytest.fixture(scope="session")
+def _s3_endpoint() -> Iterator[str]:
+    """An S3-compatible store for the test run: a throwaway SeaweedFS, started on first use.
+
+    ``IKI_TEST_S3_URL`` names one instead, which must accept the test keys above.
+    """
+    url = os.environ.get("IKI_TEST_S3_URL")
+    if url:
+        yield url
+        return
+    import time
+    import urllib.request
+
+    from testcontainers.core.container import DockerContainer
+
+    container = (
+        DockerContainer(SEAWEEDFS_IMAGE)
+        .with_command(
+            "mini -dir=/data -ip=127.0.0.1 -ip.bind=0.0.0.0 -bucket=iki "
+            "-admin.ui=false -master.telemetry=false"
+        )
+        .with_env("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY)
+        .with_env("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY)
+        .with_exposed_ports(8333)
+    )
+    with container:
+        url = f"http://{container.get_container_host_ip()}:{container.get_exposed_port(8333)}"
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                with urllib.request.urlopen(f"{url}/healthz", timeout=2):  # noqa: S310 - our own
+                    break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.5)
+        # The store makes the bucket a moment after it starts answering.
+        import boto3
+
+        s3 = boto3.client(
+            "s3",
+            endpoint_url=url,
+            region_name="us-east-1",
+            aws_access_key_id=S3_ACCESS_KEY,
+            aws_secret_access_key=S3_SECRET_KEY,
+        )
+        while True:
+            try:
+                s3.head_bucket(Bucket="iki")
+                break
+            except s3.exceptions.ClientError:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.5)
+        yield url
+
+
+@pytest.fixture
+def s3(_s3_endpoint: str, settings: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    """File storage, configured: Iki's settings point at the test store, under a prefix of
+    the test's own. Yields a client for looking at what's stored."""
+    import uuid
+
+    from iki_server.files import storage
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY)
+    settings.IKI_FILES_BUCKET = "iki"
+    settings.IKI_FILES_PREFIX = f"test-{uuid.uuid4().hex}"
+    settings.IKI_FILES_ENDPOINT_URL = _s3_endpoint
+    settings.IKI_FILES_PUBLIC_ENDPOINT_URL = _s3_endpoint
+    storage.reset()
+    yield storage.client()
+    storage.reset()
 
 
 @pytest.fixture

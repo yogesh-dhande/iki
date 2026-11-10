@@ -87,7 +87,7 @@ from iki_server.org.models import Project, Team
 from iki_server.files.models import Blob
 team = Team.objects.create(name="Biologics")
 project = Project.objects.create(team=team, name="Antibodies")
-blob = Blob.objects.create(sha256="a" * 64, size=10, media_type="chemical/x-pdb",
+blob = Blob.objects.create(sha256="a" * 64, size=10,
                            storage_uri="s3://iki/a")
 """
 

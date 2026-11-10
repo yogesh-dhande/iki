@@ -113,6 +113,29 @@ webhooks:
   # Plain http:// receivers, only for development: refused when https is true.
   allowHttp: false
 
+files:
+  # Object storage for files (ADR 0036): an S3 bucket, or an S3-compatible
+  # store. Empty: the files API answers 503. Turn on versioning and
+  # server-side encryption on the bucket; Iki never overwrites what it stores.
+  bucket: ""
+  # Every key Iki writes starts with this, so one bucket can serve several
+  # deployments.
+  prefix: ""
+  region: us-east-1
+  # For an S3-compatible store; empty for AWS S3.
+  endpoint: ""
+  # Where browsers and workers reach the store, if not at endpoint: signed
+  # URLs name it.
+  publicEndpoint: ""
+  # A Secret holding an access key. Leave it empty on AWS and give the
+  # service account an IAM role instead (serviceAccount.annotations).
+  credentials:
+    existingSecret: ""
+    accessKeyIdKey: access-key-id
+    secretAccessKeyKey: secret-access-key
+  # The largest file one upload may add, e.g. 100GiB.
+  maxUploadSize: 100GiB
+
 database:
   # required: Secret holding a postgres:// URI for the app's role. That role
   # reads and writes rows but can't change the schema or the audit log. The
@@ -272,6 +295,28 @@ networkPolicy:
     # Iki also refuses addresses that resolve to private ones. For receivers
     # inside your network, add them here and in webhooks.allowedNetworks.
     webhooks:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+              - ::1/128
+    # Only with files.bucket: web pods and task runners reach object storage.
+    # HTTPS to public addresses by default, which covers S3 through its
+    # public endpoints or a gateway VPC endpoint. For a store inside your
+    # network, list it here instead.
+    objectStorage:
       ports: [443]
       to:
         - ipBlock:

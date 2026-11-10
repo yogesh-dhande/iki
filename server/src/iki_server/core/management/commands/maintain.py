@@ -5,6 +5,7 @@
 - Deletes expired OAuth tokens, codes and device grants.
 - Deletes self-registered OAuth apps nobody asked to approve within a week.
 - Deletes finished background tasks after a week (failed ones after 30 days).
+- Cancels uploads left unfinished for a day, deleting what of them arrived.
 """
 
 from typing import Any
@@ -14,6 +15,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from iki_server.accounts.models import UserSession
+from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
 from iki_server.tasks import maintenance as task_maintenance
 from iki_server.web import ratelimit
@@ -25,7 +27,7 @@ logger = structlog.get_logger("iki.maintenance")
 class Command(BaseCommand):
     help = (
         "Delete expired sessions, tokens, rate-limit counters, finished tasks and old "
-        "webhook deliveries."
+        "webhook deliveries, and cancel abandoned uploads."
     )
 
     def handle(self, *args: Any, **options: Any) -> None:  # noqa: ANN401 - Django's signature
@@ -34,6 +36,7 @@ class Command(BaseCommand):
         apps = oauth_maintenance.prune()
         tasks = task_maintenance.prune()
         deliveries = webhook_maintenance.prune()
+        uploads = files.expire()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -41,9 +44,10 @@ class Command(BaseCommand):
             abandoned_oauth_apps=apps,
             finished_tasks=tasks,
             old_webhook_deliveries=deliveries,
+            abandoned_uploads=uploads,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
             f"{apps} abandoned app registration(s), {tasks} finished task(s) and "
-            f"{deliveries} old webhook deliveries."
+            f"{deliveries} old webhook deliveries, and cancelled {uploads} abandoned upload(s)."
         )

@@ -46,7 +46,7 @@ def test_hrids_are_unique(project: Project) -> None:
 
 
 def test_blobs_are_stored_once_per_content() -> None:
-    blob = {"sha256": "a" * 64, "size": 1, "media_type": "text/plain"}
+    blob = {"sha256": "a" * 64, "size": 1}
     Blob.objects.create(storage_uri="s3://iki/a", **blob)
     with pytest.raises(IntegrityError, match="iki_blob_content"), transaction.atomic():
         Blob.objects.create(storage_uri="s3://iki/b", **blob)

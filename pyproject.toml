@@ -38,6 +38,7 @@ dev = [
   "types-pyyaml>=6.0.12",
   "playwright>=1.65",
   "types-jsonschema>=4.25.1",
+  "types-boto3[s3]>=1.43.127",
 ]
 
 [tool.ruff]

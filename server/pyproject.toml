@@ -27,6 +27,7 @@ dependencies = [
   "django-ninja>=1.8",
   "django-oauth-toolkit>=3.4.1",
   "iki-spec",
+  "boto3>=1.44.0",
 ]
 
 [project.optional-dependencies]

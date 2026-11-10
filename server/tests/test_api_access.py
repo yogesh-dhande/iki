@@ -137,6 +137,55 @@ def editors(status: int) -> dict[str, int]:
     return readers(403, **dict.fromkeys(ENTITY_EDITORS, status))
 
 
+PDB = b"HEADER    TEST\nEND\n"
+
+
+def _upload(w: World, *, sent: bool = False) -> Any:
+    import hashlib
+
+    import requests
+
+    from iki_server.files import services as files
+
+    upload = files.start(
+        w.users["editor"],
+        w.project,
+        name="1abc.pdb",
+        media_type="chemical/x-pdb",
+        size=len(PDB),
+        sha256=hashlib.sha256(PDB).hexdigest(),
+    )
+    if sent:
+        (part,) = files.parts(upload)
+        requests.put(part["url"], data=PDB, timeout=30).raise_for_status()
+    return upload
+
+
+def upload(suffix: str = "", body: Any = None, *, sent: bool = False) -> Build:
+    return lambda w: (f"/uploads/{_upload(w, sent=sent).pk}{suffix}", body)
+
+
+def file(suffix: str = "") -> Build:
+    """An empty file, which is ready as soon as it's added."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.files import services as files
+        from iki_server.files.services import EMPTY_SHA256
+
+        added = files.start(
+            w.users["editor"],
+            w.project,
+            name="e.txt",
+            media_type="text/plain",
+            size=0,
+            sha256=EMPTY_SHA256,
+        )
+        added.refresh_from_db()
+        return f"/files/{added.file_id}{suffix}", None
+
+    return build
+
+
 ORG_ADMIN_ONLY = row(403, org_admin=200)
 TEAM_VISIBLE = row(404, org_admin=200, team_member=200)
 TEAM_MANAGE = row(404, org_admin=200, team_member=403)
@@ -268,6 +317,35 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         linked_into_archived,
         editors(204),
     ),
+    # Uploads are their maker's; files are read through the project they were added to.
+    (
+        "POST",
+        "/uploads",
+        lambda w: (
+            "/uploads",
+            {
+                "project": str(w.project.pk),
+                "name": "a.txt",
+                "media_type": "text/plain",
+                "size": 1,
+                "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+            },
+        ),
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
+    ),
+    ("GET", "/uploads", fixed("/uploads"), row(200)),
+    ("GET", "/uploads/{upload_id}", upload(), row(404, editor=200)),
+    ("POST", "/uploads/{upload_id}/parts", upload("/parts", {}), row(404, editor=200)),
+    (
+        "POST",
+        "/uploads/{upload_id}/complete",
+        upload("/complete", sent=True),
+        row(404, editor=202),
+    ),
+    ("DELETE", "/uploads/{upload_id}", upload(), row(404, editor=204)),
+    ("GET", "/files", fixed("/files"), row(200)),
+    ("GET", "/files/{file_id}", file(), readers(200)),
+    ("GET", "/files/{file_id}/content", file("/content"), readers(302)),
     # Notifications are each person's own: nobody else's are found.
     ("GET", "/notifications", fixed("/notifications"), row(200)),
     ("GET", "/notifications/summary", fixed("/notifications/summary"), row(200)),
@@ -371,8 +449,15 @@ def test_every_operation_documents_its_summary() -> None:
     ids=[f"{i:02d} {c[0]} {c[1]}" for i, c in enumerate(CASES)],
 )
 def test_operation_matrix(
-    principal: str, method: str, template: str, build: Build, expected: dict[str, int]
+    principal: str,
+    method: str,
+    template: str,
+    build: Build,
+    expected: dict[str, int],
+    request: pytest.FixtureRequest,
 ) -> None:
+    if template.startswith(("/uploads", "/files")):
+        request.getfixturevalue("s3")
     world = build_world()
     path, body, *headers = build(world)
     client = Api(world.browser(principal))

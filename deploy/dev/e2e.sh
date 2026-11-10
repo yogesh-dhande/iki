@@ -103,9 +103,9 @@ probe() { # probe <host> <port>: exit 0 if a TCP connection succeeds within 3s
 probe iki-db-rw 5432 || fail "web pod cannot reach Postgres"
 probe keycloak.iki.localhost 8080 || fail "web pod cannot reach Keycloak (the identity provider)"
 probe mailpit 1025 || fail "web pod cannot reach the mail server (Mailpit)"
-if probe seaweedfs 8333; then fail "web pod reached SeaweedFS; default-deny egress is not enforced"; fi
+probe seaweedfs 8333 || fail "web pod cannot reach object storage (SeaweedFS)"
 if probe otel-lgtm 3000; then fail "web pod reached Grafana; only the OTLP port is allowed"; fi
-pass "egress is default-deny: Postgres, Keycloak, OTLP and SMTP allowed, everything else blocked"
+pass "egress is default-deny: Postgres, Keycloak, OTLP, SMTP and S3 allowed, everything else blocked"
 tasks_probe() { # as probe, from a task runner
   kc exec deploy/iki-tasks -c tasks -- python -c \
     "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(s.connect_ex(('$1', $2)))" \
@@ -114,6 +114,8 @@ tasks_probe() { # as probe, from a task runner
 tasks_probe webhook-receiver 8080 || fail "task runners cannot reach the webhook receiver"
 if probe webhook-receiver 8080; then fail "web pod reached the webhook receiver; only task runners send"; fi
 pass "only task runners reach webhook receivers"
+tasks_probe seaweedfs 8333 || fail "task runners cannot reach object storage (SeaweedFS)"
+pass "task runners reach object storage"
 
 # --- Keycloak -------------------------------------------------------------------
 issuer=$(curl -fsS http://127.0.0.1:18080/realms/iki/.well-known/openid-configuration | jq -r .issuer)
@@ -133,5 +135,30 @@ buckets=$(curl -fsS --aws-sigv4 "aws:amz:us-east-1:s3" \
   http://127.0.0.1:18333/)
 echo "$buckets" | grep -q "<Name>iki</Name>" || fail "bucket iki missing: $buckets"
 pass "S3 rejects anonymous requests and lists bucket iki with signed ones"
+
+# --- Files -----------------------------------------------------------------------
+# A part URL signed by the web pod, for the address browsers use
+# (localhost:8333, Tilt's port-forward), takes bytes from this machine; the
+# pod then assembles the part and reads it back. Nothing is left behind.
+if ! nc -z 127.0.0.1 8333 2>/dev/null; then forward svc/seaweedfs 8333 8333; fi
+e2e_key="e2e/$(date +%s)-$RANDOM"
+signed=$(kc exec "pod/$web_pod" -c web -- python -m iki_server.manage shell -c "
+from iki_server.files import storage
+upload = storage.start_multipart('$e2e_key')
+print(upload, storage.part_url('$e2e_key', upload, 1))" | tail -1)
+multipart=${signed%% *}
+url=${signed#* }
+case "$url" in http://localhost:8333/*) ;; *) fail "part URL doesn't name the public endpoint: $url" ;; esac
+payload="iki end-to-end $e2e_key"
+curl -fsS -X PUT --data-binary "$payload" "$url" >/dev/null || fail "PUT to the signed part URL failed"
+expected=$(printf '%s' "$payload" | shasum -a 256 | cut -d' ' -f1)
+got=$(kc exec "pod/$web_pod" -c web -- python -m iki_server.manage shell -c "
+from iki_server.files import storage
+parts = storage.uploaded_parts('$e2e_key', '$multipart')
+storage.complete_multipart('$e2e_key', '$multipart', {1: parts[1][0][1]})
+print(storage.digest('$e2e_key')[0])
+storage.delete('$e2e_key')" | tail -1)
+[ "$got" = "$expected" ] || fail "the stored bytes hash to $got, not $expected"
+pass "a part sent to a URL the web pod signed is stored intact (SHA-256 $expected)"
 
 echo "All end-to-end checks passed."

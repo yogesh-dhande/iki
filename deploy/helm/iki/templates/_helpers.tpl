@@ -140,6 +140,34 @@ schema, and knows the app's role so it can grant it privileges.
 - name: IKI_EMAIL_ALLOW_PLAINTEXT
   value: {{ $ctx.Values.email.allowPlaintext | quote }}
 {{- end }}
+{{- with $ctx.Values.files }}
+{{- if .bucket }}
+- name: IKI_FILES_BUCKET
+  value: {{ .bucket | quote }}
+- name: IKI_FILES_PREFIX
+  value: {{ .prefix | quote }}
+- name: IKI_FILES_REGION
+  value: {{ .region | quote }}
+- name: IKI_FILES_ENDPOINT_URL
+  value: {{ .endpoint | quote }}
+- name: IKI_FILES_PUBLIC_ENDPOINT_URL
+  value: {{ .publicEndpoint | default .endpoint | quote }}
+- name: IKI_FILES_MAX_UPLOAD_SIZE
+  value: {{ .maxUploadSize | quote }}
+{{- if .credentials.existingSecret }}
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {{ .credentials.existingSecret }}
+      key: {{ .credentials.accessKeyIdKey }}
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .credentials.existingSecret }}
+      key: {{ .credentials.secretAccessKeyKey }}
+{{- end }}
+{{- end }}
+{{- end }}
 - name: IKI_WEBHOOK_ALLOWED_NETWORKS
   value: {{ join "," $ctx.Values.webhooks.allowedNetworks | quote }}
 - name: IKI_WEBHOOK_ALLOW_HTTP
