@@ -1,8 +1,8 @@
 # iki-cli
 
-The `iki` command-line tool. For now it has one command for plugin authors,
-`iki plugin validate`; `build`, `makemigrations`, `test`, `upgrade` and `run`
-follow as the plugin system grows.
+The `iki` command-line tool for plugin authors and deployments: `iki plugin
+validate`, `build` and `makemigrations`. `test`, `upgrade` and `run` follow
+as the plugin system grows.
 
 ## `iki plugin validate`
 
@@ -34,6 +34,60 @@ plugins/protein/types/protein.yaml:12:45: error: `Da` isn't a UCUM unit. [unknow
 It exits with 0 when the plugin is valid, 1 when there are problems (or
 warnings, with `--strict`), and 2 for a usage mistake. Colors follow
 `NO_COLOR` and `FORCE_COLOR`.
+
+## `iki plugin makemigrations`
+
+After changing a plugin's manifests, make the migration that changes the
+database to match, and commit it with the change. It needs no database.
+
+```console
+$ iki plugin makemigrations plugins/protein --with plugins/dna
+Was protein.organism renamed to protein.host_organism (a CharField)? [y/N] y
+Migrations for 'protein':
+  plugins/protein/migrations/0002_rename_organism_protein_host_organism_and_more.py
+    - Remove constraint protein_protein__organism__not_empty from model protein
+    - Remove constraint protein_protein__organism__one_line from model protein
+    ~ Rename field organism on protein to host_organism
+    ~ Rename field organism on protein_history to host_organism
+    + Create constraint protein_protein__host_organism__not_empty on model protein
+    + Create constraint protein_protein__host_organism__one_line on model protein
+```
+
+It runs Django's makemigrations, with its questions about renames, and adds
+Iki's rules for history (see [ADR 0033](../docs/adr/0033-plugin-codegen-and-migrations.md)):
+
+- To remove a field, mark it `removed: true`. Its column goes and its
+  history stays. A field that simply disappears is refused.
+- Types and extensions can't be deleted.
+- A field's type can only change when its history can follow: text stays
+  text, and whole numbers may become floats.
+- A quantity's unit can change, and the migration converts the stored
+  values, current and historical.
+- Renaming a type renames its entities' type too.
+
+| Option             | What it does                                                                    |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `DIRECTORY`        | The plugin's directory. Defaults to the current one.                            |
+| `--with DIRECTORY` | A plugin this one depends on, directly or not, with its migrations. Repeatable. |
+| `--name NAME`      | A name for the migration.                                                       |
+| `--check`          | Write nothing; fail if the manifests have changes no migration has (for CI).    |
+| `--dry-run`        | Show what the migration would do; write nothing.                                |
+| `--no-input`       | Ask nothing: renames aren't detected, and questions Django needs answered fail. |
+| `--merge`          | Merge migrations that branched, such as after two pull requests.                |
+| `--empty`          | Write an empty migration, to fill in by hand (for data changes).                |
+
+## `iki plugin build`
+
+Compiles plugins into Django apps for the server: a package
+`iki_plugin_<name>` per plugin, with its models and migrations, and
+`iki_installed_plugins`, which the server installs. Give every plugin a
+deployment installs; their dependencies must be among them.
+
+```console
+$ iki plugin build plugins/dna plugins/protein --output build/plugins
+Built build/plugins/iki_plugin_dna
+Built build/plugins/iki_plugin_protein
+```
 
 ```console
 $ iki --version

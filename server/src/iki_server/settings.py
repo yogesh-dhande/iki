@@ -8,6 +8,7 @@ explicitly. Required values have no default and fail fast at startup.
 
 import ipaddress
 import os
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,8 @@ INSTALLED_APPS = [
     "iki_server.realtime",
     "iki_server.notifications",
     "iki_server.webhooks",
+    "iki_server.files",
+    "iki_server.entities",
     "oauth2_provider",
     "allauth",
     "allauth.account",
@@ -62,6 +65,16 @@ INSTALLED_APPS = [
     "allauth.socialaccount.providers.openid_connect",
     "allauth.socialaccount.providers.saml",
 ]
+
+# Plugins (ADR 0006): `iki plugin build` generates a Django app for each, and
+# the `iki_installed_plugins` package that lists them in dependency order.
+# Without that package (development, tests), no plugins are installed.
+if find_spec("iki_installed_plugins") is not None:
+    from iki_installed_plugins import (  # type: ignore[import-not-found]
+        APPS as _PLUGIN_APPS,
+    )
+
+    INSTALLED_APPS += _PLUGIN_APPS
 
 MIDDLEWARE = [
     # Health checks answer before host validation and HTTPS redirects, so

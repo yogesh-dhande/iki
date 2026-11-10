@@ -20,7 +20,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from iki_spec import API_VERSION, schemas, units
+from iki_spec import API_VERSION, naming, schemas, units
 from iki_spec.model import (
     BUILTIN_TYPES,
     EntityType,
@@ -44,8 +44,7 @@ KINDS = {
     "EntityTypeExtension": "entity-type-extension",
 }
 
-# PostgreSQL truncates identifiers longer than this.
-MAX_IDENTIFIER = 63
+MAX_IDENTIFIER = naming.MAX_IDENTIFIER
 
 # B-tree index entries must fit in about a third of a page (2704 bytes). With
 # up to 4 bytes per character, that is safely 600 characters.
@@ -776,7 +775,8 @@ class _Semantics:
             self.field(f, source, ("fields", name), siblings=names)
         self.identity(entity_type, source, every)
         if entity_type.display_title is not None:
-            self.title(entity_type.display_title, source, names)
+            present = {n: f for n, f in names.items() if not f.removed}
+            self.title(entity_type.display_title, source, present)
 
     def identity(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
@@ -793,6 +793,15 @@ class _Semantics:
                 )
                 continue
             f, _ = every[name]
+            if f.removed:
+                self.add(
+                    "identity-removed",
+                    f"`{name}` is part of the identity, so it can't be removed.",
+                    source,
+                    path,
+                    hint="Entities are told apart by their identity for as long as they exist.",
+                )
+                continue
             if f.type not in IDENTITY_TYPES:
                 self.add(
                     "identity-type",
@@ -853,28 +862,86 @@ class _Semantics:
                 seen[t.hrid_prefix] = qualified
 
     def table_names(self) -> None:
+        """Every table and model Iki generates must have its own name, and fit PostgreSQL."""
         tables: dict[str, str] = {}
+        models: dict[str, str] = {}
+        generated: list[tuple[str, str, str, Document, Path, str]] = []
+
+        def add(
+            table: str,
+            model: str,
+            what: str,
+            source: Document,
+            path: Path,
+            kind: str,
+            fields: dict[str, Field],
+        ) -> None:
+            generated.append((table, model, what, source, path, kind))
+            generated.extend(
+                (
+                    naming.list_table(table, f.name),
+                    naming.list_model(model, f.name),
+                    f"the list `{f.name}` of {what}",
+                    source,
+                    ("fields", f.name),
+                    "field",
+                )
+                for f in _list_tables(fields)
+            )
+
         for qualified, t in self.plugin.types.items():
             source = self.loaded.type_sources[qualified]
-            if t.table in tables:
+            add(t.table, t.name, f"`{t.name}`", source, ("name",), "type", t.fields)
+        targets: set[str] = set()
+        for extension, source in zip(
+            self.plugin.extensions, self.loaded.extension_sources, strict=True
+        ):
+            if extension.extends_type in targets:
+                continue  # reported as a duplicate extension
+            targets.add(extension.extends_type)
+            add(
+                extension.table,
+                naming.extension_model(extension.extends_type),
+                f"the extension of `{extension.extends_type}`",
+                source,
+                ("extends_type",),
+                "plugin",
+                extension.fields,
+            )
+        for table, model, what, source, path, shorten in generated:
+            key = path[0] == "fields"
+            clash = tables.get(table) or models.get(model.lower())
+            if clash is not None:
                 self.add(
                     "duplicate-table",
-                    f"`{t.name}` and `{tables[t.table]}` would share the table `{t.table}`; "
-                    "table names ignore case.",
+                    f"{what[0].upper()}{what[1:]} and {clash} would share the "
+                    f"{'table' if table in tables else 'model'} "
+                    f"`{table if table in tables else model}`; names ignore case.",
                     source,
-                    ("name",),
+                    path,
+                    key=key,
+                    hint="Rename one of them.",
                 )
-            tables[t.table] = t.name
-            longest = f"{t.table}_history"
-            if len(longest) > MAX_IDENTIFIER:
-                self.add(
-                    "name-too-long",
-                    f"The table `{longest}` would be {len(longest)} characters; PostgreSQL allows "
-                    f"{MAX_IDENTIFIER}.",
-                    source,
-                    ("name",),
-                    hint="Shorten the type's name or the plugin's.",
-                )
+            tables.setdefault(table, what)
+            models.setdefault(model.lower(), what)
+            # Lists keep their history in their owner's history table.
+            names = (table,) if shorten == "field" else (table, naming.history_table(table))
+            for name in names:
+                if len(name) > MAX_IDENTIFIER:
+                    self.add(
+                        "name-too-long",
+                        f"The table `{name}` for {what} would be {len(name)} characters; "
+                        f"PostgreSQL allows {MAX_IDENTIFIER}.",
+                        source,
+                        path,
+                        key=key,
+                        hint={
+                            "type": "Shorten the type's name or the plugin's.",
+                            "plugin": "Shorten the plugin's name.",
+                            "field": "Shorten the field's name, the type's or the plugin's.",
+                        }[shorten],
+                    )
+                    break
 
     # Extensions ---------------------------------------------------------------------------------
 
@@ -946,16 +1013,6 @@ class _Semantics:
                     key=True,
                 )
             self.field(f, source, field_path, siblings=names)
-        table = f"{extension.table}_history"
-        if len(table) > MAX_IDENTIFIER:
-            self.add(
-                "name-too-long",
-                f"The table `{table}` would be {len(table)} characters; PostgreSQL allows "
-                f"{MAX_IDENTIFIER}.",
-                source,
-                path,
-                hint="Shorten the plugin's name.",
-            )
 
     # Fields -------------------------------------------------------------------------------------
 
@@ -969,7 +1026,7 @@ class _Semantics:
         item: bool = False,
     ) -> None:
         if not item:
-            if f.name in RESERVED_FIELD_NAMES:
+            if f.name in RESERVED_FIELD_NAMES or f.name.endswith("_ptr"):
                 self.add(
                     "reserved-name",
                     f"`{f.name}` is reserved; every entity already has it, or Python or Django "
@@ -1205,6 +1262,10 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
         if not isinstance(value, str):
             return ["must be text."]
         problems = []
+        if value == "" and f.min_length != 0:
+            return ["can't be empty; leave it out instead."]
+        if f.type == "string" and ("\n" in value or "\r" in value):
+            problems.append("must be one line; use a `text` field for longer text.")
         if f.min_length is not None and len(value) < f.min_length:
             problems.append(f"must be at least {f.min_length} characters long.")
         if f.max_length is not None and len(value) > f.max_length:
@@ -1248,6 +1309,15 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
                 problems.extend(f"item {index + 1} {m}" for m in value_problems(f.items, item))
         return problems
     return []  # pragma: no cover (other types take no default or value here)
+
+
+def _list_tables(fields: dict[str, Field]) -> list[Field]:
+    """Lists of references and files, which get a table of their own."""
+    return [
+        f
+        for f in fields.values()
+        if f.type == "list" and f.items and f.items.type in ("ref", "file")
+    ]
 
 
 def _is_date(value: str) -> bool:

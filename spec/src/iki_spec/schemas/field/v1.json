@@ -28,6 +28,10 @@
       "type": "boolean",
       "description": "Keep a database index on this field, for fast filtering and sorting."
     },
+    "removed": {
+      "type": "boolean",
+      "description": "The field is gone from the type: its column is dropped, but its values stay in the type's history. Removed fields are never deleted, so history is kept."
+    },
     "default": {
       "description": "The value new entities get when none is given."
     }
@@ -207,6 +211,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default",
                 "format",
                 "pattern",
@@ -240,6 +245,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default",
                 "max_length"
               ]
@@ -270,6 +276,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default",
                 "min",
                 "max"
@@ -307,6 +314,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default",
                 "min",
                 "max"
@@ -338,6 +346,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default"
               ]
             },
@@ -368,6 +377,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default",
                 "values"
               ]
@@ -398,6 +408,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default"
               ]
             },
@@ -427,7 +438,8 @@
                 "required",
                 "immutable",
                 "computed",
-                "indexed"
+                "indexed",
+                "removed"
               ]
             }
           }
@@ -452,6 +464,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default",
                 "unit",
                 "display_unit",
@@ -485,6 +498,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "media_types",
                 "max_size"
               ]
@@ -511,6 +525,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "to"
               ]
             }
@@ -536,6 +551,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "default",
                 "items",
                 "min_items",
@@ -568,6 +584,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "removed",
                 "schema"
               ]
             }

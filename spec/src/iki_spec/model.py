@@ -7,8 +7,10 @@ YAML, so every rule `iki plugin validate` enforces holds for them.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any
+
+from iki_spec import naming
 
 __all__ = [
     "BUILTIN_TYPES",
@@ -18,6 +20,8 @@ __all__ = [
     "Extension",
     "Field",
     "Plugin",
+    "plugin_from_dict",
+    "plugin_to_dict",
 ]
 
 FIELD_TYPES = (
@@ -66,6 +70,8 @@ class Field:
     immutable: bool = False
     computed: bool = False
     indexed: bool = False
+    #: Gone from the type, but kept in its history (removed fields are never deleted).
+    removed: bool = False
     has_default: bool = False
     default: Any = None
     format: str | None = None
@@ -98,6 +104,7 @@ class Field:
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
             indexed=bool(data.get("indexed", False)),
+            removed=bool(data.get("removed", False)),
             has_default="default" in data,
             default=data.get("default"),
             format=data.get("format"),
@@ -145,7 +152,12 @@ class EntityType:
 
     @property
     def table(self) -> str:
-        return f"{self.plugin}_{self.name.lower()}"
+        return naming.type_table(self.qualified_name)
+
+    @property
+    def current_fields(self) -> dict[str, Field]:
+        """The fields entities have now, without the removed ones."""
+        return {name: f for name, f in self.fields.items() if not f.removed}
 
 
 @dataclass(frozen=True)
@@ -158,7 +170,11 @@ class Extension:
 
     @property
     def table(self) -> str:
-        return f"{self.plugin}_{self.extends_type.split('.')[1].lower()}_ext"
+        return naming.extension_table(self.plugin, self.extends_type)
+
+    @property
+    def current_fields(self) -> dict[str, Field]:
+        return {name: f for name, f in self.fields.items() if not f.removed}
 
 
 @dataclass(frozen=True)
@@ -212,3 +228,57 @@ def parse_size(text: str) -> int:
     if match is None or match.group(2) not in _SIZE_UNITS:
         raise ValueError(text)
     return int(match.group(1)) * _SIZE_UNITS[match.group(2)]
+
+
+# --- JSON ---------------------------------------------------------------------------------------
+# `iki plugin build` writes each plugin as JSON next to its generated models,
+# so the server reads labels, units and rules without the YAML.
+
+
+def plugin_to_dict(plugin: Plugin) -> dict[str, Any]:
+    """A JSON-ready dict; `plugin_from_dict` reads it back to an equal `Plugin`."""
+    return _to_json(plugin)  # type: ignore[no-any-return]
+
+
+def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-shaped values
+    if isinstance(value, (Field, EntityType, Extension, Plugin)):
+        return {f.name: _to_json(getattr(value, f.name)) for f in fields(value)}
+    if isinstance(value, dict):
+        return {k: _to_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_json(v) for v in value]
+    return value
+
+
+def plugin_from_dict(data: dict[str, Any]) -> Plugin:
+    return Plugin(
+        **{
+            **data,
+            "settings": {k: _field(v) for k, v in data["settings"].items()},
+            "types": {
+                k: EntityType(
+                    **{
+                        **v,
+                        "identity": tuple(v["identity"]),
+                        "fields": {n: _field(f) for n, f in v["fields"].items()},
+                    }
+                )
+                for k, v in data["types"].items()
+            },
+            "extensions": tuple(
+                Extension(**{**e, "fields": {n: _field(f) for n, f in e["fields"].items()}})
+                for e in data["extensions"]
+            ),
+        }
+    )
+
+
+def _field(data: dict[str, Any]) -> Field:
+    return Field(
+        **{
+            **data,
+            "values": tuple(data["values"]),
+            "media_types": tuple(data["media_types"]),
+            "items": _field(data["items"]) if data["items"] is not None else None,
+        }
+    )

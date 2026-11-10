@@ -5,14 +5,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TextIO
 
-from iki_spec import API_VERSION
+from iki_codegen import build as build_apps
+from iki_spec import API_VERSION, naming
 from iki_spec.problems import Problem
 from iki_spec.validate import Result, check_settings_values, load_plugin
+from iki_spec.yamlsource import read_documents
 
 
 def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -65,6 +70,73 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Fail on warnings too.",
     )
     validate.set_defaults(handler=run_validate)
+
+    build = commands.add_parser(
+        "build",
+        help="Compile plugins into Django apps.",
+        description=(
+            "Check plugins, then compile them into Django apps: a package per plugin "
+            "(iki_plugin_<name>) with its models and migrations, and iki_installed_plugins, "
+            "which the server installs. Give every plugin the deployment installs."
+        ),
+    )
+    build.add_argument("directories", nargs="+", type=Path, metavar="DIRECTORY")
+    build.add_argument(
+        "--output",
+        "-o",
+        required=True,
+        type=Path,
+        metavar="DIRECTORY",
+        help="Where to write the packages (put it on the server's PYTHONPATH).",
+    )
+    build.set_defaults(handler=run_build)
+
+    makemigrations = commands.add_parser(
+        "makemigrations",
+        help="Make migrations for a plugin's changes.",
+        description=(
+            "Compile the plugin and the plugins it depends on, then run Django's makemigrations "
+            "on it, asking about renames. New migrations are written to the plugin's "
+            "migrations/ directory, to be committed with the change. Needs no database."
+        ),
+    )
+    makemigrations.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        type=Path,
+        help="The plugin's directory (default: the current directory).",
+    )
+    makemigrations.add_argument(
+        "--with",
+        dest="dependencies",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="DIRECTORY",
+        help="A plugin this one depends on, directly or not. Repeat for each.",
+    )
+    makemigrations.add_argument("--name", help="A name for the migration.")
+    makemigrations.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing; fail if the manifests have changes no migration has (for CI).",
+    )
+    makemigrations.add_argument(
+        "--dry-run", action="store_true", help="Show what the migration would do; write nothing."
+    )
+    makemigrations.add_argument(
+        "--no-input",
+        action="store_true",
+        help="Ask nothing: no renames, and fail where Django needs an answer.",
+    )
+    makemigrations.add_argument(
+        "--merge", action="store_true", help="Merge migrations that branched (two leaves)."
+    )
+    makemigrations.add_argument(
+        "--empty", action="store_true", help="Write an empty migration, to fill in by hand."
+    )
+    makemigrations.set_defaults(handler=run_makemigrations)
     plugin.set_defaults(handler=lambda _args: _help(plugin))
 
 
@@ -95,6 +167,118 @@ def run_validate(args: argparse.Namespace, out: TextIO | None = None) -> int:
     else:
         _text(out, result, problems, directory, sources, errors, warnings)
     return 1 if failed else 0
+
+
+def _load(directory: Path, dependencies: Sequence[Path], out: TextIO) -> Result | None:
+    """The plugin, or None after printing why it can't be built."""
+    result = load_plugin(directory, dependencies=dependencies)
+    if result.plugin is not None:
+        return result
+    problems = list(result.problems)
+    sources = {p.file: directory / p.file for p in problems if p.file}
+    errors = sum(p.is_error for p in problems)
+    _text(out, result, problems, directory, sources, errors, len(problems) - errors)
+    return None
+
+
+def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
+    out = out or sys.stdout
+    directories: list[Path] = args.directories
+    missing = _missing_dependencies(directories)
+    if missing:
+        sys.stderr.write("".join(f"error: {m}\n" for m in missing))
+        return 1
+    plugins = []
+    for directory in directories:
+        others = [d for d in directories if d != directory]
+        result = _load(directory, others, sys.stderr)
+        if result is None:
+            return 1
+        assert result.plugin is not None  # noqa: S101 - _load returns loaded plugins
+        plugins.append((result.plugin, directory))
+    try:
+        packages = build_apps(
+            [p for p, _ in plugins],
+            args.output,
+            migrations={p.name: d / "migrations" for p, d in plugins},
+        )
+    except ValueError as error:
+        sys.stderr.write(f"error: {error}.\n")
+        return 1
+    for package in packages:
+        out.write(f"Built {package}\n")
+    return 0
+
+
+def _missing_dependencies(directories: Sequence[Path]) -> list[str]:
+    """Plugins the given ones depend on but that weren't given, from each plugin.yaml."""
+    declared: dict[str, list[str]] = {}
+    for directory in directories:
+        documents, _ = read_documents(directory / "plugin.yaml", "plugin.yaml")
+        data = documents[0].data if documents else None
+        if isinstance(data, dict) and isinstance(data.get("name"), str):
+            dependencies = data.get("dependencies")
+            declared[data["name"]] = sorted(dependencies) if isinstance(dependencies, dict) else []
+    return [
+        f"{name} needs the {dependency} plugin: give its directory too."
+        for name, dependencies in declared.items()
+        for dependency in dependencies
+        if dependency not in declared
+    ]
+
+
+def run_makemigrations(args: argparse.Namespace) -> int:
+    directory: Path = args.directory
+    dependencies: list[Path] = args.dependencies
+    result = _load(directory, dependencies, sys.stderr)
+    if result is None:
+        return 1
+    plugin = result.plugin
+    assert plugin is not None  # noqa: S101 - _load returns loaded plugins
+    plugins = [(plugin, directory)]
+    for dependency in dependencies:
+        loaded = _load(dependency, [d for d in dependencies if d != dependency], sys.stderr)
+        if loaded is None:
+            return 1
+        assert loaded.plugin is not None  # noqa: S101 - _load returns loaded plugins
+        if not any((dependency / "migrations").glob("0*.py")):
+            sys.stderr.write(
+                f"error: {loaded.plugin.name} has no migrations. Run "
+                f"`iki plugin makemigrations` in {dependency} first.\n"
+            )
+            return 1
+        plugins.append((loaded.plugin, dependency))
+    with tempfile.TemporaryDirectory(prefix="iki-build-") as tmp:
+        try:
+            build_apps(
+                [p for p, _ in plugins],
+                Path(tmp),
+                migrations={p.name: d / "migrations" for p, d in plugins},
+            )
+        except ValueError as error:
+            sys.stderr.write(f"error: {error}. Pass it with --with.\n")
+            return 1
+        built = Path(tmp) / naming.package(plugin.name) / "migrations"
+        before = {f.name for f in built.glob("*.py")}
+        target = directory / "migrations"
+        command = [sys.executable, "-m", "iki_server.plugins.makemigrations", plugin.name]
+        command += [f"--name={args.name}"] if args.name else []
+        for flag in ("check", "dry_run", "no_input", "merge", "empty"):
+            if getattr(args, flag):
+                command.append("--" + flag.replace("_", "-"))
+        env = {
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(filter(None, [tmp, os.environ.get("PYTHONPATH")])),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "IKI_MIGRATIONS_DISPLAY_DIR": _display_path(target, None, {}),
+        }
+        code = subprocess.run(command, env=env, check=False).returncode  # noqa: S603 - our own module, with this interpreter
+        new = sorted(f for f in built.glob("*.py") if f.name not in before)
+        if new and not (args.check or args.dry_run):
+            target.mkdir(exist_ok=True)
+            for file in new:
+                shutil.copyfile(file, target / file.name)
+    return code
 
 
 # --- Output --------------------------------------------------------------------------------------

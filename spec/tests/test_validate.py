@@ -111,7 +111,7 @@ def test_builds_the_model_codegen_reads() -> None:
     assert prediction is not None
     (extension,) = prediction.extensions
     assert extension.extends_type == "protein.ProteinStructure"
-    assert extension.table == "structure_prediction_proteinstructure_ext"
+    assert extension.table == "structure_prediction__protein_proteinstructure"
     assert prediction.settings["allowed_presets"].default == ["monomer"]
 
 
@@ -668,7 +668,7 @@ def test_extensions(tmp_path: Path) -> None:
     result = make(tmp_path, extension("codon_usage: { type: json }\n"), DNA_PIN, with_=(DNA,))
     assert result.problems == []
     assert result.plugin is not None
-    assert result.plugin.extensions[0].table == "acme_dnasequence_ext"
+    assert result.plugin.extensions[0].table == "acme__dna_dnasequence"
 
 
 def test_extension_fields_cant_clash_with_the_types(tmp_path: Path) -> None:
@@ -722,6 +722,88 @@ def test_extension_table_names(tmp_path: Path) -> None:
     text = extension("x: { type: int }\n").replace("dna.DNASequence", f"other.{long_type}")
     result = make(tmp_path, text, plugin, with_=(other,))
     assert "PostgreSQL allows 63" in only(result, "name-too-long")
+
+
+def test_list_tables(tmp_path: Path) -> None:
+    text = fields(
+        """\
+        parents: { type: list, items: { type: ref, to: core.Entity } }
+        tags: { type: list, items: { type: string } }
+        """
+    )
+    assert make(tmp_path, text).problems == []
+    long = "p" + "x" * 49
+    text = fields(f"{long}: {{ type: list, items: {{ type: file }} }}\n")
+    message = only(make(tmp_path, text, PLUGIN.replace("acme", "acme_lab")), "name-too-long")
+    assert message == (
+        f"The table `acme_lab_assay__{long}` for the list `{long}` of `Assay` would be 66 "
+        "characters; PostgreSQL allows 63."
+    )
+
+
+def test_model_names_cant_clash(tmp_path: Path) -> None:
+    # The type `Ext` with a list `dna_dnasequence` would be the model `Ext_dna_DNASequence`'s
+    # twin: the extension of `dna.DNASequence`.
+    text = {
+        "types/assay.yaml": TYPE.replace("Assay", "Ext").replace("ASY", "EXT")
+        + "fields:\n  dna_dnasequence: { type: list, items: { type: file } }\n",
+        "types/ext.yaml": extension("x: { type: int }\n"),
+    }
+    message = only(make(tmp_path, text, DNA_PIN, with_=(DNA,)), "duplicate-table")
+    assert "would share the model `Ext_dna_DNASequence`" in message
+
+
+def test_removed_fields(tmp_path: Path) -> None:
+    text = fields("old: { type: string, removed: true }\n")
+    result = make(tmp_path, text)
+    assert result.problems == []
+    assert result.plugin is not None
+    assay = result.plugin.types["acme.Assay"]
+    assert assay.fields["old"].removed
+    assert assay.current_fields == {}
+    identity = fields("code: { type: string, required: true, immutable: true, removed: true }\n")
+    message = only(make(tmp_path, identity + "identity: [code]\n"), "identity-removed")
+    assert message == "`code` is part of the identity, so it can't be removed."
+    title = fields("old: { type: string, removed: true }\n") + "display: { title: '{{ old }}' }\n"
+    assert codes(make(tmp_path, title)) == ["display-title"]
+    item = fields("x: { type: list, items: { type: int, removed: true } }\n")
+    assert codes(make(tmp_path, item)) == ["schema"]
+
+
+def test_parent_link_names_are_reserved(tmp_path: Path) -> None:
+    assert codes(make(tmp_path, fields("sequence_ptr: { type: int }\n"))) == ["reserved-name"]
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        ("{ type: string, default: '' }", "The default can't be empty; leave it out instead."),
+        (
+            '{ type: string, default: "a\\nb" }',
+            "The default must be one line; use a `text` field for longer text.",
+        ),
+    ],
+)
+def test_string_values(tmp_path: Path, spec: str, message: str) -> None:
+    assert only(make(tmp_path, fields(f"x: {spec}\n")), "invalid-default") == message
+
+
+def test_empty_strings_need_min_length_0(tmp_path: Path) -> None:
+    text = fields("x: { type: string, min_length: 0, default: '' }\n")
+    assert make(tmp_path, text).problems == []
+    assert make(tmp_path, fields('x: { type: text, default: "a\\nb" }\n')).problems == []
+
+
+def test_plugins_round_trip_through_json() -> None:
+    import json
+
+    from iki_spec.model import plugin_from_dict, plugin_to_dict
+
+    for directory, deps in ((DNA, ()), (PROTEIN, (DNA,)), (PREDICTION, (PROTEIN, DNA))):
+        plugin = load_plugin(directory, dependencies=deps).plugin
+        assert plugin is not None
+        data = json.loads(json.dumps(plugin_to_dict(plugin)))
+        assert plugin_from_dict(data) == plugin
 
 
 # --- Settings ------------------------------------------------------------------------------------

@@ -23,11 +23,12 @@ server.
 | `server/`   | Django project (`iki_server`): REST API, worker API, MCP server      |
 | `cli/`      | The `iki` command-line tool (`iki_cli`)                              |
 | `spec/`     | The versioned plugin specs (JSON Schemas), their validator, UCUM     |
+| `codegen/`  | Compiles plugin manifests into Django apps (`iki_codegen`)           |
 | `web/`      | React host app and the `@ikisci/*` TypeScript packages               |
 | `worker/`   | Rust workspace: the `iki-worker` agent and `iki-protocol` wire types |
 | `docs/adr/` | Architecture Decision Records                                        |
 
-More directories (`codegen/`, `plugins/`, `sdk/python/`) arrive
+More directories (`plugins/`, `sdk/python/`) arrive
 as the features that need them land.
 
 ## Development

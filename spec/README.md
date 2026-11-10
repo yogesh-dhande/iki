@@ -25,6 +25,7 @@ plugin.yaml          # kind: Plugin — exactly one, at the root
 types/               # kind: EntityType and EntityTypeExtension
   protein.yaml       # any number of files, each with one or more documents (---)
   structure.yaml
+migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
 Every manifest starts with `apiVersion: iki/v1` and a `kind`.
@@ -79,7 +80,8 @@ display:
 ### Extensions
 
 A plugin adds fields to another plugin's type with an extension. The fields
-live in the extending plugin's own table (`<plugin>_<type>_ext`).
+live in the extending plugin's own table
+(`structure_prediction__protein_proteinstructure`).
 
 ```yaml
 apiVersion: iki/v1
@@ -97,23 +99,28 @@ plugin, wouldn't have them), can't reuse a name the type already has, and
 
 Every field has a `type`, and may have `label`, `description`, `required`,
 `immutable` (set once, never changed), `computed` (set only by actions),
-`indexed` (a database index for fast filtering and sorting) and `default`.
+`indexed` (a database index for fast filtering and sorting), `default` and
+`removed`.
 
-| Type       | Options                                         | Notes                                                                    |
-| ---------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
-| `string`   | `format`, `pattern`, `min_length`, `max_length` | One line, any length. Indexed strings need `max_length` ≤ 600.           |
-| `text`     | `max_length`                                    | Long text. Not indexable.                                                |
-| `int`      | `min`, `max`                                    | 64-bit.                                                                  |
-| `float`    | `min`, `max`                                    | Double precision.                                                        |
-| `bool`     |                                                 |                                                                          |
-| `enum`     | `values` (required)                             | Letters, digits and `_ . + -`.                                           |
-| `date`     |                                                 | Defaults are written `YYYY-MM-DD`.                                       |
-| `datetime` |                                                 | Always with a time zone. No default.                                     |
-| `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.             |
-| `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).        |
-| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `core.Entity` for any.     |
-| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists. |
-| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.   |
+A field is never deleted, because its history is kept. To stop using one,
+mark it `removed: true`: its column is dropped, and its values stay in the
+type's history. Identity fields can't be removed.
+
+| Type       | Options                                         | Notes                                                                      |
+| ---------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
+| `string`   | `format`, `pattern`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600. |
+| `text`     | `max_length`                                    | Long text. Not indexable.                                                  |
+| `int`      | `min`, `max`                                    | 64-bit.                                                                    |
+| `float`    | `min`, `max`                                    | Double precision.                                                          |
+| `bool`     |                                                 |                                                                            |
+| `enum`     | `values` (required)                             | Letters, digits and `_ . + -`.                                             |
+| `date`     |                                                 | Defaults are written `YYYY-MM-DD`.                                         |
+| `datetime` |                                                 | Always with a time zone. No default.                                       |
+| `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.               |
+| `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).          |
+| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `core.Entity` for any.       |
+| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.   |
+| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.     |
 
 String formats, checked by the database too: `dna_sequence`,
 `rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email` and
@@ -123,8 +130,25 @@ quantifiers.
 
 Field names are lower case with single underscores. Names every entity
 already has (`id`, `hrid`, `type`, `project`, `created_at`, `revision`,
-`archived_at` and the like), Python keywords and Django model methods are
-reserved. Generated table names must fit PostgreSQL's 63 characters.
+`archived_at` and the like), names ending in `_ptr`, Python keywords and
+Django model methods are reserved.
+
+## Tables
+
+`iki plugin build` compiles a plugin into a Django app with these tables
+(see [ADR 0033](../docs/adr/0033-plugin-codegen-and-migrations.md)). Every
+name must fit PostgreSQL's 63 characters.
+
+| Table                                            | Holds                                                     |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| `protein_protein`                                | `protein.Protein`'s own fields, keyed by `entity_id`      |
+| `protein_protein__history`                       | Its values at each revision, removed fields included      |
+| `protein_proteinstructure__chains`               | A list of references or files: one row per item, in order |
+| `structure_prediction__protein_proteinstructure` | The fields `structure_prediction` adds to that type       |
+
+Other lists are arrays. PostgreSQL checks every rule it can (formats,
+patterns, enums, bounds, lengths, list sizes) with CHECK constraints, so bad
+data is refused however it is written.
 
 ## Units
 
@@ -194,7 +218,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                     | Names                           |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                  | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                | HRIDs                           |
-| `unknown-field`, `identity-type`, `identity-not-fixed`, `on-duplicate-without-identity`                                                                                    | Identities                      |
+| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                | Identities                      |
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                        | Field options                   |
 | `unsupported-index`, `index-needs-max-length`                                                                                                                              | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                    | Units                           |

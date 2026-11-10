@@ -61,8 +61,9 @@ docker_build(
     dockerfile='server/Dockerfile',
     only=[
         'pyproject.toml', 'uv.lock', 'LICENSE', 'NOTICE', 'server', 'cli',
-        # Only what resolving the uv workspace needs from the spec package.
+        # Only what resolving the uv workspace needs from the spec and codegen packages.
         'spec/pyproject.toml', 'spec/README.md', 'spec/LICENSE', 'spec/NOTICE',
+        'codegen/pyproject.toml', 'codegen/README.md', 'codegen/LICENSE', 'codegen/NOTICE',
         # The web app, built in the image's own stage.
         'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'web',
     ],

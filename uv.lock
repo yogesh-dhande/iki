@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "iki-cli",
+    "iki-codegen",
     "iki-server",
     "iki-spec",
     "iki-workspace",
@@ -845,6 +846,23 @@ name = "iki-cli"
 version = "0.1.0.dev0"
 source = { editable = "cli" }
 dependencies = [
+    { name = "iki-codegen" },
+    { name = "iki-server" },
+    { name = "iki-spec" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "iki-codegen", editable = "codegen" },
+    { name = "iki-server", editable = "server" },
+    { name = "iki-spec", editable = "spec" },
+]
+
+[[package]]
+name = "iki-codegen"
+version = "0.1.0.dev0"
+source = { editable = "codegen" }
+dependencies = [
     { name = "iki-spec" },
 ]
 
@@ -927,6 +945,7 @@ source = { virtual = "." }
 dev = [
     { name = "django-stubs", extra = ["compatible-mypy"] },
     { name = "iki-cli" },
+    { name = "iki-codegen" },
     { name = "iki-server" },
     { name = "iki-spec" },
     { name = "mypy" },
@@ -949,6 +968,7 @@ dev = [
 dev = [
     { name = "django-stubs", extras = ["compatible-mypy"], specifier = ">=6.1.2" },
     { name = "iki-cli", editable = "cli" },
+    { name = "iki-codegen", editable = "codegen" },
     { name = "iki-server", editable = "server" },
     { name = "iki-spec", editable = "spec" },
     { name = "mypy", specifier = ">=2.4.1" },
