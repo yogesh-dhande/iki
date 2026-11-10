@@ -12,14 +12,18 @@ from iki_server.audit import log as audit
 
 
 def end_sessions_of_inactive_users(instance: User, **_: Any) -> None:  # noqa: ANN401
-    """Deactivating a user ends every session they have, at once."""
+    """Deactivating a user (or service account) ends every session and OAuth token
+    they have, at once, however they were deactivated."""
     if not instance.is_active:
+        from iki_server.oauth.services import revoke_user_tokens
+
         ended, _ = UserSession.objects.filter(user=instance).delete()
-        if ended:
+        tokens = revoke_user_tokens(instance)
+        if ended or tokens:
             audit.record(
                 "user.sessions_revoked",
                 target=instance,
-                data={"sessions": ended, "reason": "deactivated"},
+                data={"sessions": ended, "tokens_revoked": tokens, "reason": "deactivated"},
             )
 
 

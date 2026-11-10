@@ -147,7 +147,7 @@ def test_maintenance_clears_expired_sessions_and_old_rate_limit_windows(
     )
     out = StringIO()
     call_command("maintain", stdout=out)
-    assert f"Deleted {expired} expired session(s) and 1 old rate-limit window(s)." in out.getvalue()
+    assert f"Deleted {expired} expired session(s), 1 old rate-limit window(s)" in out.getvalue()
     assert not UserSession.objects.exists()
     keys = set(RateLimitCounter.objects.values_list("key", flat=True))
     assert "test:1.2.3.4" in keys and "test:old" not in keys

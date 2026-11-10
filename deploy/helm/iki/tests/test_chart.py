@@ -270,6 +270,46 @@ def test_api_rate_limit_is_configurable() -> None:
         assert env["IKI_API_RATE_LIMIT_PER_MINUTE"] == "1200", name
 
 
+def test_web_keeps_idle_connections_longer_than_load_balancers_do() -> None:
+    (web,) = [d for d in by_kind(manifests(), "Deployment") if d["metadata"]["name"] == "iki-web"]
+    env = {
+        e["name"]: e.get("value") for e in web["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
+    assert int(env["IKI_KEEP_ALIVE_SECONDS"]) > 60
+
+
+def test_oauth_settings_reach_every_container() -> None:
+    values = {"oauth": {"accessTokenMinutes": 15, "refreshTokenDays": 7}}
+    for name, spec in pod_specs(manifests(values)):
+        env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert env["IKI_OAUTH_ACCESS_TOKEN_MINUTES"] == "15", name
+        assert env["IKI_OAUTH_REFRESH_TOKEN_DAYS"] == "7", name
+        assert env["IKI_OAUTH_CLIENT_METADATA_DOCUMENTS"] == "false", name
+
+
+def test_oauth_token_lifetimes_are_bounded() -> None:
+    error = render({"oauth": {"accessTokenMinutes": 100000}}, ok=False)
+    assert "accessTokenMinutes" in str(error)
+
+
+def test_client_metadata_documents_open_public_https_for_web_pods_only_when_on() -> None:
+    def policy(docs: list[Manifest]) -> list[Manifest]:
+        return [
+            p
+            for p in by_kind(docs, "NetworkPolicy")
+            if p["metadata"]["name"] == "iki-web-client-metadata"
+        ]
+
+    assert not policy(manifests())
+    (on,) = policy(manifests({"oauth": {"clientMetadataDocuments": True}}))
+    assert on["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "web"
+    (rule,) = on["spec"]["egress"]
+    assert rule["ports"] == [{"protocol": "TCP", "port": 443}]
+    v4, v6 = (peer["ipBlock"] for peer in rule["to"])
+    assert "169.254.0.0/16" in v4["except"] and "10.0.0.0/8" in v4["except"]
+    assert "fc00::/7" in v6["except"]
+
+
 def test_encryption_keys_and_public_url_reach_every_container() -> None:
     for name, pod in pod_specs(manifests()):
         for container in pod.get("initContainers", []) + pod["containers"]:

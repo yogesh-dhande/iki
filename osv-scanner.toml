@@ -78,3 +78,14 @@ license.ignore = true
 name = "psycopg-pool"
 ecosystem = "PyPI"
 license.ignore = true
+
+# jwcrypto (LGPL-3.0-or-later) is a required dependency of
+# django-oauth-toolkit, which imports it unconditionally for OpenID Connect
+# and JWT support (Iki turns neither on). As with psycopg, Iki uses it
+# unmodified as a dynamically imported library and images ship its license
+# text. This exception covers jwcrypto alone.
+
+[[PackageOverrides]]
+name = "jwcrypto"
+ecosystem = "PyPI"
+license.ignore = true

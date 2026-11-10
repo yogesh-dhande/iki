@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Allow {{ client.display_name|default:"an app" }}?{% endblock %}
+{% block content %}
+{% if error %}
+<div class="page-header"><h1>This sign-in link doesn’t work</h1></div>
+<div class="alert alert-error" role="alert">
+  <p>{{ error.description|default:error.error }}</p>
+</div>
+<p>Go back to the app and start signing in again. If it keeps happening, ask your Iki administrator.</p>
+{% else %}
+<div class="page-header"><h1>Allow {{ client.display_name }} to use Iki for you?</h1></div>
+{% include "oauth/_client.html" %}
+{% include "web/_errors.html" %}
+<form method="post" data-busy-form>
+  {% csrf_token %}
+  {% for field in form.hidden_fields %}{{ field }}{% endfor %}
+  {% include "oauth/_choice.html" %}
+  <div class="actions">
+    <button class="button button-primary" type="submit" name="allow" value="Authorize" data-busy-text="Allowing…">Allow</button>
+    <button class="button" type="submit" formnovalidate>Cancel</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

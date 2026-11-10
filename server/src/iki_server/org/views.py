@@ -9,6 +9,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
@@ -20,6 +21,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from iki_server.accounts import service_accounts as service_account_services
 from iki_server.accounts.models import IdentityProvider, Kind, User
+from iki_server.oauth import services as oauth_services
+from iki_server.oauth.forms import CredentialForm
 from iki_server.org import permissions, services
 from iki_server.org.forms import (
     AddPersonForm,
@@ -523,10 +526,28 @@ def service_account(request: HttpRequest, user_id: str) -> HttpResponse:
     roles_form = ServiceAccountRolesForm(
         request.POST if action == "roles" else None, initial={"roles": sorted(current)}
     )
+    credential_form = CredentialForm(request.POST if action == "create_credential" else None)
+    new_credential = None
     if action in ("deactivate", "activate"):
         services.set_active(account, action == "activate", by=me)
         verb = "Reactivated" if action == "activate" else "Deactivated"
         messages.success(request, f"{verb} {account.name}.")
+        return redirect(request.path)
+    if action == "create_credential" and credential_form.is_valid():
+        # The secret is shown on this response only; never stored in plain text.
+        new_credential = oauth_services.create_credential(
+            account,
+            credential_form.cleaned_data["name"],
+            list(credential_form.cleaned_data["scopes"]),
+            by=me,
+        )
+        credential_form = CredentialForm()
+    if action == "revoke_credential":
+        credential = get_object_or_404(
+            oauth_services.credentials(account), pk=request.POST.get("credential")
+        )
+        oauth_services.revoke_credential(credential, by=me)
+        messages.success(request, f"Revoked {credential.display_name()}.")
         return redirect(request.path)
     if action == "save" and form.is_valid():
         try:
@@ -559,5 +580,10 @@ def service_account(request: HttpRequest, user_id: str) -> HttpResponse:
             "form": form,
             "roles_form": roles_form,
             "grants": grants,
+            "credential_form": credential_form,
+            "new_credential": new_credential,
+            "credentials": oauth_services.credentials(account),
+            "token_url": request.build_absolute_uri("/oauth/token/"),
+            "token_minutes": settings.OAUTH2_PROVIDER["ACCESS_TOKEN_EXPIRE_SECONDS"] // 60,  # type: ignore[operator]
         },
     )

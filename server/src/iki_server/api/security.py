@@ -1,10 +1,13 @@
 """Who is calling the API, and how often they may.
 
-For now the API accepts the browser session, which Iki's own pages use.
-Unsafe methods need the CSRF token, as forms do: pages carry it in a
-``csrf-token`` meta tag (the cookie itself is HttpOnly). OAuth access
-tokens, for the SDK, the CLI, MCP clients and service accounts, come next
-(ADR 0027).
+Two ways in:
+
+- **OAuth access tokens** (ADR 0028), in ``Authorization: Bearer``, for the
+  SDK, the CLI, MCP clients and service accounts. A token can do only what
+  both its scopes (and project choice) and its user's roles allow.
+- **The browser session**, which Iki's own pages use. Unsafe methods need
+  the CSRF token, as forms do: pages carry it in a ``csrf-token`` meta tag
+  (the cookie itself is HttpOnly).
 
 Every caller is rate limited: signed-in callers per account, others per
 client address.
@@ -14,10 +17,13 @@ from typing import Any
 
 from django.conf import settings
 from django.http import HttpRequest
-from ninja.security import APIKeyCookie
+from ninja.security import APIKeyCookie, HttpBearer
 from ninja.utils import check_csrf
+from oauth2_provider.oauth2_backends import get_oauthlib_core
 
 from iki_server.api.problems import Problem
+from iki_server.audit import log as audit
+from iki_server.org import permissions
 from iki_server.web.ratelimit import Decision, RateLimiter, client_key
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -41,6 +47,62 @@ def rate_limit_headers(decision: Decision) -> dict[str, str]:
         "RateLimit-Policy": f'"{POLICY}";q={decision.limit};w=60',
         "RateLimit": f'"{POLICY}";r={decision.remaining};t={reset}',
     }
+
+
+def bearer_challenge(request: HttpRequest, error: str | None = None, **params: str) -> str:
+    """A WWW-Authenticate challenge pointing at the protected resource metadata (RFC 9728)."""
+    metadata = request.build_absolute_uri("/.well-known/oauth-protected-resource")
+    parts = ['realm="iki"', f'resource_metadata="{metadata}"']
+    if error:
+        parts.append(f'error="{error}"')
+    parts += [f'{key}="{value}"' for key, value in params.items()]
+    return "Bearer " + ", ".join(parts)
+
+
+def _invalid_token(request: HttpRequest) -> Problem:
+    return Problem(
+        401,
+        "The access token is invalid, expired or revoked. Get a new one.",
+        code="invalid_token",
+        headers={"WWW-Authenticate": bearer_challenge(request, "invalid_token")},
+    )
+
+
+class BearerAuth(HttpBearer):
+    """OAuth access tokens issued by Iki's authorization server."""
+
+    def authenticate(self, request: HttpRequest, token: str) -> Any:  # noqa: ANN401
+        from iki_server.oauth.models import Consent
+
+        valid, oauth_request = get_oauthlib_core().verify_request(request, scopes=[])
+        if not valid or oauth_request is None:
+            _limit(request, RateLimiter("api_anonymous", ANONYMOUS_LIMIT), client_key(request))
+            raise _invalid_token(request)
+        client = oauth_request.client
+        user = oauth_request.user or client.service_account
+        if user is None or not user.is_active:
+            raise _invalid_token(request)
+        scopes = frozenset(oauth_request.scopes)
+        projects = None
+        if client.service_account_id is None:
+            consent = (
+                Consent.objects.filter(user=user, client=client)
+                .prefetch_related("projects")
+                .first()
+            )
+            if consent is None:
+                raise _invalid_token(request)
+            # A narrowed consent applies to tokens issued before it changed.
+            scopes &= frozenset(consent.scope_list)
+            if not consent.all_projects:
+                projects = frozenset(p.pk for p in consent.projects.all())
+        permissions.limit_to(user, permissions.TokenLimits(scopes=scopes, projects=projects))
+        request.iki_oauth_client = client  # type: ignore[attr-defined]
+        audit.note_oauth_client(f"{client.display_name()} ({client.client_id[:40]})")
+        _limit(
+            request, RateLimiter(POLICY, settings.IKI_API_RATE_LIMIT_PER_MINUTE), f"user:{user.pk}"
+        )
+        return user
 
 
 class SessionAuth(APIKeyCookie):

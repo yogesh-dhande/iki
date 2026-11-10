@@ -23,6 +23,8 @@ class Installation(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     organization_name = models.CharField(max_length=100, blank=True)
     setup_completed_at = models.DateTimeField(null=True, blank=True)
+    #: New self-registered OAuth clients wait for an Org Admin's approval (ADR 0028).
+    require_oauth_app_approval = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

@@ -49,6 +49,8 @@ spec:
             {{- include "iki.env" . | nindent 12 }}
             - name: IKI_FORWARDED_ALLOW_IPS
               value: {{ .Values.forwardedAllowIps | quote }}
+            - name: IKI_KEEP_ALIVE_SECONDS
+              value: {{ .Values.web.keepAliveSeconds | quote }}
           ports:
             - name: http
               containerPort: 8000

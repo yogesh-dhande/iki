@@ -6,6 +6,8 @@
 Apache-2.0
 BlueOak-1.0.0
 BSD-2-Clause
+# BSD-2-Clause plus the FreeBSD disclaimer that views are the authors' own.
+BSD-2-Clause-Views
 BSD-3-Clause
 ISC
 MIT

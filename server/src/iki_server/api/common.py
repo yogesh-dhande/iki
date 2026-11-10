@@ -20,8 +20,18 @@ def caller(request: HttpRequest) -> User:
 
 
 def require(user: User, action: Action, target: Team | Project | None = None) -> None:
-    if not permissions.can(user, action, target):
-        raise Problem(403)
+    if permissions.can(user, action, target):
+        return
+    limits = permissions.token_limits(user)
+    needed = permissions.ACTION_SCOPES[action]
+    if limits is not None and needed not in limits.scopes:
+        raise Problem(
+            403,
+            f"This needs the {needed} scope, which your token doesn’t have.",
+            code="insufficient_scope",
+            headers={"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{needed}"'},
+        )
+    raise Problem(403)
 
 
 def project(user: User, project_id: UUID, action: Action = Action.PROJECT_SEE) -> Project:

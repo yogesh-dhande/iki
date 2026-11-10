@@ -18,5 +18,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("accounts/", include(accounts.allauth_urlpatterns)),
     path("scim/v2/", include("iki_server.scim.urls")),
     path("api/v1/", api_v1.urls),
+    path("", include("iki_server.oauth.urls")),
+    path("", include("iki_server.oauth.page_urls")),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

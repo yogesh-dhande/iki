@@ -74,6 +74,28 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
 {{- end }}
+{{- if and .Values.oauth.clientMetadataDocuments $egress.clientMetadataDocuments.to }}
+---
+# Only web pods fetch apps' Client ID Metadata Documents.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" $ }}-web-client-metadata
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" $ "component" "web") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- toYaml $egress.clientMetadataDocuments.to | nindent 8 }}
+      ports:
+        {{- range $egress.clientMetadataDocuments.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
 {{- with .Values.networkPolicy.ingressFrom }}
 ---
 apiVersion: networking.k8s.io/v1

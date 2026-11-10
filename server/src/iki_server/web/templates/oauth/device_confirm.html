@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Allow {{ client.display_name }}?{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Allow {{ client.display_name }} to use Iki for you?</h1></div>
+{% include "oauth/_client.html" %}
+<p>Check that your terminal shows <code>{{ grant.user_code }}</code>.</p>
+{% include "web/_errors.html" %}
+<form method="post" data-busy-form>
+  {% csrf_token %}
+  {% include "oauth/_choice.html" %}
+  <div class="actions">
+    <button class="button button-primary" type="submit" name="action" value="allow" data-busy-text="Allowing…">Allow</button>
+    <button class="button" type="submit" name="action" value="deny" formnovalidate>Deny</button>
+  </div>
+</form>
+{% endblock %}

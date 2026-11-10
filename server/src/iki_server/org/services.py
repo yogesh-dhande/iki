@@ -131,16 +131,19 @@ def set_active(user: User, active: bool, *, by: User) -> None:
 
 
 def end_sessions(user: User, *, by: User) -> int:
-    """Signs someone out everywhere, at once. They can sign in again."""
+    """Signs someone out everywhere, at once: browser sessions and OAuth tokens.
+    They can sign in again."""
     from iki_server.accounts.models import UserSession
+    from iki_server.oauth.services import revoke_user_tokens
 
     with transaction.atomic():
         ended, _ = UserSession.objects.filter(user=user).delete()
+        tokens = revoke_user_tokens(user)
         audit.record(
             "user.sessions_revoked",
             actor=by,
             target=user,
-            data={"sessions": ended, "reason": "signed_out_by_admin"},
+            data={"sessions": ended, "tokens_revoked": tokens, "reason": "signed_out_by_admin"},
         )
     return ended
 

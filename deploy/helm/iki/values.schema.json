@@ -121,6 +121,24 @@
         }
       }
     },
+    "oauth": {
+      "type": "object",
+      "properties": {
+        "accessTokenMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 1440
+        },
+        "refreshTokenDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        },
+        "clientMetadataDocuments": {
+          "type": "boolean"
+        }
+      }
+    },
     "database": {
       "type": "object",
       "required": ["existingSecret", "uriKey", "sslmode", "migrator"],
@@ -193,6 +211,11 @@
         "replicas": {
           "type": "integer",
           "minimum": 1
+        },
+        "keepAliveSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 3600
         }
       }
     },

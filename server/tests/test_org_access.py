@@ -81,6 +81,46 @@ def service_account_url(**data: str) -> Callable[[World], tuple[str, dict[str, s
     return build
 
 
+def app_url(suffix: str = "", **data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
+    """A self-registered OAuth app, waiting for approval."""
+
+    def build(w: World) -> tuple[str, dict[str, str]]:
+        from iki_server.oauth.models import Client
+
+        client = Client.objects.create(
+            name="Notebook",
+            client_type=Client.CLIENT_PUBLIC,
+            authorization_grant_type=Client.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://notebook.example.com/callback",
+            registration_source=Client.RegistrationSource.DCR,
+        )
+        return suffix.format(pk=client.pk), data
+
+    return build
+
+
+def device_grant_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
+    """A device code the viewer has entered and not yet approved."""
+
+    def build(w: World) -> tuple[str, dict[str, str]]:
+        from datetime import timedelta
+
+        from django.utils import timezone
+        from oauth2_provider.models import get_device_grant_model
+
+        grant = get_device_grant_model().objects.create(
+            client_id="iki-cli",
+            device_code="device-code-for-the-matrix",
+            user_code="MATRIX01",
+            scope="read",
+            expires=timezone.now() + timedelta(minutes=10),
+            user=w.users["viewer"],
+        )
+        return f"/oauth/device/{grant.pk}/", data
+
+    return build
+
+
 CASES: list[Case] = [
     ("project_list", "GET", lambda w: ("/projects/", {}), row(OK)),
     ("project_new", "GET", lambda w: ("/projects/new/", {}), row(OK)),
@@ -234,6 +274,34 @@ CASES: list[Case] = [
         row(FORBIDDEN, org_admin=DONE),
     ),
     ("service_account", "GET", service_account_url(), row(FORBIDDEN, org_admin=OK)),
+    # OAuth: apps people sign in to, and the device flow.
+    ("org_apps", "GET", lambda w: ("/settings/apps/", {}), row(FORBIDDEN, org_admin=OK)),
+    (
+        "org_apps",
+        "POST",
+        lambda w: ("/settings/apps/", {"action": "policy", "require_approval": "on"}),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
+    ("org_app", "GET", app_url("/settings/apps/{pk}/"), row(FORBIDDEN, org_admin=OK)),
+    (
+        "org_app",
+        "POST",
+        app_url("/settings/apps/{pk}/", action="approve"),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
+    # Anyone may ask; the answer is the "not approved yet" page.
+    (
+        "request_approval",
+        "POST",
+        app_url("/oauth/apps/{pk}/request-approval/"),
+        row(FORBIDDEN),
+    ),
+    ("my_apps", "GET", lambda w: ("/account/apps/", {}), row(OK)),
+    ("my_apps", "POST", lambda w: ("/account/apps/", {}), row(OK)),
+    ("device", "GET", lambda w: ("/oauth/device/", {}), row(OK)),
+    ("device", "POST", lambda w: ("/oauth/device/", {"user_code": "NOPE"}), row(OK)),
+    ("device_confirm", "GET", device_grant_url(), row(HIDDEN, viewer=OK)),
+    ("device_confirm", "POST", device_grant_url(action="deny"), row(HIDDEN, viewer=OK)),
     (
         "service_account",
         "POST",
@@ -245,7 +313,7 @@ CASES: list[Case] = [
 
 def test_every_org_audit_and_settings_url_is_in_the_matrix() -> None:
     names = set()
-    for namespace in ("org", "audit", "identity"):
+    for namespace in ("org", "audit", "identity", "oauth"):
         _, resolver = get_resolver().namespace_dict[namespace]
         names |= {name for name in resolver.reverse_dict if isinstance(name, str)}
     assert names == {case[0] for case in CASES}

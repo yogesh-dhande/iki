@@ -60,8 +60,22 @@ scripts, pipelines and instruments whose work shouldn't be done in a
 person's name. Each gets an address under `service-accounts.iki.invalid`;
 project Admins add it to projects with that address, like a person. Service
 accounts can be Auditors or Compute Admins but not Org Admins, and don't
-join teams. They get credentials (OAuth client credentials) with the OAuth
-server (ADR 0027).
+join teams. On a service account's page, Org Admins create credentials
+(OAuth client credentials) with fixed scopes; the secret is shown once
+(ADR 0027, ADR 0028).
+
+### OAuth apps
+
+Iki is an OAuth 2.1 server (ADR 0028). The CLI and SDK sign in with the
+device flow; MCP clients and other tools register themselves and use the
+authorization code flow with PKCE. Clients find everything from
+`/.well-known/oauth-authorization-server`.
+
+New self-registered apps wait for an Org Admin's approval under **Settings
+→ Apps**, where Org Admins also block apps and can turn approval off.
+People choose which scopes and projects each app gets, and revoke apps
+under **Account → Apps** (the link on their name). Deactivating someone
+ends all their tokens.
 
 ### Database roles
 
@@ -84,33 +98,37 @@ The container image (`server/Dockerfile`, built from the repo root) runs
 Everything comes from environment variables. Required values have no default,
 and the server refuses to start without them.
 
-| Variable                             | Default       | Meaning                                                                |
-| ------------------------------------ | ------------- | ---------------------------------------------------------------------- |
-| `IKI_SECRET_KEY`                     | required      | Django secret key                                                      |
-| `IKI_ALLOWED_HOSTS`                  | required      | Comma-separated host names the server answers to                       |
-| `IKI_ENVIRONMENT`                    | required      | Deployment name (`dev`, `prod`, …), attached to logs/traces            |
-| `IKI_ENCRYPTION_KEYS`                | required      | Comma-separated Fernet keys for secrets at rest; first encrypts        |
-| `IKI_PUBLIC_URL`                     | unset         | Address people use, e.g. `https://iki.example.com`; for setup links    |
-| `IKI_DATABASE_URL`                   | required      | `postgres://user:pass@host:port/db`                                    |
-| `IKI_APP_DATABASE_URL`               | unset         | Migrate Job only: the app role's URL, to name the role to grant        |
-| `IKI_DB_APP_ROLE`                    | unset         | Migrate Job only: the app role's name, instead of the URL              |
-| `IKI_DB_REQUIRE_LEAST_PRIVILEGE`     | `true`        | Readiness fails if the database role has more power than the app needs |
-| `IKI_DB_SSLMODE`                     | `verify-full` | libpq `sslmode`                                                        |
-| `IKI_DB_SSLROOTCERT`                 | unset         | CA bundle used to verify the database certificate                      |
-| `IKI_DB_POOL`                        | `true`        | Use psycopg's connection pool                                          |
-| `IKI_DB_POOL_MIN_SIZE` / `_MAX_SIZE` | `2` / `10`    | Pool size per process                                                  |
-| `IKI_HTTPS`                          | `true`        | Clients use HTTPS: redirects, secure cookies, HSTS                     |
-| `IKI_FORWARDED_ALLOW_IPS`            | `127.0.0.1`   | Proxies trusted for `X-Forwarded-*` headers                            |
-| `IKI_CSRF_TRUSTED_ORIGINS`           | unset         | Extra origins allowed to submit forms (comma-separated)                |
-| `IKI_SESSION_IDLE_TIMEOUT_MINUTES`   | `480`         | Sign out after this long without activity                              |
-| `IKI_SESSION_MAX_AGE_HOURS`          | `24`          | Sign out this long after signing in, active or not                     |
-| `IKI_API_RATE_LIMIT_PER_MINUTE`      | `600`         | `/api/v1` requests one caller may make per minute                      |
-| `IKI_STATIC_ROOT`                    | `.static`     | Collected static files (`/opt/iki/static` in the image)                |
-| `IKI_DEBUG`                          | `false`       | Django debug mode. Never in production                                 |
-| `IKI_LOG_LEVEL`                      | `INFO`        | Root log level                                                         |
-| `IKI_LOG_FORMAT`                     | `json`        | `json` or `console`                                                    |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`        | unset         | OTLP/HTTP collector. Unset means traces are not exported               |
-| `OTEL_*`                             |               | Any standard OpenTelemetry SDK variable                                |
+| Variable                              | Default       | Meaning                                                                           |
+| ------------------------------------- | ------------- | --------------------------------------------------------------------------------- |
+| `IKI_SECRET_KEY`                      | required      | Django secret key                                                                 |
+| `IKI_ALLOWED_HOSTS`                   | required      | Comma-separated host names the server answers to                                  |
+| `IKI_ENVIRONMENT`                     | required      | Deployment name (`dev`, `prod`, …), attached to logs/traces                       |
+| `IKI_ENCRYPTION_KEYS`                 | required      | Comma-separated Fernet keys for secrets at rest; first encrypts                   |
+| `IKI_PUBLIC_URL`                      | unset         | Address people use, e.g. `https://iki.example.com`; for setup links               |
+| `IKI_DATABASE_URL`                    | required      | `postgres://user:pass@host:port/db`                                               |
+| `IKI_APP_DATABASE_URL`                | unset         | Migrate Job only: the app role's URL, to name the role to grant                   |
+| `IKI_DB_APP_ROLE`                     | unset         | Migrate Job only: the app role's name, instead of the URL                         |
+| `IKI_DB_REQUIRE_LEAST_PRIVILEGE`      | `true`        | Readiness fails if the database role has more power than the app needs            |
+| `IKI_DB_SSLMODE`                      | `verify-full` | libpq `sslmode`                                                                   |
+| `IKI_DB_SSLROOTCERT`                  | unset         | CA bundle used to verify the database certificate                                 |
+| `IKI_DB_POOL`                         | `true`        | Use psycopg's connection pool                                                     |
+| `IKI_DB_POOL_MIN_SIZE` / `_MAX_SIZE`  | `2` / `10`    | Pool size per process                                                             |
+| `IKI_HTTPS`                           | `true`        | Clients use HTTPS: redirects, secure cookies, HSTS                                |
+| `IKI_FORWARDED_ALLOW_IPS`             | `127.0.0.1`   | Proxies trusted for `X-Forwarded-*` headers                                       |
+| `IKI_KEEP_ALIVE_SECONDS`              | `75`          | Idle connections stay open this long; keep above the load balancer's idle timeout |
+| `IKI_CSRF_TRUSTED_ORIGINS`            | unset         | Extra origins allowed to submit forms (comma-separated)                           |
+| `IKI_SESSION_IDLE_TIMEOUT_MINUTES`    | `480`         | Sign out after this long without activity                                         |
+| `IKI_SESSION_MAX_AGE_HOURS`           | `24`          | Sign out this long after signing in, active or not                                |
+| `IKI_API_RATE_LIMIT_PER_MINUTE`       | `600`         | `/api/v1` requests one caller may make per minute                                 |
+| `IKI_OAUTH_ACCESS_TOKEN_MINUTES`      | `60`          | OAuth access token lifetime                                                       |
+| `IKI_OAUTH_REFRESH_TOKEN_DAYS`        | `30`          | OAuth refresh token lifetime; each use replaces it                                |
+| `IKI_OAUTH_CLIENT_METADATA_DOCUMENTS` | `false`       | Fetch apps' Client ID Metadata Documents (needs internet egress)                  |
+| `IKI_STATIC_ROOT`                     | `.static`     | Collected static files (`/opt/iki/static` in the image)                           |
+| `IKI_DEBUG`                           | `false`       | Django debug mode. Never in production                                            |
+| `IKI_LOG_LEVEL`                       | `INFO`        | Root log level                                                                    |
+| `IKI_LOG_FORMAT`                      | `json`        | `json` or `console`                                                               |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`         | unset         | OTLP/HTTP collector. Unset means traces are not exported                          |
+| `OTEL_*`                              |               | Any standard OpenTelemetry SDK variable                                           |
 
 Generate an encryption key with:
 
@@ -127,9 +145,11 @@ The API lives at `/api/v1` (ADR 0027), described by the OpenAPI document at
 `/api/v1/openapi.json`. Today it covers you (`/me`), people and their org
 roles, service accounts, teams, projects and project access.
 
-- **Authentication:** the browser session, with the CSRF token (from the
-  page's `csrf-token` meta tag) in `X-CSRFToken` for unsafe methods. OAuth
-  access tokens come with the OAuth server.
+- **Authentication:** an OAuth access token (`Authorization: Bearer ...`),
+  or the browser session with the CSRF token (from the page's `csrf-token`
+  meta tag) in `X-CSRFToken` for unsafe methods. A token can do what both
+  its scopes and its user's roles allow; a missing scope answers 403 with
+  code `insufficient_scope`.
 - **Errors:** RFC 9457 problem details (`application/problem+json`) with a
   stable `code`, and the invalid fields in `errors`.
 - **Lists:** `?limit=` (1–100, default 50) and `?cursor=` from the previous
@@ -137,7 +157,7 @@ roles, service accounts, teams, projects and project access.
 - **Rate limits:** per caller, reported in the `RateLimit` and
   `RateLimit-Policy` headers; over the limit answers 429 with `Retry-After`.
 - **Authorization:** the same rules as the web pages. Changes are audited
-  with `via=api`.
+  with `via=api`, and with the OAuth client's name when a token made them.
 
 ## Health checks
 

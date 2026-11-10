@@ -310,7 +310,7 @@ def test_an_org_admin_can_sign_anyone_out_everywhere(
     assert path_of(response) == f"/people/{user.pk}/"
     assert not UserSession.objects.filter(user=user).exists()
     event = AuditEvent.objects.get(action="user.sessions_revoked", actor=admin)
-    assert event.data == {"sessions": 2, "reason": "signed_out_by_admin"}
+    assert event.data == {"sessions": 2, "tokens_revoked": 0, "reason": "signed_out_by_admin"}
     assert user.is_active
 
 

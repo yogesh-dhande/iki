@@ -1,0 +1,7 @@
+{# Who is asking: the facts a person needs to judge a client. #}
+<dl class="summary">
+  <dt>App</dt><dd><strong>{{ client.display_name }}</strong>{% if client.first_party %} <span class="badge">Iki</span>{% endif %}</dd>
+  {% if cimd_host %}<dt>Published by</dt><dd><code>{{ cimd_host }}</code></dd>{% endif %}
+  {% if redirect_hosts %}<dt>Returns you to</dt><dd>{% for host in redirect_hosts %}<code>{{ host }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+</dl>
+{% if unverified %}<p class="muted">This app registered itself{% if cimd_host %} from {{ cimd_host }}{% endif %}. Iki can’t confirm who made it, so continue only if you started this from an app you trust.</p>{% endif %}

@@ -1,0 +1,3 @@
+{# A consent's scopes and projects, in words. #}
+{% for scope in consent.scope_list %}<span class="badge">{{ scope }}</span> {% endfor %}
+<span class="row-meta">{% if consent.all_projects %}All projects{% else %}{% for project in consent.projects.all %}{{ project.name }}{% if not forloop.last %}, {% endif %}{% empty %}No projects{% endfor %}{% endif %}</span>

@@ -7,7 +7,8 @@ One directive depends on configuration: ``form-action``. Sign-in forms post
 to Iki, which answers with a redirect to the identity provider, and browsers
 apply ``form-action`` to that redirect too. So HTML responses also allow the
 enabled provider's authorization origin, plus the one being set up when the
-session holds a setup grant.
+session holds a setup grant, and on the OAuth consent page the client's
+redirect origin.
 """
 
 import time
@@ -42,6 +43,8 @@ def form_action_origins(request: HttpRequest) -> list[str]:
     from iki_server.setup import grants
 
     origins = _enabled_provider_origins()
+    # The OAuth consent page posts, then redirects to the client.
+    origins += getattr(request, "iki_form_action_extra", [])
     if getattr(request, "session", None) is not None:
         grant = grants.current(request)
         pending = grant.identity_provider() if grant else None

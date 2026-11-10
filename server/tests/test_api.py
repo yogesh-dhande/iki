@@ -27,7 +27,9 @@ def api_as(world: World, principal: str) -> Api:
 def test_signing_in_is_required_and_said_how() -> None:
     response = Api().get("/me")
     problem(response, 401, "not_authenticated")
-    assert response["WWW-Authenticate"] == 'Bearer realm="iki"'
+    assert response["WWW-Authenticate"] == (
+        'Bearer realm="iki", resource_metadata="https://testserver/.well-known/oauth-protected-resource"'
+    )
 
 
 def test_unknown_paths_and_methods_are_problems_too(world: World) -> None:

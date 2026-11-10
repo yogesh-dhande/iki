@@ -116,6 +116,12 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ .Values.sessions.maxAgeHours | quote }}
 - name: IKI_API_RATE_LIMIT_PER_MINUTE
   value: {{ .Values.api.rateLimitPerMinute | quote }}
+- name: IKI_OAUTH_ACCESS_TOKEN_MINUTES
+  value: {{ .Values.oauth.accessTokenMinutes | quote }}
+- name: IKI_OAUTH_REFRESH_TOKEN_DAYS
+  value: {{ .Values.oauth.refreshTokenDays | quote }}
+- name: IKI_OAUTH_CLIENT_METADATA_DOCUMENTS
+  value: {{ .Values.oauth.clientMetadataDocuments | quote }}
 - name: IKI_DB_SSLMODE
   value: {{ .Values.database.sslmode | quote }}
 {{- if .Values.database.caSecret.name }}

@@ -60,6 +60,19 @@ api:
   # Requests one caller may make to /api/v1 per minute.
   rateLimitPerMinute: 600
 
+oauth:
+  # Access tokens for apps, the CLI and service accounts last this long;
+  # apps then use their refresh token for a new one.
+  accessTokenMinutes: 60
+  # An unused refresh token lasts this long. Each use replaces it, so an app
+  # in daily use stays signed in; one left alone signs in again.
+  refreshTokenDays: 30
+  # Let apps identify themselves with an https URL instead of registering
+  # (Client ID Metadata Documents). Iki then fetches that URL, so web pods
+  # need HTTPS egress to the internet (networkPolicy.egress.clientMetadataDocuments).
+  # Apps still wait for an Org Admin's approval unless that is turned off.
+  clientMetadataDocuments: false
+
 database:
   # required: Secret holding a postgres:// URI for the app's role. That role
   # reads and writes rows but can't change the schema or the audit log. The
@@ -93,6 +106,10 @@ otel:
 
 web:
   replicas: 2
+  # Seconds an idle connection stays open. Must be longer than your load
+  # balancer's idle timeout (AWS ALB and ingress-nginx: 60s; Google Cloud's
+  # load balancers need more than 600s), or it answers 502 now and then.
+  keepAliveSeconds: 75
   resources:
     requests: { cpu: 250m, memory: 384Mi }
     limits: { memory: 768Mi }
@@ -148,6 +165,27 @@ networkPolicy:
     # ranges, link-local (cloud metadata services) and loopback stay blocked.
     # Narrow it to your provider's ranges if you can.
     identityProvider:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+              - ::1/128
+    # Only with oauth.clientMetadataDocuments: web pods fetch apps' metadata
+    # documents from their https URLs. Public addresses only, as above; Iki
+    # also refuses URLs that resolve to private addresses.
+    clientMetadataDocuments:
       ports: [443]
       to:
         - ipBlock:

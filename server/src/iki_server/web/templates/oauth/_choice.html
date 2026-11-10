@@ -1,0 +1,9 @@
+{# What to allow: scopes, then projects. #}
+{% include "web/_field.html" with field=form.granted %}
+{% include "web/_field.html" with field=form.access %}
+{% if has_projects %}
+{% include "web/_field.html" with field=form.projects %}
+{% else %}
+<p class="muted">You don’t have a role in any project yet, so for now it can only see what any signed-in person can.</p>
+{% endif %}
+<p class="muted">It can never do more than you can, and you can revoke it at any time under <a href="{% url 'oauth:my_apps' %}">Authorized apps</a>.</p>

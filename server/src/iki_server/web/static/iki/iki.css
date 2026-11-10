@@ -195,6 +195,15 @@ p {
   white-space: nowrap;
 }
 
+a.header-user {
+  text-decoration: none;
+}
+
+a.header-user:hover {
+  color: inherit;
+  text-decoration: underline;
+}
+
 main {
   width: 100%;
   margin: 0 auto;

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Apps{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Apps</h1></div>
+<p class="muted">Apps people sign in to Iki with: the Iki CLI and SDK, and tools such as AI assistants that connect over MCP. Each person chooses what an app may do for them, and it can never do more than they can.</p>
+
+<section class="card">
+  <h2 class="section-title">Approval</h2>
+  <form method="post" data-busy-form>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="policy">
+    <label class="choice"><input type="checkbox" name="require_approval"{% if requires_approval %} checked{% endif %}><span>New apps wait for an Org Admin to approve them before anyone can use them</span></label>
+    <p class="field-help">Apps register themselves the first time someone connects one. With approval on, as with GitHub’s OAuth app restrictions, nobody can use an app until it’s approved here. Blocking an app signs everyone out of it.</p>
+    <button class="button" type="submit" data-busy-text="Saving…">Save</button>
+  </form>
+</section>
+
+<section>
+  <h2 class="section-title">Waiting for approval{% if requested_count %} <span class="badge">{{ requested_count }} requested</span>{% endif %}</h2>
+  {% include "oauth/_app_rows.html" with apps=pending empty="No apps are waiting." %}
+</section>
+<section>
+  <h2 class="section-title">Approved</h2>
+  {% include "oauth/_app_rows.html" with apps=approved empty="No apps are approved yet." %}
+</section>
+{% if blocked %}
+<section>
+  <h2 class="section-title">Blocked</h2>
+  {% include "oauth/_app_rows.html" with apps=blocked %}
+</section>
+{% endif %}
+{% endblock %}

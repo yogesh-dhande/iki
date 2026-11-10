@@ -14,7 +14,7 @@ from ninja.errors import AuthenticationError, HttpError, ValidationError
 
 from iki_server.api import me, projects, service_accounts, teams, users
 from iki_server.api.problems import Problem, from_validation, response
-from iki_server.api.security import SessionAuth
+from iki_server.api.security import BearerAuth, SessionAuth
 from iki_server.org.services import Refused
 
 api = NinjaAPI(
@@ -22,7 +22,7 @@ api = NinjaAPI(
     version="1",
     description="Iki's REST API. Errors are RFC 9457 problem details; lists use cursors.",
     urls_namespace="api-v1",
-    auth=SessionAuth(),
+    auth=[BearerAuth(), SessionAuth()],
     docs_url=None,
     openapi_url="/openapi.json",
 )

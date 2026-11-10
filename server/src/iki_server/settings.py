@@ -6,6 +6,7 @@ anything that weakens security (``IKI_DEBUG``, plain HTTP) must be turned on
 explicitly. Required values have no default and fail fast at startup.
 """
 
+import os
 from pathlib import Path
 
 import environ
@@ -46,6 +47,8 @@ INSTALLED_APPS = [
     "iki_server.audit",
     "iki_server.setup",
     "iki_server.scim",
+    "iki_server.oauth",
+    "oauth2_provider",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
@@ -149,6 +152,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 IKI_DB_REQUIRE_LEAST_PRIVILEGE: bool = env.bool("IKI_DB_REQUIRE_LEAST_PRIVILEGE", default=True)
 
 HTTPS: bool = env.bool("IKI_HTTPS", default=True)
+if not HTTPS:
+    # oauthlib refuses plain http unless told otherwise; only local
+    # development runs without HTTPS, and there everything is plain http.
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 SECURE_SSL_REDIRECT = HTTPS
 SECURE_HSTS_SECONDS = 63_072_000 if HTTPS else 0  # two years
 SECURE_HSTS_INCLUDE_SUBDOMAINS = HTTPS
@@ -204,6 +211,70 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.ScryptPasswordHasher"]
 
 #: API requests one caller may make per minute (ADR 0027).
 IKI_API_RATE_LIMIT_PER_MINUTE: int = env.int("IKI_API_RATE_LIMIT_PER_MINUTE", default=600)
+
+# --- OAuth 2.1 server (ADR 0028) ------------------------------------------------
+
+OAUTH2_PROVIDER_APPLICATION_MODEL = "iki_oauth.Client"
+#: Fetch Client ID Metadata Documents from clients' https URLs. Needs egress
+#: to the internet, so the Helm chart turns it on only when asked.
+IKI_OAUTH_CLIENT_METADATA_DOCUMENTS: bool = env.bool(
+    "IKI_OAUTH_CLIENT_METADATA_DOCUMENTS", default=False
+)
+#: DOT's deploy check refuses any "http" in ALLOWED_REDIRECT_URI_SCHEMES, which
+#: would also refuse native apps' loopback callbacks (RFC 8252 §7.3).
+#: iki_server.oauth.redirects allows http only to loopback hosts, at
+#: registration and at every authorization request, which is what §2.1 asks.
+SILENCED_SYSTEM_CHECKS = ["oauth2_provider.E003"]
+OAUTH2_PROVIDER: dict[str, object] = {
+    "SCOPES_BACKEND_CLASS": "iki_server.oauth.scopes.IkiScopes",
+    "OAUTH2_VALIDATOR_CLASS": "iki_server.oauth.validators.IkiValidator",
+    "SCOPES": {},  # IkiScopes supplies them
+    "DEFAULT_SCOPES": [],
+    # Short-lived access tokens; refresh tokens rotate, and reusing an old one
+    # revokes the whole family (RFC 9700 §4.14).
+    "ACCESS_TOKEN_EXPIRE_SECONDS": env.int("IKI_OAUTH_ACCESS_TOKEN_MINUTES", default=60) * 60,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": env.int("IKI_OAUTH_REFRESH_TOKEN_DAYS", default=30) * 86400,
+    "ROTATE_REFRESH_TOKEN": True,
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60,
+    "PKCE_REQUIRED": True,
+    "REQUEST_APPROVAL_PROMPT": "force",
+    # Native apps redirect to http://127.0.0.1:<any port> (RFC 8252 §7.3).
+    "ALLOW_LOCALHOST_LOOPBACK": True,
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["https", "http"],
+    "ALLOW_URI_WILDCARDS": False,
+    "CLIENT_SECRET_GENERATOR_LENGTH": 64,
+    "DEVICE_FLOW_INTERVAL": 5,
+    # IkiValidator.validate_device_code sets the user and scopes, after its checks.
+    "OAUTH_PRE_TOKEN_VALIDATION": [],
+    # RFC 8628 wants an absolute URL; IKI_PUBLIC_URL is required in production.
+    "OAUTH_DEVICE_VERIFICATION_URI": f"{IKI_PUBLIC_URL.rstrip('/')}/oauth/device/",
+    # Every RFC 9700 recommendation, enforced.
+    "COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT": True,
+    "COMPLIANT_BCP_RFC9700_PASSWORD_GRANT": True,
+    "COMPLIANT_BCP_RFC9700_PKCE_METHOD": True,
+    "COMPLIANT_BCP_RFC9700_ACCESS_TOKEN_TRANSPORT": True,
+    "COMPLIANT_BCP_RFC9700_AUTHZ_RESPONSE_ISS": True,
+    "COMPLIANT_BCP_RFC9700_TOKEN_STORAGE": True,
+    "COMPLIANT_BCP_RFC9700_REFRESH_TOKEN": True,
+    "COMPLIANT_BCP_RFC9700_REDIRECT_URI_SCHEME": True,
+    "COMPLIANT_BCP_RFC9700_REDIRECT_URI_MATCHING": True,
+    "COMPLIANT_BCP_RFC9700_PKCE_REQUIRED": True,
+    # Self-registration: anyone may register; an Org Admin approves (iki_server.oauth).
+    "DCR_ENABLED": True,
+    "DCR_REGISTRATION_PERMISSION_CLASSES": ("oauth2_provider.dcr.AllowAllDCRPermission",),
+    "CIMD_ENABLED": IKI_OAUTH_CLIENT_METADATA_DOCUMENTS,
+    "OAUTH2_RESPONSE_TYPES_SUPPORTED": ["code"],
+    "OAUTH2_GRANT_TYPES_SUPPORTED": [
+        "authorization_code",
+        "refresh_token",
+        "client_credentials",
+        "urn:ietf:params:oauth:grant-type:device_code",
+    ],
+    "OAUTH2_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED": ["none", "client_secret_basic"],
+    "OAUTH2_PROTECTED_RESOURCE_BEARER_METHODS_SUPPORTED": ["header"],
+    "OAUTH2_PROTECTED_RESOURCE_NAME": "Iki",
+}
 
 SESSION_ENGINE = "iki_server.accounts.sessions"
 #: Idle timeout. The absolute limit is IKI_SESSION_MAX_AGE_SECONDS.

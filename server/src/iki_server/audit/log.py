@@ -12,6 +12,7 @@ management commands.
 """
 
 import contextlib
+import dataclasses
 from collections.abc import Awaitable, Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -60,6 +61,16 @@ ACTIONS: dict[str, str] = {
     "project.role_granted": "Granted a project role",
     "project.member_removed": "Removed a project member",
     "encryption.rotated": "Re-encrypted stored secrets",
+    "oauth.client_registered": "An app registered itself",
+    "oauth.client_approval_requested": "Asked an Org Admin to approve an app",
+    "oauth.client_approved": "Approved an app",
+    "oauth.client_blocked": "Blocked an app",
+    "oauth.approval_policy_changed": "Changed whether apps need approval",
+    "oauth.consent_granted": "Allowed an app to act for them",
+    "oauth.consent_revoked": "Revoked an app’s access",
+    "oauth.device_approved": "Signed in a device",
+    "oauth.credential_created": "Created service-account credentials",
+    "oauth.credential_revoked": "Revoked service-account credentials",
     "scim.token_created": "Created a SCIM token",
     "scim.token_revoked": "Revoked a SCIM token",
     "scim.group_created": "Identity provider pushed a group",
@@ -76,6 +87,8 @@ class Context:
     client_ip: str | None = None
     #: Names who acted when no person did, e.g. which SCIM token.
     actor_label: str = ""
+    #: The OAuth client the request came through, if any.
+    oauth_client: str = ""
 
 
 _SYSTEM = Context(via=Via.SYSTEM)
@@ -89,6 +102,11 @@ def using(context: Context) -> Iterator[None]:
         yield
     finally:
         _context.reset(token)
+
+
+def note_oauth_client(label: str) -> None:
+    """Marks the rest of this request as made through an OAuth client."""
+    _context.set(dataclasses.replace(_context.get(_SYSTEM), oauth_client=label[:254]))
 
 
 def cli() -> contextlib.AbstractContextManager[None]:
@@ -136,6 +154,7 @@ def record(
         data=data or {},
         request_id=str(structlog.contextvars.get_contextvars().get("request_id", "")),
         client_ip=context.client_ip,
+        oauth_client=context.oauth_client,
     )
     transaction.on_commit(lambda: _emit(event))
     return event
@@ -155,6 +174,7 @@ def _emit(event: AuditEvent) -> None:
         team_id=str(event.team_id) if event.team_id else None,
         data=event.data or None,
         client_ip=event.client_ip,
+        oauth_client=event.oauth_client or None,
     )
 
 

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{% if denied or expired %}Not signed in{% else %}Device signed in{% endif %}{% endblock %}
+{% block content %}
+{% if expired %}
+<div class="page-header"><h1>That code has expired</h1></div>
+<p>Start signing in again from your terminal to get a new code.</p>
+{% elif denied %}
+<div class="page-header"><h1>Denied</h1></div>
+<p>{{ client.display_name }} wasn’t signed in. You can close this page.</p>
+{% else %}
+<div class="page-header"><h1>{{ client.display_name }} is signed in</h1></div>
+<p>Go back to your terminal. You can close this page.</p>
+{% endif %}
+{% endblock %}

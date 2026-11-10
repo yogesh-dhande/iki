@@ -83,7 +83,7 @@ def test_deactivation_and_revoked_sessions_are_recorded() -> None:
     admin.submit(f"/people/{world.users['viewer'].pk}/", {"action": "deactivate"})
     assert actions()[-2:] == ["user.sessions_revoked", "user.deactivated"]
     revoked = AuditEvent.objects.get(action="user.sessions_revoked")
-    assert revoked.data == {"sessions": 1, "reason": "deactivated"}
+    assert revoked.data == {"sessions": 1, "tokens_revoked": 0, "reason": "deactivated"}
 
 
 def test_key_rotation_is_recorded_as_a_command() -> None:

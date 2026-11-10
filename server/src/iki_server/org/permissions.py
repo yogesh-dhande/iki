@@ -20,10 +20,17 @@ Views, the API, MCP tools and the event stream ask :func:`can` or
 
 Decisions are cached on the user object, which lives for one request. Call
 :func:`forget` after changing someone's roles within the same request.
+
+**OAuth tokens only narrow** what their user may do (ADR 0028). A request
+made with a token carries a :class:`TokenLimits`: each action needs the
+token's scope for it, and a token limited to some projects can't touch the
+others.
 """
 
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db.models import Exists, Max, OuterRef, Q, QuerySet, Subquery
@@ -73,6 +80,55 @@ ORG_ACTIONS = frozenset(
 )
 TEAM_ACTIONS = frozenset({Action.TEAM_VIEW, Action.TEAM_MANAGE, Action.PROJECT_CREATE})
 PROJECT_ACTIONS = frozenset(Action) - ORG_ACTIONS - TEAM_ACTIONS
+
+#: The OAuth scope each action needs, when the request carries a token.
+ACTION_SCOPES: dict[Action, str] = {
+    Action.TEAM_VIEW: "read",
+    Action.PROJECT_SEE: "read",
+    Action.PROJECT_READ: "read",
+    Action.AUDIT_READ: "read",
+    Action.PROJECT_CREATE: "write",
+    Action.PROJECT_EDIT: "write",
+    Action.PROJECT_MANAGE: "write",
+    Action.PROJECT_MEMBERS_MANAGE: "write",
+    Action.RUN_CLIENT: "run",
+    Action.RUN_BACKEND: "run",
+    Action.RUN_CONTAINER: "run",
+    Action.RUN_VM: "run",
+    Action.ORG_MANAGE: "admin",
+    Action.TEAM_CREATE: "admin",
+    Action.TEAM_MANAGE: "admin",
+    Action.COMPUTE_MANAGE: "admin",
+}
+
+
+@dataclass(frozen=True)
+class TokenLimits:
+    """What an OAuth token allows, on top of its user's roles."""
+
+    scopes: frozenset[str]
+    #: The projects the token may touch; None means every project.
+    projects: frozenset[UUID] | None = None
+
+    def allows(self, action: Action, target: "Team | Project | None") -> bool:
+        if ACTION_SCOPES[action] not in self.scopes:
+            return False
+        if self.projects is None:
+            return True
+        if isinstance(target, Project):
+            return target.pk in self.projects
+        # A token limited to some projects can't create new ones.
+        return action is not Action.PROJECT_CREATE
+
+
+def limit_to(user: Any, limits: TokenLimits | None) -> None:  # noqa: ANN401
+    """Applies a token's limits to every decision about this user in this request."""
+    user._iki_token_limits = limits
+
+
+def token_limits(user: Any) -> TokenLimits | None:  # noqa: ANN401
+    return getattr(user, "_iki_token_limits", None)
+
 
 #: The org role each organization-wide action needs.
 _ORG_ACTION_ROLE = {
@@ -161,6 +217,13 @@ def forget(user: Any) -> None:  # noqa: ANN401
 
 def can(user: Any, action: Action, target: Team | Project | None = None) -> bool:  # noqa: ANN401
     """Whether the user may take the action, on the target if the action needs one."""
+    limits = token_limits(user)
+    if limits is not None and not limits.allows(action, target):
+        return False
+    return _roles_allow(user, action, target)
+
+
+def _roles_allow(user: Any, action: Action, target: Team | Project | None) -> bool:  # noqa: ANN401
     if action in ORG_ACTIONS:
         if target is not None:
             raise TypeError(f"{action} takes no target")
@@ -209,6 +272,12 @@ def visible_projects(user: Any) -> QuerySet[Project]:  # noqa: ANN401
     if not _active(user):
         return Project.objects.none()
     projects = with_project_roles(user, Project.objects.select_related("team"))
+    limits = token_limits(user)
+    if limits is not None:
+        if "read" not in limits.scopes:
+            return Project.objects.none()
+        if limits.projects is not None:
+            projects = projects.filter(pk__in=limits.projects)
     if OrgRole.ORG_ADMIN in org_roles(user):
         return projects
     member = ProjectMembership.objects.filter(project=OuterRef("pk")).filter(_grants_for(user))
@@ -219,6 +288,9 @@ def visible_teams(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     """Teams the user can see (:attr:`Action.TEAM_VIEW`)."""
     if not _active(user):
         return Team.objects.none()
+    limits = token_limits(user)
+    if limits is not None and "read" not in limits.scopes:
+        return Team.objects.none()
     if OrgRole.ORG_ADMIN in org_roles(user):
         return Team.objects.all()
     return Team.objects.filter(memberships__user=user)
@@ -227,5 +299,8 @@ def visible_teams(user: Any) -> QuerySet[Team]:  # noqa: ANN401
 def teams_for_new_project(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     """Teams the user may create a project in (:attr:`Action.PROJECT_CREATE`)."""
     if not _active(user):
+        return Team.objects.none()
+    limits = token_limits(user)
+    if limits is not None and not limits.allows(Action.PROJECT_CREATE, None):
         return Team.objects.none()
     return Team.objects.filter(memberships__user=user, archived_at__isnull=True)

@@ -59,6 +59,8 @@ class AuditEvent(models.Model):
     data = models.JSONField(default=dict, blank=True)
     request_id = models.CharField(max_length=128, blank=True)
     client_ip = models.GenericIPAddressField(null=True, blank=True)
+    #: The OAuth client the actor used, e.g. "Claude Code (client …4f2a)".
+    oauth_client = models.CharField(max_length=254, blank=True, db_default="")
 
     class Meta:
         db_table = "iki_audit_event"

@@ -99,6 +99,23 @@ module = ["onelogin", "onelogin.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# django-oauth-toolkit ships no type information.
+module = ["oauth2_provider", "oauth2_provider.*", "oauthlib", "oauthlib.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Iki's OAuth views extend django-oauth-toolkit's untyped views.
+# Their models' fields come back as Any.
+module = ["iki_server.oauth.*"]
+disallow_subclassing_any = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+# The plugin can't follow relations from OAuth's untyped models back to User.
+module = ["iki_server.accounts.models"]
+disable_error_code = ["django-manager-missing"]
+
+[[tool.mypy.overrides]]
 # The allauth adapters subclass allauth's (untyped) base classes.
 module = ["iki_server.accounts.adapters"]
 disallow_subclassing_any = false

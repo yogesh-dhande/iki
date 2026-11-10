@@ -2,7 +2,8 @@
 
     uv run python deploy/dev/sso.py           # set up (or re-set up) SSO, bob becomes admin
     uv run python deploy/dev/sso.py --check   # same, then end-to-end checks: sign-in as
-                                              # alice, SCIM provisioning, and SAML
+                                              # alice, SCIM provisioning, the API,
+                                              # OAuth, and SAML
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -13,16 +14,18 @@ Tilt's port-forwards or with e2e.sh's own.
 
 import argparse
 import base64
+import hashlib
 import html
 import http.cookiejar
 import json
 import re
+import secrets
 import subprocess
 import sys
 import time
 from html.parser import HTMLParser
 from typing import Any, NoReturn
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import requests
 import urllib3.util.connection
@@ -418,6 +421,197 @@ def rest_api(admin: requests.Session) -> None:
     ok("service accounts can't be Org Admins; deactivating one is immediate and audited")
 
 
+def csrf_token(page: requests.Response) -> str:
+    token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
+    if not token:
+        fail(f"no CSRF token on {page.url}")
+    return token.group(1)
+
+
+def page_post(
+    session: requests.Session,
+    url: str,
+    data: dict[str, Any],
+    **kw: Any,  # noqa: ANN401
+) -> requests.Response:
+    """Posts to ``url`` as its page's form would, with the page's CSRF token."""
+    token = csrf_token(session.get(url))
+    return session.post(
+        url, data={"csrfmiddlewaretoken": token, **data}, headers={"Origin": IKI}, **kw
+    )
+
+
+def bearer_call(token: str, method: str, path: str, body: Any = None) -> requests.Response:  # noqa: ANN401
+    return browser().request(
+        method, f"{IKI}/api/v1{path}", json=body, headers={"Authorization": f"Bearer {token}"}
+    )
+
+
+def oauth(admin: requests.Session) -> None:
+    """OAuth 2.1: the CLI's device flow, a self-registered app with PKCE and approval,
+    and a service account's client credentials."""
+    app = browser()  # the client: no cookies of its own
+    meta = app.get(f"{IKI}/.well-known/oauth-authorization-server").json()
+    if meta.get("issuer") != IKI or meta.get("code_challenge_methods_supported") != ["S256"]:
+        fail(f"unexpected authorization server metadata: {meta}")
+    challenge = app.get(f"{IKI}/api/v1/me", headers={"Authorization": "Bearer nope"})
+    if "resource_metadata=" not in challenge.headers.get("WWW-Authenticate", ""):
+        fail(f"a bad token's 401 doesn't point at the metadata: {dict(challenge.headers)}")
+    ok("clients discover the OAuth server from metadata and from a 401")
+
+    # The CLI: device flow.
+    started = app.post(
+        f"{IKI}/oauth/device-authorization/", data={"client_id": "iki-cli", "scope": "read write"}
+    )
+    if started.status_code != 200:
+        fail(f"device authorization answered HTTP {started.status_code}: {started.text}")
+    device = started.json()
+    alice = sign_in_as("alice")
+    entered = page_post(
+        alice, f"{IKI}/oauth/device/", {"user_code": device["user_code"]}, allow_redirects=False
+    )
+    if entered.status_code != 302:
+        fail(f"entering the device code answered HTTP {entered.status_code}")
+    confirm = urljoin(IKI, entered.headers["Location"])
+    if "Iki CLI" not in alice.get(confirm).text:
+        fail("the device confirmation page doesn't name the CLI")
+    done = page_post(alice, confirm, {"granted": ["read"], "access": "all"})
+    if done.status_code != 200:
+        fail(f"approving the device answered HTTP {done.status_code}")
+    time.sleep(device["interval"])
+    tokens = app.post(
+        f"{IKI}/oauth/token/",
+        data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code": device["device_code"],
+            "client_id": "iki-cli",
+        },
+    )
+    if tokens.status_code != 200 or tokens.json().get("scope") != "read":
+        fail(f"the device poll answered HTTP {tokens.status_code}: {tokens.text}")
+    token = tokens.json()["access_token"]
+    me = bearer_call(token, "GET", "/me")
+    if me.status_code != 200 or me.json()["email"] != "alice@iki.test":
+        fail(f"the CLI's token answered HTTP {me.status_code}: {me.text[:200]}")
+    mine = bearer_call(token, "GET", "/projects?member=true&limit=100").json()["items"]
+    atlas = next(p for p in mine if p["name"] == "Atlas" and p["my_role"] == "admin")
+    write = bearer_call(token, "PATCH", f"/projects/{atlas['id']}", {"description": "x"})
+    if write.status_code != 403 or write.json().get("code") != "insufficient_scope":
+        fail(f"a read-only token changed a project (HTTP {write.status_code})")
+    ok("alice signed the CLI in with a device code, allowing read only; it can't write")
+
+    # A self-registered app: waits for approval, then authorization code with PKCE.
+    redirect = "http://127.0.0.1:53682/callback"
+    registered = app.post(
+        f"{IKI}/oauth/register/",
+        json={
+            "client_name": f"E2E notebook {int(time.time())}",
+            "redirect_uris": [redirect],
+            "token_endpoint_auth_method": "none",
+        },
+    )
+    if registered.status_code != 201:
+        fail(f"registering a client answered HTTP {registered.status_code}: {registered.text}")
+    client = registered.json()
+    verifier = secrets.token_urlsafe(48)
+    code_challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    )
+    query = {
+        "response_type": "code",
+        "client_id": client["client_id"],
+        "redirect_uri": redirect,
+        "scope": "read write",
+        "state": "e2e",
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    waiting = alice.get(f"{IKI}/oauth/authorize/", params=query)
+    if waiting.status_code != 403:
+        fail(f"an unapproved app's consent page answered HTTP {waiting.status_code}")
+    apps = admin.get(f"{IKI}/settings/apps/")
+    link = re.search(r'href="(/settings/apps/\d+/)">' + re.escape(client["client_name"]), apps.text)
+    if not link:
+        fail("the new app isn't on Settings → Apps")
+    page_post(admin, urljoin(IKI, link.group(1)), {"action": "approve"})
+    consent_page = alice.get(f"{IKI}/oauth/authorize/", params=query)
+    if consent_page.status_code != 200:
+        fail(f"the approved app's consent page answered HTTP {consent_page.status_code}")
+    csp = consent_page.headers.get("Content-Security-Policy", "")
+    form_action = next((d for d in csp.split(";") if d.strip().startswith("form-action")), "")
+    if "http://127.0.0.1:53682" not in form_action.split():
+        fail("the consent page's CSP doesn't allow the redirect back to the app")
+    allowed = alice.post(
+        f"{IKI}/oauth/authorize/",
+        data={
+            **query,
+            "csrfmiddlewaretoken": csrf_token(consent_page),
+            "allow": "Allow",
+            "granted": ["read", "write"],
+            "access": "chosen",
+            "projects": [re.search(r'name="projects" value="([^"]+)"', consent_page.text)[1]],  # type: ignore[index]
+        },
+        headers={"Origin": IKI},
+        allow_redirects=False,
+    )
+    location = urlsplit(allowed.headers.get("Location", ""))
+    params = parse_qs(location.query)
+    if allowed.status_code != 302 or "code" not in params or params.get("iss") != [IKI]:
+        fail(f"allowing the app answered HTTP {allowed.status_code}: {allowed.headers}")
+    exchanged = app.post(
+        f"{IKI}/oauth/token/",
+        data={
+            "grant_type": "authorization_code",
+            "code": params["code"][0],
+            "redirect_uri": redirect,
+            "client_id": client["client_id"],
+            "code_verifier": verifier,
+        },
+    )
+    if exchanged.status_code != 200 or not exchanged.json().get("refresh_token"):
+        fail(f"exchanging the code answered HTTP {exchanged.status_code}: {exchanged.text}")
+    app_token = exchanged.json()["access_token"]
+    if bearer_call(app_token, "GET", "/me").json().get("email") != "alice@iki.test":
+        fail("the app's token isn't alice's")
+    ok("a self-registered app waited for approval, then got alice's consent with PKCE")
+
+    revoke = alice.get(f"{IKI}/account/apps/")
+    consent_id = re.search(r'name="consent" value="(\d+)"', revoke.text)
+    if not consent_id:
+        fail("alice's authorized apps page lists nothing to revoke")
+    page_post(alice, f"{IKI}/account/apps/", {"action": "revoke", "consent": consent_id[1]})
+    if bearer_call(app_token, "GET", "/me").status_code != 401:
+        fail("a revoked app's token still works")
+    ok("revoking an app on Account → Apps signs it out at once")
+
+    # A service account: client credentials.
+    created = api_call(admin, "POST", "/service-accounts", {"name": f"E2E LIMS {int(time.time())}"})
+    account = created.json()
+    page = page_post(
+        admin,
+        f"{IKI}/service-accounts/{account['id']}/",
+        {"action": "create_credential", "name": "e2e", "scopes": ["read"]},
+    )
+    client_id = re.search(r'id="client-id">([^<]+)<', page.text)
+    secret = re.search(r'id="client-secret">([^<]+)<', page.text)
+    if not (client_id and secret):
+        fail("creating service-account credentials didn't show them once")
+    issued = app.post(
+        f"{IKI}/oauth/token/",
+        data={"grant_type": "client_credentials"},
+        auth=(client_id[1], html.unescape(secret[1])),
+    )
+    if issued.status_code != 200:
+        fail(f"client credentials answered HTTP {issued.status_code}: {issued.text}")
+    robot = bearer_call(issued.json()["access_token"], "GET", "/me").json()
+    if robot.get("id") != account["id"]:
+        fail(f"the credential's token isn't the service account's: {robot}")
+    api_call(admin, "PATCH", f"/service-accounts/{account['id']}", {"active": False})
+    if bearer_call(issued.json()["access_token"], "GET", "/me").status_code != 401:
+        fail("a deactivated service account's token still works")
+    ok("a service account got a token with client credentials; deactivating ended it")
+
+
 def saml() -> None:
     """Switches sign-in to Keycloak over SAML through recovery, signs in, and switches back."""
     set_up("bob", protocol="saml")
@@ -501,6 +695,7 @@ def main() -> None:
         check("alice", admin)
         provisioning(admin)
         rest_api(admin)
+        oauth(admin)
         saml()
 
 

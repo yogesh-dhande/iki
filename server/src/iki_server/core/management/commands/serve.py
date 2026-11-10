@@ -29,6 +29,16 @@ class Command(BaseCommand):
                 "X-Forwarded-Proto headers are trusted."
             ),
         )
+        parser.add_argument(
+            "--keep-alive",
+            type=int,
+            default=env.int("IKI_KEEP_ALIVE_SECONDS", default=75),
+            help=(
+                "Seconds an idle client connection stays open. Keep it longer than the "
+                "load balancer's idle timeout, or the balancer reuses connections the "
+                "server has just closed and answers 502."
+            ),
+        )
         parser.add_argument("--reload", action="store_true", help="Reload on code changes (dev).")
 
     def handle(self, *args: Any, **options: Any) -> None:  # noqa: ANN401 - Django's signature
@@ -48,4 +58,5 @@ class Command(BaseCommand):
             forwarded_allow_ips=options["forwarded_allow_ips"],
             server_header=False,
             timeout_graceful_shutdown=30,
+            timeout_keep_alive=options["keep_alive"],
         )

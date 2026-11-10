@@ -1,0 +1,14 @@
+{% if apps %}
+<ul class="rows">
+  {% for app in apps %}
+  <li class="row">
+    <div class="row-main">
+      <a class="row-title" href="{% url 'oauth:org_app' app.pk %}">{{ app.display_name }}</a>
+      <span class="row-meta">{% if app.first_party %}Iki’s own{% else %}{{ app.get_registration_source_display }}{% endif %} · {{ app.people }} {{ app.people|pluralize:"person,people" }}{% if app.requested_by %} · requested by {{ app.requested_by.get_full_name }}{% endif %}</span>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">{{ empty }}</p>
+{% endif %}

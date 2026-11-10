@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ client.display_name }} isn’t approved{% endblock %}
+{% block content %}
+{% if client.approval == "blocked" %}
+<div class="page-header"><h1>{{ client.display_name }} is blocked</h1></div>
+<p>An Org Admin has blocked this app, so it can’t use Iki. If you need it, ask them.</p>
+{% include "oauth/_client.html" %}
+{% else %}
+<div class="page-header"><h1>{{ client.display_name }} needs approval</h1></div>
+<p>Your organization approves each app before people can use it with Iki. An Org Admin can approve it under <strong>Settings → Apps</strong>.</p>
+{% include "oauth/_client.html" %}
+{% if requested %}
+<div class="alert alert-success" role="status"><p>Approval has been requested. Once an Org Admin approves it, start signing in from the app again.</p></div>
+{% else %}
+<form method="post" action="{% url 'oauth:request_approval' client.pk %}">
+  {% csrf_token %}
+  <button class="button button-primary" type="submit">Ask an Org Admin to approve it</button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

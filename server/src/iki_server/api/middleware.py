@@ -4,18 +4,18 @@
   methods, crashes) become problem details too.
 - Responses carry the caller's rate-limit headers.
 - 401s say how to authenticate (RFC 9110 requires ``WWW-Authenticate``):
-  with a bearer token, which OAuth provides (ADR 0027).
+  with a bearer token, and where to find the authorization server (RFC 9728).
 """
 
 from django.http import HttpRequest, HttpResponse
 from django.utils.deprecation import MiddlewareMixin
 
 from iki_server.api import problems
-from iki_server.api.security import rate_limit_headers
+from iki_server.api.security import bearer_challenge, rate_limit_headers
 
 PREFIX = "/api/"
 #: Headers worth keeping when an error response is replaced.
-_KEEP = ("Allow", "Retry-After")
+_KEEP = ("Allow", "Retry-After", "WWW-Authenticate")
 
 
 class ApiResponseMiddleware(MiddlewareMixin):
@@ -36,6 +36,6 @@ class ApiResponseMiddleware(MiddlewareMixin):
         if decision is not None:
             for header, value in rate_limit_headers(decision).items():
                 response[header] = value
-        if response.status_code == 401:
-            response["WWW-Authenticate"] = 'Bearer realm="iki"'
+        if response.status_code == 401 and "WWW-Authenticate" not in response:
+            response["WWW-Authenticate"] = bearer_challenge(request)
         return response

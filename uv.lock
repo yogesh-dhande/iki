@@ -585,6 +585,22 @@ wheels = [
 ]
 
 [[package]]
+name = "django-oauth-toolkit"
+version = "3.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "jwcrypto" },
+    { name = "oauthlib" },
+    { name = "requests" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/42/b3c6a5d7e204011a702cc02ababb756d10538645dfd188ea441e4c65a082/django_oauth_toolkit-3.4.1.tar.gz", hash = "sha256:c4de73c0765eed55a99ea0fa8433b20664dcc1f43930149cff569abed166c5c2", size = 256139, upload-time = "2026-08-21T03:45:36.538Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/16/11cf2eacd7ac1c32908288b6d56fadef5676071a4ac0af7e626fd1abd3ef/django_oauth_toolkit-3.4.1-py3-none-any.whl", hash = "sha256:c47f2a70e83bade0a47a5e9b20e86030d8ed9c0a8f10ec4ed30446cad7291f2d", size = 163957, upload-time = "2026-08-21T03:45:34.904Z" },
+]
+
+[[package]]
 name = "django-stubs"
 version = "6.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -762,6 +778,7 @@ dependencies = [
     { name = "django-allauth", extra = ["saml", "socialaccount"] },
     { name = "django-environ" },
     { name = "django-ninja" },
+    { name = "django-oauth-toolkit" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-instrumentation-asgi" },
@@ -787,6 +804,7 @@ requires-dist = [
     { name = "django-allauth", extras = ["socialaccount", "saml"], specifier = ">=65.21.1" },
     { name = "django-environ", specifier = ">=0.14.0" },
     { name = "django-ninja", specifier = ">=1.8" },
+    { name = "django-oauth-toolkit", specifier = ">=3.4.1" },
     { name = "opentelemetry-api", specifier = ">=1.45.2" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.2" },
     { name = "opentelemetry-instrumentation-asgi", specifier = ">=0.66b2" },
@@ -859,6 +877,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/54/4d/e940025e2ce31a8ce1202635910747e5a87cc3a6a6bb2d00973375014749/isodate-0.7.2.tar.gz", hash = "sha256:4cd1aa0f43ca76f4a6c6c0292a85f40b35ec2e43e315b59f06e6d32171a953e6", size = 29705, upload-time = "2024-10-08T23:04:11.5Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/15/aa/0aca39a37d3c7eb941ba736ede56d689e7be91cab5d9ca846bde3999eba6/isodate-0.7.2-py3-none-any.whl", hash = "sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15", size = 22320, upload-time = "2024-10-08T23:04:09.501Z" },
+]
+
+[[package]]
+name = "jwcrypto"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/13/8f/e802d77957903483129813ce6fa01a72a906f9cdd454039d1ec1e6d1e44a/jwcrypto-1.6.1.tar.gz", hash = "sha256:a1e1570da5c2e35dbcd375ec1d2891a24de8eb35ee2c1fe8e91978efb72cfe90", size = 116287, upload-time = "2026-09-15T21:22:33.286Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/a4/ee780473e42a3edaf65da1ad37f5c601a9c740e215c1e09db36bf90f3f59/jwcrypto-1.6.1-py3-none-any.whl", hash = "sha256:77e856818e514cb3d64a1043b6885a7d52f5cc37773f5e944de02103c8d3a54f", size = 121267, upload-time = "2026-09-15T21:22:32.27Z" },
 ]
 
 [[package]]

@@ -25,6 +25,7 @@
       <a href="{% url 'org:team_list' %}"{% if request.resolver_match.url_name|slice:":4" == "team" %} aria-current="page"{% endif %}>Teams</a>
       {% if nav_people %}<a href="{% url 'org:people' %}"{% if request.resolver_match.url_name in "people person service_accounts service_account" %} aria-current="page"{% endif %}>People</a>{% endif %}
       {% if nav_settings %}<a href="{% url 'identity:sign_in_settings' %}"{% if request.resolver_match.namespace == "identity" %} aria-current="page"{% endif %}>Sign-in</a>{% endif %}
+      {% if nav_settings %}<a href="{% url 'oauth:org_apps' %}"{% if request.resolver_match.url_name == "org_apps" or request.resolver_match.url_name == "org_app" %} aria-current="page"{% endif %}>Apps</a>{% endif %}
       {% if nav_audit %}<a href="{% url 'audit:audit_log' %}"{% if request.resolver_match.url_name == "audit_log" %} aria-current="page"{% endif %}>Audit</a>{% endif %}
     </nav>
     {% endif %}{% endblock %}
@@ -32,7 +33,7 @@
     {% if user.is_authenticated %}
     <form class="header-actions" method="post" action="{% url 'logout' %}">
       {% csrf_token %}
-      <span class="header-user" title="{{ user.email }}">{{ user.get_full_name }}</span>
+      <a class="header-user" href="{% url 'oauth:my_apps' %}" title="{{ user.email }}: apps you’ve authorized">{{ user.get_full_name }}</a>
       <button class="button button-quiet" type="submit">Sign out</button>
     </form>
     {% endif %}

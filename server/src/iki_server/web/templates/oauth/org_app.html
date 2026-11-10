@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ client.display_name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'oauth:org_apps' %}">Apps</a></p>
+    <h1>{{ client.display_name }} <span class="badge{% if client.approval != 'approved' %} badge-muted{% endif %}">{{ client.get_approval_display }}</span></h1>
+  </div>
+</div>
+<dl class="summary">
+  <dt>Client ID</dt><dd><code>{{ client.client_id }}</code></dd>
+  <dt>Registered</dt><dd>{% if client.first_party %}Iki’s own app{% else %}{{ client.get_registration_source_display }}{% endif %}, <time datetime="{{ client.created|date:'c' }}">{{ client.created|date:"j M Y" }}</time></dd>
+  <dt>Redirects to</dt><dd>{% for uri in redirect_uris %}<code>{{ uri }}</code>{% if not forloop.last %}<br>{% endif %}{% empty %}None (device sign-in){% endfor %}</dd>
+  {% if client.requested_by %}<dt>Requested by</dt><dd>{{ client.requested_by.get_full_name }}, <time datetime="{{ client.requested_at|date:'c' }}">{{ client.requested_at|date:"j M Y" }}</time></dd>{% endif %}
+  {% if client.approval_changed_by %}<dt>{{ client.get_approval_display }} by</dt><dd>{{ client.approval_changed_by.get_full_name }}, <time datetime="{{ client.approval_changed_at|date:'c' }}">{{ client.approval_changed_at|date:"j M Y" }}</time></dd>{% endif %}
+  <dt>Last used</dt><dd>{% if client.last_used_at %}<time datetime="{{ client.last_used_at|date:'c' }}">{{ client.last_used_at|date:"j M Y, H:i" }}</time>{% else %}Not yet{% endif %}</dd>
+</dl>
+{% if not client.first_party %}
+<form method="post" class="actions">
+  {% csrf_token %}
+  {% if client.approval != "approved" %}<button class="button button-primary" type="submit" name="action" value="approve">Approve</button>{% endif %}
+  {% if client.approval != "blocked" %}<button class="button button-quiet button-danger" type="submit" name="action" value="block">Block and sign everyone out</button>{% endif %}
+</form>
+{% if client.is_self_registered %}<p class="muted">This app registered itself, so its name is its own claim. Check the redirect addresses before approving it.</p>{% endif %}
+{% endif %}
+<section>
+  <h2 class="section-title">People who allowed it</h2>
+  {% if consents %}
+  <ul class="rows">
+    {% for consent in consents %}
+    <li class="row"><div class="row-main"><span class="row-title">{{ consent.user.get_full_name }}</span><div>{% include "oauth/_scopes.html" %}</div></div></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">Nobody has allowed it yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
