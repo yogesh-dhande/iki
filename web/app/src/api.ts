@@ -39,14 +39,49 @@ export const iki: IkiClient = createIkiClient({
 });
 
 let signingIn = false;
+let signedOut = false;
+const signedOutListeners = new Set<() => void>();
+
+/**
+ * Found out in the background (the live-update stream, the bell's count) that
+ * the session ended: say so, with a link to sign in, but don't leave the page,
+ * which could hold something half typed.
+ */
+export function markSignedOut(): void {
+  if (signedOut) return;
+  signedOut = true;
+  for (const listener of signedOutListeners) listener();
+}
+
+export function isSignedOut(): boolean {
+  return signedOut;
+}
+
+export function onSignedOutChange(listener: () => void): () => void {
+  signedOutListeners.add(listener);
+  return () => {
+    signedOutListeners.delete(listener);
+  };
+}
+
+/** For tests. */
+export function resetSignedOut(): void {
+  signedOut = false;
+  signingIn = false;
+}
+
+/** Where to sign in to come back to this page. */
+export function signInUrl(): string {
+  const next = window.location.pathname + window.location.search;
+  return `/login/?next=${encodeURIComponent(next)}`;
+}
 
 /** Signed out (the session ended, or the person was deactivated): sign in again, then come back. */
 export function signInAgain(): void {
   // Every failed query reports the 401; one navigation is enough.
   if (signingIn) return;
   signingIn = true;
-  const next = window.location.pathname + window.location.search;
-  window.location.assign(`/login/?next=${encodeURIComponent(next)}`);
+  window.location.assign(signInUrl());
 }
 
 export const queryClient = new QueryClient({
@@ -62,7 +97,11 @@ export const queryClient = new QueryClient({
 queryClient.getQueryCache().subscribe((event) => {
   const error: unknown = event.query.state.error;
   if (error instanceof ApiError && error.status === 401) {
-    signInAgain();
+    if (event.query.meta?.["background"]) {
+      markSignedOut();
+    } else {
+      signInAgain();
+    }
   }
 });
 
@@ -186,6 +225,8 @@ export const NOTIFICATIONS = ["notifications"] as const;
 /** The header bell's count. Live updates keep it current (see events.ts). */
 export const unreadQuery = queryOptions({
   queryKey: [...NOTIFICATIONS, "summary"],
+  // On every page, refreshed in the background: a 401 here isn't the person's doing.
+  meta: { background: true },
   queryFn: async () => unwrap(await iki.GET("/api/v1/notifications/summary")).unread,
 });
 

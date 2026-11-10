@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach } from "vitest";
 
-import { queryClient } from "./api";
+import { queryClient, resetSignedOut } from "./api";
 import { resetApi, serverFetch } from "./test-server";
 
 // The app's API client calls whatever `fetch` is at the time: here, a fake API.
@@ -20,4 +20,5 @@ afterEach(() => {
   cleanup();
   queryClient.clear();
   resetApi();
+  resetSignedOut();
 });

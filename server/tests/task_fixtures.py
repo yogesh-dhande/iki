@@ -1,5 +1,7 @@
 """Tasks the task-queue tests enqueue. Module-level, as Django requires."""
 
+from __future__ import annotations
+
 from datetime import timedelta
 from pathlib import Path
 from typing import Any

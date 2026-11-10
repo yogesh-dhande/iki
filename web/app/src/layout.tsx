@@ -5,9 +5,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useMatches, useRouter } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
-import { meQuery, unreadQuery } from "./api";
+import { isSignedOut, meQuery, onSignedOutChange, signInUrl, unreadQuery } from "./api";
 import { useLiveUpdates } from "./events";
 import { markNavigated, MessagesProvider } from "./ui";
 
@@ -62,6 +62,20 @@ function Bell() {
   );
 }
 
+/** Shown when Iki found out, in the background, that the session ended. */
+function SignedOut() {
+  const signedOut = useSyncExternalStore(onSignedOutChange, isSignedOut);
+  if (!signedOut) return null;
+  return (
+    <div className="alert alert-warning" role="alert">
+      <p>
+        You’ve been signed out. <a href={signInUrl()}>Sign in again</a> to carry on; this page stays
+        as it is until you do.
+      </p>
+    </div>
+  );
+}
+
 export function Layout() {
   const me = useQuery(meQuery).data;
   const org = organizationName();
@@ -108,6 +122,7 @@ export function Layout() {
         ) : null}
       </header>
       <main id="main" className={narrow ? "page-narrow" : "page-wide"} tabIndex={-1}>
+        <SignedOut />
         <MessagesProvider>
           <Outlet />
         </MessagesProvider>

@@ -494,7 +494,7 @@ describe("notifications", () => {
     expect(await screen.findByRole("link", { name: "Notifications" })).toBeVisible();
   });
 
-  it("sends the person to sign in when the stream says they're signed out", async () => {
+  it("says when the stream finds the session ended, without leaving the page", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
     const assign = vi.fn();
@@ -508,8 +508,25 @@ describe("notifications", () => {
     act(() => {
       FakeEventSource.current()?.send("signed_out", {});
     });
-    expect(assign).toHaveBeenCalledWith("/login/?next=%2Fprojects%2F");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("You’ve been signed out.");
+    expect(within(alert).getByRole("link", { name: "Sign in again" })).toHaveAttribute(
+      "href",
+      "/login/?next=%2Fprojects%2F",
+    );
+    expect(assign).not.toHaveBeenCalled();
     expect(FakeEventSource.current()).toBeUndefined();
+  });
+
+  it("checks who's signed in when the server refuses the stream", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    answer("GET /api/v1/me", problem(401, "not_authenticated", "Sign in."));
+    act(() => {
+      FakeEventSource.current()?.fail();
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("You’ve been signed out.");
   });
 
   it("tries again later when the server refuses the stream", async () => {

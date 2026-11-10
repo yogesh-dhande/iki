@@ -9,13 +9,14 @@
  * - A tab hidden for a while closes its stream and reopens it when shown, so
  *   background tabs don't hold a connection each.
  * - If the server refuses the stream (too many tabs, or signed out), the
- *   browser stops; this checks who's signed in (a 401 sends the person to
- *   sign in) and tries again later.
+ *   browser stops; this checks who's signed in and tries again later.
+ * - When the session has ended, the page says so (see `markSignedOut`) but
+ *   stays, so nothing half typed is lost.
  */
 
 import { useEffect } from "react";
 
-import { meQuery, NOTIFICATIONS, queryClient, signInAgain, unreadQuery } from "./api";
+import { iki, isSignedOut, markSignedOut, NOTIFICATIONS, queryClient, unreadQuery } from "./api";
 
 export const EVENTS_URL = "/api/v1/events";
 /** How long a hidden tab keeps its stream. */
@@ -58,7 +59,7 @@ export function useLiveUpdates(enabled: boolean): void {
     };
 
     const open = () => {
-      if (source) return;
+      if (source || isSignedOut()) return;
       const stream = new EventSource(EVENTS_URL, { withCredentials: true });
       source = stream;
       stream.addEventListener("ready", (event: MessageEvent<string>) => {
@@ -79,14 +80,24 @@ export function useLiveUpdates(enabled: boolean): void {
       });
       stream.addEventListener("signed_out", () => {
         close();
-        signInAgain();
+        markSignedOut();
       });
       stream.addEventListener("error", () => {
         // CONNECTING: the browser is reconnecting by itself. CLOSED: it gave up.
         if (stream.readyState !== EventSource.CLOSED || source !== stream) return;
         close();
-        void queryClient.invalidateQueries({ queryKey: meQuery.queryKey });
-        retryTimer = setTimeout(open, REFUSED_RETRY_MS * (1 + Math.random() / 2));
+        void iki.GET("/api/v1/me").then(
+          ({ response }) => {
+            if (response.status === 401) {
+              markSignedOut();
+            } else {
+              retryTimer = setTimeout(open, REFUSED_RETRY_MS * (1 + Math.random() / 2));
+            }
+          },
+          () => {
+            retryTimer = setTimeout(open, REFUSED_RETRY_MS * (1 + Math.random() / 2));
+          },
+        );
       });
     };
 
