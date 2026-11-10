@@ -29,6 +29,9 @@ class Installation(models.Model):
     #: Off, they only say there's something new in Iki, for organizations
     #: that keep project details out of email.
     email_details = models.BooleanField(default=True)
+    #: Project Admins may add webhooks to their projects. Off, only Org
+    #: Admins add webhooks, and project webhooks stop sending.
+    project_webhooks = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

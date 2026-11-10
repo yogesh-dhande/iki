@@ -6,6 +6,7 @@ anything that weakens security (``IKI_DEBUG``, plain HTTP) must be turned on
 explicitly. Required values have no default and fail fast at startup.
 """
 
+import ipaddress
 import os
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     "iki_server.core",
     # Before allauth, so Iki's templates override allauth's.
     "iki_server.web",
@@ -52,6 +54,7 @@ INSTALLED_APPS = [
     "iki_server.tasks",
     "iki_server.realtime",
     "iki_server.notifications",
+    "iki_server.webhooks",
     "oauth2_provider",
     "allauth",
     "allauth.account",
@@ -360,6 +363,33 @@ else:
     # flags the dummy backend (mail.E001); here it's the operator's choice.
     MAILERS = {"default": {"BACKEND": "django.core.mail.backends.dummy.EmailBackend"}}
     SILENCED_SYSTEM_CHECKS.append("mail.E001")
+
+# --- Webhooks -------------------------------------------------------------------
+# Webhooks go to public HTTPS addresses only (see webhooks/sender.py). For
+# receivers inside your network, list their networks (CIDRs, comma-separated)
+# and, if their certificates come from an internal CA, give its bundle.
+
+try:
+    IKI_WEBHOOK_ALLOWED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
+        ipaddress.ip_network(network.strip())
+        for network in env.list("IKI_WEBHOOK_ALLOWED_NETWORKS", default=[])
+        if network.strip()
+    ]
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_WEBHOOK_ALLOWED_NETWORKS must be CIDRs such as 10.20.0.0/16: {_error}"
+    ) from None
+#: Plain http:// receivers: for development, never production.
+IKI_WEBHOOK_ALLOW_HTTP: bool = env.bool("IKI_WEBHOOK_ALLOW_HTTP", default=False)
+if IKI_WEBHOOK_ALLOW_HTTP and HTTPS:
+    raise environ.ImproperlyConfigured(
+        "IKI_WEBHOOK_ALLOW_HTTP sends webhooks unencrypted; it's only for development "
+        "(IKI_HTTPS=false). Give internal receivers HTTPS, with IKI_WEBHOOK_CA_FILE for "
+        "an internal CA."
+    )
+IKI_WEBHOOK_CA_FILE: str = env.str("IKI_WEBHOOK_CA_FILE", default="")
+if IKI_WEBHOOK_CA_FILE and not Path(IKI_WEBHOOK_CA_FILE).is_file():
+    raise environ.ImproperlyConfigured(f"IKI_WEBHOOK_CA_FILE: no file at {IKI_WEBHOOK_CA_FILE}")
 
 # --- Background tasks -------------------------------------------------------
 # Django's Tasks framework on Postgres; ``iki-server tasks`` runs them.

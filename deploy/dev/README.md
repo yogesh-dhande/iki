@@ -36,6 +36,7 @@ changes.
 | SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                     |
 | Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` with users `alice` and `bob`; OIDC client `iki-web` and a SAML client |
 | Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki sends; nothing leaves the cluster                         |
+| Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks          |
 | Grafana, Tempo, Loki, Prometheus | <http://localhost:3000>              | `grafana/otel-lgtm`; Iki sends OTLP traces and metrics                            |
 
 ## Signing in

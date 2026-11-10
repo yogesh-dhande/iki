@@ -3,5 +3,6 @@
   <a href="{% url 'identity:sign_in_settings' %}"{% if request.resolver_match.namespace == "identity" %} aria-current="page"{% endif %}>Sign-in</a>
   <a href="{% url 'oauth:org_apps' %}"{% if name == "org_apps" or name == "org_app" %} aria-current="page"{% endif %}>Apps</a>
   <a href="{% url 'notifications:org_email' %}"{% if name == "org_email" %} aria-current="page"{% endif %}>Email</a>
+  <a href="{% url 'webhook_settings' %}">Webhooks</a>
 </nav>
 {% endwith %}

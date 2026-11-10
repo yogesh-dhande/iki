@@ -122,6 +122,13 @@ CASES: list[Case] = [
     ("project_detail", "GET", project_url(), row(OK)),
     ("project_members", "GET", project_url("members/"), row(OK)),
     ("project_settings", "GET", project_url("settings/"), row(OK)),
+    ("project_webhooks", "GET", project_url("webhooks/"), row(OK)),
+    (
+        "project_webhook",
+        "GET",
+        project_url("webhooks/01a1c452-a14b-7195-acd0-4b6ba266a652/"),
+        row(OK),
+    ),
     ("team_list", "GET", lambda w: ("/teams/", {}), row(OK)),
     (
         "team_list",

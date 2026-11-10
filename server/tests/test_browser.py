@@ -26,6 +26,7 @@ from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
 from iki_server.org.models import Project, ProjectRole
 from iki_server.web import frontend
+from iki_server.webhooks import services as webhooks
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -179,6 +180,8 @@ PAGES = [
     ("admin", "/account/apps/"),
     ("admin", "/account/notifications/"),
     ("org_admin", "/settings/email/"),
+    ("admin", "/projects/kinase-atlas/webhooks/"),
+    ("org_admin", "/settings/webhooks/"),
 ]
 
 
@@ -219,6 +222,28 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
     page.get_by_role("link", name=title).click()
     page.wait_for_url("**/projects/kinase-atlas/")
     page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+    assert_clean(page)
+
+
+def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world: World) -> None:
+    webhooks.create(
+        project=world.project,
+        url="https://eln.example.com/hooks/iki?token=s3cret",
+        description="Our ELN",
+        chosen=["project.updated"],
+        by=world.users["admin"],
+    )
+    page = open_as("admin", "/projects/kinase-atlas/webhooks/")
+    page.get_by_role("link", name="eln.example.com").click()
+    page.get_by_role("button", name="Details of ping").click()
+    page.get_by_text("Message ID").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+    # Org Admins see where it sends, not the address (which may carry a token).
+    page = open_as("org_admin", "/settings/webhooks/")
+    page.get_by_text("eln.example.com").wait_for()
+    assert "s3cret" not in page.content()
     assert_clean(page)
 
 

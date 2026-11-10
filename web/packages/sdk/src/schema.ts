@@ -130,6 +130,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/project-webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every project's webhooks, for Org Admins
+         * @description Where each project's webhooks send (the host), so Org Admins can see where
+         *     data goes and turn any webhook off. Not their addresses or deliveries.
+         */
+        get: operations["iki_server_api_webhooks_inventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -265,6 +286,27 @@ export interface paths {
         post?: never;
         /** Remove a grant */
         delete: operations["iki_server_api_projects_remove_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A project's webhooks */
+        get: operations["iki_server_api_webhooks_project_webhooks"];
+        put?: never;
+        /**
+         * Add a webhook to a project
+         * @description Iki sends it a ``ping`` at once. The response holds the secret, shown only now.
+         */
+        post: operations["iki_server_api_webhooks_create_project_webhook"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -467,10 +509,280 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/webhook-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The events webhooks can receive */
+        get: operations["iki_server_api_webhooks_webhook_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhook-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Who may add webhooks */
+        get: operations["iki_server_api_webhooks_webhook_policy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Choose who may add webhooks
+         * @description Off: only Org Admins add webhooks, and project webhooks stop sending.
+         */
+        patch: operations["iki_server_api_webhooks_change_webhook_policy"];
+        trace?: never;
+    };
+    "/api/v1/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The organization's webhooks */
+        get: operations["iki_server_api_webhooks_org_webhooks"];
+        put?: never;
+        /** Add an organization webhook */
+        post: operations["iki_server_api_webhooks_create_org_webhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A webhook */
+        get: operations["iki_server_api_webhooks_get_webhook"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a webhook
+         * @description Its delivery log goes with it.
+         */
+        delete: operations["iki_server_api_webhooks_delete_webhook"];
+        options?: never;
+        head?: never;
+        /** Change or turn off a webhook */
+        patch: operations["iki_server_api_webhooks_patch_webhook"];
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What was sent, newest first
+         * @description Kept 30 days.
+         */
+        get: operations["iki_server_api_webhooks_deliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}/deliveries/{delivery_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One delivery, with the body sent */
+        get: operations["iki_server_api_webhooks_get_delivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a delivery again
+         * @description The same message (same webhook-id and body), signed afresh.
+         */
+        post: operations["iki_server_api_webhooks_redeliver"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a test message */
+        post: operations["iki_server_api_webhooks_ping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/{webhook_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate the secret
+         * @description A new secret, shown only now. For a day, messages carry signatures from both, so
+         *     you can update your receiver without missing any.
+         */
+        post: operations["iki_server_api_webhooks_rotate_secret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AttemptOut */
+        AttemptOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Error */
+            error: string;
+            /** Status Code */
+            status_code: number | null;
+        };
+        /** DeliveryFilters */
+        DeliveryFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /** Status */
+            status?: ("pending" | "succeeded" | "failed") | null;
+        };
+        /** DeliveryOut */
+        DeliveryOut: {
+            /** Attempts */
+            attempts: components["schemas"]["AttemptOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event */
+            event: string;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Message Id
+             * @description The webhook-id header: the same when sent again.
+             */
+            message_id: string;
+            /**
+             * Payload
+             * @description The body sent, exactly.
+             */
+            payload: {
+                [key: string]: unknown;
+            };
+            redelivered_by: components["schemas"]["PersonRef"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "succeeded" | "failed";
+        };
+        /** DeliverySummary */
+        DeliverySummary: {
+            /** Attempts */
+            attempts: components["schemas"]["AttemptOut"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event */
+            event: string;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Message Id
+             * @description The webhook-id header: the same when sent again.
+             */
+            message_id: string;
+            redelivered_by: components["schemas"]["PersonRef"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "succeeded" | "failed";
+        };
         /** EmailKindOut */
         EmailKindOut: {
             /** Description */
@@ -509,6 +821,13 @@ export interface components {
             /** Kinds */
             kinds: components["schemas"]["EmailKindOut"][];
         };
+        /** EventTypeOut */
+        EventTypeOut: {
+            /** Description */
+            description: string;
+            /** Type */
+            type: string;
+        };
         /** InboxFilters */
         InboxFilters: {
             /**
@@ -527,6 +846,44 @@ export interface components {
              * @description true: only unread ones.
              */
             unread?: boolean | null;
+        };
+        /**
+         * InventoryOut
+         * @description A project webhook as Org Admins see it: where it sends, not what.
+         */
+        InventoryOut: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["PersonRef"] | null;
+            /** Disabled Reason */
+            disabled_reason: string;
+            /** Events */
+            events: string[];
+            /** Host */
+            host: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            project: components["schemas"]["ProjectRef"];
+        };
+        /** LastDelivery */
+        LastDelivery: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event */
+            event: string;
+            /** Status */
+            status: string;
         };
         /** MarkAllIn */
         MarkAllIn: {
@@ -555,6 +912,11 @@ export interface components {
              * @description People, teams, sign-in and apps settings.
              */
             manage_org: boolean;
+            /**
+             * Manage Webhooks
+             * @description The organization's webhooks.
+             */
+            manage_webhooks: boolean;
             /** Read Audit */
             read_audit: boolean;
         };
@@ -661,6 +1023,26 @@ export interface components {
              */
             limit: number;
         };
+        /** Page[DeliverySummary] */
+        Page_DeliverySummary_: {
+            /** Items */
+            items: components["schemas"]["DeliverySummary"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[InventoryOut] */
+        Page_InventoryOut_: {
+            /** Items */
+            items: components["schemas"]["InventoryOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[NotificationOut] */
         Page_NotificationOut_: {
             /** Items */
@@ -741,6 +1123,39 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[WebhookOut] */
+        Page_WebhookOut_: {
+            /** Items */
+            items: components["schemas"]["WebhookOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** PersonRef */
+        PersonRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** PolicyIn */
+        PolicyIn: {
+            /** Project Webhooks */
+            project_webhooks: boolean;
+        };
+        /** PolicyOut */
+        PolicyOut: {
+            /**
+             * Project Webhooks
+             * @description Project Admins may add webhooks to their projects.
+             */
+            project_webhooks: boolean;
+        };
         /** ProjectCan */
         ProjectCan: {
             /**
@@ -753,6 +1168,11 @@ export interface components {
              * @description Give and remove access.
              */
             manage_members: boolean;
+            /**
+             * Manage Webhooks
+             * @description Add and change the project's webhooks.
+             */
+            manage_webhooks: boolean;
             /**
              * Read
              * @description Read the project's data.
@@ -865,6 +1285,18 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** ProjectRef */
+        ProjectRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** ProjectRoleOut */
         ProjectRoleOut: {
             /** Description */
@@ -889,6 +1321,17 @@ export interface components {
              * @enum {string}
              */
             role: "viewer" | "editor" | "runner" | "admin";
+        };
+        /** SecretOut */
+        SecretOut: {
+            /**
+             * Previous Secret Expires At
+             * Format: date-time
+             * @description Until then, messages are signed with both secrets.
+             */
+            previous_secret_expires_at: string;
+            /** Secret */
+            secret: string;
         };
         /** ServiceAccountIn */
         ServiceAccountIn: {
@@ -1083,6 +1526,131 @@ export interface components {
             /** Active */
             active?: boolean | null;
         };
+        /** WebhookCreated */
+        WebhookCreated: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["PersonRef"] | null;
+            /** Description */
+            description: string;
+            /**
+             * Disabled Reason
+             * @description Why it's off: failing (Iki turned it off), org_admin, or empty.
+             */
+            disabled_reason: string;
+            /** Events */
+            events: string[];
+            /**
+             * Failing Since
+             * @description When deliveries started failing with no success since.
+             */
+            failing_since: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            last_delivery: components["schemas"]["LastDelivery"] | null;
+            project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Rotation Ends At
+             * @description During a secret rotation: when the previous secret stops signing.
+             */
+            rotation_ends_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "project" | "org";
+            /**
+             * Secret
+             * @description The signing secret (Standard Webhooks, whsec_…). Shown only now: store it in your receiver.
+             */
+            secret: string;
+            /** Url */
+            url: string;
+        };
+        /** WebhookIn */
+        WebhookIn: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Events
+             * @description Event types to send; see /webhook-events.
+             */
+            events: string[];
+            /**
+             * Url
+             * @description An https:// address.
+             */
+            url: string;
+        };
+        /** WebhookOut */
+        WebhookOut: {
+            /** Active */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["PersonRef"] | null;
+            /** Description */
+            description: string;
+            /**
+             * Disabled Reason
+             * @description Why it's off: failing (Iki turned it off), org_admin, or empty.
+             */
+            disabled_reason: string;
+            /** Events */
+            events: string[];
+            /**
+             * Failing Since
+             * @description When deliveries started failing with no success since.
+             */
+            failing_since: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            last_delivery: components["schemas"]["LastDelivery"] | null;
+            project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Rotation Ends At
+             * @description During a secret rotation: when the previous secret stops signing.
+             */
+            rotation_ends_at: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "project" | "org";
+            /** Url */
+            url: string;
+        };
+        /** WebhookPatch */
+        WebhookPatch: {
+            /**
+             * Active
+             * @description false turns it off. Org Admins may turn off any project's webhook.
+             */
+            active?: boolean | null;
+            /** Description */
+            description?: string | null;
+            /** Events */
+            events?: string[] | null;
+            /** Url */
+            url?: string | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1269,6 +1837,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectRoleOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_inventory: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_InventoryOut_"];
                 };
             };
         };
@@ -1502,6 +2095,59 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_webhooks_project_webhooks: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WebhookOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_create_project_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookCreated"];
+                };
             };
         };
     };
@@ -1915,6 +2561,307 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_webhooks_webhook_events: {
+        parameters: {
+            query?: {
+                scope?: "project" | "org";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventTypeOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_webhook_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_change_webhook_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_org_webhooks: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WebhookOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_create_org_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookCreated"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_get_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_delete_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_webhooks_patch_webhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_deliveries: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                status?: ("pending" | "succeeded" | "failed") | null;
+            };
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_DeliverySummary_"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_get_delivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_redeliver: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_ping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_webhooks_rotate_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretOut"];
+                };
             };
         };
     };

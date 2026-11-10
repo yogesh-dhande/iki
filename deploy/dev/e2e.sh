@@ -42,6 +42,7 @@ forward svc/keycloak 18080 8080
 forward svc/seaweedfs 18333 8333
 forward svc/otel-lgtm 13200 3200
 forward svc/mailpit 18025 8025
+forward svc/webhook-receiver 18090 8080
 
 # --- Iki web ------------------------------------------------------------------
 ready=$(curl -fsS http://127.0.0.1:18000/healthz/ready)
@@ -105,6 +106,14 @@ probe mailpit 1025 || fail "web pod cannot reach the mail server (Mailpit)"
 if probe seaweedfs 8333; then fail "web pod reached SeaweedFS; default-deny egress is not enforced"; fi
 if probe otel-lgtm 3000; then fail "web pod reached Grafana; only the OTLP port is allowed"; fi
 pass "egress is default-deny: Postgres, Keycloak, OTLP and SMTP allowed, everything else blocked"
+tasks_probe() { # as probe, from a task runner
+  kc exec deploy/iki-tasks -c tasks -- python -c \
+    "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(s.connect_ex(('$1', $2)))" \
+    2>/dev/null
+}
+tasks_probe webhook-receiver 8080 || fail "task runners cannot reach the webhook receiver"
+if probe webhook-receiver 8080; then fail "web pod reached the webhook receiver; only task runners send"; fi
+pass "only task runners reach webhook receivers"
 
 # --- Keycloak -------------------------------------------------------------------
 issuer=$(curl -fsS http://127.0.0.1:18080/realms/iki/.well-known/openid-configuration | jq -r .issuer)
@@ -114,7 +123,7 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
 uv run --quiet python "$(dirname "${BASH_SOURCE[0]}")/sso.py" --check \
-  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --web "pod/$web_pod"
+  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------
 anon=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18333/)

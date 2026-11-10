@@ -182,7 +182,7 @@ def test_clients_discover_the_server_from_metadata() -> None:
     assert meta["response_types_supported"] == ["code"]
     assert "implicit" not in meta["grant_types_supported"]
     assert "password" not in meta["grant_types_supported"]
-    assert set(meta["scopes_supported"]) == {"read", "write", "run", "apps", "admin"}
+    assert set(meta["scopes_supported"]) == {"read", "write", "run", "apps", "admin", "webhooks"}
 
     resource = Browser().get("/.well-known/oauth-protected-resource").json()
     assert resource["authorization_servers"] == ["https://testserver"]

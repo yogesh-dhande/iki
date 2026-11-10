@@ -96,6 +96,28 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
 {{- end }}
+{{- if and .Values.tasks.enabled $egress.webhooks.to }}
+---
+# Task runners send webhooks to their receivers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" $ }}-tasks-webhooks
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" $ "component" "tasks") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- toYaml $egress.webhooks.to | nindent 8 }}
+      ports:
+        {{- range $egress.webhooks.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
 {{- if and .Values.email.existingSecret $egress.email.to }}
 ---
 # Web pods (the Org Admin's test email) and task runners reach the mail server.

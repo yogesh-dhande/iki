@@ -127,6 +127,9 @@ and the server refuses to start without them.
 | `IKI_EMAIL_URL`                       | unset         | Mail server, `smtp+tls://user:pass@host:587` or `smtp+ssl://…:465`; unset: no email |
 | `IKI_EMAIL_FROM`                      | required\*    | \*With email: the sender, e.g. `Iki <iki@example.com>` (covered by SPF and DKIM)    |
 | `IKI_EMAIL_ALLOW_PLAINTEXT`           | `false`       | Allow `smtp://` (no encryption) with HTTPS on: only for a relay in your network     |
+| `IKI_WEBHOOK_ALLOWED_NETWORKS`        | unset         | Comma-separated CIDRs of internal networks webhooks may send to                     |
+| `IKI_WEBHOOK_CA_FILE`                 | unset         | CA bundle (PEM) trusted for webhook receivers, as well as the public CAs            |
+| `IKI_WEBHOOK_ALLOW_HTTP`              | `false`       | Development only: plain `http://` receivers; refused with HTTPS on                  |
 | `IKI_TASKS_CONCURRENCY`               | `4`           | `iki-server tasks`: tasks one runner runs at once                                   |
 | `IKI_TASKS_GRACE_SECONDS`             | `25`          | `iki-server tasks`: time running tasks get to finish after SIGTERM                  |
 | `IKI_TASKS_HEALTH_PORT`               | `8001`        | `iki-server tasks`: port for `/healthz/live` and `/healthz/ready` (`0`: off)        |
@@ -207,6 +210,31 @@ server's certificate verified. Org Admins can send a test email at
 Settings → Email, and can choose to leave the details out of emails, so
 they only say there's something new in Iki. Emails are marked as automatic
 (`Auto-Submitted`), so out-of-office replies stay quiet.
+
+## Webhooks
+
+Webhooks tell other systems, such as an ELN or LIMS, when something changes
+(ADR 0031). Project Admins add them on a project's Webhooks tab, and Org
+Admins add organization-wide ones at Settings → Webhooks. The API is under
+`/api/v1/projects/{id}/webhooks` and `/api/v1/webhooks`; tokens need the
+`webhooks` scope.
+
+- Messages follow [Standard Webhooks](https://www.standardwebhooks.com/):
+  verify the `webhook-signature` header with the secret shown when the
+  webhook is added, using the standard's library for your language.
+- Events come from the audit log, in the change's transaction:
+  `/api/v1/webhook-events` lists them. Delivery is at least once; dedupe on
+  `webhook-id`.
+- Task runners send them, retrying failures over about a day. Each
+  webhook's delivery log keeps 30 days, and a webhook failing for 5 days is
+  turned off and its managers told.
+- Iki sends only to public addresses over HTTPS, without following
+  redirects. For receivers inside your network, list their networks in
+  `IKI_WEBHOOK_ALLOWED_NETWORKS`, and add your CA with `IKI_WEBHOOK_CA_FILE`
+  if it's private. The chart lets only task runners reach receivers
+  (`networkPolicy.egress.webhooks`).
+- Org Admins see every project's webhooks (the host, not the address), can
+  turn any of them off, and choose whether project Admins may add them.
 
 ## Live updates
 

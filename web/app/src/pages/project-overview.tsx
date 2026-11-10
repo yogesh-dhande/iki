@@ -45,6 +45,11 @@ export function ProjectTabs() {
         <Link to="/projects/$slug/members/" params={{ slug: project.slug }} activeProps={tab}>
           Members
         </Link>
+        {project.can.manage_webhooks ? (
+          <Link to="/projects/$slug/webhooks/" params={{ slug: project.slug }} activeProps={tab}>
+            Webhooks
+          </Link>
+        ) : null}
         {project.can.manage ? (
           <Link to="/projects/$slug/settings/" params={{ slug: project.slug }} activeProps={tab}>
             Settings

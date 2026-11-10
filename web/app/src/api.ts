@@ -26,6 +26,12 @@ export type TeamRef = Schemas["TeamRef"];
 export type Role = Schemas["ProjectRoleOut"];
 export type RoleName = Role["name"];
 export type Notification = Schemas["NotificationOut"];
+export type Webhook = Schemas["WebhookOut"];
+export type WebhookCreated = Schemas["WebhookCreated"];
+export type Delivery = Schemas["DeliveryOut"];
+export type DeliverySummary = Schemas["DeliverySummary"];
+export type InventoryWebhook = Schemas["InventoryOut"];
+export type WebhookScope = "project" | "org";
 
 function csrfToken(): string | undefined {
   return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
@@ -265,6 +271,95 @@ export async function markNotification(id: string, read: boolean): Promise<Notif
 /** Marks read what arrived by `upTo` (the newest the person has seen). */
 export async function markAllNotifications(upTo: string | undefined) {
   return unwrap(await iki.POST("/api/v1/notifications/read", { body: { up_to: upTo ?? null } }));
+}
+
+// --- Webhooks ----------------------------------------------------------------------
+
+export const WEBHOOKS = ["webhooks"] as const;
+
+export function webhookEventsQuery(scope: WebhookScope) {
+  return queryOptions({
+    queryKey: ["webhook-events", scope],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/webhook-events", { params: { query: { scope } } })),
+    staleTime: Infinity,
+  });
+}
+
+export const webhookPolicyQuery = queryOptions({
+  queryKey: [...WEBHOOKS, "policy"],
+  queryFn: async () => unwrap(await iki.GET("/api/v1/webhook-policy")),
+});
+
+/** A project's webhooks, or the organization's (no project). */
+export function webhooksQuery(projectId: string | undefined) {
+  return queryOptions({
+    queryKey: [...WEBHOOKS, "list", projectId ?? "org"],
+    queryFn: () =>
+      everything(async (cursor) => {
+        const query = { limit: 100, ...(cursor ? { cursor } : {}) };
+        return projectId
+          ? unwrap(
+              await iki.GET("/api/v1/projects/{project_id}/webhooks", {
+                params: { path: { project_id: projectId }, query },
+              }),
+            )
+          : unwrap(await iki.GET("/api/v1/webhooks", { params: { query } }));
+      }),
+  });
+}
+
+export const inventoryQuery = queryOptions({
+  queryKey: [...WEBHOOKS, "inventory"],
+  queryFn: () =>
+    everything(async (cursor) =>
+      unwrap(
+        await iki.GET("/api/v1/project-webhooks", {
+          params: { query: { limit: 100, ...(cursor ? { cursor } : {}) } },
+        }),
+      ),
+    ),
+});
+
+export function webhookQuery(webhookId: string) {
+  return queryOptions({
+    queryKey: [...WEBHOOKS, "one", webhookId],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/webhooks/{webhook_id}", {
+          params: { path: { webhook_id: webhookId } },
+        }),
+      ),
+  });
+}
+
+export function deliveriesQuery(webhookId: string) {
+  return infiniteQueryOptions({
+    queryKey: [...WEBHOOKS, "deliveries", webhookId],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await iki.GET("/api/v1/webhooks/{webhook_id}/deliveries", {
+          params: {
+            path: { webhook_id: webhookId },
+            query: { limit: 25, ...(pageParam ? { cursor: pageParam } : {}) },
+          },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+export function deliveryQuery(webhookId: string, deliveryId: string) {
+  return queryOptions({
+    queryKey: [...WEBHOOKS, "delivery", deliveryId],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/webhooks/{webhook_id}/deliveries/{delivery_id}", {
+          params: { path: { webhook_id: webhookId, delivery_id: deliveryId } },
+        }),
+      ),
+  });
 }
 
 /** Looks a person or service account up by email address, for adding them to a project. */

@@ -70,6 +70,32 @@ def viewer_grant(w: World) -> tuple[str, Any]:
     return f"/projects/{w.project.pk}/members/{membership.pk}", None
 
 
+def _webhook(w: World, *, org: bool = False) -> Any:
+    from iki_server.webhooks import services as webhooks
+
+    hook, _ = webhooks.create(
+        project=None if org else w.project,
+        url="https://hooks.example.com/iki",
+        description="",
+        chosen=["team.created"] if org else ["project.updated"],
+        by=w.users["org_admin" if org else "admin"],
+    )
+    return hook
+
+
+def webhook(suffix: str = "", body: Any = None, *, org: bool = False) -> Build:
+    return lambda w: (f"/webhooks/{_webhook(w, org=org).pk}{suffix}", body)
+
+
+def delivery(suffix: str = "") -> Build:
+    def build(w: World) -> tuple[str, Any]:
+        hook = _webhook(w)
+        sent = hook.deliveries.get()  # the ping
+        return f"/webhooks/{hook.pk}/deliveries/{sent.pk}{suffix}", None
+
+    return build
+
+
 ORG_ADMIN_ONLY = row(403, org_admin=200)
 TEAM_VISIBLE = row(404, org_admin=200, team_member=200)
 TEAM_MANAGE = row(404, org_admin=200, team_member=403)
@@ -176,6 +202,71 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/me/notification-email",
         fixed("/me/notification-email", {"email": {"project.added": False}}),
         row(200),
+    ),
+    # Webhooks: a project's are its Admins'; the org's are Org Admins', who can also
+    # see where every project's webhook sends and turn it off.
+    ("GET", "/webhook-events", fixed("/webhook-events"), row(200)),
+    ("GET", "/webhook-policy", fixed("/webhook-policy"), row(200)),
+    (
+        "PATCH",
+        "/webhook-policy",
+        fixed("/webhook-policy", {"project_webhooks": True}),
+        ORG_ADMIN_ONLY,
+    ),
+    ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),
+    (
+        "POST",
+        "/projects/{project_id}/webhooks",
+        project("/webhooks", {"url": "https://hooks.example.com/a", "events": ["project.updated"]}),
+        visible(403, admin=201),
+    ),
+    ("GET", "/webhooks", fixed("/webhooks"), ORG_ADMIN_ONLY),
+    (
+        "POST",
+        "/webhooks",
+        fixed("/webhooks", {"url": "https://hooks.example.com/b", "events": ["team.created"]}),
+        row(403, org_admin=201),
+    ),
+    ("GET", "/project-webhooks", fixed("/project-webhooks"), ORG_ADMIN_ONLY),
+    ("GET", "/webhooks/{webhook_id}", webhook(), row(404, admin=200)),
+    ("GET", "/webhooks/{webhook_id}", webhook(org=True), row(404, org_admin=200)),
+    (
+        "PATCH",
+        "/webhooks/{webhook_id}",
+        webhook(body={"description": "LIMS"}),
+        row(404, admin=200),
+    ),
+    (
+        "PATCH",
+        "/webhooks/{webhook_id}",
+        webhook(body={"active": False}),
+        row(404, admin=200, org_admin=200),
+    ),
+    ("DELETE", "/webhooks/{webhook_id}", webhook(), row(404, admin=204)),
+    (
+        "POST",
+        "/webhooks/{webhook_id}/rotate-secret",
+        webhook("/rotate-secret"),
+        row(404, admin=200),
+    ),
+    ("POST", "/webhooks/{webhook_id}/ping", webhook("/ping"), row(404, admin=202)),
+    (
+        "GET",
+        "/webhooks/{webhook_id}/deliveries",
+        webhook("/deliveries"),
+        row(404, admin=200),
+    ),
+    (
+        "GET",
+        "/webhooks/{webhook_id}/deliveries/{delivery_id}",
+        delivery(),
+        row(404, admin=200),
+    ),
+    (
+        "POST",
+        "/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver",
+        delivery("/redeliver"),
+        row(404, admin=202),
     ),
 ]
 

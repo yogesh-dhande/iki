@@ -178,10 +178,20 @@ def test_me(world: World) -> None:
         "kind": "person",
         "active": True,
         "org_roles": ["org_admin"],
-        "can": {"manage_org": True, "read_audit": False, "create_projects": False},
+        "can": {
+            "manage_org": True,
+            "read_audit": False,
+            "create_projects": False,
+            "manage_webhooks": True,
+        },
     }
     member = api_as(world, "team_member").get("/me").json()
-    assert member["can"] == {"manage_org": False, "read_audit": False, "create_projects": True}
+    assert member["can"] == {
+        "manage_org": False,
+        "read_audit": False,
+        "create_projects": True,
+        "manage_webhooks": False,
+    }
 
 
 def test_projects_show_your_role_and_filter(world: World) -> None:
@@ -301,10 +311,25 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         result: dict[str, bool] = found[0]["can"]
         return result
 
-    assert can("viewer") == {"read": True, "manage": False, "manage_members": False}
-    assert can("admin") == {"read": True, "manage": True, "manage_members": True}
+    assert can("viewer") == {
+        "read": True,
+        "manage": False,
+        "manage_members": False,
+        "manage_webhooks": False,
+    }
+    assert can("admin") == {
+        "read": True,
+        "manage": True,
+        "manage_members": True,
+        "manage_webhooks": True,
+    }
     # Org Admins see the project exists and can add themselves, but not read it.
-    assert can("org_admin") == {"read": False, "manage": False, "manage_members": True}
+    assert can("org_admin") == {
+        "read": False,
+        "manage": False,
+        "manage_members": True,
+        "manage_webhooks": False,
+    }
 
 
 def test_teams_you_can_create_projects_in(world: World) -> None:

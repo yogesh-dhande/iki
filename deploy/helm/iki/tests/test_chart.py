@@ -77,6 +77,7 @@ def test_chart_renders_expected_resources() -> None:
         "Job/iki-migrate",
         "NetworkPolicy/iki-default-deny",
         "NetworkPolicy/iki-egress",
+        "NetworkPolicy/iki-tasks-webhooks",
         "NetworkPolicy/iki-web-identity-provider",
         "PodDisruptionBudget/iki-web",
         "Service/iki-web",
@@ -427,3 +428,53 @@ def test_only_web_pods_and_task_runners_reach_the_mail_server() -> None:
     v4, v6 = (peer["ipBlock"] for peer in rule["to"])
     assert "169.254.0.0/16" in v4["except"] and "10.0.0.0/8" in v4["except"]
     assert "fc00::/7" in v6["except"]
+
+
+def test_webhooks_reach_only_public_addresses_from_task_runners_by_default() -> None:
+    policies = {p["metadata"]["name"]: p for p in by_kind(manifests(), "NetworkPolicy")}
+    on = policies["iki-tasks-webhooks"]
+    assert on["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "tasks"
+    (rule,) = on["spec"]["egress"]
+    assert rule["ports"] == [{"protocol": "TCP", "port": 443}]
+    v4, v6 = (peer["ipBlock"] for peer in rule["to"])
+    assert "169.254.0.0/16" in v4["except"] and "10.0.0.0/8" in v4["except"]
+    assert "fc00::/7" in v6["except"]
+    names = {
+        p["metadata"]["name"]
+        for p in by_kind(manifests({"tasks": {"enabled": False}}), "NetworkPolicy")
+    }
+    assert "iki-tasks-webhooks" not in names
+
+
+def test_webhook_networks_and_internal_ca_reach_every_container() -> None:
+    docs = manifests(
+        {
+            "webhooks": {
+                "allowedNetworks": ["10.20.0.0/16", "fd00:1::/64"],
+                "caSecret": {"name": "lims-ca", "key": "ca.pem"},
+            }
+        }
+    )
+    for name, spec in pod_specs(docs):
+        env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert env["IKI_WEBHOOK_ALLOWED_NETWORKS"] == "10.20.0.0/16,fd00:1::/64", name
+        assert env["IKI_WEBHOOK_CA_FILE"] == "/etc/iki/webhook-ca/ca.pem", name
+        assert env["IKI_WEBHOOK_ALLOW_HTTP"] == "false", name
+        mounts = {m["mountPath"] for m in spec["containers"][0]["volumeMounts"]}
+        assert "/etc/iki/webhook-ca" in mounts, name
+        (volume,) = [v for v in spec["volumes"] if v["name"] == "webhook-ca"]
+        assert volume["secret"]["secretName"] == "lims-ca", name
+    for name, spec in pod_specs(manifests()):
+        names = {e["name"] for e in spec["containers"][0]["env"]}
+        assert "IKI_WEBHOOK_CA_FILE" not in names, name
+
+
+def test_plain_http_webhooks_need_https_off() -> None:
+    error = render({"webhooks": {"allowHttp": True}}, ok=False)
+    assert "allowHttp" in str(error)
+    assert manifests({"https": False, "webhooks": {"allowHttp": True}})
+
+
+def test_webhook_networks_must_be_cidrs() -> None:
+    error = render({"webhooks": {"allowedNetworks": ["lims.internal"]}}, ok=False)
+    assert "allowedNetworks" in str(error)

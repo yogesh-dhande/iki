@@ -1,6 +1,237 @@
 {
   "components": {
     "schemas": {
+      "AttemptOut": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "status_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Code"
+          }
+        },
+        "required": [
+          "at",
+          "status_code",
+          "error",
+          "duration_ms"
+        ],
+        "title": "AttemptOut",
+        "type": "object"
+      },
+      "DeliveryFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "succeeded",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "DeliveryFilters",
+        "type": "object"
+      },
+      "DeliveryOut": {
+        "properties": {
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptOut"
+            },
+            "title": "Attempts",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message_id": {
+            "description": "The webhook-id header: the same when sent again.",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "The body sent, exactly.",
+            "title": "Payload",
+            "type": "object"
+          },
+          "redelivered_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "event",
+          "status",
+          "attempts",
+          "redelivered_by",
+          "created_at",
+          "finished_at",
+          "payload"
+        ],
+        "title": "DeliveryOut",
+        "type": "object"
+      },
+      "DeliverySummary": {
+        "properties": {
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptOut"
+            },
+            "title": "Attempts",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message_id": {
+            "description": "The webhook-id header: the same when sent again.",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "redelivered_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "event",
+          "status",
+          "attempts",
+          "redelivered_by",
+          "created_at",
+          "finished_at"
+        ],
+        "title": "DeliverySummary",
+        "type": "object"
+      },
       "EmailKindOut": {
         "properties": {
           "description": {
@@ -79,6 +310,24 @@
         "title": "EmailSettingsOut",
         "type": "object"
       },
+      "EventTypeOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "description"
+        ],
+        "title": "EventTypeOut",
+        "type": "object"
+      },
       "InboxFilters": {
         "properties": {
           "cursor": {
@@ -115,6 +364,89 @@
           }
         },
         "title": "InboxFilters",
+        "type": "object"
+      },
+      "InventoryOut": {
+        "description": "A project webhook as Org Admins see it: where it sends, not what.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disabled_reason": {
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "host",
+          "events",
+          "active",
+          "disabled_reason",
+          "created_by",
+          "created_at"
+        ],
+        "title": "InventoryOut",
+        "type": "object"
+      },
+      "LastDelivery": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "event",
+          "created_at"
+        ],
+        "title": "LastDelivery",
         "type": "object"
       },
       "MarkAllIn": {
@@ -166,6 +498,11 @@
             "title": "Manage Org",
             "type": "boolean"
           },
+          "manage_webhooks": {
+            "description": "The organization's webhooks.",
+            "title": "Manage Webhooks",
+            "type": "boolean"
+          },
           "read_audit": {
             "title": "Read Audit",
             "type": "boolean"
@@ -174,7 +511,8 @@
         "required": [
           "manage_org",
           "read_audit",
-          "create_projects"
+          "create_projects",
+          "manage_webhooks"
         ],
         "title": "MeCan",
         "type": "object"
@@ -424,6 +762,64 @@
         "title": "PageParams",
         "type": "object"
       },
+      "Page_DeliverySummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DeliverySummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[DeliverySummary]",
+        "type": "object"
+      },
+      "Page_InventoryOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InventoryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[InventoryOut]",
+        "type": "object"
+      },
       "Page_NotificationOut_": {
         "properties": {
           "items": {
@@ -656,6 +1052,81 @@
         "title": "Page[UserOut]",
         "type": "object"
       },
+      "Page_WebhookOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WebhookOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[WebhookOut]",
+        "type": "object"
+      },
+      "PersonRef": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "PersonRef",
+        "type": "object"
+      },
+      "PolicyIn": {
+        "properties": {
+          "project_webhooks": {
+            "title": "Project Webhooks",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_webhooks"
+        ],
+        "title": "PolicyIn",
+        "type": "object"
+      },
+      "PolicyOut": {
+        "properties": {
+          "project_webhooks": {
+            "description": "Project Admins may add webhooks to their projects.",
+            "title": "Project Webhooks",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_webhooks"
+        ],
+        "title": "PolicyOut",
+        "type": "object"
+      },
       "ProjectCan": {
         "properties": {
           "manage": {
@@ -668,6 +1139,11 @@
             "title": "Manage Members",
             "type": "boolean"
           },
+          "manage_webhooks": {
+            "description": "Add and change the project's webhooks.",
+            "title": "Manage Webhooks",
+            "type": "boolean"
+          },
           "read": {
             "description": "Read the project's data.",
             "title": "Read",
@@ -677,7 +1153,8 @@
         "required": [
           "read",
           "manage",
-          "manage_members"
+          "manage_members",
+          "manage_webhooks"
         ],
         "title": "ProjectCan",
         "type": "object"
@@ -958,6 +1435,30 @@
         "title": "ProjectPatch",
         "type": "object"
       },
+      "ProjectRef": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "title": "ProjectRef",
+        "type": "object"
+      },
       "ProjectRoleOut": {
         "properties": {
           "description": {
@@ -1017,6 +1518,26 @@
           "role"
         ],
         "title": "RoleIn",
+        "type": "object"
+      },
+      "SecretOut": {
+        "properties": {
+          "previous_secret_expires_at": {
+            "description": "Until then, messages are signed with both secrets.",
+            "format": "date-time",
+            "title": "Previous Secret Expires At",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret",
+          "previous_secret_expires_at"
+        ],
+        "title": "SecretOut",
         "type": "object"
       },
       "ServiceAccountIn": {
@@ -1491,6 +2012,337 @@
         },
         "title": "UserPatch",
         "type": "object"
+      },
+      "WebhookCreated": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "disabled_reason": {
+            "description": "Why it's off: failing (Iki turned it off), org_admin, or empty.",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "failing_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When deliveries started failing with no success since.",
+            "title": "Failing Since"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastDelivery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rotation_ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "During a secret rotation: when the previous secret stops signing.",
+            "title": "Rotation Ends At"
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "org"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "secret": {
+            "description": "The signing secret (Standard Webhooks, whsec_…). Shown only now: store it in your receiver.",
+            "title": "Secret",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "project",
+          "url",
+          "description",
+          "events",
+          "active",
+          "disabled_reason",
+          "failing_since",
+          "rotation_ends_at",
+          "created_by",
+          "created_at",
+          "last_delivery",
+          "secret"
+        ],
+        "title": "WebhookCreated",
+        "type": "object"
+      },
+      "WebhookIn": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Description",
+            "type": "string"
+          },
+          "events": {
+            "description": "Event types to send; see /webhook-events.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "url": {
+            "description": "An https:// address.",
+            "maxLength": 2000,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ],
+        "title": "WebhookIn",
+        "type": "object"
+      },
+      "WebhookOut": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "disabled_reason": {
+            "description": "Why it's off: failing (Iki turned it off), org_admin, or empty.",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "failing_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When deliveries started failing with no success since.",
+            "title": "Failing Since"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastDelivery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rotation_ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "During a secret rotation: when the previous secret stops signing.",
+            "title": "Rotation Ends At"
+          },
+          "scope": {
+            "enum": [
+              "project",
+              "org"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "project",
+          "url",
+          "description",
+          "events",
+          "active",
+          "disabled_reason",
+          "failing_since",
+          "rotation_ends_at",
+          "created_by",
+          "created_at",
+          "last_delivery"
+        ],
+        "title": "WebhookOut",
+        "type": "object"
+      },
+      "WebhookPatch": {
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "false turns it off. Org Admins may turn off any project's webhook.",
+            "title": "Active"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "events": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Events"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "WebhookPatch",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1845,6 +2697,70 @@
         "summary": "The project roles, lowest first",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/project-webhooks": {
+      "get": {
+        "description": "Where each project's webhooks send (the host), so Org Admins can see where\ndata goes and turn any webhook off. Not their addresses or deliveries.",
+        "operationId": "iki_server_api_webhooks_inventory",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_InventoryOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Every project's webhooks, for Org Admins",
+        "tags": [
+          "webhooks"
         ]
       }
     },
@@ -2423,6 +3339,129 @@
         "summary": "Remove a grant",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/webhooks": {
+      "get": {
+        "operationId": "iki_server_api_webhooks_project_webhooks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WebhookOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A project's webhooks",
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "post": {
+        "description": "Iki sends it a ``ping`` at once. The response holds the secret, shown only now.",
+        "operationId": "iki_server_api_webhooks_create_project_webhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookCreated"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Add a webhook to a project",
+        "tags": [
+          "webhooks"
         ]
       }
     },
@@ -3342,6 +4381,629 @@
         "summary": "Sign someone out everywhere",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/webhook-events": {
+      "get": {
+        "operationId": "iki_server_api_webhooks_webhook_events",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "project",
+              "enum": [
+                "project",
+                "org"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EventTypeOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The events webhooks can receive",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhook-policy": {
+      "get": {
+        "operationId": "iki_server_api_webhooks_webhook_policy",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Who may add webhooks",
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "patch": {
+        "description": "Off: only Org Admins add webhooks, and project webhooks stop sending.",
+        "operationId": "iki_server_api_webhooks_change_webhook_policy",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Choose who may add webhooks",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks": {
+      "get": {
+        "operationId": "iki_server_api_webhooks_org_webhooks",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WebhookOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The organization's webhooks",
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "post": {
+        "operationId": "iki_server_api_webhooks_create_org_webhook",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookCreated"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Add an organization webhook",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}": {
+      "delete": {
+        "description": "Its delivery log goes with it.",
+        "operationId": "iki_server_api_webhooks_delete_webhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Delete a webhook",
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "get": {
+        "operationId": "iki_server_api_webhooks_get_webhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A webhook",
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "patch": {
+        "operationId": "iki_server_api_webhooks_patch_webhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change or turn off a webhook",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}/deliveries": {
+      "get": {
+        "description": "Kept 30 days.",
+        "operationId": "iki_server_api_webhooks_deliveries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "succeeded",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_DeliverySummary_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What was sent, newest first",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}/deliveries/{delivery_id}": {
+      "get": {
+        "operationId": "iki_server_api_webhooks_get_delivery",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "One delivery, with the body sent",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver": {
+      "post": {
+        "description": "The same message (same webhook-id and body), signed afresh.",
+        "operationId": "iki_server_api_webhooks_redeliver",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Send a delivery again",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}/ping": {
+      "post": {
+        "operationId": "iki_server_api_webhooks_ping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Send a test message",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/{webhook_id}/rotate-secret": {
+      "post": {
+        "description": "A new secret, shown only now. For a day, messages carry signatures from both, so\nyou can update your receiver without missing any.",
+        "operationId": "iki_server_api_webhooks_rotate_secret",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Rotate the secret",
+        "tags": [
+          "webhooks"
         ]
       }
     }

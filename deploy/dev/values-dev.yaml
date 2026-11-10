@@ -22,6 +22,12 @@ email:
   # Mailpit (deploy/dev/manifests/mailpit.yaml); read it at localhost:8025.
   existingSecret: iki-email
   from: "Iki <iki@iki.localhost>"
+webhooks:
+  # The dev receiver (deploy/dev/manifests/webhook-receiver.yaml) is a cluster
+  # Service on plain HTTP: allow kind's Service network, and http:// (only
+  # because https is false here).
+  allowedNetworks: ["10.96.0.0/16"]
+  allowHttp: true
 database:
   # The app's least-privileged role (iki_app), created by up.sh and managed
   # by CloudNativePG.
@@ -66,3 +72,8 @@ networkPolicy:
       to:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: mailpit }
+    webhooks:
+      ports: [8080]
+      to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: webhook-receiver }

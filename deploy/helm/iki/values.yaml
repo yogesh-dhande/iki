@@ -90,6 +90,20 @@ email:
   # inside your own network.
   allowPlaintext: false
 
+webhooks:
+  # Project Admins and Org Admins add webhooks in Iki; task runners send them.
+  # Iki refuses receivers at private, loopback and link-local addresses unless
+  # they are in one of these networks (CIDRs), e.g. [10.20.0.0/16] for a LIMS
+  # inside your network. Allow them in networkPolicy.egress.webhooks too.
+  allowedNetworks: []
+  # Secret holding a CA bundle (PEM) for receivers whose certificates come
+  # from an internal CA. Trusted as well as the public CAs.
+  caSecret:
+    name: ""
+    key: ca.crt
+  # Plain http:// receivers, only for development: refused when https is true.
+  allowHttp: false
+
 database:
   # required: Secret holding a postgres:// URI for the app's role. That role
   # reads and writes rows but can't change the schema or the audit log. The
@@ -225,6 +239,27 @@ networkPolicy:
     # network, list it here instead (an ipBlock, or a pod/namespace selector).
     email:
       ports: [587, 465]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+              - ::1/128
+    # Task runners send webhooks. Public addresses only by default, as above;
+    # Iki also refuses addresses that resolve to private ones. For receivers
+    # inside your network, add them here and in webhooks.allowedNetworks.
+    webhooks:
+      ports: [443]
       to:
         - ipBlock:
             cidr: 0.0.0.0/0

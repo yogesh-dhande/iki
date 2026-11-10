@@ -6,7 +6,7 @@
 
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,6 +24,9 @@ import {
   respond,
   signedIn,
   TEAM,
+  delivery,
+  webhook,
+  WEBHOOK_EVENTS,
 } from "./test-server";
 
 async function renderApp(path: string) {
@@ -50,7 +53,9 @@ function onProjectPage(overrides: Parameters<typeof project>[0] = {}) {
 
 describe("the frame", () => {
   it("shows the navigation each person may use", async () => {
-    signedIn({ can: { manage_org: true, read_audit: false, create_projects: true } });
+    signedIn({
+      can: { manage_org: true, read_audit: false, create_projects: true, manage_webhooks: false },
+    });
     answer("GET /api/v1/projects", page([]));
     await renderApp("/projects/");
     const nav = screen.getByRole("navigation", { name: "Main" });
@@ -99,7 +104,9 @@ describe("the frame", () => {
 
 describe("home", () => {
   it("welcomes people and lists their active projects", async () => {
-    signedIn({ can: { manage_org: true, read_audit: false, create_projects: true } });
+    signedIn({
+      can: { manage_org: true, read_audit: false, create_projects: true, manage_webhooks: false },
+    });
     answer(
       "GET /api/v1/projects",
       page([
@@ -123,7 +130,9 @@ describe("home", () => {
   });
 
   it("points Org Admins without a team at teams", async () => {
-    signedIn({ can: { manage_org: true, read_audit: true, create_projects: false } });
+    signedIn({
+      can: { manage_org: true, read_audit: true, create_projects: false, manage_webhooks: false },
+    });
     answer("GET /api/v1/projects", page([]));
     await renderApp("/");
     expect(await screen.findByText("Start by creating a team")).toBeVisible();
@@ -131,7 +140,9 @@ describe("home", () => {
   });
 
   it("tells everyone else whom to ask", async () => {
-    signedIn({ can: { manage_org: false, read_audit: false, create_projects: false } });
+    signedIn({
+      can: { manage_org: false, read_audit: false, create_projects: false, manage_webhooks: false },
+    });
     answer("GET /api/v1/projects", page([]));
     await renderApp("/");
     expect(await screen.findByText("You’re not in any projects yet")).toBeVisible();
@@ -193,7 +204,9 @@ describe("a new project", () => {
   });
 
   it("explains how to get a team", async () => {
-    signedIn({ can: { manage_org: false, read_audit: false, create_projects: false } });
+    signedIn({
+      can: { manage_org: false, read_audit: false, create_projects: false, manage_webhooks: false },
+    });
     answer("GET /api/v1/teams", page([]));
     await renderApp("/projects/new/");
     expect(
@@ -220,10 +233,12 @@ describe("a project", () => {
   });
 
   it("lets an Org Admin who isn't a member add themselves", async () => {
-    signedIn({ can: { manage_org: true, read_audit: false, create_projects: false } });
+    signedIn({
+      can: { manage_org: true, read_audit: false, create_projects: false, manage_webhooks: false },
+    });
     onProjectPage({
       my_role: null,
-      can: { read: false, manage: false, manage_members: true },
+      can: { read: false, manage: false, manage_members: true, manage_webhooks: false },
     });
     answer(`GET ${MEMBERS}`, page([]));
     answer(`PUT ${MEMBERS}/users/${ME.id}`, {});
@@ -278,7 +293,10 @@ describe("members", () => {
 
   it("shows people and teams, read-only to members", async () => {
     signedIn();
-    onProjectPage({ my_role: "viewer", can: { read: true, manage: false, manage_members: false } });
+    onProjectPage({
+      my_role: "viewer",
+      can: { read: true, manage: false, manage_members: false, manage_webhooks: false },
+    });
     answer(`GET ${MEMBERS}`, page(people));
     await renderApp("/projects/kinase-atlas/members/");
     const list = await screen.findByRole("list", { name: "Members" });
@@ -378,7 +396,10 @@ describe("settings", () => {
 
   it("is for Admins only", async () => {
     signedIn();
-    onProjectPage({ my_role: "editor", can: { read: true, manage: false, manage_members: false } });
+    onProjectPage({
+      my_role: "editor",
+      can: { read: true, manage: false, manage_members: false, manage_webhooks: false },
+    });
     await renderApp("/projects/kinase-atlas/settings/");
     expect(screen.getByText("Only the project’s Admins can change its settings.")).toBeVisible();
   });
@@ -561,5 +582,306 @@ describe("notifications", () => {
     });
     expect(FakeEventSource.current()).toBeDefined();
     visibility.mockRestore();
+  });
+});
+
+describe("webhooks", () => {
+  const HOOK = webhook();
+  const HOOKS = `/api/v1/projects/${PROJECT.id}/webhooks`;
+  const ORG_ADMIN = {
+    can: { manage_org: true, read_audit: true, create_projects: true, manage_webhooks: true },
+  };
+
+  function onWebhooks(hooks = [HOOK]) {
+    onProjectPage();
+    answer(`GET ${HOOKS}`, page(hooks));
+    answer("GET /api/v1/webhook-events", WEBHOOK_EVENTS);
+    answer("GET /api/v1/webhook-policy", { project_webhooks: true });
+  }
+
+  function onWebhook(found = HOOK, deliveries = [delivery()]) {
+    onProjectPage();
+    answer(`GET /api/v1/webhooks/${found.id}`, found);
+    answer("GET /api/v1/webhook-events", WEBHOOK_EVENTS);
+    answer(`GET /api/v1/webhooks/${found.id}/deliveries`, page(deliveries));
+  }
+
+  it("are a project tab for its Admins only", async () => {
+    signedIn();
+    onWebhooks();
+    await renderApp("/projects/kinase-atlas/webhooks/");
+    const tabs = screen.getByRole("navigation", { name: "Project" });
+    expect(within(tabs).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    const row = (await screen.findByRole("link", { name: "eln.example.com" })).closest("li");
+    expect(row).toHaveTextContent("Our ELN · 2 events");
+    expect(within(row as HTMLElement).getByText("On")).toBeVisible();
+    expect(document.title).toBe("Webhooks · Kinase Atlas · Example Bio");
+
+    cleanup();
+    queryClient.clear();
+    onProjectPage({
+      my_role: "editor",
+      can: { read: true, manage: false, manage_members: false, manage_webhooks: false },
+    });
+    await renderApp("/projects/kinase-atlas/webhooks/");
+    expect(
+      within(screen.getByRole("navigation", { name: "Project" })).queryByRole("link", {
+        name: "Webhooks",
+      }),
+    ).toBeNull();
+    expect(screen.getByText("Only the project’s Admins can manage its webhooks.")).toBeVisible();
+  });
+
+  it("checks the address and events before adding one", async () => {
+    signedIn();
+    onWebhooks([]);
+    const { user } = await renderApp("/projects/kinase-atlas/webhooks/");
+    await user.click(await screen.findByRole("button", { name: "Add webhook" }));
+    expect(screen.getByText("Enter the address to send events to.")).toBeVisible();
+    expect(screen.getByText("Choose at least one event.")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: /Address/ })).toHaveFocus();
+    expect(calls("POST")).toEqual([]);
+  });
+
+  it("adds one and shows its secret once", async () => {
+    signedIn();
+    onWebhooks([]);
+    const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+    answer(`POST ${HOOKS}`, (call: { body: unknown }) => {
+      answer(`GET ${HOOKS}`, page([HOOK]));
+      return respond(201, { ...HOOK, ...(call.body as object), secret });
+    });
+    const { user } = await renderApp("/projects/kinase-atlas/webhooks/");
+    await user.type(
+      await screen.findByRole("textbox", { name: /Address/ }),
+      " https://eln.example.com/hooks/iki ",
+    );
+    await user.click(screen.getByRole("checkbox", { name: /project\.updated/ }));
+    await user.click(screen.getByRole("button", { name: "Add webhook" }));
+    expect(await screen.findByText("Copy the signing secret now.")).toBeVisible();
+    expect(calls("POST", HOOKS)[0]?.body).toEqual({
+      url: "https://eln.example.com/hooks/iki",
+      description: "",
+      events: ["project.updated"],
+    });
+    expect(screen.getByText(secret)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Copy signing secret" }));
+    expect(await navigator.clipboard.readText()).toBe(secret);
+    expect(screen.getByRole("button", { name: "Copied" })).toBeVisible();
+    expect(
+      screen.getByText("Added a webhook to eln.example.com, and sent it a test message."),
+    ).toBeVisible();
+    // Gone once dismissed: it's never shown again.
+    await user.click(screen.getByRole("button", { name: "Add another" }));
+    expect(screen.queryByText(secret)).toBeNull();
+  });
+
+  it("shows a refused address next to the field", async () => {
+    signedIn();
+    onWebhooks([]);
+    answer(
+      `POST ${HOOKS}`,
+      problem(409, "refused", "Iki doesn’t send to private addresses.", [
+        { pointer: "#/url", detail: "Iki doesn’t send to private addresses." },
+      ]),
+    );
+    const { user } = await renderApp("/projects/kinase-atlas/webhooks/");
+    await user.type(await screen.findByRole("textbox", { name: /Address/ }), "https://10.0.0.1/");
+    await user.click(screen.getByRole("checkbox", { name: /project\.updated/ }));
+    await user.click(screen.getByRole("button", { name: "Add webhook" }));
+    expect(await screen.findByText("Iki doesn’t send to private addresses.")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: /Address/ })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+  });
+
+  it("says when the Org Admins have turned project webhooks off", async () => {
+    signedIn();
+    onWebhooks();
+    answer("GET /api/v1/webhook-policy", { project_webhooks: false });
+    await renderApp("/projects/kinase-atlas/webhooks/");
+    expect(await screen.findByText(/so these don’t send/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Add webhook" })).toBeNull();
+  });
+
+  it("sends a test message and turns off", async () => {
+    signedIn();
+    onWebhook();
+    answer(`POST /api/v1/webhooks/${HOOK.id}/ping`, respond(202, delivery({ event: "ping" })));
+    answer(`PATCH /api/v1/webhooks/${HOOK.id}`, () => {
+      answer(`GET /api/v1/webhooks/${HOOK.id}`, { ...HOOK, active: false });
+      return { ...HOOK, active: false };
+    });
+    const { user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    expect(
+      await screen.findByRole("heading", { name: /Webhook to eln\.example\.com/ }),
+    ).toBeVisible();
+    expect(document.title).toBe("Webhook to eln.example.com · Kinase Atlas · Example Bio");
+    await user.click(screen.getByRole("button", { name: "Send a test message" }));
+    expect(await screen.findByText(/Sent a test message/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Turn off" }));
+    expect(await screen.findByRole("button", { name: "Turn on" })).toBeVisible();
+    expect(calls("PATCH")[0]?.body).toEqual({ active: false });
+  });
+
+  it("says why it's off, and leaves an Org Admin's switch to them", async () => {
+    signedIn();
+    onWebhook({ ...HOOK, active: false, disabled_reason: "org_admin" });
+    await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    expect(await screen.findByText(/Only an Org Admin can turn it back on/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Turn on" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send a test message" })).toBeNull();
+  });
+
+  it("explains a webhook Iki turned off for failing", async () => {
+    signedIn();
+    onWebhook({
+      ...HOOK,
+      active: false,
+      disabled_reason: "failing",
+      failing_since: "2026-03-09T09:00:00Z",
+    });
+    await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    const alert = await screen.findByText(/so Iki turned this webhook off/);
+    expect(alert).toHaveTextContent("since 9 Mar 2026");
+    expect(screen.getByRole("button", { name: "Turn on" })).toBeVisible();
+  });
+
+  it("asks before rotating the secret, then shows the new one once", async () => {
+    signedIn();
+    onWebhook();
+    answer(`POST /api/v1/webhooks/${HOOK.id}/rotate-secret`, {
+      secret: "whsec_new",
+      previous_secret_expires_at: "2026-03-15T09:00:00Z",
+    });
+    const { user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    await user.click(await screen.findByRole("button", { name: "Rotate secret" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Rotate the signing secret?" });
+    expect(calls("POST")).toEqual([]);
+    await user.click(within(dialog).getByRole("button", { name: "Rotate secret" }));
+    expect(await screen.findByText("whsec_new")).toBeVisible();
+    expect(screen.getByText(/Copy the new secret now/).closest("p")).toHaveTextContent(
+      "Until 15 Mar 2026",
+    );
+  });
+
+  it("asks before deleting, then goes back to the list", async () => {
+    signedIn();
+    onWebhook();
+    answer(`GET ${HOOKS}`, page([]));
+    answer("GET /api/v1/webhook-policy", { project_webhooks: true });
+    answer(`DELETE /api/v1/webhooks/${HOOK.id}`, respond(204));
+    const { router, user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    await user.click(await screen.findByRole("button", { name: "Delete webhook" }));
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Delete the webhook to eln.example.com?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Delete webhook" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/webhooks/");
+    });
+    expect(await screen.findByText("Deleted the webhook to eln.example.com.")).toBeVisible();
+  });
+
+  it("shows what each delivery sent and how it went, and sends it again", async () => {
+    signedIn();
+    const sent = delivery();
+    onWebhook(HOOK, [sent]);
+    answer(`GET /api/v1/webhooks/${HOOK.id}/deliveries/${sent.id}`, sent);
+    answer(
+      `POST /api/v1/webhooks/${HOOK.id}/deliveries/${sent.id}/redeliver`,
+      respond(202, { ...sent, status: "pending" }),
+    );
+    const { user } = await renderApp(`/projects/kinase-atlas/webhooks/${HOOK.id}/`);
+    const row = (await screen.findByText("Failed")).closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("2 attempts · Timed out after 15 seconds.");
+    const details = within(row).getByRole("button", { name: "Details of project.updated" });
+    expect(details).toHaveAttribute("aria-expanded", "false");
+    await user.click(details);
+    expect(details).toHaveAttribute("aria-expanded", "true");
+    expect(await within(row).findByText("msg_2dQ8Zx")).toBeVisible();
+    expect(within(row).getByText(/"name": "Kinase Atlas"/)).toBeVisible();
+    expect(within(row).getByText(/503 · 41 ms/)).toBeVisible();
+    await user.click(within(row).getByRole("button", { name: "Send again" }));
+    expect(await screen.findByText("Sent the project.updated message again.")).toBeVisible();
+  });
+
+  it("are Org Admins' to manage in settings", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/settings/webhooks/");
+    expect(
+      screen.getByText("Only Org Admins can manage the organization’s webhooks."),
+    ).toBeVisible();
+  });
+
+  it("let Org Admins see where project webhooks send, and turn them off", async () => {
+    signedIn(ORG_ADMIN);
+    answer("GET /api/v1/webhooks", page([webhook({ scope: "org", project: null })]));
+    answer("GET /api/v1/webhook-events", WEBHOOK_EVENTS);
+    answer("GET /api/v1/webhook-policy", { project_webhooks: true });
+    const listed = {
+      id: HOOK.id,
+      project: HOOK.project,
+      host: "lims.example.com",
+      events: ["project.updated"],
+      active: true,
+      disabled_reason: "",
+      created_by: HOOK.created_by,
+      created_at: HOOK.created_at,
+    };
+    answer("GET /api/v1/project-webhooks", page([listed]));
+    answer(`PATCH /api/v1/webhooks/${HOOK.id}`, () => {
+      answer(
+        "GET /api/v1/project-webhooks",
+        page([{ ...listed, active: false, disabled_reason: "org_admin" }]),
+      );
+      return { ...HOOK, active: false, disabled_reason: "org_admin" };
+    });
+    const { user } = await renderApp("/settings/webhooks/");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    const tabs = screen.getByRole("navigation", { name: "Settings" });
+    expect(within(tabs).getByRole("link", { name: "Webhooks" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(await screen.findByRole("link", { name: "eln.example.com" })).toHaveAttribute(
+      "href",
+      `/settings/webhooks/${HOOK.id}/`,
+    );
+    const row = (await screen.findByText("lims.example.com")).closest("li") as HTMLElement;
+    expect(within(row).getByRole("link", { name: "Kinase Atlas" })).toBeVisible();
+    await user.click(
+      within(row).getByRole("button", {
+        name: "Turn off the webhook to lims.example.com in Kinase Atlas",
+      }),
+    );
+    expect(await within(row).findByText("Off: turned off by an Org Admin")).toBeVisible();
+    expect(calls("PATCH")[0]?.body).toEqual({ active: false });
+    expect(
+      within(row).getByRole("button", { name: /Turn on the webhook to lims\.example\.com/ }),
+    ).toBeVisible();
+  });
+
+  it("let Org Admins choose who may add project webhooks", async () => {
+    signedIn(ORG_ADMIN);
+    answer("GET /api/v1/webhooks", page([]));
+    answer("GET /api/v1/webhook-events", WEBHOOK_EVENTS);
+    answer("GET /api/v1/webhook-policy", { project_webhooks: true });
+    answer("GET /api/v1/project-webhooks", page([]));
+    answer("PATCH /api/v1/webhook-policy", { project_webhooks: false });
+    const { user } = await renderApp("/settings/webhooks/");
+    await user.click(await screen.findByRole("radio", { name: /No one/ }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved.")).toBeVisible();
+    expect(calls("PATCH", "/api/v1/webhook-policy")[0]?.body).toEqual({ project_webhooks: false });
   });
 });

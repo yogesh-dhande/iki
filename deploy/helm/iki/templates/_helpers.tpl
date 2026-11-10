@@ -138,6 +138,14 @@ schema, and knows the app's role so it can grant it privileges.
 - name: IKI_EMAIL_ALLOW_PLAINTEXT
   value: {{ $ctx.Values.email.allowPlaintext | quote }}
 {{- end }}
+- name: IKI_WEBHOOK_ALLOWED_NETWORKS
+  value: {{ join "," $ctx.Values.webhooks.allowedNetworks | quote }}
+- name: IKI_WEBHOOK_ALLOW_HTTP
+  value: {{ $ctx.Values.webhooks.allowHttp | quote }}
+{{- if $ctx.Values.webhooks.caSecret.name }}
+- name: IKI_WEBHOOK_CA_FILE
+  value: /etc/iki/webhook-ca/{{ $ctx.Values.webhooks.caSecret.key }}
+{{- end }}
 - name: IKI_DB_SSLMODE
   value: {{ $ctx.Values.database.sslmode | quote }}
 {{- if $ctx.Values.database.caSecret.name }}
@@ -174,6 +182,11 @@ schema, and knows the app's role so it can grant it privileges.
   mountPath: /etc/iki/db-ca
   readOnly: true
 {{- end }}
+{{- if .Values.webhooks.caSecret.name }}
+- name: webhook-ca
+  mountPath: /etc/iki/webhook-ca
+  readOnly: true
+{{- end }}
 {{- end -}}
 
 {{- define "iki.volumes" -}}
@@ -187,5 +200,13 @@ schema, and knows the app's role so it can grant it privileges.
     items:
       - key: {{ .Values.database.caSecret.key }}
         path: {{ .Values.database.caSecret.key }}
+{{- end }}
+{{- if .Values.webhooks.caSecret.name }}
+- name: webhook-ca
+  secret:
+    secretName: {{ .Values.webhooks.caSecret.name }}
+    items:
+      - key: {{ .Values.webhooks.caSecret.key }}
+        path: {{ .Values.webhooks.caSecret.key }}
 {{- end }}
 {{- end -}}

@@ -73,6 +73,13 @@ ACTIONS: dict[str, str] = {
     "oauth.device_approved": "Signed in a device",
     "oauth.credential_created": "Created service-account credentials",
     "oauth.credential_revoked": "Revoked service-account credentials",
+    "webhook.created": "Added a webhook",
+    "webhook.updated": "Changed a webhook",
+    "webhook.deleted": "Deleted a webhook",
+    "webhook.secret_rotated": "Rotated a webhook’s secret",
+    "webhook.disabled": "Iki turned off a failing webhook",
+    "webhook.redelivered": "Sent a webhook delivery again",
+    "webhooks.project_policy_changed": "Changed whether project Admins may add webhooks",
     "scim.token_created": "Created a SCIM token",
     "scim.token_revoked": "Revoked a SCIM token",
     "scim.group_created": "Identity provider pushed a group",
@@ -158,8 +165,15 @@ def record(
         client_ip=context.client_ip,
         oauth_client=context.oauth_client,
     )
+    for listener in LISTENERS:
+        listener(event, target)
     transaction.on_commit(lambda: _emit(event))
     return event
+
+
+#: Called with each event and its target as it's recorded, in the change's
+#: transaction: what follows from a change (webhooks) exists exactly when it does.
+LISTENERS: list[Callable[[AuditEvent, models.Model | None], None]] = []
 
 
 def _emit(event: AuditEvent) -> None:

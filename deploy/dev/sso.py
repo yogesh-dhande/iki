@@ -4,7 +4,8 @@
     uv run python deploy/dev/sso.py --check   # same, then end-to-end checks: sign-in as
                                               # alice (also in Chromium), her
                                               # notification and its email, SCIM
-                                              # provisioning, the API, OAuth, and SAML
+                                              # provisioning, the API, webhooks,
+                                              # OAuth, and SAML
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -16,6 +17,7 @@ Tilt's port-forwards or with e2e.sh's own.
 import argparse
 import base64
 import hashlib
+import hmac
 import html
 import http.cookiejar
 import json
@@ -38,6 +40,10 @@ ISSUER = "http://keycloak.iki.localhost:8080/realms/iki"
 SAML_METADATA = f"{ISSUER}/protocol/saml/descriptor"
 #: Mailpit's API (``--mailpit-port``), where the dev cluster's email lands.
 MAILPIT = {"url": "http://127.0.0.1:8025"}
+#: The dev webhook receiver (``--webhook-port``), which lists what it was sent.
+RECEIVER = {"url": "http://127.0.0.1:8090"}
+#: Its address inside the cluster, where task runners send.
+RECEIVER_IN_CLUSTER = "http://webhook-receiver.iki.svc:8080"
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
 
@@ -476,6 +482,83 @@ def rest_api(admin: requests.Session) -> None:
     ok("service accounts can't be Org Admins; deactivating one is immediate and audited")
 
 
+def received(path: str, event: str) -> dict[str, Any]:
+    """The receiver's request to ``path`` carrying ``event``, within a minute."""
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        for request in requests.get(f"{RECEIVER['url']}/requests", timeout=5).json():
+            if request["path"] == path and json.loads(request["body"])["type"] == event:
+                found: dict[str, Any] = request
+                return found
+        time.sleep(1)
+    fail(f"no {event} webhook reached the receiver at {path} within a minute")
+
+
+def standard_webhooks_verify(secret: str, request: dict[str, Any]) -> bool:
+    """Checks a Standard Webhooks signature, independently of Iki's own code."""
+    headers = {k.lower(): v for k, v in request["headers"].items()}
+    key = base64.b64decode(secret.removeprefix("whsec_"))
+    signed = f"{headers['webhook-id']}.{headers['webhook-timestamp']}.{request['body']}"
+    expected = base64.b64encode(hmac.digest(key, signed.encode(), "sha256")).decode()
+    if abs(time.time() - int(headers["webhook-timestamp"])) > 300:
+        return False
+    return any(
+        hmac.compare_digest(f"v1,{expected}", candidate)
+        for candidate in headers["webhook-signature"].split()
+    )
+
+
+def webhooks(admin: requests.Session) -> None:
+    """A project Admin's webhook: signed messages from the task runner, and the log of them."""
+    alice = sign_in_as("alice")
+    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
+    project = next(p for p in mine if p["name"] == "Atlas" and p["my_role"] == "admin")
+    path = f"/e2e/{secrets.token_hex(8)}"
+    created = api_call(
+        alice,
+        "POST",
+        f"/projects/{project['id']}/webhooks",
+        {
+            "url": f"{RECEIVER_IN_CLUSTER}{path}",
+            "description": "e2e",
+            "events": ["project.updated"],
+        },
+    )
+    if created.status_code != 201 or not created.json()["secret"].startswith("whsec_"):
+        fail(f"adding a webhook answered HTTP {created.status_code}: {created.text[:300]}")
+    hook = created.json()
+    ping = received(path, "ping")
+    if not standard_webhooks_verify(hook["secret"], ping):
+        fail(f"the ping's signature doesn't verify: {ping['headers']}")
+    if standard_webhooks_verify(hook["secret"], {**ping, "body": ping["body"] + " "}):
+        fail("a changed body still verified")
+    ok("adding a webhook sends a ping from the task runner, signed as Standard Webhooks")
+
+    renamed = api_call(alice, "PATCH", f"/projects/{project['id']}", {"description": f"e2e {path}"})
+    if renamed.status_code != 200:
+        fail(f"changing the project answered HTTP {renamed.status_code}")
+    update = received(path, "project.updated")
+    body = json.loads(update["body"])
+    if (
+        not standard_webhooks_verify(hook["secret"], update)
+        or body["data"]["project"]["id"] != project["id"]
+    ):
+        fail(f"the project.updated message is wrong: {update}")
+    deliveries = api_call(alice, "GET", f"/webhooks/{hook['id']}/deliveries").json()["items"]
+    if not deliveries or any(d["status"] == "failed" for d in deliveries):
+        fail(f"the delivery log doesn't show the deliveries: {deliveries}")
+    ok("changing the project sends project.updated; the delivery log shows both")
+
+    listed = api_call(admin, "GET", "/project-webhooks?limit=100").json()["items"]
+    seen = next((w for w in listed if w["id"] == hook["id"]), None)
+    if not seen or seen["host"] != "webhook-receiver.iki.svc:8080" or "url" in seen:
+        fail(f"the Org Admin's inventory doesn't show where it sends: {seen}")
+    gone = api_call(alice, "DELETE", f"/webhooks/{hook['id']}")
+    if gone.status_code != 204:
+        fail(f"deleting the webhook answered HTTP {gone.status_code}")
+    ok("Org Admins see where project webhooks send (the host only)")
+
+
 def csrf_token(page: requests.Response) -> str:
     token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
     if not token:
@@ -784,18 +867,21 @@ def main() -> None:
     parser.add_argument("--iki-port", type=int, default=8000)
     parser.add_argument("--keycloak-port", type=int, default=8080)
     parser.add_argument("--mailpit-port", type=int, default=8025)
+    parser.add_argument("--webhook-port", type=int, default=8090)
     parser.add_argument(
         "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
     )
     args = parser.parse_args()
     WEB["target"] = args.web
     MAILPIT["url"] = f"http://127.0.0.1:{args.mailpit_port}"
+    RECEIVER["url"] = f"http://127.0.0.1:{args.webhook_port}"
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:
         check("alice", admin, (args.iki_port, args.keycloak_port))
         provisioning(admin)
         rest_api(admin)
+        webhooks(admin)
         oauth(admin)
         saml()
 

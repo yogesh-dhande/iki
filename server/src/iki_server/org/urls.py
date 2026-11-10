@@ -12,6 +12,8 @@ urlpatterns: list[URLPattern] = [
     path("projects/<slug:slug>/", app, name="project_detail"),
     path("projects/<slug:slug>/members/", app, name="project_members"),
     path("projects/<slug:slug>/settings/", app, name="project_settings"),
+    path("projects/<slug:slug>/webhooks/", app, name="project_webhooks"),
+    path("projects/<slug:slug>/webhooks/<uuid:webhook_id>/", app, name="project_webhook"),
     path("teams/", views.team_list, name="team_list"),
     path("teams/<slug:slug>/", views.team_detail, name="team_detail"),
     path(

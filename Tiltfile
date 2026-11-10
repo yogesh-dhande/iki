@@ -16,6 +16,7 @@ k8s_yaml([
     'deploy/dev/manifests/keycloak.yaml',
     'deploy/dev/manifests/otel-lgtm.yaml',
     'deploy/dev/manifests/mailpit.yaml',
+    'deploy/dev/manifests/webhook-receiver.yaml',
 ])
 
 k8s_kind('Cluster', api_version='postgresql.cnpg.io/v1', pod_readiness='wait')
@@ -37,6 +38,13 @@ k8s_resource(
     port_forwards=['8025:8025'],
     labels=['deps'],
     links=[link('http://localhost:8025', 'Mailpit (email)')],
+)
+k8s_resource(
+    'webhook-receiver',
+    objects=['webhook-receiver:configmap'],
+    port_forwards=['8090:8080'],
+    labels=['deps'],
+    links=[link('http://localhost:8090/requests', 'Webhooks received')],
 )
 k8s_resource(
     'otel-lgtm',

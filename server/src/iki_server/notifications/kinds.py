@@ -90,3 +90,11 @@ APP_AWAITING_APPROVAL = register(
         audience=Audience.ORG_ADMINS,
     )
 )
+WEBHOOK_DISABLED = register(
+    Kind(
+        "webhook.disabled",
+        "A webhook was turned off",
+        "Iki turns off a webhook you manage after its deliveries fail for days.",
+        group="Webhooks",
+    )
+)

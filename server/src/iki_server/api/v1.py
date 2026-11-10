@@ -12,7 +12,15 @@ from django.http import Http404, HttpRequest, HttpResponse
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 
-from iki_server.api import me, notifications, projects, service_accounts, teams, users
+from iki_server.api import (
+    me,
+    notifications,
+    projects,
+    service_accounts,
+    teams,
+    users,
+    webhooks,
+)
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import BearerAuth, SessionAuth
 from iki_server.org.services import Refused
@@ -30,7 +38,7 @@ api = NinjaAPI(
     openapi_url="/openapi.json",
 )
 
-for module in (me, users, service_accounts, teams, projects, notifications):
+for module in (me, users, service_accounts, teams, projects, notifications, webhooks):
     api.add_router("", module.router)
 
 

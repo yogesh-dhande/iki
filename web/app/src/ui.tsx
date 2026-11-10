@@ -42,7 +42,10 @@ export function Button({
   type = "button",
   onClick,
   disabled = false,
+  label,
 }: {
+  /** A fuller name for screen readers, starting with the visible text (WCAG 2.5.3). */
+  label?: string;
   variant?: Variant;
   busy?: boolean;
   busyText?: string;
@@ -55,6 +58,7 @@ export function Button({
     <button
       className={buttonClass(variant)}
       type={type}
+      aria-label={label && !(busy && busyText) ? label : undefined}
       aria-disabled={busy || disabled ? "true" : undefined}
       onClick={(event) => {
         if (busy || disabled) {
@@ -199,6 +203,111 @@ export function RadioField<T extends string>({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+/** Checkboxes for choosing several, in a fieldset like `RadioField`'s. */
+export function CheckboxesField<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  help,
+  error,
+}: {
+  label: string;
+  value: readonly T[];
+  onChange: (value: T[]) => void;
+  options: readonly { value: T; label: string; description?: string }[];
+  help?: string;
+  error?: string | undefined;
+}) {
+  const id = useId();
+  return (
+    <fieldset
+      className={error ? "field field-choices field-invalid" : "field field-choices"}
+      aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
+    >
+      <legend>{label}</legend>
+      {error ? (
+        <p className="field-error" id={`${id}-error`}>
+          {error}
+        </p>
+      ) : null}
+      {help ? (
+        <p className="field-help" id={`${id}-help`}>
+          {help}
+        </p>
+      ) : null}
+      <div className="choices">
+        {options.map((option, index) => (
+          <label className="choice" key={option.value} htmlFor={`${id}-${option.value}`}>
+            <input
+              type="checkbox"
+              id={`${id}-${option.value}`}
+              value={option.value}
+              // The form moves focus to the first invalid control.
+              aria-invalid={error && index === 0 ? "true" : undefined}
+              checked={value.includes(option.value)}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                onChange(
+                  options
+                    .map((o) => o.value)
+                    .filter((v) => (v === option.value ? checked : value.includes(v))),
+                );
+              }}
+            />
+            <span className="choice-text">
+              <code>{option.label}</code>
+              {option.description ? (
+                <span className="choice-help">{option.description}</span>
+              ) : null}
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+/** A value to copy, such as a secret shown once, with a Copy button. */
+export function CopyValue({ value, label }: { value: string; label: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => {
+      setState("idle");
+    }, 2000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [state]);
+  return (
+    <div className="copy-row">
+      <code className="copy-value">{value}</code>
+      <button
+        className="button button-quiet"
+        type="button"
+        aria-label={state === "idle" ? `Copy ${label}` : undefined}
+        onClick={() => {
+          // No clipboard (an insecure context, or refused): say so, and the value stays shown.
+          void (async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              setState("copied");
+            } catch {
+              setState("failed");
+            }
+          })();
+        }}
+      >
+        {state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : "Copy"}
+      </button>
+      <span className="visually-hidden" role="status">
+        {state === "copied" ? "Copied." : state === "failed" ? "Couldn’t copy." : ""}
+      </span>
+    </div>
   );
 }
 

@@ -533,6 +533,7 @@ input:focus-visible {
 
 .copy-value {
   flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .summary {
@@ -1050,4 +1051,13 @@ input[type="date"] {
   .dialog {
     border: 2px solid CanvasText;
   }
+}
+
+/* A webhook delivery, opened: its attempts and the body sent. */
+.delivery-details {
+  margin-top: 0.75rem;
+}
+
+.delivery-details pre {
+  max-height: 24rem;
 }

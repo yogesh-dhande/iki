@@ -81,7 +81,7 @@ export const ME: Schemas["MeOut"] = {
   kind: "person",
   active: true,
   org_roles: [],
-  can: { manage_org: false, read_audit: false, create_projects: true },
+  can: { manage_org: false, read_audit: false, create_projects: true, manage_webhooks: false },
 };
 
 export const TEAM: Schemas["TeamRef"] = {
@@ -107,7 +107,7 @@ export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas
     archived: false,
     created_at: "2026-03-14T09:00:00Z",
     my_role: "admin",
-    can: { read: true, manage: true, manage_members: true },
+    can: { read: true, manage: true, manage_members: true, manage_webhooks: true },
     ...overrides,
   };
 }
@@ -179,3 +179,54 @@ export class FakeEventSource extends EventTarget {
     this.readyState = FakeEventSource.CLOSED;
   }
 }
+
+export function webhook(overrides: Partial<Schemas["WebhookOut"]> = {}): Schemas["WebhookOut"] {
+  return {
+    id: "00000000-0000-7000-8000-0000000000w1",
+    scope: "project",
+    project: {
+      id: "00000000-0000-7000-8000-0000000000p1",
+      name: "Kinase Atlas",
+      slug: "kinase-atlas",
+    },
+    url: "https://eln.example.com/hooks/iki",
+    description: "Our ELN",
+    events: ["project.updated", "project.member_added"],
+    active: true,
+    disabled_reason: "",
+    failing_since: null,
+    rotation_ends_at: null,
+    last_delivery: { event: "ping", status: "succeeded", created_at: "2026-03-14T09:00:00Z" },
+    created_by: { id: ME.id, name: ME.name },
+    created_at: "2026-03-14T09:00:00Z",
+    ...overrides,
+  };
+}
+
+export function delivery(overrides: Partial<Schemas["DeliveryOut"]> = {}): Schemas["DeliveryOut"] {
+  return {
+    id: "00000000-0000-7000-8000-0000000000d1",
+    message_id: "msg_2dQ8Zx",
+    event: "project.updated",
+    status: "failed",
+    attempts: [
+      { at: "2026-03-14T09:00:00Z", status_code: 503, error: "", duration_ms: 41 },
+      {
+        at: "2026-03-14T09:00:05Z",
+        status_code: null,
+        error: "Timed out after 15 seconds.",
+        duration_ms: 15000,
+      },
+    ],
+    payload: { type: "project.updated", data: { project: { name: "Kinase Atlas" } } },
+    redelivered_by: null,
+    created_at: "2026-03-14T09:00:00Z",
+    finished_at: "2026-03-14T09:00:20Z",
+    ...overrides,
+  };
+}
+
+export const WEBHOOK_EVENTS: Schemas["EventTypeOut"][] = [
+  { type: "project.updated", description: "Someone renames or redescribes the project." },
+  { type: "project.member_added", description: "Someone adds a person or team." },
+];

@@ -14,6 +14,7 @@ SCOPES: dict[str, str] = {
     "run": "Run actions, on every compute tier your project roles allow.",
     "apps": "Build and change apps and views.",
     "admin": "Administer the organization as you can: people, teams and service accounts.",
+    "webhooks": "Manage webhooks, which send changes in Iki to other systems.",
 }
 
 #: What a client gets when it asks for no scope.

@@ -41,6 +41,7 @@ class MeCan(Schema):
     manage_org: bool = Field(description="People, teams, sign-in and apps settings.")
     read_audit: bool
     create_projects: bool = Field(description="In at least one of your teams.")
+    manage_webhooks: bool = Field(description="The organization's webhooks.")
 
 
 class MeOut(UserOut):
@@ -104,6 +105,7 @@ class ProjectCan(Schema):
     read: bool = Field(description="Read the project's data.")
     manage: bool = Field(description="Rename, describe, archive or restore it.")
     manage_members: bool = Field(description="Give and remove access.")
+    manage_webhooks: bool = Field(description="Add and change the project's webhooks.")
 
 
 class ProjectOut(Schema):
@@ -133,6 +135,7 @@ class ProjectOut(Schema):
             "read": permissions.can(user, Action.PROJECT_READ, project),
             "manage": permissions.can(user, Action.PROJECT_MANAGE, project),
             "manage_members": permissions.can(user, Action.PROJECT_MEMBERS_MANAGE, project),
+            "manage_webhooks": permissions.can(user, Action.PROJECT_WEBHOOKS_MANAGE, project),
         }
 
 

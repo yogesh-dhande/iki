@@ -52,6 +52,8 @@ class Action(StrEnum):
     TEAM_CREATE = "team.create"
     COMPUTE_MANAGE = "compute.manage"
     AUDIT_READ = "audit.read"
+    ORG_WEBHOOKS_MANAGE = "org.webhooks.manage"
+    """The organization's webhooks, and turning off any project's."""
 
     # A team
     TEAM_VIEW = "team.view"
@@ -73,10 +75,18 @@ class Action(StrEnum):
     PROJECT_MANAGE = "project.manage"
     """Rename, describe, archive, restore."""
     PROJECT_MEMBERS_MANAGE = "project.members.manage"
+    PROJECT_WEBHOOKS_MANAGE = "project.webhooks.manage"
+    """The project's webhooks, which send its changes to other systems."""
 
 
 ORG_ACTIONS = frozenset(
-    {Action.ORG_MANAGE, Action.TEAM_CREATE, Action.COMPUTE_MANAGE, Action.AUDIT_READ}
+    {
+        Action.ORG_MANAGE,
+        Action.TEAM_CREATE,
+        Action.COMPUTE_MANAGE,
+        Action.AUDIT_READ,
+        Action.ORG_WEBHOOKS_MANAGE,
+    }
 )
 TEAM_ACTIONS = frozenset({Action.TEAM_VIEW, Action.TEAM_MANAGE, Action.PROJECT_CREATE})
 PROJECT_ACTIONS = frozenset(Action) - ORG_ACTIONS - TEAM_ACTIONS
@@ -99,6 +109,9 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.TEAM_CREATE: "admin",
     Action.TEAM_MANAGE: "admin",
     Action.COMPUTE_MANAGE: "admin",
+    # Webhooks send data out of Iki: a scope of their own, as GitHub's admin:*_hook.
+    Action.ORG_WEBHOOKS_MANAGE: "webhooks",
+    Action.PROJECT_WEBHOOKS_MANAGE: "webhooks",
 }
 
 
@@ -136,6 +149,7 @@ _ORG_ACTION_ROLE = {
     Action.TEAM_CREATE: OrgRole.ORG_ADMIN,
     Action.COMPUTE_MANAGE: OrgRole.COMPUTE_ADMIN,
     Action.AUDIT_READ: OrgRole.AUDITOR,
+    Action.ORG_WEBHOOKS_MANAGE: OrgRole.ORG_ADMIN,
 }
 
 #: The lowest project role each project action needs.
@@ -149,6 +163,7 @@ _PROJECT_ACTION_ROLE = {
     Action.RUN_VM: ProjectRole.RUNNER,
     Action.PROJECT_MANAGE: ProjectRole.ADMIN,
     Action.PROJECT_MEMBERS_MANAGE: ProjectRole.ADMIN,
+    Action.PROJECT_WEBHOOKS_MANAGE: ProjectRole.ADMIN,
 }
 
 #: Project actions an Org Admin may take without a project role.

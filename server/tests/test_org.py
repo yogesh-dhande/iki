@@ -140,7 +140,12 @@ def test_members_see_the_member_list_read_only(world: World) -> None:
     assert "admin@example.com" in [m["user"]["email"] for m in members if m["user"]]
     assert "Chemistry" in [m["team"]["name"] for m in members if m["team"]]
     project = viewer.get(f"/projects/{project_id(world)}").json()
-    assert project["can"] == {"read": True, "manage": False, "manage_members": False}
+    assert project["can"] == {
+        "read": True,
+        "manage": False,
+        "manage_members": False,
+        "manage_webhooks": False,
+    }
     outsider = world.users["outsider"]
     path = f"/projects/{project_id(world)}/members/users/{outsider.pk}"
     problem(viewer.put(path, {"role": "admin"}), 403, "forbidden")
@@ -182,14 +187,24 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
     admin = api(world, "org_admin")
     project = admin.get(f"/projects/{project_id(world)}").json()
     assert project["my_role"] is None
-    assert project["can"] == {"read": False, "manage": False, "manage_members": True}
+    assert project["can"] == {
+        "read": False,
+        "manage": False,
+        "manage_members": True,
+        "manage_webhooks": False,
+    }
 
     me = world.users["org_admin"]
     path = f"/projects/{project_id(world)}/members/users/{me.pk}"
     assert admin.put(path, {"role": "admin"}).status_code == 200
     assert permissions.can(me, Action.PROJECT_READ, world.project)
     project = admin.get(f"/projects/{project_id(world)}").json()
-    assert project["can"] == {"read": True, "manage": True, "manage_members": True}
+    assert project["can"] == {
+        "read": True,
+        "manage": True,
+        "manage_members": True,
+        "manage_webhooks": True,
+    }
 
 
 def test_org_admins_can_recover_orphaned_projects(world: World) -> None:

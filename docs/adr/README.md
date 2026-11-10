@@ -60,3 +60,4 @@ supersedes the old one, and update the old one's status.
 | [0028](0028-oauth-authorization-server.md)                       | Iki is its own OAuth 2.1 server; Org Admins approve apps; people choose scopes and projects | Accepted |
 | [0029](0029-react-web-app.md)                                    | The web app: React pages served by Iki, beside server-rendered ones                         | Accepted |
 | [0030](0030-tasks-live-updates-and-notifications.md)             | Background tasks on Postgres, live updates over SSE, and notifications                      | Accepted |
+| [0031](0031-signed-webhooks.md)                                  | Signed webhooks, sent by the task runner and governed by Org Admins                         | Accepted |

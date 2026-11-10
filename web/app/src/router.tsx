@@ -23,6 +23,7 @@ import { ProjectMembers } from "./pages/project-members";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
+import { OrgWebhook, OrgWebhooks, ProjectWebhook, ProjectWebhooks } from "./pages/webhooks";
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   // Who's signed in, and the role names every page shows, before the first render.
@@ -92,14 +93,53 @@ const projectSettingsRoute = createRoute({
   component: ProjectSettings,
 });
 
+const projectWebhooksRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "webhooks",
+});
+
+const projectWebhookListRoute = createRoute({
+  getParentRoute: () => projectWebhooksRoute,
+  path: "/",
+  component: ProjectWebhooks,
+});
+
+const projectWebhookRoute = createRoute({
+  getParentRoute: () => projectWebhooksRoute,
+  path: "$webhookId",
+  component: ProjectWebhook,
+});
+
+const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "settings" });
+
+const orgWebhooksRoute = createRoute({ getParentRoute: () => settingsRoute, path: "webhooks" });
+
+const orgWebhookListRoute = createRoute({
+  getParentRoute: () => orgWebhooksRoute,
+  path: "/",
+  component: OrgWebhooks,
+});
+
+const orgWebhookRoute = createRoute({
+  getParentRoute: () => orgWebhooksRoute,
+  path: "$webhookId",
+  component: OrgWebhook,
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   notificationsRoute,
   projectsRoute.addChildren([
     projectListRoute,
     projectNewRoute,
-    projectRoute.addChildren([projectOverviewRoute, projectMembersRoute, projectSettingsRoute]),
+    projectRoute.addChildren([
+      projectOverviewRoute,
+      projectMembersRoute,
+      projectSettingsRoute,
+      projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
+    ]),
   ]),
+  settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);
 
 /** The app's router; tests pass a memory history. */

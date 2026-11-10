@@ -4,7 +4,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { Link, Outlet, useMatches, useRouter } from "@tanstack/react-router";
+import { Link, Outlet, useMatches, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { isSignedOut, meQuery, onSignedOutChange, signInUrl, unreadQuery } from "./api";
@@ -79,6 +79,7 @@ function SignedOut() {
 export function Layout() {
   const me = useQuery(meQuery).data;
   const org = organizationName();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const narrow = useMatches({ select: (matches) => matches.some((m) => m.staticData.narrow) });
   const router = useRouter();
   useEffect(() => router.subscribe("onBeforeNavigate", markNavigated), [router]);
@@ -105,7 +106,14 @@ export function Layout() {
               </Link>
               <a href="/teams/">Teams</a>
               {me.can.manage_org ? <a href="/people/">People</a> : null}
-              {me.can.manage_org ? <a href="/settings/sign-in/">Settings</a> : null}
+              {me.can.manage_org ? (
+                <a
+                  href="/settings/sign-in/"
+                  aria-current={pathname.startsWith("/settings/") ? "page" : undefined}
+                >
+                  Settings
+                </a>
+              ) : null}
               {me.can.read_audit ? <a href="/audit/">Audit</a> : null}
             </nav>
             <form className="header-actions" method="post" action="/logout/">
