@@ -60,6 +60,8 @@ ACTIONS: dict[str, str] = {
     "project.restored": "Restored a project",
     "project.role_granted": "Granted a project role",
     "project.member_removed": "Removed a project member",
+    "entity.linked": "Shared an entity into a project",
+    "entity.unlinked": "Took an entity out of a project",
     "encryption.rotated": "Re-encrypted stored secrets",
     "oauth.client_registered": "An app registered itself",
     "oauth.client_approval_requested": "Asked an Org Admin to approve an app",
@@ -111,6 +113,11 @@ def using(context: Context) -> Iterator[None]:
         yield
     finally:
         _context.reset(token)
+
+
+def current_via() -> str:
+    """How the current change is being made: web, api, mcp, cli or system."""
+    return _context.get(_SYSTEM).via
 
 
 def note_oauth_client(label: str) -> None:

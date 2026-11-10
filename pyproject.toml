@@ -142,7 +142,7 @@ module = ["iki_server.accounts.adapters"]
 disallow_subclassing_any = false
 
 [tool.django-stubs]
-django_settings_module = "iki_test_settings"
+django_settings_module = "iki_typecheck_settings"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "iki_test_settings"

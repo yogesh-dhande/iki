@@ -70,6 +70,8 @@ def django(build: Path, database: str, *args: str) -> subprocess.CompletedProces
             "IKI_DATABASE_URL": database,
             "OTEL_SDK_DISABLED": "true",
             "IKI_ALLOW_LOCAL_PLUGINS": "true",
+            # These tests install their own builds, not the session's fixture plugins.
+            "IKI_TEST_PLUGINS": "0",
         },
     )
 

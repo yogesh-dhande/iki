@@ -58,6 +58,16 @@ def identity_owner(entity_type: EntityType) -> EntityType | None:
     return next((t for t in [entity_type, *ancestors(entity_type)] if t.identity), None)
 
 
+def duplicate_policy(entity_type: EntityType) -> str | None:
+    """What creating a duplicate does: ``reuse``, ``warn`` or ``allow`` (None without an identity).
+
+    A type's own ``on_duplicate`` wins, then its nearest parent's; ``reuse`` is the default."""
+    if identity_owner(entity_type) is None:
+        return None
+    chain = [entity_type, *ancestors(entity_type)]
+    return next((t.on_duplicate for t in chain if t.on_duplicate), "reuse")
+
+
 def model(qualified: str) -> type[models.Model]:
     plugin, name = qualified.split(".")
     return apps.get_model(plugin, name)

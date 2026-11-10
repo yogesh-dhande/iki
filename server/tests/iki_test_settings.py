@@ -24,6 +24,14 @@ _TEST_ENV = {
 for _key, _value in _TEST_ENV.items():
     os.environ.setdefault(_key, _value)
 
+# The fixture plugins, so tests use real generated models and tables.
+if os.environ.get("IKI_TEST_PLUGINS", "1") != "0":
+    import sys
+
+    from iki_test_plugins import ensure_built
+
+    sys.path.insert(0, str(ensure_built()))
+
 from iki_server.settings import *  # noqa: E402, F403
 
 # Tests render templates without running collectstatic first.

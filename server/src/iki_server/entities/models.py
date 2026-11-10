@@ -1,14 +1,19 @@
-"""The core entity row (ADR 0007).
+"""The core entity row, its revisions, and the projects it belongs to (ADR 0007, ADR 0035).
 
 Every entity, of any type, has one ``Entity`` row: its identity and
 bookkeeping. Plugin types are generated models that extend it with
 multi-table inheritance, so a protein is an ``iki_entity`` row joined to a
 ``protein_protein`` row by ``entity_id``.
+
+Every change to an entity is a numbered :class:`Revision`: who made it, how,
+when, why, and which fields it changed. The values at each revision are in
+the plugin tables' history tables. Both are append-only.
 """
 
 from typing import Any, ClassVar
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Now
@@ -38,6 +43,9 @@ class Entity(models.Model):
     archived_at = models.DateTimeField(null=True, blank=True)
     #: SHA-256 of the type's identity fields, for finding duplicates.
     identity_hash = models.CharField(max_length=64, null=True, blank=True)
+    #: The latest revision's number. Edits name it, so two people's edits can't cross.
+    revision = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:
         db_table = "iki_entity"
@@ -78,3 +86,80 @@ class Entity(models.Model):
             if self.identity_hash is None:
                 self.identity_hash = identity.hash_for(self, entity_type)
         super().save(*args, **kwargs)
+
+
+class ProjectLink(models.Model):
+    """A project an entity belongs to. Its owner project has one too.
+
+    Reading an entity takes a role in any of its projects. Changing it takes
+    Editor in its owner project. An entity reused from another project (a
+    duplicate) is linked into the new one rather than copied.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="links")
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    linked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
+    )
+    linked_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_entity_project"
+        db_table_comment = "The projects each entity belongs to, its owner project included."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["entity", "project"], name="iki_entity_project_once"),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["project", "entity"], name="iki_entity_project_by_project"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.entity_id} in {self.project_id}"
+
+
+class RevisionKind(models.TextChoices):
+    CREATED = "created", "Created"
+    EDITED = "edited", "Edited"
+    ARCHIVED = "archived", "Archived"
+    RESTORED = "restored", "Restored"
+
+
+class Revision(models.Model):
+    """One change to an entity. Append-only, for every role (ADR 0035).
+
+    A field's provenance is the latest revision that changed it: who or what
+    set its current value, how, and when.
+    """
+
+    APPEND_ONLY = True
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="revisions")
+    #: 1 for the entity's creation, then 2, 3, ...
+    number = models.PositiveIntegerField()
+    kind = models.CharField(max_length=16, choices=RevisionKind.choices)
+    #: The fields whose values this revision set.
+    changed_fields = ArrayField(models.CharField(max_length=63), default=list, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: How the change was made: web, api, mcp, cli or system (as in the audit log).
+    via = models.CharField(max_length=16)
+    #: Why, if the person said.
+    reason = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_revision"
+        db_table_comment = "Every change to every entity: who, how, when, why, and which fields."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["entity", "number"], name="iki_revision_number"),
+            models.CheckConstraint(condition=Q(number__gte=1), name="iki_revision_number_min"),
+            models.CheckConstraint(
+                condition=Q(kind__in=RevisionKind.values), name="iki_revision_kind"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.entity_id} r{self.number}"

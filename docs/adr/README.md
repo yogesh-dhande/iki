@@ -64,3 +64,4 @@ supersedes the old one, and update the old one's status.
 | [0032](0032-plugin-manifest-spec-v1.md)                          | The iki/v1 plugin manifest spec, its validator, and UCUM units                              | Accepted |
 | [0033](0033-plugin-codegen-and-migrations.md)                    | Plugins compiled to Django apps, and migrations that keep history                           | Accepted |
 | [0034](0034-deployment-lockfile-and-plugin-builds.md)            | Each deployment pins its plugins in a lockfile, and builds its own image                    | Accepted |
+| [0035](0035-entity-revisions-provenance-and-edit-rules.md)       | Every change is an append-only revision; edits name their revision; duplicates are reused   | Accepted |

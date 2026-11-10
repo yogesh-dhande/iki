@@ -102,6 +102,13 @@ def allow_test_flush() -> None:
 
     with connection.cursor() as cursor:
         cursor.execute("ALTER TABLE iki_audit_event DISABLE TRIGGER iki_audit_event_no_truncate")
+        # Revisions and plugin history refuse TRUNCATE the same way.
+        cursor.execute(
+            "SELECT tgrelid::regclass::text FROM pg_trigger"
+            " WHERE tgname = 'iki_history_no_truncate'"
+        )
+        for (table,) in cursor.fetchall():
+            cursor.execute(f"ALTER TABLE {table} DISABLE TRIGGER iki_history_no_truncate")
 
 
 @pytest.fixture(scope="session")
@@ -115,6 +122,9 @@ def django_db_setup(
     """
     with django_db_blocker.unblock():
         allow_test_flush()
+        from iki_server.plugins import sync
+
+        sync.sync()  # HRID sequences for the fixture plugins
     yield
     from django.db import connection
 
