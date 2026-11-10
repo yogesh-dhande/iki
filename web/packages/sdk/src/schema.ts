@@ -562,6 +562,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your registrations
+         * @description Newest first.
+         */
+        get: operations["iki_server_api_files_list_registrations"];
+        put?: never;
+        /**
+         * Register a file where it is
+         * @description Pins one version of an object in an approved, versioned bucket. Iki reads it to learn
+         *     its SHA-256 (202), then it's ready. An object version registered before is ready at once
+         *     (201).
+         */
+        post: operations["iki_server_api_files_register_file"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registrations/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where files can be registered
+         * @description The approved buckets and prefixes, set by your administrators.
+         */
+        get: operations["iki_server_api_files_registration_locations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registrations/{registration_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of your registrations */
+        get: operations["iki_server_api_files_get_registration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/service-accounts": {
         parameters: {
             query?: never;
@@ -1572,6 +1635,14 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** LocationsOut */
+        LocationsOut: {
+            /**
+             * Locations
+             * @description Where files may be registered, such as s3://lab/.
+             */
+            locations: string[];
+        };
         /** MarkAllIn */
         MarkAllIn: {
             /**
@@ -1774,6 +1845,16 @@ export interface components {
         Page_ProjectOut_: {
             /** Items */
             items: components["schemas"]["ProjectOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[RegistrationOut] */
+        Page_RegistrationOut_: {
+            /** Items */
+            items: components["schemas"]["RegistrationOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -2063,6 +2144,81 @@ export interface components {
         ReadIn: {
             /** Read */
             read: boolean;
+        };
+        /** RegistrationIn */
+        RegistrationIn: {
+            /**
+             * Media Type
+             * @description Such as text/csv; the object's own if empty.
+             * @default
+             */
+            media_type: string;
+            /**
+             * Name
+             * @description Its name; the key's last part if empty.
+             * @default
+             */
+            name: string;
+            /**
+             * Project
+             * Format: uuid
+             * @description The project to add it to. It needs you as an Editor.
+             */
+            project: string;
+            /**
+             * Uri
+             * @description The object, such as s3://lab-data/runs/plate-7.csv.
+             */
+            uri: string;
+            /**
+             * Version
+             * @description The object version to pin; its current one if empty.
+             * @default
+             */
+            version: string;
+        };
+        /** RegistrationOut */
+        RegistrationOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed.
+             */
+            error: string;
+            /** @description The file it became, once ready. */
+            file: components["schemas"]["FileOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Size */
+            size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "checking" | "ready" | "failed";
+            /** Uri */
+            uri: string;
+            /**
+             * Version
+             * @description The object version the file is pinned to.
+             */
+            version: string;
         };
         /** RevisionDetailOut */
         RevisionDetailOut: {
@@ -3474,6 +3630,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookCreated"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_list_registrations: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RegistrationOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_register_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationOut"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_registration_locations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_get_registration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationOut"];
                 };
             };
         };

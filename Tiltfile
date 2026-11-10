@@ -100,8 +100,17 @@ k8s_resource('iki-tasks', resource_deps=['iki-migrate', 'otel-lgtm'], labels=['i
 # uploads from localhost:8000 and the web dev server), once the web pod is up.
 local_resource(
     'storage-setup',
+    # Iki's bucket, and a versioned lab bucket to try registering files in place from.
     cmd='kubectl --context kind-iki -n iki exec deploy/iki-web -c web -- '
-    + 'python -m iki_server.manage setup_storage --enable-versioning',
+    + 'python -m iki_server.manage setup_storage --enable-versioning && '
+    + 'kubectl --context kind-iki -n iki exec deploy/iki-web -c web -- '
+    + 'python -m iki_server.manage shell -c "'
+    + 'from iki_server.files import storage; s3 = storage.client(); '
+    + 'names = [b[\'Name\'] for b in s3.list_buckets()[\'Buckets\']]; '
+    + '\'lab-data\' in names or s3.create_bucket(Bucket=\'lab-data\'); '
+    + 's3.put_bucket_versioning(Bucket=\'lab-data\', '
+    + 'VersioningConfiguration={\'Status\': \'Enabled\'}); '
+    + 'print(\'Bucket lab-data keeps versions; register files from s3://lab-data/runs/.\')"',
     resource_deps=['iki-web', 'seaweedfs'],
     labels=['iki'],
 )

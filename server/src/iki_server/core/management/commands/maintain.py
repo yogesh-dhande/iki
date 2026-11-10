@@ -5,7 +5,8 @@
 - Deletes expired OAuth tokens, codes and device grants.
 - Deletes self-registered OAuth apps nobody asked to approve within a week.
 - Deletes finished background tasks after a week (failed ones after 30 days).
-- Cancels uploads left unfinished for a day, deleting what of them arrived.
+- Cancels uploads left unfinished for a day, deleting what of them arrived, and fails
+  registrations still being read after a day.
 """
 
 from typing import Any
@@ -37,6 +38,7 @@ class Command(BaseCommand):
         tasks = task_maintenance.prune()
         deliveries = webhook_maintenance.prune()
         uploads = files.expire()
+        registrations = files.expire_registrations()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -45,9 +47,11 @@ class Command(BaseCommand):
             finished_tasks=tasks,
             old_webhook_deliveries=deliveries,
             abandoned_uploads=uploads,
+            stalled_registrations=registrations,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
             f"{apps} abandoned app registration(s), {tasks} finished task(s) and "
-            f"{deliveries} old webhook deliveries, and cancelled {uploads} abandoned upload(s)."
+            f"{deliveries} old webhook deliveries, cancelled {uploads} abandoned upload(s), "
+            f"and failed {registrations} stalled registration(s)."
         )

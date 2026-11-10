@@ -161,4 +161,29 @@ storage.delete('$e2e_key')" | tail -1)
 [ "$got" = "$expected" ] || fail "the stored bytes hash to $got, not $expected"
 pass "a part sent to a URL the web pod signed is stored intact (SHA-256 $expected)"
 
+# Registering in place: the web pod pins a version of an object in the lab
+# bucket, which a later write doesn't change, and signs a download of it.
+lab_key="runs/e2e-$(date +%s)-$RANDOM.csv"
+pinned=$(kc exec "pod/$web_pod" -c web -- python -m iki_server.manage shell -c "
+from iki_server.files import storage
+s3 = storage.client_for('lab-data')
+first = s3.put_object(Bucket='lab-data', Key='$lab_key', Body=b'well,od600\\nA1,0.42\\n')['VersionId']
+s3.put_object(Bucket='lab-data', Key='$lab_key', Body=b'overwritten')
+assert storage.versioned('lab-data')
+assert storage.head('lab-data', '$lab_key', first)['version'] == first
+sha, size = storage.digest_object('lab-data', '$lab_key', first)
+print(sha, storage.download_url('s3://lab-data/$lab_key', first, 'plate.csv', 'text/csv'))" | tail -1)
+lab_sha=${pinned%% *}
+lab_url=${pinned#* }
+fetched=$(curl -fsS "$lab_url" | shasum -a 256 | cut -d' ' -f1)
+want=$(printf 'well,od600\nA1,0.42\n' | shasum -a 256 | cut -d' ' -f1)
+[ "$lab_sha" = "$want" ] && [ "$fetched" = "$want" ] ||
+  fail "the pinned version reads as $lab_sha and downloads as $fetched, not $want"
+kc exec "pod/$web_pod" -c web -- python -m iki_server.manage shell -c "
+from iki_server.files import storage
+s3 = storage.client_for('lab-data')
+for v in s3.list_object_versions(Bucket='lab-data', Prefix='$lab_key').get('Versions', []):
+    s3.delete_object(Bucket='lab-data', Key='$lab_key', VersionId=v['VersionId'])" >/dev/null
+pass "a registered object's version is pinned: a later write doesn't change what downloads"
+
 echo "All end-to-end checks passed."

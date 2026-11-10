@@ -31,7 +31,15 @@ from iki_server.audit import log
 from iki_server.core.sizes import human_size
 from iki_server.entities import access
 from iki_server.files import storage
-from iki_server.files.models import MEDIA_TYPE, Blob, File, Upload, UploadState
+from iki_server.files.models import (
+    MEDIA_TYPE,
+    Blob,
+    File,
+    Registration,
+    RegistrationState,
+    Upload,
+    UploadState,
+)
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.realtime import events as realtime
@@ -270,6 +278,188 @@ def expire() -> int:
                 storage.delete(locked.staging_key)
             locked.error = "It wasn't finished in time."
             _end(locked, UploadState.EXPIRED)
+            count += 1
+    return count
+
+
+# --- Registering in place ------------------------------------------------------------------------
+# Files already in an approved bucket (a lab's instrument output, say) are
+# registered where they are, pinned to one version of their object, rather
+# than copied. Iki still reads the bytes once, to learn their SHA-256.
+
+#: Registrations still being read after this long fail, so nobody waits forever.
+REGISTRATION_LIFETIME = timedelta(hours=24)
+
+
+def locations() -> list[str]:
+    """Where files may be registered: ``s3://bucket/prefix/`` (see settings)."""
+    return list(settings.IKI_FILES_REGISTER_LOCATIONS)
+
+
+def register(
+    user: User,
+    project: Project,
+    *,
+    uri: str,
+    version: str = "",
+    name: str = "",
+    media_type: str = "",
+) -> Registration:
+    """Registers one version of an object. Callers check the user may add files to the project.
+
+    Without a ``version``, the object's current version is pinned.
+    """
+    uri = uri.strip()
+    bucket_name, key = storage.split_uri(uri)
+    if not uri.startswith("s3://") or not bucket_name or not key or key.endswith("/"):
+        raise Refused("Name an object, such as s3://lab-data/runs/plate-7.csv.", field="uri")
+    if ".." in key.split("/") or not any(uri.startswith(place) for place in locations()):
+        places = ", ".join(locations()) or "none are set up"
+        raise Refused(
+            f"Files can be registered only from the locations your administrators approved "
+            f"({places}). Upload this file instead, or ask them to add its location.",
+            field="uri",
+        )
+    if not storage.versioned(bucket_name):
+        raise Refused(
+            f"Bucket {bucket_name} doesn't keep versions, so this file could change after "
+            "it's registered. Turn on versioning for the bucket, or upload the file instead.",
+            field="uri",
+        )
+    found = storage.head(bucket_name, key, version.strip())
+    if found is None:
+        what = f"version {version.strip()} of {uri}" if version.strip() else uri
+        raise Refused(f"There's no object at {what}.", field="version" if version else "uri")
+    pinned = found["version"]
+    if pinned in ("", "null"):
+        raise Refused(
+            "This object was stored before the bucket kept versions, so it could still be "
+            "overwritten. Copy it onto itself to give it a version, then register it.",
+            field="uri",
+        )
+    name = clean_name(name or key.rsplit("/", 1)[-1])
+    if media_type:
+        media_type = clean_media_type(media_type)
+    else:
+        try:
+            media_type = clean_media_type(found["media_type"])
+        except Refused:
+            media_type = "application/octet-stream"
+    with transaction.atomic():
+        registration = Registration.objects.create(
+            project=project,
+            created_by=user,
+            name=name,
+            media_type=media_type,
+            storage_uri=uri,
+            object_version=pinned,
+            size=found["size"],
+            expires_at=timezone.now() + REGISTRATION_LIFETIME,
+        )
+        blob = Blob.objects.filter(
+            registered_external=True, storage_uri=uri, object_version=pinned
+        ).first()
+        if blob is not None:
+            # Registered before: its hash is known, so it's a file at once.
+            _registered(registration, blob)
+        else:
+            from iki_server.files.tasks import check_registration
+
+            check_registration.enqueue(str(registration.pk))
+    return registration
+
+
+def check_registration(registration_id: str) -> str:
+    """Reads a registered object's version, and makes it a file with the SHA-256 it found."""
+    registration = Registration.objects.filter(pk=registration_id).first()
+    if registration is None or registration.state != RegistrationState.CHECKING:
+        return "nothing to check"
+    bucket_name, key = storage.split_uri(registration.storage_uri)
+    sha256, size = storage.digest_object(bucket_name, key, registration.object_version)
+    with transaction.atomic():
+        locked = Registration.objects.select_for_update().get(pk=registration.pk)
+        if locked.state != RegistrationState.CHECKING:
+            return str(locked.state)
+        if size != locked.size:
+            # A pinned version can't change; a store that says otherwise isn't trusted.
+            locked.error = "The object's size changed while Iki read it, so it wasn't registered."
+            _end_registration(locked, RegistrationState.FAILED)
+            return "mismatch"
+        try:
+            with transaction.atomic():
+                blob, _ = Blob.objects.get_or_create(
+                    registered_external=True,
+                    storage_uri=locked.storage_uri,
+                    object_version=locked.object_version,
+                    defaults={"sha256": sha256, "size": size},
+                )
+        except IntegrityError:  # registered by someone else just now
+            blob = Blob.objects.get(
+                registered_external=True,
+                storage_uri=locked.storage_uri,
+                object_version=locked.object_version,
+            )
+        _registered(locked, blob)
+    return "ready"
+
+
+def _registered(registration: Registration, blob: Blob) -> None:
+    file = File.objects.create(
+        blob=blob,
+        name=registration.name,
+        media_type=registration.media_type,
+        project_id=registration.project_id,
+        created_by_id=registration.created_by_id,
+    )
+    registration.file = file
+    _end_registration(registration, RegistrationState.READY)
+    log.record(
+        "file.registered",
+        actor=registration.created_by,
+        target=file,
+        project=registration.project,
+        data={
+            "uri": blob.storage_uri,
+            "version": blob.object_version,
+            "sha256": blob.sha256,
+            "size": blob.size,
+            "media_type": file.media_type,
+        },
+    )
+
+
+def _end_registration(registration: Registration, state: RegistrationState) -> None:
+    registration.state = state
+    registration.finished_at = timezone.now()
+    registration.save(update_fields=["state", "finished_at", "error", "file"])
+    realtime.publish(
+        registration.created_by_id,
+        "registration.finished",
+        {
+            "registration": str(registration.pk),
+            "state": str(state),
+            "project": str(registration.project_id),
+        },
+    )
+
+
+def expire_registrations() -> int:
+    """Fails registrations still being read past their time. Returns how many."""
+    stale = Registration.objects.filter(
+        state=RegistrationState.CHECKING, expires_at__lt=timezone.now()
+    )
+    count = 0
+    for registration in stale:
+        with transaction.atomic():
+            locked = (
+                Registration.objects.select_for_update(skip_locked=True)
+                .filter(pk=registration.pk, state=RegistrationState.CHECKING)
+                .first()
+            )
+            if locked is None:
+                continue
+            locked.error = "Iki couldn't read the object in time. Register it again."
+            _end_registration(locked, RegistrationState.FAILED)
             count += 1
     return count
 

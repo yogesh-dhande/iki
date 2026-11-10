@@ -207,12 +207,26 @@ def test_pages_may_connect_to_the_file_store_and_nowhere_else() -> None:
     )
 
 
+def test_register_locations_name_folders() -> None:
+    result = run_manage(
+        "shell",
+        "-c",
+        "from django.conf import settings as s; print(s.IKI_FILES_REGISTER_LOCATIONS)",
+        env={**PROD_ENV, "IKI_FILES_REGISTER_LOCATIONS": "s3://lab-data/runs,s3://archive"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "['s3://lab-data/runs/', 's3://archive/']"
+
+
 @pytest.mark.parametrize(
     ("env", "message"),
     [
         ({"IKI_FILES_ENDPOINT_URL": "http://s3.internal:9000"}, "files would travel unencrypted"),
         ({"IKI_FILES_ENDPOINT_URL": "s3.internal:9000"}, "must be a URL"),
         ({"IKI_FILES_MAX_UPLOAD_SIZE": "lots"}, "IKI_FILES_MAX_UPLOAD_SIZE must be a size"),
+        ({"IKI_FILES_REGISTER_LOCATIONS": "lab-data/runs"}, "isn't a location such as"),
+        ({"IKI_FILES_REGISTER_LOCATIONS": "s3://Lab_Data/"}, "isn't a location such as"),
+        ({"IKI_FILES_REGISTER_LOCATIONS": "s3://lab/runs/../"}, "can't contain `..`"),
     ],
 )
 def test_file_storage_settings_are_checked(env: dict[str, str], message: str) -> None:

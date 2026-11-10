@@ -63,10 +63,10 @@ def uri(key: str) -> str:
     return f"s3://{bucket()}/{key}"
 
 
-def _client(endpoint: str) -> S3Client:
+def _client(endpoint: str, region: str = "") -> S3Client:
     return boto3.client(
         "s3",
-        region_name=settings.IKI_FILES_REGION,
+        region_name=region or settings.IKI_FILES_REGION,
         endpoint_url=endpoint or None,
         config=Config(
             signature_version="s3v4",
@@ -89,10 +89,44 @@ def signer() -> S3Client:
     return _client(settings.IKI_FILES_PUBLIC_ENDPOINT_URL)
 
 
+@cache
+def region_of(bucket_name: str) -> str:
+    """The bucket's region, which requests to it must be signed for.
+
+    S3-compatible stores have one region (the configured one). On AWS,
+    registered buckets can be anywhere.
+    """
+    if settings.IKI_FILES_ENDPOINT_URL or bucket_name == settings.IKI_FILES_BUCKET:
+        return str(settings.IKI_FILES_REGION)
+    found = client().get_bucket_location(Bucket=bucket_name).get("LocationConstraint")
+    # Buckets made before regions had names answer None (us-east-1) or "EU" (eu-west-1).
+    return {None: "us-east-1", "": "us-east-1", "EU": "eu-west-1"}.get(found, str(found))
+
+
+@cache
+def _regional(endpoint: str, region: str) -> S3Client:
+    return _client(endpoint, region)
+
+
+def client_for(bucket_name: str) -> S3Client:
+    """For the server's own requests to any bucket: its own, or a registered one."""
+    region = region_of(bucket_name)
+    if region == settings.IKI_FILES_REGION:
+        return client()
+    return _regional(settings.IKI_FILES_ENDPOINT_URL, region)
+
+
+def signer_for(bucket_name: str) -> S3Client:
+    region = region_of(bucket_name)
+    if region == settings.IKI_FILES_REGION:
+        return signer()
+    return _regional(settings.IKI_FILES_PUBLIC_ENDPOINT_URL, region)
+
+
 def reset() -> None:
     """Forgets the clients, after settings change (tests)."""
-    client.cache_clear()
-    signer.cache_clear()
+    for cached in (client, signer, region_of, _regional):
+        cached.cache_clear()
 
 
 # --- Uploads -------------------------------------------------------------------------------------
@@ -170,7 +204,15 @@ def put_empty(key: str) -> None:
 
 def digest(key: str) -> tuple[str, int]:
     """The object's SHA-256 and size, from its bytes."""
-    body = client().get_object(Bucket=bucket(), Key=key)["Body"]
+    return digest_object(bucket(), key)
+
+
+def digest_object(bucket_name: str, key: str, version: str = "") -> tuple[str, int]:
+    """The SHA-256 and size of any object (at ``version``, if given), from its bytes."""
+    params: dict[str, Any] = {"Bucket": bucket_name, "Key": key}
+    if version:
+        params["VersionId"] = version
+    body = client_for(bucket_name).get_object(**params)["Body"]
     sha = hashlib.sha256()
     size = 0
     for chunk in iter(lambda: body.read(READ_CHUNK), b""):
@@ -189,6 +231,37 @@ def exists(key: str) -> bool:
     return True
 
 
+def split_uri(storage_uri: str) -> tuple[str, str]:
+    """``s3://bucket/some/key`` → ``("bucket", "some/key")``."""
+    bucket_name, _, key = storage_uri.removeprefix("s3://").partition("/")
+    return bucket_name, key
+
+
+def versioned(bucket_name: str) -> bool:
+    """Whether the bucket keeps every version of its objects."""
+    status = client_for(bucket_name).get_bucket_versioning(Bucket=bucket_name).get("Status")
+    return status == "Enabled"
+
+
+def head(bucket_name: str, key: str, version: str = "") -> dict[str, Any] | None:
+    """The object's size, version and content type, or None if there's no such object."""
+    params: dict[str, Any] = {"Bucket": bucket_name, "Key": key}
+    if version:
+        params["VersionId"] = version
+    try:
+        found = client_for(bucket_name).head_object(**params)
+    except client().exceptions.ClientError as error:
+        code = error.response.get("Error", {}).get("Code")
+        if code in ("404", "NoSuchKey", "NotFound", "NoSuchVersion", "400"):
+            return None
+        raise
+    return {
+        "size": found["ContentLength"],
+        "version": found.get("VersionId") or "",
+        "media_type": found.get("ContentType", ""),
+    }
+
+
 def copy(source: str, target: str) -> None:
     """Copies within the bucket; large objects are copied in parts, by the store."""
     client().copy({"Bucket": bucket(), "Key": source}, bucket(), target)
@@ -200,7 +273,7 @@ def delete(key: str) -> None:
 
 def download_url(storage_uri: str, version: str, name: str, media_type: str) -> str:
     """A short-lived URL that downloads the object, saved under ``name``."""
-    bucket_name, _, key = storage_uri.removeprefix("s3://").partition("/")
+    bucket_name, key = split_uri(storage_uri)
     params: dict[str, Any] = {
         "Bucket": bucket_name,
         "Key": key,
@@ -210,7 +283,7 @@ def download_url(storage_uri: str, version: str, name: str, media_type: str) -> 
     }
     if version:
         params["VersionId"] = version
-    return signer().generate_presigned_url(
+    return signer_for(bucket_name).generate_presigned_url(
         "get_object", Params=params, ExpiresIn=DOWNLOAD_URL_SECONDS
     )
 

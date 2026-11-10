@@ -135,6 +135,12 @@ files:
     secretAccessKeyKey: secret-access-key
   # The largest file one upload may add, e.g. 100GiB.
   maxUploadSize: 100GiB
+  # Where files may be registered in place rather than uploaded, such as
+  # s3://lab-data/runs/. Each bucket must keep versions: a registered file is
+  # pinned to one version of its object. The pods' IAM role needs
+  # s3:GetObject, s3:GetObjectVersion, s3:GetBucketVersioning,
+  # s3:GetBucketLocation and s3:ListBucket there.
+  registerLocations: []
 
 database:
   # required: Secret holding a postgres:// URI for the app's role. That role

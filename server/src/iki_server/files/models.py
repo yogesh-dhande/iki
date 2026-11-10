@@ -10,6 +10,8 @@
   readers can read the file too.
 - An **upload** sends a file's bytes straight to object storage, in parts,
   and is checked before it becomes a file (ADR 0036).
+- A **registration** makes a file of an object where it already is, in an
+  approved, versioned bucket, once Iki has read it to learn its SHA-256.
 
 Blobs, files and uses never change: the app may only add and read them.
 """
@@ -189,6 +191,68 @@ class Upload(models.Model):
             models.CheckConstraint(
                 condition=Q(state="ready", file__isnull=False) | ~Q(state="ready"),
                 name="iki_upload_ready_has_file",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class RegistrationState(models.TextChoices):
+    #: Iki is reading the object to learn its SHA-256.
+    CHECKING = "checking", "Checking"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+
+
+class Registration(models.Model):
+    """A file registered where it already is: one version of an object in an approved bucket."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    name = models.CharField(max_length=255)
+    media_type = models.CharField(max_length=255)
+    storage_uri = models.TextField(db_comment="Such as s3://lab-data/runs/plate-7.csv.")
+    object_version = models.CharField(max_length=1024, db_comment="The version it's pinned to.")
+    size = models.BigIntegerField(db_comment="Bytes, as the store reported them.")
+    state = models.CharField(
+        max_length=16, choices=RegistrationState.choices, default=RegistrationState.CHECKING
+    )
+    file = models.OneToOneField(
+        File, null=True, blank=True, on_delete=models.PROTECT, related_name="registration"
+    )
+    error = models.TextField(blank=True, default="", db_comment="Why it failed, for people.")
+    created_at = models.DateTimeField(db_default=Now())
+    expires_at = models.DateTimeField(db_comment="Still checking then, it fails.")
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_registration"
+        db_table_comment = "Files registered in place: an object version, read to learn its hash."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["created_by", "id"], name="iki_registration_by_user"),
+            models.Index(
+                fields=["expires_at"],
+                name="iki_registration_unfinished",
+                condition=Q(state="checking"),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(size__gte=0), name="iki_registration_size"),
+            models.CheckConstraint(
+                condition=~Q(object_version="") & ~Q(object_version="null"),
+                name="iki_registration_version",
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=[s.value for s in RegistrationState]),
+                name="iki_registration_state",
+            ),
+            models.CheckConstraint(
+                condition=Q(state="ready", file__isnull=False) | ~Q(state="ready"),
+                name="iki_registration_ready_has_file",
             ),
         ]
 

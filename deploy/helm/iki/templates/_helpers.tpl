@@ -154,6 +154,8 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ .publicEndpoint | default .endpoint | quote }}
 - name: IKI_FILES_MAX_UPLOAD_SIZE
   value: {{ .maxUploadSize | quote }}
+- name: IKI_FILES_REGISTER_LOCATIONS
+  value: {{ join "," (.registerLocations | default list) | quote }}
 {{- if .credentials.existingSecret }}
 - name: AWS_ACCESS_KEY_ID
   valueFrom:

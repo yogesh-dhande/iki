@@ -446,6 +446,26 @@ except ValueError as _error:
     raise environ.ImproperlyConfigured(
         f"IKI_FILES_MAX_UPLOAD_SIZE must be a size such as 100GiB: {_error}"
     ) from None
+#: Where files may be registered in place, rather than uploaded: ``s3://bucket/prefix/``
+#: entries. Each bucket must keep versions; Iki pins each file to its version.
+IKI_FILES_REGISTER_LOCATIONS: list[str] = []
+for _location in env.list("IKI_FILES_REGISTER_LOCATIONS", default=[]):
+    import re as _re
+
+    _found = _re.fullmatch(r"s3://([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(/.*)?", _location.strip())
+    if _found is None:
+        raise environ.ImproperlyConfigured(
+            f"IKI_FILES_REGISTER_LOCATIONS: {_location!r} isn't a location such as "
+            "s3://lab-data/runs/"
+        )
+    _prefix = (_found.group(2) or "/").lstrip("/")
+    if ".." in _prefix.split("/"):
+        raise environ.ImproperlyConfigured(
+            f"IKI_FILES_REGISTER_LOCATIONS: {_location!r} can't contain `..`"
+        )
+    if _prefix and not _prefix.endswith("/"):
+        _prefix += "/"  # s3://lab/runs is the runs folder, not every key starting "runs"
+    IKI_FILES_REGISTER_LOCATIONS.append(f"s3://{_found.group(1)}/{_prefix}")
 for _name, _url in (
     ("IKI_FILES_ENDPOINT_URL", IKI_FILES_ENDPOINT_URL),
     ("IKI_FILES_PUBLIC_ENDPOINT_URL", IKI_FILES_PUBLIC_ENDPOINT_URL),

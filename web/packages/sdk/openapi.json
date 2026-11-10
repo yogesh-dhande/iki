@@ -1202,6 +1202,23 @@
         "title": "LastDelivery",
         "type": "object"
       },
+      "LocationsOut": {
+        "properties": {
+          "locations": {
+            "description": "Where files may be registered, such as s3://lab/.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Locations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "locations"
+        ],
+        "title": "LocationsOut",
+        "type": "object"
+      },
       "MarkAllIn": {
         "properties": {
           "up_to": {
@@ -1716,6 +1733,35 @@
           "next_cursor"
         ],
         "title": "Page[ProjectOut]",
+        "type": "object"
+      },
+      "Page_RegistrationOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegistrationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RegistrationOut]",
         "type": "object"
       },
       "Page_RevisionOut_": {
@@ -2415,6 +2461,129 @@
           "read"
         ],
         "title": "ReadIn",
+        "type": "object"
+      },
+      "RegistrationIn": {
+        "properties": {
+          "media_type": {
+            "default": "",
+            "description": "Such as text/csv; the object's own if empty.",
+            "maxLength": 255,
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "Its name; the key's last part if empty.",
+            "maxLength": 1000,
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "description": "The project to add it to. It needs you as an Editor.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "uri": {
+            "description": "The object, such as s3://lab-data/runs/plate-7.csv.",
+            "maxLength": 2048,
+            "title": "Uri",
+            "type": "string"
+          },
+          "version": {
+            "default": "",
+            "description": "The object version to pin; its current one if empty.",
+            "maxLength": 1024,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "uri"
+        ],
+        "title": "RegistrationIn",
+        "type": "object"
+      },
+      "RegistrationOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed.",
+            "title": "Error",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file it became, once ready."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "checking",
+              "ready",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          },
+          "version": {
+            "description": "The object version the file is pinned to.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "name",
+          "media_type",
+          "uri",
+          "version",
+          "size",
+          "state",
+          "file",
+          "error",
+          "created_at"
+        ],
+        "title": "RegistrationOut",
         "type": "object"
       },
       "RevisionDetailOut": {
@@ -5605,6 +5774,191 @@
         "summary": "Add a webhook to a project",
         "tags": [
           "webhooks"
+        ]
+      }
+    },
+    "/api/v1/registrations": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "iki_server_api_files_list_registrations",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RegistrationOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Your registrations",
+        "tags": [
+          "files"
+        ]
+      },
+      "post": {
+        "description": "Pins one version of an object in an approved, versioned bucket. Iki reads it to learn\nits SHA-256 (202), then it's ready. An object version registered before is ready at once\n(201).",
+        "operationId": "iki_server_api_files_register_file",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Register a file where it is",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/registrations/locations": {
+      "get": {
+        "description": "The approved buckets and prefixes, set by your administrators.",
+        "operationId": "iki_server_api_files_registration_locations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Where files can be registered",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/registrations/{registration_id}": {
+      "get": {
+        "operationId": "iki_server_api_files_get_registration",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "One of your registrations",
+        "tags": [
+          "files"
         ]
       }
     },

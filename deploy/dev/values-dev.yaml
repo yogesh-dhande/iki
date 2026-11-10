@@ -41,6 +41,8 @@ files:
     existingSecret: seaweedfs-s3
     accessKeyIdKey: access-key
     secretAccessKeyKey: secret-key
+  # Tilt's storage-setup makes this versioned bucket, to try registering in place.
+  registerLocations: [s3://lab-data/runs/]
 database:
   # The app's least-privileged role (iki_app), created by up.sh and managed
   # by CloudNativePG.

@@ -99,53 +99,54 @@ The container image (`server/Dockerfile`, built from the repo root) runs
 Everything comes from environment variables. Required values have no default,
 and the server refuses to start without them.
 
-| Variable                              | Default       | Meaning                                                                             |
-| ------------------------------------- | ------------- | ----------------------------------------------------------------------------------- |
-| `IKI_SECRET_KEY`                      | required      | Django secret key                                                                   |
-| `IKI_ALLOWED_HOSTS`                   | required      | Comma-separated host names the server answers to                                    |
-| `IKI_ENVIRONMENT`                     | required      | Deployment name (`dev`, `prod`, …), attached to logs/traces                         |
-| `IKI_ENCRYPTION_KEYS`                 | required      | Comma-separated Fernet keys for secrets at rest; first encrypts                     |
-| `IKI_PUBLIC_URL`                      | unset         | Address people use, e.g. `https://iki.example.com`; for setup links                 |
-| `IKI_DATABASE_URL`                    | required      | `postgres://user:pass@host:port/db`                                                 |
-| `IKI_APP_DATABASE_URL`                | unset         | Migrate Job only: the app role's URL, to name the role to grant                     |
-| `IKI_DB_APP_ROLE`                     | unset         | Migrate Job only: the app role's name, instead of the URL                           |
-| `IKI_DB_REQUIRE_LEAST_PRIVILEGE`      | `true`        | Readiness fails if the database role has more power than the app needs              |
-| `IKI_DB_SSLMODE`                      | `verify-full` | libpq `sslmode`                                                                     |
-| `IKI_DB_SSLROOTCERT`                  | unset         | CA bundle used to verify the database certificate                                   |
-| `IKI_DB_POOL`                         | `true`        | Use psycopg's connection pool                                                       |
-| `IKI_DB_POOL_MIN_SIZE` / `_MAX_SIZE`  | `2` / `10`    | Pool size per process                                                               |
-| `IKI_HTTPS`                           | `true`        | Clients use HTTPS: redirects, secure cookies, HSTS                                  |
-| `IKI_FORWARDED_ALLOW_IPS`             | `127.0.0.1`   | Proxies trusted for `X-Forwarded-*` headers                                         |
-| `IKI_KEEP_ALIVE_SECONDS`              | `75`          | Idle connections stay open this long; keep above the load balancer's idle timeout   |
-| `IKI_CSRF_TRUSTED_ORIGINS`            | unset         | Extra origins allowed to submit forms (comma-separated)                             |
-| `IKI_SESSION_IDLE_TIMEOUT_MINUTES`    | `480`         | Sign out after this long without activity                                           |
-| `IKI_SESSION_MAX_AGE_HOURS`           | `24`          | Sign out this long after signing in, active or not                                  |
-| `IKI_API_RATE_LIMIT_PER_MINUTE`       | `600`         | `/api/v1` requests one caller may make per minute                                   |
-| `IKI_OAUTH_ACCESS_TOKEN_MINUTES`      | `60`          | OAuth access token lifetime                                                         |
-| `IKI_OAUTH_REFRESH_TOKEN_DAYS`        | `30`          | OAuth refresh token lifetime; each use replaces it                                  |
-| `IKI_OAUTH_CLIENT_METADATA_DOCUMENTS` | `false`       | Fetch apps' Client ID Metadata Documents (needs internet egress)                    |
-| `IKI_EMAIL_URL`                       | unset         | Mail server, `smtp+tls://user:pass@host:587` or `smtp+ssl://…:465`; unset: no email |
-| `IKI_EMAIL_FROM`                      | required\*    | \*With email: the sender, e.g. `Iki <iki@example.com>` (covered by SPF and DKIM)    |
-| `IKI_EMAIL_ALLOW_PLAINTEXT`           | `false`       | Allow `smtp://` (no encryption) with HTTPS on: only for a relay in your network     |
-| `IKI_WEBHOOK_ALLOWED_NETWORKS`        | unset         | Comma-separated CIDRs of internal networks webhooks may send to                     |
-| `IKI_WEBHOOK_CA_FILE`                 | unset         | CA bundle (PEM) trusted for webhook receivers, as well as the public CAs            |
-| `IKI_FILES_BUCKET`                    | unset         | S3 bucket for files; unset, the files API answers 503                               |
-| `IKI_FILES_PREFIX`                    | unset         | Prefix for every key Iki writes, so deployments can share a bucket                  |
-| `IKI_FILES_REGION`                    | `us-east-1`   | The bucket's region                                                                 |
-| `IKI_FILES_ENDPOINT_URL`              | unset         | An S3-compatible store's URL; unset for AWS S3                                      |
-| `IKI_FILES_PUBLIC_ENDPOINT_URL`       | the endpoint  | Where browsers and workers reach the store, which signed URLs name                  |
-| `IKI_FILES_MAX_UPLOAD_SIZE`           | `100GiB`      | The largest file one upload may add                                                 |
-| `IKI_WEBHOOK_ALLOW_HTTP`              | `false`       | Development only: plain `http://` receivers; refused with HTTPS on                  |
-| `IKI_TASKS_CONCURRENCY`               | `4`           | `iki-server tasks`: tasks one runner runs at once                                   |
-| `IKI_TASKS_GRACE_SECONDS`             | `25`          | `iki-server tasks`: time running tasks get to finish after SIGTERM                  |
-| `IKI_TASKS_HEALTH_PORT`               | `8001`        | `iki-server tasks`: port for `/healthz/live` and `/healthz/ready` (`0`: off)        |
-| `IKI_STATIC_ROOT`                     | `.static`     | Collected static files (`/opt/iki/static` in the image)                             |
-| `IKI_DEBUG`                           | `false`       | Django debug mode. Never in production                                              |
-| `IKI_WEB_DEV_SERVER`                  | `false`       | Development only: pages requested through Vite load the web app from it             |
-| `IKI_LOG_LEVEL`                       | `INFO`        | Root log level                                                                      |
-| `IKI_LOG_FORMAT`                      | `json`        | `json` or `console`                                                                 |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`         | unset         | OTLP/HTTP collector. Unset means traces are not exported                            |
-| `OTEL_*`                              |               | Any standard OpenTelemetry SDK variable                                             |
+| Variable                              | Default       | Meaning                                                                                |
+| ------------------------------------- | ------------- | -------------------------------------------------------------------------------------- |
+| `IKI_SECRET_KEY`                      | required      | Django secret key                                                                      |
+| `IKI_ALLOWED_HOSTS`                   | required      | Comma-separated host names the server answers to                                       |
+| `IKI_ENVIRONMENT`                     | required      | Deployment name (`dev`, `prod`, …), attached to logs/traces                            |
+| `IKI_ENCRYPTION_KEYS`                 | required      | Comma-separated Fernet keys for secrets at rest; first encrypts                        |
+| `IKI_PUBLIC_URL`                      | unset         | Address people use, e.g. `https://iki.example.com`; for setup links                    |
+| `IKI_DATABASE_URL`                    | required      | `postgres://user:pass@host:port/db`                                                    |
+| `IKI_APP_DATABASE_URL`                | unset         | Migrate Job only: the app role's URL, to name the role to grant                        |
+| `IKI_DB_APP_ROLE`                     | unset         | Migrate Job only: the app role's name, instead of the URL                              |
+| `IKI_DB_REQUIRE_LEAST_PRIVILEGE`      | `true`        | Readiness fails if the database role has more power than the app needs                 |
+| `IKI_DB_SSLMODE`                      | `verify-full` | libpq `sslmode`                                                                        |
+| `IKI_DB_SSLROOTCERT`                  | unset         | CA bundle used to verify the database certificate                                      |
+| `IKI_DB_POOL`                         | `true`        | Use psycopg's connection pool                                                          |
+| `IKI_DB_POOL_MIN_SIZE` / `_MAX_SIZE`  | `2` / `10`    | Pool size per process                                                                  |
+| `IKI_HTTPS`                           | `true`        | Clients use HTTPS: redirects, secure cookies, HSTS                                     |
+| `IKI_FORWARDED_ALLOW_IPS`             | `127.0.0.1`   | Proxies trusted for `X-Forwarded-*` headers                                            |
+| `IKI_KEEP_ALIVE_SECONDS`              | `75`          | Idle connections stay open this long; keep above the load balancer's idle timeout      |
+| `IKI_CSRF_TRUSTED_ORIGINS`            | unset         | Extra origins allowed to submit forms (comma-separated)                                |
+| `IKI_SESSION_IDLE_TIMEOUT_MINUTES`    | `480`         | Sign out after this long without activity                                              |
+| `IKI_SESSION_MAX_AGE_HOURS`           | `24`          | Sign out this long after signing in, active or not                                     |
+| `IKI_API_RATE_LIMIT_PER_MINUTE`       | `600`         | `/api/v1` requests one caller may make per minute                                      |
+| `IKI_OAUTH_ACCESS_TOKEN_MINUTES`      | `60`          | OAuth access token lifetime                                                            |
+| `IKI_OAUTH_REFRESH_TOKEN_DAYS`        | `30`          | OAuth refresh token lifetime; each use replaces it                                     |
+| `IKI_OAUTH_CLIENT_METADATA_DOCUMENTS` | `false`       | Fetch apps' Client ID Metadata Documents (needs internet egress)                       |
+| `IKI_EMAIL_URL`                       | unset         | Mail server, `smtp+tls://user:pass@host:587` or `smtp+ssl://…:465`; unset: no email    |
+| `IKI_EMAIL_FROM`                      | required\*    | \*With email: the sender, e.g. `Iki <iki@example.com>` (covered by SPF and DKIM)       |
+| `IKI_EMAIL_ALLOW_PLAINTEXT`           | `false`       | Allow `smtp://` (no encryption) with HTTPS on: only for a relay in your network        |
+| `IKI_WEBHOOK_ALLOWED_NETWORKS`        | unset         | Comma-separated CIDRs of internal networks webhooks may send to                        |
+| `IKI_WEBHOOK_CA_FILE`                 | unset         | CA bundle (PEM) trusted for webhook receivers, as well as the public CAs               |
+| `IKI_FILES_BUCKET`                    | unset         | S3 bucket for files; unset, the files API answers 503                                  |
+| `IKI_FILES_PREFIX`                    | unset         | Prefix for every key Iki writes, so deployments can share a bucket                     |
+| `IKI_FILES_REGION`                    | `us-east-1`   | The bucket's region                                                                    |
+| `IKI_FILES_ENDPOINT_URL`              | unset         | An S3-compatible store's URL; unset for AWS S3                                         |
+| `IKI_FILES_PUBLIC_ENDPOINT_URL`       | the endpoint  | Where browsers and workers reach the store, which signed URLs name                     |
+| `IKI_FILES_MAX_UPLOAD_SIZE`           | `100GiB`      | The largest file one upload may add                                                    |
+| `IKI_FILES_REGISTER_LOCATIONS`        | (none)        | Comma-separated `s3://bucket/prefix/` locations files may be registered from, in place |
+| `IKI_WEBHOOK_ALLOW_HTTP`              | `false`       | Development only: plain `http://` receivers; refused with HTTPS on                     |
+| `IKI_TASKS_CONCURRENCY`               | `4`           | `iki-server tasks`: tasks one runner runs at once                                      |
+| `IKI_TASKS_GRACE_SECONDS`             | `25`          | `iki-server tasks`: time running tasks get to finish after SIGTERM                     |
+| `IKI_TASKS_HEALTH_PORT`               | `8001`        | `iki-server tasks`: port for `/healthz/live` and `/healthz/ready` (`0`: off)           |
+| `IKI_STATIC_ROOT`                     | `.static`     | Collected static files (`/opt/iki/static` in the image)                                |
+| `IKI_DEBUG`                           | `false`       | Django debug mode. Never in production                                                 |
+| `IKI_WEB_DEV_SERVER`                  | `false`       | Development only: pages requested through Vite load the web app from it                |
+| `IKI_LOG_LEVEL`                       | `INFO`        | Root log level                                                                         |
+| `IKI_LOG_FORMAT`                      | `json`        | `json` or `console`                                                                    |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`         | unset         | OTLP/HTTP collector. Unset means traces are not exported                               |
+| `OTEL_*`                              |               | Any standard OpenTelemetry SDK variable                                                |
 
 Generate an encryption key with:
 
@@ -258,6 +259,21 @@ its SHA-256, and checks every upload against the hash its sender declared.
   file was added to can read it, and so can whoever can read an entity that
   refers to it, at any revision.
 - Uploads left unfinished for a day are cancelled by `iki-server maintain`.
+
+Files already in a lab's own bucket can be **registered in place** instead
+of uploaded. Administrators approve the locations
+(`IKI_FILES_REGISTER_LOCATIONS`, such as `s3://lab-data/runs/`), and each
+bucket must keep versions. `POST /api/v1/registrations` with the project and
+the object's `s3://` URI (and, optionally, a `version`) pins that version.
+Iki then reads it once to learn its SHA-256, and the registration becomes
+`ready` with its `file`. `registration.finished` arrives on
+`/api/v1/events`. Objects stored before their bucket kept versions are
+refused, since they could still be overwritten. Copying one onto itself
+gives it a version. Give the pods' IAM role `s3:GetObject`,
+`s3:GetObjectVersion`, `s3:GetBucketVersioning`, `s3:GetBucketLocation` and
+`s3:ListBucket` on those locations. `GET /api/v1/registrations/locations`
+lists them.
+
 - On AWS, give the pods' service account an IAM role with `s3:GetObject`,
   `s3:PutObject`, `s3:DeleteObject`, `s3:ListMultipartUploadParts` and
   `s3:AbortMultipartUpload` on the keys under the prefix, and `s3:ListBucket`

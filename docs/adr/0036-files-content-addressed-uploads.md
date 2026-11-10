@@ -60,6 +60,27 @@ file must be one the editor can read, of a media type the field allows, and
 no larger than the field's limit. Identity hashes use the file's SHA-256,
 so the same content added under another name is the same entity.
 
+**Files can be registered where they already are.** Instruments and
+pipelines often write to a lab's own bucket, and copying hundreds of
+gigabytes into Iki's would double the storage and the transfer. Iki can
+register such a file in place instead, under three conditions:
+
+- Its location is on a list the deployment's administrators approved
+  (`s3://lab-data/runs/`). Nobody can point Iki at an arbitrary bucket with
+  its credentials.
+- Its bucket keeps versions. Iki pins the file to one version of the object,
+  so a later write to the same key can't change it. Objects stored before
+  versioning was on (version `null`) are refused, because suspending
+  versioning would let them be overwritten.
+- Iki reads the version once, in a task, to learn its SHA-256, just as it
+  checks uploads. Only then is it a file.
+
+A registered blob is pinned by its location and version, not its hash, so
+registering the same version twice reuses it. Registering is audited with
+the location, version and hash. The bucket's owner can still delete a
+version: labs that need files kept should add object lock or a retention
+policy to those buckets, as they would for any primary record.
+
 **Downloads are short-lived redirects.** `GET /files/{id}/content` checks
 access and redirects to a URL signed for five minutes. That URL makes the
 browser save the file under its name with its media type, rather than
@@ -90,6 +111,8 @@ policy). Without a bucket, the files API answers 503.
   `upload.finished` arrives on the event stream when it's done.
 - Negative: a client must hash the file before uploading it. Iki's web app
   and SDK do this.
+- Negative: a registered file is only as durable as its bucket's
+  retention. Iki can't stop the bucket's owner from deleting a version.
 - Negative: browsers send parts to the store directly, so the bucket needs a
   CORS rule allowing `PUT` from Iki's address. `iki-server setup_storage`
   adds it, with lifecycle rules for abandoned uploads, or reports what's

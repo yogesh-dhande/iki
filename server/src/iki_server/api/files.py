@@ -9,6 +9,11 @@ To add a file:
 3. ``POST /uploads/{id}/complete``. Iki checks the bytes against the SHA-256
    (state ``checking``), then the upload is ``ready``, with its ``file``.
    ``upload.finished`` arrives on ``/events`` when it's done.
+
+Or, for a file already in an approved bucket, ``POST /registrations`` with
+its ``s3://`` URI: Iki pins its current version and reads it to learn its
+SHA-256, then the registration is ``ready``, with its ``file``.
+``registration.finished`` arrives on ``/events``.
 """
 
 from datetime import datetime
@@ -25,7 +30,7 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, UserOut
 from iki_server.files import services, storage
-from iki_server.files.models import File, Upload, UploadState
+from iki_server.files.models import File, Registration, RegistrationState, Upload, UploadState
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
@@ -90,6 +95,38 @@ class PartsIn(Schema):
     )
 
 
+class RegistrationIn(Schema):
+    project: UUID = Field(description="The project to add it to. It needs you as an Editor.")
+    uri: str = Field(
+        max_length=2048, description="The object, such as s3://lab-data/runs/plate-7.csv."
+    )
+    version: str = Field(
+        "", max_length=1024, description="The object version to pin; its current one if empty."
+    )
+    name: str = Field("", max_length=1000, description="Its name; the key's last part if empty.")
+    media_type: str = Field(
+        "", max_length=255, description="Such as text/csv; the object's own if empty."
+    )
+
+
+class RegistrationOut(Schema):
+    id: UUID
+    project: UUID
+    name: str
+    media_type: str
+    uri: str
+    version: str = Field(description="The object version the file is pinned to.")
+    size: int
+    state: Literal["checking", "ready", "failed"]
+    file: FileOut | None = Field(description="The file it became, once ready.")
+    error: str = Field(description="Why it failed.")
+    created_at: datetime
+
+
+class LocationsOut(Schema):
+    locations: list[str] = Field(description="Where files may be registered, such as s3://lab/.")
+
+
 class FileFilters(PageParams):
     project: UUID | None = None
 
@@ -145,6 +182,37 @@ def _upload_out(user: User, upload: Upload) -> dict[str, Any]:
     }
 
 
+def _registration_out(user: User, registration: Registration) -> dict[str, Any]:
+    file = None
+    if registration.file_id is not None:
+        found = File.objects.select_related("blob", "created_by").get(pk=registration.file_id)
+        file = _file_out(user, [found])[0]
+    return {
+        "id": registration.pk,
+        "project": registration.project_id,
+        "name": registration.name,
+        "media_type": registration.media_type,
+        "uri": registration.storage_uri,
+        "version": registration.object_version,
+        "size": registration.size,
+        "state": registration.state,
+        "file": file,
+        "error": registration.error,
+        "created_at": registration.created_at,
+    }
+
+
+def _invalid(error: Refused) -> Exception:
+    """A refusal about one field, as a 422 that points at it; others answer as refusals do."""
+    if error.field is None:
+        return error
+    return Problem(
+        422,
+        "Some fields are invalid.",
+        errors=[{"pointer": f"#/{error.field}", "detail": str(error)}],
+    )
+
+
 def _upload(user: User, upload_id: UUID) -> Upload:
     """The caller's own upload. Nobody else's is found."""
     found = Upload.objects.filter(pk=upload_id, created_by=user).first()
@@ -179,13 +247,7 @@ def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, An
             sha256=payload.sha256,
         )
     except Refused as error:
-        if error.field is None:
-            raise
-        raise Problem(
-            422,
-            "Some fields are invalid.",
-            errors=[{"pointer": f"#/{error.field}", "detail": str(error)}],
-        ) from None
+        raise _invalid(error) from None
     upload.refresh_from_db()
     parts = services.parts(upload) if upload.state == UploadState.PENDING else []
     return Status(201, {**_upload_out(me, upload), "parts": parts})
@@ -237,6 +299,68 @@ def cancel_upload(request: HttpRequest, upload_id: UUID) -> Status[None]:
     _storage()
     services.cancel(_upload(me, upload_id))
     return Status(204, None)
+
+
+# --- Registering in place ------------------------------------------------------------------------
+
+
+@router.get(
+    "/registrations/locations", response=LocationsOut, summary="Where files can be registered"
+)
+def registration_locations(request: HttpRequest) -> dict[str, Any]:
+    """The approved buckets and prefixes, set by your administrators."""
+    caller(request)
+    return {"locations": services.locations()}
+
+
+@router.post(
+    "/registrations",
+    response={202: RegistrationOut, 201: RegistrationOut},
+    summary="Register a file where it is",
+)
+def register_file(request: HttpRequest, payload: RegistrationIn) -> Status[dict[str, Any]]:
+    """Pins one version of an object in an approved, versioned bucket. Iki reads it to learn
+    its SHA-256 (202), then it's ready. An object version registered before is ready at once
+    (201)."""
+    me = caller(request)
+    target = project(me, payload.project, Action.PROJECT_EDIT)
+    _storage()
+    try:
+        registration = services.register(
+            me,
+            target,
+            uri=payload.uri,
+            version=payload.version,
+            name=payload.name,
+            media_type=payload.media_type,
+        )
+    except Refused as error:
+        raise _invalid(error) from None
+    registration.refresh_from_db()
+    ready = registration.state == RegistrationState.READY
+    return Status(201 if ready else 202, _registration_out(me, registration))
+
+
+@router.get("/registrations", response=Page[RegistrationOut], summary="Your registrations")
+def list_registrations(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """Newest first."""
+    me = caller(request)
+    result = page(Registration.objects.filter(created_by=me), params, newest_first=True)
+    result["items"] = [_registration_out(me, r) for r in result["items"]]
+    return result
+
+
+@router.get(
+    "/registrations/{registration_id}",
+    response=RegistrationOut,
+    summary="One of your registrations",
+)
+def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, Any]:
+    me = caller(request)
+    found = Registration.objects.filter(pk=registration_id, created_by=me).first()
+    if found is None:
+        raise Problem(404, "No such registration of yours.")
+    return _registration_out(me, found)
 
 
 # --- Files ---------------------------------------------------------------------------------------

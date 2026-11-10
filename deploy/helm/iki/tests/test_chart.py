@@ -588,3 +588,15 @@ def test_only_web_task_and_maintenance_pods_reach_object_storage() -> None:
 def test_the_upload_size_is_checked_by_the_schema() -> None:
     error = render({"files": {"bucket": "iki", "maxUploadSize": "lots"}}, ok=False)
     assert "maxUploadSize" in str(error)
+
+
+def test_register_locations_reach_every_container_and_are_checked() -> None:
+    values = {"files": {"bucket": "iki", "registerLocations": ["s3://lab-data/runs/", "s3://cro"]}}
+    for name, spec in pod_specs(manifests(values)):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "s3://lab-data/runs/,s3://cro", name
+    for name, spec in pod_specs(manifests(FILES)):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "", name
+    error = render({"files": {"bucket": "iki", "registerLocations": ["lab-data/runs"]}}, ok=False)
+    assert "registerLocations" in str(error)

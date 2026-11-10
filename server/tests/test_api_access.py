@@ -5,6 +5,7 @@ see it but not do this". A test fails if an operation in the OpenAPI
 document isn't listed here, so no endpoint ships without its row.
 """
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
 
@@ -163,6 +164,31 @@ def _upload(w: World, *, sent: bool = False) -> Any:
 
 def upload(suffix: str = "", body: Any = None, *, sent: bool = False) -> Build:
     return lambda w: (f"/uploads/{_upload(w, sent=sent).pk}{suffix}", body)
+
+
+def _lab_object() -> str:
+    """A CSV in a versioned lab bucket that files may be registered from (see the matrix)."""
+    import uuid
+
+    from iki_server.files import storage
+
+    s3 = storage.client()
+    with contextlib.suppress(s3.exceptions.BucketAlreadyOwnedByYou):
+        s3.create_bucket(Bucket="lab-data")
+    s3.put_bucket_versioning(Bucket="lab-data", VersioningConfiguration={"Status": "Enabled"})
+    key = f"runs/{uuid.uuid4().hex}.csv"
+    s3.put_object(Bucket="lab-data", Key=key, Body=b"well,od600\n")
+    return f"s3://lab-data/{key}"
+
+
+def registration() -> Build:
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.files import services as files
+
+        made = files.register(w.users["editor"], w.project, uri=_lab_object())
+        return f"/registrations/{made.pk}", None
+
+    return build
 
 
 def file(suffix: str = "") -> Build:
@@ -343,6 +369,15 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         row(404, editor=202),
     ),
     ("DELETE", "/uploads/{upload_id}", upload(), row(404, editor=204)),
+    (
+        "POST",
+        "/registrations",
+        lambda w: ("/registrations", {"project": str(w.project.pk), "uri": _lab_object()}),
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 202)),
+    ),
+    ("GET", "/registrations", fixed("/registrations"), row(200)),
+    ("GET", "/registrations/locations", fixed("/registrations/locations"), row(200)),
+    ("GET", "/registrations/{registration_id}", registration(), row(404, editor=200)),
     ("GET", "/files", fixed("/files"), row(200)),
     ("GET", "/files/{file_id}", file(), readers(200)),
     ("GET", "/files/{file_id}/content", file("/content"), readers(302)),
@@ -456,8 +491,10 @@ def test_operation_matrix(
     expected: dict[str, int],
     request: pytest.FixtureRequest,
 ) -> None:
-    if template.startswith(("/uploads", "/files")):
+    if template.startswith(("/uploads", "/files", "/registrations")):
         request.getfixturevalue("s3")
+        settings = request.getfixturevalue("settings")
+        settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]
     world = build_world()
     path, body, *headers = build(world)
     client = Api(world.browser(principal))
