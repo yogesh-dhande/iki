@@ -6,13 +6,17 @@
   archived.
 
 Entities people can't read behave as if they don't exist (404).
+
+**Files** are readable by whoever can read the project they were added to,
+or an entity that refers to them, at any revision.
 """
 
 from typing import Any
 
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from iki_server.entities.models import Entity, ProjectLink
+from iki_server.files.models import File, FileUse
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -29,6 +33,13 @@ def visible(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousU
         entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
     )
     return Entity.objects.filter(Exists(links))
+
+
+def readable_files(user: Any) -> QuerySet[File]:  # noqa: ANN401 - User or AnonymousUser
+    """The files the user can read: through their project, or an entity that uses them."""
+    projects = readable_projects(user).values("pk")
+    uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=visible(user).values("pk"))
+    return File.objects.filter(Q(project__in=projects) | Exists(uses))
 
 
 def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401

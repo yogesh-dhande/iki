@@ -21,6 +21,7 @@ from django.apps import apps
 from django.db import models
 from jsonschema import Draft202012Validator
 
+from iki_server.core.sizes import human_size
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
 from iki_spec import naming, units
@@ -121,13 +122,21 @@ def subtypes(qualified: str) -> set[str]:
 
 
 class Refs:
-    """Finds referenced entities for a caller, so a reference never reveals one they can't read."""
+    """Finds what values refer to, so a reference never reveals what the caller can't read."""
 
-    def __init__(self, readable: Any) -> None:  # noqa: ANN401 - a QuerySet of entities
+    def __init__(self, readable: Any, files: Any = None) -> None:  # noqa: ANN401 - QuerySets
         self.readable = readable
+        self.files = files
 
     def types(self, ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
         return dict(self.readable.filter(pk__in=list(ids)).values_list("pk", "type"))
+
+    def file(self, file_id: uuid.UUID) -> tuple[str, int] | None:
+        """A readable file's media type and size."""
+        if self.files is None:
+            return None
+        found = self.files.filter(pk=file_id).values_list("media_type", "blob__size").first()
+        return None if found is None else (found[0], found[1])
 
 
 def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a model value out
@@ -166,7 +175,7 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
     if f.type == "ref":
         return _ref(f, value, refs)
     if f.type == "file":
-        raise ValueError("is a file: attach files through the files API.")
+        return _file(f, value, refs)
     if f.type == "json":
         if f.schema is not None:
             errors = sorted(Draft202012Validator(f.schema).iter_errors(value), key=str)
@@ -229,6 +238,36 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
     if found not in subtypes(f.to):
         raise ValueError(f"must refer to a {f.to}, not a {found}.")
     return target
+
+
+def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
+    try:
+        target = uuid.UUID(str(value))
+    except ValueError:
+        raise ValueError("must be a file's ID: upload the file first.") from None
+    found = refs.file(target)
+    if found is None:
+        raise ValueError("refers to no file you can read.")
+    media_type, size = found
+    if f.media_types and not media_type_allowed(media_type, f.media_types):
+        raise ValueError(f"must be {_either(f.media_types)}, and this file is {media_type}.")
+    if f.max_size is not None and size > f.max_size:
+        raise ValueError(
+            f"can be at most {human_size(f.max_size)}, and this file is {human_size(size)}."
+        )
+    return target
+
+
+def media_type_allowed(media_type: str, allowed: Iterable[str]) -> bool:
+    """Whether ``media_type`` is one of ``allowed``, where ``image/*`` allows any image."""
+    kind = media_type.split("/", 1)[0]
+    return any(a == media_type or a == f"{kind}/*" for a in allowed)
+
+
+def _either(choices: tuple[str, ...]) -> str:
+    if len(choices) == 1:
+        return choices[0]
+    return ", ".join(choices[:-1]) + f" or {choices[-1]}"
 
 
 # --- Database → JSON ----------------------------------------------------------------------------

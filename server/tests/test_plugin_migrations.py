@@ -84,11 +84,12 @@ def migrate(build: Path, database: str, *args: str) -> str:
 
 WORLD = """
 from iki_server.org.models import Project, Team
-from iki_server.files.models import Blob
+from iki_server.files.models import Blob, File
 team = Team.objects.create(name="Biologics")
 project = Project.objects.create(team=team, name="Antibodies")
 blob = Blob.objects.create(sha256="a" * 64, size=10,
                            storage_uri="s3://iki/a")
+pdb = File.objects.create(blob=blob, name="a.pdb", media_type="chemical/x-pdb", project=project)
 """
 
 
@@ -234,7 +235,7 @@ def test_generated_models_store_entities(migrated: Path, database: str) -> None:
         )
         structure = ProteinStructure.objects.create(
             type="protein.ProteinStructure", hrid="PST-001", owner_project=project,
-            structure=blob,
+            structure=pdb,
         )
         ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein)
         Ext_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
@@ -326,7 +327,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         first = DNASequence.objects.create(owner_project=project, bases="ACGT", name="pUC19")
         second = DNASequence.objects.create(owner_project=project, bases="ACGTT")
         protein = Protein.objects.create(owner_project=project, sequence="MKV", encoded_by=first)
-        structure = ProteinStructure.objects.create(owner_project=project, structure=blob)
+        structure = ProteinStructure.objects.create(owner_project=project, structure=pdb)
         ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein)
         Ext_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
         try:

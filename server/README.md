@@ -191,6 +191,9 @@ Every plugin's types share one API (ADR 0035):
   `If-Match` answers 428, so nobody overwrites someone else's change.
 - Quantities are numbers in the field's unit, or `{"value": 310.15, "unit":
 "K"}` in any unit that converts.
+- File fields take a file's ID (see [Files](#files)). The file must be one
+  you can read, of a media type the field allows (`image/*` allows any
+  image), and no larger than its `max_size`.
 - `/entities/{ref}/revisions`, `…/revisions/{number}`, `…/provenance` and
   `…/projects` give the history: who changed what, how, when and why.
 - Reading takes a role in any of the entity's projects. Changing it takes
@@ -251,8 +254,9 @@ its SHA-256, and checks every upload against the hash its sender declared.
    don't match. `upload.finished` arrives on `/api/v1/events`.
 
 - `GET /api/v1/files/{id}` describes a file. `…/content` redirects to a URL
-  that downloads it, signed for five minutes. Files are read through the
-  project they were added to.
+  that downloads it, signed for five minutes. Whoever can read the project a
+  file was added to can read it, and so can whoever can read an entity that
+  refers to it, at any revision.
 - Uploads left unfinished for a day are cancelled by `iki-server maintain`.
 - On AWS, give the pods' service account an IAM role with `s3:GetObject`,
   `s3:PutObject`, `s3:DeleteObject`, `s3:ListMultipartUploadParts` and

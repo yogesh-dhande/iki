@@ -16,7 +16,7 @@ from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 from iki_server.entities import checks
 from iki_server.entities.fields import QuantityField
 from iki_server.entities.models import Entity
-from iki_server.files.models import Blob
+from iki_server.files.models import File
 
 import iki_plugin_dna.models
 
@@ -131,7 +131,7 @@ class ProteinStructure(Entity):
         db_column='entity_id',
         related_name='+',
     )
-    structure = models.ForeignKey(Blob, models.PROTECT, related_name='+')
+    structure = models.ForeignKey(File, models.PROTECT, related_name='+')
     method = models.TextField(null=True)
     resolution = QuantityField(unit='Ao', null=True)
 

@@ -29,6 +29,7 @@ Callers check permissions first (:mod:`iki_server.entities.access`).
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ from iki_server.entities import access, identity, registry
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Part, Refs, Shape, read_value, shape, to_db
 from iki_server.entities.values import is_list_table as _is_list
+from iki_server.files.models import FileUse
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_spec.model import Field
@@ -118,7 +120,7 @@ def create(
     if entity_type.abstract:
         raise Invalid({"type": [f"{type_name} is abstract: create one of its subtypes."]})
     fields = form.fields()
-    refs = Refs(access.visible(user))
+    refs = Refs(access.visible(user), access.readable_files(user))
     errors: dict[str, list[str]] = {}
     given: dict[str, Any] = {}
     for name, value in values.items():
@@ -168,6 +170,7 @@ def create(
         changed = sorted(n for n, v in given.items() if v is not None)
         revision = _revise(instance, RevisionKind.CREATED, changed, user, reason)
         _write_history(form, touched, instance, revision.number)
+        _use_files(fields, instance.pk, given, revision.number)
         ProjectLink.objects.create(entity_id=instance.pk, project=project, linked_by=user)
     return Saved(_specific(instance), revision)
 
@@ -219,7 +222,7 @@ def update(
         fields = form.fields()
         instance = _specific(locked)
         rows = _extension_rows(form, instance.pk)
-        refs = Refs(access.visible(user))
+        refs = Refs(access.visible(user), access.readable_files(user))
         errors: dict[str, list[str]] = {}
         new: dict[str, Any] = {}
         for name, value in values.items():
@@ -274,6 +277,7 @@ def update(
             instance.save()
         revision = _revise(locked, RevisionKind.EDITED, sorted(new), user, reason)
         _write_history(form, touched, instance, revision.number, rows=rows)
+        _use_files(fields, locked.pk, new, revision.number)
     return Saved(_specific(locked), revision)
 
 
@@ -429,6 +433,29 @@ def _set(instance: Model, f: Field, value: Any) -> None:  # noqa: ANN401 - a mod
         setattr(instance, f"{f.name}_id", value)
     else:
         setattr(instance, f.name, value)
+
+
+def _use_files(
+    fields: Mapping[str, Field],
+    entity_id: uuid.UUID,
+    values: Mapping[str, Any],
+    revision: int,
+) -> None:
+    """Records the files these values refer to, so the entity's readers can read them."""
+    found: set[Any] = set()
+    for name, value in values.items():
+        f = fields[name]
+        if value is None:
+            continue
+        if f.type == "file":
+            found.add(value)
+        elif f.type == "list" and f.items is not None and f.items.type == "file":
+            found.update(value)
+    if found:
+        FileUse.objects.bulk_create(
+            [FileUse(file_id=i, entity_id=entity_id, revision=revision) for i in sorted(found)],
+            ignore_conflicts=True,
+        )
 
 
 def _write_list(part: Part, f: Field, entity_id: Any, items: list[Any]) -> None:  # noqa: ANN401

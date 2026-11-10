@@ -155,7 +155,7 @@ def field_comment(f: Field) -> str:
     item = f.items if f.type == "list" and f.items is not None else f
     unit = f"In {item.unit} (UCUM)." if item.type == "quantity" else None
     target = f"Refers to a {item.to}." if item.type == "ref" else None
-    blob = "Refers to a file (iki_blob)." if item.type == "file" else None
+    blob = "Refers to a file (iki_file)." if item.type == "file" else None
     removed = "Removed: kept for history only." if f.removed else None
     return _sentence(f.label, f.description, unit, target, blob, removed)
 

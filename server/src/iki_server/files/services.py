@@ -28,9 +28,10 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
+from iki_server.core.sizes import human_size
 from iki_server.entities import access
 from iki_server.files import storage
-from iki_server.files.models import Blob, File, Upload, UploadState
+from iki_server.files.models import MEDIA_TYPE, Blob, File, Upload, UploadState
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.realtime import events as realtime
@@ -40,7 +41,7 @@ logger = structlog.get_logger("iki.files")
 #: Unfinished uploads are cancelled this long after they start.
 UPLOAD_LIFETIME = timedelta(hours=24)
 EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-_MEDIA_TYPE = re.compile(r"^[a-z0-9.+-]+/[a-z0-9.+-]+$")
+_MEDIA_TYPE = re.compile(MEDIA_TYPE)
 
 
 def clean_name(name: str) -> str:
@@ -81,7 +82,7 @@ def start(
         raise Refused("The SHA-256 must be 64 hexadecimal digits.", field="sha256")
     limit = settings.IKI_FILES_MAX_UPLOAD_BYTES
     if size > limit:
-        raise Refused(f"Files can be at most {_human(limit)} here.", field="size")
+        raise Refused(f"Files can be at most {human_size(limit)} here.", field="size")
     upload = Upload(
         project=project,
         created_by=user,
@@ -277,17 +278,10 @@ def expire() -> int:
 
 
 def readable(user: Any) -> QuerySet[File]:  # noqa: ANN401 - User or AnonymousUser
-    """Files the user can read: those added to a project they can read."""
-    return File.objects.filter(project__in=access.readable_projects(user).values("pk"))
+    """Files the user can read (see :func:`iki_server.entities.access.readable_files`)."""
+    return access.readable_files(user)
 
 
 def _numbers(numbers: list[int]) -> str:
     shown = ", ".join(str(n) for n in numbers[:10])
     return shown + (f" and {len(numbers) - 10} more" if len(numbers) > 10 else "")
-
-
-def _human(size: int) -> str:
-    for unit, factor in (("TiB", 1024**4), ("GiB", 1024**3), ("MiB", 1024**2), ("KiB", 1024)):
-        if size >= factor and size % factor == 0:
-            return f"{size // factor} {unit}"
-    return f"{size} bytes"

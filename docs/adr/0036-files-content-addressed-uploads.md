@@ -43,12 +43,22 @@ exists in a project they can't see, by asking about its hash.
 **A blob is content; a file is what someone added.** `Blob` holds the hash,
 size and location. `File` holds the name, the media type, the project it was
 added to, who added it and when. Neither ever changes: the app's database
-role may only add and read them. Two files can share a blob, so the same
-bytes can carry different names. Adding a file is audited.
+role may only add and read them, and database triggers refuse changes from
+any role, the tables' owner included, as they do for revisions. Two files
+can share a blob, so the same bytes can carry different names. Adding a file
+is audited.
 
-**Files are read through their project.** Whoever can read the project a
-file was added to can read the file, and nobody else learns it exists (404).
-An upload is visible only to the person making it.
+**Files are read through their project, and the entities that use them.**
+Whoever can read the project a file was added to can read the file. Whoever
+can read an entity that refers to a file, at any revision, can read the file
+too, since the entity's history shows it. Iki records each such use, and
+never removes it. Nobody else learns a file exists (404). An upload is
+visible only to the person making it.
+
+**File fields refer to files.** An entity's file field holds a file's ID. The
+file must be one the editor can read, of a media type the field allows, and
+no larger than the field's limit. Identity hashes use the file's SHA-256,
+so the same content added under another name is the same entity.
 
 **Downloads are short-lived redirects.** `GET /files/{id}/content` checks
 access and redirects to a URL signed for five minutes. That URL makes the

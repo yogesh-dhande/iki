@@ -52,7 +52,7 @@ from django.db.models.lookups import GreaterThanOrEqual, LessThanOrEqual
 from iki_server.entities import checks
 from iki_server.entities.fields import QuantityField
 from iki_server.entities.models import Entity
-from iki_server.files.models import Blob
+from iki_server.files.models import File
 '''
 
 
@@ -291,7 +291,7 @@ def _column(
         return _call("models.JSONField", **options)
     if kind == "file":
         return _call(
-            "models.ForeignKey", _raw("Blob"), _raw("models.PROTECT"), related_name="+", **options
+            "models.ForeignKey", _raw("File"), _raw("models.PROTECT"), related_name="+", **options
         )
     if kind == "ref":
         assert f.to is not None  # noqa: S101 - refs have a target

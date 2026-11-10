@@ -49,7 +49,7 @@ def field_schema(f: Field) -> dict[str, Any]:
     schema["title"] = f.label
     if f.description:
         schema["description"] = f.description
-    if f.computed or f.type == "file":
+    if f.computed:
         schema["readOnly"] = True
     if f.immutable:
         schema["x-iki-immutable"] = True
@@ -100,7 +100,12 @@ def _value(f: Field) -> dict[str, Any]:
     if kind == "ref":
         return {"type": "string", "format": "uuid", "x-iki-ref": f.to}
     if kind == "file":
-        return {"type": "string", "format": "uuid", "x-iki-media-types": list(f.media_types)}
+        out = {"type": "string", "format": "uuid", "x-iki-file": True}
+        if f.media_types:
+            out["x-iki-media-types"] = list(f.media_types)
+        if f.max_size is not None:
+            out["x-iki-max-size"] = f.max_size
+        return out
     if kind == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
         out = {"type": "array", "items": _value(f.items)}

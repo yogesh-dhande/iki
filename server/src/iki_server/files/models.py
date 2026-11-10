@@ -6,10 +6,12 @@
   version so it can't change underneath its entities.
 - A **file** is a blob as someone added it: its name, its media type, the
   project it was added to, who added it and when. Two files can share a blob.
+- A **use** records that an entity refers to a file, so that the entity's
+  readers can read the file too.
 - An **upload** sends a file's bytes straight to object storage, in parts,
   and is checked before it becomes a file (ADR 0036).
 
-Blobs and files never change: the app may only add and read them.
+Blobs, files and uses never change: the app may only add and read them.
 """
 
 from typing import ClassVar
@@ -23,6 +25,8 @@ from iki_server.core.ids import uuid7
 from iki_server.org.models import Project
 
 SHA256 = r"^[0-9a-f]{64}$"
+#: A media type, lowercased and without parameters (RFC 6838's restricted names).
+MEDIA_TYPE = r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$"
 
 
 class Blob(models.Model):
@@ -84,7 +88,7 @@ class File(models.Model):
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(condition=~Q(name=""), name="iki_file_name"),
             models.CheckConstraint(
-                condition=Q(media_type__regex=r"^[a-z0-9.+-]+/[a-z0-9.+-]+$"),
+                condition=Q(media_type__regex=MEDIA_TYPE),
                 name="iki_file_media_type",
             ),
         ]
@@ -99,6 +103,31 @@ class File(models.Model):
     @property
     def sha256(self) -> str:
         return self.blob.sha256
+
+
+class FileUse(models.Model):
+    """An entity that refers to a file, at any revision: whoever can read it can read the file.
+
+    Kept when the entity stops referring to it, since its history still does.
+    """
+
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey("file", "entity")
+    file = models.ForeignKey(File, on_delete=models.PROTECT, related_name="uses")
+    entity = models.ForeignKey("iki_entities.Entity", on_delete=models.PROTECT, related_name="+")
+    revision = models.PositiveIntegerField(db_comment="The entity's revision that first used it.")
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_file_use"
+        db_table_comment = "Entities that refer to files, so their readers can read the files."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["entity"], name="iki_file_use_by_entity"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.file_id} in {self.entity_id}"
 
 
 class UploadState(models.TextChoices):

@@ -400,3 +400,30 @@ def test_changes_reach_webhooks_without_their_values(world: World, other: Projec
     api.put(f"/entities/{made['id']}/projects/{other.pk}")
     assert not Delivery.objects.filter(event="entity.linked").exists()
     assert Entity.objects.filter(pk=made["id"]).exists()
+
+
+def test_file_fields_take_a_file_the_caller_can_read(world: World) -> None:
+    from iki_server.files.models import Blob, File
+
+    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    pdb = File.objects.create(
+        blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
+    )
+    notes = File.objects.create(
+        blob=blob, name="notes.txt", media_type="text/plain", project=world.project
+    )
+    api = api_as(world)
+    made = create(api, world.project, {"structure": str(pdb.pk)}, "protein.ProteinStructure")
+    assert made.status_code == 201, made.content
+    assert made.json()["values"]["structure"] == str(pdb.pk)
+    body = problem(
+        create(api, world.project, {"structure": str(notes.pk)}, "protein.ProteinStructure"),
+        422,
+        "validation_failed",
+    )
+    assert body["errors"] == [
+        {
+            "pointer": "#/values/structure",
+            "detail": "must be chemical/x-mmcif or chemical/x-pdb, and this file is text/plain.",
+        }
+    ]

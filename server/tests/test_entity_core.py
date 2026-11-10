@@ -285,12 +285,15 @@ def test_linking_is_audited_and_the_owner_project_cant_be_unlinked(lab: dict[str
 
 
 def test_extension_fields_get_their_own_row_and_history(lab: dict[str, Any]) -> None:
-    from iki_server.files.models import Blob
+    from iki_server.files.models import Blob, File
 
     blob = Blob.objects.create(sha256="a" * 64, size=1, storage_uri="s3://b/a")
+    pdb = File.objects.create(
+        blob=blob, name="a.pdb", media_type="chemical/x-pdb", project=lab["first"]
+    )
     from iki_plugin_protein.models import ProteinStructure  # type: ignore[import-not-found]
 
-    structure = ProteinStructure.objects.create(owner_project=lab["first"], structure=blob)
+    structure = ProteinStructure.objects.create(owner_project=lab["first"], structure=pdb)
     ProjectLink.objects.create(entity_id=structure.pk, project=lab["first"])
     Entity.objects.filter(pk=structure.pk).update(revision=1)
     entity = Entity.objects.get(pk=structure.pk)
