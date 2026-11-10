@@ -69,12 +69,27 @@ INSTALLED_APPS = [
 # Plugins (ADR 0006): `iki plugin build` generates a Django app for each, and
 # the `iki_installed_plugins` package that lists them in dependency order.
 # Without that package (development, tests), no plugins are installed.
+#
+# The plugins must have been built by this version of Iki, since the models
+# and migrations it generates change between versions. Plugins from a local
+# directory rather than a pinned commit (`iki deploy build --allow-local`) are
+# for development, so the server only accepts them when told to.
+IKI_ALLOW_LOCAL_PLUGINS: bool = env.bool("IKI_ALLOW_LOCAL_PLUGINS", default=False)
 if find_spec("iki_installed_plugins") is not None:
-    from iki_installed_plugins import (  # type: ignore[import-not-found]
-        APPS as _PLUGIN_APPS,
-    )
+    import iki_installed_plugins as _plugins  # type: ignore[import-not-found]
 
-    INSTALLED_APPS += _PLUGIN_APPS
+    _built_by = getattr(_plugins, "IKI_VERSION", "an older version")
+    if _built_by != __version__:
+        raise environ.ImproperlyConfigured(
+            f"The plugins were built by Iki {_built_by}, but this is Iki {__version__}. "
+            f"Build them with `iki deploy build` from Iki {__version__}."
+        )
+    if getattr(_plugins, "LOCAL", False) and not IKI_ALLOW_LOCAL_PLUGINS:
+        raise environ.ImproperlyConfigured(
+            "The plugins include one from a local directory, which is only for development. "
+            "Pin it to a git commit, or set IKI_ALLOW_LOCAL_PLUGINS=true on a development server."
+        )
+    INSTALLED_APPS += _plugins.APPS
 
 MIDDLEWARE = [
     # Health checks answer before host validation and HTTPS redirects, so

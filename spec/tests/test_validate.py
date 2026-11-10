@@ -289,6 +289,8 @@ def test_reserved_plugin_names(tmp_path: Path) -> None:
     assert "reserved" in only(result, "reserved-name")
     result = make(tmp_path, plugin=PLUGIN.replace("acme", "auth"))
     assert codes(result) == ["reserved-name"]
+    result = make(tmp_path, plugin=PLUGIN.replace("acme", "core"))
+    assert codes(result) == ["reserved-name"]
 
 
 def test_duplicate_types(tmp_path: Path) -> None:

@@ -37,6 +37,15 @@
       "pattern": "^[a-z0-9][a-z0-9-]*$",
       "description": "Deployment name, e.g. prod"
     },
+    "plugins": {
+      "type": "object",
+      "properties": {
+        "allowLocal": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "publicUrl": {
       "type": "string",
       "pattern": "^https?://[^/?#]+/?$",

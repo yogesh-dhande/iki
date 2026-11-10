@@ -231,6 +231,36 @@ works with. To check those references, pass the dependencies' directories
 with `--with`. Without them, the validator says it can't check them rather
 than guessing. `core.Entity` needs no dependency.
 
+## The core plugin
+
+Every deployment has the core plugin, released with Iki. Its manifests are
+in [`iki_spec/core`](src/iki_spec/core). Other plugins use its types, such as
+`core.Entity`, without declaring a dependency, and no other plugin can be
+named `core`.
+
+## A deployment's lockfile
+
+Each deployment's config repository pins the plugins it installs in
+`plugins.lock.yaml` ([schema](src/iki_spec/schemas/plugin-lock/v1.json)):
+
+```yaml
+apiVersion: iki/v1
+kind: PluginLock
+plugins:
+  - name: dna
+    git: https://github.com/acme/iki-plugins.git
+    path: dna # the plugin's directory in the repository, if not its root
+    sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
+    state: active
+    settings: settings/dna.yaml # relative to the lockfile
+```
+
+`sha` is a full commit, never a branch or tag, so the same lockfile always
+installs the same plugins. `git ls-remote <repository> <tag>` prints a
+tag's commit. In development, `local: ../path/to/plugin` takes a directory
+instead. `iki deploy build` builds the image's plugins from the lockfile
+(see [`cli/`](../cli/README.md) and ADR 0034).
+
 ## YAML
 
 Manifests are read as YAML 1.2: only `true` and `false` are booleans, so
@@ -242,21 +272,22 @@ refused, so what is reviewed is what Iki reads.
 
 Every problem has a stable `code`, shown in brackets and in `--format json`:
 
-| Code                                                                                                                                                                       | What's wrong                    |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                | The YAML itself                 |
-| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                | The file                        |
-| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                    | Where manifests are             |
-| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                           | A manifest's header             |
-| `schema`                                                                                                                                                                   | Anything the JSON Schemas catch |
-| `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                     | Names                           |
-| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                  | Types                           |
-| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                | HRIDs                           |
-| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                | Identities                      |
-| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                        | Field options                   |
-| `unsupported-index`, `index-needs-max-length`                                                                                                                              | Indexes                         |
-| `unknown-unit`, `display-unit-mismatch`                                                                                                                                    | Units                           |
-| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                   | Files, JSON fields and titles   |
-| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                  | Extensions                      |
-| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning) | Dependencies                    |
-| `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                        | Settings                        |
+| Code                                                                                                                                                                                                         | What's wrong                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- |
+| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                                                  | The YAML itself                 |
+| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                  | The file                        |
+| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                      | Where manifests are             |
+| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                             | A manifest's header             |
+| `schema`                                                                                                                                                                                                     | Anything the JSON Schemas catch |
+| `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                       | Names                           |
+| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                    | Types                           |
+| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                  | HRIDs                           |
+| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                                                  | Identities                      |
+| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                          | Field options                   |
+| `unsupported-index`, `index-needs-max-length`                                                                                                                                                                | Indexes                         |
+| `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                      | Units                           |
+| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                     | Files, JSON fields and titles   |
+| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                    | Extensions                      |
+| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                   | Dependencies                    |
+| `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                          | Settings                        |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file` | Lockfiles                       |

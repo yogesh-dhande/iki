@@ -1,0 +1,10 @@
+# Every entity's own columns (id, HRID, type, owner project, created, archived)
+# are the server's, not fields here: see iki_server.entities.models.Entity.
+apiVersion: iki/v1
+kind: EntityType
+name: Entity
+label: Entity
+label_plural: Entities
+abstract: true
+schema_version: 1
+description: Any entity, of any type.

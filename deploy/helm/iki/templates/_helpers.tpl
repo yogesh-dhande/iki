@@ -97,6 +97,8 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ $ctx.Values.environment | quote }}
 - name: IKI_PUBLIC_URL
   value: {{ $ctx.Values.publicUrl | quote }}
+- name: IKI_ALLOW_LOCAL_PLUGINS
+  value: {{ $ctx.Values.plugins.allowLocal | quote }}
 - name: IKI_ALLOWED_HOSTS
   value: {{ join "," $ctx.Values.allowedHosts | quote }}
 - name: IKI_HTTPS

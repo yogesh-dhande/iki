@@ -55,21 +55,22 @@ k8s_resource(
 
 # --- Iki ------------------------------------------------------------------------
 
-docker_build(
+# The server image, then the dev cluster's plugins on top (deploy/dev/plugins.lock.yaml),
+# the way a deployment builds its own image.
+custom_build(
     'iki-server',
-    '.',
-    dockerfile='server/Dockerfile',
-    only=[
-        'pyproject.toml', 'uv.lock', 'LICENSE', 'NOTICE', 'server', 'cli',
-        # The spec package, which the server installs, and what resolving the uv
-        # workspace needs from the codegen package.
+    'deploy/dev/build-server.sh $EXPECTED_REF',
+    deps=[
+        'pyproject.toml', 'uv.lock', 'LICENSE', 'NOTICE', 'server', 'cli', 'codegen',
         'spec/pyproject.toml', 'spec/README.md', 'spec/LICENSE', 'spec/NOTICE', 'spec/src',
-        'codegen/pyproject.toml', 'codegen/README.md', 'codegen/LICENSE', 'codegen/NOTICE',
         # The web app, built in the image's own stage.
         'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'web',
+        # The plugins and how they're added.
+        'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
+        'deploy/plugins.Dockerfile',
     ],
     ignore=[
-        'server/tests', '**/__pycache__', '**/node_modules',
+        'server/tests', 'cli/tests', 'codegen/tests', '**/__pycache__', '**/node_modules',
         # A local `make web` build; the image builds its own.
         'server/src/iki_server/web/static/app',
     ],

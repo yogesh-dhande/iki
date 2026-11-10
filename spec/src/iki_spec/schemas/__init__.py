@@ -32,6 +32,7 @@ NAMES = (
     "field",
     "settings",
     "unit",
+    "plugin-lock",
 )
 
 BASE_URL = "https://ikisci.org/schemas"

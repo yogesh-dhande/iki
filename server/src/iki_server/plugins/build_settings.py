@@ -20,6 +20,8 @@ os.environ.update(
         "IKI_DB_SSLMODE": "disable",
         "IKI_ENCRYPTION_KEYS": base64.urlsafe_b64encode(secrets.token_bytes(32)).decode(),
         "OTEL_SDK_DISABLED": "true",
+        # Checking a development build's migrations serves nothing.
+        "IKI_ALLOW_LOCAL_PLUGINS": "true",
     }
 )
 

@@ -4,6 +4,9 @@ image:
   repository: iki-server
   tag: dev
 environment: dev
+plugins:
+  # The dev lockfile (deploy/dev/plugins.lock.yaml) may use local directories.
+  allowLocal: true
 publicUrl: http://localhost:8000
 allowedHosts: ["localhost", "127.0.0.1"]
 # Local access is plain HTTP through port-forwards.

@@ -1,0 +1,11 @@
+# The core plugin: types every deployment has, released with Iki itself.
+# Deployments don't list it in plugins.lock.yaml, and other plugins use its
+# types without declaring a dependency.
+apiVersion: iki/v1
+kind: Plugin
+name: core
+version: 0.1.0
+title: Core
+description: The types every Iki deployment has.
+license: Apache-2.0
+homepage: https://ikisci.org

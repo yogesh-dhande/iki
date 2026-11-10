@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/plugin-lock/v1",
+  "title": "Iki plugin lockfile (iki/v1)",
+  "description": "A deployment's `plugins.lock.yaml`: every plugin it installs, each pinned to a git commit.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "plugins"],
+  "properties": {
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "PluginLock"
+    },
+    "plugins": {
+      "description": "The plugins, each once. The core plugin comes with Iki and isn't listed.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/plugin"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "plugin": {
+      "type": "object",
+      "required": ["name", "state"],
+      "properties": {
+        "name": {
+          "description": "The plugin's name, as its plugin.yaml gives it.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName"
+        },
+        "state": {
+          "description": "`active`: installed and in use.",
+          "enum": ["active"]
+        },
+        "git": {
+          "description": "The plugin's git repository: an https or ssh URL, such as `https://github.com/acme/iki-plugins.git` or `git@github.com:acme/iki-plugins.git`.",
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^((https|ssh)://[^\\s]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\\s]+)$"
+        },
+        "sha": {
+          "description": "The commit to install, in full: 40 hex digits (64 for SHA-256 repositories). Branches and tags can move, so they aren't accepted.",
+          "type": "string",
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "path": {
+          "description": "The plugin's directory inside the repository, if it isn't the root, such as `plugins/dna`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "^[^/\\s\\\\][^\\s\\\\]*$"
+        },
+        "local": {
+          "description": "For development only: the plugin's directory on this machine, relative to the lockfile. `iki deploy build` refuses it without `--allow-local`, and a production server refuses to start with it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "settings": {
+          "description": "The deployment's values for the plugin's settings: a YAML file, relative to the lockfile.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "additionalProperties": false,
+      "description": "A plugin from git (`git` and `sha`, and `path` if it isn't at the repository's root), or, for development, from a directory (`local`)."
+    }
+  }
+}

@@ -1,8 +1,8 @@
 # iki-cli
 
 The `iki` command-line tool for plugin authors and deployments: `iki plugin
-validate`, `build` and `makemigrations`. `test`, `upgrade` and `run` follow
-as the plugin system grows.
+validate`, `build` and `makemigrations`, and `iki deploy build`. `test`,
+`upgrade` and `run` follow as the plugin system grows.
 
 ## `iki plugin validate`
 
@@ -88,6 +88,36 @@ $ iki plugin build plugins/dna plugins/protein --output build/plugins
 Built build/plugins/iki_plugin_dna
 Built build/plugins/iki_plugin_protein
 ```
+
+## `iki deploy build`
+
+In a deployment's config repository, build the plugins its
+`plugins.lock.yaml` pins (see [`spec/`](../spec/README.md#a-deployments-lockfile)),
+for its server image:
+
+```console
+$ iki deploy build deployments/prod --output build/plugins
+Fetched dna at 4f1c2b9e0d6a from https://github.com/acme/iki-plugins.git
+Fetched protein at 4f1c2b9e0d6a from https://github.com/acme/iki-plugins.git
+Built build/plugins: dna 1.2.0, protein 3.0.0.
+$ docker build -f plugins.Dockerfile \
+    --build-arg IKI_SERVER_IMAGE=ghcr.io/ikisci/iki-server:0.1.0@sha256:… build
+```
+
+It fetches each plugin at its commit and checks them together, along with
+the deployment's settings for each and that their migrations are complete.
+It writes the same bytes for the same lockfile. Git may only use https and
+ssh, and never prompts; credentials come from git's helpers, as CI sets
+them up. See [ADR 0034](../docs/adr/0034-deployment-lockfile-and-plugin-builds.md).
+Use the server image of the same Iki version: the server refuses plugins
+another version built.
+
+| Option               | What it does                                                                   |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `DEPLOYMENT`         | The deployment's directory, holding `plugins.lock.yaml` (or the lockfile).     |
+| `--output DIRECTORY` | Where to write the plugins. Replaces an earlier build there, and nothing else. |
+| `--allow-local`      | Accept `local:` plugins, for development. Servers refuse them unless told to.  |
+| `--cache DIRECTORY`  | Where to keep fetched repositories (default `~/.cache/iki/git`).               |
 
 ```console
 $ iki --version

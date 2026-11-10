@@ -313,10 +313,26 @@ def _text(
     errors: int,
     warnings: int,
 ) -> None:
+    style = write_problems(out, problems, directory, sources)
+    out.write(_summary(result, errors, warnings, color=style.on) + "\n")
+
+
+def write_problems(
+    out: TextIO,
+    problems: Sequence[Problem],
+    directory: Path,
+    sources: dict[str, Path],
+    *,
+    label: str | None = None,
+) -> _Style:
+    """Each problem the way compilers print them. ``label`` names files instead of their paths."""
     style = _Style(out)
     lines_cache: dict[str, list[str]] = {}
     for problem in problems:
-        where = _display_path(directory, problem.file, sources)
+        if label is not None:
+            where = f"{label}/{problem.file}" if problem.file else label
+        else:
+            where = _display_path(directory, problem.file, sources)
         if problem.location:
             where += f":{problem.location.line}:{problem.location.column}"
         label = style("error", "1;31") if problem.is_error else style("warning", "1;33")
@@ -336,7 +352,7 @@ def _text(
         if problem.hint:
             out.write(f"  {style('hint', '1;36')}: {problem.hint}\n")
         out.write("\n")
-    out.write(_summary(result, errors, warnings, color=style.on) + "\n")
+    return style
 
 
 def _source_line(

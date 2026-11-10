@@ -69,6 +69,7 @@ def django(build: Path, database: str, *args: str) -> subprocess.CompletedProces
             "PYTHONDONTWRITEBYTECODE": "1",
             "IKI_DATABASE_URL": database,
             "OTEL_SDK_DISABLED": "true",
+            "IKI_ALLOW_LOCAL_PLUGINS": "true",
         },
     )
 
@@ -258,6 +259,47 @@ def sync(build: Path, database: str, *args: str) -> str:
     result = django(build, database, "-m", "django", "sync_plugins", *args)
     assert result.returncode == 0, result.stdout + result.stderr
     return result.stdout
+
+
+def test_a_deployment_built_from_its_lockfile(migrated: Path, database: str) -> None:
+    deployment = migrated.parent / "deployments" / "dev"
+    deployment.mkdir(parents=True)
+    (deployment / "dna.yaml").write_text("ncbi_email: lab@example.org\n")
+    (deployment / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - {name: protein, local: ../../plugins/protein, state: active}\n"
+        "  - {name: dna, local: ../../plugins/dna, state: active, settings: dna.yaml}\n"
+    )
+    out = migrated.parent / "image-plugins"
+    result = iki("deploy", "build", deployment, "-o", out, "--allow-local", cwd=migrated)
+    assert result.returncode == 0, result.stdout + result.stderr
+    migrate(out, database)
+    sync(out, database)
+    result = orm(
+        out,
+        database,
+        """
+        from iki_server.entities import registry
+        from iki_plugin_dna.models import DNASequence
+
+        made = DNASequence.objects.create(owner_project=project, bases="ACGT")
+        result = {
+            "settings": registry.settings("dna"),
+            "from": [
+                (p["name"], p.get("local"), p["version"]) for p in registry.installed()["plugins"]
+            ],
+            "hrid": made.hrid,
+        }
+        """,
+    )
+    assert result == {
+        "settings": {"max_sequence_length": 10_000_000, "ncbi_email": "lab@example.org"},
+        "from": [
+            ["protein", "../../plugins/protein", "3.0.0"],
+            ["dna", "../../plugins/dna", "1.2.0"],
+        ],
+        "hrid": "DNA-000001",
+    }
 
 
 def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database: str) -> None:

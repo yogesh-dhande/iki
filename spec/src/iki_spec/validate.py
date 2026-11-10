@@ -33,7 +33,7 @@ from iki_spec.model import (
 from iki_spec.problems import Path, Problem, Severity
 from iki_spec.yamlsource import Document, parse_documents, read_documents
 
-__all__ = ["Result", "check_settings_values", "load_plugin"]
+__all__ = ["Result", "check_settings_values", "load_plugin", "read_settings"]
 
 PLUGIN_FILES = ("plugin.yaml", "plugin.yml")
 TYPES_DIR = "types"
@@ -56,6 +56,7 @@ MAX_FILE_SIZE = 5 * 1024**4
 RESERVED_PLUGIN_NAMES = frozenset(
     {
         "iki",
+        "core",
         "django",
         "admin",
         "auth",
@@ -200,9 +201,13 @@ class _Checker:
 
 
 def load_plugin(
-    directory: FilePath | str, *, dependencies: Sequence[FilePath | str] = ()
+    directory: FilePath | str, *, dependencies: Sequence[FilePath | str] = (), core: bool = False
 ) -> Result:
-    """Read and check the plugin in `directory`, resolving references with `dependencies`."""
+    """Read and check the plugin in `directory`, resolving references with `dependencies`.
+
+    ``core`` is for :mod:`iki_spec.builtin` only: the core plugin itself, which
+    has the reserved name and can't use its own types before they're read.
+    """
     root = FilePath(directory)
     loaded = _read(root)
     if loaded.plugin is None:
@@ -231,7 +236,7 @@ def load_plugin(
             )
             continue
         others[other.plugin.name] = other
-    _Semantics(loaded, others).run()
+    _Semantics(loaded, others, core=core).run()
     return loaded.result()
 
 
@@ -515,7 +520,7 @@ def _fields(data: dict[str, Any], plugin: str) -> dict[str, Field]:
 
 
 class _Semantics:
-    def __init__(self, loaded: _Loaded, others: dict[str, _Loaded]) -> None:
+    def __init__(self, loaded: _Loaded, others: dict[str, _Loaded], *, core: bool = False) -> None:
         assert loaded.plugin is not None and loaded.plugin_source is not None  # noqa: S101 - an invariant, not a check
         self.loaded = loaded
         self.plugin: Plugin = loaded.plugin
@@ -523,7 +528,8 @@ class _Semantics:
         self.others = others
         self.checker = loaded.checker
         self.add = loaded.checker.add
-        self.types: dict[str, EntityType] = dict(BUILTIN_TYPES)
+        self.core = core
+        self.types: dict[str, EntityType] = {} if core else dict(BUILTIN_TYPES)
         for other in others.values():
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             self.types.update(other.plugin.types)
@@ -549,7 +555,10 @@ class _Semantics:
 
     def plugin_manifest(self) -> None:
         plugin, source = self.plugin, self.source
-        if plugin.name in RESERVED_PLUGIN_NAMES or plugin.name.startswith("iki_"):
+        reserved = plugin.name in RESERVED_PLUGIN_NAMES and not (
+            self.core and plugin.name == "core"
+        )
+        if reserved or plugin.name.startswith("iki_"):
             self.add(
                 "reserved-name",
                 f"`{plugin.name}` is reserved; Iki or Django already uses it.",
@@ -1417,6 +1426,31 @@ def check_settings_values(plugin: Plugin, file: FilePath, name: str) -> list[Pro
     if problems:
         return problems
     return _settings_problems(plugin, documents, name)
+
+
+def read_settings(
+    plugin: Plugin, file: FilePath | None, name: str
+) -> tuple[dict[str, Any] | None, list[Problem]]:
+    """A deployment's settings for `plugin`, with defaults filled in, and the problems.
+
+    Without a file, every setting takes its default. The values are None when
+    there are errors.
+    """
+    if file is None:
+        documents: list[Document] = []
+    else:
+        documents, problems = read_documents(file, name)
+        if problems:
+            return None, problems
+    problems = _settings_problems(plugin, documents, name)
+    if any(p.is_error for p in problems):
+        return None, problems
+    given = next((d.data for d in documents if d.data is not None), None) or {}
+    values = {
+        key: given.get(key, setting.default if setting.has_default else None)
+        for key, setting in sorted(plugin.settings.items())
+    }
+    return values, problems
 
 
 def check_settings_text(plugin: Plugin, text: str, name: str) -> list[Problem]:

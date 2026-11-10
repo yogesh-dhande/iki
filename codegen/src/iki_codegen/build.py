@@ -5,9 +5,15 @@ For each plugin, a package ``iki_plugin_<name>``:
 - ``apps.py``: the app, labelled with the plugin's name;
 - ``models.py``: see :mod:`iki_codegen.models`;
 - ``manifest.json``: the plugin as Iki read it, for the server;
+- ``settings.json``: the deployment's values for its settings, when built
+  for a deployment;
 - ``migrations/``: the plugin repository's migrations, copied unchanged.
 
-And ``iki_installed_plugins``, listing those apps in dependency order.
+And ``iki_installed_plugins``, listing those apps in dependency order, with
+the Iki version that built them (the server refuses a build by another) and,
+for a deployment, ``lock.json``: where each plugin came from.
+
+The same inputs always give the same bytes, so a build can be checked.
 """
 
 from __future__ import annotations
@@ -15,7 +21,9 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Mapping, Sequence
+from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 
 from iki_codegen.models import render_models
 from iki_spec import API_VERSION, naming
@@ -84,10 +92,16 @@ def build(
     output: Path,
     *,
     migrations: Mapping[str, Path] | None = None,
+    settings: Mapping[str, Mapping[str, Any]] | None = None,
+    lock: Mapping[str, Any] | None = None,
+    local: bool = False,
 ) -> list[Path]:
     """Writes the apps into ``output``, replacing earlier builds there. Returns the packages.
 
-    ``migrations`` maps a plugin's name to its repository's ``migrations/``.
+    ``migrations`` maps a plugin's name to its repository's ``migrations/``,
+    and ``settings`` to the deployment's values for its settings. ``lock``
+    records where the plugins came from; ``local`` says one came from a
+    directory rather than a git commit, which only development servers accept.
     """
     ordered = in_dependency_order(plugins)
     problems = conflicts(ordered)
@@ -97,6 +111,11 @@ def build(
     for plugin in ordered:
         types.update(plugin.types)
     output.mkdir(parents=True, exist_ok=True)
+    # Plugins an earlier build here had and this one doesn't.
+    wanted = {naming.package(p.name) for p in ordered}
+    for stale in sorted(output.glob("iki_plugin_*")):
+        if stale.is_dir() and stale.name not in wanted:
+            shutil.rmtree(stale)
     packages = []
     for plugin in ordered:
         package = output / naming.package(plugin.name)
@@ -107,9 +126,9 @@ def build(
         (package / "apps.py").write_text(_apps(plugin))
         (package / "models.py").write_text(render_models(plugin, types))
         manifest = {"apiVersion": API_VERSION, "plugin": plugin_to_dict(plugin)}
-        (package / "manifest.json").write_text(
-            json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-        )
+        (package / "manifest.json").write_text(_json(manifest))
+        if settings is not None and plugin.name in settings:
+            (package / "settings.json").write_text(_json(dict(settings[plugin.name])))
         source = (migrations or {}).get(plugin.name)
         if source is not None and source.is_dir():
             for file in sorted(source.glob("*.py")):
@@ -117,13 +136,25 @@ def build(
         (package / "migrations" / "__init__.py").touch()
         packages.append(package)
     registry = output / "iki_installed_plugins"
-    registry.mkdir(exist_ok=True)
+    if registry.exists():
+        shutil.rmtree(registry)
+    registry.mkdir()
     apps = "".join(f"    {naming.package(p.name) + '.apps.PluginConfig'!r},\n" for p in ordered)
     (registry / "__init__.py").write_text(
         f'"""The plugins this build installs, dependencies first. {GENERATED}"""\n\n'
+        "#: The Iki that built them. A server of another version refuses to start.\n"
+        f"IKI_VERSION = {version('iki-codegen')!r}\n"
+        "#: Whether a plugin came from a local directory: only for development servers.\n"
+        f"LOCAL = {local!r}\n\n"
         f"APPS = [\n{apps}]\n"
     )
+    if lock is not None:
+        (registry / "lock.json").write_text(_json(dict(lock)))
     return packages
+
+
+def _json(data: Mapping[str, Any]) -> str:
+    return json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
 def _apps(plugin: Plugin) -> str:

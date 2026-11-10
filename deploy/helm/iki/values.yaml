@@ -4,6 +4,9 @@
 # without them (see values.schema.json). Every default is the secure choice.
 
 image:
+  # Iki's server image. A deployment with plugins uses its own image: this one
+  # with the plugins its lockfile pins, built by `iki deploy build` (see
+  # deploy/plugins.Dockerfile).
   repository: ghcr.io/ikisci/iki-server
   # Defaults to the chart's appVersion.
   tag: ""
@@ -14,6 +17,12 @@ imagePullSecrets: []
 
 # required: name of this deployment, e.g. "prod". Attached to logs and traces.
 environment: ""
+
+plugins:
+  # Accept plugins built from local directories (`iki deploy build
+  # --allow-local`) rather than pinned git commits. Only for development:
+  # otherwise the server refuses to start with them.
+  allowLocal: false
 
 # required: host names users reach Iki on, e.g. ["iki.example.com"].
 allowedHosts: []

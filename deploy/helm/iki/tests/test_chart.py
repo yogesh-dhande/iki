@@ -171,6 +171,20 @@ def test_migrations_run_as_a_pre_upgrade_hook_that_never_retries() -> None:
     assert grant["args"] == ["grant_app_privileges"]
 
 
+def test_local_plugins_are_refused_unless_allowed() -> None:
+    for _, spec in pod_specs(manifests()):
+        for container in [*spec.get("initContainers", []), *spec["containers"]]:
+            env = {e["name"]: e.get("value") for e in container.get("env", [])}
+            if "IKI_ENVIRONMENT" in env:
+                assert env["IKI_ALLOW_LOCAL_PLUGINS"] == "false"
+    (job,) = by_kind(manifests({"plugins": {"allowLocal": True}}), "Job")
+    env = {
+        e["name"]: e.get("value") for e in job["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
+    assert env["IKI_ALLOW_LOCAL_PLUGINS"] == "true"
+    assert "allowLocal" in str(render({"plugins": {"allowLocal": "yes"}}, ok=False))
+
+
 def test_an_analyst_role_reads_the_views() -> None:
     database = {**REQUIRED["database"], "analystRole": "bi_reader"}
     (job,) = by_kind(manifests({"database": database}), "Job")

@@ -3,7 +3,7 @@
 import argparse
 from collections.abc import Sequence
 
-from iki_cli import __version__, plugin
+from iki_cli import __version__, deploy, plugin
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -14,6 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"iki {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
     plugin.add_commands(commands)
+    deploy.add_commands(commands)
     return parser
 
 

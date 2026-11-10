@@ -1,8 +1,11 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
+
+from iki_server import __version__
 
 PROD_ENV = {
     "IKI_SECRET_KEY": "k" * 64 + "-not-a-real-secret-but-long-and-varied-0123456789",
@@ -141,3 +144,32 @@ def test_unencrypted_email_needs_an_explicit_choice() -> None:
     ambiguous = _email_settings({**plain, "IKI_EMAIL_URL": "smtps://u:p@smtp.example.com"})
     assert ambiguous.returncode != 0
     assert "smtp+tls://" in ambiguous.stderr
+
+
+def _plugins(tmp_path: Path, body: str) -> dict[str, str]:
+    package = tmp_path / "iki_installed_plugins"
+    package.mkdir()
+    (package / "__init__.py").write_text(body + "APPS = []\n")
+    return {**PROD_ENV, "PYTHONPATH": str(package.parent)}
+
+
+def test_plugins_built_by_another_iki_are_refused(tmp_path: Path) -> None:
+    env = _plugins(tmp_path, "IKI_VERSION = '0.0.9'\nLOCAL = False\n")
+    result = run_manage("check", env=env)
+    assert result.returncode != 0
+    assert f"The plugins were built by Iki 0.0.9, but this is Iki {__version__}." in result.stderr
+
+
+def test_plugins_built_by_this_iki_are_installed(tmp_path: Path) -> None:
+    env = _plugins(tmp_path, f"IKI_VERSION = {__version__!r}\nLOCAL = False\n")
+    result = run_manage("check", env=env)
+    assert result.returncode == 0, result.stderr
+
+
+def test_local_plugins_need_a_development_server(tmp_path: Path) -> None:
+    env = _plugins(tmp_path, f"IKI_VERSION = {__version__!r}\nLOCAL = True\n")
+    result = run_manage("check", env=env)
+    assert result.returncode != 0
+    assert "only for development" in result.stderr
+    result = run_manage("check", env={**env, "IKI_ALLOW_LOCAL_PLUGINS": "true"})
+    assert result.returncode == 0, result.stderr

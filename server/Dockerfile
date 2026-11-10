@@ -58,6 +58,9 @@ COPY spec/src spec/src
 COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/web/static/app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable
+# Deployments add their plugins at /opt/iki/plugins (deploy/plugins.Dockerfile),
+# which this puts on the server's import path.
+RUN /opt/iki/venv/bin/python -c "import pathlib, sysconfig; pathlib.Path(sysconfig.get_path('purelib'), 'iki-plugins.pth').write_text('/opt/iki/plugins\n')"
 # Static files, content-hashed and compressed. Settings need their required
 # values to load; collectstatic touches neither the database nor the keys,
 # so throwaway values are generated for this one command.

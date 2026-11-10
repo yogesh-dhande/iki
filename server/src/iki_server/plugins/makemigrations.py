@@ -3,7 +3,7 @@
 ``iki plugin makemigrations`` builds the plugin and its dependencies into a
 temporary directory and runs this module there::
 
-    python -m iki_server.plugins.makemigrations PLUGIN [--name NAME] [--check] [--no-input]
+    python -m iki_server.plugins.makemigrations PLUGIN... [--name NAME] [--check] [--no-input]
 
 It runs Django's own command, with its questions about renames, against the
 dummy database backend, so nothing needs a database. On top, it keeps every
@@ -39,7 +39,7 @@ HISTORY = "_history"
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m iki_server.plugins.makemigrations")
-    parser.add_argument("plugin")
+    parser.add_argument("plugin", nargs="+")
     parser.add_argument("--name")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -61,7 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         call_command(
             _command(),
-            args.plugin,
+            *args.plugin,
             name=args.name,
             check_changes=args.check,
             dry_run=args.dry_run,

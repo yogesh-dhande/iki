@@ -1,0 +1,8 @@
+# The dev cluster's plugins. Tilt builds them with
+# `iki deploy build deploy/dev --allow-local` into the server image.
+#
+# A plugin being developed here can come from its directory:
+#   - { name: dna, local: ../../plugins/dna, state: active, settings: settings/dna.yaml }
+apiVersion: iki/v1
+kind: PluginLock
+plugins: []

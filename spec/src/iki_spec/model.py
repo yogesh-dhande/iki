@@ -7,6 +7,7 @@ YAML, so every rule `iki plugin validate` enforces holds for them.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, fields
 from typing import Any
 
@@ -192,18 +193,26 @@ class Plugin:
     extensions: tuple[Extension, ...] = ()
 
 
-#: Types every plugin can use without declaring a dependency.
-BUILTIN_TYPES: dict[str, EntityType] = {
-    "core.Entity": EntityType(
-        plugin="core",
-        name="Entity",
-        schema_version=1,
-        label="Entity",
-        label_plural="Entities",
-        description="Any entity, of any type.",
-        abstract=True,
-    )
-}
+class _CoreTypes(Mapping[str, EntityType]):
+    """The core plugin's types, read from its manifests (``iki_spec/core``) when first used."""
+
+    def _types(self) -> Mapping[str, EntityType]:
+        from iki_spec.builtin import core_plugin
+
+        return core_plugin().types
+
+    def __getitem__(self, key: str) -> EntityType:
+        return self._types()[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._types())
+
+    def __len__(self) -> int:
+        return len(self._types())
+
+
+#: Types every plugin can use without declaring a dependency: the core plugin's.
+BUILTIN_TYPES: Mapping[str, EntityType] = _CoreTypes()
 
 
 def qualify(ref: str, plugin: str) -> str:
