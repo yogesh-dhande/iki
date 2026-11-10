@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
-from iki_server.accounts.models import IdentityProvider, User
+from iki_server.accounts.models import IdentityProvider, Kind, User
 from iki_server.org import permissions
 from iki_server.org import services as org_services
 from iki_server.org.models import Team
@@ -59,7 +59,7 @@ def sign_in_settings(request: HttpRequest) -> HttpResponse:
             "teams": Team.objects.filter(archived_at__isnull=True).order_by("name"),
             "provisioned": User.objects.filter(provisioned_at__isnull=False).count(),
             "not_provisioned": User.objects.filter(
-                provisioned_at__isnull=True, is_active=True
+                kind=Kind.PERSON, provisioned_at__isnull=True, is_active=True
             ).count(),
         },
     )

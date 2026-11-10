@@ -1,8 +1,9 @@
-"""Root URL configuration. API routers are added as their features land."""
+"""Root URL configuration."""
 
 from django.urls import URLPattern, URLResolver, include, path
 
 from iki_server.accounts import views as accounts
+from iki_server.api.v1 import api as api_v1
 from iki_server.web import views as web
 
 urlpatterns: list[URLPattern | URLResolver] = [
@@ -16,5 +17,6 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("", include("iki_server.scim.page_urls")),
     path("accounts/", include(accounts.allauth_urlpatterns)),
     path("scim/v2/", include("iki_server.scim.urls")),
+    path("api/v1/", api_v1.urls),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

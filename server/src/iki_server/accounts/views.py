@@ -20,7 +20,7 @@ from iki_server.setup.models import Installation
 from iki_server.web.ratelimit import RateLimiter, client_key
 
 #: Sign-ins one client address can start per minute (per web pod).
-sign_in_limiter = RateLimiter(limit_per_minute=20)
+sign_in_limiter = RateLimiter("sign_in", limit_per_minute=20)
 
 
 def safe_next(request: HttpRequest, default: str = "/") -> str:
@@ -89,7 +89,7 @@ def start_saml_sign_in(request: HttpRequest, organization_slug: str) -> HttpResp
 
 #: SAML responses one client address can post per minute (per web pod).
 #: Checking a response's signature costs CPU, and anyone can post one.
-acs_limiter = RateLimiter(limit_per_minute=20)
+acs_limiter = RateLimiter("saml_acs", limit_per_minute=20)
 
 
 @csrf_exempt  # the identity provider posts SAML responses cross-site

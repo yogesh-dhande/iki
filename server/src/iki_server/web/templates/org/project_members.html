@@ -8,7 +8,7 @@
   <li class="row">
     <div class="row-main">
       {% if membership.user %}
-      <span class="row-title">{{ membership.user.get_full_name }}{% if membership.user == user %} <span class="muted">(you)</span>{% endif %}</span>
+      <span class="row-title">{{ membership.user.get_full_name }}{% if membership.user == user %} <span class="muted">(you)</span>{% endif %}{% if membership.user.is_service_account %} <span class="badge badge-muted">Service account</span>{% endif %}</span>
       <span class="row-meta">{{ membership.user.email }}{% if not membership.user.is_active %} · deactivated{% endif %}</span>
       {% else %}
       <span class="row-title">{{ membership.team.name }} <span class="badge badge-muted">Team</span></span>

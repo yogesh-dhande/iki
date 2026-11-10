@@ -71,6 +71,16 @@ def person_url(w: World) -> tuple[str, dict[str, str]]:
     return f"/people/{w.users['viewer'].pk}/", {}
 
 
+def service_account_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
+    def build(w: World) -> tuple[str, dict[str, str]]:
+        from iki_server.accounts import service_accounts
+
+        account = service_accounts.create("Robot", "", by=w.users["org_admin"])
+        return f"/service-accounts/{account.pk}/", data
+
+    return build
+
+
 CASES: list[Case] = [
     ("project_list", "GET", lambda w: ("/projects/", {}), row(OK)),
     ("project_new", "GET", lambda w: ("/projects/new/", {}), row(OK)),
@@ -209,6 +219,25 @@ CASES: list[Case] = [
         "person",
         "POST",
         lambda w: (f"/people/{w.users['viewer'].pk}/", {"roles": "auditor"}),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
+    (
+        "service_accounts",
+        "GET",
+        lambda w: ("/service-accounts/", {}),
+        row(FORBIDDEN, org_admin=OK),
+    ),
+    (
+        "service_accounts",
+        "POST",
+        lambda w: ("/service-accounts/", {"name": "LIMS sync"}),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
+    ("service_account", "GET", service_account_url(), row(FORBIDDEN, org_admin=OK)),
+    (
+        "service_account",
+        "POST",
+        service_account_url(action="deactivate"),
         row(FORBIDDEN, org_admin=DONE),
     ),
 ]

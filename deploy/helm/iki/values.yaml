@@ -56,6 +56,10 @@ sessions:
   # ...and this long after sign-in, however active.
   maxAgeHours: 24
 
+api:
+  # Requests one caller may make to /api/v1 per minute.
+  rateLimitPerMinute: 600
+
 database:
   # required: Secret holding a postgres:// URI for the app's role. That role
   # reads and writes rows but can't change the schema or the audit log. The
@@ -116,9 +120,10 @@ migrate:
     limits: { memory: 512Mi }
 
 maintenance:
-  # Daily housekeeping (deletes expired sessions), as a CronJob.
+  # Hourly housekeeping, as a CronJob: deletes expired sessions and prunes
+  # rate-limit counters older than an hour.
   enabled: true
-  schedule: "17 3 * * *"
+  schedule: "17 * * * *"
   resources:
     requests: { cpu: 50m, memory: 192Mi }
     limits: { memory: 384Mi }

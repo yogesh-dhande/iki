@@ -2,7 +2,7 @@
 {% block title %}People{% endblock %}
 {% block main_class %}page-wide{% endblock %}
 {% block content %}
-<div class="page-header"><h1>People</h1></div>
+<div class="page-header"><h1>People</h1><a class="button" href="{% url 'org:service_accounts' %}">Service accounts</a></div>
 <p class="muted">Everyone with an Iki account. People get one when your identity provider provisions them over SCIM or, with provisioning off, the first time they sign in.</p>
 <ul class="rows">
   {% for person in people %}

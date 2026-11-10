@@ -161,23 +161,6 @@ def client() -> "Client":
 
 
 @pytest.fixture(autouse=True)
-def _reset_rate_limits() -> None:
-    from iki_server.accounts.views import acs_limiter, sign_in_limiter
-    from iki_server.scim.views import unauthorized_limiter
-    from iki_server.setup.views import exchange_limiter
-    from iki_server.web.views import csp_report_limiter
-
-    for limiter in (
-        sign_in_limiter,
-        acs_limiter,
-        exchange_limiter,
-        csp_report_limiter,
-        unauthorized_limiter,
-    ):
-        limiter.reset()
-
-
-@pytest.fixture(autouse=True)
 def _close_worker_thread_connections() -> Iterator[None]:
     """Closes database connections that requests opened outside the main thread.
 

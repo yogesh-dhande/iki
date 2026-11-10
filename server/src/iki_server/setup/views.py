@@ -58,7 +58,7 @@ from iki_server.web.ratelimit import RateLimiter, client_key
 logger = structlog.get_logger("iki.setup")
 
 #: Setup codes one client address can try per minute (per web pod).
-exchange_limiter = RateLimiter(limit_per_minute=10)
+exchange_limiter = RateLimiter("setup_exchange", limit_per_minute=10)
 
 STEPS = ("Organization", "Identity provider", "Sign in", "Finish")
 _PENDING_PROVIDER_ID = "_iki_setup_provider_id"

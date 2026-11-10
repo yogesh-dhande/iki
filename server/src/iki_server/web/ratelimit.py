@@ -1,40 +1,88 @@
-"""A small in-process rate limiter for unauthenticated endpoints.
+"""Rate limits shared by every web pod, counted in Postgres.
 
-Each web process counts on its own (fixed one-minute windows), so the
-effective limit is per pod. It bounds what one client can make Iki do
-before signing in: start sign-ins, exchange setup links, or send CSP reports.
+Each limit counts requests per key (usually a client address or a
+principal) in fixed one-minute windows. One atomic UPSERT counts a request
+and returns the window's total, so concurrent pods never undercount.
+``iki-server maintain`` prunes old windows.
 """
 
-import threading
-import time
+import hashlib
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
+from django.db import connection
 from django.http import HttpRequest
+from django.utils import timezone
 
-_WINDOW_SECONDS = 60
-_MAX_KEYS = 10_000
+from iki_server.core.models import RateLimitCounter
+
+WINDOW = timedelta(minutes=1)
+#: Windows older than this are pruned.
+RETENTION = timedelta(hours=1)
+_MAX_KEY = 200
+
+
+@dataclass(frozen=True)
+class Decision:
+    allowed: bool
+    limit: int
+    remaining: int
+    reset_at: datetime
+
+    @property
+    def retry_after(self) -> int:
+        """Seconds until the window resets (at least 1)."""
+        return max(1, int((self.reset_at - timezone.now()).total_seconds()) + 1)
+
+
+def _window(now: datetime) -> datetime:
+    return now.replace(second=0, microsecond=0)
+
+
+def _key(scope: str, key: str) -> str:
+    full = f"{scope}:{key}"
+    if len(full) <= _MAX_KEY:
+        return full
+    return f"{scope}:sha256:{hashlib.sha256(key.encode()).hexdigest()}"
 
 
 class RateLimiter:
-    def __init__(self, limit_per_minute: int) -> None:
+    """A named limit, such as ``RateLimiter("sign_in", limit_per_minute=20)``."""
+
+    def __init__(self, scope: str, limit_per_minute: int) -> None:
+        self.scope = scope
         self.limit = limit_per_minute
-        self._lock = threading.Lock()
-        self._window = 0
-        self._counts: dict[str, int] = {}
+
+    def check(self, key: str) -> Decision:
+        """Counts one request for ``key`` and says whether it is within the limit."""
+        start = _window(timezone.now())
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO iki_rate_limit (key, window_start, count) VALUES (%s, %s, 1) "
+                "ON CONFLICT (key, window_start) "
+                "DO UPDATE SET count = iki_rate_limit.count + 1 RETURNING count",
+                [_key(self.scope, key), start],
+            )
+            count = int(cursor.fetchone()[0])
+        return Decision(
+            allowed=count <= self.limit,
+            limit=self.limit,
+            remaining=max(0, self.limit - count),
+            reset_at=start + WINDOW,
+        )
 
     def allow(self, key: str) -> bool:
-        window = int(time.monotonic() // _WINDOW_SECONDS)
-        with self._lock:
-            if window != self._window:
-                self._window, self._counts = window, {}
-            if key not in self._counts and len(self._counts) >= _MAX_KEYS:
-                return False  # under a flood from many addresses, refuse rather than grow
-            count = self._counts.get(key, 0) + 1
-            self._counts[key] = count
-            return count <= self.limit
+        return self.check(key).allowed
 
     def reset(self) -> None:
-        with self._lock:
-            self._counts = {}
+        RateLimitCounter.objects.filter(key__startswith=f"{self.scope}:").delete()
+
+
+def prune() -> int:
+    deleted, _ = RateLimitCounter.objects.filter(
+        window_start__lt=timezone.now() - RETENTION
+    ).delete()
+    return deleted
 
 
 def client_key(request: HttpRequest) -> str:

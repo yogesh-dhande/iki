@@ -67,7 +67,9 @@ class PersonField(forms.EmailField):
         kwargs.setdefault("label", "Email address")
         kwargs.setdefault("max_length", 254)
         kwargs.setdefault(
-            "help_text", "People can be added once they’ve signed in to Iki for the first time."
+            "help_text",
+            "People can be added once they’ve signed in to Iki for the first time. Add a "
+            "service account by its address.",
         )
         super().__init__(**kwargs)
         self.widget.attrs.update({"autocomplete": "off", "spellcheck": "false"})
@@ -127,4 +129,35 @@ class OrgRolesForm(forms.Form):
         required=False,
         choices=[(role.value, f"{role.label}: {ORG_ROLE_DESCRIPTIONS[role]}") for role in OrgRole],
         widget=forms.CheckboxSelectMultiple,
+    )
+
+
+class ServiceAccountForm(forms.Form):
+    name = forms.CharField(
+        label="Name",
+        max_length=100,
+        strip=True,
+        help_text="What acts as it, such as “LIMS sync” or “Plate reader 3”.",
+    )
+    description = forms.CharField(
+        label="Description",
+        max_length=1000,
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Who looks after it and what it’s for, for whoever reviews access next.",
+    )
+
+
+class ServiceAccountRolesForm(forms.Form):
+    roles = forms.TypedMultipleChoiceField(
+        label="Org roles",
+        coerce=OrgRole,
+        required=False,
+        choices=[
+            (role.value, f"{role.label}: {ORG_ROLE_DESCRIPTIONS[role]}")
+            for role in OrgRole
+            if role != OrgRole.ORG_ADMIN
+        ],
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Service accounts can’t be Org Admins.",
     )

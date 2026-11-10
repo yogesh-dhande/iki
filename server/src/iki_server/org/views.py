@@ -18,7 +18,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.defaultfilters import pluralize
 from django.views.decorators.http import require_http_methods, require_POST
 
-from iki_server.accounts.models import IdentityProvider, User
+from iki_server.accounts import service_accounts as service_account_services
+from iki_server.accounts.models import IdentityProvider, Kind, User
 from iki_server.org import permissions, services
 from iki_server.org.forms import (
     AddPersonForm,
@@ -28,6 +29,8 @@ from iki_server.org.forms import (
     OrgRolesForm,
     ProjectForm,
     ProjectSettingsForm,
+    ServiceAccountForm,
+    ServiceAccountRolesForm,
     TeamForm,
 )
 from iki_server.org.models import (
@@ -416,7 +419,8 @@ def team_settings(request: HttpRequest, slug: str) -> HttpResponse:
 def people(request: HttpRequest) -> HttpResponse:
     permissions.require(request.user, Action.ORG_MANAGE)
     users = (
-        User.objects.order_by("-is_active", "name", "email")
+        User.objects.filter(kind=Kind.PERSON)
+        .order_by("-is_active", "name", "email")
         .prefetch_related(
             Prefetch("org_roles", queryset=OrgRoleAssignment.objects.order_by("role"))
         )
@@ -431,6 +435,8 @@ def person(request: HttpRequest, user_id: str) -> HttpResponse:
     permissions.require(request.user, Action.ORG_MANAGE)
     me = _user(request)
     subject = get_object_or_404(User, pk=user_id)
+    if subject.is_service_account:
+        return redirect("org:service_account", user_id=subject.pk)
     current = set(OrgRoleAssignment.objects.filter(user=subject).values_list("role", flat=True))
     form = OrgRolesForm(request.POST or None, initial={"roles": sorted(current)})
     if request.method == "POST":
@@ -462,5 +468,96 @@ def person(request: HttpRequest, user_id: str) -> HttpResponse:
             "is_self": subject.pk == me.pk,
             "org_admin": OrgRole.ORG_ADMIN in current,
             "provider": IdentityProvider.objects.filter(is_enabled=True).first(),
+        },
+    )
+
+
+# --- Service accounts ----------------------------------------------------------
+
+
+@page("GET", "POST")
+@refusals
+def service_accounts(request: HttpRequest) -> HttpResponse:
+    permissions.require(request.user, Action.ORG_MANAGE)
+    me = _user(request)
+    form = ServiceAccountForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            account = service_account_services.create(
+                form.cleaned_data["name"], form.cleaned_data["description"], by=me
+            )
+        except services.Refused as refusal:
+            form.add_error("name", str(refusal))
+        else:
+            messages.success(request, f"Created {account.name}. Give it roles in its projects.")
+            return redirect("org:service_account", user_id=account.pk)
+    accounts = (
+        User.objects.filter(kind=Kind.SERVICE)
+        .select_related("service_account")
+        .prefetch_related(
+            Prefetch("org_roles", queryset=OrgRoleAssignment.objects.order_by("role"))
+        )
+        .annotate(project_count=Count("project_memberships", distinct=True))
+        .order_by("-is_active", "name")
+    )
+    return render(request, "org/service_accounts.html", {"accounts": accounts, "form": form})
+
+
+@page("GET", "POST")
+@refusals
+def service_account(request: HttpRequest, user_id: str) -> HttpResponse:
+    permissions.require(request.user, Action.ORG_MANAGE)
+    me = _user(request)
+    account = get_object_or_404(
+        User.objects.select_related("service_account__created_by"),
+        pk=user_id,
+        kind=Kind.SERVICE,
+    )
+    details = account.service_account
+    current = set(OrgRoleAssignment.objects.filter(user=account).values_list("role", flat=True))
+    action = request.POST.get("action") if request.method == "POST" else None
+    form = ServiceAccountForm(
+        request.POST if action == "save" else None,
+        initial={"name": account.name, "description": details.description},
+    )
+    roles_form = ServiceAccountRolesForm(
+        request.POST if action == "roles" else None, initial={"roles": sorted(current)}
+    )
+    if action in ("deactivate", "activate"):
+        services.set_active(account, action == "activate", by=me)
+        verb = "Reactivated" if action == "activate" else "Deactivated"
+        messages.success(request, f"{verb} {account.name}.")
+        return redirect(request.path)
+    if action == "save" and form.is_valid():
+        try:
+            service_account_services.update(
+                account,
+                name=form.cleaned_data["name"],
+                description=form.cleaned_data["description"],
+                by=me,
+            )
+        except services.Refused as refusal:
+            form.add_error("name", str(refusal))
+        else:
+            messages.success(request, "Saved.")
+            return redirect(request.path)
+    if action == "roles" and roles_form.is_valid():
+        services.set_org_roles(account, set(roles_form.cleaned_data["roles"]), by=me)
+        messages.success(request, f"Saved {account.name}’s org roles.")
+        return redirect(request.path)
+    grants = (
+        ProjectMembership.objects.filter(user=account)
+        .select_related("project__team")
+        .order_by("project__name")
+    )
+    return render(
+        request,
+        "org/service_account.html",
+        {
+            "account": account,
+            "details": details,
+            "form": form,
+            "roles_form": roles_form,
+            "grants": grants,
         },
     )

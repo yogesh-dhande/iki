@@ -24,6 +24,7 @@ dependencies = [
   "servestatic>=4.4.0",
   "cryptography>=50.0.2",
   "requests>=2.34.2",
+  "django-ninja>=1.8",
 ]
 
 [project.optional-dependencies]

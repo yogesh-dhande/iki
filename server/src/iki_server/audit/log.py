@@ -43,6 +43,8 @@ ACTIONS: dict[str, str] = {
     "user.deactivated": "Deactivated a person",
     "user.activated": "Reactivated a person",
     "user.sessions_revoked": "Ended someone's sessions",
+    "service_account.created": "Created a service account",
+    "service_account.updated": "Changed a service account",
     "org_role.granted": "Granted an org role",
     "org_role.revoked": "Revoked an org role",
     "team.created": "Created a team",
@@ -171,5 +173,6 @@ class AuditContextMiddleware:
             markcoroutinefunction(self)
 
     async def __call__(self, request: HttpRequest) -> HttpResponseBase:
-        with using(Context(via=Via.WEB, client_ip=request.META.get("REMOTE_ADDR") or None)):
+        via = Via.API if request.path.startswith("/api/") else Via.WEB
+        with using(Context(via=via, client_ip=request.META.get("REMOTE_ADDR") or None)):
             return await self.get_response(request)

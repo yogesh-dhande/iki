@@ -109,7 +109,9 @@ def provision(profile: Profile) -> User:
                 Q(email=email) | Q(scim_user_name=profile.user_name)
             )
         )
-        if len(matches) > 1 or any(user.is_provisioned for user in matches):
+        if len(matches) > 1 or any(
+            user.is_provisioned or user.is_service_account for user in matches
+        ):
             raise conflict(f"A person with userName or email {email} already exists.")
         adopted = bool(matches)
         user = matches[0] if adopted else User(email=email)

@@ -26,4 +26,6 @@ urlpatterns: list[URLPattern] = [
     path("teams/<slug:slug>/settings/", views.team_settings, name="team_settings"),
     path("people/", views.people, name="people"),
     path("people/<uuid:user_id>/", views.person, name="person"),
+    path("service-accounts/", views.service_accounts, name="service_accounts"),
+    path("service-accounts/<uuid:user_id>/", views.service_account, name="service_account"),
 ]

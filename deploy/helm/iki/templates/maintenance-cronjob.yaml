@@ -36,10 +36,10 @@ spec:
           securityContext:
             {{- include "iki.podSecurityContext" . | nindent 12 }}
           containers:
-            - name: clear-expired-sessions
+            - name: maintain
               image: {{ include "iki.image" . }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
-              args: ["clear_expired_sessions"]
+              args: ["maintain"]
               env:
                 {{- include "iki.env" . | nindent 16 }}
                 - name: IKI_DB_POOL

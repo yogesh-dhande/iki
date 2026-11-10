@@ -28,7 +28,7 @@ from iki_server.web.ratelimit import RateLimiter, client_key
 logger = structlog.get_logger("iki.scim")
 
 #: Requests with a missing or wrong token one client address can make per minute.
-unauthorized_limiter = RateLimiter(limit_per_minute=30)
+unauthorized_limiter = RateLimiter("scim_unauthorized", limit_per_minute=30)
 
 CONTENT_TYPE = "application/scim+json"
 USER_FILTERS = {"username", "externalid", "id", "emails.value"}

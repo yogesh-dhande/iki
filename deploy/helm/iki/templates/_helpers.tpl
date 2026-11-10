@@ -114,6 +114,8 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ .Values.sessions.idleTimeoutMinutes | quote }}
 - name: IKI_SESSION_MAX_AGE_HOURS
   value: {{ .Values.sessions.maxAgeHours | quote }}
+- name: IKI_API_RATE_LIMIT_PER_MINUTE
+  value: {{ .Values.api.rateLimitPerMinute | quote }}
 - name: IKI_DB_SSLMODE
   value: {{ .Values.database.sslmode | quote }}
 {{- if .Values.database.caSecret.name }}

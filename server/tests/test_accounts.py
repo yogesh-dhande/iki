@@ -130,3 +130,24 @@ def test_signed_out_page_redirects_signed_in_users_home(signed_in: tuple[Browser
     browser, _ = signed_in
     assert browser.get("/signed-out/")["Location"] == "/"
     assert browser.get("/login/?next=/setup/done/")["Location"] == "/setup/done/"
+
+
+def test_maintenance_clears_expired_sessions_and_old_rate_limit_windows(
+    signed_in: tuple[Browser, User],
+) -> None:
+    from iki_server.core.models import RateLimitCounter
+    from iki_server.web.ratelimit import RateLimiter
+
+    expired = UserSession.objects.update(expire_date=timezone.now() - timedelta(seconds=1))
+    assert expired
+    limiter = RateLimiter("test", limit_per_minute=5)
+    limiter.check("1.2.3.4")
+    RateLimitCounter.objects.create(
+        key="test:old", window_start=timezone.now() - timedelta(hours=2), count=3
+    )
+    out = StringIO()
+    call_command("maintain", stdout=out)
+    assert f"Deleted {expired} expired session(s) and 1 old rate-limit window(s)." in out.getvalue()
+    assert not UserSession.objects.exists()
+    keys = set(RateLimitCounter.objects.values_list("key", flat=True))
+    assert "test:1.2.3.4" in keys and "test:old" not in keys

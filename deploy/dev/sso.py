@@ -343,6 +343,81 @@ def provisioning(admin: requests.Session) -> None:
     ok("reactivated over SCIM, alice signs in again")
 
 
+def api_call(
+    session: requests.Session,
+    method: str,
+    path: str,
+    body: Any = None,  # noqa: ANN401
+) -> requests.Response:
+    """Calls /api/v1 like Iki's pages do: the session, plus the page's CSRF token."""
+    headers = {"Origin": IKI}
+    if method != "GET":
+        page = session.get(f"{IKI}/projects/")
+        token = re.search(r'<meta name="csrf-token" content="([^"]+)"', page.text)
+        if not token:
+            fail("pages don't carry the CSRF token for API calls")
+        headers["X-CSRFToken"] = token.group(1)
+    return session.request(method, f"{IKI}/api/v1{path}", json=body, headers=headers)
+
+
+def rest_api(admin: requests.Session) -> None:
+    """The REST API: problems, CSRF, rate-limit headers, service accounts and project access."""
+    anonymous = browser().get(f"{IKI}/api/v1/me")
+    if anonymous.status_code != 401 or anonymous.headers.get("Content-Type") != (
+        "application/problem+json"
+    ):
+        fail(f"an anonymous API call got HTTP {anonymous.status_code}, not a 401 problem")
+    me = admin.get(f"{IKI}/api/v1/me")
+    if me.status_code != 200 or "org_admin" not in me.json()["org_roles"]:
+        fail(f"/api/v1/me answered HTTP {me.status_code}: {me.text[:200]}")
+    if not me.headers.get("RateLimit", "").startswith('"api";r='):
+        fail(f"API responses lack RateLimit headers: {dict(me.headers)}")
+    ok("the API answers problems to strangers and reports rate limits to callers")
+
+    refused = admin.post(
+        f"{IKI}/api/v1/service-accounts", json={"name": "x"}, headers={"Origin": IKI}
+    )
+    if refused.status_code != 403 or refused.json().get("code") != "csrf_failed":
+        fail(f"an API change without the CSRF token got HTTP {refused.status_code}")
+    name = f"E2E pipeline {int(time.time())}"
+    created = api_call(admin, "POST", "/service-accounts", {"name": name, "description": "e2e"})
+    if created.status_code != 201 or not created.json()["email"].endswith(
+        "@service-accounts.iki.invalid"
+    ):
+        fail(f"creating a service account answered HTTP {created.status_code}: {created.text}")
+    account = created.json()
+    ok("an Org Admin created a service account over the API, with the CSRF token")
+
+    alice = sign_in_as("alice")
+    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
+    atlas = [p for p in mine if p["name"] == "Atlas" and p["my_role"] == "admin"]
+    if not atlas:
+        fail("alice's Atlas project isn't listed as hers")
+    project_id = atlas[-1]["id"]
+    granted = api_call(
+        alice,
+        "PUT",
+        f"/projects/{project_id}/members/users/{account['id']}",
+        {"role": "runner"},
+    )
+    if granted.status_code != 200 or granted.json()["role"] != "runner":
+        fail(f"granting the service account a role answered HTTP {granted.status_code}")
+    ok("alice, a project Admin, gave the service account a role in her project")
+
+    org_admin = api_call(
+        admin, "PUT", f"/users/{account['id']}/org-roles", {"roles": ["org_admin"]}
+    )
+    if org_admin.status_code != 409:
+        fail(f"a service account was made an Org Admin (HTTP {org_admin.status_code})")
+    stopped = api_call(admin, "PATCH", f"/service-accounts/{account['id']}", {"active": False})
+    if stopped.status_code != 200 or stopped.json()["active"] is not False:
+        fail(f"deactivating the service account answered HTTP {stopped.status_code}")
+    log = admin.get(f"{IKI}/audit/")
+    if "Created a service account" not in log.text:
+        fail("the audit log lacks the service account")
+    ok("service accounts can't be Org Admins; deactivating one is immediate and audited")
+
+
 def saml() -> None:
     """Switches sign-in to Keycloak over SAML through recovery, signs in, and switches back."""
     set_up("bob", protocol="saml")
@@ -425,6 +500,7 @@ def main() -> None:
     if args.check:
         check("alice", admin)
         provisioning(admin)
+        rest_api(admin)
         saml()
 
 

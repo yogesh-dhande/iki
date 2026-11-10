@@ -255,12 +255,19 @@ def test_database_ca_is_mounted_when_configured() -> None:
         assert "/etc/iki/db-ca" in mounts, name
 
 
-def test_maintenance_cronjob_clears_expired_sessions_daily() -> None:
+def test_maintenance_cronjob_runs_hourly() -> None:
     (cron,) = by_kind(manifests(), "CronJob")
+    assert cron["spec"]["schedule"] == "17 * * * *"
     assert cron["spec"]["concurrencyPolicy"] == "Forbid"
     (container,) = cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
-    assert container["args"] == ["clear_expired_sessions"]
+    assert container["args"] == ["maintain"]
     assert not by_kind(manifests({"maintenance": {"enabled": False}}), "CronJob")
+
+
+def test_api_rate_limit_is_configurable() -> None:
+    for name, spec in pod_specs(manifests({"api": {"rateLimitPerMinute": 1200}})):
+        env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert env["IKI_API_RATE_LIMIT_PER_MINUTE"] == "1200", name
 
 
 def test_encryption_keys_and_public_url_reach_every_container() -> None:

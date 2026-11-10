@@ -12,6 +12,7 @@ from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.sessions.base_session import AbstractBaseSession
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
 from django.urls import reverse
 from django.utils import timezone
 
@@ -42,15 +43,34 @@ class UserManager(BaseUserManager["User"]):
         )
 
 
+#: Service accounts get an address under this reserved domain (RFC 2606), so
+#: it can never belong to a real mailbox or to anyone the identity provider
+#: vouches for.
+SERVICE_ACCOUNT_DOMAIN = "service-accounts.iki.invalid"
+
+
+class Kind(models.TextChoices):
+    PERSON = "person", "Person"
+    SERVICE = "service", "Service account"
+
+
 class User(AbstractBaseUser):
-    """Someone who signs in through the identity provider.
+    """Someone who signs in through the identity provider, or a service account.
 
     What they may do comes only from org roles and project memberships,
     decided by :mod:`iki_server.org.permissions`. Django's own permission
     and group tables are not used.
+
+    Service accounts are non-person users that scripts, pipelines and
+    instruments act as (ADR 0027). They never sign in through the identity
+    provider, aren't provisioned over SCIM and don't join teams; Org Admins
+    create them and project Admins grant them project roles.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    kind = models.CharField(
+        max_length=16, choices=Kind.choices, default=Kind.PERSON, editable=False
+    )
     email = models.EmailField(max_length=254, unique=True, db_collation=CASE_INSENSITIVE)
     #: Full name as the identity provider reports it.
     name = models.CharField(max_length=200, blank=True)
@@ -82,7 +102,21 @@ class User(AbstractBaseUser):
                 fields=["scim_user_name"],
                 condition=~Q(scim_user_name=""),
                 name="iki_user_scim_user_name_unique",
-            )
+            ),
+            models.UniqueConstraint(
+                Lower("name"),
+                condition=Q(kind=Kind.SERVICE),
+                name="iki_service_account_name_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind=Kind.PERSON)
+                | Q(
+                    provisioned_at__isnull=True,
+                    scim_user_name="",
+                    email__endswith="@" + SERVICE_ACCOUNT_DOMAIN,
+                ),
+                name="iki_service_account_shape",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -97,6 +131,27 @@ class User(AbstractBaseUser):
     @property
     def is_provisioned(self) -> bool:
         return self.provisioned_at is not None
+
+    @property
+    def is_service_account(self) -> bool:
+        return self.kind == Kind.SERVICE
+
+
+class ServiceAccount(models.Model):
+    """What Iki keeps about a service account besides its user record."""
+
+    user = models.OneToOneField(
+        User, primary_key=True, on_delete=models.CASCADE, related_name="service_account"
+    )
+    description = models.TextField(max_length=1000, blank=True)
+    created_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "iki_service_account"
+
+    def __str__(self) -> str:
+        return str(self.user)
 
 
 class UserSession(AbstractBaseSession):

@@ -61,6 +61,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "iki_server.web.middleware.SecurityHeadersMiddleware",
     "iki_server.web.csp.ContentSecurityPolicyMiddleware",
+    "iki_server.api.middleware.ApiResponseMiddleware",
     "servestatic.middleware.ServeStaticMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -200,6 +201,9 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "signed_out"
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.ScryptPasswordHasher"]
+
+#: API requests one caller may make per minute (ADR 0027).
+IKI_API_RATE_LIMIT_PER_MINUTE: int = env.int("IKI_API_RATE_LIMIT_PER_MINUTE", default=600)
 
 SESSION_ENGINE = "iki_server.accounts.sessions"
 #: Idle timeout. The absolute limit is IKI_SESSION_MAX_AGE_SECONDS.

@@ -17,7 +17,7 @@ iki-server check --deploy # Django's production readiness checks
 iki-server setup_link     # print a one-time link to the first-run wizard
 iki-server setup_link --recover  # reconfigure sign-in on a set-up installation
 iki-server rotate_encryption     # re-encrypt stored secrets with the first key
-iki-server clear_expired_sessions  # delete expired sessions (the chart runs it daily)
+iki-server maintain       # delete expired sessions and old rate-limit counters (the chart runs it hourly)
 ```
 
 ### First run
@@ -52,6 +52,16 @@ to enter in Microsoft Entra ID, Okta or another SCIM client.
   and only provisioned people can get new accounts.
 - **Groups:** they appear on the same page. Linking one to a team makes the
   group decide who is on that team.
+
+### Service accounts
+
+Org Admins create service accounts under **People → Service accounts**, for
+scripts, pipelines and instruments whose work shouldn't be done in a
+person's name. Each gets an address under `service-accounts.iki.invalid`;
+project Admins add it to projects with that address, like a person. Service
+accounts can be Auditors or Compute Admins but not Org Admins, and don't
+join teams. They get credentials (OAuth client credentials) with the OAuth
+server (ADR 0027).
 
 ### Database roles
 
@@ -94,6 +104,7 @@ and the server refuses to start without them.
 | `IKI_CSRF_TRUSTED_ORIGINS`           | unset         | Extra origins allowed to submit forms (comma-separated)                |
 | `IKI_SESSION_IDLE_TIMEOUT_MINUTES`   | `480`         | Sign out after this long without activity                              |
 | `IKI_SESSION_MAX_AGE_HOURS`          | `24`          | Sign out this long after signing in, active or not                     |
+| `IKI_API_RATE_LIMIT_PER_MINUTE`      | `600`         | `/api/v1` requests one caller may make per minute                      |
 | `IKI_STATIC_ROOT`                    | `.static`     | Collected static files (`/opt/iki/static` in the image)                |
 | `IKI_DEBUG`                          | `false`       | Django debug mode. Never in production                                 |
 | `IKI_LOG_LEVEL`                      | `INFO`        | Root log level                                                         |
@@ -109,6 +120,24 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 To rotate, put the new key first, keep the old one after it, run
 `iki-server rotate_encryption`, then remove the old key.
+
+## REST API
+
+The API lives at `/api/v1` (ADR 0027), described by the OpenAPI document at
+`/api/v1/openapi.json`. Today it covers you (`/me`), people and their org
+roles, service accounts, teams, projects and project access.
+
+- **Authentication:** the browser session, with the CSRF token (from the
+  page's `csrf-token` meta tag) in `X-CSRFToken` for unsafe methods. OAuth
+  access tokens come with the OAuth server.
+- **Errors:** RFC 9457 problem details (`application/problem+json`) with a
+  stable `code`, and the invalid fields in `errors`.
+- **Lists:** `?limit=` (1–100, default 50) and `?cursor=` from the previous
+  page's `next_cursor`.
+- **Rate limits:** per caller, reported in the `RateLimit` and
+  `RateLimit-Policy` headers; over the limit answers 429 with `Retry-After`.
+- **Authorization:** the same rules as the web pages. Changes are audited
+  with `via=api`.
 
 ## Health checks
 

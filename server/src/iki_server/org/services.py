@@ -9,6 +9,7 @@ functions keep the invariants that hold no matter who asks:
 - A project keeps at least one Admin, so its members can manage it. (Org
   Admins can still recover a project whose Admins have all left.)
 - Inactive people can't be given new roles or memberships.
+- Service accounts can't be Org Admins or team members (ADR 0027).
 
 Every change is recorded in the audit log, in the same transaction.
 """
@@ -39,6 +40,11 @@ class Refused(Exception):  # noqa: N818 - reads as "the change was refused"
 def _require_active(user: User) -> None:
     if not user.is_active:
         raise Refused(f"{user.email} is deactivated.")
+
+
+def _require_assignable(user: User, roles: set[OrgRole]) -> None:
+    if user.is_service_account and OrgRole.ORG_ADMIN in roles:
+        raise Refused("Service accounts can’t be Org Admins.")
 
 
 # --- Org roles and people ------------------------------------------------------
@@ -72,6 +78,7 @@ def set_org_roles(user: User, roles: set[OrgRole], *, by: User | None) -> None:
         added, removed = roles - current, current - roles
         if added:
             _require_active(user)
+            _require_assignable(user, added)
         if OrgRole.ORG_ADMIN in removed and not _other_active_org_admins(user):
             raise Refused("Iki needs at least one Org Admin. Make someone else an Org Admin first.")
         OrgRoleAssignment.objects.filter(user=user, role__in=removed).delete()
@@ -86,6 +93,7 @@ def set_org_roles(user: User, roles: set[OrgRole], *, by: User | None) -> None:
 
 def grant_org_role(user: User, role: OrgRole, *, by: User | None) -> None:
     _require_active(user)
+    _require_assignable(user, {role})
     with transaction.atomic():
         _, created = OrgRoleAssignment.objects.get_or_create(
             user=user, role=role, defaults={"granted_by": by}
@@ -190,6 +198,10 @@ def set_team_archived(team: Team, archived: bool, *, by: User) -> None:
 
 def add_team_member(team: Team, user: User, *, by: User) -> None:
     _require_active(user)
+    if user.is_service_account:
+        raise Refused(
+            "Service accounts don’t join teams. Give them a role in each project they need."
+        )
     _require_hand_managed(team)
     with transaction.atomic():
         _, created = TeamMembership.objects.get_or_create(

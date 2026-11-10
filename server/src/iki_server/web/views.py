@@ -17,7 +17,7 @@ from iki_server.web.ratelimit import RateLimiter, client_key
 logger = structlog.get_logger("iki.csp")
 
 MAX_REPORT_BYTES = 16 * 1024
-csp_report_limiter = RateLimiter(limit_per_minute=30)
+csp_report_limiter = RateLimiter("csp_report", limit_per_minute=30)
 
 
 @require_GET
