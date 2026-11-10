@@ -1,0 +1,591 @@
+"""Entities of every type, through one typed API (ADR 0035).
+
+- ``/entity-types`` lists the installed types, each with a JSON Schema of
+  its values.
+- ``/entities`` lists, creates, reads and changes entities. An entity is
+  addressed by its ID or its HRID (``DNA-000042``).
+- Every read carries an ``ETag``, the entity's revision. A change must send
+  it back as ``If-Match``. If someone else changed the entity since, the
+  change is refused (412) rather than overwriting theirs. A change without
+  ``If-Match`` is refused too (428).
+- Entities you can't read answer 404, as if they didn't exist.
+"""
+
+from datetime import datetime
+from typing import Any, Literal
+from uuid import UUID
+
+from django.db import transaction
+from django.http import HttpRequest, HttpResponse
+from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
+
+from iki_server.accounts.models import User
+from iki_server.api.common import caller, project, require
+from iki_server.api.pagination import PageParams, page
+from iki_server.api.problems import Problem
+from iki_server.api.schemas import Page, UserOut
+from iki_server.entities import access, registry, schema, services
+from iki_server.entities.models import Entity, ProjectLink, Revision
+from iki_server.entities.values import Invalid, shape, subtypes, to_json
+from iki_server.org import permissions
+from iki_server.org.models import Project
+from iki_server.org.permissions import Action
+from iki_spec.model import EntityType
+
+router = Router(tags=["entities"])
+
+DuplicatePolicy = Literal["reuse", "warn", "allow"]
+
+
+# --- Schemas -------------------------------------------------------------------------------------
+
+
+class FieldOut(Schema):
+    name: str
+    label: str
+    description: str | None
+    type: str
+    plugin: str = Field(description="The plugin that defines the field.")
+    required: bool
+    immutable: bool = Field(description="Can be set once, and can't change after.")
+    computed: bool = Field(description="Set only by actions.")
+    unit: str | None = Field(description="Quantities: the UCUM unit values are in.")
+    display_unit: str | None
+    to: str | None = Field(description="References: the type they refer to.")
+    values: list[str] = Field(description="Enums: the allowed values.")
+    items: str | None = Field(description="Lists: the type of each item.")
+
+
+class EntityTypeOut(Schema):
+    name: str = Field(description="Qualified: plugin.Type.")
+    plugin: str
+    label: str
+    label_plural: str
+    description: str | None
+    extends: str | None
+    abstract: bool = Field(description="Abstract types have no entities of their own.")
+    subtypes: list[str] = Field(description="The types that extend it, at any depth.")
+    hrid_prefix: str | None
+    identity: list[str] = Field(description="The fields that tell two entities apart.")
+    on_duplicate: DuplicatePolicy | None = Field(
+        description="What creating an entity with the same identity as another does."
+    )
+    fields: list[FieldOut]
+    values_schema: dict[str, Any] = Field(
+        description="A JSON Schema (2020-12) of the entity's values."
+    )
+
+
+class ProjectRef(Schema):
+    id: UUID
+    name: str
+    slug: str
+
+
+class EntityCan(Schema):
+    edit: bool = Field(description="Change it, archive or restore it.")
+
+
+class EntityOut(Schema):
+    id: UUID
+    hrid: str
+    type: str
+    revision: int = Field(description="Its latest revision. Send it back as If-Match to change it.")
+    owner_project: ProjectRef | None = Field(
+        description="The project that owns it, and decides its changes. Null if you can't see it."
+    )
+    created_by: UserOut | None
+    created_at: datetime
+    updated_at: datetime
+    archived: bool
+    archived_at: datetime | None
+    values: dict[str, Any] = Field(description="Its fields' values, as its type's schema says.")
+    can: EntityCan
+
+
+class CreatedOut(EntityOut):
+    reused: bool = Field(
+        description="An entity with the same identity existed, and is returned instead."
+    )
+    linked: bool = Field(description="The existing entity was added to the project.")
+
+
+class EntityIn(Schema):
+    type: str = Field(description="Qualified, such as dna.DNASequence.")
+    project: UUID = Field(description="The project it belongs to. It needs you as an Editor.")
+    values: dict[str, Any] = Field(default_factory=dict)
+    reason: str = Field("", max_length=2000, description="Why, for the record.")
+    allow_duplicate: bool = Field(
+        False, description="Create it even if its type warns about a duplicate."
+    )
+
+
+class EntityPatch(Schema):
+    values: dict[str, Any] | None = Field(None, description="Only the fields to change.")
+    archived: bool | None = Field(
+        None, description="Archived entities can't change: restore one to change it."
+    )
+    reason: str = Field("", max_length=2000, description="Why, for the record.")
+
+
+class RevisionOut(Schema):
+    number: int
+    kind: Literal["created", "edited", "archived", "restored"]
+    changed_fields: list[str]
+    user: UserOut | None
+    via: str = Field(description="How: web, api, mcp, run, …")
+    reason: str
+    created_at: datetime
+
+
+class ChangeOut(Schema):
+    before: Any = None
+    after: Any = None
+
+
+class RevisionDetailOut(RevisionOut):
+    values: dict[str, Any] = Field(description="Every field's value as it was at this revision.")
+    changes: dict[str, ChangeOut] = Field(description="What this revision changed.")
+
+
+class EntityProjectOut(Schema):
+    project: ProjectRef
+    owner: bool
+    linked_by: UserOut | None
+    linked_at: datetime
+
+
+class EntityFilters(PageParams):
+    type: str | None = Field(None, description="This type and its subtypes.")
+    exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
+    project: UUID | None = Field(None, description="Entities that belong to this project.")
+    archived: bool | None = None
+
+
+# --- Entity types --------------------------------------------------------------------------------
+
+
+def _types() -> dict[str, EntityType]:
+    return {n: t for n, t in registry.types().items() if n != "core.Entity"}
+
+
+def _type_out(entity_type: EntityType) -> dict[str, Any]:
+    form = shape(entity_type.qualified_name)
+    owner = registry.identity_owner(entity_type)
+    fields = []
+    for part in form.parts:
+        for name, f in part.fields.items():
+            if f.removed:
+                continue
+            fields.append(
+                {
+                    "name": name,
+                    "label": f.label,
+                    "description": f.description,
+                    "type": f.type,
+                    "plugin": part.plugin,
+                    "required": f.required,
+                    "immutable": f.immutable,
+                    "computed": f.computed,
+                    "unit": f.unit,
+                    "display_unit": f.display_unit,
+                    "to": f.to,
+                    "values": list(f.values),
+                    "items": f.items.type if f.items is not None else None,
+                }
+            )
+    name = entity_type.qualified_name
+    return {
+        "name": name,
+        "plugin": entity_type.plugin,
+        "label": entity_type.label or entity_type.name,
+        "label_plural": entity_type.label_plural or f"{entity_type.label or entity_type.name}s",
+        "description": entity_type.description,
+        "extends": entity_type.extends if entity_type.extends != "core.Entity" else None,
+        "abstract": entity_type.abstract,
+        "subtypes": sorted(subtypes(name) - {name}),
+        "hrid_prefix": entity_type.hrid_prefix,
+        "identity": list(owner.identity) if owner is not None else [],
+        "on_duplicate": registry.duplicate_policy(entity_type),
+        "fields": fields,
+        "values_schema": schema.for_type(name),
+    }
+
+
+@router.get("/entity-types", response=list[EntityTypeOut], summary="The installed entity types")
+def list_types(request: HttpRequest) -> list[dict[str, Any]]:
+    """Every type the deployment's plugins define, abstract ones included, by name."""
+    caller(request)
+    return [_type_out(t) for _, t in sorted(_types().items())]
+
+
+@router.get("/entity-types/{name}", response=EntityTypeOut, summary="An entity type")
+def get_type(request: HttpRequest, name: str) -> dict[str, Any]:
+    caller(request)
+    found = _types().get(name)
+    if found is None:
+        raise Problem(404, f"There’s no entity type {name}.")
+    return _type_out(found)
+
+
+# --- Reading -------------------------------------------------------------------------------------
+
+
+def _find(user: User, ref: str) -> Entity:
+    """The entity, by ID or HRID, if the user can read it. Otherwise 404."""
+    readable = access.visible(user).select_related("created_by")
+    try:
+        found = readable.filter(pk=UUID(ref)).first()
+    except ValueError:
+        found = readable.filter(hrid=ref.upper()).first()
+    if found is None:
+        raise Problem(404, "No such entity, or you can’t read it.")
+    return found
+
+
+def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
+    values = services.current_values_of(entities)
+    projects = {
+        p.pk: p
+        for p in permissions.visible_projects(user).filter(
+            pk__in={e.owner_project_id for e in entities}
+        )
+    }
+    editable = {p.pk for p in projects.values() if permissions.can(user, Action.PROJECT_EDIT, p)}
+    out = []
+    for entity in entities:
+        fields = shape(entity.type).fields()
+        out.append(
+            {
+                "id": entity.pk,
+                "hrid": entity.hrid,
+                "type": entity.type,
+                "revision": entity.revision,
+                "owner_project": projects.get(entity.owner_project_id),
+                "created_by": entity.created_by,
+                "created_at": entity.created_at,
+                "updated_at": entity.updated_at,
+                "archived": entity.archived_at is not None,
+                "archived_at": entity.archived_at,
+                "values": {
+                    name: to_json(fields[name], value) for name, value in values[entity.pk].items()
+                },
+                "can": {"edit": entity.owner_project_id in editable},
+            }
+        )
+    return out
+
+
+def _etag(entity: Entity) -> str:
+    return f'"{entity.revision}"'
+
+
+def _one(user: User, entity: Entity, response: HttpResponse) -> dict[str, Any]:
+    response["ETag"] = _etag(entity)
+    return _out(user, [entity])[0]
+
+
+@router.get("/entities", response=Page[EntityOut], summary="Entities you can read")
+def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[str, Any]:
+    """Oldest first. Filter by type to get one type and its subtypes."""
+    me = caller(request)
+    entities = access.visible(me).select_related("created_by")
+    if filters.type:
+        if filters.type not in registry.types():
+            raise Problem(
+                422,
+                "Some fields are invalid.",
+                errors=[{"parameter": "type", "detail": f"There’s no entity type {filters.type}."}],
+            )
+        names = {filters.type} if filters.exact_type else subtypes(filters.type)
+        entities = entities.filter(type__in=names)
+    if filters.project:
+        entities = entities.filter(links__project_id=project(me, filters.project).pk)
+    if filters.archived is not None:
+        entities = entities.filter(archived_at__isnull=not filters.archived)
+    result = page(entities, filters)
+    result["items"] = _out(me, result["items"])
+    return result
+
+
+@router.get(
+    "/entities/{ref}",
+    response={200: EntityOut, 304: None},
+    summary="An entity, by ID or HRID",
+)
+def get_entity(
+    request: HttpRequest,
+    ref: str,
+    response: HttpResponse,
+    if_none_match: HeaderEx[str | None, P(alias="If-None-Match")] = None,
+) -> Any:  # noqa: ANN401 - the entity, or 304
+    """Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed."""
+    me = caller(request)
+    entity = _find(me, ref)
+    if if_none_match is not None and _etag(entity) in _etags(if_none_match):
+        unchanged = HttpResponse(status=304)  # no body, as RFC 9110 says
+        unchanged["ETag"] = _etag(entity)
+        return unchanged
+    return _one(me, entity, response)
+
+
+def _etags(header: str) -> set[str]:
+    return {tag.strip().removeprefix("W/") for tag in header.split(",")}
+
+
+# --- Changing ------------------------------------------------------------------------------------
+
+
+def _invalid(error: Invalid) -> Problem:
+    return Problem(
+        422,
+        "Some values are invalid.",
+        errors=[
+            {"pointer": f"#/values/{name}", "detail": " ".join(messages)}
+            if name != "type"
+            else {"pointer": "#/type", "detail": " ".join(messages)}
+            for name, messages in error.errors.items()
+        ],
+    )
+
+
+@router.post(
+    "/entities",
+    response={201: CreatedOut, 200: CreatedOut},
+    summary="Create an entity",
+)
+def create_entity(request: HttpRequest, payload: EntityIn, response: HttpResponse) -> Any:  # noqa: ANN401
+    """If its type reuses duplicates and you can read one with the same identity, that one
+    is returned (200, ``reused``) and added to the project, instead of a copy. If its type
+    warns about duplicates, the request is refused (409, ``duplicate``) unless
+    ``allow_duplicate`` is set."""
+    me = caller(request)
+    target = project(me, payload.project, Action.PROJECT_EDIT)
+    try:
+        saved = services.create(
+            me,
+            payload.type,
+            target,
+            payload.values,
+            reason=payload.reason,
+            allow_duplicate=payload.allow_duplicate,
+        )
+    except Invalid as error:
+        raise _invalid(error) from None
+    except services.Duplicate as error:
+        raise Problem(
+            409,
+            str(error),
+            code="duplicate",
+            errors=[
+                {"pointer": "#/values", "detail": f"The same as {e.hrid}.", "entity": str(e.pk)}
+                for e in error.existing
+            ],
+        ) from None
+    entity = Entity.objects.select_related("created_by").get(pk=saved.entity.pk)
+    out = {**_one(me, entity, response), "reused": saved.reused, "linked": saved.linked}
+    response["Location"] = f"/api/v1/entities/{entity.pk}"
+    return Status(200 if saved.reused else 201, out)
+
+
+def _expected(if_match: str | None) -> int:
+    if if_match is None:
+        raise Problem(
+            428,
+            "Send If-Match with the ETag you read, so you can’t overwrite someone else’s change.",
+            code="precondition_required",
+        )
+    tags = _etags(if_match)
+    numbers = [int(t.strip('"')) for t in tags if t.strip('"').isdigit() and t.startswith('"')]
+    if len(numbers) != 1 or len(tags) != 1:
+        raise Problem(
+            412,
+            'If-Match must be the one ETag you read, such as "3".',
+            code="precondition_failed",
+        )
+    return numbers[0]
+
+
+@router.patch("/entities/{ref}", response=EntityOut, summary="Change, archive or restore")
+def patch_entity(
+    request: HttpRequest,
+    ref: str,
+    payload: EntityPatch,
+    response: HttpResponse,
+    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+) -> dict[str, Any]:
+    """Send only the values to change. Each change is a revision, with your reason.
+    To restore an archived entity and change it, send both: it's restored first."""
+    me = caller(request)
+    entity = _find(me, ref)
+    owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
+    require(me, Action.PROJECT_EDIT, owner)
+    expected = _expected(if_match)
+    try:
+        with transaction.atomic():
+            # Locked for the whole request, so its steps can't interleave with another's.
+            locked = Entity.objects.select_for_update().get(pk=entity.pk)
+            if locked.revision != expected:
+                raise services.Stale(locked.revision)
+            if payload.archived is False:
+                services.set_archived(me, locked, False, reason=payload.reason)
+            if payload.values:
+                services.update(
+                    me,
+                    locked,
+                    payload.values,
+                    expected_revision=_current(locked),
+                    reason=payload.reason,
+                )
+            if payload.archived is True:
+                services.set_archived(me, locked, True, reason=payload.reason)
+    except services.Stale as stale:
+        raise Problem(
+            412,
+            f"Someone changed it since you read it: it’s at revision {stale.current} now. "
+            "Read it again, then make your change.",
+            code="stale",
+            headers={"ETag": f'"{stale.current}"'},
+        ) from None
+    except Invalid as error:
+        raise _invalid(error) from None
+    return _one(me, _find(me, str(entity.pk)), response)
+
+
+def _current(entity: Entity) -> int:
+    return Entity.objects.values_list("revision", flat=True).get(pk=entity.pk)
+
+
+# --- History -------------------------------------------------------------------------------------
+
+
+@router.get(
+    "/entities/{ref}/revisions", response=Page[RevisionOut], summary="An entity's revisions"
+)
+def list_revisions(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
+    """Newest first: who changed what, how, when and why."""
+    entity = _find(caller(request), ref)
+    revisions = Revision.objects.filter(entity=entity).select_related("user")
+    return page(revisions, params, key="number", newest_first=True)
+
+
+@router.get(
+    "/entities/{ref}/revisions/{number}",
+    response=RevisionDetailOut,
+    summary="An entity as it was at a revision",
+)
+def get_revision(request: HttpRequest, ref: str, number: int) -> dict[str, Any]:
+    entity = _find(caller(request), ref)
+    revision = Revision.objects.filter(entity=entity, number=number).select_related("user").first()
+    if revision is None:
+        raise Problem(404, f"{entity.hrid} has no revision {number}.")
+    fields = shape(entity.type).fields()
+    values = services.values_at(entity, number)
+    return {
+        **_revision(revision),
+        "values": {n: to_json(fields[n], v) for n, v in values.items() if n in fields},
+        "changes": {
+            name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
+            for name, (before, after) in services.changes(entity, revision).items()
+            if name in fields
+        },
+    }
+
+
+def _revision(revision: Revision) -> dict[str, Any]:
+    return {
+        "number": revision.number,
+        "kind": revision.kind,
+        "changed_fields": revision.changed_fields,
+        "user": revision.user,
+        "via": revision.via,
+        "reason": revision.reason,
+        "created_at": revision.created_at,
+    }
+
+
+@router.get(
+    "/entities/{ref}/provenance",
+    response=dict[str, RevisionOut],
+    summary="Where each value came from",
+)
+def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
+    """For each field, the revision that set its current value: who or what, how and when."""
+    entity = _find(caller(request), ref)
+    fields = shape(entity.type).fields()
+    return {
+        name: _revision(revision)
+        for name, revision in services.provenance(entity).items()
+        if name in fields
+    }
+
+
+# --- Projects ------------------------------------------------------------------------------------
+
+
+def _link_out(link: ProjectLink, entity: Entity) -> dict[str, Any]:
+    return {
+        "project": link.project,
+        "owner": link.project_id == entity.owner_project_id,
+        "linked_by": link.linked_by,
+        "linked_at": link.linked_at,
+    }
+
+
+@router.get(
+    "/entities/{ref}/projects",
+    response=list[EntityProjectOut],
+    summary="The projects an entity belongs to",
+)
+def list_entity_projects(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+    """Only the projects you can see."""
+    me = caller(request)
+    entity = _find(me, ref)
+    links = (
+        ProjectLink.objects.filter(
+            entity=entity, project__in=permissions.visible_projects(me).values("pk")
+        )
+        .select_related("project", "linked_by")
+        .order_by("linked_at", "pk")
+    )
+    return [_link_out(link, entity) for link in links]
+
+
+@router.put(
+    "/entities/{ref}/projects/{project_id}",
+    response={200: EntityProjectOut, 201: EntityProjectOut},
+    summary="Add an entity to a project",
+)
+def link_entity(request: HttpRequest, ref: str, project_id: UUID) -> Any:  # noqa: ANN401
+    """Its members can then read it. Only its owner project's Editors can change it.
+    You need to be able to read the entity, and to be an Editor in the project."""
+    me = caller(request)
+    entity = _find(me, ref)
+    target = project(me, project_id, Action.PROJECT_EDIT)
+    created = services.link(me, entity, target)
+    link = ProjectLink.objects.select_related("project", "linked_by").get(
+        entity=entity, project=target
+    )
+    return Status(201 if created else 200, _link_out(link, entity))
+
+
+@router.delete(
+    "/entities/{ref}/projects/{project_id}",
+    response={204: None},
+    summary="Take an entity out of a project",
+)
+def unlink_entity(request: HttpRequest, ref: str, project_id: UUID) -> Status[None]:
+    """An Editor in that project, or in the entity's owner project, can. The owner project
+    itself can't be removed."""
+    me = caller(request)
+    entity = _find(me, ref)
+    target = project(me, project_id)
+    owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
+    if not (
+        permissions.can(me, Action.PROJECT_EDIT, target)
+        or permissions.can(me, Action.PROJECT_EDIT, owner)
+    ):
+        require(me, Action.PROJECT_EDIT, target)
+    if not services.unlink(me, entity, target):
+        raise Problem(404, f"{entity.hrid} isn’t in that project.")
+    return Status(204, None)

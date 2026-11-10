@@ -154,8 +154,8 @@ To rotate, put the new key first, keep the old one after it, run
 
 The API lives at `/api/v1` (ADR 0027), described by the OpenAPI document at
 `/api/v1/openapi.json`. Today it covers you (`/me`), people and their org
-roles, service accounts, teams, projects and project access, and your
-notifications. Live updates come from `/api/v1/events` (see below).
+roles, service accounts, teams, projects and project access, entities, and
+your notifications. Live updates come from `/api/v1/events` (see below).
 
 - **Authentication:** an OAuth access token (`Authorization: Bearer ...`),
   or the browser session with the CSRF token (from the page's `csrf-token`
@@ -170,6 +170,25 @@ notifications. Live updates come from `/api/v1/events` (see below).
   `RateLimit-Policy` headers; over the limit answers 429 with `Retry-After`.
 - **Authorization:** the same rules as the web pages. Changes are audited
   with `via=api`, and with the OAuth client's name when a token made them.
+
+### Entities
+
+Every plugin's types share one API (ADR 0035):
+
+- `GET /entity-types` lists the installed types, each with its fields and a
+  JSON Schema of its values.
+- `/entities` lists, creates and changes entities, addressed by ID or HRID
+  (`/entities/DNA-000042`). Lists filter by `type` (with its subtypes),
+  `project` and `archived`.
+- Reads carry the entity's revision as the `ETag`. `PATCH` must send it back
+  as `If-Match`. A change made since answers 412 (`stale`), and a missing
+  `If-Match` answers 428, so nobody overwrites someone else's change.
+- Quantities are numbers in the field's unit, or `{"value": 310.15, "unit":
+"K"}` in any unit that converts.
+- `/entities/{ref}/revisions`, `…/revisions/{number}`, `…/provenance` and
+  `…/projects` give the history: who changed what, how, when and why.
+- Reading takes a role in any of the entity's projects. Changing it takes
+  Editor in its owner project. Entities you can't read answer 404.
 
 ## Web app
 
@@ -222,9 +241,11 @@ Admins add organization-wide ones at Settings → Webhooks. The API is under
 - Messages follow [Standard Webhooks](https://www.standardwebhooks.com/):
   verify the `webhook-signature` header with the secret shown when the
   webhook is added, using the standard's library for your language.
-- Events come from the audit log, in the change's transaction:
-  `/api/v1/webhook-events` lists them. Delivery is at least once; dedupe on
-  `webhook-id`.
+- Events come from the audit log, or from entities' revisions, in the
+  change's transaction: `/api/v1/webhook-events` lists them. Delivery is at
+  least once; dedupe on `webhook-id`.
+- Entity events carry identifiers and the changed fields' names, not values.
+  Receivers read the values through the API with their own token.
 - Task runners send them, retrying failures over about a day. Each
   webhook's delivery log keeps 30 days, and a webhook failing for 5 days is
   turned off and its managers told.

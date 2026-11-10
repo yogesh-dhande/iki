@@ -469,7 +469,36 @@ def _revise(entity: Model, kind: str, changed: list[str], user: User, reason: st
         reason=reason.strip(),
     )
     Entity.objects.filter(pk=entity.pk).update(revision=number, updated_at=Now())
+    _announce(entity.pk, revision, user)
     return revision
+
+
+_EVENTS = {
+    RevisionKind.CREATED: "entity.created",
+    RevisionKind.EDITED: "entity.updated",
+    RevisionKind.ARCHIVED: "entity.archived",
+    RevisionKind.RESTORED: "entity.restored",
+}
+
+
+def _announce(entity_id: Any, revision: Revision, user: User) -> None:  # noqa: ANN401 - a UUID
+    """Tells the owner project's and the organization's webhooks, in the change's transaction."""
+    from iki_server.webhooks import events
+    from iki_server.webhooks.services import emit
+
+    entity = Entity.objects.select_related("owner_project__team").get(pk=entity_id)
+    data = {
+        "entity": events.entity_data(entity),
+        "revision": {
+            "number": revision.number,
+            "kind": revision.kind,
+            "changed_fields": revision.changed_fields,
+            "via": revision.via,
+            "reason": revision.reason,
+        },
+        "actor": events.actor_data(user),
+    }
+    emit(_EVENTS[RevisionKind(revision.kind)], data, project=entity.owner_project)
 
 
 def _write_history(

@@ -13,6 +13,7 @@ from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 
 from iki_server.api import (
+    entities,
     me,
     notifications,
     projects,
@@ -38,7 +39,7 @@ api = NinjaAPI(
     openapi_url="/openapi.json",
 )
 
-for module in (me, users, service_accounts, teams, projects, notifications, webhooks):
+for module in (me, users, service_accounts, teams, projects, entities, notifications, webhooks):
     api.add_router("", module.router)
 
 

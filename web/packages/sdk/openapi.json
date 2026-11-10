@@ -37,6 +37,124 @@
         "title": "AttemptOut",
         "type": "object"
       },
+      "ChangeOut": {
+        "properties": {
+          "after": {
+            "title": "After"
+          },
+          "before": {
+            "title": "Before"
+          }
+        },
+        "title": "ChangeOut",
+        "type": "object"
+      },
+      "CreatedOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "can": {
+            "$ref": "#/components/schemas/EntityCan"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "linked": {
+            "description": "The existing entity was added to the project.",
+            "title": "Linked",
+            "type": "boolean"
+          },
+          "owner_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project that owns it, and decides its changes. Null if you can't see it."
+          },
+          "reused": {
+            "description": "An entity with the same identity existed, and is returned instead.",
+            "title": "Reused",
+            "type": "boolean"
+          },
+          "revision": {
+            "description": "Its latest revision. Send it back as If-Match to change it.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Its fields' values, as its type's schema says.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type",
+          "revision",
+          "owner_project",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "archived",
+          "archived_at",
+          "values",
+          "can",
+          "reused",
+          "linked"
+        ],
+        "title": "CreatedOut",
+        "type": "object"
+      },
       "DeliveryFilters": {
         "properties": {
           "cursor": {
@@ -310,6 +428,415 @@
         "title": "EmailSettingsOut",
         "type": "object"
       },
+      "EntityCan": {
+        "properties": {
+          "edit": {
+            "description": "Change it, archive or restore it.",
+            "title": "Edit",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "edit"
+        ],
+        "title": "EntityCan",
+        "type": "object"
+      },
+      "EntityFilters": {
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "exact_type": {
+            "default": false,
+            "description": "Only the type itself, not its subtypes.",
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities that belong to this project.",
+            "title": "Project"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This type and its subtypes.",
+            "title": "Type"
+          }
+        },
+        "title": "EntityFilters",
+        "type": "object"
+      },
+      "EntityIn": {
+        "properties": {
+          "allow_duplicate": {
+            "default": false,
+            "description": "Create it even if its type warns about a duplicate.",
+            "title": "Allow Duplicate",
+            "type": "boolean"
+          },
+          "project": {
+            "description": "The project it belongs to. It needs you as an Editor.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "type": {
+            "description": "Qualified, such as dna.DNASequence.",
+            "title": "Type",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "type",
+          "project"
+        ],
+        "title": "EntityIn",
+        "type": "object"
+      },
+      "EntityOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "can": {
+            "$ref": "#/components/schemas/EntityCan"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project that owns it, and decides its changes. Null if you can't see it."
+          },
+          "revision": {
+            "description": "Its latest revision. Send it back as If-Match to change it.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Its fields' values, as its type's schema says.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type",
+          "revision",
+          "owner_project",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "archived",
+          "archived_at",
+          "values",
+          "can"
+        ],
+        "title": "EntityOut",
+        "type": "object"
+      },
+      "EntityPatch": {
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Archived entities can't change: restore one to change it.",
+            "title": "Archived"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "values": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the fields to change.",
+            "title": "Values"
+          }
+        },
+        "title": "EntityPatch",
+        "type": "object"
+      },
+      "EntityProjectOut": {
+        "properties": {
+          "linked_at": {
+            "format": "date-time",
+            "title": "Linked At",
+            "type": "string"
+          },
+          "linked_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "boolean"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          }
+        },
+        "required": [
+          "project",
+          "owner",
+          "linked_by",
+          "linked_at"
+        ],
+        "title": "EntityProjectOut",
+        "type": "object"
+      },
+      "EntityTypeOut": {
+        "properties": {
+          "abstract": {
+            "description": "Abstract types have no entities of their own.",
+            "title": "Abstract",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "extends": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extends"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "hrid_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid Prefix"
+          },
+          "identity": {
+            "description": "The fields that tell two entities apart.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "label_plural": {
+            "title": "Label Plural",
+            "type": "string"
+          },
+          "name": {
+            "description": "Qualified: plugin.Type.",
+            "title": "Name",
+            "type": "string"
+          },
+          "on_duplicate": {
+            "anyOf": [
+              {
+                "enum": [
+                  "reuse",
+                  "warn",
+                  "allow"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What creating an entity with the same identity as another does.",
+            "title": "On Duplicate"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "subtypes": {
+            "description": "The types that extend it, at any depth.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Subtypes",
+            "type": "array"
+          },
+          "values_schema": {
+            "additionalProperties": true,
+            "description": "A JSON Schema (2020-12) of the entity's values.",
+            "title": "Values Schema",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "plugin",
+          "label",
+          "label_plural",
+          "description",
+          "extends",
+          "abstract",
+          "subtypes",
+          "hrid_prefix",
+          "identity",
+          "on_duplicate",
+          "fields",
+          "values_schema"
+        ],
+        "title": "EntityTypeOut",
+        "type": "object"
+      },
       "EventTypeOut": {
         "properties": {
           "description": {
@@ -326,6 +853,124 @@
           "description"
         ],
         "title": "EventTypeOut",
+        "type": "object"
+      },
+      "FieldOut": {
+        "properties": {
+          "computed": {
+            "description": "Set only by actions.",
+            "title": "Computed",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Unit"
+          },
+          "immutable": {
+            "description": "Can be set once, and can't change after.",
+            "title": "Immutable",
+            "type": "boolean"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lists: the type of each item.",
+            "title": "Items"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plugin": {
+            "description": "The plugin that defines the field.",
+            "title": "Plugin",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "References: the type they refer to.",
+            "title": "To"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quantities: the UCUM unit values are in.",
+            "title": "Unit"
+          },
+          "values": {
+            "description": "Enums: the allowed values.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "description",
+          "type",
+          "plugin",
+          "required",
+          "immutable",
+          "computed",
+          "unit",
+          "display_unit",
+          "to",
+          "values",
+          "items"
+        ],
+        "title": "FieldOut",
         "type": "object"
       },
       "InboxFilters": {
@@ -791,6 +1436,35 @@
         "title": "Page[DeliverySummary]",
         "type": "object"
       },
+      "Page_EntityOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[EntityOut]",
+        "type": "object"
+      },
       "Page_InventoryOut_": {
         "properties": {
           "items": {
@@ -905,6 +1579,35 @@
           "next_cursor"
         ],
         "title": "Page[ProjectOut]",
+        "type": "object"
+      },
+      "Page_RevisionOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RevisionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RevisionOut]",
         "type": "object"
       },
       "Page_ServiceAccountOut_": {
@@ -1499,6 +2202,142 @@
           "read"
         ],
         "title": "ReadIn",
+        "type": "object"
+      },
+      "RevisionDetailOut": {
+        "properties": {
+          "changed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Fields",
+            "type": "array"
+          },
+          "changes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ChangeOut"
+            },
+            "description": "What this revision changed.",
+            "title": "Changes",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "created",
+              "edited",
+              "archived",
+              "restored"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Every field's value as it was at this revision.",
+            "title": "Values",
+            "type": "object"
+          },
+          "via": {
+            "description": "How: web, api, mcp, run, …",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "kind",
+          "changed_fields",
+          "user",
+          "via",
+          "reason",
+          "created_at",
+          "values",
+          "changes"
+        ],
+        "title": "RevisionDetailOut",
+        "type": "object"
+      },
+      "RevisionOut": {
+        "properties": {
+          "changed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Fields",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "created",
+              "edited",
+              "archived",
+              "restored"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "via": {
+            "description": "How: web, api, mcp, run, …",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "kind",
+          "changed_fields",
+          "user",
+          "via",
+          "reason",
+          "created_at"
+        ],
+        "title": "RevisionOut",
         "type": "object"
       },
       "RoleIn": {
@@ -2364,6 +3203,699 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/entities": {
+      "get": {
+        "description": "Oldest first. Filter by type to get one type and its subtypes.",
+        "operationId": "iki_server_api_entities_list_entities",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "This type and its subtypes.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "This type and its subtypes.",
+              "title": "Type"
+            }
+          },
+          {
+            "description": "Only the type itself, not its subtypes.",
+            "in": "query",
+            "name": "exact_type",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only the type itself, not its subtypes.",
+              "title": "Exact Type",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Entities that belong to this project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entities that belong to this project.",
+              "title": "Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Archived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_EntityOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Entities you can read",
+        "tags": [
+          "entities"
+        ]
+      },
+      "post": {
+        "description": "If its type reuses duplicates and you can read one with the same identity, that one\nis returned (200, ``reused``) and added to the project, instead of a copy. If its type\nwarns about duplicates, the request is refused (409, ``duplicate``) unless\n``allow_duplicate`` is set.",
+        "operationId": "iki_server_api_entities_create_entity",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Create an entity",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}": {
+      "get": {
+        "description": "Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed.",
+        "operationId": "iki_server_api_entities_get_entity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "304": {
+            "description": "Not Modified"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An entity, by ID or HRID",
+        "tags": [
+          "entities"
+        ]
+      },
+      "patch": {
+        "description": "Send only the values to change. Each change is a revision, with your reason.\nTo restore an archived entity and change it, send both: it's restored first.",
+        "operationId": "iki_server_api_entities_patch_entity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change, archive or restore",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/projects": {
+      "get": {
+        "description": "Only the projects you can see.",
+        "operationId": "iki_server_api_entities_list_entity_projects",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EntityProjectOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The projects an entity belongs to",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/projects/{project_id}": {
+      "delete": {
+        "description": "An Editor in that project, or in the entity's owner project, can. The owner project\nitself can't be removed.",
+        "operationId": "iki_server_api_entities_unlink_entity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Take an entity out of a project",
+        "tags": [
+          "entities"
+        ]
+      },
+      "put": {
+        "description": "Its members can then read it. Only its owner project's Editors can change it.\nYou need to be able to read the entity, and to be an Editor in the project.",
+        "operationId": "iki_server_api_entities_link_entity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityProjectOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityProjectOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Add an entity to a project",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/provenance": {
+      "get": {
+        "description": "For each field, the revision that set its current value: who or what, how and when.",
+        "operationId": "iki_server_api_entities_get_provenance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/RevisionOut"
+                  },
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Where each value came from",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/revisions": {
+      "get": {
+        "description": "Newest first: who changed what, how, when and why.",
+        "operationId": "iki_server_api_entities_list_revisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RevisionOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An entity's revisions",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/revisions/{number}": {
+      "get": {
+        "operationId": "iki_server_api_entities_get_revision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "title": "Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionDetailOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An entity as it was at a revision",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-types": {
+      "get": {
+        "description": "Every type the deployment's plugins define, abstract ones included, by name.",
+        "operationId": "iki_server_api_entities_list_types",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EntityTypeOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The installed entity types",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-types/{name}": {
+      "get": {
+        "operationId": "iki_server_api_entities_get_type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityTypeOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An entity type",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "iki_server_api_me_me",

@@ -61,7 +61,7 @@ older revision than the current one is refused as stale, with the current
 number, and the caller reloads. Nothing is merged or overwritten silently.
 This is optimistic concurrency, as GitHub uses for file edits. The REST API
 carries it as `ETag` and `If-Match`, and an edit without `If-Match` is
-refused (428).
+refused (428). `If-Match: *` is refused too, because it would skip the check.
 
 **Duplicates follow the type's `on_duplicate`.** Two entities are the same
 when their identity hashes match (ADR 0033). A subtype without its own
@@ -92,6 +92,35 @@ recorded in the audit log.
 An archived entity keeps its history, can't change until it's restored, and
 isn't offered as a duplicate.
 
+**One typed API for every type.** `/entity-types` lists the installed types.
+Each comes with its fields and a JSON Schema (2020-12) of its values, which
+forms and clients use. `/entities` serves every type the same way:
+
+- An entity is addressed by its ID or its HRID.
+- Values are JSON, as the type's schema says.
+- Reads return the revision as the `ETag`, and `If-None-Match` answers 304.
+- `PATCH` changes values, archives and restores. A restore and an edit can
+  go in one request, in that order, under one lock.
+- Each entity's revisions, any past revision's values and changes, its
+  provenance and its projects have endpoints of their own.
+
+An entity the caller can't read answers 404, wherever it's named: as a path,
+a filter, a reference or a duplicate. An owner project the caller can't see
+shows as null.
+
+**Webhooks hear of changes, but not values.** Each revision sends
+`entity.created`, `entity.updated`, `entity.archived` or `entity.restored` to
+the owner project's webhooks and the organization's. Linking and unlinking
+send `entity.linked` and `entity.unlinked` to that project's webhooks, by way
+of the audit log (ADR 0031). Payloads hold identifiers: the entity's ID,
+HRID, type and revision, its owner project's ID, the changed field names,
+who made the change, how and why. They never hold values. A receiver reads
+the values through the API with its own token, and that token's access
+decides what it sees. So a webhook can't send a project's sequences out of
+Iki, and revoking a token stops the data. This differs from ADR 0031's
+before-and-after payloads for projects and teams, whose fields aren't
+research data.
+
 ## Consequences
 
 - Positive: every value is attributable to a person or run, how they made
@@ -107,6 +136,7 @@ isn't offered as a duplicate.
 - Negative: people in a linked project can read but not change a shared
   entity. Only its owner project can. This is deliberate, and the UI will say
   who owns it.
+- Negative: a webhook receiver makes an API call to learn the new values.
 
 ## Alternatives considered
 
@@ -122,3 +152,8 @@ isn't offered as a duplicate.
   that only make sense apart.
 - **Duplicate checks across all entities.** Rejected: refusing a duplicate
   the caller can't see would reveal that it exists.
+- **A route per type** (`/dna-sequences`). Rejected: every plugin would grow
+  the API surface, and clients would need regenerating whenever a deployment
+  changed its plugins. The schema endpoint gives clients the types instead.
+- **Values in webhook payloads.** Rejected: they would leave Iki under the
+  webhook's settings rather than the reader's access.

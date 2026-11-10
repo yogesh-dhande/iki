@@ -67,6 +67,14 @@ _register(
         project=True,
         org=True,
     ),
+    EventType("entity.created", "Someone, or a run, creates an entity.", project=True, org=True),
+    EventType("entity.updated", "Someone, or a run, changes an entity.", project=True, org=True),
+    EventType("entity.archived", "Someone archives an entity.", project=True, org=True),
+    EventType("entity.restored", "Someone restores an entity.", project=True, org=True),
+    EventType("entity.linked", "Someone adds an entity to the project.", project=True, org=True),
+    EventType(
+        "entity.unlinked", "Someone takes an entity out of the project.", project=True, org=True
+    ),
     EventType("team.created", "Someone creates a team.", project=False, org=True),
     EventType("team.updated", "Someone renames or redescribes a team.", project=False, org=True),
     EventType("team.archived", "Someone archives a team.", project=False, org=True),
@@ -137,6 +145,19 @@ def user_data(user: User) -> dict[str, Any]:
         "name": user.get_full_name(),
         "kind": "service" if user.is_service_account else "person",
         "active": user.is_active,
+    }
+
+
+def entity_data(entity: Any) -> dict[str, Any]:  # noqa: ANN401 - an Entity
+    """Identifiers only, never values: receivers read those through the API, with their own
+    access, so a webhook can't send a project's data out of Iki (ADR 0035)."""
+    return {
+        "id": str(entity.pk),
+        "hrid": entity.hrid,
+        "type": entity.type,
+        "revision": entity.revision,
+        "owner_project": {"id": str(entity.owner_project_id)},
+        "archived": entity.archived_at is not None,
     }
 
 
@@ -225,7 +246,19 @@ def _user(key: str) -> Builder:
     return build
 
 
+def _entity_link(
+    event: AuditEvent, target: models.Model | None
+) -> tuple[str, dict[str, Any]] | None:
+    from iki_server.entities.models import Entity
+
+    if not isinstance(target, Entity) or event.project is None:
+        return None
+    return event.action, {"entity": entity_data(target), "project": project_data(event.project)}
+
+
 FROM_AUDIT: dict[str, Builder] = {
+    "entity.linked": _entity_link,
+    "entity.unlinked": _entity_link,
     "project.created": _project("project.created"),
     "project.updated": _project("project.updated"),
     "project.archived": _project("project.archived"),

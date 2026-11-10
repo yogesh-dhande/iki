@@ -150,7 +150,9 @@ def signed_in_token(
     return client, tokens.json()
 
 
-def bearer(token: str, method: str, path: str, body: Any = None) -> Response:
+def bearer(
+    token: str, method: str, path: str, body: Any = None, headers: dict[str, str] | None = None
+) -> Response:
     browser = Browser()
     browser.raise_request_exception = False
     return browser.generic(
@@ -158,7 +160,7 @@ def bearer(token: str, method: str, path: str, body: Any = None) -> Response:
         "/api/v1" + path,
         "" if body is None else json.dumps(body),
         content_type="application/json",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {token}", **(headers or {})},
     )
 
 

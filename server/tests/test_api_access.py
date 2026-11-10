@@ -20,7 +20,8 @@ pytestmark = pytest.mark.django_db
 UNAUTHENTICATED = {"anonymous": 401, "inactive": 401}
 PROJECT_VISIBLE = ("org_admin", "viewer", "editor", "runner", "admin", "via_team", "mixed")
 
-Build = Callable[[World], tuple[str, Any]]
+#: Builds the request: (path, body) or (path, body, headers).
+Build = Callable[[World], tuple[Any, ...]]
 
 
 def row(default: int, **overrides: int) -> dict[str, int]:
@@ -94,6 +95,46 @@ def delivery(suffix: str = "") -> Build:
         return f"/webhooks/{hook.pk}/deliveries/{sent.pk}{suffix}", None
 
     return build
+
+
+def _entity(w: World) -> Any:
+    from iki_server.entities import services as entities
+
+    return entities.create(
+        w.users["editor"], "dna.DNASequence", w.project, {"bases": "ACGT"}
+    ).entity
+
+
+def entity(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Build:
+    def build(w: World) -> tuple[Any, ...]:
+        found = _entity(w)
+        headers = {"If-Match": f'"{found.revision}"'} if if_match else None
+        return f"/entities/{found.pk}{suffix}", body, headers
+
+    return build
+
+
+def linked_into_archived(w: World) -> tuple[str, Any]:
+    """An entity of the project, also in the archived project (whose Editors can't change it)."""
+    from iki_server.entities.models import ProjectLink
+
+    found = _entity(w)
+    ProjectLink.objects.create(entity_id=found.pk, project=w.archived)
+    return f"/entities/{found.pk}/projects/{w.archived.pk}", None
+
+
+#: Entities are read by anyone with a role in one of their projects. Org Admins see that
+#: projects exist, but read their data only with a role, like everyone else.
+ENTITY_READERS = ("viewer", "editor", "runner", "admin", "via_team", "mixed")
+ENTITY_EDITORS = ("editor", "runner", "admin", "via_team", "mixed")
+
+
+def readers(status: int, **overrides: int) -> dict[str, int]:
+    return row(404, **{**dict.fromkeys(ENTITY_READERS, status), **overrides})
+
+
+def editors(status: int) -> dict[str, int]:
+    return readers(403, **dict.fromkeys(ENTITY_EDITORS, status))
 
 
 ORG_ADMIN_ONLY = row(403, org_admin=200)
@@ -190,6 +231,42 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/projects/{project_id}/members/{membership_id}",
         viewer_grant,
         visible(403, org_admin=204, admin=204),
+    ),
+    # Entities: read with a role in any of their projects, changed by the owner's Editors.
+    ("GET", "/entity-types", fixed("/entity-types"), row(200)),
+    ("GET", "/entity-types/{name}", fixed("/entity-types/dna.DNASequence"), row(200)),
+    ("GET", "/entities", fixed("/entities"), row(200)),
+    (
+        "POST",
+        "/entities",
+        lambda w: (
+            "/entities",
+            {"type": "dna.DNASequence", "project": str(w.project.pk), "values": {"bases": "GC"}},
+        ),
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
+    ),
+    ("GET", "/entities/{ref}", entity(), readers(200)),
+    (
+        "PATCH",
+        "/entities/{ref}",
+        entity(body={"values": {"name": "pUC19"}}, if_match=True),
+        editors(200),
+    ),
+    ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
+    ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
+    ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
+    ("GET", "/entities/{ref}/projects", entity("/projects"), readers(200)),
+    (
+        "PUT",
+        "/entities/{ref}/projects/{project_id}",
+        lambda w: (f"/entities/{_entity(w).pk}/projects/{w.project.pk}", None),
+        editors(200),
+    ),
+    (
+        "DELETE",
+        "/entities/{ref}/projects/{project_id}",
+        linked_into_archived,
+        editors(204),
     ),
     # Notifications are each person's own: nobody else's are found.
     ("GET", "/notifications", fixed("/notifications"), row(200)),
@@ -297,9 +374,9 @@ def test_operation_matrix(
     principal: str, method: str, template: str, build: Build, expected: dict[str, int]
 ) -> None:
     world = build_world()
-    path, body = build(world)
+    path, body, *headers = build(world)
     client = Api(world.browser(principal))
-    response = client.call(method, path, body)
+    response = client.call(method, path, body, headers=headers[0] if headers else None)
     assert response.status_code == expected[principal], (
         response.status_code,
         response.content[:300],

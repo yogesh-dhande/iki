@@ -28,9 +28,12 @@ class Api:
         *,
         csrf: bool = True,
         raw: str | None = None,
+        headers: dict[str, str] | None = None,
         **query: Any,
     ) -> Response:
-        headers = {"X-CSRFToken": self._token()} if csrf and method != "GET" else {}
+        headers = dict(headers or {})
+        if csrf and method != "GET":
+            headers["X-CSRFToken"] = self._token()
         data = raw if raw is not None else ("" if body is None else json.dumps(body))
         return self.browser.generic(
             method,

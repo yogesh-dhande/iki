@@ -4,6 +4,198 @@
  */
 
 export interface paths {
+    "/api/v1/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Entities you can read
+         * @description Oldest first. Filter by type to get one type and its subtypes.
+         */
+        get: operations["iki_server_api_entities_list_entities"];
+        put?: never;
+        /**
+         * Create an entity
+         * @description If its type reuses duplicates and you can read one with the same identity, that one
+         *     is returned (200, ``reused``) and added to the project, instead of a copy. If its type
+         *     warns about duplicates, the request is refused (409, ``duplicate``) unless
+         *     ``allow_duplicate`` is set.
+         */
+        post: operations["iki_server_api_entities_create_entity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An entity, by ID or HRID
+         * @description Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed.
+         */
+        get: operations["iki_server_api_entities_get_entity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change, archive or restore
+         * @description Send only the values to change. Each change is a revision, with your reason.
+         *     To restore an archived entity and change it, send both: it's restored first.
+         */
+        patch: operations["iki_server_api_entities_patch_entity"];
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The projects an entity belongs to
+         * @description Only the projects you can see.
+         */
+        get: operations["iki_server_api_entities_list_entity_projects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add an entity to a project
+         * @description Its members can then read it. Only its owner project's Editors can change it.
+         *     You need to be able to read the entity, and to be an Editor in the project.
+         */
+        put: operations["iki_server_api_entities_link_entity"];
+        post?: never;
+        /**
+         * Take an entity out of a project
+         * @description An Editor in that project, or in the entity's owner project, can. The owner project
+         *     itself can't be removed.
+         */
+        delete: operations["iki_server_api_entities_unlink_entity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/provenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where each value came from
+         * @description For each field, the revision that set its current value: who or what, how and when.
+         */
+        get: operations["iki_server_api_entities_get_provenance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An entity's revisions
+         * @description Newest first: who changed what, how, when and why.
+         */
+        get: operations["iki_server_api_entities_list_revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/revisions/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An entity as it was at a revision */
+        get: operations["iki_server_api_entities_get_revision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installed entity types
+         * @description Every type the deployment's plugins define, abstract ones included, by name.
+         */
+        get: operations["iki_server_api_entities_list_types"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-types/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An entity type */
+        get: operations["iki_server_api_entities_get_type"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -700,6 +892,65 @@ export interface components {
             /** Status Code */
             status_code: number | null;
         };
+        /** ChangeOut */
+        ChangeOut: {
+            /** After */
+            after?: unknown;
+            /** Before */
+            before?: unknown;
+        };
+        /** CreatedOut */
+        CreatedOut: {
+            /** Archived */
+            archived: boolean;
+            /** Archived At */
+            archived_at: string | null;
+            can: components["schemas"]["EntityCan"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["UserOut"] | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Linked
+             * @description The existing entity was added to the project.
+             */
+            linked: boolean;
+            /** @description The project that owns it, and decides its changes. Null if you can't see it. */
+            owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Reused
+             * @description An entity with the same identity existed, and is returned instead.
+             */
+            reused: boolean;
+            /**
+             * Revision
+             * @description Its latest revision. Send it back as If-Match to change it.
+             */
+            revision: number;
+            /** Type */
+            type: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Values
+             * @description Its fields' values, as its type's schema says.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
         /** DeliveryFilters */
         DeliveryFilters: {
             /**
@@ -821,12 +1072,256 @@ export interface components {
             /** Kinds */
             kinds: components["schemas"]["EmailKindOut"][];
         };
+        /** EntityCan */
+        EntityCan: {
+            /**
+             * Edit
+             * @description Change it, archive or restore it.
+             */
+            edit: boolean;
+        };
+        /** EntityFilters */
+        EntityFilters: {
+            /** Archived */
+            archived?: boolean | null;
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Exact Type
+             * @description Only the type itself, not its subtypes.
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Entities that belong to this project.
+             */
+            project?: string | null;
+            /**
+             * Type
+             * @description This type and its subtypes.
+             */
+            type?: string | null;
+        };
+        /** EntityIn */
+        EntityIn: {
+            /**
+             * Allow Duplicate
+             * @description Create it even if its type warns about a duplicate.
+             * @default false
+             */
+            allow_duplicate: boolean;
+            /**
+             * Project
+             * Format: uuid
+             * @description The project it belongs to. It needs you as an Editor.
+             */
+            project: string;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+            /**
+             * Type
+             * @description Qualified, such as dna.DNASequence.
+             */
+            type: string;
+            /** Values */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** EntityOut */
+        EntityOut: {
+            /** Archived */
+            archived: boolean;
+            /** Archived At */
+            archived_at: string | null;
+            can: components["schemas"]["EntityCan"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["UserOut"] | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** @description The project that owns it, and decides its changes. Null if you can't see it. */
+            owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Revision
+             * @description Its latest revision. Send it back as If-Match to change it.
+             */
+            revision: number;
+            /** Type */
+            type: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Values
+             * @description Its fields' values, as its type's schema says.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** EntityPatch */
+        EntityPatch: {
+            /**
+             * Archived
+             * @description Archived entities can't change: restore one to change it.
+             */
+            archived?: boolean | null;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+            /**
+             * Values
+             * @description Only the fields to change.
+             */
+            values?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** EntityProjectOut */
+        EntityProjectOut: {
+            /**
+             * Linked At
+             * Format: date-time
+             */
+            linked_at: string;
+            linked_by: components["schemas"]["UserOut"] | null;
+            /** Owner */
+            owner: boolean;
+            project: components["schemas"]["ProjectRef"];
+        };
+        /** EntityTypeOut */
+        EntityTypeOut: {
+            /**
+             * Abstract
+             * @description Abstract types have no entities of their own.
+             */
+            abstract: boolean;
+            /** Description */
+            description: string | null;
+            /** Extends */
+            extends: string | null;
+            /** Fields */
+            fields: components["schemas"]["FieldOut"][];
+            /** Hrid Prefix */
+            hrid_prefix: string | null;
+            /**
+             * Identity
+             * @description The fields that tell two entities apart.
+             */
+            identity: string[];
+            /** Label */
+            label: string;
+            /** Label Plural */
+            label_plural: string;
+            /**
+             * Name
+             * @description Qualified: plugin.Type.
+             */
+            name: string;
+            /**
+             * On Duplicate
+             * @description What creating an entity with the same identity as another does.
+             */
+            on_duplicate: ("reuse" | "warn" | "allow") | null;
+            /** Plugin */
+            plugin: string;
+            /**
+             * Subtypes
+             * @description The types that extend it, at any depth.
+             */
+            subtypes: string[];
+            /**
+             * Values Schema
+             * @description A JSON Schema (2020-12) of the entity's values.
+             */
+            values_schema: {
+                [key: string]: unknown;
+            };
+        };
         /** EventTypeOut */
         EventTypeOut: {
             /** Description */
             description: string;
             /** Type */
             type: string;
+        };
+        /** FieldOut */
+        FieldOut: {
+            /**
+             * Computed
+             * @description Set only by actions.
+             */
+            computed: boolean;
+            /** Description */
+            description: string | null;
+            /** Display Unit */
+            display_unit: string | null;
+            /**
+             * Immutable
+             * @description Can be set once, and can't change after.
+             */
+            immutable: boolean;
+            /**
+             * Items
+             * @description Lists: the type of each item.
+             */
+            items: string | null;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /**
+             * Plugin
+             * @description The plugin that defines the field.
+             */
+            plugin: string;
+            /** Required */
+            required: boolean;
+            /**
+             * To
+             * @description References: the type they refer to.
+             */
+            to: string | null;
+            /** Type */
+            type: string;
+            /**
+             * Unit
+             * @description Quantities: the UCUM unit values are in.
+             */
+            unit: string | null;
+            /**
+             * Values
+             * @description Enums: the allowed values.
+             */
+            values: string[];
         };
         /** InboxFilters */
         InboxFilters: {
@@ -1033,6 +1528,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[EntityOut] */
+        Page_EntityOut_: {
+            /** Items */
+            items: components["schemas"]["EntityOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[InventoryOut] */
         Page_InventoryOut_: {
             /** Items */
@@ -1067,6 +1572,16 @@ export interface components {
         Page_ProjectOut_: {
             /** Items */
             items: components["schemas"]["ProjectOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[RevisionOut] */
+        Page_RevisionOut_: {
+            /** Items */
+            items: components["schemas"]["RevisionOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -1313,6 +1828,70 @@ export interface components {
         ReadIn: {
             /** Read */
             read: boolean;
+        };
+        /** RevisionDetailOut */
+        RevisionDetailOut: {
+            /** Changed Fields */
+            changed_fields: string[];
+            /**
+             * Changes
+             * @description What this revision changed.
+             */
+            changes: {
+                [key: string]: components["schemas"]["ChangeOut"];
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "created" | "edited" | "archived" | "restored";
+            /** Number */
+            number: number;
+            /** Reason */
+            reason: string;
+            user: components["schemas"]["UserOut"] | null;
+            /**
+             * Values
+             * @description Every field's value as it was at this revision.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+            /**
+             * Via
+             * @description How: web, api, mcp, run, …
+             */
+            via: string;
+        };
+        /** RevisionOut */
+        RevisionOut: {
+            /** Changed Fields */
+            changed_fields: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "created" | "edited" | "archived" | "restored";
+            /** Number */
+            number: number;
+            /** Reason */
+            reason: string;
+            user: components["schemas"]["UserOut"] | null;
+            /**
+             * Via
+             * @description How: web, api, mcp, run, …
+             */
+            via: string;
         };
         /** RoleIn */
         RoleIn: {
@@ -1660,6 +2239,321 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    iki_server_api_entities_list_entities: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description This type and its subtypes. */
+                type?: string | null;
+                /** @description Only the type itself, not its subtypes. */
+                exact_type?: boolean;
+                /** @description Entities that belong to this project. */
+                project?: string | null;
+                archived?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_EntityOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_create_entity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntityIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_get_entity: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+            /** @description Not Modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_entities_patch_entity: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntityPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_list_entity_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityProjectOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_link_entity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityProjectOut"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityProjectOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_unlink_entity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_entities_get_provenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: components["schemas"]["RevisionOut"];
+                    };
+                };
+            };
+        };
+    };
+    iki_server_api_entities_list_revisions: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RevisionOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_get_revision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionDetailOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_list_types: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityTypeOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_get_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityTypeOut"];
+                };
+            };
+        };
+    };
     iki_server_api_me_me: {
         parameters: {
             query?: never;
