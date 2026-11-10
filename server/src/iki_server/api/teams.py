@@ -6,7 +6,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Prefetch
 from django.http import HttpRequest
-from ninja import Query, Router, Status
+from ninja import Field, Query, Router, Status
 
 from iki_server.api.common import caller, person, require, team
 from iki_server.api.pagination import PageParams, page
@@ -21,6 +21,9 @@ router = Router(tags=["teams"])
 
 class TeamFilters(PageParams):
     archived: bool | None = None
+    can_create_projects: bool | None = Field(
+        None, description="true: only the teams you may create projects in."
+    )
 
 
 @router.get("/teams", response=Page[TeamOut], summary="Teams you can see")
@@ -31,6 +34,13 @@ def list_teams(request: HttpRequest, filters: Query[TeamFilters]) -> dict[str, A
     )
     if filters.archived is not None:
         teams = teams.filter(archived_at__isnull=not filters.archived)
+    if filters.can_create_projects is not None:
+        creatable = permissions.teams_for_new_project(caller(request)).values("pk")
+        teams = (
+            teams.filter(pk__in=creatable)
+            if filters.can_create_projects
+            else teams.exclude(pk__in=creatable)
+        )
     result = page(teams, filters)
     for item in result["items"]:
         item.linked_group_names = [g.display_name for g in item.linked_group_list]

@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Status
 
@@ -17,11 +17,19 @@ from iki_server.api.schemas import (
     ProjectMemberOut,
     ProjectOut,
     ProjectPatch,
+    ProjectRoleOut,
     RoleIn,
+    TeamRef,
     parse_role,
 )
 from iki_server.org import permissions, services
-from iki_server.org.models import Project, ProjectMembership, Team
+from iki_server.org.models import (
+    PROJECT_ROLE_DESCRIPTIONS,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    Team,
+)
 from iki_server.org.permissions import Action
 
 router = Router(tags=["projects"])
@@ -29,6 +37,7 @@ router = Router(tags=["projects"])
 
 class ProjectFilters(PageParams):
     team: UUID | None = None
+    slug: str | None = Field(None, description="The project's address, as in its page's URL.")
     archived: bool | None = None
     member: bool | None = Field(
         None, description="true: only projects you have a role in. Org Admins see all names."
@@ -40,11 +49,29 @@ def _reload(user: Any, found: Project) -> Project:  # noqa: ANN401
     return project(user, found.pk)
 
 
+@router.get(
+    "/project-roles", response=list[ProjectRoleOut], summary="The project roles, lowest first"
+)
+def project_roles(request: HttpRequest) -> list[dict[str, str]]:
+    """Each role includes everything the roles before it can do."""
+    caller(request)
+    return [
+        {
+            "name": role.name.lower(),
+            "label": role.label,
+            "description": PROJECT_ROLE_DESCRIPTIONS[role],
+        }
+        for role in ProjectRole
+    ]
+
+
 @router.get("/projects", response=Page[ProjectOut], summary="Projects you can see")
 def list_projects(request: HttpRequest, filters: Query[ProjectFilters]) -> dict[str, Any]:
     projects: QuerySet[Project] = permissions.visible_projects(caller(request))
     if filters.team:
         projects = projects.filter(team_id=filters.team)
+    if filters.slug:
+        projects = projects.filter(slug=filters.slug)
     if filters.archived is not None:
         projects = projects.filter(archived_at__isnull=not filters.archived)
     if filters.member is not None:
@@ -93,7 +120,9 @@ def patch_project(request: HttpRequest, project_id: UUID, payload: ProjectPatch)
 
 
 def _memberships(found: Project) -> QuerySet[ProjectMembership]:
-    return found.memberships.select_related("user", "team")
+    return found.memberships.select_related("user", "team").annotate(
+        team_size=Count("team__memberships")
+    )
 
 
 @router.get(
@@ -137,6 +166,20 @@ def grant_team(
     grantee = _team_for_grant(team_id)
     membership = services.grant_project_role(found, parse_role(payload.role), team=grantee, by=me)
     return _memberships(found).get(pk=membership.pk)
+
+
+@router.get(
+    "/projects/{project_id}/grantable-teams",
+    response=Page[TeamRef],
+    summary="Teams you could give access",
+)
+def grantable_teams(
+    request: HttpRequest, project_id: UUID, params: Query[PageParams]
+) -> dict[str, Any]:
+    """Any active team without a grant yet, whether or not you belong to it."""
+    found = project(caller(request), project_id, Action.PROJECT_MEMBERS_MANAGE)
+    granted = found.memberships.filter(team__isnull=False).values("team")
+    return page(Team.objects.filter(archived_at__isnull=True).exclude(pk__in=granted), params)
 
 
 def _team_for_grant(team_id: UUID) -> Team:

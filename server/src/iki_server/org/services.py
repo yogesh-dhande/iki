@@ -34,7 +34,15 @@ from iki_server.org.models import (
 
 
 class Refused(Exception):  # noqa: N818 - reads as "the change was refused"
-    """A change that would break an invariant. The message explains it to people."""
+    """A change that would break an invariant. The message explains it to people.
+
+    ``field`` names the input it's about, when there is one, so forms can show
+    the message next to it.
+    """
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.field = field
 
 
 def _require_active(user: User) -> None:
@@ -173,7 +181,7 @@ def create_team(name: str, description: str, *, by: User) -> Team:
             team = Team.objects.create(name=name, description=description)
             audit.record("team.created", actor=by, target=team, team=team)
     except IntegrityError as error:
-        raise Refused(f"There's already a team called “{name}”.") from error
+        raise Refused(f"There's already a team called “{name}”.", field="name") from error
     return team
 
 
@@ -187,7 +195,7 @@ def update_team(team: Team, name: str, description: str, *, by: User) -> None:
                 "team.updated", actor=by, target=team, team=team, data=_changes(before, team)
             )
     except IntegrityError as error:
-        raise Refused(f"There's already a team called “{name}”.") from error
+        raise Refused(f"There's already a team called “{name}”.", field="name") from error
 
 
 def set_team_archived(team: Team, archived: bool, *, by: User) -> None:
@@ -246,7 +254,9 @@ def create_project(team: Team, name: str, description: str, *, by: User) -> Proj
             )
             audit.record("project.created", actor=by, target=project, project=project, team=team)
     except IntegrityError as error:
-        raise Refused(f"{team.name} already has a project called “{name}”.") from error
+        raise Refused(
+            f"{team.name} already has a project called “{name}”.", field="name"
+        ) from error
     return project
 
 
@@ -264,7 +274,9 @@ def update_project(project: Project, name: str, description: str, *, by: User) -
                 data=_changes(before, project),
             )
     except IntegrityError as error:
-        raise Refused(f"{project.team.name} already has a project called “{name}”.") from error
+        raise Refused(
+            f"{project.team.name} already has a project called “{name}”.", field="name"
+        ) from error
 
 
 def set_project_archived(project: Project, archived: bool, *, by: User) -> None:

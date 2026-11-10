@@ -43,8 +43,16 @@ docker_build(
     'iki-server',
     '.',
     dockerfile='server/Dockerfile',
-    only=['pyproject.toml', 'uv.lock', 'LICENSE', 'NOTICE', 'server', 'cli'],
-    ignore=['server/tests', '**/__pycache__'],
+    only=[
+        'pyproject.toml', 'uv.lock', 'LICENSE', 'NOTICE', 'server', 'cli',
+        # The web app, built in the image's own stage.
+        'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'web',
+    ],
+    ignore=[
+        'server/tests', '**/__pycache__', '**/node_modules',
+        # A local `make web` build; the image builds its own.
+        'server/src/iki_server/web/static/app',
+    ],
 )
 
 k8s_yaml(helm(

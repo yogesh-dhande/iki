@@ -2,8 +2,8 @@
 
     uv run python deploy/dev/sso.py           # set up (or re-set up) SSO, bob becomes admin
     uv run python deploy/dev/sso.py --check   # same, then end-to-end checks: sign-in as
-                                              # alice, SCIM provisioning, the API,
-                                              # OAuth, and SAML
+                                              # alice (also in Chromium), SCIM
+                                              # provisioning, the API, OAuth, and SAML
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -236,19 +236,21 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
         fail(f"adding {email} to the team failed (HTTP {response.status_code})")
     ok("the Org Admin created a team and added a member")
 
-    page = member.get(f"{IKI}/projects/new/")
-    team_id = re.search(rf'<option value="([0-9a-f-]+)"[^>]*>{re.escape(name)}</option>', page.text)
-    if not team_id:
-        fail("the new team isn't offered on the new project page")
-    response = post(member, f"{IKI}/projects/new/", {"team": team_id.group(1), "name": "Atlas"})
-    project_path = urlsplit(response.url).path
-    if "You’re its Admin" not in response.text:
-        fail(f"creating a project landed on {response.url} (HTTP {response.status_code})")
+    teams = api_call(member, "GET", "/teams?can_create_projects=true&limit=100").json()["items"]
+    team = next((t for t in teams if t["name"] == name), None)
+    if team is None:
+        fail("the new team isn't offered for new projects")
+    created = api_call(member, "POST", "/projects", {"team": team["id"], "name": "Atlas"})
+    if created.status_code != 201 or created.json()["my_role"] != "admin":
+        fail(f"creating a project: HTTP {created.status_code} {created.text[:200]}")
+    project = created.json()
+    if member.get(f"{IKI}/projects/{project['slug']}/").status_code != 200:
+        fail("the project's page doesn't load")
     ok("the team member created a project and became its Admin")
 
-    page = admin.get(f"{IKI}{project_path}")
-    if "You’re not a member of this project" not in page.text:
-        fail("the Org Admin can read a project they're not a member of")
+    seen = api_call(admin, "GET", f"/projects/{project['id']}").json()
+    if seen["can"]["read"] or not seen["can"]["manage_members"]:
+        fail(f"the Org Admin's access to a project they're not in: {seen['can']}")
     ok("the Org Admin sees the project exists, but not its data")
 
     people = admin.get(f"{IKI}/people/")
@@ -265,14 +267,22 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
     ok("an Auditor reads the team, project and role changes in the audit log")
 
 
+def landed(session: requests.Session, response: requests.Response, user: str) -> None:
+    """Signing in ends on the home page (the web app), signed in as ``user``."""
+    if urlsplit(response.url).path != "/" or '<div id="root">' not in response.text:
+        fail(f"signing in as {user} landed on {response.url} (HTTP {response.status_code})")
+    me = session.get(f"{IKI}/api/v1/me")
+    if me.status_code != 200 or not me.json()["name"].startswith(user.title()):
+        fail(f"signed in as {user}, but /api/v1/me says HTTP {me.status_code}: {me.text[:200]}")
+
+
 def sign_in_as(user: str) -> requests.Session:
     session = browser()
     action, inputs = form(session.get(f"{IKI}/login/"))
     response = keycloak_sign_in(
         session, session.post(action, data=inputs, headers={"Origin": IKI}), user
     )
-    if urlsplit(response.url).path != "/" or f"Welcome, {user.title()}" not in response.text:
-        fail(f"signing in as {user} landed on {response.url} (HTTP {response.status_code})")
+    landed(session, response, user)
     return session
 
 
@@ -620,7 +630,51 @@ def saml() -> None:
     set_up("bob")
 
 
-def check(user: str, admin: requests.Session) -> None:
+def in_a_browser(user: str, ports: tuple[int, int]) -> None:
+    """Chromium: sign in through Keycloak's page, then create a project in the web app.
+
+    Runs with the production CSP and Trusted Types; any console error fails it.
+    """
+    from playwright.sync_api import Error, sync_playwright
+
+    iki_port, keycloak_port = ports
+    rules = (
+        f"MAP localhost:8000 127.0.0.1:{iki_port}, "
+        f"MAP keycloak.iki.localhost:8080 127.0.0.1:{keycloak_port}"
+    )
+    name = f"Browser {int(time.time())}"
+    with sync_playwright() as playwright:
+        try:
+            chromium = playwright.chromium.launch(args=[f"--host-resolver-rules={rules}"])
+        except Error as error:
+            fail(f"Chromium didn't start ({error}). Run: uv run playwright install chromium")
+        page = chromium.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+
+        page.goto(f"{IKI}/projects/")
+        page.get_by_role("button", name="Continue with Keycloak").click()
+        page.locator("#username").fill(user)
+        page.locator("#password").fill(secret("keycloak-dev", "IKI_DEV_USER_PASSWORD"))
+        page.locator("#kc-login").click()
+        page.wait_for_url(f"{IKI}/projects/")
+        page.get_by_role("heading", name="Projects", level=1).wait_for()
+        ok(f"in Chromium, {user} signed in through Keycloak and came back where they started")
+
+        page.get_by_role("link", name="New project").first.click()
+        page.get_by_role("textbox", name="Project name").fill(name)
+        page.get_by_role("button", name="Create project").click()
+        page.get_by_text(f"Created {name}. You’re its Admin.").wait_for()
+        page.get_by_role("link", name="Members").click()
+        page.get_by_role("list", name="Members").get_by_text("(you)").wait_for()
+        chromium.close()
+    if errors:
+        fail(f"the web app logged errors: {errors}")
+    ok("in Chromium, they created a project in the web app, with no errors or CSP violations")
+
+
+def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
     session = browser()
     login = session.get(f"{IKI}/login/")
     if login.status_code != 200 or "Continue with Keycloak" not in login.text:
@@ -644,16 +698,16 @@ def check(user: str, admin: requests.Session) -> None:
     response = keycloak_sign_in(
         session, session.post(action, data=inputs, headers={"Origin": IKI}), user
     )
-    if urlsplit(response.url).path != "/" or f"Welcome, {user.title()}" not in response.text:
-        fail(f"signing in as {user} landed on {response.url} (HTTP {response.status_code})")
+    landed(session, response, user)
     cookie = next((c for c in session.cookies if c.name == "iki_session"), None)
     if cookie is None or not cookie.has_nonstandard_attr("HttpOnly") or cookie.expires is not None:
         fail("session cookie must be HttpOnly and end with the browser session")
     ok(f"{user} signed in through Keycloak with PKCE; session cookie is HttpOnly")
 
     teams_and_projects(admin, session, f"{user}@iki.test")
+    in_a_browser(user, ports)
 
-    action, inputs = form(session.get(f"{IKI}/"))
+    action, inputs = form(session.get(f"{IKI}/teams/"))
     response = session.post(action, data=inputs, headers={"Origin": IKI})
     if urlsplit(response.url).path != "/signed-out/":
         fail(f"signing out landed on {response.url}")
@@ -692,7 +746,7 @@ def main() -> None:
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:
-        check("alice", admin)
+        check("alice", admin, (args.iki_port, args.keycloak_port))
         provisioning(admin)
         rest_api(admin)
         oauth(admin)

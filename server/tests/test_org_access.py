@@ -42,14 +42,6 @@ def team_url(suffix: str = "") -> Callable[[World], tuple[str, dict[str, str]]]:
     return lambda w: (f"/teams/{w.team.slug}/{suffix}", {})
 
 
-def membership_url(w: World) -> tuple[str, dict[str, str]]:
-    membership = w.project.memberships.get(user=w.users["viewer"])
-    return f"/projects/{w.project.slug}/members/{membership.pk}/", {
-        "action": "change",
-        "role": "20",
-    }
-
-
 def team_member_remove_url(w: World) -> tuple[str, dict[str, str]]:
     return f"/teams/{w.team.slug}/members/{w.users['team_member'].pk}/remove/", {}
 
@@ -122,95 +114,14 @@ def device_grant_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]
 
 
 CASES: list[Case] = [
+    # The web app's pages: one page for everyone signed in, with no data in it.
+    # The app reads everything through the API, whose matrix is in
+    # test_api_access.py: that's where outsiders get 404 and members 403.
     ("project_list", "GET", lambda w: ("/projects/", {}), row(OK)),
     ("project_new", "GET", lambda w: ("/projects/new/", {}), row(OK)),
-    (
-        "project_new",
-        "POST",
-        lambda w: ("/projects/new/", {"team": str(w.team.pk), "name": "New Work"}),
-        # Only team members may pick the team; for everyone else it isn't a valid choice.
-        row(OK, team_member=DONE),
-    ),
-    ("project_detail", "GET", project_url(), row(HIDDEN, **PROJECT_VISIBLE)),
-    ("project_members", "GET", project_url("members/"), row(HIDDEN, **PROJECT_VISIBLE)),
-    (
-        "project_members",
-        "POST",
-        lambda w: (
-            f"/projects/{w.project.slug}/members/",
-            {"add": "person", "person-person": "outsider@example.com", "person-role": "10"},
-        ),
-        row(
-            HIDDEN,
-            org_admin=DONE,
-            admin=DONE,
-            viewer=FORBIDDEN,
-            editor=FORBIDDEN,
-            runner=FORBIDDEN,
-            via_team=FORBIDDEN,
-            mixed=FORBIDDEN,
-        ),
-    ),
-    (
-        "project_member",
-        "POST",
-        membership_url,
-        row(
-            HIDDEN,
-            org_admin=DONE,
-            admin=DONE,
-            viewer=FORBIDDEN,
-            editor=FORBIDDEN,
-            runner=FORBIDDEN,
-            via_team=FORBIDDEN,
-            mixed=FORBIDDEN,
-        ),
-    ),
-    (
-        "project_join",
-        "POST",
-        project_url("join/"),
-        row(
-            HIDDEN,
-            org_admin=DONE,
-            admin=DONE,
-            viewer=FORBIDDEN,
-            editor=FORBIDDEN,
-            runner=FORBIDDEN,
-            via_team=FORBIDDEN,
-            mixed=FORBIDDEN,
-        ),
-    ),
-    (
-        "project_settings",
-        "GET",
-        project_url("settings/"),
-        row(
-            HIDDEN,
-            admin=OK,
-            org_admin=FORBIDDEN,
-            viewer=FORBIDDEN,
-            editor=FORBIDDEN,
-            runner=FORBIDDEN,
-            via_team=FORBIDDEN,
-            mixed=FORBIDDEN,
-        ),
-    ),
-    (
-        "project_settings",
-        "POST",
-        lambda w: (f"/projects/{w.project.slug}/settings/", {"action": "archive"}),
-        row(
-            HIDDEN,
-            admin=DONE,
-            org_admin=FORBIDDEN,
-            viewer=FORBIDDEN,
-            editor=FORBIDDEN,
-            runner=FORBIDDEN,
-            via_team=FORBIDDEN,
-            mixed=FORBIDDEN,
-        ),
-    ),
+    ("project_detail", "GET", project_url(), row(OK)),
+    ("project_members", "GET", project_url("members/"), row(OK)),
+    ("project_settings", "GET", project_url("settings/"), row(OK)),
     ("team_list", "GET", lambda w: ("/teams/", {}), row(OK)),
     (
         "team_list",

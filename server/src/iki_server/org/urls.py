@@ -1,21 +1,17 @@
 from django.urls import URLPattern, path
 
 from iki_server.org import views
+from iki_server.web.views import app
 
 app_name = "org"
 
 urlpatterns: list[URLPattern] = [
-    path("projects/", views.project_list, name="project_list"),
-    path("projects/new/", views.project_new, name="project_new"),
-    path("projects/<slug:slug>/", views.project_detail, name="project_detail"),
-    path("projects/<slug:slug>/members/", views.project_members, name="project_members"),
-    path(
-        "projects/<slug:slug>/members/<uuid:membership_id>/",
-        views.project_member,
-        name="project_member",
-    ),
-    path("projects/<slug:slug>/join/", views.project_join, name="project_join"),
-    path("projects/<slug:slug>/settings/", views.project_settings, name="project_settings"),
+    # The web app's pages. The names stay, for links from server-rendered pages.
+    path("projects/", app, name="project_list"),
+    path("projects/new/", app, name="project_new"),
+    path("projects/<slug:slug>/", app, name="project_detail"),
+    path("projects/<slug:slug>/members/", app, name="project_members"),
+    path("projects/<slug:slug>/settings/", app, name="project_settings"),
     path("teams/", views.team_list, name="team_list"),
     path("teams/<slug:slug>/", views.team_detail, name="team_detail"),
     path(

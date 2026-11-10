@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from io import StringIO
 
 import pytest
+from api_client import Api
 from browser import Browser, complete_setup, path_of, sign_in
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError, connection, transaction
@@ -49,7 +50,7 @@ def test_setup_and_sign_ins_are_recorded(client: Browser, fake_idp: FakeIdP) -> 
 
     other = Browser()
     sign_in(other, fake_idp, SCIENTIST)
-    other.submit("/", action="/logout/")
+    other.submit("/teams/", action="/logout/")
     assert actions()[-3:] == ["user.created", "user.signed_in", "user.signed_out"]
     signed_in = AuditEvent.objects.filter(action="user.signed_in").first()  # newest first
     assert signed_in is not None and signed_in.actor_label == "rosalind@example.com"
@@ -287,6 +288,7 @@ def test_the_log_pages_with_a_stable_cursor(world: World, monkeypatch: pytest.Mo
 
 
 def test_auditor_link_only_for_auditors(world: World) -> None:
-    assert 'href="/audit/"' in world.browser("auditor").get("/projects/").content.decode()
-    assert 'href="/audit/"' not in world.browser("org_admin").get("/projects/").content.decode()
+    assert 'href="/audit/"' in world.browser("auditor").get("/teams/").content.decode()
+    assert 'href="/audit/"' not in world.browser("org_admin").get("/teams/").content.decode()
+    assert Api(world.browser("auditor")).get("/me").json()["can"]["read_audit"] is True
     assert path_of(world.browser("anonymous").get("/audit/")).startswith("/login/")

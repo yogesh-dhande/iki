@@ -1,12 +1,13 @@
 {
   "name": "@ikisci/sdk",
   "version": "0.1.0-dev.0",
-  "description": "TypeScript client for the Iki API.",
+  "description": "TypeScript client for the Iki API, generated from its OpenAPI document.",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
   "exports": {
     ".": {
+      "@ikisci/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
@@ -17,6 +18,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate": "openapi-typescript openapi.json -o src/schema.ts"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
   }
 }

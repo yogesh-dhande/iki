@@ -65,7 +65,8 @@ MIDDLEWARE = [
     "iki_server.web.middleware.SecurityHeadersMiddleware",
     "iki_server.web.csp.ContentSecurityPolicyMiddleware",
     "iki_server.api.middleware.ApiResponseMiddleware",
-    "servestatic.middleware.ServeStaticMiddleware",
+    # servestatic, also caching the web app's Vite-hashed files for ever.
+    "iki_server.web.frontend.ServeStaticMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -315,8 +316,16 @@ SOCIALACCOUNT_OPENID_CONNECT_URL_PREFIX = "oidc"
 STATIC_URL = "/static/"
 STATIC_ROOT = env.path("IKI_STATIC_ROOT", default=str(BASE_DIR.parent / ".static"))
 STORAGES = {
-    "staticfiles": {"BACKEND": "servestatic.storage.CompressedManifestStaticFilesStorage"},
+    "staticfiles": {"BACKEND": "iki_server.web.frontend.StaticFilesStorage"},
 }
+
+#: Development only: pages requested through the web app's Vite dev server
+#: (``make web-dev``) load the app's modules from it. Refused with HTTPS on.
+IKI_WEB_DEV_SERVER: bool = env.bool("IKI_WEB_DEV_SERVER", default=False)
+if IKI_WEB_DEV_SERVER and HTTPS:
+    raise environ.ImproperlyConfigured(
+        "IKI_WEB_DEV_SERVER is for local development, which runs without HTTPS (IKI_HTTPS=false)."
+    )
 
 # --- Internationalization ---------------------------------------------------
 

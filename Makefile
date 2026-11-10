@@ -14,9 +14,11 @@ setup: ## Install all toolchains' dependencies from the lockfiles
 	uv sync --locked
 	$(PNPM) install --frozen-lockfile
 	cd worker && cargo fetch --locked
+	uv run playwright install chromium firefox webkit
 
 .PHONY: check
-check: check-workflows check-chart check-deps check-python check-web check-rust ## Run every CI check locally (except dev-ci)
+# check-web builds the web app, which the browser tests in check-python load.
+check: check-workflows check-chart check-deps check-web check-python check-rust ## Run every CI check locally (except dev-ci)
 
 .PHONY: check-workflows
 check-workflows: ## Lint GitHub workflows (actionlint, zizmor)
@@ -48,13 +50,27 @@ check-python: ## Ruff, mypy (strict) and pytest
 	uv run mypy
 	uv run pytest
 
+.PHONY: client
+client: ## Regenerate the TypeScript API client from the server's OpenAPI document
+	scripts/openapi.sh > web/packages/sdk/openapi.json
+	$(PNPM) --filter @ikisci/sdk generate
+
 .PHONY: check-web
-check-web: ## ESLint, Prettier, tsc and Vitest
+check-web: ## ESLint, Prettier, tsc, Vitest, the generated client, and the build
 	$(PNPM) lint
 	$(PNPM) format:check
 	$(PNPM) typecheck
 	$(PNPM) test
+	scripts/check-client.sh
 	$(PNPM) build
+
+.PHONY: web
+web: ## Build the web app into the server's static files (server/src/iki_server/web/static/app)
+	$(PNPM) --filter @ikisci/app build
+
+.PHONY: web-dev
+web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (needs the dev cluster)
+	$(PNPM) --filter @ikisci/app dev
 
 .PHONY: check-rust
 check-rust: ## rustfmt, clippy (warnings denied) and cargo test

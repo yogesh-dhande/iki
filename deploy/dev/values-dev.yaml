@@ -36,6 +36,8 @@ otel:
   resourceAttributes: k8s.cluster.name=kind-iki
 web:
   replicas: 1
+  # `make web-dev` serves the web app with instant reloads at localhost:5173.
+  devServer: true
   podDisruptionBudget:
     enabled: false
 networkPolicy:

@@ -52,7 +52,14 @@ jobs:
       fail-fast: false
       matrix:
         # 3.12 is the oldest supported version; 3.14 is what servers run.
-        python: ["3.12", "3.14"]
+        # The browser tests don't depend on Python's version: they run once,
+        # on the version servers run.
+        include:
+          - python: "3.12"
+            markers: not built_web_app
+          - python: "3.14"
+            browsers: true
+            markers: ""
     services:
       postgres:
         image: postgres:18.6-trixie@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
@@ -82,6 +89,21 @@ jobs:
           version: ${{ env.HELM_VERSION }}
       - name: Install (locked)
         run: uv sync --locked
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: matrix.browsers
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: matrix.browsers
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Build the web app (for the browser tests)
+        if: matrix.browsers
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @ikisci/app build
+      - name: Install browsers (Chromium, Firefox, WebKit)
+        if: matrix.browsers
+        run: uv run --no-sync playwright install --with-deps chromium firefox webkit
       - name: Ruff lint
         run: uv run --no-sync ruff check --output-format=github
       - name: Ruff format
@@ -91,7 +113,9 @@ jobs:
       - name: Helm lint (strict)
         run: make check-chart
       - name: pytest (includes Helm chart policy tests)
-        run: uv run --no-sync pytest --cov --cov-report=term-missing
+        env:
+          MARKERS: ${{ matrix.markers }}
+        run: uv run --no-sync pytest --cov --cov-report=term-missing -m "$MARKERS"
 
   web:
     name: TypeScript
@@ -118,6 +142,8 @@ jobs:
         run: pnpm typecheck
       - name: Vitest
         run: pnpm test
+      - name: The API client is generated from the committed OpenAPI document
+        run: scripts/check-client.sh
       - name: Build
         run: pnpm build
 
@@ -168,10 +194,11 @@ jobs:
             -e IKI_DATABASE_URL=postgres://iki:unused@db.invalid/iki \
             -e IKI_ENCRYPTION_KEYS="$(openssl rand -base64 32 | tr '+/' '-_')" \
             iki-server:ci check --deploy --fail-level WARNING
-      - name: Static files are collected into the image
+      - name: Static files and the web app are collected into the image
         run: |
           docker run --rm --entrypoint sh iki-server:ci -c \
-            'ls /opt/iki/static/staticfiles.json /opt/iki/static/iki/iki.*.css.gz >/dev/null'
+            'ls /opt/iki/static/staticfiles.json /opt/iki/static/iki/iki.*.css.gz \
+                /opt/iki/static/app/manifest.json /opt/iki/static/app/assets/main-*.js.gz >/dev/null'
       - name: Runs as non-root with psycopg's C implementation
         run: |
           test "$(docker run --rm --entrypoint id iki-server:ci -u)" = "10001"

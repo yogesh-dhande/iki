@@ -58,3 +58,4 @@ supersedes the old one, and update the old one's status.
 | [0026](0026-saml-and-scim-provisioning.md)                       | SAML sign-in, and SCIM provisioning that decides who has access                             | Accepted |
 | [0027](0027-rest-api-conventions-and-service-accounts.md)        | REST API conventions, and service accounts                                                  | Accepted |
 | [0028](0028-oauth-authorization-server.md)                       | Iki is its own OAuth 2.1 server; Org Admins approve apps; people choose scopes and projects | Accepted |
+| [0029](0029-react-web-app.md)                                    | The web app: React pages served by Iki, beside server-rendered ones                         | Accepted |

@@ -278,6 +278,22 @@ def test_web_keeps_idle_connections_longer_than_load_balancers_do() -> None:
     assert int(env["IKI_KEEP_ALIVE_SECONDS"]) > 60
 
 
+def web_env(values: dict[str, Any] | None = None) -> dict[str, Any]:
+    (web,) = [
+        d for d in by_kind(manifests(values), "Deployment") if d["metadata"]["name"] == "iki-web"
+    ]
+    containers = web["spec"]["template"]["spec"]["containers"]
+    return {e["name"]: e.get("value") for e in containers[0]["env"]}
+
+
+def test_the_web_app_dev_server_is_off_and_only_for_plain_http() -> None:
+    assert "IKI_WEB_DEV_SERVER" not in web_env()
+    local = {"https": False, "web": {"devServer": True}}
+    assert web_env(local)["IKI_WEB_DEV_SERVER"] == "true"
+    refused = render({"web": {"devServer": True}}, ok=False)
+    assert "web.devServer is for local development" in str(refused)
+
+
 def test_oauth_settings_reach_every_container() -> None:
     values = {"oauth": {"accessTokenMinutes": 15, "refreshTokenDays": 7}}
     for name, spec in pod_specs(manifests(values)):

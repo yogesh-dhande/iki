@@ -1,0 +1,38 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="same-origin">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="iki-organization" content="{{ organization_name }}">
+  <title>Iki{% if organization_name %} · {{ organization_name }}{% endif %}</title>
+  <link rel="icon" href="{% static 'iki/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'iki/iki.css' %}">
+  {% for src in assets.preloads %}<link rel="modulepreload" href="{{ src }}">
+  {% endfor %}{% for src in assets.scripts %}<script type="module" src="{{ src }}"></script>
+  {% endfor %}
+</head>
+<body>
+  <div id="root">
+    {% if assets %}
+    <noscript>
+      <main class="page-narrow">
+        <section class="card">
+          <h1>Iki needs JavaScript</h1>
+          <p>Turn on JavaScript for this site, or ask your administrator whether a browser policy blocks it.</p>
+        </section>
+      </main>
+    </noscript>
+    {% else %}
+    <main class="page-narrow">
+      <section class="card">
+        <h1>Iki isn’t fully installed</h1>
+        <p>This server is missing its web app. Ask your administrator to check the deployment.</p>
+      </section>
+    </main>
+    {% endif %}
+  </div>
+</body>
+</html>

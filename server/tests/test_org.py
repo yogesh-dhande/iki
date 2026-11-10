@@ -1,6 +1,7 @@
 """Teams, projects, members and people: what each page does, and the rules that always hold."""
 
 import pytest
+from api_client import Api, problem
 from browser import Browser, Response, path_of
 from conftest import allow_test_flush
 from org_world import World, build_world, post
@@ -36,6 +37,17 @@ def follow(browser: Browser, response: Response) -> str:
 
 
 # --- The whole path: team -> member -> project -> invitation --------------------
+# Project pages are the web app's: these drive the API calls it makes, with the
+# session and CSRF token. What the pages say is tested in web/app and in the
+# browser tests.
+
+
+def api(world: World, principal: str) -> Api:
+    return Api(world.browser(principal))
+
+
+def project_id(world: World) -> str:
+    return str(world.project.pk)
 
 
 def test_org_admin_to_project_in_a_few_steps(world: World) -> None:
@@ -48,90 +60,103 @@ def test_org_admin_to_project_in_a_few_steps(world: World) -> None:
     added = post(admin, "/teams/genomics/", {"person": "OUTSIDER@example.com"})
     assert "Added Outsider to Genomics." in follow(admin, added)
 
-    scientist = world.browser("outsider")
-    home = text(scientist.get("/"))
-    assert "No projects yet" in home and "Create a project" in home
-    created = post(
-        scientist,
-        "/projects/new/",
-        {"team": str(Team.objects.get(slug="genomics").pk), "name": "Variant Calls"},
+    scientist = api(world, "outsider")
+    assert scientist.get("/me").json()["can"]["create_projects"] is True
+    genomics = Team.objects.get(slug="genomics")
+    created = scientist.post("/projects", {"team": str(genomics.pk), "name": "Variant Calls"})
+    assert created.status_code == 201, created.content
+    project = created.json()
+    assert (project["slug"], project["my_role"]) == ("variant-calls", "admin")
+    assert scientist.browser.get("/projects/variant-calls/").status_code == 200
+
+    viewer = User.objects.get(email="viewer@example.com")
+    invited = scientist.put(
+        f"/projects/{project['id']}/members/users/{viewer.pk}", {"role": "viewer"}
     )
-    assert path_of(created) == "/projects/variant-calls/"
-    page = follow(scientist, created)
-    assert "Created Variant Calls. You’re its Admin." in page
-    assert "<strong>Admin</strong>" in page
-
-    invited = post(
-        scientist,
-        "/projects/variant-calls/members/",
-        {"add": "person", "person-person": "viewer@example.com", "person-role": "10"},
-    )
-    assert "Viewer is now a Viewer." in follow(scientist, invited)
-    colleague = world.browser("viewer")
-    assert "Variant Calls" in text(colleague.get("/"))
-    assert colleague.get("/projects/variant-calls/").status_code == 200
+    assert invited.status_code == 200, invited.content
+    colleague = api(world, "viewer")
+    mine = colleague.get("/projects", slug="variant-calls").json()["items"]
+    assert [p["my_role"] for p in mine] == ["viewer"]
 
 
-def test_new_project_page_explains_how_to_get_a_team(world: World) -> None:
-    page = text(world.browser("outsider").get("/projects/new/"))
-    assert "you’re not in a team yet" in page
-    assert "Ask an Org Admin" in page
-    assert "Create a team" in text(world.browser("org_admin").get("/projects/new/"))
+def test_only_team_members_can_create_projects(world: World) -> None:
+    outsider = api(world, "outsider")
+    assert outsider.get("/me").json()["can"]["create_projects"] is False
+    assert outsider.get("/teams", can_create_projects=True).json()["items"] == []
+    refused = outsider.post("/projects", {"team": str(world.team.pk), "name": "Sneaky"})
+    assert refused.status_code in (403, 404)
+    assert not Project.objects.filter(name="Sneaky").exists()
 
 
 def test_project_names_are_unique_per_team_and_slugs_everywhere(world: World) -> None:
-    member = world.browser("team_member")
-    response = post(member, "/projects/new/", {"team": str(world.team.pk), "name": "kinase atlas"})
-    assert response.status_code == 200
-    assert "Structural Biology already has a project called “kinase atlas”." in text(response)
+    member = api(world, "team_member")
+    body = problem(
+        member.post("/projects", {"team": str(world.team.pk), "name": "kinase atlas"}),
+        409,
+        "refused",
+    )
+    message = "Structural Biology already has a project called “kinase atlas”."
+    assert body["detail"] == message
+    assert body["errors"] == [{"pointer": "#/name", "detail": message}]
     other = Project.objects.create(team=world.other_team, name="Kinase Atlas")
     assert other.slug == "kinase-atlas-2"
 
 
 def test_unknown_and_deactivated_people_cant_be_added(world: World) -> None:
-    admin = world.browser("admin")
-    url = f"/projects/{world.project.slug}/members/"
-    unknown = post(admin, url, {"add": "person", "person-person": "x@example.com"})
-    assert "No one with that email address has signed in to Iki yet." in text(unknown)
-    inactive = post(admin, url, {"add": "person", "person-person": "inactive@example.com"})
-    assert "That person’s account is deactivated." in text(inactive)
+    admin = api(world, "admin")
+    # The app looks people up by address first, and says why it can't add them.
+    assert admin.get("/users", email="x@example.com").json()["items"] == []
+    [inactive] = admin.get("/users", email="inactive@example.com").json()["items"]
+    assert inactive["active"] is False
+    # The API refuses them anyway.
+    path = f"/projects/{project_id(world)}/members/users/{inactive['id']}"
+    body = problem(admin.put(path, {"role": "viewer"}), 409, "refused")
+    assert "deactivated" in body["detail"]
 
 
 # --- Project members -----------------------------------------------------------
 
 
 def test_admins_add_teams_change_roles_and_remove_people(world: World) -> None:
-    admin = world.browser("admin")
+    admin = api(world, "admin")
     team = Team.objects.create(name="Imaging")
     TeamMembership.objects.create(team=team, user=world.users["outsider"])
-    url = f"/projects/{world.project.slug}/members/"
-    added = post(admin, url, {"add": "team", "team-team": str(team.pk), "team-role": "30"})
-    assert "Everyone in Imaging is now a Runner." in follow(admin, added)
+    members = f"/projects/{project_id(world)}/members"
+    granted = admin.put(f"{members}/teams/{team.pk}", {"role": "runner"})
+    assert granted.status_code == 200, granted.content
     assert permissions.project_role(world.users["outsider"], world.project) == ProjectRole.RUNNER
 
-    viewer = world.project.memberships.get(user=world.users["viewer"])
-    changed = post(admin, f"{url}{viewer.pk}/", {"action": "change", "role": "20"})
-    assert "Viewer is now an Editor." in follow(admin, changed)
-    removed = post(admin, f"{url}{viewer.pk}/", {"action": "remove"})
-    assert "Removed Viewer from Kinase Atlas." in follow(admin, removed)
-    assert not world.project.memberships.filter(user=world.users["viewer"]).exists()
+    viewer = world.users["viewer"]
+    changed = admin.put(f"{members}/users/{viewer.pk}", {"role": "editor"})
+    assert changed.json()["role"] == "editor"
+    membership = world.project.memberships.get(user=viewer)
+    assert admin.delete(f"{members}/{membership.pk}").status_code == 204
+    assert not world.project.memberships.filter(user=viewer).exists()
 
 
 def test_members_see_the_member_list_read_only(world: World) -> None:
-    page = text(world.browser("viewer").get(f"/projects/{world.project.slug}/members/"))
-    assert "admin@example.com" in page and "Chemistry" in page
-    assert 'name="action" value="remove"' not in page
-    assert "What each role can do" in page
+    viewer = api(world, "viewer")
+    members = viewer.get(f"/projects/{project_id(world)}/members").json()["items"]
+    assert "admin@example.com" in [m["user"]["email"] for m in members if m["user"]]
+    assert "Chemistry" in [m["team"]["name"] for m in members if m["team"]]
+    project = viewer.get(f"/projects/{project_id(world)}").json()
+    assert project["can"] == {"read": True, "manage": False, "manage_members": False}
+    outsider = world.users["outsider"]
+    path = f"/projects/{project_id(world)}/members/users/{outsider.pk}"
+    problem(viewer.put(path, {"role": "admin"}), 403, "forbidden")
 
 
 def test_the_last_admin_cant_leave_or_step_down(world: World) -> None:
     ProjectMembership.objects.filter(project=world.project, user=world.users["inactive"]).delete()
-    admin = world.browser("admin")
+    admin = api(world, "admin")
     mine = world.project.memberships.get(user=world.users["admin"])
-    url = f"/projects/{world.project.slug}/members/{mine.pk}/"
-    for data in ({"action": "remove"}, {"action": "change", "role": "30"}):
-        page = follow(admin, post(admin, url, data))
-        assert "A project needs at least one Admin." in page
+    members = f"/projects/{project_id(world)}/members"
+    for refused in (
+        admin.delete(f"{members}/{mine.pk}"),
+        admin.put(f"{members}/users/{world.users['admin'].pk}", {"role": "runner"}),
+    ):
+        body = problem(refused, 409, "refused")
+        assert body["detail"].startswith("A project needs at least one Admin.")
     mine.refresh_from_db()
     assert mine.role == ProjectRole.ADMIN
 
@@ -154,43 +179,43 @@ def test_a_team_with_admin_role_counts_as_another_admin(world: World) -> None:
 
 
 def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World) -> None:
-    admin = world.browser("org_admin")
-    page = text(admin.get(f"/projects/{world.project.slug}/"))
-    assert "You’re not a member of this project" in page
-    assert "Add me as Admin" in page
-    home = text(admin.get("/"))
-    assert "can also see 1 project you’re not a member of" in home
+    admin = api(world, "org_admin")
+    project = admin.get(f"/projects/{project_id(world)}").json()
+    assert project["my_role"] is None
+    assert project["can"] == {"read": False, "manage": False, "manage_members": True}
 
-    joined = post(admin, f"/projects/{world.project.slug}/join/")
-    assert "You’re now an Admin of Kinase Atlas." in follow(admin, joined)
-    user = world.users["org_admin"]
-    assert permissions.can(user, Action.PROJECT_READ, world.project)
-    assert admin.get(f"/projects/{world.project.slug}/settings/").status_code == 200
+    me = world.users["org_admin"]
+    path = f"/projects/{project_id(world)}/members/users/{me.pk}"
+    assert admin.put(path, {"role": "admin"}).status_code == 200
+    assert permissions.can(me, Action.PROJECT_READ, world.project)
+    project = admin.get(f"/projects/{project_id(world)}").json()
+    assert project["can"] == {"read": True, "manage": True, "manage_members": True}
 
 
-def test_orphaned_projects_point_org_admins_at_recovery(world: World) -> None:
+def test_org_admins_can_recover_orphaned_projects(world: World) -> None:
     orphan = Project.objects.create(team=world.team, name="Orphan")
-    page = text(world.browser("org_admin").get(f"/projects/{orphan.slug}/"))
-    assert "This project has no Admins." in page
+    admin = api(world, "org_admin")
+    assert admin.get(f"/projects/{orphan.pk}/members").json()["items"] == []
+    me = world.users["org_admin"]
+    joined = admin.put(f"/projects/{orphan.pk}/members/users/{me.pk}", {"role": "admin"})
+    assert joined.status_code == 200
 
 
 # --- Archiving -----------------------------------------------------------------
 
 
 def test_archived_projects_are_read_only_until_restored(world: World) -> None:
-    admin = world.browser("admin")
-    url = f"/projects/{world.project.slug}/settings/"
-    post(admin, url, {"action": "archive"})
+    admin = api(world, "admin")
+    path = f"/projects/{project_id(world)}"
+    assert admin.patch(path, {"archived": True}).json()["archived"] is True
     world.project.refresh_from_db()
     assert world.project.is_archived
-    assert "archived and read-only" in text(admin.get(f"/projects/{world.project.slug}/"))
-    assert world.project.name not in text(admin.get("/"))  # home shows active projects only
 
-    refused = post(admin, url, {"name": "Renamed", "description": ""})
-    assert "Restore the project before changing it." in follow(admin, refused)
-    post(admin, url, {"action": "restore"})
-    saved = post(admin, url, {"name": "Kinase Atlas 2", "description": "New"})
-    assert path_of(saved) == f"/projects/{world.project.slug}/"  # the slug survives renames
+    body = problem(admin.patch(path, {"name": "Renamed"}), 409, "refused")
+    assert body["detail"] == "Restore the project before changing it."
+    admin.patch(path, {"archived": False})
+    saved = admin.patch(path, {"name": "Kinase Atlas 2", "description": "New"}).json()
+    assert saved["slug"] == world.project.slug  # the slug survives renames
     world.project.refresh_from_db()
     assert (world.project.name, world.project.is_archived) == ("Kinase Atlas 2", False)
 
@@ -198,10 +223,11 @@ def test_archived_projects_are_read_only_until_restored(world: World) -> None:
 def test_archived_teams_are_offered_to_no_one_for_new_projects(world: World) -> None:
     admin = world.browser("org_admin")
     post(admin, f"/teams/{world.team.slug}/settings/", {"action": "archive"})
-    member = world.browser("team_member")
-    assert "you’re not in a team yet" in text(member.get("/projects/new/"))
-    response = post(member, "/projects/new/", {"team": str(world.team.pk), "name": "Late"})
-    assert response.status_code == 200
+    member = api(world, "team_member")
+    assert member.get("/me").json()["can"]["create_projects"] is False
+    assert member.get("/teams", can_create_projects=True).json()["items"] == []
+    refused = member.post("/projects", {"team": str(world.team.pk), "name": "Late"})
+    assert refused.status_code >= 400
     assert not Project.objects.filter(name="Late").exists()
 
 
@@ -216,8 +242,8 @@ def test_people_page_lists_everyone_with_roles(world: World) -> None:
 
 
 def test_people_link_only_for_org_admins(world: World) -> None:
-    assert 'href="/people/"' in text(world.browser("org_admin").get("/projects/"))
-    assert 'href="/people/"' not in text(world.browser("admin").get("/projects/"))
+    assert 'href="/people/"' in text(world.browser("org_admin").get("/teams/"))
+    assert 'href="/people/"' not in text(world.browser("admin").get("/teams/"))
 
 
 def test_org_admins_grant_and_revoke_org_roles(world: World) -> None:
@@ -330,13 +356,15 @@ def test_refused_changes_leave_no_audit_event(world: World) -> None:
 
 
 def test_org_admins_joining_a_project_is_audited_as_self_granted(world: World) -> None:
-    admin = world.browser("org_admin")
-    post(admin, f"/projects/{world.project.slug}/join/")
+    me = world.users["org_admin"]
+    api(world, "org_admin").put(
+        f"/projects/{project_id(world)}/members/users/{me.pk}", {"role": "admin"}
+    )
     event = AuditEvent.objects.get(action="project.role_granted")
-    assert event.actor == world.users["org_admin"]
+    assert event.actor == me
     assert event.project == world.project
     assert event.data == {"role": "Admin", "self": True}
-    assert event.via == "web"
+    assert event.via == "api"
 
 
 def test_role_changes_record_the_previous_role(world: World) -> None:

@@ -30,6 +30,9 @@ coverage/
 # Rust
 target/
 
+# The built web app (`pnpm build`); images build their own
+server/src/iki_server/web/static/app/
+
 # Local environment and secrets — never commit these
 .env
 .env.*

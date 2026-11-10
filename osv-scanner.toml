@@ -89,3 +89,30 @@ license.ignore = true
 name = "jwcrypto"
 ecosystem = "PyPI"
 license.ignore = true
+
+# Data packages used only by development tools. They are never bundled into
+# the web app or installed in an image, so nothing under these licenses ships.
+# Each exception covers that package alone, not the license in general.
+#
+# - caniuse-lite (CC-BY-4.0): browser-support data that browserslist reads
+#   for Babel, which ESLint's React hooks plugin uses. CC-BY needs attribution
+#   only if the data is redistributed, and Iki doesn't redistribute it.
+# - language-subtag-registry (CC0-1.0, public domain): the IANA language tags
+#   that eslint-plugin-jsx-a11y uses to check `lang` attributes.
+# - mdn-data (CC0-1.0, public domain): CSS definitions that css-tree reads
+#   inside jsdom, which runs the web app's unit tests.
+
+[[PackageOverrides]]
+name = "caniuse-lite"
+ecosystem = "npm"
+license.ignore = true
+
+[[PackageOverrides]]
+name = "language-subtag-registry"
+ecosystem = "npm"
+license.ignore = true
+
+[[PackageOverrides]]
+name = "mdn-data"
+ecosystem = "npm"
+license.ignore = true

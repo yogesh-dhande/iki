@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 import pytest
+from api_client import Api
 from browser import Browser, complete_setup, path_of, setup_link_token, sign_in, sign_in_at_idp
 from django.core.management import CommandError, call_command
 from django.utils import timezone
@@ -69,7 +70,8 @@ def test_people_sign_in_after_setup_without_becoming_admins(
     assert path_of(callback) == "/"
     home = other.get("/")
     assert home.status_code == 200
-    assert "Welcome, Rosalind" in home.content.decode()
+    assert b'<div id="root">' in home.content
+    assert Api(other).get("/me").json()["name"] == "Rosalind Franklin"
     user = User.objects.get(email="rosalind@example.com")
     assert org_roles(user) == set()
 

@@ -129,11 +129,12 @@ def test_duplicate_names_are_shown_on_the_form(world: World) -> None:
 
 def test_project_admins_add_them_by_address(world: World) -> None:
     account = service_accounts.create("Pipeline", "", by=world.users["org_admin"])
-    browser = world.browser("admin")
-    url = f"/projects/{world.project.slug}/members/"
-    post(browser, url, {"add": "person", "person-person": account.email, "person-role": "30"})
+    api = Api(world.browser("admin"))
+    [found] = api.get("/users", email=account.email).json()["items"]
+    assert found["kind"] == "service"
+    path = f"/projects/{world.project.pk}/members/users/{found['id']}"
+    assert api.put(path, {"role": "runner"}).status_code == 200
     assert world.project.memberships.get(user=account).role == ProjectRole.RUNNER
-    assert b"Service account" in browser.get(url).content
 
 
 # --- API -----------------------------------------------------------------------

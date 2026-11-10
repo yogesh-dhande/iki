@@ -77,3 +77,11 @@ def test_production_uses_the_connection_pool_and_verified_tls() -> None:
     )
     result = run_manage("shell", "-c", code, env=PROD_ENV)
     assert result.returncode == 0, result.stderr
+
+
+def test_the_web_app_dev_server_is_refused_over_https() -> None:
+    result = run_manage("check", env={**PROD_ENV, "IKI_WEB_DEV_SERVER": "true"})
+    assert result.returncode != 0
+    assert "IKI_WEB_DEV_SERVER is for local development" in result.stderr
+    local = {**PROD_ENV, "IKI_WEB_DEV_SERVER": "true", "IKI_HTTPS": "false"}
+    assert run_manage("check", env=local).returncode == 0

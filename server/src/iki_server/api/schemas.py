@@ -1,13 +1,13 @@
 """What the API sends and accepts."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from ninja import Field, Schema
 
 from iki_server.accounts.models import User
-from iki_server.org.models import OrgRole, ProjectMembership, ProjectRole, Team
+from iki_server.org.models import OrgRole, Project, ProjectMembership, ProjectRole, Team
 
 ProjectRoleName = Literal["viewer", "editor", "runner", "admin"]
 OrgRoleName = Literal["org_admin", "compute_admin", "auditor"]
@@ -37,8 +37,15 @@ class UserOut(Schema):
     active: bool = Field(alias="is_active")
 
 
+class MeCan(Schema):
+    manage_org: bool = Field(description="People, teams, sign-in and apps settings.")
+    read_audit: bool
+    create_projects: bool = Field(description="In at least one of your teams.")
+
+
 class MeOut(UserOut):
     org_roles: list[OrgRoleName]
+    can: MeCan
 
 
 class OrgRolesIn(Schema):
@@ -93,6 +100,12 @@ class TeamMemberOut(Schema):
     added_at: datetime
 
 
+class ProjectCan(Schema):
+    read: bool = Field(description="Read the project's data.")
+    manage: bool = Field(description="Rename, describe, archive or restore it.")
+    manage_members: bool = Field(description="Give and remove access.")
+
+
 class ProjectOut(Schema):
     id: UUID
     name: str
@@ -104,10 +117,23 @@ class ProjectOut(Schema):
     my_role: ProjectRoleName | None = Field(
         description="Your role, from your own grant or your teams'; null if you have none."
     )
+    can: ProjectCan = Field(description="What you may do with it.")
 
     @staticmethod
     def resolve_my_role(project: object) -> ProjectRoleName | None:
         return role_name(getattr(project, "my_role", None))
+
+    @staticmethod
+    def resolve_can(project: Project, context: dict[str, Any]) -> dict[str, bool]:
+        from iki_server.org import permissions
+        from iki_server.org.permissions import Action
+
+        user = context["request"].auth
+        return {
+            "read": permissions.can(user, Action.PROJECT_READ, project),
+            "manage": permissions.can(user, Action.PROJECT_MANAGE, project),
+            "manage_members": permissions.can(user, Action.PROJECT_MEMBERS_MANAGE, project),
+        }
 
 
 class ProjectIn(Schema):
@@ -127,11 +153,26 @@ class ProjectMemberOut(Schema):
     role: ProjectRoleName
     user: UserOut | None
     team: TeamRef | None
+    team_size: int | None = Field(description="For a team's grant, how many people it covers.")
     added_at: datetime
+
+    @staticmethod
+    def resolve_team_size(membership: ProjectMembership) -> int | None:
+        team = membership.team
+        if team is None:
+            return None
+        cached = getattr(membership, "team_size", None)
+        return int(cached) if cached is not None else team.memberships.count()
 
     @staticmethod
     def resolve_role(membership: ProjectMembership) -> ProjectRoleName | None:
         return role_name(membership.role)
+
+
+class ProjectRoleOut(Schema):
+    name: ProjectRoleName
+    label: str
+    description: str
 
 
 class RoleIn(Schema):

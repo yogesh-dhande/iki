@@ -9,3 +9,8 @@ deploy/helm/*/templates/
 # Django templates: Prettier does not understand template tags.
 server/src/**/templates/
 .static/
+# Generated from the server's OpenAPI document by `make client`.
+web/packages/sdk/openapi.json
+web/packages/sdk/src/schema.ts
+# The built web app, served by the server.
+server/src/iki_server/web/static/app/

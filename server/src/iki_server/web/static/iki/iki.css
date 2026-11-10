@@ -898,3 +898,85 @@ input[type="date"] {
   background: var(--surface-2);
   font-weight: 600;
 }
+
+/* --- The web app (React): same classes, a few pieces only it needs ---------- */
+
+/* The app renders the header, main and footer inside #root; they lay out as
+   the body's own children, like on server-rendered pages. */
+#root {
+  display: contents;
+}
+
+/* Text people typed with line breaks, shown as they typed it. */
+.preserve-lines {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* A row's own error (a change the server refused) spans the row. */
+.row-problem {
+  flex-basis: 100%;
+}
+
+.row-problem .alert {
+  margin: 0;
+}
+
+/* Confirmation dialogs (React Aria: focus is trapped and returns on close). */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgb(10 15 20 / 55%);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 28rem;
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 25%);
+}
+
+.dialog-body {
+  padding: clamp(1.25rem, 4vw, 1.75rem);
+  outline: none;
+}
+
+.dialog-body .section-title {
+  margin-top: 0;
+}
+
+.dialog-body .actions {
+  margin-bottom: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dialog-overlay[data-entering] {
+    animation: dialog-fade 120ms ease-out;
+  }
+
+  .dialog-overlay[data-exiting] {
+    animation: dialog-fade 100ms ease-in reverse;
+  }
+}
+
+@keyframes dialog-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (forced-colors: active) {
+  .dialog {
+    border: 2px solid CanvasText;
+  }
+}

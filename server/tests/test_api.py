@@ -178,7 +178,10 @@ def test_me(world: World) -> None:
         "kind": "person",
         "active": True,
         "org_roles": ["org_admin"],
+        "can": {"manage_org": True, "read_audit": False, "create_projects": False},
     }
+    member = api_as(world, "team_member").get("/me").json()
+    assert member["can"] == {"manage_org": False, "read_audit": False, "create_projects": True}
 
 
 def test_projects_show_your_role_and_filter(world: World) -> None:
@@ -289,3 +292,59 @@ def test_role_names_cover_every_project_role() -> None:
     from iki_server.api.schemas import ProjectRoleName
 
     assert set(ProjectRoleName.__args__) == {r.name.lower() for r in ProjectRole}  # type: ignore[attr-defined]
+
+
+def test_projects_say_what_you_may_do_with_them(world: World) -> None:
+    def can(principal: str) -> dict[str, bool]:
+        found = api_as(world, principal).get("/projects", slug=world.project.slug).json()["items"]
+        assert [p["id"] for p in found] == [str(world.project.pk)]
+        result: dict[str, bool] = found[0]["can"]
+        return result
+
+    assert can("viewer") == {"read": True, "manage": False, "manage_members": False}
+    assert can("admin") == {"read": True, "manage": True, "manage_members": True}
+    # Org Admins see the project exists and can add themselves, but not read it.
+    assert can("org_admin") == {"read": False, "manage": False, "manage_members": True}
+
+
+def test_teams_you_can_create_projects_in(world: World) -> None:
+    names = [
+        t["name"]
+        for t in api_as(world, "team_member")
+        .get("/teams", can_create_projects="true")
+        .json()["items"]
+    ]
+    assert names == ["Structural Biology"]
+    assert api_as(world, "org_admin").get("/teams", can_create_projects="true").json() == {
+        "items": [],
+        "next_cursor": None,
+    }
+
+
+def test_grantable_teams_leave_out_teams_with_access_and_archived_ones(world: World) -> None:
+    from django.utils import timezone
+
+    from iki_server.org.models import Team
+
+    Team.objects.create(name="Gone", archived_at=timezone.now())
+    Team.objects.create(name="Genomics")
+    items = api_as(world, "admin").get(f"/projects/{world.project.pk}/grantable-teams").json()
+    # Chemistry already has a grant on the project.
+    assert sorted(t["name"] for t in items["items"]) == ["Genomics", "Structural Biology"]
+
+
+def test_team_grants_say_how_many_people_they_cover(world: World) -> None:
+    items = api_as(world, "admin").get(f"/projects/{world.project.pk}/members").json()["items"]
+    sizes = {(m["team"] or {}).get("name"): m["team_size"] for m in items}
+    assert sizes["Chemistry"] == 2
+    assert sizes[None] is None
+
+
+def test_project_roles_are_described_lowest_first(world: World) -> None:
+    roles = api_as(world, "viewer").get("/project-roles").json()
+    assert [r["name"] for r in roles] == ["viewer", "editor", "runner", "admin"]
+    assert roles[0] == {
+        "name": "viewer",
+        "label": "Viewer",
+        "description": "Reads entities, runs and views.",
+    }

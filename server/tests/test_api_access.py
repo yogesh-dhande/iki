@@ -127,7 +127,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         project(body={"description": "Kinases"}),
         visible(403, admin=200),
     ),
+    ("GET", "/project-roles", fixed("/project-roles"), row(200)),
     ("GET", "/projects/{project_id}/members", project("/members"), visible(200)),
+    (
+        "GET",
+        "/projects/{project_id}/grantable-teams",
+        project("/grantable-teams"),
+        visible(403, org_admin=200, admin=200),
+    ),
     (
         "PUT",
         "/projects/{project_id}/members/users/{user_id}",

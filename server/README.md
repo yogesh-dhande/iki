@@ -125,6 +125,7 @@ and the server refuses to start without them.
 | `IKI_OAUTH_CLIENT_METADATA_DOCUMENTS` | `false`       | Fetch apps' Client ID Metadata Documents (needs internet egress)                  |
 | `IKI_STATIC_ROOT`                     | `.static`     | Collected static files (`/opt/iki/static` in the image)                           |
 | `IKI_DEBUG`                           | `false`       | Django debug mode. Never in production                                            |
+| `IKI_WEB_DEV_SERVER`                  | `false`       | Development only: pages requested through Vite load the web app from it           |
 | `IKI_LOG_LEVEL`                       | `INFO`        | Root log level                                                                    |
 | `IKI_LOG_FORMAT`                      | `json`        | `json` or `console`                                                               |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`         | unset         | OTLP/HTTP collector. Unset means traces are not exported                          |
@@ -159,6 +160,15 @@ roles, service accounts, teams, projects and project access.
 - **Authorization:** the same rules as the web pages. Changes are audited
   with `via=api`, and with the OAuth client's name when a token made them.
 
+## Web app
+
+Home and the project pages are the React app in `web/app` (ADR 0029). The
+server answers their addresses with one page that loads the built app from
+`static/app/` and carries the CSRF token; the app reads everything from
+`/api/v1`. Build it with `make web` (the image builds it in its own stage).
+Without a build, those pages answer 503 and say so. Sign-in, setup, consent,
+teams, people, settings and the audit log are server-rendered.
+
 ## Health checks
 
 - `GET /healthz/live`: the process is serving. Checks nothing else.
@@ -188,3 +198,9 @@ included, can update or delete events.
 
 `uv run pytest` starts a throwaway Postgres container (Docker required), unless
 `IKI_TEST_DATABASE_URL` points at an existing server, as it does in CI.
+
+The browser tests (`tests/test_browser.py`) run Chromium, Firefox and WebKit
+against the real server, with axe and the production CSP. They need the built
+web app (`make web`) and the browsers (`uv run playwright install`). Without
+them they skip, except in CI, where they fail. `-m "not built_web_app"` leaves
+them out.

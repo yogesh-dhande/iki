@@ -56,7 +56,8 @@ def _http_error(request: HttpRequest, exc: HttpError) -> HttpResponse:
 
 @api.exception_handler(Refused)
 def _refused(request: HttpRequest, exc: Refused) -> HttpResponse:
-    return response(Problem(409, str(exc), code="refused"))
+    errors = [{"pointer": f"#/{exc.field}", "detail": str(exc)}] if exc.field else None
+    return response(Problem(409, str(exc), code="refused", errors=errors))
 
 
 @api.exception_handler(Http404)

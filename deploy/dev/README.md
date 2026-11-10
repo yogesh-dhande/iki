@@ -55,6 +55,12 @@ CoreDNS rewrite that points the name at the Keycloak Service. Chrome and
 Firefox resolve `*.localhost` on their own; if your browser doesn't (some
 Safari versions), add `127.0.0.1 keycloak.iki.localhost` to `/etc/hosts`.
 
+## Working on the web app
+
+`make web-dev` serves the React app with instant reloads at
+<http://localhost:5173>, passing pages, the API and sign-in to the cluster.
+Sign in at <http://localhost:8000> first. See [web/app](../../web/app/README.md).
+
 ## Security posture
 
 The dev cluster is deliberately close to production:

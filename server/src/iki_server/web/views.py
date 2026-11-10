@@ -1,20 +1,22 @@
-"""Home page and CSP violation reports."""
+"""The web app's pages, and CSP violation reports."""
 
 import json
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
+from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
-from iki_server.org import views as org_views
 from iki_server.setup.models import Installation
+from iki_server.web import frontend
 from iki_server.web.ratelimit import RateLimiter, client_key
 
 logger = structlog.get_logger("iki.csp")
+logger_web = structlog.get_logger("iki.web")
 
 MAX_REPORT_BYTES = 16 * 1024
 csp_report_limiter = RateLimiter("csp_report", limit_per_minute=30)
@@ -24,7 +26,19 @@ csp_report_limiter = RateLimiter("csp_report", limit_per_minute=30)
 def home(request: HttpRequest) -> HttpResponse:
     if not Installation.get().is_set_up:
         return redirect("setup:start")
-    return org_views.home(request)
+    return app(request)
+
+
+@require_GET
+@login_required
+def app(request: HttpRequest, **_: str) -> HttpResponse:
+    """A page of the web app. The app routes on the address and reads the API."""
+    try:
+        assets = frontend.page_assets(request)
+    except frontend.AppNotBuilt:
+        logger_web.exception("web_app_not_built")
+        assets = None
+    return render(request, "web/app.html", {"assets": assets}, status=200 if assets else 503)
 
 
 def _without_query(url: Any) -> str | None:  # noqa: ANN401

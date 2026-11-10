@@ -51,6 +51,13 @@ spec:
               value: {{ .Values.forwardedAllowIps | quote }}
             - name: IKI_KEEP_ALIVE_SECONDS
               value: {{ .Values.web.keepAliveSeconds | quote }}
+            {{- if .Values.web.devServer }}
+            {{- if .Values.https }}
+            {{- fail "web.devServer is for local development, which runs with https: false" }}
+            {{- end }}
+            - name: IKI_WEB_DEV_SERVER
+              value: "true"
+            {{- end }}
           ports:
             - name: http
               containerPort: 8000

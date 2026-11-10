@@ -54,9 +54,8 @@ def test_templates_have_no_inline_scripts_styles_or_handlers(client: Browser) ->
     templates = Path(iki_server.web.__file__).parent / "templates"
     for template in templates.rglob("*.html"):
         text = template.read_text()
-        assert "<script>" not in text and "<script " not in text.replace("<script src=", ""), (
-            template
-        )
+        scripts = text.replace('<script type="module" src=', "").replace("<script src=", "")
+        assert "<script" not in scripts, template
         assert "<style" not in text, template
         assert " style=" not in text, template
         assert " onclick=" not in text and " onload=" not in text, template
@@ -139,7 +138,7 @@ def test_sign_out_needs_post_with_csrf(client: Browser, fake_idp: FakeIdP) -> No
     forged = client.post("/logout/")
     assert forged.status_code == 403
     assert client.get("/").status_code == 200
-    response = client.submit("/", action="/logout/")
+    response = client.submit("/teams/", action="/logout/")
     assert response["Location"] == "/signed-out/"
     assert client.get("/").status_code == 302
     assert "signed out of Iki" in client.get("/signed-out/").content.decode()

@@ -110,6 +110,9 @@ web:
   # balancer's idle timeout (AWS ALB and ingress-nginx: 60s; Google Cloud's
   # load balancers need more than 600s), or it answers 502 now and then.
   keepAliveSeconds: 75
+  # Local development only: pages requested through the web app's Vite dev
+  # server (`make web-dev`) load its modules from there. Needs https: false.
+  devServer: false
   resources:
     requests: { cpu: 250m, memory: 384Mi }
     limits: { memory: 768Mi }

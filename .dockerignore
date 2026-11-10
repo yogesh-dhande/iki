@@ -6,6 +6,16 @@
 !NOTICE
 !server/
 !cli/
+# The web app, built into the image by its own stage.
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+!web/
+**/node_modules/
+web/**/dist/
+# A local build would otherwise ride along; the image builds its own.
+server/src/iki_server/web/static/app/
 server/tests/
 **/__pycache__/
 **/*.pyc

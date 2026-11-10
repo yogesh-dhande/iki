@@ -32,6 +32,7 @@ dev = [
   "ruff>=0.17.4",
   "testcontainers[postgres]>=4.15.0",
   "types-pyyaml>=6.0.12",
+  "playwright>=1.65",
 ]
 
 [tool.ruff]
@@ -104,6 +105,17 @@ module = ["oauth2_provider", "oauth2_provider.*", "oauthlib", "oauthlib.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# servestatic ships no type information.
+module = ["servestatic", "servestatic.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The web app's static file storage and middleware extend servestatic's.
+module = ["iki_server.web.frontend"]
+disallow_subclassing_any = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
 # Iki's OAuth views extend django-oauth-toolkit's untyped views.
 # Their models' fields come back as Any.
 module = ["iki_server.oauth.*"]
@@ -129,6 +141,9 @@ pythonpath = ["server/tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
 testpaths = ["server/tests", "cli/tests", "deploy/helm/iki/tests"]
 xfail_strict = true
+markers = [
+  "built_web_app: loads the web app's real build (run `make web` first) instead of a stand-in",
+]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [

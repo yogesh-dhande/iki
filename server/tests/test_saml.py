@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from api_client import Api
 from browser import (
     Browser,
     Response,
@@ -167,7 +168,8 @@ def test_people_sign_in_with_saml(set_up: FakeSamlIdP) -> None:
         {"email": "rosalind@example.com", "displayName": "Rosalind Franklin"},
     )
     assert path_of(response) == "/"
-    assert "Welcome, Rosalind" in browser.get("/").content.decode()
+    assert browser.get("/").status_code == 200
+    assert Api(browser).get("/me").json()["name"] == "Rosalind Franklin"
     user = User.objects.get(email="rosalind@example.com")
     assert user.name == "Rosalind Franklin"
     assert OrgRoleAssignment.objects.filter(user=user).count() == 0

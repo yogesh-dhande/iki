@@ -9,8 +9,28 @@
 # provenance published with each image record exactly what it contains.
 
 ARG PYTHON_IMAGE=python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
+ARG NODE_IMAGE=node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
 
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
+
+# --- Web app: the React app the server serves (web/app) ----------------------
+FROM ${NODE_IMAGE} AS web
+# Corepack fetches the pnpm that package.json names and checks its hash.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    PNPM_HOME=/pnpm \
+    CI=true
+RUN corepack enable
+WORKDIR /src
+# Dependencies first, so source changes don't invalidate this layer.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY web/app/package.json web/app/
+COPY web/packages/sdk/package.json web/packages/sdk/
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter "@ikisci/app..."
+COPY web web
+# Writes server/src/iki_server/web/static/app (Vite's outDir).
+RUN pnpm --filter @ikisci/app build \
+ && test -f /src/server/src/iki_server/web/static/app/manifest.json
 
 # --- Build: resolve the locked dependencies into a virtualenv ----------------
 FROM ${PYTHON_IMAGE} AS build
@@ -31,6 +51,7 @@ COPY cli/pyproject.toml cli/README.md cli/LICENSE cli/NOTICE cli/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-install-workspace
 COPY server/src server/src
+COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/web/static/app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable
 # Static files, content-hashed and compressed. Settings need their required

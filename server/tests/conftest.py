@@ -24,6 +24,31 @@ POSTGRES_IMAGE = (
 SPAN_EXPORTER = InMemorySpanExporter()
 
 
+#: What the web app's build manifest names, for tests that don't need the real app.
+FAKE_WEB_APP_MANIFEST = {
+    "src/main.tsx": {
+        "file": "assets/main-test.js",
+        "src": "src/main.tsx",
+        "isEntry": True,
+        "imports": ["_vendor-test.js"],
+    },
+    "_vendor-test.js": {"file": "assets/vendor-test.js"},
+}
+
+
+@pytest.fixture(autouse=True)
+def _web_app_manifest(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pages load a stand-in app, so the tests don't depend on a ``pnpm build``.
+
+    Mark a test ``built_web_app`` to load the real one (browser tests).
+    """
+    if request.node.get_closest_marker("built_web_app"):
+        return
+    from iki_server.web import frontend
+
+    monkeypatch.setattr(frontend, "manifest", lambda: FAKE_WEB_APP_MANIFEST)
+
+
 def pytest_configure(config: pytest.Config) -> None:
     from django.conf import settings
 
