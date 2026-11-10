@@ -127,6 +127,10 @@ database:
   pool:
     minSize: 2
     maxSize: 10
+  # A Postgres role (created beforehand) for analysts and BI tools. It gets
+  # read-only access to the views in the iki_views schema, one per entity
+  # type, and the entity tables behind them; nothing else. Empty: none.
+  analystRole: ""
 
 otel:
   # OTLP/HTTP collector endpoint, e.g. http://otel-collector:4318. Empty

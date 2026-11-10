@@ -1,6 +1,8 @@
 {{- if .Values.migrate.enabled }}
 # Applies database migrations before any new web pod starts, as the migrator
-# (the schema's owner), then grants the app's role exactly what it needs. As
+# (the schema's owner), syncs what plugins need beyond migrations (HRID
+# sequences, comments, analyst views), then grants the app's role exactly
+# what it needs. As
 # a Helm hook it runs before the release's other resources exist, so it
 # references only Secrets that the operator created beforehand. A failed
 # step fails the install or upgrade, and the old pods keep serving.
@@ -52,7 +54,7 @@ spec:
             {{- include "iki.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "iki.volumeMounts" . | nindent 12 }}
-        # Init containers run in order: wait, migrate, then grant (below).
+        # Init containers run in order: wait, migrate, sync, then grant (below).
         - name: migrate
           image: {{ include "iki.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -62,6 +64,24 @@ spec:
             # One short-lived connection is enough for migrations.
             - name: IKI_DB_POOL
               value: "false"
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "iki.volumeMounts" . | nindent 12 }}
+        - name: sync-plugins
+          image: {{ include "iki.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["sync_plugins"]
+          env:
+            {{- include "iki.migratorEnv" . | nindent 12 }}
+            - name: IKI_DB_POOL
+              value: "false"
+            {{- with .Values.database.analystRole }}
+            - name: IKI_DB_ANALYST_ROLE
+              value: {{ . | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.migrate.resources | nindent 12 }}
           securityContext:

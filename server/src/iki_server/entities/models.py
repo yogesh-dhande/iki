@@ -6,7 +6,7 @@ multi-table inheritance, so a protein is an ``iki_entity`` row joined to a
 ``protein_protein`` row by ``entity_id``.
 """
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from django.conf import settings
 from django.db import models
@@ -14,6 +14,7 @@ from django.db.models import Q
 from django.db.models.functions import Now
 
 from iki_server.core.ids import uuid7
+from iki_server.entities import hrids, identity, registry
 from iki_server.org.models import Project
 
 #: A qualified type name, ``plugin.Type``.
@@ -61,3 +62,19 @@ class Entity(models.Model):
 
     def __str__(self) -> str:
         return self.hrid
+
+    def save(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401 - Django's signature
+        """A new entity of a plugin type gets its type, HRID and identity hash here."""
+        iki_type = getattr(type(self), "IKI_TYPE", None)
+        if self._state.adding and iki_type is not None:
+            entity_type = registry.types()[iki_type]
+            if entity_type.abstract:
+                raise ValueError(f"{iki_type} is abstract: create one of its subtypes.")
+            if self.type and self.type != iki_type:
+                raise ValueError(f"A {iki_type} can't have the type {self.type}.")
+            self.type = iki_type
+            if not self.hrid:
+                self.hrid = hrids.next_hrid(entity_type)
+            if self.identity_hash is None:
+                self.identity_hash = identity.hash_for(self, entity_type)
+        super().save(*args, **kwargs)

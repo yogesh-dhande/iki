@@ -26,12 +26,16 @@ dependencies = [
   "requests>=2.34.2",
   "django-ninja>=1.8",
   "django-oauth-toolkit>=3.4.1",
+  "iki-spec",
 ]
 
 [project.optional-dependencies]
 # Container images build psycopg's C extension against the distro's libpq,
 # which gets OS security updates. Development uses the prebuilt binary wheel.
 c = ["psycopg[c]>=3.3.8"]
+
+[tool.uv.sources]
+iki-spec = { workspace = true }
 
 [project.scripts]
 iki-server = "iki_server.manage:main"

@@ -1,10 +1,11 @@
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from iki_codegen import REGISTRY, build, in_dependency_order, render_models
+from iki_codegen import REGISTRY, build, conflicts, in_dependency_order, render_models
 from iki_spec import naming
 from iki_spec.model import BUILTIN_TYPES, Plugin, plugin_from_dict
 from iki_spec.validate import load_plugin
@@ -112,3 +113,29 @@ def test_long_constraint_names_stay_unique_and_fit() -> None:
     assert naming.constraint_name("dna_dnasequence", "bases", "format") == (
         "dna_dnasequence__bases__format"
     )
+
+
+def test_plugins_that_cant_be_installed_together(plugins: list[Plugin], tmp_path: Path) -> None:
+    _, protein, prediction = plugins
+    assert conflicts(plugins) == []
+    # A second plugin with the same prefix and the same field on ProteinStructure.
+    copy = replace(
+        prediction,
+        name="folding",
+        types={
+            "folding.Model": replace(
+                protein.types["protein.Protein"], plugin="folding", name="Model"
+            )
+        },
+        extensions=tuple(replace(e, plugin="folding") for e in prediction.extensions),
+    )
+    problems = conflicts([*plugins, copy])
+    assert problems == [
+        "folding.Model and protein.Protein both use the HRID prefix PRT",
+        "folding and structure_prediction both add the field `plddt_mean` to "
+        "protein.ProteinStructure",
+        "folding and structure_prediction both add the field `pae` to protein.ProteinStructure",
+        "folding and structure_prediction both add the field `ranking` to protein.ProteinStructure",
+    ]
+    with pytest.raises(ValueError, match="both use the HRID prefix PRT"):
+        build([*plugins, copy], tmp_path)

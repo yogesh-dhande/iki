@@ -240,6 +240,10 @@
             }
           }
         },
+        "analystRole": {
+          "type": "string",
+          "pattern": "^([a-z_][a-z0-9_]{0,62})?$"
+        },
         "migrator": {
           "type": "object",
           "required": ["existingSecret", "uriKey"],

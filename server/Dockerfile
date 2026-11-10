@@ -53,6 +53,8 @@ COPY codegen/pyproject.toml codegen/README.md codegen/LICENSE codegen/NOTICE cod
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-install-workspace
 COPY server/src server/src
+# The server reads plugin manifests and units with iki-spec.
+COPY spec/src spec/src
 COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/web/static/app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable

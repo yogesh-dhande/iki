@@ -18,6 +18,7 @@ type's history:
 - When a quantity's unit changes, the migration converts the stored values,
   current and historical (``ConvertUnit``).
 - When a type is renamed, the migration renames it in ``iki_entity.type``.
+- A new history table is made append-only for every role (``AppendOnly``).
 
 Migrations are written as Django renders them, never through a code
 formatter, so every machine writes the same files.
@@ -99,7 +100,7 @@ def _autodetector() -> type:
     from django.db.migrations.migration import Migration
     from django.db.migrations.state import ProjectState
 
-    from iki_server.plugins.operations import ConvertUnit, RenameEntityType
+    from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
 
     class PluginAutodetector(MigrationAutodetector):
         def __init__(
@@ -120,6 +121,11 @@ def _autodetector() -> type:
                 for migration in app_migrations:
                     operations = self._with_history_rules(app_label, migration.operations)
                     migration.operations = operations  # type: ignore[misc]
+                    if any(isinstance(op, AppendOnly) for op in operations):
+                        # AppendOnly's trigger function.
+                        needed = ("iki_entities", "0002_history_append_only")
+                        if needed not in migration.dependencies:
+                            migration.dependencies = [*migration.dependencies, needed]  # type: ignore[misc]
                 if len(app_migrations) == 1 and not named:
                     _rename(app_migrations[0])
             return changes
@@ -154,6 +160,8 @@ def _autodetector() -> type:
                     conversion = self._conversion(app_label, op, old)
                     if conversion is not None:
                         out.append(conversion)
+                if isinstance(op, migrations.CreateModel) and _is_history(op.name):
+                    out.append(AppendOnly(op.name))
                 if isinstance(op, migrations.RenameModel) and not _is_derived(op.new_name):
                     out.append(
                         RenameEntityType(f"{app_label}.{op.old_name}", f"{app_label}.{op.new_name}")
@@ -199,8 +207,10 @@ def _rename(migration: Any) -> None:  # noqa: ANN401 - a Django migration
     from django.db import migrations
     from django.db.migrations.migration import Migration
 
-    constraints = (migrations.AddConstraint, migrations.RemoveConstraint)
-    kept = [op for op in migration.operations if not isinstance(op, constraints)]
+    from iki_server.plugins.operations import AppendOnly
+
+    noise = (migrations.AddConstraint, migrations.RemoveConstraint, AppendOnly)
+    kept = [op for op in migration.operations if not isinstance(op, noise)]
     if not kept or migration.initial:
         return
     probe = Migration("probe", migration.app_label)

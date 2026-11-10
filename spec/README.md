@@ -73,9 +73,35 @@ display:
 | `extends`               | A parent type. Entities of this type are also entities of the parent, with its fields.              |
 | `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.      |
 | `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12).   |
-| `identity`              | Fields that make an entity the same as another. Each must be `required` and `immutable`.            |
+| `identity`              | Fields that make an entity the same as another. Each must be `required` and `immutable`. See below. |
 | `on_duplicate`          | When someone creates a duplicate: `reuse` the existing entity, `warn` and let them choose, `allow`. |
 | `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                  |
+
+### Identities
+
+Iki stores a hash of each entity's identity values, to find duplicates.
+Subtypes share the identity of the type that declares it. The hash is the
+SHA-256, in lower-case hex, of UTF-8 JSON with sorted keys and no spaces:
+
+```json
+{ "type": "dna.DNASequence", "v": 1, "values": { "bases": "ACGT" } }
+```
+
+Here written with spaces for reading; the hashed form is
+`{"type":"dna.DNASequence","v":1,"values":{"bases":"ACGT"}}`. `type` is the
+type that declares the identity. Each value is encoded by its field's type:
+
+| Type                     | Encoded as                                |
+| ------------------------ | ----------------------------------------- |
+| `string`, `text`, `enum` | The text, in Unicode NFC                  |
+| `int`                    | A JSON integer                            |
+| `bool`                   | `true` or `false`                         |
+| `date`                   | `"YYYY-MM-DD"`                            |
+| `datetime`               | UTC: `"YYYY-MM-DDTHH:MM:SS.ffffffZ"`      |
+| `ref`                    | The entity's UUID, lower case             |
+| `file`                   | The SHA-256 of the file's content, in hex |
+
+[`iki_spec.identity`](src/iki_spec/identity.py) implements it.
 
 ### Extensions
 
@@ -148,7 +174,15 @@ name must fit PostgreSQL's 63 characters.
 
 Other lists are arrays. PostgreSQL checks every rule it can (formats,
 patterns, enums, bounds, lengths, list sizes) with CHECK constraints, so bad
-data is refused however it is written.
+data is refused however it is written. History tables are append-only, for
+every role.
+
+At deploy time, `iki-server sync_plugins` creates each prefix's HRID
+sequence, comments every table and column from the manifests, and builds a
+read-only view per type in the `iki_views` schema, such as
+`iki_views.protein_protein`. Each view joins the type's fields, its parents'
+and those other plugins add. Plugins installed together can't share an HRID
+prefix, a table, or a field they add to the same type.
 
 ## Units
 

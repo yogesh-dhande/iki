@@ -122,10 +122,22 @@ def build(plugins: Path, *names: str) -> Path:
 # --- The first-party style plugins -------------------------------------------------------------
 
 
-def make_fixture_migrations(plugins: Path) -> None:
+@pytest.fixture(scope="module")
+def _migrated_plugins(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The fixture plugins with their first migrations, made once for the module."""
+    plugins = tmp_path_factory.mktemp("migrated") / "plugins"
+    shutil.copytree(PLUGINS, plugins)
     made("dna", "--no-input", cwd=plugins)
     made("protein", "--with", "dna", "--no-input", cwd=plugins)
     made("structure_prediction", "--with", "protein", "--with", "dna", "--no-input", cwd=plugins)
+    return plugins
+
+
+@pytest.fixture
+def migrated(tmp_path: Path, _migrated_plugins: Path) -> Path:
+    """A copy of the fixture plugins with their migrations, for one test."""
+    shutil.copytree(_migrated_plugins, tmp_path / "plugins")
+    return tmp_path / "plugins"
 
 
 def test_makemigrations_writes_to_the_plugin(plugins: Path) -> None:
@@ -161,9 +173,8 @@ def test_check_fails_when_manifests_change(plugins: Path) -> None:
     ).exists()
 
 
-def test_fixture_plugins_migrate_forwards_and_back(plugins: Path, database: str) -> None:
-    make_fixture_migrations(plugins)
-    out = build(plugins, "dna", "protein", "structure_prediction")
+def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str) -> None:
+    out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     tables = {
         row[0]
@@ -197,9 +208,8 @@ def test_fixture_plugins_migrate_forwards_and_back(plugins: Path, database: str)
     assert left == [(0,)]
 
 
-def test_generated_models_store_entities(plugins: Path, database: str) -> None:
-    make_fixture_migrations(plugins)
-    out = build(plugins, "dna", "protein", "structure_prediction")
+def test_generated_models_store_entities(migrated: Path, database: str) -> None:
+    out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     result = orm(
         out,
@@ -244,6 +254,140 @@ def test_generated_models_store_entities(plugins: Path, database: str) -> None:
     }
 
 
+def sync(build: Path, database: str, *args: str) -> str:
+    result = django(build, database, "-m", "django", "sync_plugins", *args)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database: str) -> None:
+    out = build(migrated, "dna", "protein", "structure_prediction")
+    migrate(out, database)
+    report = sync(out, database)
+    assert report.splitlines()[:3] == [
+        "  HRID sequence iki_hrid_dna",
+        "  HRID sequence iki_hrid_prt",
+        "  HRID sequence iki_hrid_pst",
+    ]
+    assert sync(out, database) == report  # idempotent
+    result = orm(
+        out,
+        database,
+        """
+        from iki_plugin_dna.models import DNASequence, Sequence
+        from iki_plugin_protein.models import Protein, ProteinStructure, ProteinStructure_chains
+        from iki_plugin_structure_prediction.models import Ext_protein_ProteinStructure
+        from iki_spec.identity import identity_hash
+
+        first = DNASequence.objects.create(owner_project=project, bases="ACGT", name="pUC19")
+        second = DNASequence.objects.create(owner_project=project, bases="ACGTT")
+        protein = Protein.objects.create(owner_project=project, sequence="MKV", encoded_by=first)
+        structure = ProteinStructure.objects.create(owner_project=project, structure=blob)
+        ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein)
+        Ext_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
+        try:
+            Sequence.objects.create(owner_project=project, name="abstract")
+            abstract = "saved"
+        except ValueError as error:
+            abstract = str(error)
+        result = {
+            "hrids": [first.hrid, second.hrid, protein.hrid, structure.hrid],
+            "types": [first.type, protein.type],
+            "identity": first.identity_hash == identity_hash(
+                "dna.DNASequence", {"bases": ("string", "ACGT")}
+            ),
+            "no identity": structure.identity_hash,
+            "abstract": abstract,
+            "protein": str(protein.pk),
+        }
+        """,
+    )
+    assert result["hrids"] == ["DNA-000001", "DNA-000002", "PRT-000001", "PST-000001"]
+    assert result["types"] == ["dna.DNASequence", "protein.Protein"]
+    assert result["identity"] is True
+    assert result["no identity"] is None
+    assert result["abstract"] == "dna.Sequence is abstract: create one of its subtypes."
+
+    # Views join a type's tables, its parents' and extensions'.
+    assert query(
+        database, "SELECT hrid, name, bases, topology FROM iki_views.dna_dnasequence ORDER BY hrid"
+    ) == [("DNA-000001", "pUC19", "ACGT", "linear"), ("DNA-000002", None, "ACGTT", "linear")]
+    assert query(database, "SELECT hrid FROM iki_views.dna_sequence ORDER BY hrid") == [
+        ("DNA-000001",),
+        ("DNA-000002",),
+        ("PRT-000001",),
+    ]
+    ((hrid, chains, plddt),) = query(
+        database, "SELECT hrid, chains, plddt_mean FROM iki_views.protein_proteinstructure"
+    )
+    assert (hrid, [str(c) for c in chains], plddt) == ("PST-000001", [result["protein"]], 91.5)
+    assert query(database, "SELECT encoded_by_id IS NOT NULL FROM iki_views.protein_protein") == [
+        (True,)
+    ]
+
+    def comment(table: str, column: str) -> str:
+        ((text,),) = query(
+            database,
+            "SELECT col_description(%s::regclass, attnum) FROM pg_attribute "
+            "WHERE attrelid = %s::regclass AND attname = %s",
+            table,
+            table,
+            column,
+        )
+        return str(text)
+
+    assert comment("protein_protein", "molecular_weight") == "Molecular weight. In u (UCUM)."
+    assert comment("dna_dnasequence", "gc_content") == "Gc content. In % (UCUM)."
+    assert comment("protein_protein", "encoded_by_id") == "Encoded by. Refers to a dna.DNASequence."
+    assert comment("iki_views.protein_protein", "molecular_weight") == (
+        "Molecular weight. In u (UCUM)."
+    )
+    assert query(database, "SELECT obj_description('dna_dnasequence'::regclass)") == [
+        ("DNA sequence (dna.DNASequence), schema version 2.",)
+    ]
+
+
+def test_history_is_append_only_for_every_role(migrated: Path, database: str) -> None:
+    out = build(migrated, "dna")
+    migrate(out, database)
+    with psycopg.connect(database, autocommit=True) as connection:
+        connection.execute(
+            "INSERT INTO dna_sequence__history (entity_id, revision, name) "
+            "VALUES (gen_random_uuid(), 1, 'a')"
+        )
+        for statement in (
+            "UPDATE dna_sequence__history SET name = 'b'",
+            "DELETE FROM dna_sequence__history",
+            "TRUNCATE dna_sequence__history",
+        ):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege, match="append-only"):
+                connection.execute(statement)
+
+
+def test_an_analyst_role_reads_only_the_views(migrated: Path, database: str) -> None:
+    out = build(migrated, "dna")
+    migrate(out, database)
+    role = f"analyst_{secrets.token_hex(3)}"
+    with psycopg.connect(database, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role)))
+    try:
+        assert sync(out, database, "--analyst-role", role).splitlines()[-2] == (
+            f"  {role} can read the views"
+        )
+        with psycopg.connect(database) as connection:
+            connection.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role)))
+            assert connection.execute("SELECT count(*) FROM iki_views.dna_dnasequence").fetchall()
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("SELECT * FROM iki_audit_event")
+    finally:
+        with psycopg.connect(database, autocommit=True) as connection:
+            connection.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(role)))
+            connection.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
+    result = django(out, database, "-m", "django", "sync_plugins", "--analyst-role", "nobody")
+    assert result.returncode == 1
+    assert "Postgres has no role 'nobody'. Create it first." in result.stderr
+
+
 #: Writes the database refuses, and the CHECK constraint that refuses each.
 VIOLATIONS = {
     "bases": ("DNASequence", {"bases": "ACGU"}, "dna_dnasequence__bases__format"),
@@ -267,9 +411,8 @@ VIOLATIONS = {
 }
 
 
-def test_the_database_enforces_field_rules(plugins: Path, database: str) -> None:
-    make_fixture_migrations(plugins)
-    out = build(plugins, "dna", "protein")
+def test_the_database_enforces_field_rules(migrated: Path, database: str) -> None:
+    out = build(migrated, "dna", "protein")
     migrate(out, database)
     cases = {name: [model, values] for name, (model, values, _) in VIOLATIONS.items()}
     result = orm(

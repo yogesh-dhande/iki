@@ -68,7 +68,7 @@ canonical UCUM unit into the migration state, so a unit change shows up as a
 migration.
 
 **Descriptions aren't in migrations.** Table and column comments (labels,
-descriptions, units) are documentation. The deploy-time sync sets them from
+descriptions, units) are documentation. `sync_plugins` (below) sets them from
 the manifests, so editing a description needs no migration.
 
 **`iki plugin makemigrations` is Django's makemigrations, with history
@@ -98,6 +98,43 @@ migration files into the plugin's `migrations/`. On top of Django:
 
 `--check` fails when a manifest has changed without a migration. The plugin
 template's CI runs it.
+
+**`iki-server sync_plugins` does what migrations shouldn't.** The migrate Job
+runs it as the migrator, after `migrate` and before `grant_app_privileges`.
+It is idempotent and works from the manifests the build installed:
+
+- **HRID sequences.** There is one per prefix (`iki_hrid_prt`). They are
+  created if missing and never dropped, so a number is never reused, even if
+  a plugin leaves and comes back. A new entity gets its type, HRID and
+  identity hash when it is first saved. Abstract types can't have entities.
+- **Comments** on every plugin table and column: label, description, unit,
+  and what a reference points to.
+- **A view per type** in the schema `iki_views`, for analysts and BI tools.
+  Each view joins the entity row, the type's tables up its parents, and
+  every installed extension, with lists of references or files as arrays.
+  The views use `security_invoker`, so they never grant more than their
+  reader already has. Views are rebuilt on every deploy. If someone has built
+  their own view on one of them, the deploy fails rather than dropping it.
+- **An analyst role.** If `database.analystRole` names one, it can read the
+  views and the entity tables behind them, current values and history, and
+  nothing else.
+
+**History is append-only for every role.** Each history table gets triggers,
+created by its own migration (`AppendOnly`), that refuse UPDATE, DELETE and
+TRUNCATE, even from the tables' owner. Only `ConvertUnit` lifts them, inside
+a migration, to rewrite a quantity in its new unit.
+
+**Identity hashes follow a written encoding** (`iki_spec.identity`). This is
+canonical JSON with sorted keys and no spaces, with values encoded by type:
+NFC text, integers, UTC datetimes with microseconds, UUIDs, and a file's
+content SHA-256. It is versioned, and it names the type that declares the
+identity, so subtypes share their parent's duplicates. Other languages can
+compute the same hash.
+
+**Plugins installed together must not clash.** `iki plugin build` refuses two
+plugins with the same HRID prefix, the same table, or the same field added to
+one type. Each plugin's own validator can't see these, because it only knows
+its dependencies.
 
 ## Consequences
 

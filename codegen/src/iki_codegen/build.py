@@ -45,6 +45,40 @@ def in_dependency_order(plugins: Sequence[Plugin]) -> list[Plugin]:
     return list(done.values())
 
 
+def conflicts(plugins: Sequence[Plugin]) -> list[str]:
+    """What plugins that each validate on their own can't do together in one deployment.
+
+    Each plugin's validator only sees the plugins it depends on. Plugins that
+    don't know each other can still share an HRID prefix, a table name, or
+    a field they add to the same type.
+    """
+    problems = []
+    prefixes: dict[str, str] = {}
+    tables: dict[str, str] = {}
+    added: dict[tuple[str, str], str] = {}
+    for plugin in sorted(plugins, key=lambda p: p.name):
+        for t in plugin.types.values():
+            if t.hrid_prefix and not t.abstract:
+                other = prefixes.setdefault(t.hrid_prefix, t.qualified_name)
+                if other != t.qualified_name:
+                    problems.append(
+                        f"{other} and {t.qualified_name} both use the HRID prefix {t.hrid_prefix}"
+                    )
+            for table in (t.table, naming.history_table(t.table)):
+                other = tables.setdefault(table, t.qualified_name)
+                if other != t.qualified_name:
+                    problems.append(f"{other} and {t.qualified_name} both need the table {table}")
+        for e in plugin.extensions:
+            for name in e.fields:
+                key = (e.extends_type, name)
+                other = added.setdefault(key, plugin.name)
+                if other != plugin.name:
+                    problems.append(
+                        f"{other} and {plugin.name} both add the field `{name}` to {e.extends_type}"
+                    )
+    return problems
+
+
 def build(
     plugins: Sequence[Plugin],
     output: Path,
@@ -56,6 +90,9 @@ def build(
     ``migrations`` maps a plugin's name to its repository's ``migrations/``.
     """
     ordered = in_dependency_order(plugins)
+    problems = conflicts(ordered)
+    if problems:
+        raise ValueError("; ".join(problems))
     types: dict[str, EntityType] = dict(BUILTIN_TYPES)
     for plugin in ordered:
         types.update(plugin.types)

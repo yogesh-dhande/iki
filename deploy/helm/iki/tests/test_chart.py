@@ -160,12 +160,25 @@ def test_migrations_run_as_a_pre_upgrade_hook_that_never_retries() -> None:
     assert hooks == ["pre-install", "pre-upgrade"]
     assert job["spec"]["backoffLimit"] == 0
     pod = job["spec"]["template"]["spec"]
-    # In order: wait for Postgres, migrate, then grant the app's role its privileges.
-    wait, migrate = pod["initContainers"]
+    # In order: wait for Postgres, migrate, sync plugins, then grant the app's role its
+    # privileges.
+    wait, migrate, sync = pod["initContainers"]
     assert wait["args"] == ["wait_for_database", "--timeout", "300"]
     assert migrate["args"] == ["migrate", "--no-input"]
+    assert sync["args"] == ["sync_plugins"]
+    assert "IKI_DB_ANALYST_ROLE" not in {e["name"] for e in sync["env"]}
     (grant,) = pod["containers"]
     assert grant["args"] == ["grant_app_privileges"]
+
+
+def test_an_analyst_role_reads_the_views() -> None:
+    database = {**REQUIRED["database"], "analystRole": "bi_reader"}
+    (job,) = by_kind(manifests({"database": database}), "Job")
+    sync = job["spec"]["template"]["spec"]["initContainers"][2]
+    assert {"name": "IKI_DB_ANALYST_ROLE", "value": "bi_reader"} in sync["env"]
+    assert "/database/analystRole" in str(
+        render({"database": {**database, "analystRole": "x; DROP"}}, ok=False)
+    )
 
 
 def database_secret(container: Manifest, var: str = "IKI_DATABASE_URL") -> str:

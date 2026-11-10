@@ -6,12 +6,13 @@
 !NOTICE
 !server/
 !cli/
-# The spec and codegen packages: only what resolving the workspace needs (the
-# server image doesn't install them yet).
+# The spec package, which the server installs (without its tests), and the
+# codegen package: only what resolving the workspace needs.
 !spec/pyproject.toml
 !spec/README.md
 !spec/LICENSE
 !spec/NOTICE
+!spec/src/
 !codegen/pyproject.toml
 !codegen/README.md
 !codegen/LICENSE
@@ -27,5 +28,6 @@ web/**/dist/
 # A local build would otherwise ride along; the image builds its own.
 server/src/iki_server/web/static/app/
 server/tests/
+spec/tests/
 **/__pycache__/
 **/*.pyc
