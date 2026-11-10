@@ -11,16 +11,18 @@ package = false
 required-version = ">=0.13.7"
 
 [tool.uv.workspace]
-members = ["server", "cli"]
+members = ["server", "cli", "spec"]
 
 [tool.uv.sources]
 iki-server = { workspace = true }
 iki-cli = { workspace = true }
+iki-spec = { workspace = true }
 
 [dependency-groups]
 dev = [
   "iki-server",
   "iki-cli",
+  "iki-spec",
   "django-stubs[compatible-mypy]>=6.1.2",
   "mypy>=2.4.1",
   "psycopg[binary]>=3.3.8",
@@ -33,12 +35,13 @@ dev = [
   "testcontainers[postgres]>=4.15.0",
   "types-pyyaml>=6.0.12",
   "playwright>=1.65",
+  "types-jsonschema>=4.25.1",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["server/src", "cli/src"]
+src = ["server/src", "cli/src", "spec/src"]
 
 [tool.ruff.lint]
 select = [
@@ -72,13 +75,15 @@ python_version = "3.12"
 strict = true
 warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
-mypy_path = ["server/src", "server/tests", "cli/src"]
+mypy_path = ["server/src", "server/tests", "cli/src", "spec/src"]
 plugins = ["mypy_django_plugin.main"]
 files = [
   "server/src",
   "server/tests",
   "cli/src",
   "cli/tests",
+  "spec/src",
+  "spec/tests",
   "deploy/helm/iki/tests",
   "deploy/dev/sso.py",
 ]
@@ -139,7 +144,7 @@ django_settings_module = "iki_test_settings"
 DJANGO_SETTINGS_MODULE = "iki_test_settings"
 pythonpath = ["server/tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
-testpaths = ["server/tests", "cli/tests", "deploy/helm/iki/tests"]
+testpaths = ["server/tests", "cli/tests", "spec/tests", "deploy/helm/iki/tests"]
 xfail_strict = true
 markers = [
   "built_web_app: loads the web app's real build (run `make web` first) instead of a stand-in",
@@ -154,4 +159,4 @@ filterwarnings = [
 
 [tool.coverage.run]
 branch = true
-source = ["iki_server", "iki_cli"]
+source = ["iki_server", "iki_cli", "iki_spec"]

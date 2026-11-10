@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/plugin/v1",
+  "title": "Iki plugin (iki/v1)",
+  "description": "A plugin's `plugin.yaml`: its name, what it depends on, and the settings it takes.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "version"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "Plugin" },
+    "name": {
+      "description": "The plugin's name. Its types are `name.Type`, and its tables start with `name_`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName"
+    },
+    "version": {
+      "description": "The plugin's release, as a semantic version such as `1.4.0`. Deployments pin the git commit; this is for people.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?(\\+[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "title": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "license": {
+      "description": "The plugin's license, as an SPDX expression such as `Apache-2.0` or `LicenseRef-Acme-Internal`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "homepage": {
+      "description": "Where to read about the plugin (https only).",
+      "type": "string",
+      "maxLength": 2000,
+      "pattern": "^https://[^\\s]+$"
+    },
+    "dependencies": {
+      "description": "Other plugins this one uses, by name, with the schema versions of their types it works with.",
+      "type": "object",
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName" },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "types": {
+            "description": "Schema-version constraints, such as `DNASequence: \">=2,<4\"`.",
+            "type": "object",
+            "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName" },
+            "additionalProperties": { "$ref": "#/$defs/versionConstraint" }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "settings": { "$ref": "https://ikisci.org/schemas/settings/v1" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "versionConstraint": {
+      "description": "Comparisons with whole schema versions, separated by commas, such as `>=2` or `>=2,<4`.",
+      "type": "string",
+      "pattern": "^\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\s*,\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+)*\\s*$"
+    }
+  }
+}

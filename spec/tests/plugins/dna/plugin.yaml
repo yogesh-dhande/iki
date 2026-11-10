@@ -1,0 +1,17 @@
+apiVersion: iki/v1
+kind: Plugin
+name: dna
+version: 1.2.0
+title: DNA
+description: DNA sequences and primers.
+license: Apache-2.0
+settings:
+  ncbi_email:
+    type: string
+    format: email
+    required: true
+    description: The address NCBI asks automated clients to give.
+  max_sequence_length:
+    type: int
+    min: 1
+    default: 10000000

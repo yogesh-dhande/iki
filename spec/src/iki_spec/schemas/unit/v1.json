@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/unit/v1",
+  "title": "Iki unit (iki/v1)",
+  "description": "A unit of measure as a case-sensitive UCUM code (https://ucum.org), such as `mg`, `mmol/L`, `Cel` or `[IU]/mL`. This schema checks only the characters; `iki plugin validate` checks the code against the UCUM table.",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 200,
+  "pattern": "^[\\x21-\\x7e]+$",
+  "examples": ["mg", "g/mol", "u", "mmol/L", "Cel", "[IU]/mL", "10*3/uL", "{cells}/uL"]
+}

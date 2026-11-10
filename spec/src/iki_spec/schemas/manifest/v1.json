@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/manifest/v1",
+  "title": "Iki manifest (iki/v1)",
+  "description": "Any Iki plugin manifest, chosen by its `kind`. Point your editor at this schema for every YAML file in a plugin.",
+  "type": "object",
+  "required": ["apiVersion", "kind"],
+  "properties": {
+    "apiVersion": {
+      "description": "The spec version this manifest follows.",
+      "const": "iki/v1"
+    },
+    "kind": { "enum": ["Plugin", "EntityType", "EntityTypeExtension"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "Plugin" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/plugin/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "EntityType" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/entity-type/v1" }
+    },
+    {
+      "if": {
+        "properties": { "kind": { "const": "EntityTypeExtension" } },
+        "required": ["kind"]
+      },
+      "then": { "$ref": "https://ikisci.org/schemas/entity-type-extension/v1" }
+    }
+  ]
+}

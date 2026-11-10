@@ -14,3 +14,5 @@ web/packages/sdk/openapi.json
 web/packages/sdk/src/schema.ts
 # The built web app, served by the server.
 server/src/iki_server/web/static/app/
+# Vendored as published (UCUM licence); never reformatted.
+spec/src/iki_spec/units/

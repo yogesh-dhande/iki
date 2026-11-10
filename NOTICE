@@ -3,3 +3,12 @@ Copyright 2026 The Iki Authors
 
 This product includes software developed by The Iki Authors
 (https://ikisci.org).
+
+This product includes the Unified Code for Units of Measure (UCUM) table,
+spec/src/iki_spec/units/ucum-essence.xml (UCUM version 2.2), unmodified.
+Copyright 1999-2024 Regenstrief Institute, Inc. All rights reserved.
+Licensed under the UCUM License, Version 1.1; see
+spec/src/iki_spec/units/UCUM-LICENSE.md or https://ucum.org/license.
+The UCUM table is provided on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+disclaimer of warranties and the limitations under it.

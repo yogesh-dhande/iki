@@ -1,0 +1,25 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Sequence
+abstract: true
+schema_version: 1
+description: Anything with a sequence of residues.
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: DNASequence
+label: DNA sequence
+extends: Sequence
+schema_version: 2
+hrid: { prefix: DNA }
+identity: [bases]
+on_duplicate: reuse
+fields:
+  bases: { type: string, format: dna_sequence, required: true, immutable: true }
+  topology: { type: enum, values: [linear, circular], default: linear }
+  length: { type: quantity, unit: "{bp}", computed: true, indexed: true }
+  gc_content: { type: quantity, unit: "%", computed: true, min: 0, max: 100 }
+display:
+  title: "{{ name or hrid }}"

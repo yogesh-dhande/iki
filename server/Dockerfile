@@ -48,6 +48,7 @@ WORKDIR /src
 COPY pyproject.toml uv.lock LICENSE NOTICE ./
 COPY server/pyproject.toml server/README.md server/LICENSE server/NOTICE server/
 COPY cli/pyproject.toml cli/README.md cli/LICENSE cli/NOTICE cli/
+COPY spec/pyproject.toml spec/README.md spec/LICENSE spec/NOTICE spec/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-install-workspace
 COPY server/src server/src

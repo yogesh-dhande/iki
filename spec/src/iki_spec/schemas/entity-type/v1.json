@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/entity-type/v1",
+  "title": "Iki entity type (iki/v1)",
+  "description": "A kind of entity, such as a protein or a compound. Each type gets its own table, with history and per-field provenance.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "schema_version"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "EntityType" },
+    "name": {
+      "description": "The type's name in PascalCase. Elsewhere it is `plugin.Name`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName"
+    },
+    "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "label_plural": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "schema_version": {
+      "description": "Increase it whenever the fields change. Other plugins' dependencies and actions name the versions they work with.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "extends": {
+      "description": "A parent type: entities of this type are also entities of the parent, with its fields.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+    },
+    "abstract": {
+      "description": "Only subtypes have entities; nobody creates one of this type itself.",
+      "type": "boolean"
+    },
+    "hrid": {
+      "description": "Human-readable IDs, such as PRT-000123. Never reused.",
+      "type": "object",
+      "required": ["prefix"],
+      "properties": {
+        "prefix": {
+          "description": "2 to 8 capital letters or digits, starting with a letter.",
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]{1,7}$"
+        },
+        "digits": {
+          "description": "The number is padded with zeros to at least this many digits. Defaults to 6.",
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 12
+        }
+      },
+      "additionalProperties": false
+    },
+    "identity": {
+      "description": "The fields that make an entity the same as another. They must be required and immutable.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+    },
+    "on_duplicate": {
+      "description": "What happens when someone creates an entity with the same identity as an existing one: `reuse` the existing one (the default), `warn` and let them choose, or `allow` a duplicate.",
+      "enum": ["reuse", "warn", "allow"]
+    },
+    "fields": {
+      "description": "The type's fields, by name.",
+      "type": "object",
+      "maxProperties": 500,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1" }
+    },
+    "display": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "description": "How an entity is named in lists and links, such as `{{ name or hrid }}`.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

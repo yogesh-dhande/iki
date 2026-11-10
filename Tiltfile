@@ -48,9 +48,9 @@ k8s_resource(
 )
 k8s_resource(
     'otel-lgtm',
-    port_forwards=['3000:3000'],
+    port_forwards=['3300:3000'],
     labels=['observability'],
-    links=[link('http://localhost:3000', 'Grafana')],
+    links=[link('http://localhost:3300', 'Grafana')],
 )
 
 # --- Iki ------------------------------------------------------------------------

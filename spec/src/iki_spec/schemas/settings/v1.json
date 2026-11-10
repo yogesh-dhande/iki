@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/settings/v1",
+  "title": "Iki plugin settings (iki/v1)",
+  "description": "The settings a plugin takes, by name. Each deployment sets their values in its config repository, and the build checks them. Settings are not secret: declare secrets on the actions that need them.",
+  "type": "object",
+  "maxProperties": 200,
+  "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+  "additionalProperties": { "$ref": "#/$defs/setting" },
+  "$defs": {
+    "setting": {
+      "type": "object",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typed",
+      "properties": {
+        "type": { "enum": ["string", "text", "int", "float", "bool", "enum", "list"] },
+        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+        "required": {
+          "description": "Every deployment must set a value. A setting with a default can't be required.",
+          "type": "boolean"
+        },
+        "default": { "description": "The value when a deployment doesn't set one." },
+        "items": {
+          "properties": { "type": { "enum": ["string", "int", "float", "bool", "enum"] } }
+        }
+      },
+      "unevaluatedProperties": false
+    }
+  }
+}

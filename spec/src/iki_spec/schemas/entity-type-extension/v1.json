@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/entity-type-extension/v1",
+  "title": "Iki entity type extension (iki/v1)",
+  "description": "Fields this plugin adds to another plugin's entity type. They live in this plugin's own table, joined to the type's.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "extends_type", "fields"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "EntityTypeExtension" },
+    "extends_type": {
+      "description": "The type to add fields to, as `plugin.Type`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+    },
+    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "fields": {
+      "description": "The fields to add, by name.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 500,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1" }
+    }
+  },
+  "additionalProperties": false
+}

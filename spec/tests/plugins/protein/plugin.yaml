@@ -1,0 +1,9 @@
+apiVersion: iki/v1
+kind: Plugin
+name: protein
+version: 3.0.0
+dependencies:
+  dna:
+    types:
+      Sequence: ">=1"
+      DNASequence: ">=2,<4"

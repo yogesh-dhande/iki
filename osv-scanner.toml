@@ -43,6 +43,13 @@ name = "iki-cli"
 ecosystem = "PyPI"
 license.override = ["Apache-2.0"]
 
+# iki-spec's code is Apache-2.0. It also ships the UCUM units table, unmodified,
+# under the UCUM License (see NOTICE and spec/src/iki_spec/units/UCUM-LICENSE.md).
+[[PackageOverrides]]
+name = "iki-spec"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0"]
+
 [[PackageOverrides]]
 name = "iki-protocol"
 ecosystem = "crates.io"

@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Protein
+extends: dna.Sequence
+schema_version: 3
+hrid: { prefix: PRT, digits: 6 }
+identity: [sequence]
+on_duplicate: reuse
+fields:
+  sequence: { type: string, format: protein_sequence, required: true, immutable: true }
+  molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }
+  organism: { type: string, max_length: 200, indexed: true }
+  source: { type: ref, to: core.Entity }
+  encoded_by: { type: ref, to: dna.DNASequence }
+  temperature_optimum: { type: quantity, unit: Cel }
+  uniprot_ids: { type: list, items: { type: string, pattern: "^[A-Z0-9]{6,10}$" } }
+display: { title: "{{ name or hrid }}" }

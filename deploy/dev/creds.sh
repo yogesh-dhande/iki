@@ -10,7 +10,7 @@ Keycloak       http://keycloak.iki.localhost:8080   admin / $(get keycloak-dev K
   issuer       http://keycloak.iki.localhost:8080/realms/iki
   realm "iki"  users alice, bob        password $(get keycloak-dev IKI_DEV_USER_PASSWORD)
   client       iki-web                 secret   $(get keycloak-dev IKI_DEV_OIDC_CLIENT_SECRET)
-Grafana        http://localhost:3000   admin / $(get grafana-dev admin-password)
+Grafana        http://localhost:3300   admin / $(get grafana-dev admin-password)
 S3 (SeaweedFS) http://localhost:8333   bucket iki
   access key   $(get seaweedfs-s3 access-key)
   secret key   $(get seaweedfs-s3 secret-key)

@@ -1,0 +1,17 @@
+apiVersion: iki/v1
+kind: Plugin
+name: structure_prediction
+version: 0.4.0
+dependencies:
+  protein:
+    types:
+      ProteinStructure: ">=1"
+settings:
+  default_model:
+    type: enum
+    values: [alphafold2, colabfold, boltz]
+    default: colabfold
+  allowed_presets:
+    type: list
+    items: { type: enum, values: [monomer, multimer] }
+    default: [monomer]

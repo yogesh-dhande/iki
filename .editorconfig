@@ -16,3 +16,8 @@ indent_style = tab
 
 [*.md]
 trim_trailing_whitespace = false
+
+# Vendored files stay exactly as published.
+[spec/src/iki_spec/units/{ucum-essence.xml,UCUM-LICENSE.md}]
+insert_final_newline = false
+trim_trailing_whitespace = false
