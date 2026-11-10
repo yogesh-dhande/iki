@@ -43,9 +43,28 @@ forward svc/otel-lgtm 13200 3200
 
 # --- Iki web ------------------------------------------------------------------
 ready=$(curl -fsS http://127.0.0.1:18000/healthz/ready)
-[ "$ready" = '{"status": "ok", "checks": {"database": "ok", "migrations": "ok"}}' ] \
+[ "$ready" = '{"status": "ok", "checks": {"database": "ok", "migrations": "ok", "database_role": "ok"}}' ] \
   || fail "readiness: $ready"
-pass "web is ready: Postgres reachable over verified TLS, migrations applied"
+pass "web is ready: Postgres reachable over verified TLS, migrations applied, least-privileged role"
+
+# The app's role may write rows, but not change the schema or the audit log.
+denied=$(kc exec "pod/$web_pod" -c web -- iki-server shell -c '
+from django.db import connection
+for statement in (
+    "UPDATE iki_audit_event SET action = action",
+    "DELETE FROM iki_audit_event",
+    "CREATE TABLE e2e_sneaky (id int)",
+    "INSERT INTO django_migrations (app, name, applied) VALUES (1, 1, now())",
+):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(statement)
+        print("ALLOWED", statement)
+    except Exception as error:
+        print("denied" if "permission denied" in str(error) else f"ERROR {error}")
+' 2>&1)
+[ "$(grep -c '^denied$' <<<"$denied")" = 4 ] || fail "app role has too much power: $denied"
+pass "the app's database role can't change the schema, migration history or audit log"
 
 status=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18000/e2e-probe?token=e2e-secret")
 [ "$status" = 404 ] || fail "unknown path returned $status"

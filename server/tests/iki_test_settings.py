@@ -17,6 +17,8 @@ _TEST_ENV = {
     "IKI_HTTPS": "true",
     "OTEL_SDK_DISABLED": "false",
     # Test-only Fernet key (URL-safe base64 of 32 bytes).
+    # Tests own their throwaway database and connect as its superuser.
+    "IKI_DB_REQUIRE_LEAST_PRIVILEGE": "false",
     "IKI_ENCRYPTION_KEYS": "dGVzdC1vbmx5LWtleS1kby1ub3QtdXNlLWFueXdoZXI=",
 }
 for _key, _value in _TEST_ENV.items():

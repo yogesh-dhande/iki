@@ -3,7 +3,8 @@
 - ``GET /healthz/live``: the process is up and serving. No dependencies are
   checked, so a database outage never makes Kubernetes restart healthy pods.
 - ``GET /healthz/ready``: the pod can serve traffic. Postgres must answer,
-  and every migration this code knows about must be applied.
+  every migration this code knows about must be applied, and the database
+  role must have no more power than the app needs.
 
 Both run before host validation and HTTPS redirects (see ``MIDDLEWARE``),
 because kubelet probes connect over plain HTTP using the pod IP. Responses
@@ -16,9 +17,12 @@ from typing import Literal
 
 import structlog
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction, sync_to_async
+from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponseBase, JsonResponse
+
+from iki_server.core import db_roles
 
 logger = structlog.get_logger("iki.health")
 
@@ -67,11 +71,39 @@ def check_migrations() -> CheckResult:
     return "ok"
 
 
+class _RoleState:
+    """Remembers once the database role is known to be least-privileged."""
+
+    checked = False
+
+
+def check_database_role() -> CheckResult:
+    """Fails if the app connects with more power than it needs (ADR 0025).
+
+    A pod given the migrator's credentials, or a superuser's, never turns
+    ready, so the mistake is caught at deploy time.
+    """
+    if not settings.IKI_DB_REQUIRE_LEAST_PRIVILEGE or _RoleState.checked:
+        return "ok"
+    try:
+        found = db_roles.problems()
+    except Exception:
+        logger.exception("readiness check failed", check="database_role")
+        return "fail"
+    if found:
+        logger.error("readiness check failed", check="database_role", problems=found)
+        return "fail"
+    _RoleState.checked = True
+    return "ok"
+
+
 def readiness() -> dict[str, CheckResult]:
     database = check_database()
-    # Skip the migration check when the database is down; it would only fail again.
-    migrations: CheckResult = check_migrations() if database == "ok" else "fail"
-    return {"database": database, "migrations": migrations}
+    # Skip the other checks when the database is down; they would only fail again.
+    up = database == "ok"
+    migrations: CheckResult = check_migrations() if up else "fail"
+    role: CheckResult = check_database_role() if up else "fail"
+    return {"database": database, "migrations": migrations, "database_role": role}
 
 
 def _response(checks: dict[str, CheckResult]) -> JsonResponse:

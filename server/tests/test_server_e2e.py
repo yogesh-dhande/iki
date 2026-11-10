@@ -3,9 +3,11 @@ probes over HTTP, JSON logs on stdout, and traces exported over OTLP.
 """
 
 import http.server
+import io
 import json
 import os
 import re
+import secrets
 import signal
 import socket
 import subprocess
@@ -72,10 +74,27 @@ def get(url: str, host: str | None = None) -> tuple[int, dict[str, object]]:
             return err.code, {}
 
 
+@pytest.fixture
+def app_role() -> Iterator[tuple[str, str]]:
+    """A least-privileged app role, granted exactly as the migrate Job does in production."""
+    from django.core.management import call_command
+    from django.db import connection
+
+    name, password = "iki_e2e_app", secrets.token_urlsafe(16)
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE ROLE {name} LOGIN PASSWORD %s", [password])
+    call_command("grant_app_privileges", "--role", name, stdout=io.StringIO())
+    yield name, password
+    with connection.cursor() as cursor:
+        cursor.execute(f"DROP OWNED BY {name}")
+        cursor.execute(f"DROP ROLE {name}")
+
+
 def test_server_serves_probes_logs_json_and_exports_traces(
-    collector: FakeCollector, tmp_path: Path
+    collector: FakeCollector, app_role: tuple[str, str], tmp_path: Path
 ) -> None:
     db = settings.DATABASES["default"]
+    user, password = app_role
     port = free_port()
     env = {
         **{k: v for k, v in os.environ.items() if not k.startswith(("IKI_", "DJANGO_", "OTEL_"))},
@@ -85,7 +104,7 @@ def test_server_serves_probes_logs_json_and_exports_traces(
         "IKI_ENVIRONMENT": "e2e",
         "IKI_ENCRYPTION_KEYS": settings.IKI_ENCRYPTION_KEYS[0],
         "IKI_DATABASE_URL": (
-            f"postgres://{db['USER']}:{db['PASSWORD']}@{db['HOST']}:{db['PORT']}/{db['NAME']}"
+            f"postgres://{user}:{password}@{db['HOST']}:{db['PORT']}/{db['NAME']}"
         ),
         "IKI_DB_SSLMODE": "disable",
         "IKI_HTTPS": "false",
@@ -128,7 +147,11 @@ def test_server_serves_probes_logs_json_and_exports_traces(
         status, body = get(f"http://127.0.0.1:{port}/healthz/ready")
         assert (status, body) == (
             200,
-            {"status": "ok", "checks": {"database": "ok", "migrations": "ok"}},
+            {
+                "status": "ok",
+                # The production readiness check passes only because the role is least-privileged.
+                "checks": {"database": "ok", "migrations": "ok", "database_role": "ok"},
+            },
         )
 
         # Kubelet probes send the pod IP and port as Host, which isn't in ALLOWED_HOSTS.

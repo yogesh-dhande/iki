@@ -2,9 +2,11 @@
 
 import pytest
 from browser import Browser, Response, path_of
+from conftest import allow_test_flush
 from org_world import World, build_world, post
 
 from iki_server.accounts.models import User, UserSession
+from iki_server.audit.models import AuditEvent
 from iki_server.org import permissions, services
 from iki_server.org.models import (
     OrgRole,
@@ -301,21 +303,58 @@ def test_teams_with_projects_cant_be_deleted(world: World) -> None:
         world.team.delete()
 
 
-def test_changes_are_logged(world: World, caplog: pytest.LogCaptureFixture) -> None:
+def test_changes_are_audited(world: World) -> None:
     by = world.users["org_admin"]
     team = services.create_team("Proteomics", "", by=by)
     services.add_team_member(team, world.users["outsider"], by=by)
     project = services.create_project(team, "Mass Spec", "", by=world.users["outsider"])
     services.set_project_archived(project, True, by=world.users["outsider"])
-    events = [r.msg for r in caplog.records if r.name == "iki.org"]
-    assert [e["event"] for e in events] == [  # type: ignore[index]
-        "team_created",
-        "team_member_added",
-        "project_created",
-        "project_archived",
+    events = list(AuditEvent.objects.order_by("occurred_at", "id"))
+    assert [e.action for e in events] == [
+        "team.created",
+        "team.member_added",
+        "project.created",
+        "project.archived",
     ]
-    assert events[0]["team_id"] == str(team.pk)  # type: ignore[index]
-    assert events[0]["by_id"] == str(by.pk)  # type: ignore[index]
+    assert (events[0].actor, events[0].team, events[0].target_label) == (by, team, "Proteomics")
+    assert events[1].target_id == str(world.users["outsider"].pk)
+    assert events[2].project == project
+
+
+def test_refused_changes_leave_no_audit_event(world: World) -> None:
+    ProjectMembership.objects.filter(project=world.project, user=world.users["inactive"]).delete()
+    membership = world.project.memberships.get(user=world.users["admin"])
+    with pytest.raises(services.Refused):
+        services.remove_project_membership(membership, by=world.users["admin"])
+    assert not AuditEvent.objects.exists()
+
+
+def test_org_admins_joining_a_project_is_audited_as_self_granted(world: World) -> None:
+    admin = world.browser("org_admin")
+    post(admin, f"/projects/{world.project.slug}/join/")
+    event = AuditEvent.objects.get(action="project.role_granted")
+    assert event.actor == world.users["org_admin"]
+    assert event.project == world.project
+    assert event.data == {"role": "Admin", "self": True}
+    assert event.via == "web"
+
+
+def test_role_changes_record_the_previous_role(world: World) -> None:
+    services.grant_project_role(
+        world.project, ProjectRole.RUNNER, user=world.users["viewer"], by=world.users["admin"]
+    )
+    event = AuditEvent.objects.get()
+    assert event.data == {"role": "Runner", "previous_role": "Viewer"}
+    # Granting the same role again changes nothing and records nothing.
+    services.grant_project_role(
+        world.project, ProjectRole.RUNNER, user=world.users["viewer"], by=world.users["admin"]
+    )
+    assert AuditEvent.objects.count() == 1
+
+
+def test_renames_record_what_changed(world: World) -> None:
+    services.update_project(world.project, "Kinase Atlas", "New text", by=world.users["admin"])
+    assert AuditEvent.objects.get().data == {"description": ["", "New text"]}
 
 
 @pytest.mark.django_db(transaction=True)
@@ -334,5 +373,6 @@ def test_the_first_admin_from_before_org_roles_becomes_an_org_admin() -> None:
     finally:
         executor = MigrationExecutor(connection)
         executor.migrate(executor.loader.graph.leaf_nodes())
+        allow_test_flush()
     roles = set(OrgRoleAssignment.objects.values_list("user__email", "role"))
     assert roles == {("ada@example.com", "org_admin")}

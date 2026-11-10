@@ -113,7 +113,7 @@
     },
     "database": {
       "type": "object",
-      "required": ["existingSecret", "uriKey", "sslmode"],
+      "required": ["existingSecret", "uriKey", "sslmode", "migrator"],
       "properties": {
         "existingSecret": {
           "type": "string",
@@ -147,6 +147,20 @@
             "maxSize": {
               "type": "integer",
               "minimum": 1
+            }
+          }
+        },
+        "migrator": {
+          "type": "object",
+          "required": ["existingSecret", "uriKey"],
+          "properties": {
+            "existingSecret": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uriKey": {
+              "type": "string",
+              "minLength": 1
             }
           }
         }

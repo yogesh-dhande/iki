@@ -65,6 +65,18 @@ def django_db_modify_db_settings(_postgres_url: str) -> None:
     )
 
 
+def allow_test_flush() -> None:
+    """Lets pytest-django empty the audit table between transactional tests.
+
+    The audit log refuses TRUNCATE from everyone; only the throwaway test
+    database turns that one trigger off. ``test_audit`` checks it in place.
+    """
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("ALTER TABLE iki_audit_event DISABLE TRIGGER iki_audit_event_no_truncate")
+
+
 @pytest.fixture(scope="session")
 def django_db_setup(
     django_db_setup: None, django_db_blocker: pytest_django.DjangoDbBlocker
@@ -74,6 +86,8 @@ def django_db_setup(
     Async tests run database checks in asgiref's worker thread. The test
     client keeps those connections open, which would block ``DROP DATABASE``.
     """
+    with django_db_blocker.unblock():
+        allow_test_flush()
     yield
     from django.db import connection
 

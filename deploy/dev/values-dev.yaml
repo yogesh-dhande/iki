@@ -19,9 +19,14 @@ encryptionKeys:
   existingSecret: iki-encryption-keys
   key: keys
 database:
-  # Created by CloudNativePG for the iki-db cluster.
-  existingSecret: iki-db-app
+  # The app's least-privileged role (iki_app), created by up.sh and managed
+  # by CloudNativePG.
+  existingSecret: iki-db-runtime
   uriKey: uri
+  migrator:
+    # The schema owner (iki), created by CloudNativePG for the iki-db cluster.
+    existingSecret: iki-db-app
+    uriKey: uri
   sslmode: verify-full
   caSecret:
     name: iki-db-ca

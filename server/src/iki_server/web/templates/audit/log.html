@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Audit log</h1></div>
+<p class="muted">Every change, sign-in and setup step, newest first. Events can’t be changed or deleted, by anyone.</p>
+<details class="filters"{% if filtered %} open{% endif %}>
+  <summary>Filter</summary>
+  <form method="get" class="filter-form">
+    {% include "web/_field.html" with field=form.action %}
+    {% include "web/_field.html" with field=form.person %}
+    {% include "web/_field.html" with field=form.project %}
+    {% include "web/_field.html" with field=form.via %}
+    {% include "web/_field.html" with field=form.since %}
+    {% include "web/_field.html" with field=form.until %}
+    <div class="actions">
+      <button class="button button-primary" type="submit">Apply</button>
+      {% if filtered %}<a class="button button-quiet" href="{% url 'audit:audit_log' %}">Clear</a>{% endif %}
+    </div>
+  </form>
+</details>
+<ol class="rows audit-events" aria-label="Events">
+  {% for event, label in events %}
+  <li class="row">
+    <div class="row-main">
+      <span class="row-title">{{ label }}{% if event.target_label %}: {{ event.target_label }}{% endif %}</span>
+      <span class="row-meta">
+        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s" }}</time>
+        · {{ event.actor_label|default:"System" }}
+        · {{ event.get_via_display }}
+        {% if event.project %}· {{ event.project.name }}{% endif %}
+        {% if event.team %}· {{ event.team.name }}{% endif %}
+      </span>
+      <details class="event-details">
+        <summary>Details</summary>
+        <dl class="summary">
+          <dt>Action</dt><dd><code>{{ event.action }}</code></dd>
+          {% for key, value in event.data.items %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+          {% if event.client_ip %}<dt>Client address</dt><dd>{{ event.client_ip }}</dd>{% endif %}
+          {% if event.request_id %}<dt>Request ID</dt><dd><code>{{ event.request_id }}</code></dd>{% endif %}
+          <dt>Event ID</dt><dd><code>{{ event.pk }}</code></dd>
+        </dl>
+      </details>
+    </div>
+  </li>
+  {% empty %}
+  <li class="row"><span class="muted">{% if filtered %}No events match these filters.{% else %}No events yet.{% endif %}</span></li>
+  {% endfor %}
+</ol>
+{% if older_query %}<p><a class="button" href="?{{ older_query }}">Older events</a></p>{% endif %}
+{% endblock %}

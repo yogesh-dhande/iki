@@ -37,7 +37,8 @@ check-chart: ## Helm lint (strict) with the minimum required values
 	helm lint --strict deploy/helm/iki \
 	  --set environment=ci --set publicUrl=https://iki.example.com \
 	  --set 'allowedHosts={iki.example.com}' --set secretKey.existingSecret=s \
-	  --set encryptionKeys.existingSecret=e --set database.existingSecret=d
+	  --set encryptionKeys.existingSecret=e --set database.existingSecret=d \
+	  --set database.migrator.existingSecret=m
 	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml
 
 .PHONY: check-python

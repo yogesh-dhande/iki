@@ -10,18 +10,17 @@ functions keep the invariants that hold no matter who asks:
   Admins can still recover a project whose Admins have all left.)
 - Inactive people can't be given new roles or memberships.
 
-Every change is logged as a structured event. The append-only audit log
-(next release) records the same events.
+Every change is recorded in the audit log, in the same transaction.
 """
 
 from typing import Any
 
-import structlog
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.accounts.models import User
+from iki_server.audit import log as audit
 from iki_server.org.models import (
     OrgRole,
     OrgRoleAssignment,
@@ -32,15 +31,9 @@ from iki_server.org.models import (
     TeamMembership,
 )
 
-logger = structlog.get_logger("iki.org")
-
 
 class Refused(Exception):  # noqa: N818 - reads as "the change was refused"
     """A change that would break an invariant. The message explains it to people."""
-
-
-def _ids(**objects: Any) -> dict[str, str]:  # noqa: ANN401
-    return {f"{name}_id": str(obj.pk) for name, obj in objects.items() if obj is not None}
 
 
 def _require_active(user: User) -> None:
@@ -85,19 +78,20 @@ def set_org_roles(user: User, roles: set[OrgRole], *, by: User | None) -> None:
         OrgRoleAssignment.objects.bulk_create(
             OrgRoleAssignment(user=user, role=role, granted_by=by) for role in sorted(added)
         )
-    for role in sorted(added):
-        logger.info("org_role_granted", role=str(role), **_ids(user=user, by=by))
-    for role in sorted(removed):
-        logger.info("org_role_revoked", role=str(role), **_ids(user=user, by=by))
+        for role in sorted(added):
+            audit.record("org_role.granted", actor=by, target=user, data={"role": str(role)})
+        for role in sorted(removed):
+            audit.record("org_role.revoked", actor=by, target=user, data={"role": str(role)})
 
 
 def grant_org_role(user: User, role: OrgRole, *, by: User | None) -> None:
     _require_active(user)
-    _, created = OrgRoleAssignment.objects.get_or_create(
-        user=user, role=role, defaults={"granted_by": by}
-    )
-    if created:
-        logger.info("org_role_granted", role=str(role), **_ids(user=user, by=by))
+    with transaction.atomic():
+        _, created = OrgRoleAssignment.objects.get_or_create(
+            user=user, role=role, defaults={"granted_by": by}
+        )
+        if created:
+            audit.record("org_role.granted", actor=by, target=user, data={"role": str(role)})
 
 
 def set_active(user: User, active: bool, *, by: User) -> None:
@@ -116,7 +110,7 @@ def set_active(user: User, active: bool, *, by: User) -> None:
                 raise Refused("Iki needs at least one active Org Admin.")
         user.is_active = active
         user.save(update_fields=["is_active"])
-    logger.info("user_activated" if active else "user_deactivated", **_ids(user=user, by=by))
+        audit.record("user.activated" if active else "user.deactivated", actor=by, target=user)
 
 
 # --- Teams ---------------------------------------------------------------------
@@ -126,44 +120,61 @@ def create_team(name: str, description: str, *, by: User) -> Team:
     try:
         with transaction.atomic():
             team = Team.objects.create(name=name, description=description)
+            audit.record("team.created", actor=by, target=team, team=team)
     except IntegrityError as error:
         raise Refused(f"There's already a team called “{name}”.") from error
-    logger.info("team_created", **_ids(team=team, by=by))
     return team
 
 
 def update_team(team: Team, name: str, description: str, *, by: User) -> None:
+    before = {"name": team.name, "description": team.description}
     team.name, team.description = name, description
     try:
         with transaction.atomic():
             team.save(update_fields=["name", "description"])
+            audit.record(
+                "team.updated", actor=by, target=team, team=team, data=_changes(before, team)
+            )
     except IntegrityError as error:
         raise Refused(f"There's already a team called “{name}”.") from error
-    logger.info("team_updated", **_ids(team=team, by=by))
 
 
 def set_team_archived(team: Team, archived: bool, *, by: User) -> None:
-    team.archived_at = timezone.now() if archived else None
-    team.save(update_fields=["archived_at"])
-    logger.info("team_archived" if archived else "team_restored", **_ids(team=team, by=by))
+    with transaction.atomic():
+        team.archived_at = timezone.now() if archived else None
+        team.save(update_fields=["archived_at"])
+        audit.record(
+            "team.archived" if archived else "team.restored", actor=by, target=team, team=team
+        )
 
 
 def add_team_member(team: Team, user: User, *, by: User) -> None:
     _require_active(user)
-    _, created = TeamMembership.objects.get_or_create(
-        team=team, user=user, defaults={"added_by": by}
-    )
-    if created:
-        logger.info("team_member_added", **_ids(team=team, user=user, by=by))
+    with transaction.atomic():
+        _, created = TeamMembership.objects.get_or_create(
+            team=team, user=user, defaults={"added_by": by}
+        )
+        if created:
+            audit.record("team.member_added", actor=by, target=user, team=team)
 
 
 def remove_team_member(team: Team, user: User, *, by: User) -> None:
-    deleted, _ = TeamMembership.objects.filter(team=team, user=user).delete()
-    if deleted:
-        logger.info("team_member_removed", **_ids(team=team, user=user, by=by))
+    with transaction.atomic():
+        deleted, _ = TeamMembership.objects.filter(team=team, user=user).delete()
+        if deleted:
+            audit.record("team.member_removed", actor=by, target=user, team=team)
 
 
 # --- Projects ------------------------------------------------------------------
+
+
+def _changes(before: dict[str, str], obj: Project | Team) -> dict[str, Any]:
+    """The fields that changed, as {field: [old, new]}."""
+    return {
+        field: [old, getattr(obj, field)]
+        for field, old in before.items()
+        if getattr(obj, field) != old
+    }
 
 
 def create_project(team: Team, name: str, description: str, *, by: User) -> Project:
@@ -176,27 +187,35 @@ def create_project(team: Team, name: str, description: str, *, by: User) -> Proj
             ProjectMembership.objects.create(
                 project=project, user=by, role=ProjectRole.ADMIN, added_by=by
             )
+            audit.record("project.created", actor=by, target=project, project=project, team=team)
     except IntegrityError as error:
         raise Refused(f"{team.name} already has a project called “{name}”.") from error
-    logger.info("project_created", **_ids(project=project, team=team, by=by))
     return project
 
 
 def update_project(project: Project, name: str, description: str, *, by: User) -> None:
+    before = {"name": project.name, "description": project.description}
     project.name, project.description = name, description
     try:
         with transaction.atomic():
             project.save(update_fields=["name", "description"])
+            audit.record(
+                "project.updated",
+                actor=by,
+                target=project,
+                project=project,
+                data=_changes(before, project),
+            )
     except IntegrityError as error:
         raise Refused(f"{project.team.name} already has a project called “{name}”.") from error
-    logger.info("project_updated", **_ids(project=project, by=by))
 
 
 def set_project_archived(project: Project, archived: bool, *, by: User) -> None:
-    project.archived_at = timezone.now() if archived else None
-    project.save(update_fields=["archived_at"])
-    event = "project_archived" if archived else "project_restored"
-    logger.info(event, **_ids(project=project, by=by))
+    with transaction.atomic():
+        project.archived_at = timezone.now() if archived else None
+        project.save(update_fields=["archived_at"])
+        action = "project.archived" if archived else "project.restored"
+        audit.record(action, actor=by, target=project, project=project)
 
 
 def _other_admins(project: Project, membership: ProjectMembership) -> bool:
@@ -221,7 +240,11 @@ def grant_project_role(
     team: Team | None = None,
     by: User,
 ) -> ProjectMembership:
-    """Gives a person or a team a role in the project, replacing any earlier grant."""
+    """Gives a person or a team a role in the project, replacing any earlier grant.
+
+    An Org Admin granting themselves a role (to recover a project, or to
+    read its data) is recorded like any other grant, with ``self: true``.
+    """
     if (user is None) == (team is None):
         raise TypeError("grant to exactly one of user or team")
     if user is not None:
@@ -229,6 +252,7 @@ def grant_project_role(
     with transaction.atomic():
         _lock(project)
         membership = ProjectMembership.objects.filter(project=project, user=user, team=team).first()
+        previous = membership.role if membership else None
         if membership is None:
             membership = ProjectMembership.objects.create(
                 project=project, user=user, team=team, role=role, added_by=by
@@ -238,11 +262,21 @@ def grant_project_role(
                 raise Refused("A project needs at least one Admin. Make someone else Admin first.")
             membership.role = role
             membership.save(update_fields=["role"])
-    logger.info(
-        "project_role_granted",
-        role=ProjectRole(role).label,
-        **_ids(project=project, user=user, team=team, by=by),
-    )
+        else:
+            return membership
+        data: dict[str, Any] = {"role": ProjectRole(role).label}
+        if previous is not None:
+            data["previous_role"] = ProjectRole(previous).label
+        if user is not None and user.pk == by.pk:
+            data["self"] = True
+        audit.record(
+            "project.role_granted",
+            actor=by,
+            target=user or team,
+            project=project,
+            team=team,
+            data=data,
+        )
     return membership
 
 
@@ -253,7 +287,11 @@ def remove_project_membership(membership: ProjectMembership, *, by: User) -> Non
         if membership.role == ProjectRole.ADMIN and not _other_admins(project, membership):
             raise Refused("A project needs at least one Admin. Make someone else Admin first.")
         membership.delete()
-    logger.info(
-        "project_member_removed",
-        **_ids(project=project, user=membership.user, team=membership.team, by=by),
-    )
+        audit.record(
+            "project.member_removed",
+            actor=by,
+            target=membership.user or membership.team,
+            project=project,
+            team=membership.team,
+            data={"role": ProjectRole(membership.role).label},
+        )

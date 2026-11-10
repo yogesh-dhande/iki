@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "iki_server.web",
     "iki_server.accounts",
     "iki_server.org",
+    "iki_server.audit",
     "iki_server.setup",
     "allauth",
     "allauth.account",
@@ -64,6 +65,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "iki_server.audit.log.AuditContextMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "iki_server.accounts.session_policy.SessionPolicyMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -137,6 +139,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # --- HTTP security ----------------------------------------------------------
 # IKI_HTTPS=true (the default) means clients reach Iki over HTTPS, usually
 # through a TLS-terminating load balancer. Only local development turns it off.
+
+#: Refuse to turn ready when connected as a role that can change the schema
+#: or the audit log (ADR 0025). Only the test suite, which owns its throwaway
+#: database, turns this off.
+IKI_DB_REQUIRE_LEAST_PRIVILEGE: bool = env.bool("IKI_DB_REQUIRE_LEAST_PRIVILEGE", default=True)
 
 HTTPS: bool = env.bool("IKI_HTTPS", default=True)
 SECURE_SSL_REDIRECT = HTTPS

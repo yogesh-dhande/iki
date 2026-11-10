@@ -13,14 +13,13 @@ that is already set up (for example after the identity provider changed).
 from typing import Any
 from urllib.parse import urlsplit
 
-import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 from django.urls import reverse
 
+from iki_server.audit import log as audit
 from iki_server.setup.models import LINK_LIFETIME, Installation, SetupToken
-
-logger = structlog.get_logger("iki.setup")
 
 
 def _base_url(explicit: str | None) -> str:
@@ -53,10 +52,12 @@ class Command(BaseCommand):
                 "run `iki-server setup_link --recover`."
             )
         base = _base_url(options.get("url"))
-        record, token = SetupToken.issue(recovery=recover and installation.is_set_up)
-        logger.info(
-            "setup_link_created", recovery=record.recovery, expires_at=record.expires_at.isoformat()
-        )
+        with audit.cli(), transaction.atomic():
+            record, token = SetupToken.issue(recovery=recover and installation.is_set_up)
+            audit.record(
+                "setup.link_created",
+                data={"recovery": record.recovery, "expires_at": record.expires_at.isoformat()},
+            )
         minutes = int(LINK_LIFETIME.total_seconds() // 60)
         # The token is in the fragment, so it never reaches server logs or Referer headers.
         link = f"{base}{reverse('setup:start')}#{token}"

@@ -28,7 +28,7 @@ async def test_ready_is_ok_when_database_up_and_migrated(async_client: AsyncClie
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "checks": {"database": "ok", "migrations": "ok"},
+        "checks": {"database": "ok", "migrations": "ok", "database_role": "ok"},
     }
 
 
@@ -43,7 +43,7 @@ async def test_ready_fails_without_leaking_details_when_database_down(
     assert response.status_code == 503
     assert response.json() == {
         "status": "fail",
-        "checks": {"database": "fail", "migrations": "fail"},
+        "checks": {"database": "fail", "migrations": "fail", "database_role": "fail"},
     }
     assert b"hunter2" not in response.content
 

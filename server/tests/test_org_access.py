@@ -1,4 +1,4 @@
-"""The endpoint matrix: every org page against every principal.
+"""The endpoint matrix: every org and audit page against every principal.
 
 404 means "you can't know this exists", 403 means "you can see it but not
 do this", 302 to /login/ means "sign in first". A test fails if a new org URL
@@ -181,6 +181,7 @@ CASES: list[Case] = [
         row(HIDDEN, org_admin=DONE, team_member=FORBIDDEN),
     ),
     ("people", "GET", lambda w: ("/people/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("audit_log", "GET", lambda w: ("/audit/", {}), row(FORBIDDEN, auditor=OK)),
     ("person", "GET", person_url, row(FORBIDDEN, org_admin=OK)),
     (
         "person",
@@ -191,9 +192,11 @@ CASES: list[Case] = [
 ]
 
 
-def test_every_org_url_is_in_the_matrix() -> None:
-    _, org = get_resolver().namespace_dict["org"]
-    names = {name for name in org.reverse_dict if isinstance(name, str)}
+def test_every_org_and_audit_url_is_in_the_matrix() -> None:
+    names = set()
+    for namespace in ("org", "audit"):
+        _, resolver = get_resolver().namespace_dict[namespace]
+        names |= {name for name in resolver.reverse_dict if isinstance(name, str)}
     assert names == {case[0] for case in CASES}
 
 

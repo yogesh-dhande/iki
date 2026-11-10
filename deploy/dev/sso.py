@@ -195,7 +195,9 @@ def set_up(admin: str) -> requests.Session:
     return session
 
 
-def post(session: requests.Session, url: str, data: dict[str, str]) -> requests.Response:
+def post(
+    session: requests.Session, url: str, data: dict[str, str | list[str]]
+) -> requests.Response:
     """Posts like a page's form: CSRF token from the page at ``url``."""
     _, inputs = form(session.get(url), index=0)
     token = inputs["csrfmiddlewaretoken"]
@@ -228,6 +230,18 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
     if "You’re not a member of this project" not in page.text:
         fail("the Org Admin can read a project they're not a member of")
     ok("the Org Admin sees the project exists, but not its data")
+
+    if admin.get(f"{IKI}/audit/").status_code != 403:
+        fail("an Org Admin without the Auditor role can read the audit log")
+    people = admin.get(f"{IKI}/people/")
+    me = re.search(r'href="(/people/[0-9a-f-]+/)">Bob', people.text)
+    if not me:
+        fail("bob isn't on the people page")
+    post(admin, f"{IKI}{me.group(1)}", {"roles": ["org_admin", "auditor"]})
+    log = admin.get(f"{IKI}/audit/")
+    if "Created a project: Atlas" not in log.text or "Granted an org role" not in log.text:
+        fail(f"the audit log page lacks the team and project events (HTTP {log.status_code})")
+    ok("an Auditor reads the team, project and role changes in the audit log")
 
 
 def check(user: str, admin: requests.Session) -> None:
@@ -274,12 +288,18 @@ def check(user: str, admin: requests.Session) -> None:
     logs = kubectl("logs", WEB["target"], "-c", "web", "--since=5m")
     events = [json.loads(line) for line in logs.splitlines() if line.startswith("{")]
     names = {e.get("event") for e in events}
-    expected = {"setup_completed", "signed_in", "signed_out", "team_created", "project_created"}
+    expected = {
+        "setup.completed",
+        "user.signed_in",
+        "user.signed_out",
+        "team.created",
+        "project.created",
+    }
     if not expected <= names:
         fail(f"expected sign-in events in the web logs, found {sorted(n for n in names if n)}")
     if any("code=" in line or "state=" in line for line in logs.splitlines()):
         fail("OAuth code or state leaked into the web logs")
-    ok("setup, sign-in, changes and sign-out are logged; no OAuth codes in the logs")
+    ok("audit events reach the log stream for a SIEM; no OAuth codes in the logs")
 
 
 def main() -> None:

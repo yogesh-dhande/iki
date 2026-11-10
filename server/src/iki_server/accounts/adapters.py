@@ -19,6 +19,7 @@ from django.http import HttpRequest
 from django.shortcuts import render
 
 from iki_server.accounts.models import IdentityProvider, User
+from iki_server.audit import log as audit
 
 logger = structlog.get_logger("iki.accounts")
 
@@ -61,8 +62,16 @@ def display_name(claims: dict[str, Any]) -> str:
     return str(name or claims.get("preferred_username") or "")[:200]
 
 
-def sign_in_error(request: HttpRequest, reason: str, status: int = 403) -> ImmediateHttpResponse:
-    logger.warning("sign_in_refused", reason=reason)
+def sign_in_error(
+    request: HttpRequest, reason: str, status: int = 403, email: str = ""
+) -> ImmediateHttpResponse:
+    """Refuses a sign-in that the identity provider authenticated.
+
+    Only reachable after a real sign-in at the provider, so recording it can't
+    be used to flood the audit log. (Failed or forged callbacks are only
+    logged; see ``on_authentication_error``.)
+    """
+    audit.record("user.sign_in_refused", data={"reason": reason, "email": email})
     return ImmediateHttpResponse(
         render(request, "accounts/sign_in_error.html", {"reason": reason}, status=status)
     )
@@ -104,13 +113,13 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             user: User = sociallogin.user
             existing_email_owner = existing_email_owner.exclude(pk=user.pk)
             if existing_email_owner.exists():
-                raise sign_in_error(request, "email_in_use")
+                raise sign_in_error(request, "email_in_use", email=email)
             name = display_name(claims)
             if (user.email, user.name) != (email, name):
                 user.email, user.name = email, name
                 user.save(update_fields=["email", "name"])
         elif existing_email_owner.exists():
-            raise sign_in_error(request, "email_in_use")
+            raise sign_in_error(request, "email_in_use", email=email)
         provider = next(
             (
                 p
@@ -131,7 +140,9 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         exception: Exception | None = None,
         extra_context: dict[str, Any] | None = None,
     ) -> None:
-        # Log what went wrong for operators; users see a generic message.
+        # Log what went wrong for operators; users see a generic message. Not an
+        # audit event: anyone can send a forged callback, and the audit log
+        # must not be something an unauthenticated caller can grow.
         logger.warning(
             "sign_in_failed",
             provider=getattr(getattr(provider, "app", None), "provider_id", None),

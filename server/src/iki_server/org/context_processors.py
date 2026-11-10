@@ -9,4 +9,7 @@ def navigation(request: HttpRequest) -> dict[str, object]:
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         return {}
-    return {"nav_people": permissions.can(user, Action.ORG_MANAGE)}
+    return {
+        "nav_people": permissions.can(user, Action.ORG_MANAGE),
+        "nav_audit": permissions.can(user, Action.AUDIT_READ),
+    }

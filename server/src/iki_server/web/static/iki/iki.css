@@ -793,3 +793,50 @@ legend {
 .card > :first-child {
   margin-top: 0;
 }
+
+/* --- Audit log --------------------------------------------------------------- */
+
+.filters {
+  margin-bottom: 1.25rem;
+}
+
+.filters summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.filter-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0 1rem;
+  align-items: end;
+}
+
+.filter-form .actions {
+  grid-column: 1 / -1;
+  margin: 0 0 1rem;
+}
+
+input[type="date"] {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+}
+
+.event-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 0.35rem;
+}
+
+.event-details .summary {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+}

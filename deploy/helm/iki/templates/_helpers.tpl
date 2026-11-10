@@ -56,7 +56,38 @@ capabilities:
 {{- end -}}
 
 {{/* Environment shared by the web and migrate containers. */}}
+{{/*
+Environment for app containers (web, maintenance): connects as the app's
+least-privileged database role.
+*/}}
 {{- define "iki.env" -}}
+- name: IKI_DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.database.existingSecret }}
+      key: {{ .Values.database.uriKey }}
+{{ include "iki.commonEnv" . }}
+{{- end -}}
+
+{{/*
+Environment for the migrate Job: connects as the migrator, which owns the
+schema, and knows the app's role so it can grant it privileges.
+*/}}
+{{- define "iki.migratorEnv" -}}
+- name: IKI_DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.database.migrator.existingSecret }}
+      key: {{ .Values.database.migrator.uriKey }}
+- name: IKI_APP_DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.database.existingSecret }}
+      key: {{ .Values.database.uriKey }}
+{{ include "iki.commonEnv" . }}
+{{- end -}}
+
+{{- define "iki.commonEnv" -}}
 - name: IKI_ENVIRONMENT
   value: {{ .Values.environment | quote }}
 - name: IKI_PUBLIC_URL
@@ -83,11 +114,6 @@ capabilities:
   value: {{ .Values.sessions.idleTimeoutMinutes | quote }}
 - name: IKI_SESSION_MAX_AGE_HOURS
   value: {{ .Values.sessions.maxAgeHours | quote }}
-- name: IKI_DATABASE_URL
-  valueFrom:
-    secretKeyRef:
-      name: {{ .Values.database.existingSecret }}
-      key: {{ .Values.database.uriKey }}
 - name: IKI_DB_SSLMODE
   value: {{ .Values.database.sslmode | quote }}
 {{- if .Values.database.caSecret.name }}

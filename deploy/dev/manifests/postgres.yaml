@@ -12,7 +12,18 @@ spec:
   bootstrap:
     initdb:
       database: iki
+      # The migrator: owns the schema; only the migrate Job connects as it.
       owner: iki
+  managed:
+    roles:
+      # The app's role: rows only, no DDL. The migrate Job grants its
+      # privileges (iki-server grant_app_privileges).
+      - name: iki_app
+        ensure: present
+        login: true
+        inherit: true
+        passwordSecret:
+          name: iki-db-runtime-role
   storage:
     size: 2Gi
   postgresql:

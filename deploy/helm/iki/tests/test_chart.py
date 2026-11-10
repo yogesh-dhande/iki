@@ -13,13 +13,13 @@ import yaml
 
 CHART = Path(__file__).resolve().parents[1]
 
-REQUIRED = {
+REQUIRED: dict[str, Any] = {
     "environment": "prod",
     "publicUrl": "https://iki.example.com",
     "allowedHosts": ["iki.example.com"],
     "secretKey": {"existingSecret": "iki-secret-key"},
     "encryptionKeys": {"existingSecret": "iki-encryption-keys"},
-    "database": {"existingSecret": "iki-db"},
+    "database": {"existingSecret": "iki-db-app", "migrator": {"existingSecret": "iki-db-owner"}},
 }
 
 Manifest = dict[str, Any]
@@ -125,7 +125,12 @@ def test_image_digest_takes_precedence_over_tag() -> None:
         ({"environment": ""}, "/environment"),
         ({"allowedHosts": []}, "/allowedHosts"),
         ({"secretKey": {"existingSecret": ""}}, "/secretKey/existingSecret"),
-        ({"database": {"existingSecret": ""}}, "/database/existingSecret"),
+        ({"database": {**REQUIRED["database"], "existingSecret": ""}}, "/database/existingSecret"),
+        ({"database": {"existingSecret": "iki-db-app"}}, "/database"),
+        (
+            {"database": {"existingSecret": "x", "migrator": {"existingSecret": ""}}},
+            "/database/migrator/existingSecret",
+        ),
         ({"encryptionKeys": {"existingSecret": ""}}, "/encryptionKeys/existingSecret"),
         ({"publicUrl": ""}, "/publicUrl"),
         ({"publicUrl": "https://iki.example.com/path?x"}, "/publicUrl"),
@@ -137,7 +142,7 @@ def test_required_values_are_enforced_by_the_schema(override: dict[str, Any], me
 
 
 def test_database_tls_cannot_be_disabled() -> None:
-    stderr = render({"database": {"existingSecret": "iki-db", "sslmode": "disable"}}, ok=False)
+    stderr = render({"database": {**REQUIRED["database"], "sslmode": "disable"}}, ok=False)
     assert "/database/sslmode" in str(stderr)
 
 
@@ -147,9 +152,37 @@ def test_migrations_run_as_a_pre_upgrade_hook_that_never_retries() -> None:
     assert hooks == ["pre-install", "pre-upgrade"]
     assert job["spec"]["backoffLimit"] == 0
     pod = job["spec"]["template"]["spec"]
-    assert pod["containers"][0]["args"] == ["migrate", "--no-input"]
-    (wait,) = pod["initContainers"]
+    # In order: wait for Postgres, migrate, then grant the app's role its privileges.
+    wait, migrate = pod["initContainers"]
     assert wait["args"] == ["wait_for_database", "--timeout", "300"]
+    assert migrate["args"] == ["migrate", "--no-input"]
+    (grant,) = pod["containers"]
+    assert grant["args"] == ["grant_app_privileges"]
+
+
+def database_secret(container: Manifest, var: str = "IKI_DATABASE_URL") -> str:
+    env = {e["name"]: e for e in container["env"]}
+    return str(env[var]["valueFrom"]["secretKeyRef"]["name"])
+
+
+def test_only_the_migrate_job_connects_as_the_schema_owner() -> None:
+    for name, spec in pod_specs(manifests()):
+        for container in [*spec.get("initContainers", []), *spec["containers"]]:
+            where = f"{name}:{container['name']}"
+            if name == "Job/iki-migrate":
+                assert database_secret(container) == "iki-db-owner", where
+                assert database_secret(container, "IKI_APP_DATABASE_URL") == "iki-db-app", where
+            else:
+                assert database_secret(container) == "iki-db-app", where
+                names = {e["name"] for e in container["env"]}
+                assert "IKI_APP_DATABASE_URL" not in names, where
+
+
+def test_no_container_sets_a_variable_twice() -> None:
+    for name, spec in pod_specs(manifests()):
+        for container in [*spec.get("initContainers", []), *spec["containers"]]:
+            names = [e["name"] for e in container["env"]]
+            assert len(names) == len(set(names)), f"{name}:{container['name']}"
 
 
 def test_network_policy_denies_by_default_and_allows_only_declared_egress() -> None:
@@ -213,7 +246,7 @@ def test_rollouts_never_drop_below_capacity() -> None:
 
 def test_database_ca_is_mounted_when_configured() -> None:
     docs = manifests(
-        {"database": {"existingSecret": "iki-db", "caSecret": {"name": "db-ca", "key": "ca.crt"}}}
+        {"database": {**REQUIRED["database"], "caSecret": {"name": "db-ca", "key": "ca.crt"}}}
     )
     for name, spec in pod_specs(docs):
         env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}

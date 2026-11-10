@@ -1,8 +1,9 @@
 {{- if .Values.migrate.enabled }}
-# Applies database migrations before any new web pod starts. As a Helm hook it
-# runs before the release's other resources exist, so it references only
-# Secrets that the operator created beforehand. A failed migration fails the
-# install or upgrade, and the old pods keep serving.
+# Applies database migrations before any new web pod starts, as the migrator
+# (the schema's owner), then grants the app's role exactly what it needs. As
+# a Helm hook it runs before the release's other resources exist, so it
+# references only Secrets that the operator created beforehand. A failed
+# step fails the install or upgrade, and the old pods keep serving.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -42,7 +43,23 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["wait_for_database", "--timeout", {{ .Values.migrate.waitForDatabaseSeconds | quote }}]
           env:
-            {{- include "iki.env" . | nindent 12 }}
+            {{- include "iki.migratorEnv" . | nindent 12 }}
+            - name: IKI_DB_POOL
+              value: "false"
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "iki.volumeMounts" . | nindent 12 }}
+        # Init containers run in order: wait, migrate, then grant (below).
+        - name: migrate
+          image: {{ include "iki.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate", "--no-input"]
+          env:
+            {{- include "iki.migratorEnv" . | nindent 12 }}
+            # One short-lived connection is enough for migrations.
             - name: IKI_DB_POOL
               value: "false"
           resources:
@@ -52,13 +69,12 @@ spec:
           volumeMounts:
             {{- include "iki.volumeMounts" . | nindent 12 }}
       containers:
-        - name: migrate
+        - name: grant-app-privileges
           image: {{ include "iki.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["migrate", "--no-input"]
+          args: ["grant_app_privileges"]
           env:
-            {{- include "iki.env" . | nindent 12 }}
-            # One short-lived connection is enough for migrations.
+            {{- include "iki.migratorEnv" . | nindent 12 }}
             - name: IKI_DB_POOL
               value: "false"
           resources:

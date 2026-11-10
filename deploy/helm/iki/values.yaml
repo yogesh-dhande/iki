@@ -57,9 +57,17 @@ sessions:
   maxAgeHours: 24
 
 database:
-  # required: Secret holding a postgres:// connection URI.
+  # required: Secret holding a postgres:// URI for the app's role. That role
+  # reads and writes rows but can't change the schema or the audit log. The
+  # migrate Job grants it exactly that, and web pods refuse to turn ready if
+  # it has more (a superuser, the schema owner, CREATE rights).
   existingSecret: ""
   uriKey: uri
+  migrator:
+    # required: Secret holding a postgres:// URI for the role that owns the
+    # schema. Only the migrate Job uses it, to run migrations and grants.
+    existingSecret: ""
+    uriKey: uri
   # libpq sslmode. verify-full checks the certificate and the host name.
   sslmode: verify-full
   # Secret holding the CA that signed the database's certificate. Leave the

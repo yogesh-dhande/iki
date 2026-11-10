@@ -65,6 +65,18 @@ ensure_secret() {
 }
 
 ensure_secret iki-secret-key --from-literal=secret-key="$(rand 64 64)"
+# The app's database role, iki_app: CloudNativePG reads the basic-auth Secret
+# to create it; Iki reads the URI. (The schema owner's Secret, iki-db-app,
+# comes from CloudNativePG itself.)
+if ! kc -n "$NAMESPACE" get secret iki-db-runtime >/dev/null 2>&1; then
+  app_password="$(rand 32 32)"
+  log "Generating secrets iki-db-runtime-role and iki-db-runtime"
+  kc -n "$NAMESPACE" create secret generic iki-db-runtime-role --type=kubernetes.io/basic-auth \
+    --from-literal=username=iki_app --from-literal=password="$app_password" >/dev/null
+  kc -n "$NAMESPACE" label secret iki-db-runtime-role cnpg.io/reload=true >/dev/null
+  kc -n "$NAMESPACE" create secret generic iki-db-runtime \
+    --from-literal=uri="postgresql://iki_app:${app_password}@iki-db-rw.${NAMESPACE}:5432/iki" >/dev/null
+fi
 # Fernet key: URL-safe base64 of 32 random bytes.
 ensure_secret iki-encryption-keys --from-literal=keys="$(openssl rand -base64 32 | tr '+/' '-_')"
 ensure_secret keycloak-dev \

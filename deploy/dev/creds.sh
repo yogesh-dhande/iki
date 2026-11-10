@@ -14,5 +14,6 @@ Grafana        http://localhost:3000   admin / $(get grafana-dev admin-password)
 S3 (SeaweedFS) http://localhost:8333   bucket iki
   access key   $(get seaweedfs-s3 access-key)
   secret key   $(get seaweedfs-s3 secret-key)
-Postgres       $(get iki-db-app uri 2>/dev/null || echo "(not created yet)")
+Postgres       migrator (schema owner)  $(get iki-db-app uri 2>/dev/null || echo "(not created yet)")
+               app (rows only)          $(get iki-db-runtime uri 2>/dev/null || echo "(not created yet)")
 INFO

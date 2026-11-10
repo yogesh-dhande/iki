@@ -32,6 +32,7 @@ from django.views.decorators.http import require_http_methods
 from iki_server.accounts.adapters import LOGIN_PROVIDER_SESSION_KEY
 from iki_server.accounts.models import IdentityProvider, User, new_provider_id
 from iki_server.accounts.oidc import DiscoveryError, discover
+from iki_server.audit import log as audit
 from iki_server.org import services
 from iki_server.org.models import OrgRole
 from iki_server.setup import grants
@@ -246,13 +247,14 @@ def complete(request: HttpRequest) -> HttpResponse:
                 installation.setup_completed_at = now
                 installation.save(update_fields=["setup_completed_at", "updated_at"])
             grants.end(request)
+            audit.record(
+                "identity_provider.enabled",
+                actor=user,
+                target=provider,
+                data={"issuer": provider.issuer, "provider_id": provider.provider_id},
+            )
+            audit.record("setup.completed", actor=user, target=user, data={"recovery": recovery})
         csp.clear_cache()
-        logger.info(
-            "setup_completed",
-            recovery=recovery,
-            provider_id=provider.provider_id,
-            administrator_id=str(user.pk),
-        )
         return redirect("setup:done")
     return _render(request, "setup/complete.html", 4, {"provider": provider})
 

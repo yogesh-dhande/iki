@@ -2,14 +2,13 @@
 
 from typing import Any
 
-import structlog
+from allauth.account.signals import user_signed_up
 from django.contrib.auth.signals import user_logged_in, user_logged_out
 from django.db.models.signals import post_save
 
 from iki_server.accounts import session_policy
 from iki_server.accounts.models import User, UserSession
-
-logger = structlog.get_logger("iki.accounts")
+from iki_server.audit import log as audit
 
 
 def end_sessions_of_inactive_users(instance: User, **_: Any) -> None:  # noqa: ANN401
@@ -17,20 +16,29 @@ def end_sessions_of_inactive_users(instance: User, **_: Any) -> None:  # noqa: A
     if not instance.is_active:
         ended, _ = UserSession.objects.filter(user=instance).delete()
         if ended:
-            logger.info("sessions_revoked", user_id=str(instance.pk), reason="deactivated")
+            audit.record(
+                "user.sessions_revoked",
+                target=instance,
+                data={"sessions": ended, "reason": "deactivated"},
+            )
 
 
-def log_sign_in(user: User, **_: Any) -> None:  # noqa: ANN401
-    logger.info("signed_in", user_id=str(user.pk))
+def record_sign_in(user: User, **_: Any) -> None:  # noqa: ANN401
+    audit.record("user.signed_in", actor=user, target=user)
 
 
-def log_sign_out(user: User | None, **_: Any) -> None:  # noqa: ANN401
+def record_sign_out(user: User | None, **_: Any) -> None:  # noqa: ANN401
     if user is not None:
-        logger.info("signed_out", user_id=str(user.pk))
+        audit.record("user.signed_out", actor=user, target=user)
+
+
+def record_first_sign_in(user: User, **_: Any) -> None:  # noqa: ANN401
+    audit.record("user.created", actor=user, target=user, data={"name": user.name})
 
 
 def connect() -> None:
     post_save.connect(end_sessions_of_inactive_users, sender=User, dispatch_uid="iki-end-sessions")
     user_logged_in.connect(session_policy.start, dispatch_uid="iki-session-start")
-    user_logged_in.connect(log_sign_in, dispatch_uid="iki-log-sign-in")
-    user_logged_out.connect(log_sign_out, dispatch_uid="iki-log-sign-out")
+    user_logged_in.connect(record_sign_in, dispatch_uid="iki-audit-sign-in")
+    user_logged_out.connect(record_sign_out, dispatch_uid="iki-audit-sign-out")
+    user_signed_up.connect(record_first_sign_in, dispatch_uid="iki-audit-first-sign-in")
