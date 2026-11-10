@@ -1,8 +1,8 @@
 """People, their sessions, and the identity provider they sign in with.
 
 Iki has no local passwords. Everyone signs in through the organization's
-identity provider (OIDC now, SAML in a later release), and a user record is
-created the first time someone signs in.
+identity provider, over OpenID Connect or SAML 2.0. A user record is created
+by SCIM provisioning or, when SCIM is off, the first time someone signs in.
 """
 
 from typing import Any, ClassVar
@@ -12,6 +12,7 @@ from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.sessions.base_session import AbstractBaseSession
 from django.db import models
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
 from iki_server.core import crypto
@@ -58,6 +59,15 @@ class User(AbstractBaseUser):
     )
     date_joined = models.DateTimeField(default=timezone.now)
 
+    #: Set while the identity provider manages this person over SCIM.
+    provisioned_at = models.DateTimeField(null=True, blank=True)
+    #: The identity provider's own identifier for this person (SCIM ``externalId``).
+    scim_external_id = models.CharField(max_length=255, blank=True)
+    #: SCIM ``userName``, usually the person's sign-in name at the identity provider.
+    scim_user_name = models.CharField(max_length=254, blank=True, db_collation=CASE_INSENSITIVE)
+    #: The SCIM name parts (``givenName``, ``familyName``, ...) the name is built from.
+    scim_name = models.JSONField(default=dict, blank=True)
+
     objects: ClassVar[UserManager] = UserManager()
 
     USERNAME_FIELD = "email"
@@ -67,6 +77,13 @@ class User(AbstractBaseUser):
     class Meta:
         db_table = "iki_user"
         ordering = ("email",)
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["scim_user_name"],
+                condition=~Q(scim_user_name=""),
+                name="iki_user_scim_user_name_unique",
+            )
+        ]
 
     def __str__(self) -> str:
         return self.email
@@ -76,6 +93,10 @@ class User(AbstractBaseUser):
 
     def get_short_name(self) -> str:
         return self.name.split(" ")[0] if self.name else self.email
+
+    @property
+    def is_provisioned(self) -> bool:
+        return self.provisioned_at is not None
 
 
 class UserSession(AbstractBaseSession):
@@ -95,6 +116,17 @@ class UserSession(AbstractBaseSession):
         return SessionStore
 
 
+class Protocol(models.TextChoices):
+    OIDC = "oidc", "OpenID Connect"
+    SAML = "saml", "SAML 2.0"
+
+
+#: The path segment in Iki's SAML URLs (``/accounts/saml/sso/acs/``). It is
+#: the same for every SAML provider, so the URLs and the service provider's
+#: entity ID entered at the identity provider survive reconfiguration.
+SAML_SLUG = "sso"
+
+
 class TokenAuthMethod(models.TextChoices):
     CLIENT_SECRET_BASIC = "client_secret_basic", "HTTP Basic"
     CLIENT_SECRET_POST = "client_secret_post", "Form POST"
@@ -105,27 +137,38 @@ def new_provider_id() -> str:
 
 
 class IdentityProvider(models.Model):
-    """An OpenID Connect identity provider, configured in the first-run wizard.
+    """The organization's identity provider, configured in the first-run wizard.
 
     Exactly one provider is enabled at a time. Each issuer gets its own
-    ``provider_id`` (part of the redirect URI), so accounts from one issuer
-    can never be matched to subject identifiers from another.
+    ``provider_id``, so accounts from one issuer can never be matched to
+    subject identifiers from another.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     provider_id = models.SlugField(max_length=32, unique=True, default=new_provider_id)
+    protocol = models.CharField(max_length=8, choices=Protocol.choices, default=Protocol.OIDC)
     display_name = models.CharField(max_length=100)
-    issuer = models.URLField(max_length=500, unique=True)
-    client_id = models.CharField(max_length=255)
-    client_secret_encrypted = models.TextField()
+    #: The OIDC issuer URL, or the SAML identity provider's entity ID.
+    issuer = models.CharField(max_length=500)
+    # OpenID Connect
+    client_id = models.CharField(max_length=255, blank=True)
+    client_secret_encrypted = models.TextField(blank=True)
     token_auth_method = models.CharField(
         max_length=32,
         choices=TokenAuthMethod.choices,
         default=TokenAuthMethod.CLIENT_SECRET_BASIC,
     )
-    #: From the provider's discovery document. Sign-in forms post to Iki,
-    #: which redirects here, so the CSP form-action must allow this origin.
+    #: Where sign-in sends the browser: the OIDC authorization endpoint or the
+    #: SAML single sign-on URL. Sign-in forms post to Iki, which redirects
+    #: here, so the CSP form-action must allow this origin.
     authorization_endpoint = models.URLField(max_length=500)
+    # SAML
+    #: The identity provider's signing certificate (PEM). Responses must be
+    #: signed with its key; it changes only through the setup wizard.
+    saml_certificate = models.TextField(blank=True)
+    saml_certificate_expires_at = models.DateTimeField(null=True, blank=True)
+    #: Where the metadata was read from, if it came from a URL. Informational.
+    saml_metadata_url = models.URLField(max_length=1000, blank=True)
     is_enabled = models.BooleanField(default=False)
     enabled_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -138,11 +181,19 @@ class IdentityProvider(models.Model):
                 fields=["is_enabled"],
                 condition=Q(is_enabled=True),
                 name="iki_one_enabled_identity_provider",
-            )
+            ),
+            # Keycloak uses its realm URL as both OIDC issuer and SAML entity ID.
+            models.UniqueConstraint(
+                fields=["protocol", "issuer"], name="iki_identity_provider_issuer_unique"
+            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.display_name} ({self.issuer})"
+
+    @property
+    def is_saml(self) -> bool:
+        return self.protocol == Protocol.SAML
 
     @property
     def client_secret(self) -> str:
@@ -157,6 +208,16 @@ class IdentityProvider(models.Model):
         parts = urlsplit(self.authorization_endpoint)
         return f"{parts.scheme}://{parts.netloc}"
 
+    @property
+    def allauth_provider(self) -> str:
+        return "saml" if self.is_saml else "openid_connect"
+
+    def sign_in_url(self) -> str:
+        """Where the sign-in form posts to start signing in with this provider."""
+        if self.is_saml:
+            return reverse("saml_login", kwargs={"organization_slug": SAML_SLUG})
+        return reverse("openid_connect_login", kwargs={"provider_id": self.provider_id})
+
     def to_social_app(self) -> Any:  # noqa: ANN401 - allauth's SocialApp, built per request
         """An unsaved allauth ``SocialApp`` for this provider.
 
@@ -165,6 +226,16 @@ class IdentityProvider(models.Model):
         """
         from allauth.socialaccount.models import SocialApp
 
+        if self.is_saml:
+            from iki_server.accounts import saml
+
+            return SocialApp(
+                provider="saml",
+                provider_id=self.provider_id,
+                name=self.display_name,
+                client_id=SAML_SLUG,
+                settings=saml.app_settings(self),
+            )
         return SocialApp(
             provider="openid_connect",
             provider_id=self.provider_id,

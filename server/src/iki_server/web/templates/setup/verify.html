@@ -4,9 +4,17 @@
 <h1>Sign in to finish</h1>
 <p>Sign in with <strong>{{ provider.display_name }}</strong> to prove the connection works. You’ll confirm on the next page, and then become Iki’s first Org Admin.</p>
 <dl class="summary">
+  {% if provider.is_saml %}
+  <dt>Provider entity ID</dt><dd><code>{{ provider.issuer }}</code></dd>
+  <dt>Single sign-on URL</dt><dd><code>{{ provider.authorization_endpoint }}</code></dd>
+  <dt>Signing certificate</dt><dd>Expires {{ provider.saml_certificate_expires_at|date:"j M Y" }}</dd>
+  <dt>Iki’s ACS URL</dt><dd><code>{{ acs_url }}</code></dd>
+  <dt>Iki’s entity ID</dt><dd><code>{{ entity_id }}</code></dd>
+  {% else %}
   <dt>Issuer</dt><dd><code>{{ provider.issuer }}</code></dd>
   <dt>Client ID</dt><dd><code>{{ provider.client_id }}</code></dd>
   <dt>Redirect URI</dt><dd><code>{{ redirect_uri }}</code></dd>
+  {% endif %}
 </dl>
 <form method="post" action="{{ sign_in_url }}" data-busy-form>
   {% csrf_token %}
@@ -16,5 +24,9 @@
     <a class="button button-quiet" href="{% url 'setup:identity_provider' %}">Change details</a>
   </div>
 </form>
+{% if provider.is_saml %}
+<p class="muted">If sign-in fails, check that the ACS URL and entity ID are entered exactly as shown, that the assertion is signed, and that you’re assigned to the app.</p>
+{% else %}
 <p class="muted">If sign-in fails, check that the redirect URI is registered exactly as shown and that the client secret is current.</p>
+{% endif %}
 {% endblock %}

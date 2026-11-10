@@ -5,9 +5,11 @@
   <h1>{% if reason == "not_available" %}Not available{% elif reason == "rate_limited" %}Too many attempts{% else %}Couldn’t sign you in{% endif %}</h1>
   <div class="alert alert-error" role="alert">
     {% if reason == "no_email" %}
-      <p>Your identity provider didn’t share your email address with Iki. Ask your administrator to release the <code>email</code> claim to Iki.</p>
+      <p>Your identity provider didn’t share your email address with Iki. Ask your administrator to release your email address to Iki (the <code>email</code> claim, or an email attribute or NameID for SAML).</p>
     {% elif reason == "email_in_use" %}
       <p>Another Iki account already uses your email address, linked to a different identity. Ask an Iki administrator for help.</p>
+    {% elif reason == "not_provisioned" %}
+      <p>Your organization gives people access to Iki through its identity provider, and you haven’t been given access yet. Ask your IT team to assign Iki to you.</p>
     {% elif reason == "rate_limited" %}
       <p>There were too many sign-in attempts from your network. Wait a minute and try again.</p>
     {% elif reason == "not_available" %}

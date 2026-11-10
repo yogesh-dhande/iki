@@ -23,6 +23,7 @@
 {% endif %}
 
 <h2>Members</h2>
+{% if linked_groups %}<p class="muted">Members come from the identity provider group{{ linked_groups|pluralize }} {% for name in linked_groups %}<strong>{{ name }}</strong>{% if not forloop.last %}, {% endif %}{% endfor %}. Change who is in {{ linked_groups|pluralize:"it,them" }} at your identity provider.</p>{% endif %}
 <ul class="rows" aria-label="Members">
   {% for membership in members %}
   <li class="row">
@@ -30,7 +31,7 @@
       <span class="row-title">{{ membership.user.get_full_name }}{% if membership.user == user %} <span class="muted">(you)</span>{% endif %}</span>
       <span class="row-meta">{{ membership.user.email }}{% if not membership.user.is_active %} · deactivated{% endif %}</span>
     </div>
-    {% if can_manage %}
+    {% if can_manage and not linked_groups %}
     <form class="row-actions" method="post" action="{% url 'org:team_member_remove' team.slug membership.user.pk %}">
       {% csrf_token %}
       <button class="button button-quiet button-danger" type="submit" aria-label="Remove {{ membership.user.get_full_name }} from {{ team.name }}">Remove</button>
@@ -42,7 +43,7 @@
   {% endfor %}
 </ul>
 
-{% if can_manage %}
+{% if can_manage and not linked_groups %}
 <section class="card form-card">
   <h2 class="section-title">Add a member</h2>
   {% include "web/_errors.html" %}

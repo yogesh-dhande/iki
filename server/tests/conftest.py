@@ -14,6 +14,7 @@ from iki_server.observability.telemetry import configure_telemetry
 if TYPE_CHECKING:
     from django.test import Client
     from fake_idp import FakeIdP
+    from fake_saml_idp import FakeSamlIdP
 
 # Same major version as production; pinned by digest so tests are reproducible.
 POSTGRES_IMAGE = (
@@ -131,6 +132,27 @@ def fake_idp(settings: Any) -> Iterator["FakeIdP"]:
 
 
 @pytest.fixture
+def saml_idp(settings: Any) -> Iterator["FakeSamlIdP"]:
+    """A running fake SAML identity provider serving its metadata over plain HTTP."""
+    from fake_saml_idp import FakeSamlIdP, serve
+
+    from iki_server.web import csp
+
+    settings.HTTPS = False
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = int(s.getsockname()[1])
+    idp = FakeSamlIdP(port=port)
+    server, thread = serve(idp)
+    csp.clear_cache()
+    yield idp
+    server.shutdown()
+    server.server_close()
+    thread.join()
+    csp.clear_cache()
+
+
+@pytest.fixture
 def client() -> "Client":
     """A test client that behaves like a browser: https, and CSRF checks enforced."""
     from browser import Browser
@@ -140,11 +162,18 @@ def client() -> "Client":
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limits() -> None:
-    from iki_server.accounts.views import sign_in_limiter
+    from iki_server.accounts.views import acs_limiter, sign_in_limiter
+    from iki_server.scim.views import unauthorized_limiter
     from iki_server.setup.views import exchange_limiter
     from iki_server.web.views import csp_report_limiter
 
-    for limiter in (sign_in_limiter, exchange_limiter, csp_report_limiter):
+    for limiter in (
+        sign_in_limiter,
+        acs_limiter,
+        exchange_limiter,
+        csp_report_limiter,
+        unauthorized_limiter,
+    ):
         limiter.reset()
 
 

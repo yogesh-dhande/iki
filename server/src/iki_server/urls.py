@@ -13,6 +13,8 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("setup/", include("iki_server.setup.urls")),
     path("", include("iki_server.org.urls")),
     path("", include("iki_server.audit.urls")),
+    path("", include("iki_server.scim.page_urls")),
     path("accounts/", include(accounts.allauth_urlpatterns)),
+    path("scim/v2/", include("iki_server.scim.urls")),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

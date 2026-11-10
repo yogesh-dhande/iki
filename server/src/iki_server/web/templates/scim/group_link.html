@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Link {{ group.display_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'identity:sign_in_settings' %}">Sign-in and provisioning</a></p>
+    <h1>Link {{ group.display_name }} to {% if team %}{{ team.name }}{% else %}a new team{% endif %}</h1>
+  </div>
+</div>
+<p>From now on, {% if other_groups %}{{ group.display_name }} and {% for other in other_groups %}{{ other.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %} decide{% else %}{{ group.display_name }} decides{% endif %} who is on {% if team %}{{ team.name }}{% else %}the new team “{{ group.display_name }}”{% endif %}. Members can’t be added or removed by hand in Iki; change the group at your identity provider.</p>
+<div class="columns">
+  <section class="card">
+    <h2 class="section-title">Joining ({{ joining|length }})</h2>
+    <ul class="plain-list">{% for person in joining %}<li>{{ person.get_full_name }} <span class="muted">{{ person.email }}</span></li>{% empty %}<li class="muted">Nobody</li>{% endfor %}</ul>
+  </section>
+  <section class="card">
+    <h2 class="section-title">Leaving ({{ leaving|length }})</h2>
+    {% if leaving %}<p class="muted">Not in the group, so they’ll lose the team’s project access.</p>{% endif %}
+    <ul class="plain-list">{% for person in leaving %}<li>{{ person.get_full_name }} <span class="muted">{{ person.email }}</span></li>{% empty %}<li class="muted">Nobody</li>{% endfor %}</ul>
+  </section>
+</div>
+<form method="post" class="actions" data-busy-form>
+  {% csrf_token %}
+  <input type="hidden" name="team" value="{{ choice }}">
+  <button class="button button-primary" type="submit" name="action" value="link" data-busy-text="Linking…">Link group</button>
+  <a class="button button-quiet" href="{% url 'identity:sign_in_settings' %}">Cancel</a>
+</form>
+{% endblock %}

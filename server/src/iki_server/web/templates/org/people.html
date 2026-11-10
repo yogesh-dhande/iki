@@ -3,7 +3,7 @@
 {% block main_class %}page-wide{% endblock %}
 {% block content %}
 <div class="page-header"><h1>People</h1></div>
-<p class="muted">Everyone who has signed in to Iki. People get an account the first time they sign in through your identity provider.</p>
+<p class="muted">Everyone with an Iki account. People get one when your identity provider provisions them over SCIM or, with provisioning off, the first time they sign in.</p>
 <ul class="rows">
   {% for person in people %}
   <li class="row">

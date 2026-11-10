@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Sign-in and provisioning{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Sign-in and provisioning</h1></div>
+
+<section class="card">
+  <h2 class="section-title">Identity provider</h2>
+  {% if provider %}
+  <dl class="summary">
+    <dt>Provider</dt><dd>{{ provider.display_name }} ({{ provider.get_protocol_display }})</dd>
+    <dt>{% if provider.is_saml %}Entity ID{% else %}Issuer{% endif %}</dt><dd><code>{{ provider.issuer }}</code></dd>
+    {% if provider.is_saml %}
+    <dt>Signing certificate</dt><dd>Expires <time datetime="{{ provider.saml_certificate_expires_at|date:'c' }}">{{ provider.saml_certificate_expires_at|date:"j M Y" }}</time></dd>
+    {% endif %}
+  </dl>
+  {% if certificate_expiring %}
+  <div class="alert alert-warning" role="note"><p>The provider’s signing certificate expires soon. After it’s renewed at the provider, run <code>iki-server setup_link --recover</code> and read the new metadata, or sign-in will stop working when the old certificate expires.</p></div>
+  {% endif %}
+  <p class="muted">To change the provider or its settings, run <code>iki-server setup_link --recover</code> in the cluster. Changes to sign-in need cluster access, and are recorded in the audit log.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2 class="section-title">SCIM provisioning</h2>
+  <p>With SCIM, your identity provider (such as Microsoft Entra ID or Okta) creates people in Iki, keeps their names and emails current, deactivates them when they leave, and pushes groups you can link to teams.</p>
+  {% if new_token %}
+  <div class="alert alert-success" role="status">
+    <p><strong>Copy this token now.</strong> It won’t be shown again. Paste it into your identity provider as the secret token (bearer token).</p>
+    <div class="copy-row">
+      <code class="copy-value" id="scim-token">{{ new_token }}</code>
+      <button class="button button-quiet" type="button" data-copy="scim-token">Copy</button>
+    </div>
+  </div>
+  {% endif %}
+  <dl class="summary">
+    <dt>Status</dt><dd>{% if token %}On{% else %}Off{% endif %}</dd>
+    <dt>SCIM base URL</dt><dd><div class="copy-row"><code class="copy-value" id="scim-url">{{ scim_url }}</code><button class="button button-quiet" type="button" data-copy="scim-url">Copy</button></div></dd>
+    {% if token %}
+    <dt>Token</dt><dd>…{{ token.hint }}, created <time datetime="{{ token.created_at|date:'c' }}">{{ token.created_at|date:"j M Y" }}</time>{% if token.created_by %} by {{ token.created_by.get_full_name }}{% endif %}</dd>
+    <dt>Last used</dt><dd>{% if token.last_used_at %}<time datetime="{{ token.last_used_at|date:'c' }}">{{ token.last_used_at|date:"j M Y, H:i" }}</time>{% else %}Not yet{% endif %}</dd>
+    {% endif %}
+    <dt>People</dt><dd>{{ provisioned }} provisioned{% if token and not_provisioned %}, {{ not_provisioned }} active and not provisioned{% endif %}</dd>
+  </dl>
+  {% if token %}
+  <p class="muted">While provisioning is on, only people your identity provider has provisioned can sign in for the first time. People who already have an account keep it, and are taken over when the provider provisions them.</p>
+  {% if not_provisioned %}<p class="muted">Assign Iki to the {{ not_provisioned }} people who aren’t provisioned yet, so leaving your organization deactivates them here too.</p>{% endif %}
+  {% endif %}
+  <form method="post" class="actions">
+    {% csrf_token %}
+    <button class="button {% if token %}button-quiet{% else %}button-primary{% endif %}" type="submit" name="action" value="create_token">{% if token %}Replace token{% else %}Turn on provisioning{% endif %}</button>
+    {% if token %}<button class="button button-quiet button-danger" type="submit" name="action" value="revoke_token">Turn off provisioning</button>{% endif %}
+  </form>
+  {% if token %}<p class="muted">Replacing the token stops the old one working at once; paste the new one into your identity provider.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2 class="section-title">Groups</h2>
+  <p class="muted">Groups your identity provider pushes. A group changes nothing in Iki until you link it to a team; from then on, the group decides who is on that team.</p>
+  <ul class="rows" aria-label="Groups">
+    {% for group in groups %}
+    <li class="row">
+      <div class="row-main">
+        <span class="row-title">{{ group.display_name }}</span>
+        <span class="row-meta">{{ group.size }} member{{ group.size|pluralize }}{% if group.team %} · decides <a href="{% url 'org:team_detail' group.team.slug %}">{{ group.team.name }}</a>{% else %} · not linked{% endif %}</span>
+      </div>
+      <div class="row-actions">
+        {% if group.team %}
+        <form method="post" action="{% url 'identity:group_link' group.pk %}">
+          {% csrf_token %}
+          <button class="button button-quiet" type="submit" name="action" value="unlink" aria-label="Unlink {{ group.display_name }} from {{ group.team.name }}">Unlink</button>
+        </form>
+        {% else %}
+        <form method="get" action="{% url 'identity:group_link' group.pk %}" class="inline-form">
+          <label class="visually-hidden" for="team-{{ group.pk }}">Team for {{ group.display_name }}</label>
+          <select id="team-{{ group.pk }}" name="team">
+            <option value="new">New team “{{ group.display_name }}”</option>
+            {% for team in teams %}<option value="{{ team.pk }}">{{ team.name }}</option>{% endfor %}
+          </select>
+          <button class="button button-quiet" type="submit">Link…</button>
+        </form>
+        {% endif %}
+      </div>
+    </li>
+    {% empty %}
+    <li class="row"><span class="muted">No groups yet. Assign groups to Iki in your identity provider and they’ll appear here.</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

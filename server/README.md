@@ -22,17 +22,36 @@ iki-server clear_expired_sessions  # delete expired sessions (the chart runs it 
 
 ### First run
 
-Iki has no passwords. Everyone signs in through the organization's OIDC
-identity provider (ADR 0023). To set it up, run `iki-server setup_link`
+Iki has no passwords. Everyone signs in through the organization's identity
+provider, over OpenID Connect or SAML 2.0 (ADRs 0023 and 0026). To set it up, run `iki-server setup_link`
 inside the cluster and open the printed link within 60 minutes:
 
 ```console
 kubectl exec deploy/iki-web -c web -- iki-server setup_link
 ```
 
-The wizard names the organization, checks the identity provider's discovery
-document, has you sign in through it, and makes you the first administrator.
-The link works once; creating a new one revokes older ones.
+The wizard:
+
+1. names the organization;
+2. checks the identity provider (its OIDC discovery document, or its SAML
+   metadata, whose signing certificate it pins);
+3. has you sign in through it;
+4. makes you the first administrator.
+
+The link works once; creating a new one revokes older ones. Run
+`setup_link --recover` to change the provider later, including to renew a
+SAML signing certificate.
+
+### SCIM provisioning
+
+Org Admins turn on SCIM on the **Sign-in** settings page (`/settings/sign-in/`).
+That shows the base URL (`https://<host>/scim/v2/`) and a bearer token, once,
+to enter in Microsoft Entra ID, Okta or another SCIM client.
+
+- **People:** the identity provider creates, updates and deactivates them,
+  and only provisioned people can get new accounts.
+- **Groups:** they appear on the same page. Linking one to a team makes the
+  group decide who is on that team.
 
 ### Database roles
 

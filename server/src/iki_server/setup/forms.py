@@ -78,3 +78,41 @@ class IdentityProviderForm(forms.Form):
         if not self.has_secret and not data.get("client_secret"):
             self.add_error("client_secret", "Enter the client secret.")
         return data
+
+
+class SamlProviderForm(forms.Form):
+    display_name = forms.CharField(
+        label="Provider name",
+        max_length=100,
+        strip=True,
+        help_text=(
+            "The sign-in button reads “Continue with …”, "
+            "for example “Okta” or “Microsoft Entra ID”."
+        ),
+    )
+    metadata_url = forms.URLField(
+        label="Metadata URL",
+        max_length=1000,
+        required=False,
+        assume_scheme="https",
+        widget=forms.URLInput(attrs={"spellcheck": "false"}),
+        help_text=(
+            "Entra ID calls it the App Federation Metadata URL; Okta shows it as the "
+            "Metadata URL on the app’s Sign On tab."
+        ),
+    )
+    metadata_xml = forms.CharField(
+        label="Or paste the metadata XML",
+        max_length=200_000,
+        required=False,
+        strip=True,
+        widget=forms.Textarea(attrs={"rows": 5, "spellcheck": "false"}),
+    )
+
+    def clean(self) -> dict[str, Any]:
+        data = super().clean() or {}
+        if not data.get("metadata_url") and not data.get("metadata_xml"):
+            self.add_error("metadata_url", "Enter the metadata URL, or paste the metadata XML.")
+        elif data.get("metadata_url") and data.get("metadata_xml"):
+            self.add_error("metadata_xml", "Give either the URL or the XML, not both.")
+        return data

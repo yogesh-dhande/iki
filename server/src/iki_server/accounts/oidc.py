@@ -29,7 +29,7 @@ def discovery_url(issuer: str) -> str:
     return issuer.rstrip("/") + "/.well-known/openid-configuration"
 
 
-def check_url(url: str, *, allow_http: bool, what: str) -> None:
+def check_url(url: str, *, allow_http: bool, what: str, allow_query: bool = False) -> None:
     parts = urlsplit(url)
     allowed = {"https", "http"} if allow_http else {"https"}
     if parts.scheme not in allowed or not parts.hostname:
@@ -37,31 +37,29 @@ def check_url(url: str, *, allow_http: bool, what: str) -> None:
         raise DiscoveryError(f"The {what} must be {need} URL.")
     if parts.username or parts.password:
         raise DiscoveryError(f"The {what} must not contain credentials.")
-    if parts.query or parts.fragment:
+    if parts.fragment or (parts.query and not allow_query):
         raise DiscoveryError(f"The {what} must not have a query or fragment.")
 
 
-def discover(issuer: str, *, allow_http: bool = False) -> ProviderMetadata:
-    """Fetches and validates the provider's discovery document (OpenID Connect Discovery 1.0)."""
-    check_url(issuer, allow_http=allow_http, what="issuer URL")
-    url = discovery_url(issuer)
-    host = urlsplit(issuer).hostname
+def fetch(url: str, *, accept: str, what: str, redirect_hint: str) -> bytes:
+    """GETs a small document from an identity provider, without following redirects.
+
+    Errors are :class:`DiscoveryError` with a message for the administrator.
+    """
+    host = urlsplit(url).hostname
     try:
         with requests.get(
             url,
             timeout=TIMEOUT,
             allow_redirects=False,
             stream=True,
-            headers={"Accept": "application/json", "User-Agent": f"iki-server/{__version__}"},
+            headers={"Accept": accept, "User-Agent": f"iki-server/{__version__}"},
         ) as response:
             if response.is_redirect:
-                raise DiscoveryError(
-                    f"{url} redirects elsewhere. "
-                    "Enter the issuer exactly as the provider reports it."
-                )
+                raise DiscoveryError(f"{url} redirects elsewhere. {redirect_hint}")
             if response.status_code != 200:
                 raise DiscoveryError(f"{url} returned HTTP {response.status_code}.")
-            body = response.raw.read(MAX_BYTES + 1, decode_content=True)
+            body: bytes = response.raw.read(MAX_BYTES + 1, decode_content=True)
     except requests.exceptions.SSLError:
         raise DiscoveryError(f"Couldn't verify the TLS certificate of {host}.") from None
     except requests.exceptions.Timeout:
@@ -71,7 +69,20 @@ def discover(issuer: str, *, allow_http: bool = False) -> ProviderMetadata:
             f"Couldn't connect to {host}. Check the URL, and that Iki's network policy allows it."
         ) from None
     if len(body) > MAX_BYTES:
-        raise DiscoveryError("The discovery document is too large.")
+        raise DiscoveryError(f"The {what} is too large.")
+    return body
+
+
+def discover(issuer: str, *, allow_http: bool = False) -> ProviderMetadata:
+    """Fetches and validates the provider's discovery document (OpenID Connect Discovery 1.0)."""
+    check_url(issuer, allow_http=allow_http, what="issuer URL")
+    url = discovery_url(issuer)
+    body = fetch(
+        url,
+        accept="application/json",
+        what="discovery document",
+        redirect_hint="Enter the issuer exactly as the provider reports it.",
+    )
     try:
         document: Any = json.loads(body)
     except ValueError:

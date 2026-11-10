@@ -15,9 +15,10 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Prefetch
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.defaultfilters import pluralize
 from django.views.decorators.http import require_http_methods, require_POST
 
-from iki_server.accounts.models import User
+from iki_server.accounts.models import IdentityProvider, User
 from iki_server.org import permissions, services
 from iki_server.org.forms import (
     AddPersonForm,
@@ -360,6 +361,7 @@ def team_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "projects": projects,
             "form": form,
             "can_manage": can_manage,
+            "linked_groups": services.linked_groups(team),
             "can_create_project": permissions.can(user, Action.PROJECT_CREATE, team),
             "role_labels": dict(ProjectRole.choices),
         },
@@ -371,8 +373,12 @@ def team_detail(request: HttpRequest, slug: str) -> HttpResponse:
 def team_member_remove(request: HttpRequest, slug: str, user_id: str) -> HttpResponse:
     team = _team(request, slug, Action.TEAM_MANAGE)
     person = get_object_or_404(User, pk=user_id)
-    services.remove_team_member(team, person, by=_user(request))
-    messages.success(request, f"Removed {person.get_full_name()} from {team.name}.")
+    try:
+        services.remove_team_member(team, person, by=_user(request))
+    except services.Refused as refusal:
+        messages.error(request, str(refusal))
+    else:
+        messages.success(request, f"Removed {person.get_full_name()} from {team.name}.")
     return redirect("org:team_detail", slug=team.slug)
 
 
@@ -434,6 +440,13 @@ def person(request: HttpRequest, user_id: str) -> HttpResponse:
             verb = "Reactivated" if action == "activate" else "Deactivated"
             messages.success(request, f"{verb} {subject.get_full_name()}.")
             return redirect(request.path)
+        if action == "end_sessions":
+            ended = services.end_sessions(subject, by=me)
+            messages.success(
+                request,
+                f"Signed {subject.get_full_name()} out of {ended} session{pluralize(ended)}.",
+            )
+            return redirect(request.path)
         if form.is_valid():
             services.set_org_roles(subject, set(form.cleaned_data["roles"]), by=me)
             messages.success(request, f"Saved {subject.get_full_name()}’s org roles.")
@@ -448,5 +461,6 @@ def person(request: HttpRequest, user_id: str) -> HttpResponse:
             "teams": teams,
             "is_self": subject.pk == me.pk,
             "org_admin": OrgRole.ORG_ADMIN in current,
+            "provider": IdentityProvider.objects.filter(is_enabled=True).first(),
         },
     )

@@ -10,6 +10,7 @@ from fake_idp import FakeIdP
 
 if TYPE_CHECKING:
     from django.test.client import _MonkeyPatchedWSGIResponse
+    from fake_saml_idp import AuthnRequest, FakeSamlIdP
 
     Response = _MonkeyPatchedWSGIResponse
 else:
@@ -36,6 +37,8 @@ class Browser(Client):
         query_params: Mapping[Any, Any] | None = None,
         **extra: Any,
     ) -> "Response":
+        # Real browsers always send Host; python3-saml reads it to check Destination.
+        extra.setdefault("HTTP_HOST", "testserver")
         if method not in ("GET", "HEAD", "OPTIONS"):
             # Browsers send Origin on every POST; Django's CSRF check relies on it over https.
             extra.setdefault("HTTP_ORIGIN", "https://testserver")
@@ -136,3 +139,73 @@ def sign_in(browser: Browser, idp: FakeIdP, claims: dict[str, Any]) -> Response:
     assert action, page.content.decode()
     start = browser.submit("/login/", {"next": "/"}, action=action.group(1))
     return sign_in_at_idp(browser, idp, start, claims)
+
+
+def saml_start(browser: Browser, start: Response) -> "AuthnRequest":
+    """Reads the AuthnRequest from Iki's redirect to the SAML provider."""
+    from fake_saml_idp import FakeSamlIdP
+
+    assert start.status_code == 302, start.content.decode()
+    return FakeSamlIdP.read_request(start["Location"])
+
+
+def post_saml_response(browser: Browser, saml_response: str, relay_state: str = "") -> Response:
+    """Posts a SAMLResponse to the ACS like the provider's page would, and follows to the finish."""
+    acs = browser.post(
+        "/accounts/saml/sso/acs/",
+        {"SAMLResponse": saml_response, "RelayState": relay_state},
+        HTTP_ORIGIN="https://idp.example.com",
+    )
+    assert acs.status_code == 302, acs.content.decode()
+    return browser.get(path_of(acs))
+
+
+def saml_sign_in(
+    browser: Browser, idp: "FakeSamlIdP", name_id: str, attributes: dict[str, str] | None = None
+) -> Response:
+    """Signs in from the login page through the SAML provider; returns Iki's final response."""
+    page = browser.get("/login/")
+    action = re.search(r'<form method="post" action="([^"]+)"', page.content.decode())
+    assert action, page.content.decode()
+    start = browser.submit("/login/", {"next": "/"}, action=action.group(1))
+    request = saml_start(browser, start)
+    return post_saml_response(
+        browser, idp.respond(request, name_id=name_id, attributes=attributes), request.relay_state
+    )
+
+
+def complete_saml_setup(
+    browser: Browser,
+    idp: "FakeSamlIdP",
+    name_id: str,
+    attributes: dict[str, str] | None = None,
+    recover: bool = False,
+    metadata: dict[str, str] | None = None,
+) -> Response:
+    """Runs the wizard with a SAML provider and returns the final response."""
+    token = setup_link_token(*(["--recover"] if recover else []))
+    response = browser.submit("/setup/", {"token": token})
+    assert response.status_code == 302, response.content.decode()
+    if not recover:
+        response = browser.submit("/setup/organization/", {"organization_name": "Example Bio"})
+    response = browser.submit(
+        "/setup/identity-provider/?protocol=saml",
+        {
+            "protocol": "saml",
+            "display_name": "Test SAML",
+            **(metadata or {"metadata_url": idp.metadata_url}),
+        },
+    )
+    assert response.status_code == 302, response.content.decode()
+    assert path_of(response) == "/setup/verify/"
+    verify = browser.get("/setup/verify/")
+    action = re.search(r'<form method="post" action="([^"]+)"', verify.content.decode())
+    assert action
+    start = browser.submit("/setup/verify/", {"next": "/setup/complete/"}, action=action.group(1))
+    request = saml_start(browser, start)
+    finish = post_saml_response(
+        browser, idp.respond(request, name_id=name_id, attributes=attributes), request.relay_state
+    )
+    assert finish.status_code == 302, finish.content.decode()
+    assert path_of(finish) == "/setup/complete/", finish.content.decode()
+    return browser.submit("/setup/complete/")

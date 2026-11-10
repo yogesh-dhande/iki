@@ -21,6 +21,7 @@ class Via(models.TextChoices):
     API = "api", "API"
     MCP = "mcp", "MCP"
     CLI = "cli", "Command line"
+    SCIM = "scim", "SCIM provisioning"
     SYSTEM = "system", "System"
 
 

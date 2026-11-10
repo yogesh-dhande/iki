@@ -1,7 +1,8 @@
 """Sets up sign-in on the dev cluster through the real wizard and Keycloak.
 
     uv run python deploy/dev/sso.py           # set up (or re-set up) SSO, bob becomes admin
-    uv run python deploy/dev/sso.py --check   # same, then end-to-end sign-in checks as alice
+    uv run python deploy/dev/sso.py --check   # same, then end-to-end checks: sign-in as
+                                              # alice, SCIM provisioning, and SAML
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -30,6 +31,7 @@ IKI = "http://localhost:8000"
 #: The web workload to exec into and read logs from (``--web``).
 WEB = {"target": "deploy/iki-web"}
 ISSUER = "http://keycloak.iki.localhost:8080/realms/iki"
+SAML_METADATA = f"{ISSUER}/protocol/saml/descriptor"
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
 
@@ -140,12 +142,20 @@ def submit(
 def keycloak_sign_in(
     session: requests.Session, response: requests.Response, username: str
 ) -> requests.Response:
-    """On Keycloak's login page, signs in and follows the redirects back to Iki."""
+    """On Keycloak's login page, signs in and follows the redirects back to Iki.
+
+    For SAML, Keycloak answers with a page whose script posts the SAMLResponse
+    to Iki; this posts that form the way the script would.
+    """
     if not response.url.startswith(ISSUER):
         fail(f"expected Keycloak's login page, got {response.url}")
     action, inputs = form(response, "kc-form-login")
     password = secret("keycloak-dev", "IKI_DEV_USER_PASSWORD")
-    return session.post(action, data={**inputs, "username": username, "password": password})
+    response = session.post(action, data={**inputs, "username": username, "password": password})
+    if response.url.startswith(ISSUER) and "SAMLResponse" in response.text:
+        action, inputs = form(response)
+        response = session.post(action, data=inputs)
+    return response
 
 
 def setup_link() -> str:
@@ -163,7 +173,7 @@ def setup_link() -> str:
     return match.group(2)
 
 
-def set_up(admin: str) -> requests.Session:
+def set_up(admin: str, protocol: str = "oidc") -> requests.Session:
     """Runs the wizard; returns the admin's signed-in browser."""
     session = browser()
     response = submit(session, f"{IKI}/setup/", {"token": setup_link()}, form_id="setup-token-form")
@@ -171,27 +181,34 @@ def set_up(admin: str) -> requests.Session:
         response = submit(session, response.url, {"organization_name": "Iki (development)"})
     if urlsplit(response.url).path != "/setup/identity-provider/":
         fail(f"wizard went to {response.url} after the setup link (HTTP {response.status_code})")
-    response = submit(
-        session,
-        response.url,
-        {
+    if protocol == "saml":
+        details = {"display_name": "Keycloak", "metadata_url": SAML_METADATA}
+    else:
+        details = {
             "display_name": "Keycloak",
             "issuer": ISSUER,
             "client_id": "iki-web",
             "client_secret": secret("keycloak-dev", "IKI_DEV_OIDC_CLIENT_SECRET"),
-        },
+        }
+    response = submit(
+        session,
+        f"{IKI}/setup/identity-provider/?protocol={protocol}",
+        {"protocol": protocol, **details},
     )
     if urlsplit(response.url).path != "/setup/verify/":
         errors = re.findall(r'class="field-error"[^>]*>([^<]+)', response.text)
         fail(f"identity provider step failed: {errors or response.status_code}")
-    ok("wizard checked Keycloak's discovery document from inside the cluster")
+    if protocol == "saml":
+        ok("wizard read Keycloak's SAML metadata in the cluster and pinned its certificate")
+    else:
+        ok("wizard checked Keycloak's discovery document from inside the cluster")
     response = keycloak_sign_in(session, submit(session, response.url), admin)
     if urlsplit(response.url).path != "/setup/complete/":
         fail(f"after signing in at Keycloak, landed on {response.url}")
     response = submit(session, response.url)
     if urlsplit(response.url).path != "/setup/done/" or "Iki is ready" not in response.text:
         fail(f"finishing setup landed on {response.url}")
-    ok(f"setup finished through Keycloak; {admin} is an Org Admin")
+    ok(f"setup finished through Keycloak ({protocol.upper()}); {admin} is an Org Admin")
     return session
 
 
@@ -231,17 +248,107 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
         fail("the Org Admin can read a project they're not a member of")
     ok("the Org Admin sees the project exists, but not its data")
 
-    if admin.get(f"{IKI}/audit/").status_code != 403:
-        fail("an Org Admin without the Auditor role can read the audit log")
     people = admin.get(f"{IKI}/people/")
     me = re.search(r'href="(/people/[0-9a-f-]+/)">Bob', people.text)
     if not me:
         fail("bob isn't on the people page")
+    post(admin, f"{IKI}{me.group(1)}", {"roles": ["org_admin"]})  # as on a first run
+    if admin.get(f"{IKI}/audit/").status_code != 403:
+        fail("an Org Admin without the Auditor role can read the audit log")
     post(admin, f"{IKI}{me.group(1)}", {"roles": ["org_admin", "auditor"]})
     log = admin.get(f"{IKI}/audit/")
     if "Created a project: Atlas" not in log.text or "Granted an org role" not in log.text:
         fail(f"the audit log page lacks the team and project events (HTTP {log.status_code})")
     ok("an Auditor reads the team, project and role changes in the audit log")
+
+
+def sign_in_as(user: str) -> requests.Session:
+    session = browser()
+    action, inputs = form(session.get(f"{IKI}/login/"))
+    response = keycloak_sign_in(
+        session, session.post(action, data=inputs, headers={"Origin": IKI}), user
+    )
+    if urlsplit(response.url).path != "/" or f"Welcome, {user.title()}" not in response.text:
+        fail(f"signing in as {user} landed on {response.url} (HTTP {response.status_code})")
+    return session
+
+
+class Scim:
+    """Plays the identity provider's SCIM client (Keycloak can't push SCIM)."""
+
+    def __init__(self, token: str) -> None:
+        self.session = requests.Session()
+        self.session.headers.update(
+            {"Authorization": f"Bearer {token}", "Content-Type": "application/scim+json"}
+        )
+
+    def __call__(self, method: str, path: str, body: Any = None) -> Any:  # noqa: ANN401
+        response = self.session.request(method, f"{IKI}/scim/v2{path}", json=body)
+        if response.status_code >= 400:
+            fail(f"SCIM {method} {path}: HTTP {response.status_code} {response.text[:300]}")
+        return response.json() if response.content else None
+
+    def user(self, email: str) -> str:
+        """Finds or creates someone, as Entra ID and Okta do."""
+        found = self("GET", f'/Users?filter=userName eq "{email}"')["Resources"]
+        if found:
+            return str(found[0]["id"])
+        created = self(
+            "POST",
+            "/Users",
+            {"userName": email, "emails": [{"value": email, "primary": True}], "active": True},
+        )
+        return str(created["id"])
+
+
+def provisioning(admin: requests.Session) -> None:
+    """SCIM: the Org Admin turns it on, the IdP pushes people and a group, access follows."""
+    page = post(admin, f"{IKI}/settings/sign-in/", {"action": "create_token"})
+    token = re.search(r'id="scim-token">([^<]+)<', page.text)
+    if not token:
+        fail(f"creating a SCIM token showed no token (HTTP {page.status_code})")
+    scim = Scim(token.group(1))
+    alice_id = scim.user("alice@iki.test")
+    scim.user("bob@iki.test")
+    ok("the Org Admin turned on SCIM; bob's and alice's accounts are now provisioned")
+
+    name = f"E2E Chemistry {int(time.time())}"
+    group = scim("POST", "/Groups", {"displayName": name, "members": [{"value": alice_id}]})
+    response = post(
+        admin, f"{IKI}/settings/sign-in/groups/{group['id']}/", {"action": "link", "team": "new"}
+    )
+    if (
+        "Members come from the identity provider group" not in response.text
+        or "alice@iki.test" not in response.text
+    ):
+        fail(f"linking {name} to a new team landed on {response.url} (HTTP {response.status_code})")
+    ok("a pushed group, linked to a team, decides who is on it")
+
+    alice = sign_in_as("alice")
+    scim(
+        "PATCH",
+        f"/Users/{alice_id}",
+        {"Operations": [{"op": "Replace", "path": "active", "value": "False"}]},
+    )
+    if urlsplit(alice.get(f"{IKI}/").url).path != "/login/":
+        fail("alice's session survived SCIM deactivation")
+    ok("deactivating alice over SCIM ended her session at once")
+    scim(
+        "PATCH",
+        f"/Users/{alice_id}",
+        {"Operations": [{"op": "Replace", "path": "active", "value": "True"}]},
+    )
+    scim("DELETE", f"/Groups/{group['id']}")
+    sign_in_as("alice")
+    ok("reactivated over SCIM, alice signs in again")
+
+
+def saml() -> None:
+    """Switches sign-in to Keycloak over SAML through recovery, signs in, and switches back."""
+    set_up("bob", protocol="saml")
+    sign_in_as("alice")
+    ok("alice signed in through Keycloak over SAML (signed assertion, SP-initiated)")
+    set_up("bob")
 
 
 def check(user: str, admin: requests.Session) -> None:
@@ -317,6 +424,8 @@ def main() -> None:
     admin = set_up(args.admin)
     if args.check:
         check("alice", admin)
+        provisioning(admin)
+        saml()
 
 
 if __name__ == "__main__":

@@ -4,8 +4,9 @@
    access is the proof of authority). The token becomes a setup grant in
    this browser's session.
 2. **Name the organization.**
-3. **Connect the identity provider** (OIDC). Iki checks the provider's
-   discovery document before saving anything.
+3. **Connect the identity provider**, over OpenID Connect (Iki checks the
+   discovery document) or SAML 2.0 (Iki reads the metadata and pins the
+   signing certificate), before saving anything.
 4. **Sign in through it.** This proves the configuration works end to end.
 5. **Finish**: the provider is enabled and the person who signed in becomes
    the first administrator.
@@ -29,14 +30,27 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
+from iki_server.accounts import saml
 from iki_server.accounts.adapters import LOGIN_PROVIDER_SESSION_KEY
-from iki_server.accounts.models import IdentityProvider, User, new_provider_id
+from iki_server.accounts.models import (
+    SAML_SLUG,
+    IdentityProvider,
+    Protocol,
+    TokenAuthMethod,
+    User,
+    new_provider_id,
+)
 from iki_server.accounts.oidc import DiscoveryError, discover
 from iki_server.audit import log as audit
 from iki_server.org import services
 from iki_server.org.models import OrgRole
 from iki_server.setup import grants
-from iki_server.setup.forms import IdentityProviderForm, OrganizationForm, TokenForm
+from iki_server.setup.forms import (
+    IdentityProviderForm,
+    OrganizationForm,
+    SamlProviderForm,
+    TokenForm,
+)
 from iki_server.setup.models import Installation
 from iki_server.web import csp
 from iki_server.web.ratelimit import RateLimiter, client_key
@@ -77,6 +91,17 @@ def _render(
 def _redirect_uri(request: HttpRequest, provider_id: str) -> str:
     path = reverse("openid_connect_callback", kwargs={"provider_id": provider_id})
     return request.build_absolute_uri(path)
+
+
+def _saml_urls(request: HttpRequest) -> dict[str, str]:
+    """What the administrator enters at the identity provider for a SAML app."""
+
+    def url(name: str) -> str:
+        return request.build_absolute_uri(reverse(name, kwargs={"organization_slug": SAML_SLUG}))
+
+    metadata = url("saml_metadata")
+    # allauth uses the metadata URL as the service provider's entity ID.
+    return {"acs_url": url("saml_acs"), "entity_id": metadata, "metadata_url": metadata}
 
 
 @never_cache
@@ -141,6 +166,19 @@ def identity_provider(request: HttpRequest) -> HttpResponse:
     current = grant.identity_provider() or (
         IdentityProvider.objects.filter(is_enabled=True).first() if grant.recovery else None
     )
+    requested = request.POST.get("protocol") or request.GET.get("protocol")
+    if requested in Protocol.values:
+        protocol = Protocol(requested)
+    else:
+        protocol = Protocol(current.protocol) if current else Protocol.OIDC
+    if current is not None and current.protocol != protocol:
+        current = None
+    if protocol == Protocol.SAML:
+        return _saml_provider(request, current)
+    return _oidc_provider(request, current)
+
+
+def _oidc_provider(request: HttpRequest, current: IdentityProvider | None) -> HttpResponse:
     provider_id = (
         current.provider_id
         if current
@@ -160,7 +198,9 @@ def identity_provider(request: HttpRequest) -> HttpResponse:
     )
     if request.method == "POST" and form.is_valid():
         data = form.cleaned_data
-        existing = IdentityProvider.objects.filter(issuer=data["issuer"]).first()
+        existing = IdentityProvider.objects.filter(
+            protocol=Protocol.OIDC, issuer=data["issuer"]
+        ).first()
         if existing is None and not data["client_secret"]:
             form.add_error("client_secret", "Enter the client secret.")
         else:
@@ -170,7 +210,7 @@ def identity_provider(request: HttpRequest) -> HttpResponse:
                 form.add_error("issuer", str(error))
             else:
                 provider = existing or IdentityProvider(
-                    issuer=data["issuer"], provider_id=provider_id
+                    protocol=Protocol.OIDC, issuer=data["issuer"], provider_id=provider_id
                 )
                 provider.display_name = data["display_name"]
                 provider.client_id = data["client_id"]
@@ -179,21 +219,73 @@ def identity_provider(request: HttpRequest) -> HttpResponse:
                 provider.token_auth_method = metadata.token_auth_method
                 provider.authorization_endpoint = metadata.authorization_endpoint
                 provider.save()
-                grants.set_identity_provider(request, provider)
-                request.session.pop(_PENDING_PROVIDER_ID, None)
-                logger.info(
-                    "identity_provider_saved",
-                    provider_id=provider.provider_id,
-                    issuer=provider.issuer,
-                )
-                return redirect("setup:verify")
+                return _saved(request, provider)
     return _render(
         request,
         "setup/identity_provider.html",
         2,
-        {"form": form, "redirect_uri": _redirect_uri(request, provider_id)},
+        {
+            "form": form,
+            "protocol": Protocol.OIDC,
+            "redirect_uri": _redirect_uri(request, provider_id),
+        },
         status=400 if form.errors else 200,
     )
+
+
+def _saml_provider(request: HttpRequest, current: IdentityProvider | None) -> HttpResponse:
+    initial = (
+        {"display_name": current.display_name, "metadata_url": current.saml_metadata_url}
+        if current
+        else {}
+    )
+    form = SamlProviderForm(request.POST or None, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        try:
+            metadata = (
+                saml.fetch_metadata(data["metadata_url"])
+                if data["metadata_url"]
+                else saml.parse_metadata(data["metadata_xml"])
+            )
+        except DiscoveryError as error:
+            form.add_error("metadata_url" if data["metadata_url"] else "metadata_xml", str(error))
+        else:
+            provider = IdentityProvider.objects.filter(
+                protocol=Protocol.SAML, issuer=metadata.entity_id
+            ).first() or IdentityProvider(
+                protocol=Protocol.SAML,
+                issuer=metadata.entity_id,
+                provider_id=request.session.pop(_PENDING_PROVIDER_ID, None) or new_provider_id(),
+            )
+            provider.display_name = data["display_name"]
+            provider.authorization_endpoint = metadata.sso_url
+            provider.saml_certificate = metadata.certificate
+            provider.saml_certificate_expires_at = metadata.certificate_expires_at
+            provider.saml_metadata_url = data["metadata_url"] or ""
+            provider.client_id, provider.client_secret_encrypted = "", ""
+            provider.token_auth_method = TokenAuthMethod.CLIENT_SECRET_BASIC
+            provider.save()
+            return _saved(request, provider)
+    return _render(
+        request,
+        "setup/identity_provider.html",
+        2,
+        {"form": form, "protocol": Protocol.SAML, **_saml_urls(request)},
+        status=400 if form.errors else 200,
+    )
+
+
+def _saved(request: HttpRequest, provider: IdentityProvider) -> HttpResponse:
+    grants.set_identity_provider(request, provider)
+    request.session.pop(_PENDING_PROVIDER_ID, None)
+    logger.info(
+        "identity_provider_saved",
+        provider_id=provider.provider_id,
+        protocol=provider.protocol,
+        issuer=provider.issuer,
+    )
+    return redirect("setup:verify")
 
 
 def _signed_in_with(request: HttpRequest, provider: IdentityProvider) -> bool:
@@ -218,10 +310,9 @@ def verify(request: HttpRequest) -> HttpResponse:
         {
             "provider": provider,
             "redirect_uri": _redirect_uri(request, provider.provider_id),
-            "sign_in_url": reverse(
-                "openid_connect_login", kwargs={"provider_id": provider.provider_id}
-            ),
+            "sign_in_url": provider.sign_in_url(),
             "next": reverse("setup:complete"),
+            **(_saml_urls(request) if provider.is_saml else {}),
         },
     )
 
@@ -251,7 +342,11 @@ def complete(request: HttpRequest) -> HttpResponse:
                 "identity_provider.enabled",
                 actor=user,
                 target=provider,
-                data={"issuer": provider.issuer, "provider_id": provider.provider_id},
+                data={
+                    "issuer": provider.issuer,
+                    "provider_id": provider.provider_id,
+                    "protocol": provider.protocol,
+                },
             )
             audit.record("setup.completed", actor=user, target=user, data={"recovery": recovery})
         csp.clear_cache()

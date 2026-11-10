@@ -1,4 +1,4 @@
-"""The endpoint matrix: every org and audit page against every principal.
+"""The endpoint matrix: every org, audit and sign-in settings page against every principal.
 
 404 means "you can't know this exists", 403 means "you can see it but not
 do this", 302 to /login/ means "sign in first". A test fails if a new org URL
@@ -52,6 +52,19 @@ def membership_url(w: World) -> tuple[str, dict[str, str]]:
 
 def team_member_remove_url(w: World) -> tuple[str, dict[str, str]]:
     return f"/teams/{w.team.slug}/members/{w.users['team_member'].pk}/remove/", {}
+
+
+def group_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
+    def build(w: World) -> tuple[str, dict[str, str]]:
+        from iki_server.scim.models import ScimGroup
+
+        group, _ = ScimGroup.objects.get_or_create(display_name="Chemistry")
+        return f"/settings/sign-in/groups/{group.pk}/?team={w.other_team.pk}", {
+            "team": str(w.other_team.pk),
+            **data,
+        }
+
+    return build
 
 
 def person_url(w: World) -> tuple[str, dict[str, str]]:
@@ -182,6 +195,15 @@ CASES: list[Case] = [
     ),
     ("people", "GET", lambda w: ("/people/", {}), row(FORBIDDEN, org_admin=OK)),
     ("audit_log", "GET", lambda w: ("/audit/", {}), row(FORBIDDEN, auditor=OK)),
+    ("sign_in_settings", "GET", lambda w: ("/settings/sign-in/", {}), row(FORBIDDEN, org_admin=OK)),
+    (
+        "sign_in_settings",
+        "POST",
+        lambda w: ("/settings/sign-in/", {"action": "create_token"}),
+        row(FORBIDDEN, org_admin=OK),
+    ),
+    ("group_link", "GET", group_url(), row(FORBIDDEN, org_admin=OK)),
+    ("group_link", "POST", group_url(action="link"), row(FORBIDDEN, org_admin=DONE)),
     ("person", "GET", person_url, row(FORBIDDEN, org_admin=OK)),
     (
         "person",
@@ -192,9 +214,9 @@ CASES: list[Case] = [
 ]
 
 
-def test_every_org_and_audit_url_is_in_the_matrix() -> None:
+def test_every_org_audit_and_settings_url_is_in_the_matrix() -> None:
     names = set()
-    for namespace in ("org", "audit"):
+    for namespace in ("org", "audit", "identity"):
         _, resolver = get_resolver().namespace_dict[namespace]
         names |= {name for name in resolver.reverse_dict if isinstance(name, str)}
     assert names == {case[0] for case in CASES}

@@ -12,6 +12,7 @@
   <dt>Email</dt><dd>{{ subject.email }}</dd>
   <dt>Joined</dt><dd><time datetime="{{ subject.date_joined|date:'c' }}">{{ subject.date_joined|date:"j M Y" }}</time></dd>
   <dt>Last sign-in</dt><dd>{% if subject.last_login %}<time datetime="{{ subject.last_login|date:'c' }}">{{ subject.last_login|date:"j M Y, H:i" }}</time>{% else %}—{% endif %}</dd>
+  <dt>Managed by</dt><dd>{% if subject.is_provisioned %}{{ provider.display_name|default:"Your identity provider" }}, over SCIM{% else %}Iki (not provisioned by your identity provider){% endif %}</dd>
   <dt>Teams</dt><dd>{% for team in teams %}<a href="{% url 'org:team_detail' team.slug %}">{{ team.name }}</a>{% if not forloop.last %}, {% endif %}{% empty %}None{% endfor %}</dd>
 </dl>
 <div class="columns">
@@ -26,7 +27,10 @@
     </form>
   </section>
   <section class="card">
-    {% if subject.is_active %}
+    {% if subject.is_provisioned %}
+    <h2 class="section-title">{% if subject.is_active %}Deactivate{% else %}Reactivate{% endif %}</h2>
+    <p>{{ subject.get_short_name }}’s access is managed by {{ provider.display_name|default:"your identity provider" }}. To {% if subject.is_active %}deactivate{% else %}reactivate{% endif %} them, {% if subject.is_active %}unassign Iki from{% else %}assign Iki to{% endif %} them there; Iki follows as soon as the provider tells it.</p>
+    {% elif subject.is_active %}
     <h2 class="section-title">Deactivate</h2>
     {% if is_self %}
     <p class="muted">You can’t deactivate yourself.</p>
@@ -38,6 +42,11 @@
     <h2 class="section-title">Reactivate</h2>
     <p>Reactivating lets {{ subject.get_short_name }} sign in again with their previous access.</p>
     <form method="post">{% csrf_token %}<button class="button button-primary" type="submit" name="action" value="activate">Reactivate</button></form>
+    {% endif %}
+    {% if subject.is_active and not is_self %}
+    <h2 class="section-title">Sign out everywhere</h2>
+    <p>Ends every session {{ subject.get_short_name }} has, at once. They can sign in again unless their access is removed.</p>
+    <form method="post">{% csrf_token %}<button class="button button-quiet button-danger" type="submit" name="action" value="end_sessions">Sign out everywhere</button></form>
     {% endif %}
   </section>
 </div>

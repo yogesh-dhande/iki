@@ -55,3 +55,4 @@ supersedes the old one, and update the old one's status.
 | [0023](0023-sso-only-sign-in-and-setup-link-wizard.md)           | Single sign-on only, set up through a one-time link                                       | Accepted |
 | [0024](0024-project-access-and-org-admin-boundaries.md)          | Project access comes only from membership                                                 | Accepted |
 | [0025](0025-append-only-audit-log-and-database-roles.md)         | An append-only audit log, and an app role that can't change the schema                    | Accepted |
+| [0026](0026-saml-and-scim-provisioning.md)                       | SAML sign-in, and SCIM provisioning that decides who has access                           | Accepted |

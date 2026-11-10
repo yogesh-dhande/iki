@@ -23,6 +23,7 @@
       <a href="{% url 'org:project_list' %}"{% if request.resolver_match.url_name|slice:":7" == "project" %} aria-current="page"{% endif %}>Projects</a>
       <a href="{% url 'org:team_list' %}"{% if request.resolver_match.url_name|slice:":4" == "team" %} aria-current="page"{% endif %}>Teams</a>
       {% if nav_people %}<a href="{% url 'org:people' %}"{% if request.resolver_match.url_name == "people" or request.resolver_match.url_name == "person" %} aria-current="page"{% endif %}>People</a>{% endif %}
+      {% if nav_settings %}<a href="{% url 'identity:sign_in_settings' %}"{% if request.resolver_match.namespace == "identity" %} aria-current="page"{% endif %}>Sign-in</a>{% endif %}
       {% if nav_audit %}<a href="{% url 'audit:audit_log' %}"{% if request.resolver_match.url_name == "audit_log" %} aria-current="page"{% endif %}>Audit</a>{% endif %}
     </nav>
     {% endif %}{% endblock %}

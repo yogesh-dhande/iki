@@ -2,7 +2,43 @@
 {% block title %}Identity provider · Setup{% endblock %}
 {% block wizard %}
 <h1>Connect your identity provider</h1>
-<p>Everyone signs in to Iki through your organization’s OpenID Connect provider, such as Okta, Microsoft Entra ID, Google Workspace or Keycloak. Iki has no passwords of its own.</p>
+<p>Everyone signs in to Iki through your organization’s identity provider, such as Microsoft Entra ID, Okta, Google Workspace or Keycloak. Iki has no passwords of its own.</p>
+<nav class="segmented" aria-label="Sign-in protocol">
+  <a href="?protocol=oidc"{% if protocol == "oidc" %} aria-current="page"{% endif %}>OpenID Connect</a>
+  <a href="?protocol=saml"{% if protocol == "saml" %} aria-current="page"{% endif %}>SAML 2.0</a>
+</nav>
+{% if protocol == "saml" %}
+<div class="panel">
+  <h2 class="panel-title">1. Register Iki with your provider</h2>
+  <p>Create a <strong>SAML application</strong> with these values:</p>
+  <dl class="summary">
+    <dt>Single sign-on URL<br><span class="muted">(Reply URL, ACS URL)</span></dt>
+    <dd><div class="copy-row"><code class="copy-value" id="acs-url">{{ acs_url }}</code><button class="button button-quiet" type="button" data-copy="acs-url">Copy</button></div></dd>
+    <dt>Entity ID<br><span class="muted">(Identifier, Audience URI)</span></dt>
+    <dd><div class="copy-row"><code class="copy-value" id="entity-id">{{ entity_id }}</code><button class="button button-quiet" type="button" data-copy="entity-id">Copy</button></div></dd>
+  </dl>
+  <ul>
+    <li>Sign the <strong>assertion</strong> with SHA-256. Iki refuses unsigned assertions.</li>
+    <li>Send the person’s email address as an attribute (<code>email</code>, or the standard email claim), or as an email-format NameID. A persistent NameID is best, so renaming someone keeps their account.</li>
+    <li>Start sign-ins from Iki. For a tile in your provider’s app launcher, point it at Iki’s sign-in page; Iki refuses sign-ins it didn’t start, so a captured response can’t be replayed.</li>
+  </ul>
+  <p class="muted">Providers that import service provider metadata can read it from <code>{{ metadata_url }}</code>.</p>
+</div>
+<h2 class="section-title">2. Give Iki the provider’s metadata</h2>
+<p class="muted">Iki reads it once and keeps the signing certificate. When the certificate is renewed, run the setup link again.</p>
+{% include "web/_errors.html" %}
+<form method="post" data-busy-form novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="protocol" value="saml">
+  {% include "web/_field.html" with field=form.display_name %}
+  {% include "web/_field.html" with field=form.metadata_url %}
+  {% include "web/_field.html" with field=form.metadata_xml %}
+  <div class="actions">
+    <button class="button button-primary" type="submit" data-busy-text="Reading the metadata…">Check and continue</button>
+    {% if not recovery %}<a class="button button-quiet" href="{% url 'setup:organization' %}">Back</a>{% endif %}
+  </div>
+</form>
+{% else %}
 <div class="panel">
   <h2 class="panel-title">1. Register Iki with your provider</h2>
   <p>Create a <strong>web application</strong> (confidential client) using the authorization code flow, with this redirect URI:</p>
@@ -16,6 +52,7 @@
 {% include "web/_errors.html" %}
 <form method="post" data-busy-form novalidate>
   {% csrf_token %}
+  <input type="hidden" name="protocol" value="oidc">
   {% include "web/_field.html" with field=form.display_name %}
   {% include "web/_field.html" with field=form.issuer %}
   {% include "web/_field.html" with field=form.client_id %}
@@ -25,4 +62,5 @@
     {% if not recovery %}<a class="button button-quiet" href="{% url 'setup:organization' %}">Back</a>{% endif %}
   </div>
 </form>
+{% endif %}
 {% endblock %}

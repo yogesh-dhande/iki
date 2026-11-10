@@ -95,9 +95,18 @@ def grant_org_role(user: User, role: OrgRole, *, by: User | None) -> None:
 
 
 def set_active(user: User, active: bool, *, by: User) -> None:
-    """Deactivates or reactivates someone. Deactivation ends their sessions at once."""
+    """Deactivates or reactivates someone. Deactivation ends their sessions at once.
+
+    People provisioned over SCIM are activated and deactivated by the
+    identity provider only, so the two never disagree (ADR 0026).
+    """
     if user.is_active == active:
         return
+    if user.is_provisioned:
+        raise Refused(
+            f"{user.email} is managed by your identity provider. "
+            "Assign or unassign Iki for them there."
+        )
     with transaction.atomic():
         if not active:
             if user.pk == by.pk:
@@ -113,7 +122,38 @@ def set_active(user: User, active: bool, *, by: User) -> None:
         audit.record("user.activated" if active else "user.deactivated", actor=by, target=user)
 
 
+def end_sessions(user: User, *, by: User) -> int:
+    """Signs someone out everywhere, at once. They can sign in again."""
+    from iki_server.accounts.models import UserSession
+
+    with transaction.atomic():
+        ended, _ = UserSession.objects.filter(user=user).delete()
+        audit.record(
+            "user.sessions_revoked",
+            actor=by,
+            target=user,
+            data={"sessions": ended, "reason": "signed_out_by_admin"},
+        )
+    return ended
+
+
 # --- Teams ---------------------------------------------------------------------
+
+
+def linked_groups(team: Team) -> list[str]:
+    """The identity provider groups that decide this team's members, if any."""
+    from iki_server.scim.models import ScimGroup
+
+    return list(ScimGroup.objects.filter(team=team).values_list("display_name", flat=True))
+
+
+def _require_hand_managed(team: Team) -> None:
+    groups = linked_groups(team)
+    if groups:
+        raise Refused(
+            f"{team.name}’s members come from the identity provider group "
+            f"{', '.join(groups)}. Change the group there."
+        )
 
 
 def create_team(name: str, description: str, *, by: User) -> Team:
@@ -150,6 +190,7 @@ def set_team_archived(team: Team, archived: bool, *, by: User) -> None:
 
 def add_team_member(team: Team, user: User, *, by: User) -> None:
     _require_active(user)
+    _require_hand_managed(team)
     with transaction.atomic():
         _, created = TeamMembership.objects.get_or_create(
             team=team, user=user, defaults={"added_by": by}
@@ -159,6 +200,7 @@ def add_team_member(team: Team, user: User, *, by: User) -> None:
 
 
 def remove_team_member(team: Team, user: User, *, by: User) -> None:
+    _require_hand_managed(team)
     with transaction.atomic():
         deleted, _ = TeamMembership.objects.filter(team=team, user=user).delete()
         if deleted:

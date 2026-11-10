@@ -11,5 +11,6 @@ def navigation(request: HttpRequest) -> dict[str, object]:
         return {}
     return {
         "nav_people": permissions.can(user, Action.ORG_MANAGE),
+        "nav_settings": permissions.can(user, Action.ORG_MANAGE),
         "nav_audit": permissions.can(user, Action.AUDIT_READ),
     }

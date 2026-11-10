@@ -36,6 +36,10 @@ ACTIONS: dict[str, str] = {
     "user.signed_out": "Signed out",
     "user.sign_in_refused": "Sign-in refused",
     "user.created": "Account created on first sign-in",
+    "user.provisioned": "Provisioned a person",
+    "user.updated": "Changed a person’s profile",
+    "user.deprovisioned": "Deprovisioned a person",
+    "user.identity_linked": "Linked a first sign-in to a provisioned account",
     "user.deactivated": "Deactivated a person",
     "user.activated": "Reactivated a person",
     "user.sessions_revoked": "Ended someone's sessions",
@@ -54,6 +58,13 @@ ACTIONS: dict[str, str] = {
     "project.role_granted": "Granted a project role",
     "project.member_removed": "Removed a project member",
     "encryption.rotated": "Re-encrypted stored secrets",
+    "scim.token_created": "Created a SCIM token",
+    "scim.token_revoked": "Revoked a SCIM token",
+    "scim.group_created": "Identity provider pushed a group",
+    "scim.group_updated": "Identity provider changed a group",
+    "scim.group_deleted": "Identity provider removed a group",
+    "scim.group_linked": "Linked a group to a team",
+    "scim.group_unlinked": "Unlinked a group from a team",
 }
 
 
@@ -61,6 +72,8 @@ ACTIONS: dict[str, str] = {
 class Context:
     via: str
     client_ip: str | None = None
+    #: Names who acted when no person did, e.g. which SCIM token.
+    actor_label: str = ""
 
 
 _SYSTEM = Context(via=Via.SYSTEM)
@@ -111,7 +124,7 @@ def record(
     event = AuditEvent.objects.create(
         action=action,
         actor=user,
-        actor_label=getattr(user, "email", "") if user is not None else "",
+        actor_label=getattr(user, "email", "") if user is not None else context.actor_label,
         via=context.via,
         target_type=(target._meta.model_name or "") if target is not None else "",
         target_id=str(target.pk) if target is not None else "",

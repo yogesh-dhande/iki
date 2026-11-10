@@ -840,3 +840,52 @@ input[type="date"] {
   margin: 0.5rem 0 0;
   font-size: 0.9rem;
 }
+
+/* --- Sign-in and provisioning ------------------------------------------------ */
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plain-list li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.plain-list li:last-child {
+  border-bottom: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  margin: 0 0 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.segmented a {
+  padding: 0.5rem 1rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.segmented a + a {
+  border-left: 1px solid var(--border);
+}
+
+.segmented a[aria-current="page"] {
+  background: var(--surface-2);
+  font-weight: 600;
+}

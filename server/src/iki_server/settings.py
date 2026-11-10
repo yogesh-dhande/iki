@@ -45,10 +45,12 @@ INSTALLED_APPS = [
     "iki_server.org",
     "iki_server.audit",
     "iki_server.setup",
+    "iki_server.scim",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.openid_connect",
+    "allauth.socialaccount.providers.saml",
 ]
 
 MIDDLEWARE = [
