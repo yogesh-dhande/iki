@@ -162,3 +162,24 @@ def test_explains_what_is_wrong(code: str, message: str, hint: str | None, posit
 def test_parsed_units_are_cached_and_equal() -> None:
     assert parse("mg") is parse("mg")
     assert parse("mg") == parse("mg")
+
+
+@pytest.mark.parametrize(
+    ("code", "printed"),
+    [
+        ("Ao", "Å"),
+        ("Cel", "°C"),
+        ("ug/mL", "μg/mL"),
+        ("m2", "m²"),
+        ("kg.m-1", "kg·m⁻¹"),
+        ("mg/(kg.d)", "mg/(kg·d)"),
+        ("{cells}/uL", "cells/μL"),
+        ("10*3/uL", "10³/μL"),
+        ("[IU]/mL", "IU/mL"),
+        ("g{total}", "g (total)"),
+        ("[pH]", "pH"),
+        ("not-a-unit", "not-a-unit"),
+    ],
+)
+def test_units_print_as_people_write_them(code: str, printed: str) -> None:
+    assert units.symbol(code) == printed

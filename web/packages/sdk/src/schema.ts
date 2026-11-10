@@ -1119,6 +1119,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Files
+             * @description The files its values refer to that you can read, by ID.
+             */
+            files: {
+                [key: string]: components["schemas"]["FileRef"];
+            };
             /** Hrid */
             hrid: string;
             /**
@@ -1133,6 +1140,13 @@ export interface components {
             linked: boolean;
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Refs
+             * @description The entities its values refer to that you can read, by ID.
+             */
+            refs: {
+                [key: string]: components["schemas"]["RefOut"];
+            };
             /**
              * Reused
              * @description An entity with the same identity existed, and is returned instead.
@@ -1362,6 +1376,13 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Files
+             * @description The files its values refer to that you can read, by ID.
+             */
+            files: {
+                [key: string]: components["schemas"]["FileRef"];
+            };
             /** Hrid */
             hrid: string;
             /**
@@ -1371,6 +1392,13 @@ export interface components {
             id: string;
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Refs
+             * @description The entities its values refer to that you can read, by ID.
+             */
+            refs: {
+                [key: string]: components["schemas"]["RefOut"];
+            };
             /**
              * Revision
              * @description Its latest revision. Send it back as If-Match to change it.
@@ -1489,8 +1517,17 @@ export interface components {
             computed: boolean;
             /** Description */
             description: string | null;
+            /** Display Offset */
+            display_offset: number | null;
+            /**
+             * Display Scale
+             * @description With a display unit: shown as value * display_scale + display_offset.
+             */
+            display_scale: number | null;
             /** Display Unit */
             display_unit: string | null;
+            /** Display Unit Symbol */
+            display_unit_symbol: string | null;
             /**
              * Immutable
              * @description Can be set once, and can't change after.
@@ -1524,6 +1561,11 @@ export interface components {
              * @description Quantities: the UCUM unit values are in.
              */
             unit: string | null;
+            /**
+             * Unit Symbol
+             * @description The unit as people write it, such as Å for Ao.
+             */
+            unit_symbol: string | null;
             /**
              * Values
              * @description Enums: the allowed values.
@@ -1572,6 +1614,18 @@ export interface components {
             project: components["schemas"]["ProjectRef"] | null;
             /** Sha256 */
             sha256: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+        };
+        /** FileRef */
+        FileRef: {
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
             /**
              * Size
              * @description Bytes.
@@ -2144,6 +2198,15 @@ export interface components {
         ReadIn: {
             /** Read */
             read: boolean;
+        };
+        /** RefOut */
+        RefOut: {
+            /** Archived */
+            archived: boolean;
+            /** Hrid */
+            hrid: string;
+            /** Type */
+            type: string;
         };
         /** RegistrationIn */
         RegistrationIn: {

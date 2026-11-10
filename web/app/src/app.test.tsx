@@ -62,7 +62,7 @@ describe("the frame", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
-    expect(links).toEqual(["Projects", "Teams", "People", "Settings"]);
+    expect(links).toEqual(["Projects", "Types", "Teams", "People", "Settings"]);
     expect(within(nav).getByRole("link", { name: "Projects" })).toHaveAttribute(
       "aria-current",
       "page",

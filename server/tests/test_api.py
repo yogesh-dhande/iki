@@ -98,11 +98,12 @@ def test_pages_carry_the_csrf_token_for_scripts(world: World) -> None:
     assert b'<meta name="csrf-token" content="' in page.content
 
 
-def test_changes_are_audited_through_the_api_channel(world: World) -> None:
+def test_the_web_apps_calls_are_audited_as_the_web(world: World) -> None:
+    """The browser's session calls the API for the web app; tokens are the API's own."""
     api = api_as(world, "team_member")
     created = api.post("/projects", {"team": str(world.team.pk), "name": "Fragment Screen"})
     event = AuditEvent.objects.get(action="project.created", target_id=created.json()["id"])
-    assert event.via == "api"
+    assert event.via == "web"
     assert event.actor == world.users["team_member"]
 
 

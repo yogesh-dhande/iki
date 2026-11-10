@@ -301,7 +301,7 @@ def test_revisions_show_who_what_how_and_why(world: World) -> None:
     assert [r["number"] for r in revisions] == [2, 1]
     latest = revisions[0]
     assert latest["changed_fields"] == ["name", "topology"]
-    assert latest["reason"] == "Rename" and latest["via"] == "api"
+    assert latest["reason"] == "Rename" and latest["via"] == "web"  # the browser's session
     assert latest["user"]["email"] == "editor@example.com"
     first = api.get(f"/entities/{ref}/revisions/1").json()
     assert first["values"]["name"] == "a" and first["values"]["topology"] == "linear"
@@ -391,7 +391,7 @@ def test_changes_reach_webhooks_without_their_values(world: World, other: Projec
         "number": 2,
         "kind": "edited",
         "changed_fields": ["name"],
-        "via": "api",
+        "via": "web",
         "reason": "R",
     }
     assert data["actor"]["email"] == "editor@example.com"
@@ -427,3 +427,45 @@ def test_file_fields_take_a_file_the_caller_can_read(world: World) -> None:
             "detail": "must be chemical/x-mmcif or chemical/x-pdb, and this file is text/plain.",
         }
     ]
+
+
+def test_quantities_say_how_to_show_them_in_their_display_unit(world: World) -> None:
+    body = api_as(world, "viewer").get("/entity-types/protein.Protein").json()
+    fields = {f["name"]: f for f in body["fields"]}
+    weight = fields["molecular_weight"]
+    assert (weight["unit"], weight["display_unit"]) == ("u", "ku")
+    resolution = {
+        f["name"]: f
+        for f in api_as(world, "viewer")
+        .get("/entity-types/protein.ProteinStructure")
+        .json()["fields"]
+    }["resolution"]
+    assert (resolution["unit"], resolution["unit_symbol"]) == ("Ao", "Å")
+    assert weight["display_scale"] == pytest.approx(0.001)
+    assert weight["display_offset"] == 0
+    assert fields["sequence"]["display_scale"] is None
+
+
+def test_entities_name_what_their_values_refer_to(world: World, other: Project) -> None:
+    from iki_server.files.models import Blob, File
+
+    api = api_as(world)
+    protein = create(api, world.project, {"sequence": "MKV"}, "protein.Protein").json()
+    hidden = create(api, other, {"sequence": "MKW"}, "protein.Protein").json()
+    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    pdb = File.objects.create(
+        blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
+    )
+    values = {"structure": str(pdb.pk), "chains": [protein["id"], hidden["id"]]}
+    made = create(api, world.project, values, "protein.ProteinStructure")
+    assert made.status_code == 201, made.content
+    # The viewer can read this project, but not the other one.
+    seen = api_as(world, "viewer").get(f"/entities/{made.json()['id']}").json()
+    assert seen["refs"] == {
+        protein["id"]: {"hrid": protein["hrid"], "type": "protein.Protein", "archived": False}
+    }
+    assert seen["files"] == {
+        str(pdb.pk): {"name": "1abc.pdb", "media_type": "chemical/x-pdb", "size": 10}
+    }
+    listed = api_as(world, "viewer").get("/entities", type="protein.ProteinStructure").json()
+    assert listed["items"][0]["refs"] == seen["refs"]

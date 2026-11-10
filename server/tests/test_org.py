@@ -379,7 +379,7 @@ def test_org_admins_joining_a_project_is_audited_as_self_granted(world: World) -
     assert event.actor == me
     assert event.project == world.project
     assert event.data == {"role": "Admin", "self": True}
-    assert event.via == "api"
+    assert event.via == "web"
 
 
 def test_role_changes_record_the_previous_role(world: World) -> None:

@@ -118,12 +118,14 @@ class _Atom:
     special: str | None  # function name
     value: str  # definition: a number…
     unit: str  # …times a unit expression
+    symbol: str = ""  # how it's printed, such as Å for Ao
 
 
 @dataclass(frozen=True)
 class _Table:
     prefixes: dict[str, Fraction]
     prefix_names: dict[str, str]
+    prefix_symbols: dict[str, str]
     atoms: dict[str, _Atom]
     base: dict[str, int]  # base unit code → its index in BASE_UNITS
 
@@ -134,18 +136,22 @@ def _table() -> _Table:
     root = ET.fromstring(source)  # noqa: S314 (the bundled UCUM table, not untrusted input)
     prefixes: dict[str, Fraction] = {}
     prefix_names: dict[str, str] = {}
+    prefix_symbols: dict[str, str] = {}
     for p in root.findall("u:prefix", _NS):
         code = p.get("Code", "")
         value = p.find("u:value", _NS)
         assert value is not None  # noqa: S101 - an invariant, not a check
         prefixes[code] = Fraction(value.get("value", ""))
         prefix_names[code] = _text(p, "name")
+        prefix_symbols[code] = _text(p, "printSymbol") or code
     atoms: dict[str, _Atom] = {}
     base: dict[str, int] = {}
     for b in root.findall("u:base-unit", _NS):
         code = b.get("Code", "")
         base[code] = BASE_UNITS.index(code)
-        atoms[code] = _Atom(code, _text(b, "name"), True, False, None, "1", "1")
+        atoms[code] = _Atom(
+            code, _text(b, "name"), True, False, None, "1", "1", _text(b, "printSymbol")
+        )
     for u in root.findall("u:unit", _NS):
         value = u.find("u:value", _NS)
         assert value is not None  # noqa: S101 - an invariant, not a check
@@ -165,8 +171,9 @@ def _table() -> _Table:
             special=special,
             value=number,
             unit=expression,
+            symbol=_text(u, "printSymbol"),
         )
-    return _Table(prefixes, prefix_names, atoms, base)
+    return _Table(prefixes, prefix_names, prefix_symbols, atoms, base)
 
 
 def _text(element: ET.Element, tag: str) -> str:
@@ -223,6 +230,59 @@ class Unit:
         return _FUNCTIONS[s.function].to_special(magnitude / float(s.reference.factor)) / float(
             s.scale
         )
+
+
+_SUPERSCRIPTS = str.maketrans("+-0123456789", "⁺⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+#: Where UCUM's print symbol isn't how labs write it (its [IU] prints as German "i.U.").
+_SYMBOLS = {"[IU]": "IU", "[iU]": "IU"}
+_TERM = re.compile(r"(?P<unit>.*?)(?P<exponent>[+-]?\d+)?(?P<note>\{[^}]*\})?")
+
+
+@cache
+def symbol(code: str) -> str:
+    """How people write a UCUM unit: ``Ao`` → ``Å``, ``Cel`` → ``°C``, ``ug/mL`` → ``μg/mL``,
+    ``m2`` → ``m²``, ``kg.m-1`` → ``kg·m⁻¹``, ``{cells}/uL`` → ``cells/μL``,
+    ``g{total}`` → ``g (total)``.
+
+    Parts that aren't units are kept as written.
+    """
+    table = _table()
+    out: list[str] = []
+    for part in re.split(r"([./()])", code):
+        if part == ".":
+            out.append("·")
+        elif part in ("/", "(", ")", ""):
+            out.append(part)
+        else:
+            out.append(_term_symbol(part, table))
+    return "".join(out)
+
+
+def _term_symbol(token: str, table: _Table) -> str:
+    if token.startswith("{") and token.endswith("}"):
+        return token[1:-1]  # an annotation on its own, such as {cells}
+    match = _TERM.fullmatch(token)
+    assert match is not None  # noqa: S101 - the pattern matches anything
+    unit, exponent = match["unit"], match["exponent"] or ""
+    note = f" ({match['note'][1:-1]})" if match["note"] else ""
+    printed = _atom_symbol(unit, table)
+    if printed is None:
+        # Digits that are part of the atom (10*3, say) aren't an exponent of nothing.
+        printed = _atom_symbol(unit + exponent, table)
+        return token if printed is None else printed + note
+    return printed + exponent.translate(_SUPERSCRIPTS) + note
+
+
+def _atom_symbol(code: str, table: _Table) -> str | None:
+    if code in _SYMBOLS:
+        return _SYMBOLS[code]
+    if code in table.atoms:
+        return table.atoms[code].symbol or code
+    for prefix in sorted(table.prefixes, key=len, reverse=True):
+        rest = code[len(prefix) :]
+        if code.startswith(prefix) and rest in table.atoms and table.atoms[rest].metric:
+            return table.prefix_symbols[prefix] + (table.atoms[rest].symbol or rest)
+    return None
 
 
 def convert(value: float, source: str | Unit, target: str | Unit) -> float:

@@ -1061,3 +1061,143 @@ input[type="date"] {
 .delivery-details pre {
   max-height: 24rem;
 }
+
+/* --- Entities -------------------------------------------------------------------- */
+
+/* Tables: a type's fields, a revision's changes. They scroll sideways on narrow screens. */
+.table-scroll {
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.65rem 0.9rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.table thead th {
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+.table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.table tbody th {
+  font-weight: 600;
+}
+
+.cell-meta {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* Filters above a grid, side by side where they fit. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.toolbar .field {
+  min-width: min(100%, 14rem);
+}
+
+.toolbar-note {
+  margin: 0 0 1.25rem;
+}
+
+/* The grid of entities: a scrolling region whose rows are drawn as they come into view. */
+.data-grid {
+  position: relative;
+  max-height: min(70vh, 48rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.data-grid:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.data-grid-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.data-grid-body {
+  position: relative;
+}
+
+.data-grid-row {
+  display: grid;
+  align-items: center;
+  height: 44px;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-grid-body .data-grid-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.data-grid-cell {
+  padding: 0 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An entity's values, each with who set it, how and when. */
+.values {
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+}
+
+.value-row {
+  display: contents;
+}
+
+.value-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.row-stacked {
+  align-items: flex-start;
+}
+
+.row-reason {
+  margin: 0.25rem 0 0;
+}

@@ -85,6 +85,14 @@
               }
             ]
           },
+          "files": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileRef"
+            },
+            "description": "The files its values refer to that you can read, by ID.",
+            "title": "Files",
+            "type": "object"
+          },
           "hrid": {
             "title": "Hrid",
             "type": "string"
@@ -109,6 +117,14 @@
               }
             ],
             "description": "The project that owns it, and decides its changes. Null if you can't see it."
+          },
+          "refs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "description": "The entities its values refer to that you can read, by ID.",
+            "title": "Refs",
+            "type": "object"
           },
           "reused": {
             "description": "An entity with the same identity existed, and is returned instead.",
@@ -148,6 +164,8 @@
           "archived",
           "archived_at",
           "values",
+          "refs",
+          "files",
           "can",
           "reused",
           "linked"
@@ -585,6 +603,14 @@
               }
             ]
           },
+          "files": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileRef"
+            },
+            "description": "The files its values refer to that you can read, by ID.",
+            "title": "Files",
+            "type": "object"
+          },
           "hrid": {
             "title": "Hrid",
             "type": "string"
@@ -604,6 +630,14 @@
               }
             ],
             "description": "The project that owns it, and decides its changes. Null if you can't see it."
+          },
+          "refs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "description": "The entities its values refer to that you can read, by ID.",
+            "title": "Refs",
+            "type": "object"
           },
           "revision": {
             "description": "Its latest revision. Send it back as If-Match to change it.",
@@ -638,6 +672,8 @@
           "archived",
           "archived_at",
           "values",
+          "refs",
+          "files",
           "can"
         ],
         "title": "EntityOut",
@@ -873,6 +909,29 @@
             ],
             "title": "Description"
           },
+          "display_offset": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Offset"
+          },
+          "display_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With a display unit: shown as value * display_scale + display_offset.",
+            "title": "Display Scale"
+          },
           "display_unit": {
             "anyOf": [
               {
@@ -883,6 +942,17 @@
               }
             ],
             "title": "Display Unit"
+          },
+          "display_unit_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Unit Symbol"
           },
           "immutable": {
             "description": "Can be set once, and can't change after.",
@@ -946,6 +1016,18 @@
             "description": "Quantities: the UCUM unit values are in.",
             "title": "Unit"
           },
+          "unit_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The unit as people write it, such as Å for Ao.",
+            "title": "Unit Symbol"
+          },
           "values": {
             "description": "Enums: the allowed values.",
             "items": {
@@ -965,7 +1047,11 @@
           "immutable",
           "computed",
           "unit",
+          "unit_symbol",
           "display_unit",
+          "display_unit_symbol",
+          "display_scale",
+          "display_offset",
           "to",
           "values",
           "items"
@@ -1079,6 +1165,30 @@
           "external"
         ],
         "title": "FileOut",
+        "type": "object"
+      },
+      "FileRef": {
+        "properties": {
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "media_type",
+          "size"
+        ],
+        "title": "FileRef",
         "type": "object"
       },
       "InboxFilters": {
@@ -2461,6 +2571,29 @@
           "read"
         ],
         "title": "ReadIn",
+        "type": "object"
+      },
+      "RefOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "type",
+          "archived"
+        ],
+        "title": "RefOut",
         "type": "object"
       },
       "RegistrationIn": {

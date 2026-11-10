@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from django.conf import settings
 from django.test import Client
+from iki_test_plugins import ensure_built
 from org_world import World, build_world
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 from real_server import Server, app_role, manage, serve, server_env
@@ -86,9 +87,16 @@ def server(
     _require(frontend._manifest_path() is not None, "Build the web app first: make web")
     _require(AXE.is_file(), "Install the web dependencies first: pnpm install")
     with django_db_blocker.unblock(), app_role() as role:
-        # The test process signs people in, so the server shares its secret key.
+        # The test process signs people in, so the server shares its secret key. It
+        # serves the fixture plugins the test database has tables for.
+        plugins = os.pathsep.join(
+            p for p in (str(ensure_built()), os.environ.get("PYTHONPATH")) if p
+        )
         env = server_env(
-            role, tmp_path_factory.mktemp("static"), IKI_SECRET_KEY=settings.SECRET_KEY
+            role,
+            tmp_path_factory.mktemp("static"),
+            IKI_SECRET_KEY=settings.SECRET_KEY,
+            PYTHONPATH=plugins,
         )
         collected = manage("collectstatic", "--noinput", env=env)
         assert collected.returncode == 0, collected.stdout + collected.stderr
@@ -244,6 +252,35 @@ def test_webhooks_show_their_deliveries_and_where_they_send(open_as: Any, world:
     page = open_as("org_admin", "/settings/webhooks/")
     page.get_by_text("eln.example.com").wait_for()
     assert "s3cret" not in page.content()
+    assert_clean(page)
+
+
+def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    made = entities.create(
+        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+    )
+    entity = Entity.objects.get(pk=made.entity.pk)
+    entities.update(admin, entity, {"name": "ABL1 kinase"}, expected_revision=1, reason="Full name")
+    for path in ("/types/", "/types/protein.Protein/"):
+        page = open_as("admin", path)
+        assert_clean(page)
+        page.context.close()
+
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    grid = page.get_by_role("table", name="1 protein")
+    grid.get_by_role("cell", name="ABL1 kinase").wait_for()
+    assert_clean(page)
+    grid.get_by_role("link", name=entity.hrid).click()
+    page.get_by_role("heading", level=1, name=f"ABL1 kinase {entity.hrid}").wait_for()
+    page.get_by_text("Changed by").first.wait_for()
+    assert_clean(page)
+    page.get_by_role("link", name="History").click()
+    page.get_by_role("button", name="Show changes in revision 2").click()
+    page.get_by_role("cell", name="ABL1", exact=True).wait_for()
     assert_clean(page)
 
 

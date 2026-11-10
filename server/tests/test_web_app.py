@@ -17,7 +17,18 @@ from iki_server.web import frontend
 
 pytestmark = pytest.mark.django_db
 
-APP_PAGES = ["/", "/projects/", "/projects/new/", "/projects/a-b/", "/projects/a-b/members/"]
+APP_PAGES = [
+    "/",
+    "/projects/",
+    "/projects/new/",
+    "/projects/a-b/",
+    "/projects/a-b/members/",
+    "/projects/a-b/entities/",
+    "/types/",
+    "/types/dna.DNASequence/",
+    "/entities/DNA-000001/",
+    "/entities/DNA-000001/history/",
+]
 
 
 @pytest.fixture

@@ -104,6 +104,9 @@ export function Layout() {
               <Link to="/projects/" activeProps={{ "aria-current": "page" }}>
                 Projects
               </Link>
+              <Link to="/types/" activeProps={{ "aria-current": "page" }}>
+                Types
+              </Link>
               <a href="/teams/">Teams</a>
               {me.can.manage_org ? <a href="/people/">People</a> : null}
               {me.can.manage_org ? (

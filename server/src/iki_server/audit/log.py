@@ -218,6 +218,9 @@ class AuditContextMiddleware:
             markcoroutinefunction(self)
 
     async def __call__(self, request: HttpRequest) -> HttpResponseBase:
-        via = Via.API if request.path.startswith("/api/") else Via.WEB
+        # The web app calls the API with the browser's session: that's a change made in
+        # the web app. Calls with a token (a script, an integration) are the API's.
+        api = request.path.startswith("/api/") and "HTTP_AUTHORIZATION" in request.META
+        via = Via.API if api else Via.WEB
         with using(Context(via=via, client_ip=request.META.get("REMOTE_ADDR") or None)):
             return await self.get_response(request)

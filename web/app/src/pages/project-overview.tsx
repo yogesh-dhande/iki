@@ -42,6 +42,11 @@ export function ProjectTabs() {
         >
           Overview
         </Link>
+        {project.can.read ? (
+          <Link to="/projects/$slug/entities/" params={{ slug: project.slug }} activeProps={tab}>
+            Entities
+          </Link>
+        ) : null}
         <Link to="/projects/$slug/members/" params={{ slug: project.slug }} activeProps={tab}>
           Members
         </Link>
@@ -133,8 +138,10 @@ export function ProjectOverview() {
               <Time value={project.created_at} />
             </dd>
           </dl>
-          <p className="muted">
-            Entities, runs and views will appear here as they arrive in upcoming releases.
+          <p>
+            <Link to="/projects/$slug/entities/" params={{ slug: project.slug }}>
+              Browse the project’s entities
+            </Link>
           </p>
         </section>
       ) : (

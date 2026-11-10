@@ -15,6 +15,7 @@
     "@ikisci/sdk": "workspace:*",
     "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-router": "^1.170.46",
+    "@tanstack/react-virtual": "^3.14.26",
     "react": "^19.3.0",
     "react-aria-components": "^1.22.1",
     "react-dom": "^19.3.0"

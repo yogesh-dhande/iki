@@ -32,8 +32,12 @@ console.
   a TanStack Query query for each resource.
 - `src/ui.tsx`: the design system, as components over the stylesheet's classes.
 - `src/forms.tsx`: form state, checks in the browser, and focus on errors.
+- `src/entities.ts`: entity and type queries, and how each kind of value
+  reads (quantities in their display unit, references by HRID, files by name).
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
-  addresses.
+  addresses. Pages other than the frame, home and a project's overview load
+  when they're first opened (`lazyRouteComponent`), so the first page stays
+  small.
 
 ## Tests
 

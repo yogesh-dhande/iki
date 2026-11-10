@@ -8,6 +8,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Outlet,
   type RouterHistory,
 } from "@tanstack/react-router";
@@ -17,13 +18,33 @@ import { meQuery, projectQuery, queryClient, rolesQuery } from "./api";
 import { Layout } from "./layout";
 import { ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
-import { Notifications } from "./pages/notifications";
+import { entityQuery, typesQuery, validateEntitySearch } from "./entities";
 import { ProjectList } from "./pages/project-list";
-import { ProjectMembers } from "./pages/project-members";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
-import { OrgWebhook, OrgWebhooks, ProjectWebhook, ProjectWebhooks } from "./pages/webhooks";
+
+// Pages fetched when they're first opened, so the first page loads quickly.
+const entityPages = () => import("./pages/entity");
+const typePages = () => import("./pages/types");
+const webhookPages = () => import("./pages/webhooks");
+const Notifications = lazyRouteComponent(() => import("./pages/notifications"), "Notifications");
+const ProjectMembers = lazyRouteComponent(
+  () => import("./pages/project-members"),
+  "ProjectMembers",
+);
+const ProjectEntities = lazyRouteComponent(
+  () => import("./pages/project-entities"),
+  "ProjectEntities",
+);
+const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
+const EntityHistory = lazyRouteComponent(entityPages, "EntityHistory");
+const TypeList = lazyRouteComponent(typePages, "TypeList");
+const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
+const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
+const OrgWebhook = lazyRouteComponent(webhookPages, "OrgWebhook");
+const ProjectWebhooks = lazyRouteComponent(webhookPages, "ProjectWebhooks");
+const ProjectWebhook = lazyRouteComponent(webhookPages, "ProjectWebhook");
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   // Who's signed in, and the role names every page shows, before the first render.
@@ -87,6 +108,15 @@ const projectMembersRoute = createRoute({
   component: ProjectMembers,
 });
 
+const projectEntitiesRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "entities",
+  // ?type=dna.DNASequence: one type and its subtypes; ?show=archived|all.
+  validateSearch: validateEntitySearch,
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: ProjectEntities,
+});
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
@@ -108,6 +138,44 @@ const projectWebhookRoute = createRoute({
   getParentRoute: () => projectWebhooksRoute,
   path: "$webhookId",
   component: ProjectWebhook,
+});
+
+const typesRoute = createRoute({ getParentRoute: () => rootRoute, path: "types" });
+
+const typeListRoute = createRoute({
+  getParentRoute: () => typesRoute,
+  path: "/",
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: TypeList,
+});
+
+const typeRoute = createRoute({
+  getParentRoute: () => typesRoute,
+  path: "$name",
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: TypeDetail,
+});
+
+const entityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "entities/$ref",
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.query(entityQuery(params.ref)),
+      context.queryClient.query(typesQuery),
+    ]),
+});
+
+const entityOverviewRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "/",
+  component: EntityOverview,
+});
+
+const entityHistoryRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "history",
+  component: EntityHistory,
 });
 
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "settings" });
@@ -135,10 +203,13 @@ const routeTree = rootRoute.addChildren([
     projectRoute.addChildren([
       projectOverviewRoute,
       projectMembersRoute,
+      projectEntitiesRoute,
       projectSettingsRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),
   ]),
+  typesRoute.addChildren([typeListRoute, typeRoute]),
+  entityRoute.addChildren([entityOverviewRoute, entityHistoryRoute]),
   settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);
 

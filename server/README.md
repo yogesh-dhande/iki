@@ -175,8 +175,10 @@ your notifications. Live updates come from `/api/v1/events` (see below).
   page's `next_cursor`.
 - **Rate limits:** per caller, reported in the `RateLimit` and
   `RateLimit-Policy` headers; over the limit answers 429 with `Retry-After`.
-- **Authorization:** the same rules as the web pages. Changes are audited
-  with `via=api`, and with the OAuth client's name when a token made them.
+- **Authorization:** the same rules as the web pages. Changes made with a
+  token are audited with `via=api` and the OAuth client's name. The web app
+  calls the API with the browser's session, and its changes are audited with
+  `via=web`.
 
 ### Entities
 

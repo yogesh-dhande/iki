@@ -28,5 +28,10 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # The web app's: the organization's webhooks (project ones are in org.urls).
     path("settings/webhooks/", web.app, name="webhook_settings"),
     path("settings/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
+    # Entities and their types (a project's entities are in org.urls).
+    path("types/", web.app, name="entity_types"),
+    path("types/<str:name>/", web.app, name="entity_type"),
+    path("entities/<str:ref>/", web.app, name="entity"),
+    path("entities/<str:ref>/history/", web.app, name="entity_history"),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

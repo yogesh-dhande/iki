@@ -11,6 +11,7 @@
 - Entities you can't read answer 404, as if they didn't exist.
 """
 
+import math
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -30,6 +31,7 @@ from iki_server.entities.values import Invalid, shape, subtypes, to_json
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
+from iki_spec import units
 from iki_spec.model import EntityType
 
 router = Router(tags=["entities"])
@@ -50,7 +52,13 @@ class FieldOut(Schema):
     immutable: bool = Field(description="Can be set once, and can't change after.")
     computed: bool = Field(description="Set only by actions.")
     unit: str | None = Field(description="Quantities: the UCUM unit values are in.")
+    unit_symbol: str | None = Field(description="The unit as people write it, such as Å for Ao.")
     display_unit: str | None
+    display_unit_symbol: str | None
+    display_scale: float | None = Field(
+        description="With a display unit: shown as value * display_scale + display_offset."
+    )
+    display_offset: float | None
     to: str | None = Field(description="References: the type they refer to.")
     values: list[str] = Field(description="Enums: the allowed values.")
     items: str | None = Field(description="Lists: the type of each item.")
@@ -86,6 +94,18 @@ class EntityCan(Schema):
     edit: bool = Field(description="Change it, archive or restore it.")
 
 
+class RefOut(Schema):
+    hrid: str
+    type: str
+    archived: bool
+
+
+class FileRef(Schema):
+    name: str
+    media_type: str
+    size: int = Field(description="Bytes.")
+
+
 class EntityOut(Schema):
     id: UUID
     hrid: str
@@ -100,6 +120,12 @@ class EntityOut(Schema):
     archived: bool
     archived_at: datetime | None
     values: dict[str, Any] = Field(description="Its fields' values, as its type's schema says.")
+    refs: dict[str, RefOut] = Field(
+        description="The entities its values refer to that you can read, by ID."
+    )
+    files: dict[str, FileRef] = Field(
+        description="The files its values refer to that you can read, by ID."
+    )
     can: EntityCan
 
 
@@ -188,7 +214,10 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
                     "immutable": f.immutable,
                     "computed": f.computed,
                     "unit": f.unit,
+                    "unit_symbol": units.symbol(f.unit) if f.unit else None,
                     "display_unit": f.display_unit,
+                    "display_unit_symbol": units.symbol(f.display_unit) if f.display_unit else None,
+                    **_display(f.unit, f.display_unit),
                     "to": f.to,
                     "values": list(f.values),
                     "items": f.items.type if f.items is not None else None,
@@ -210,6 +239,25 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "fields": fields,
         "values_schema": schema.for_type(name),
     }
+
+
+def _display(unit: str | None, display_unit: str | None) -> dict[str, float | None]:
+    """How to show a quantity in its display unit, when that's a scale and an offset.
+
+    Pages convert without a units table of their own. Units that don't convert
+    linearly (degrees of slope, say) are shown in the field's own unit.
+    """
+    none: dict[str, float | None] = {"display_scale": None, "display_offset": None}
+    if unit is None or display_unit is None or display_unit == unit:
+        return none
+    try:
+        at = [units.convert(x, unit, display_unit) for x in (0.0, 1.0, 2.0)]
+    except units.UnitError:
+        return none
+    scale, offset = at[1] - at[0], at[0]
+    if not math.isclose(at[2], 2 * scale + offset, rel_tol=1e-9, abs_tol=1e-12):
+        return none
+    return {"display_scale": scale, "display_offset": offset}
 
 
 @router.get("/entity-types", response=list[EntityTypeOut], summary="The installed entity types")
@@ -252,9 +300,11 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         )
     }
     editable = {p.pk for p in projects.values() if permissions.can(user, Action.PROJECT_EDIT, p)}
+    refs, files = _referenced(user, entities, values)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
+        mine = _ids_in(fields, values[entity.pk])
         out.append(
             {
                 "id": entity.pk,
@@ -270,10 +320,54 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "values": {
                     name: to_json(fields[name], value) for name, value in values[entity.pk].items()
                 },
+                "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
+                "files": {str(i): files[i] for i in mine["file"] if i in files},
                 "can": {"edit": entity.owner_project_id in editable},
             }
         )
     return out
+
+
+def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any]]:
+    """The entity and file IDs these values refer to."""
+    found: dict[str, set[Any]] = {"ref": set(), "file": set()}
+    for name, value in values.items():
+        f = fields[name]
+        kind = f.items.type if f.type == "list" and f.items is not None else f.type
+        if kind in found and value is not None:
+            found[kind].update(value if isinstance(value, list) else [value])
+    return found
+
+
+def _referenced(
+    user: User, entities: list[Entity], values: dict[Any, dict[str, Any]]
+) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
+    """What a page of entities refers to that the user can read, in two queries."""
+    wanted: dict[str, set[Any]] = {"ref": set(), "file": set()}
+    for entity in entities:
+        for kind, ids in _ids_in(shape(entity.type).fields(), values[entity.pk]).items():
+            wanted[kind] |= ids
+    refs = (
+        {
+            pk: {"hrid": hrid, "type": kind, "archived": archived is not None}
+            for pk, hrid, kind, archived in access.visible(user)
+            .filter(pk__in=wanted["ref"])
+            .values_list("pk", "hrid", "type", "archived_at")
+        }
+        if wanted["ref"]
+        else {}
+    )
+    files = (
+        {
+            pk: {"name": name, "media_type": media_type, "size": size}
+            for pk, name, media_type, size in access.readable_files(user)
+            .filter(pk__in=wanted["file"])
+            .values_list("pk", "name", "media_type", "blob__size")
+        }
+        if wanted["file"]
+        else {}
+    )
+    return refs, files
 
 
 def _etag(entity: Entity) -> str:
