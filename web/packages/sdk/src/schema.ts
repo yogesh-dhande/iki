@@ -21,6 +21,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/notification-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which notifications you get by email */
+        get: operations["iki_server_api_notifications_email_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Choose which notifications you get by email */
+        patch: operations["iki_server_api_notifications_change_email_settings"];
+        trace?: never;
+    };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your notifications
+         * @description Newest first. Live updates (``GET /api/v1/events``) say when new ones arrive.
+         */
+        get: operations["iki_server_api_notifications_notifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark all read */
+        post: operations["iki_server_api_notifications_mark_all"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How many are unread */
+        get: operations["iki_server_api_notifications_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{notification_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Mark a notification read or unread */
+        patch: operations["iki_server_api_notifications_mark"];
+        trace?: never;
+    };
     "/api/v1/project-roles": {
         parameters: {
             query?: never;
@@ -382,6 +471,78 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** EmailKindOut */
+        EmailKindOut: {
+            /** Description */
+            description: string;
+            /** Email */
+            email: boolean;
+            /** Group */
+            group: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+        };
+        /** EmailSettingsIn */
+        EmailSettingsIn: {
+            /**
+             * Email
+             * @description Kind → whether to email it. Kinds left out keep their setting.
+             */
+            email: {
+                [key: string]: boolean;
+            };
+        };
+        /** EmailSettingsOut */
+        EmailSettingsOut: {
+            /**
+             * Address
+             * @description Where emails go: your address from the identity provider.
+             */
+            address: string;
+            /**
+             * Email Available
+             * @description Whether this organization sends email. If not, choices are kept for later.
+             */
+            email_available: boolean;
+            /** Kinds */
+            kinds: components["schemas"]["EmailKindOut"][];
+        };
+        /** InboxFilters */
+        InboxFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Unread
+             * @description true: only unread ones.
+             */
+            unread?: boolean | null;
+        };
+        /** MarkAllIn */
+        MarkAllIn: {
+            /**
+             * Up To
+             * @description Only those created by then: the newest you've seen. Ones that arrive meanwhile stay unread.
+             */
+            up_to?: string | null;
+        };
+        /** MarkAllOut */
+        MarkAllOut: {
+            /** Marked */
+            marked: number;
+            /** Unread */
+            unread: number;
+        };
         /** MeCan */
         MeCan: {
             /**
@@ -422,6 +583,60 @@ export interface components {
             /** Org Roles */
             org_roles: ("org_admin" | "compute_admin" | "auditor")[];
         };
+        /** NotificationActor */
+        NotificationActor: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** NotificationOut */
+        NotificationOut: {
+            /** @description Who caused it, if anyone did. */
+            actor: components["schemas"]["NotificationActor"] | null;
+            /** Body */
+            body: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description What it's about, such as project.added.
+             */
+            kind: string;
+            /**
+             * Path
+             * @description Where it leads in Iki (a path on this site), or empty.
+             */
+            path: string;
+            project: components["schemas"]["NotificationProject"] | null;
+            /** Read At */
+            read_at: string | null;
+            /** Title */
+            title: string;
+        };
+        /** NotificationProject */
+        NotificationProject: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** OrgRolesIn */
         OrgRolesIn: {
             /** Roles */
@@ -445,6 +660,16 @@ export interface components {
              * @default 50
              */
             limit: number;
+        };
+        /** Page[NotificationOut] */
+        Page_NotificationOut_: {
+            /** Items */
+            items: components["schemas"]["NotificationOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
         };
         /** Page[ProjectMemberOut] */
         Page_ProjectMemberOut_: {
@@ -652,6 +877,11 @@ export interface components {
              */
             name: "viewer" | "editor" | "runner" | "admin";
         };
+        /** ReadIn */
+        ReadIn: {
+            /** Read */
+            read: boolean;
+        };
         /** RoleIn */
         RoleIn: {
             /**
@@ -710,6 +940,11 @@ export interface components {
             description?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /** SummaryOut */
+        SummaryOut: {
+            /** Unread */
+            unread: number;
         };
         /** TeamFilters */
         TeamFilters: {
@@ -873,6 +1108,147 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_notifications_email_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailSettingsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_notifications_change_email_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailSettingsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailSettingsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_notifications_notifications: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description true: only unread ones. */
+                unread?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_NotificationOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_notifications_mark_all: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkAllIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkAllOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_notifications_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SummaryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_notifications_mark: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationOut"];
                 };
             };
         };

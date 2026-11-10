@@ -15,6 +15,7 @@ k8s_yaml([
     'deploy/dev/manifests/seaweedfs.yaml',
     'deploy/dev/manifests/keycloak.yaml',
     'deploy/dev/manifests/otel-lgtm.yaml',
+    'deploy/dev/manifests/mailpit.yaml',
 ])
 
 k8s_kind('Cluster', api_version='postgresql.cnpg.io/v1', pod_readiness='wait')
@@ -29,6 +30,13 @@ k8s_resource(
     port_forwards=['8080:8080'],
     labels=['deps'],
     links=[link('http://keycloak.iki.localhost:8080/admin/', 'Keycloak admin')],
+)
+k8s_resource(
+    'mailpit',
+    objects=['iki-email:secret'],
+    port_forwards=['8025:8025'],
+    labels=['deps'],
+    links=[link('http://localhost:8025', 'Mailpit (email)')],
 )
 k8s_resource(
     'otel-lgtm',
@@ -73,3 +81,4 @@ k8s_resource(
         link('http://localhost:8000/healthz/ready', 'Readiness'),
     ],
 )
+k8s_resource('iki-tasks', resource_deps=['iki-migrate', 'otel-lgtm'], labels=['iki'])

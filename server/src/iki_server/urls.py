@@ -4,6 +4,7 @@ from django.urls import URLPattern, URLResolver, include, path
 
 from iki_server.accounts import views as accounts
 from iki_server.api.v1 import api as api_v1
+from iki_server.realtime import views as realtime
 from iki_server.web import views as web
 
 urlpatterns: list[URLPattern | URLResolver] = [
@@ -17,8 +18,12 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("", include("iki_server.scim.page_urls")),
     path("accounts/", include(accounts.allauth_urlpatterns)),
     path("scim/v2/", include("iki_server.scim.urls")),
+    # Before the API's own routes: an async streaming view, outside django-ninja.
+    path("api/v1/events", realtime.events, name="events"),
     path("api/v1/", api_v1.urls),
     path("", include("iki_server.oauth.urls")),
     path("", include("iki_server.oauth.page_urls")),
+    path("", include("iki_server.notifications.urls")),
+    path("notifications/", web.app, name="notifications"),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

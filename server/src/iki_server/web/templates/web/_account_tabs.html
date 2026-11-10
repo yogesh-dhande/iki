@@ -1,0 +1,6 @@
+{% with name=request.resolver_match.url_name %}
+<nav class="tabs" aria-label="Account">
+  <a href="{% url 'notifications:preferences' %}"{% if name == "preferences" %} aria-current="page"{% endif %}>Notifications</a>
+  <a href="{% url 'oauth:my_apps' %}"{% if name == "my_apps" %} aria-current="page"{% endif %}>Authorized apps</a>
+</nav>
+{% endwith %}

@@ -73,6 +73,23 @@ oauth:
   # Apps still wait for an Org Admin's approval unless that is turned off.
   clientMetadataDocuments: false
 
+email:
+  # Email notifications, off while existingSecret is empty. The Secret holds
+  # the mail server's URL, with its credentials:
+  #   smtp+tls://user:password@smtp.example.com:587  (STARTTLS)
+  #   smtp+ssl://user:password@smtp.example.com:465  (TLS from the start)
+  # URL-encode special characters in the user and password. Web pods (for the
+  # Org Admin's test email) and task runners connect to it; allow it in
+  # networkPolicy.egress.email.
+  existingSecret: ""
+  urlKey: url
+  # required with email: the From address, e.g. "Iki <iki@example.com>".
+  # Use a domain whose SPF and DKIM records cover the mail server.
+  from: ""
+  # smtp:// (no encryption) is refused unless this is true: only for a relay
+  # inside your own network.
+  allowPlaintext: false
+
 database:
   # required: Secret holding a postgres:// URI for the app's role. That role
   # reads and writes rows but can't change the schema or the audit log. The
@@ -129,6 +146,24 @@ web:
   affinity: {}
   podAnnotations: {}
 
+tasks:
+  # Runs background tasks (email, webhooks, ...) from the Postgres queue.
+  # Without it, they wait in the queue.
+  enabled: true
+  replicas: 1
+  # Tasks each runner runs at once.
+  concurrency: 4
+  # Seconds running tasks get to finish on shutdown before another runner
+  # retries them.
+  graceSeconds: 25
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
 migrate:
   # Runs `iki-server migrate` as a Helm pre-install/pre-upgrade hook.
   enabled: true
@@ -140,8 +175,8 @@ migrate:
     limits: { memory: 512Mi }
 
 maintenance:
-  # Hourly housekeeping, as a CronJob: deletes expired sessions and prunes
-  # rate-limit counters older than an hour.
+  # Hourly housekeeping, as a CronJob: deletes expired sessions, tokens and
+  # finished tasks, and prunes rate-limit counters older than an hour.
   enabled: true
   schedule: "17 * * * *"
   resources:
@@ -169,6 +204,27 @@ networkPolicy:
     # Narrow it to your provider's ranges if you can.
     identityProvider:
       ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+              - ::1/128
+    # Only with email: web pods and task runners reach the mail server.
+    # Public addresses only by default, as above. For a relay inside your
+    # network, list it here instead (an ipBlock, or a pod/namespace selector).
+    email:
+      ports: [587, 465]
       to:
         - ipBlock:
             cidr: 0.0.0.0/0

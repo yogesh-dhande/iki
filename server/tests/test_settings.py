@@ -85,3 +85,59 @@ def test_the_web_app_dev_server_is_refused_over_https() -> None:
     assert "IKI_WEB_DEV_SERVER is for local development" in result.stderr
     local = {**PROD_ENV, "IKI_WEB_DEV_SERVER": "true", "IKI_HTTPS": "false"}
     assert run_manage("check", env=local).returncode == 0
+
+
+def _email_settings(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return run_manage(
+        "shell",
+        "-c",
+        "from django.conf import settings as s; "
+        "o = s.MAILERS.get('default', {}).get('OPTIONS', {}); "
+        "print(s.IKI_EMAIL_ENABLED, *(o.get(k) for k in ('host', 'port', 'use_tls', 'use_ssl', "
+        "'username', 'password')), s.DEFAULT_FROM_EMAIL)",
+        env={**PROD_ENV, **env},
+    )
+
+
+def test_email_is_off_until_configured() -> None:
+    result = _email_settings({})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1].split()[0] == "False"
+    assert "MAILERS" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "smtp+tls://AKIA%2Fx:p%40ss@email-smtp.eu-west-1.amazonaws.com",
+            "True email-smtp.eu-west-1.amazonaws.com 587 True False AKIA/x p@ss "
+            "Iki <iki@example.com>",
+        ),
+        (
+            "smtp+ssl://u:p@smtp.example.com",
+            "True smtp.example.com 465 False True u p Iki <iki@example.com>",
+        ),
+    ],
+)
+def test_email_needs_encryption_and_a_sender(url: str, expected: str) -> None:
+    result = _email_settings({"IKI_EMAIL_URL": url, "IKI_EMAIL_FROM": "Iki <iki@example.com>"})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == expected
+
+    no_sender = _email_settings({"IKI_EMAIL_URL": url})
+    assert no_sender.returncode != 0
+    assert "IKI_EMAIL_FROM" in no_sender.stderr
+
+
+def test_unencrypted_email_needs_an_explicit_choice() -> None:
+    plain = {"IKI_EMAIL_URL": "smtp://relay.corp.example:25", "IKI_EMAIL_FROM": "iki@corp.example"}
+    refused = _email_settings(plain)
+    assert refused.returncode != 0
+    assert "sends mail without encryption" in refused.stderr
+    assert _email_settings({**plain, "IKI_EMAIL_ALLOW_PLAINTEXT": "true"}).returncode == 0
+    assert _email_settings({**plain, "IKI_HTTPS": "false"}).returncode == 0
+    # smtps:// means different things to different tools, so it's refused.
+    ambiguous = _email_settings({**plain, "IKI_EMAIL_URL": "smtps://u:p@smtp.example.com"})
+    assert ambiguous.returncode != 0
+    assert "smtp+tls://" in ambiguous.stderr

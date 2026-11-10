@@ -1,12 +1,37 @@
 """``iki-server serve``: runs the ASGI server."""
 
+import asyncio
+import socket
+from types import FrameType
 from typing import Any
 
 import environ
 import uvicorn
 from django.core.management.base import BaseCommand, CommandParser
 
+from iki_server.realtime import hub
+
 env = environ.Env()
+
+
+class Server(uvicorn.Server):
+    """Ends live-update streams on shutdown.
+
+    uvicorn waits for open responses before it stops, and a live-update
+    stream never finishes by itself. Ending them at once lets the pod stop in
+    seconds; browsers reconnect to the pods still running.
+    """
+
+    _loop: asyncio.AbstractEventLoop | None = None
+
+    async def serve(self, sockets: list[socket.socket] | None = None) -> None:
+        self._loop = asyncio.get_running_loop()
+        await super().serve(sockets)
+
+    def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+        super().handle_exit(sig, frame)
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(hub.shutting_down)
 
 
 class Command(BaseCommand):
@@ -42,21 +67,27 @@ class Command(BaseCommand):
         parser.add_argument("--reload", action="store_true", help="Reload on code changes (dev).")
 
     def handle(self, *args: Any, **options: Any) -> None:  # noqa: ANN401 - Django's signature
-        uvicorn.run(
-            "iki_server.asgi:application",
-            host=options["host"],
-            port=options["port"],
-            workers=options["workers"],
-            reload=options["reload"],
+        settings: dict[str, Any] = {
+            "host": options["host"],
+            "port": options["port"],
+            "workers": options["workers"],
+            "reload": options["reload"],
             # Django has no ASGI lifespan support; turning it off avoids a
             # misleading startup warning.
-            lifespan="off",
+            "lifespan": "off",
             # Logging is already configured by Django settings (JSON lines).
-            log_config=None,
-            access_log=False,
-            proxy_headers=True,
-            forwarded_allow_ips=options["forwarded_allow_ips"],
-            server_header=False,
-            timeout_graceful_shutdown=30,
-            timeout_keep_alive=options["keep_alive"],
-        )
+            "log_config": None,
+            "access_log": False,
+            "proxy_headers": True,
+            "forwarded_allow_ips": options["forwarded_allow_ips"],
+            "server_header": False,
+            "timeout_graceful_shutdown": 30,
+            "timeout_keep_alive": options["keep_alive"],
+        }
+        app = "iki_server.asgi:application"
+        if options["workers"] > 1 or options["reload"]:
+            # Several processes (or the reloader): uvicorn supervises them,
+            # and streams end at the graceful-shutdown timeout instead.
+            uvicorn.run(app, **settings)
+            return
+        Server(uvicorn.Config(app, **settings)).run()

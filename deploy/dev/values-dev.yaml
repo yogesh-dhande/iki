@@ -18,6 +18,10 @@ secretKey:
 encryptionKeys:
   existingSecret: iki-encryption-keys
   key: keys
+email:
+  # Mailpit (deploy/dev/manifests/mailpit.yaml); read it at localhost:8025.
+  existingSecret: iki-email
+  from: "Iki <iki@iki.localhost>"
 database:
   # The app's least-privileged role (iki_app), created by up.sh and managed
   # by CloudNativePG.
@@ -57,3 +61,8 @@ networkPolicy:
       to:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: keycloak }
+    email:
+      ports: [1025]
+      to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: mailpit }

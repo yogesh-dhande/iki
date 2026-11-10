@@ -103,6 +103,8 @@ jobs:
           pnpm --filter @ikisci/app build
       - name: Install browsers (Chromium, Firefox, WebKit)
         if: matrix.browsers
+        # A stuck package mirror fails in minutes, not at the job's limit.
+        timeout-minutes: 10
         run: uv run --no-sync playwright install --with-deps chromium firefox webkit
       - name: Ruff lint
         run: uv run --no-sync ruff check --output-format=github
@@ -276,6 +278,7 @@ jobs:
           enable-cache: false
       # The checks sign in through Keycloak in Chromium.
       - name: Install Chromium
+        timeout-minutes: 10
         run: uv run playwright install --with-deps chromium
       - name: Bring up the dev cluster and run end-to-end checks
         run: make dev-ci

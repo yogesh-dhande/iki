@@ -56,6 +56,15 @@ def project(suffix: str = "", body: Any = None) -> Build:
     return lambda w: (f"/projects/{w.project.pk}{suffix}", body)
 
 
+def viewers_notification(w: World) -> tuple[str, Any]:
+    from iki_server.notifications.models import Notification
+
+    note = Notification.objects.create(
+        recipient=w.users["viewer"], kind="project.added", title="Added", project=w.project
+    )
+    return f"/notifications/{note.pk}", {"read": True}
+
+
 def viewer_grant(w: World) -> tuple[str, Any]:
     membership = w.project.memberships.get(user=w.users["viewer"])
     return f"/projects/{w.project.pk}/members/{membership.pk}", None
@@ -155,6 +164,18 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/projects/{project_id}/members/{membership_id}",
         viewer_grant,
         visible(403, org_admin=204, admin=204),
+    ),
+    # Notifications are each person's own: nobody else's are found.
+    ("GET", "/notifications", fixed("/notifications"), row(200)),
+    ("GET", "/notifications/summary", fixed("/notifications/summary"), row(200)),
+    ("PATCH", "/notifications/{notification_id}", viewers_notification, row(404, viewer=200)),
+    ("POST", "/notifications/read", fixed("/notifications/read", {}), row(200)),
+    ("GET", "/me/notification-email", fixed("/me/notification-email"), row(200)),
+    (
+        "PATCH",
+        "/me/notification-email",
+        fixed("/me/notification-email", {"email": {"project.added": False}}),
+        row(200),
     ),
 ]
 

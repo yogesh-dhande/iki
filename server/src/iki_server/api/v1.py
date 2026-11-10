@@ -12,7 +12,7 @@ from django.http import Http404, HttpRequest, HttpResponse
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 
-from iki_server.api import me, projects, service_accounts, teams, users
+from iki_server.api import me, notifications, projects, service_accounts, teams, users
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import BearerAuth, SessionAuth
 from iki_server.org.services import Refused
@@ -20,14 +20,17 @@ from iki_server.org.services import Refused
 api = NinjaAPI(
     title="Iki API",
     version="1",
-    description="Iki's REST API. Errors are RFC 9457 problem details; lists use cursors.",
+    description=(
+        "Iki's REST API. Errors are RFC 9457 problem details; lists use cursors. "
+        "Live updates (Server-Sent Events) come from GET /api/v1/events."
+    ),
     urls_namespace="api-v1",
     auth=[BearerAuth(), SessionAuth()],
     docs_url=None,
     openapi_url="/openapi.json",
 )
 
-for module in (me, users, service_accounts, teams, projects):
+for module in (me, users, service_accounts, teams, projects, notifications):
     api.add_router("", module.router)
 
 

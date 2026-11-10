@@ -57,15 +57,18 @@ capabilities:
 
 {{/* Environment shared by the web and migrate containers. */}}
 {{/*
-Environment for app containers (web, maintenance): connects as the app's
-least-privileged database role.
+Environment for app containers (web, tasks, maintenance): connects as the
+app's least-privileged database role. Pass the root context, or a dict with
+"ctx" (the root context) and optionally "service" (the OpenTelemetry service
+name) and "poolMaxSize".
 */}}
 {{- define "iki.env" -}}
+{{- $ctx := .ctx | default . -}}
 - name: IKI_DATABASE_URL
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.database.existingSecret }}
-      key: {{ .Values.database.uriKey }}
+      name: {{ $ctx.Values.database.existingSecret }}
+      key: {{ $ctx.Values.database.uriKey }}
 {{ include "iki.commonEnv" . }}
 {{- end -}}
 
@@ -74,66 +77,79 @@ Environment for the migrate Job: connects as the migrator, which owns the
 schema, and knows the app's role so it can grant it privileges.
 */}}
 {{- define "iki.migratorEnv" -}}
+{{- $ctx := . -}}
 - name: IKI_DATABASE_URL
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.database.migrator.existingSecret }}
-      key: {{ .Values.database.migrator.uriKey }}
+      name: {{ $ctx.Values.database.migrator.existingSecret }}
+      key: {{ $ctx.Values.database.migrator.uriKey }}
 - name: IKI_APP_DATABASE_URL
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.database.existingSecret }}
-      key: {{ .Values.database.uriKey }}
+      name: {{ $ctx.Values.database.existingSecret }}
+      key: {{ $ctx.Values.database.uriKey }}
 {{ include "iki.commonEnv" . }}
 {{- end -}}
 
 {{- define "iki.commonEnv" -}}
+{{- $ctx := .ctx | default . -}}
 - name: IKI_ENVIRONMENT
-  value: {{ .Values.environment | quote }}
+  value: {{ $ctx.Values.environment | quote }}
 - name: IKI_PUBLIC_URL
-  value: {{ .Values.publicUrl | quote }}
+  value: {{ $ctx.Values.publicUrl | quote }}
 - name: IKI_ALLOWED_HOSTS
-  value: {{ join "," .Values.allowedHosts | quote }}
+  value: {{ join "," $ctx.Values.allowedHosts | quote }}
 - name: IKI_HTTPS
-  value: {{ .Values.https | quote }}
+  value: {{ $ctx.Values.https | quote }}
 - name: IKI_LOG_LEVEL
-  value: {{ .Values.log.level | quote }}
+  value: {{ $ctx.Values.log.level | quote }}
 - name: IKI_LOG_FORMAT
-  value: {{ .Values.log.format | quote }}
+  value: {{ $ctx.Values.log.format | quote }}
 - name: IKI_SECRET_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.secretKey.existingSecret }}
-      key: {{ .Values.secretKey.key }}
+      name: {{ $ctx.Values.secretKey.existingSecret }}
+      key: {{ $ctx.Values.secretKey.key }}
 - name: IKI_ENCRYPTION_KEYS
   valueFrom:
     secretKeyRef:
-      name: {{ .Values.encryptionKeys.existingSecret }}
-      key: {{ .Values.encryptionKeys.key }}
+      name: {{ $ctx.Values.encryptionKeys.existingSecret }}
+      key: {{ $ctx.Values.encryptionKeys.key }}
 - name: IKI_SESSION_IDLE_TIMEOUT_MINUTES
-  value: {{ .Values.sessions.idleTimeoutMinutes | quote }}
+  value: {{ $ctx.Values.sessions.idleTimeoutMinutes | quote }}
 - name: IKI_SESSION_MAX_AGE_HOURS
-  value: {{ .Values.sessions.maxAgeHours | quote }}
+  value: {{ $ctx.Values.sessions.maxAgeHours | quote }}
 - name: IKI_API_RATE_LIMIT_PER_MINUTE
-  value: {{ .Values.api.rateLimitPerMinute | quote }}
+  value: {{ $ctx.Values.api.rateLimitPerMinute | quote }}
 - name: IKI_OAUTH_ACCESS_TOKEN_MINUTES
-  value: {{ .Values.oauth.accessTokenMinutes | quote }}
+  value: {{ $ctx.Values.oauth.accessTokenMinutes | quote }}
 - name: IKI_OAUTH_REFRESH_TOKEN_DAYS
-  value: {{ .Values.oauth.refreshTokenDays | quote }}
+  value: {{ $ctx.Values.oauth.refreshTokenDays | quote }}
 - name: IKI_OAUTH_CLIENT_METADATA_DOCUMENTS
-  value: {{ .Values.oauth.clientMetadataDocuments | quote }}
+  value: {{ $ctx.Values.oauth.clientMetadataDocuments | quote }}
+{{- if $ctx.Values.email.existingSecret }}
+- name: IKI_EMAIL_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ $ctx.Values.email.existingSecret }}
+      key: {{ $ctx.Values.email.urlKey }}
+- name: IKI_EMAIL_FROM
+  value: {{ required "email.from is required when email.existingSecret is set" $ctx.Values.email.from | quote }}
+- name: IKI_EMAIL_ALLOW_PLAINTEXT
+  value: {{ $ctx.Values.email.allowPlaintext | quote }}
+{{- end }}
 - name: IKI_DB_SSLMODE
-  value: {{ .Values.database.sslmode | quote }}
-{{- if .Values.database.caSecret.name }}
+  value: {{ $ctx.Values.database.sslmode | quote }}
+{{- if $ctx.Values.database.caSecret.name }}
 - name: IKI_DB_SSLROOTCERT
-  value: /etc/iki/db-ca/{{ .Values.database.caSecret.key }}
+  value: /etc/iki/db-ca/{{ $ctx.Values.database.caSecret.key }}
 {{- end }}
 - name: IKI_DB_POOL_MIN_SIZE
-  value: {{ .Values.database.pool.minSize | quote }}
+  value: {{ $ctx.Values.database.pool.minSize | quote }}
 - name: IKI_DB_POOL_MAX_SIZE
-  value: {{ .Values.database.pool.maxSize | quote }}
+  value: {{ .poolMaxSize | default $ctx.Values.database.pool.maxSize | quote }}
 - name: OTEL_SERVICE_NAME
-  value: iki-server
+  value: {{ .service | default "iki-server" }}
 - name: K8S_POD_NAME
   valueFrom:
     fieldRef:
@@ -143,10 +159,10 @@ schema, and knows the app's role so it can grant it privileges.
     fieldRef:
       fieldPath: metadata.namespace
 - name: OTEL_RESOURCE_ATTRIBUTES
-  value: {{ printf "k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(K8S_NAMESPACE)%s" (ternary (printf ",%s" .Values.otel.resourceAttributes) "" (ne .Values.otel.resourceAttributes "")) | quote }}
-{{- if .Values.otel.endpoint }}
+  value: {{ printf "k8s.pod.name=$(K8S_POD_NAME),k8s.namespace.name=$(K8S_NAMESPACE)%s" (ternary (printf ",%s" $ctx.Values.otel.resourceAttributes) "" (ne $ctx.Values.otel.resourceAttributes "")) | quote }}
+{{- if $ctx.Values.otel.endpoint }}
 - name: OTEL_EXPORTER_OTLP_ENDPOINT
-  value: {{ .Values.otel.endpoint | quote }}
+  value: {{ $ctx.Values.otel.endpoint | quote }}
 {{- end }}
 {{- end -}}
 

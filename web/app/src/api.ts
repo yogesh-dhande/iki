@@ -11,7 +11,13 @@ import {
   type Problem,
   type Schemas,
 } from "@ikisci/sdk";
-import { QueryClient, queryOptions, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  QueryClient,
+  queryOptions,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 export type Me = Schemas["MeOut"];
 export type Project = Schemas["ProjectOut"];
@@ -19,6 +25,7 @@ export type Member = Schemas["ProjectMemberOut"];
 export type TeamRef = Schemas["TeamRef"];
 export type Role = Schemas["ProjectRoleOut"];
 export type RoleName = Role["name"];
+export type Notification = Schemas["NotificationOut"];
 
 function csrfToken(): string | undefined {
   return document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
@@ -170,6 +177,54 @@ export const creatableTeamsQuery = queryOptions({
       )
     ).sort(byName),
 });
+
+// --- Notifications ---------------------------------------------------------------
+
+/** Every notification query: invalidated together when live updates say something changed. */
+export const NOTIFICATIONS = ["notifications"] as const;
+
+/** The header bell's count. Live updates keep it current (see events.ts). */
+export const unreadQuery = queryOptions({
+  queryKey: [...NOTIFICATIONS, "summary"],
+  queryFn: async () => unwrap(await iki.GET("/api/v1/notifications/summary")).unread,
+});
+
+export type InboxFilter = "unread" | "all";
+
+/** The inbox, newest first, a page at a time ("Show older"). */
+export function inboxQuery(filter: InboxFilter) {
+  return infiniteQueryOptions({
+    queryKey: [...NOTIFICATIONS, "list", filter],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await iki.GET("/api/v1/notifications", {
+          params: {
+            query: {
+              limit: 50,
+              ...(filter === "unread" ? { unread: true } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+export async function markNotification(id: string, read: boolean): Promise<Notification> {
+  return unwrap(
+    await iki.PATCH("/api/v1/notifications/{notification_id}", {
+      params: { path: { notification_id: id } },
+      body: { read },
+    }),
+  );
+}
+
+/** Marks read what arrived by `upTo` (the newest the person has seen). */
+export async function markAllNotifications(upTo: string | undefined) {
+  return unwrap(await iki.POST("/api/v1/notifications/read", { body: { up_to: upTo ?? null } }));
+}
 
 /** Looks a person or service account up by email address, for adding them to a project. */
 export async function findPerson(email: string) {

@@ -11,7 +11,8 @@ functions keep the invariants that hold no matter who asks:
 - Inactive people can't be given new roles or memberships.
 - Service accounts can't be Org Admins or team members (ADR 0027).
 
-Every change is recorded in the audit log, in the same transaction.
+Every change is recorded in the audit log, in the same transaction, and
+the people it's about are notified (ADR 0030).
 """
 
 from typing import Any
@@ -22,6 +23,8 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
+from iki_server.notifications import kinds as notification_kinds
+from iki_server.notifications.services import notify
 from iki_server.org.models import (
     OrgRole,
     OrgRoleAssignment,
@@ -220,6 +223,13 @@ def add_team_member(team: Team, user: User, *, by: User) -> None:
         )
         if created:
             audit.record("team.member_added", actor=by, target=user, team=team)
+            notify(
+                [user],
+                notification_kinds.TEAM_ADDED,
+                title=f"{by.get_full_name()} added you to the team {team.name}",
+                path=f"/teams/{team.slug}/",
+                actor=by,
+            )
 
 
 def remove_team_member(team: Team, user: User, *, by: User) -> None:
@@ -228,6 +238,13 @@ def remove_team_member(team: Team, user: User, *, by: User) -> None:
         deleted, _ = TeamMembership.objects.filter(team=team, user=user).delete()
         if deleted:
             audit.record("team.member_removed", actor=by, target=user, team=team)
+            notify(
+                [user],
+                notification_kinds.TEAM_REMOVED,
+                title=f"{by.get_full_name()} removed you from the team {team.name}",
+                path="/teams/",
+                actor=by,
+            )
 
 
 # --- Projects ------------------------------------------------------------------
@@ -346,6 +363,25 @@ def grant_project_role(
             team=team,
             data=data,
         )
+        if user is not None:
+            role_label = ProjectRole(role).label
+            if previous is None:
+                kind = notification_kinds.PROJECT_ADDED
+                title = f"{by.get_full_name()} added you to {project.name} as {role_label}"
+            else:
+                kind = notification_kinds.PROJECT_ROLE_CHANGED
+                title = (
+                    f"{by.get_full_name()} made you {role_label} in {project.name} "
+                    f"(you were {ProjectRole(previous).label})"
+                )
+            notify(
+                [user],
+                kind,
+                title=title,
+                path=f"/projects/{project.slug}/",
+                project=project,
+                actor=by,
+            )
     return membership
 
 
@@ -364,3 +400,12 @@ def remove_project_membership(membership: ProjectMembership, *, by: User) -> Non
             team=membership.team,
             data={"role": ProjectRole(membership.role).label},
         )
+        if membership.user is not None:
+            notify(
+                [membership.user],
+                notification_kinds.PROJECT_REMOVED,
+                title=f"{by.get_full_name()} removed you from {project.name}",
+                path="/projects/",
+                project=project,
+                actor=by,
+            )

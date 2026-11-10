@@ -22,6 +22,8 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 from real_server import Server, app_role, manage, serve, server_env
 
 from iki_server.accounts.models import User
+from iki_server.notifications import kinds
+from iki_server.notifications.services import notify
 from iki_server.org.models import Project, ProjectRole
 from iki_server.web import frontend
 
@@ -173,7 +175,10 @@ PAGES = [
     ("admin", "/projects/kinase-atlas/settings/"),
     ("org_admin", "/teams/"),
     ("org_admin", "/teams/structural-biology/"),
+    ("admin", "/notifications/"),
     ("admin", "/account/apps/"),
+    ("admin", "/account/notifications/"),
+    ("org_admin", "/settings/email/"),
 ]
 
 
@@ -183,6 +188,38 @@ def test_pages_are_accessible_and_keep_the_policy(open_as: Any, color_scheme: st
         page = open_as(principal, path, color_scheme)
         assert_clean(page)
         page.context.close()
+
+
+def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world: World) -> None:
+    admin, viewer = world.users["admin"], world.users["viewer"]
+    notify(
+        [admin],
+        kinds.TEAM_ADDED,
+        title="Viewer added you to Structural Biology",
+        path="/teams/structural-biology/",
+        actor=viewer,
+    )
+    page = open_as("admin", "/notifications/")
+    page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+
+    # Sent while the page is open: the stream (LISTEN/NOTIFY, then SSE) brings it.
+    title = "Viewer added you to Kinase Atlas as Editor"
+    notify(
+        [admin],
+        kinds.PROJECT_ADDED,
+        title=title,
+        path="/projects/kinase-atlas/",
+        project=world.project,
+        actor=viewer,
+    )
+    page.get_by_role("link", name="Notifications, 2 unread").wait_for()
+    page.get_by_role("link", name=title).wait_for()
+    assert_clean(page)
+
+    page.get_by_role("link", name=title).click()
+    page.wait_for_url("**/projects/kinase-atlas/")
+    page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+    assert_clean(page)
 
 
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:

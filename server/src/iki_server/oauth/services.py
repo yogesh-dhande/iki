@@ -17,6 +17,8 @@ from oauth2_provider.models import get_access_token_model, get_refresh_token_mod
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
+from iki_server.notifications import kinds as notification_kinds
+from iki_server.notifications.services import notify, org_admins
 from iki_server.oauth.models import Approval, Client, Consent
 from iki_server.oauth.scopes import SCOPES, ordered
 from iki_server.org.models import Project
@@ -60,6 +62,14 @@ def request_approval(client: Client, *, by: User) -> None:
         client.requested_by, client.requested_at = by, timezone.now()
         client.save(update_fields=["requested_by", "requested_at"])
         audit.record("oauth.client_approval_requested", actor=by, target=client)
+        notify(
+            org_admins(),
+            notification_kinds.APP_AWAITING_APPROVAL,
+            title=f"{by.get_full_name()} asks you to approve {client.display_name()}",
+            body="Until an Org Admin approves it, nobody can use it with Iki.",
+            path=f"/settings/apps/{client.pk}/",
+            actor=by,
+        )
 
 
 def set_approval(client: Client, approval: Approval, *, by: User) -> None:

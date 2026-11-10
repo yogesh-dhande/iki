@@ -28,6 +28,7 @@ echo "Iki dev cluster end-to-end checks"
 
 # Wait for any rollout in progress, so logs and execs hit the current pods.
 kc rollout status deploy/iki-web --timeout=180s >/dev/null
+kc rollout status deploy/iki-tasks --timeout=180s >/dev/null
 
 # A port-forward to the Service could land on a pod that is still shutting
 # down after the rollout; forward to a ready pod that isn't terminating.
@@ -40,6 +41,7 @@ forward "pod/$web_pod" 18000 8000
 forward svc/keycloak 18080 8080
 forward svc/seaweedfs 18333 8333
 forward svc/otel-lgtm 13200 3200
+forward svc/mailpit 18025 8025
 
 # --- Iki web ------------------------------------------------------------------
 ready=$(curl -fsS http://127.0.0.1:18000/healthz/ready)
@@ -99,9 +101,10 @@ probe() { # probe <host> <port>: exit 0 if a TCP connection succeeds within 3s
 }
 probe iki-db-rw 5432 || fail "web pod cannot reach Postgres"
 probe keycloak.iki.localhost 8080 || fail "web pod cannot reach Keycloak (the identity provider)"
+probe mailpit 1025 || fail "web pod cannot reach the mail server (Mailpit)"
 if probe seaweedfs 8333; then fail "web pod reached SeaweedFS; default-deny egress is not enforced"; fi
 if probe otel-lgtm 3000; then fail "web pod reached Grafana; only the OTLP port is allowed"; fi
-pass "egress is default-deny: Postgres, Keycloak and OTLP allowed, everything else blocked"
+pass "egress is default-deny: Postgres, Keycloak, OTLP and SMTP allowed, everything else blocked"
 
 # --- Keycloak -------------------------------------------------------------------
 issuer=$(curl -fsS http://127.0.0.1:18080/realms/iki/.well-known/openid-configuration | jq -r .issuer)
@@ -111,7 +114,7 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
 uv run --quiet python "$(dirname "${BASH_SOURCE[0]}")/sso.py" --check \
-  --iki-port 18000 --keycloak-port 18080 --web "pod/$web_pod"
+  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------
 anon=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18333/)

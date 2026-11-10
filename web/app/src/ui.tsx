@@ -461,3 +461,48 @@ export function Time({ value }: { value: string }) {
     </time>
   );
 }
+
+const relative = new Intl.RelativeTimeFormat("en-GB", { numeric: "auto" });
+
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["minute", 60],
+  ["hour", 60 * 60],
+  ["day", 24 * 60 * 60],
+];
+
+/** The time now, updated each minute, so "5 minutes ago" stays true. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 60_000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+  return now;
+}
+
+/** "5 minutes ago", "yesterday"; the date after a week. The exact time shows on hover. */
+export function RelativeTime({ value }: { value: string }) {
+  const now = useNow();
+  const date = new Date(value);
+  const seconds = Math.round((date.getTime() - now) / 1000);
+  let text: string;
+  if (Math.abs(seconds) < 60) {
+    text = "just now";
+  } else if (Math.abs(seconds) >= 7 * 24 * 60 * 60) {
+    text = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  } else {
+    const [unit, size] =
+      UNITS.findLast(([, size]) => Math.abs(seconds) >= size) ?? (["minute", 60] as const);
+    text = relative.format(Math.round(seconds / size), unit);
+  }
+  const exact = date.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  return (
+    <time dateTime={value} title={exact}>
+      {text}
+    </time>
+  );
+}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Notifications</h1></div>
+{% include "web/_account_tabs.html" %}
+<p class="muted">Iki always shows your notifications under <a href="/notifications/">Notifications</a>. Choose which you also get by email, at {{ user.email }}.</p>
+{% if not email_available %}
+<div class="alert alert-warning" role="note"><p>Your organization hasn’t set up email, so notifications stay in Iki. Your choices are kept for when it does.</p></div>
+{% endif %}
+<form class="stack" method="post" data-busy-form>
+  {% csrf_token %}
+  {% for group, kinds in groups %}
+  <fieldset>
+    <legend>{{ group }}</legend>
+    <div class="choices">
+      {% for kind, emailed in kinds %}
+      <label class="choice">
+        <input type="checkbox" name="email:{{ kind.key }}"{% if emailed %} checked{% endif %}>
+        <span class="choice-text"><span>{{ kind.label }}</span><span class="choice-help">{{ kind.description }}</span></span>
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+  <div><button class="button button-primary" type="submit" data-busy-text="Saving…">Save</button></div>
+</form>
+{% endblock %}

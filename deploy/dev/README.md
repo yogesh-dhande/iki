@@ -30,10 +30,12 @@ changes.
 | Component                        | Local URL                            | Notes                                                                             |
 | -------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------- |
 | Iki web (`iki-web`)              | <http://localhost:8000>              | Helm chart with `values-dev.yaml`                                                 |
+| Task runner (`iki-tasks`)        | n/a                                  | `iki-server tasks`: sends email and other background work                         |
 | Migrations (`iki-migrate`)       | n/a                                  | Job; web pods turn ready only once it has finished                                |
 | Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                       |
 | SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                     |
 | Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` with users `alice` and `bob`; OIDC client `iki-web` and a SAML client |
+| Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki sends; nothing leaves the cluster                         |
 | Grafana, Tempo, Loki, Prometheus | <http://localhost:3000>              | `grafana/otel-lgtm`; Iki sends OTLP traces and metrics                            |
 
 ## Signing in

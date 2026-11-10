@@ -63,10 +63,16 @@ def by_kind(docs: list[Manifest], kind: str) -> list[Manifest]:
     return [d for d in docs if d["kind"] == kind]
 
 
+def named(docs: list[Manifest], kind: str, name: str) -> Manifest:
+    (found,) = [d for d in by_kind(docs, kind) if d["metadata"]["name"] == name]
+    return found
+
+
 def test_chart_renders_expected_resources() -> None:
     kinds = sorted(f"{d['kind']}/{d['metadata']['name']}" for d in manifests())
     assert kinds == [
         "CronJob/iki-maintenance",
+        "Deployment/iki-tasks",
         "Deployment/iki-web",
         "Job/iki-migrate",
         "NetworkPolicy/iki-default-deny",
@@ -74,6 +80,7 @@ def test_chart_renders_expected_resources() -> None:
         "NetworkPolicy/iki-web-identity-provider",
         "PodDisruptionBudget/iki-web",
         "Service/iki-web",
+        "ServiceAccount/iki-tasks",
         "ServiceAccount/iki-web",
     ]
 
@@ -230,13 +237,13 @@ def test_web_ingress_is_closed_unless_sources_are_listed() -> None:
 
 def test_autoscaling_replaces_fixed_replicas() -> None:
     docs = manifests({"web": {"autoscaling": {"enabled": True}}})
-    (deploy,) = by_kind(docs, "Deployment")
+    deploy = named(docs, "Deployment", "iki-web")
     assert "replicas" not in deploy["spec"]
     assert len(by_kind(docs, "HorizontalPodAutoscaler")) == 1
 
 
 def test_rollouts_never_drop_below_capacity() -> None:
-    (deploy,) = by_kind(manifests(), "Deployment")
+    deploy = named(manifests(), "Deployment", "iki-web")
     assert deploy["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"] == 0
     container = deploy["spec"]["template"]["spec"]["containers"][0]
     assert container["readinessProbe"]["httpGet"]["path"] == "/healthz/ready"
@@ -354,3 +361,69 @@ def test_only_web_pods_reach_the_identity_provider_and_only_public_https() -> No
     assert v6["cidr"] == "::/0"
     assert "fc00::/7" in v6["except"]
     assert "fe80::/10" in v6["except"]
+
+
+def test_task_runners_have_probes_a_grace_period_and_enough_connections() -> None:
+    docs = manifests({"tasks": {"replicas": 2, "concurrency": 6, "graceSeconds": 40}})
+    tasks = named(docs, "Deployment", "iki-tasks")
+    assert tasks["spec"]["replicas"] == 2
+    assert tasks["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"] == 0
+    spec = tasks["spec"]["template"]["spec"]
+    assert spec["serviceAccountName"] == "iki-tasks"
+    # Longer than the runner's own grace, so it can log what it abandoned.
+    assert spec["terminationGracePeriodSeconds"] == 55
+    (container,) = spec["containers"]
+    assert container["args"] == ["tasks"]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env["IKI_TASKS_CONCURRENCY"] == "6"
+    assert env["IKI_TASKS_GRACE_SECONDS"] == "40"
+    assert env["IKI_DB_POOL_MAX_SIZE"] == "8"
+    assert container["ports"] == [{"name": "health", "containerPort": 8001, "protocol": "TCP"}]
+    assert container["livenessProbe"]["httpGet"] == {"path": "/healthz/live", "port": "health"}
+    assert container["readinessProbe"]["httpGet"] == {"path": "/healthz/ready", "port": "health"}
+    # Nothing in the cluster calls the runners, so no Service, and default-deny ingress applies.
+    assert "iki-tasks" not in {s["metadata"]["name"] for s in by_kind(docs, "Service")}
+
+
+def test_task_runners_can_be_turned_off() -> None:
+    docs = manifests({"tasks": {"enabled": False}})
+    assert {d["metadata"]["name"] for d in by_kind(docs, "Deployment")} == {"iki-web"}
+
+
+EMAIL = {"email": {"existingSecret": "iki-email", "from": "Iki <iki@example.com>"}}
+
+
+def test_email_is_off_unless_configured_and_then_reaches_every_container() -> None:
+    for name, spec in pod_specs(manifests()):
+        env = {e["name"] for e in spec["containers"][0]["env"]}
+        assert not env & {"IKI_EMAIL_URL", "IKI_EMAIL_FROM"}, name
+    for name, spec in pod_specs(manifests(EMAIL)):
+        variables = {e["name"]: e for e in spec["containers"][0]["env"]}
+        # The URL carries the mail server's password: from the Secret only.
+        assert variables["IKI_EMAIL_URL"]["valueFrom"]["secretKeyRef"] == {
+            "name": "iki-email",
+            "key": "url",
+        }, name
+        assert variables["IKI_EMAIL_FROM"]["value"] == "Iki <iki@example.com>", name
+        assert variables["IKI_EMAIL_ALLOW_PLAINTEXT"]["value"] == "false", name
+
+
+def test_email_needs_a_from_address() -> None:
+    error = render({"email": {"existingSecret": "iki-email"}}, ok=False)
+    assert "from" in str(error)
+
+
+def test_only_web_pods_and_task_runners_reach_the_mail_server() -> None:
+    def policy(docs: list[Manifest]) -> list[Manifest]:
+        return [p for p in by_kind(docs, "NetworkPolicy") if p["metadata"]["name"] == "iki-email"]
+
+    assert not policy(manifests())
+    (on,) = policy(manifests(EMAIL))
+    selector = {e["key"]: e["values"] for e in on["spec"]["podSelector"]["matchExpressions"]}
+    assert selector["app.kubernetes.io/component"] == ["web", "tasks"]
+    assert selector["app.kubernetes.io/instance"] == ["iki"]
+    (rule,) = on["spec"]["egress"]
+    assert rule["ports"] == [{"protocol": "TCP", "port": 587}, {"protocol": "TCP", "port": 465}]
+    v4, v6 = (peer["ipBlock"] for peer in rule["to"])
+    assert "169.254.0.0/16" in v4["except"] and "10.0.0.0/8" in v4["except"]
+    assert "fc00::/7" in v6["except"]

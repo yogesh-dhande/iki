@@ -199,6 +199,33 @@ a.header-user {
   text-decoration: none;
 }
 
+/* The bell: an icon, its name for screen readers, and the unread count. */
+.header-notifications {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2.25rem;
+  padding: 0 0.4rem;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.header-notifications:hover,
+.header-notifications[aria-current="page"] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.header-notifications svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.header-notifications .badge {
+  margin: 0;
+}
+
 a.header-user:hover {
   color: inherit;
   text-decoration: underline;
@@ -781,6 +808,22 @@ legend {
   flex: none;
 }
 
+.choice-text {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.choice-help {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* Sections of one form, evenly spaced. */
+.stack {
+  display: grid;
+  gap: 1.5rem;
+}
+
 .button-danger {
   color: var(--error);
 }
@@ -910,6 +953,34 @@ input[type="date"] {
 /* Text people typed with line breaks, shown as they typed it. */
 .preserve-lines {
   white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* Notifications: unread ones are bold, with a dot. */
+.notification .row-title a {
+  color: inherit;
+}
+
+.notification .row-title {
+  font-weight: 500;
+}
+
+.notification-unread .row-title {
+  font-weight: 700;
+}
+
+.unread-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 0.1em;
+}
+
+.notification-body {
+  margin: 0.15rem 0;
   overflow-wrap: anywhere;
 }
 

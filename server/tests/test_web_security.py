@@ -53,6 +53,10 @@ def test_templates_have_no_inline_scripts_styles_or_handlers(client: Browser) ->
 
     templates = Path(iki_server.web.__file__).parent / "templates"
     for template in templates.rglob("*.html"):
+        if template.name.startswith("email"):
+            # Emails aren't pages: no CSP applies, and mail clients need inline styles.
+            assert "<script" not in template.read_text(), template
+            continue
         text = template.read_text()
         scripts = text.replace('<script type="module" src=', "").replace("<script src=", "")
         assert "<script" not in scripts, template

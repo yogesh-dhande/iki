@@ -1,0 +1,14 @@
+{% autoescape off %}{% if details %}{{ notification.title }}
+{% if notification.body %}
+{{ notification.body }}
+{% endif %}{% if notification.actor %}
+From {{ notification.actor.get_full_name }}.
+{% endif %}
+Open it in Iki: {{ url }}
+{% else %}You have a new notification in {{ organization }}’s Iki.
+
+See it in Iki: {{ url }}
+{% endif %}
+--
+You get this email because of your notification settings: {{ preferences_url }}
+{% endautoescape %}

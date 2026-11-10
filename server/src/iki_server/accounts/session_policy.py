@@ -7,6 +7,9 @@
   however active, a session ends this long after sign-in.
 - **Before sign-in**, a session only carries sign-in state (the OIDC state
   and PKCE verifier) and lasts ``ANONYMOUS_SESSION_SECONDS``.
+- **Background requests aren't activity.** A page's live-update stream
+  reconnects by itself, so it never moves the idle timeout forward: an
+  unattended tab still signs out on time.
 - The cookie itself lasts until the browser closes.
 """
 
@@ -27,6 +30,8 @@ logger = structlog.get_logger("iki.accounts")
 AUTHENTICATED_AT = "_iki_authenticated_at"
 LAST_SEEN = "_iki_last_seen"
 REFRESH_INTERVAL_SECONDS = 60
+#: Requests a page makes by itself, which don't count as the person being active.
+PASSIVE_PATHS = frozenset({"/api/v1/events"})
 ANONYMOUS_SESSION_SECONDS = 15 * 60
 
 
@@ -52,6 +57,8 @@ class SessionPolicyMiddleware(MiddlewareMixin):
         ):
             logger.info("session_expired", reason="max_age")
             logout(request)
+            return
+        if request.path in PASSIVE_PATHS:
             return
         last_seen = session.get(LAST_SEEN, 0)
         if not isinstance(last_seen, int | float) or now - last_seen >= REFRESH_INTERVAL_SECONDS:

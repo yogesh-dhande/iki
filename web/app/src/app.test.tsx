@@ -6,13 +6,25 @@
 
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { queryClient } from "./api";
 import { createAppRouter } from "./router";
-import { answer, calls, ME, page, problem, project, respond, signedIn, TEAM } from "./test-server";
+import {
+  answer,
+  calls,
+  FakeEventSource,
+  ME,
+  notification,
+  page,
+  problem,
+  project,
+  respond,
+  signedIn,
+  TEAM,
+} from "./test-server";
 
 async function renderApp(path: string) {
   const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
@@ -45,12 +57,25 @@ describe("the frame", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
-    expect(links).toEqual(["Projects", "Teams", "People", "Sign-in", "Apps"]);
+    expect(links).toEqual(["Projects", "Teams", "People", "Settings"]);
     expect(within(nav).getByRole("link", { name: "Projects" })).toHaveAttribute(
       "aria-current",
       "page",
     );
     expect(document.title).toBe("Projects · Example Bio");
+  });
+
+  it("links to the person's account and their notifications", async () => {
+    signedIn();
+    answer("GET /api/v1/notifications/summary", { unread: 3 });
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    expect(screen.getByRole("link", { name: "Rosalind Franklin" })).toHaveAttribute(
+      "href",
+      "/account/",
+    );
+    const bell = await screen.findByRole("link", { name: "Notifications, 3 unread" });
+    expect(bell).toHaveAttribute("href", "/notifications/");
   });
 
   it("signs out with a form post carrying the CSRF token", async () => {
@@ -205,7 +230,8 @@ describe("a project", () => {
     const { user } = await renderApp("/projects/kinase-atlas/");
     expect(screen.getByText("You’re not a member of this project")).toBeVisible();
     expect(await screen.findByText("This project has no Admins.")).toBeVisible();
-    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+    const tabs = screen.getByRole("navigation", { name: "Project" });
+    expect(within(tabs).queryByRole("link", { name: "Settings" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Add me as Admin" }));
     await waitFor(() => {
       expect(calls("PUT")).toHaveLength(1);
@@ -355,5 +381,168 @@ describe("settings", () => {
     onProjectPage({ my_role: "editor", can: { read: true, manage: false, manage_members: false } });
     await renderApp("/projects/kinase-atlas/settings/");
     expect(screen.getByText("Only the project’s Admins can change its settings.")).toBeVisible();
+  });
+});
+
+describe("notifications", () => {
+  beforeEach(() => {
+    FakeEventSource.opened = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const UNREAD = notification();
+  const READ = notification({
+    id: "00000000-0000-7000-8000-0000000000n2",
+    kind: "team.added",
+    title: "You were added to Structural Biology",
+    path: "/teams/structural-biology/",
+    project: null,
+    actor: null,
+    created_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    read_at: new Date().toISOString(),
+  });
+
+  it("lists them newest first, unread ones marked", async () => {
+    signedIn();
+    answer("GET /api/v1/notifications", page([UNREAD, READ]));
+    await renderApp("/notifications/");
+    const rows = await screen.findAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("Unread: Maurice Wilkins added you to Kinase Atlas");
+    expect(rows[0]).toHaveTextContent("Kinase Atlas · by Maurice Wilkins · 5 minutes ago");
+    expect(rows[1]).not.toHaveTextContent("Unread");
+    expect(rows[1]).toHaveTextContent("2 days ago");
+    const older = rows[1];
+    if (!older) throw new Error("expected two notifications");
+    expect(within(older).getByRole("link")).toHaveAttribute("href", "/teams/structural-biology/");
+    expect(screen.getByRole("link", { name: "Email settings" })).toHaveAttribute(
+      "href",
+      "/account/notifications/",
+    );
+    expect(calls("GET", "/api/v1/notifications")[0]?.query.has("unread")).toBe(false);
+  });
+
+  it("shows only unread ones when asked", async () => {
+    signedIn();
+    answer("GET /api/v1/notifications", page([]));
+    await renderApp("/notifications/?show=unread");
+    expect(await screen.findByText("You’re all caught up.")).toBeVisible();
+    expect(calls("GET", "/api/v1/notifications")[0]?.query.get("unread")).toBe("true");
+    expect(screen.getByRole("link", { name: "Unread" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("marks one read before opening it", async () => {
+    signedIn();
+    answer("GET /api/v1/notifications", page([UNREAD]));
+    answer(`PATCH /api/v1/notifications/${UNREAD.id}`, { ...UNREAD, read_at: "now" });
+    onProjectPage();
+    const { router, user } = await renderApp("/notifications/");
+    await user.click(await screen.findByRole("link", { name: UNREAD.title }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/");
+    });
+    expect(calls("PATCH")[0]?.body).toEqual({ read: true });
+  });
+
+  it("marks read only what the person has seen", async () => {
+    signedIn();
+    answer("GET /api/v1/notifications", page([UNREAD, READ]));
+    answer("POST /api/v1/notifications/read", { marked: 1, unread: 0 });
+    const { user } = await renderApp("/notifications/");
+    await user.click(await screen.findByRole("button", { name: "Mark all as read" }));
+    expect(await screen.findByText("Marked 1 notification as read.")).toBeVisible();
+    expect(calls("POST", "/api/v1/notifications/read")[0]?.body).toEqual({
+      up_to: UNREAD.created_at,
+    });
+  });
+
+  it("toggles one read and unread", async () => {
+    signedIn();
+    answer("GET /api/v1/notifications", page([READ]));
+    answer(`PATCH /api/v1/notifications/${READ.id}`, { ...READ, read_at: null });
+    const { user } = await renderApp("/notifications/");
+    await user.click(await screen.findByRole("button", { name: `Mark unread: ${READ.title}` }));
+    await waitFor(() => {
+      expect(calls("PATCH")[0]?.body).toEqual({ read: false });
+    });
+  });
+
+  it("updates the bell and the list as they arrive", async () => {
+    signedIn();
+    let inbox = [READ];
+    answer("GET /api/v1/notifications", () => page(inbox));
+    await renderApp("/notifications/");
+    await screen.findAllByRole("listitem");
+    const stream = FakeEventSource.current();
+    expect(stream?.url).toBe("/api/v1/events");
+    expect(stream?.init).toEqual({ withCredentials: true });
+
+    inbox = [UNREAD, READ];
+    act(() => {
+      stream?.send("notification", { id: UNREAD.id, unread: 1 });
+    });
+    expect(await screen.findByRole("link", { name: "Notifications, 1 unread" })).toBeVisible();
+    expect(await screen.findAllByRole("listitem")).toHaveLength(2);
+
+    act(() => {
+      stream?.send("notifications_read", { unread: 0 });
+    });
+    expect(await screen.findByRole("link", { name: "Notifications" })).toBeVisible();
+  });
+
+  it("sends the person to sign in when the stream says they're signed out", async () => {
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    const assign = vi.fn();
+    vi.stubGlobal("location", {
+      origin: window.location.origin,
+      assign,
+      pathname: "/projects/",
+      search: "",
+    });
+    await renderApp("/projects/");
+    act(() => {
+      FakeEventSource.current()?.send("signed_out", {});
+    });
+    expect(assign).toHaveBeenCalledWith("/login/?next=%2Fprojects%2F");
+    expect(FakeEventSource.current()).toBeUndefined();
+  });
+
+  it("tries again later when the server refuses the stream", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    act(() => {
+      FakeEventSource.current()?.fail();
+    });
+    expect(FakeEventSource.current()).toBeUndefined();
+    await act(() => vi.advanceTimersByTimeAsync(46_000));
+    expect(FakeEventSource.current()).toBeDefined();
+    expect(FakeEventSource.opened).toHaveLength(2);
+  });
+
+  it("closes the stream in a tab hidden for a while, and reopens it when shown", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    signedIn();
+    answer("GET /api/v1/projects", page([]));
+    await renderApp("/projects/");
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    visibility.mockReturnValue("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(() => vi.advanceTimersByTimeAsync(5 * 60_000 + 1));
+    expect(FakeEventSource.current()).toBeUndefined();
+    visibility.mockReturnValue("visible");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(FakeEventSource.current()).toBeDefined();
+    visibility.mockRestore();
   });
 });

@@ -1,0 +1,72 @@
+# Local email: Mailpit accepts whatever Iki sends and shows it at
+# http://localhost:8025. Nothing leaves the cluster. Development only;
+# production points email.existingSecret at a real mail server.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: iki-email
+  namespace: iki
+type: Opaque
+stringData:
+  # No credentials: Mailpit takes mail from anyone inside the cluster, on
+  # plain SMTP (allowed because the dev cluster runs with https: false).
+  url: smtp://mailpit.iki.svc:1025
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  namespace: iki
+  labels: { app.kubernetes.io/name: mailpit }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: mailpit }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: mailpit }
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+          env:
+            - { name: MP_MAX_MESSAGES, value: "1000" }
+            - { name: MP_DISABLE_VERSION_CHECK, value: "true" }
+          ports:
+            - { name: smtp, containerPort: 1025 }
+            - { name: http, containerPort: 8025 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: tmp, emptyDir: { sizeLimit: 256Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+  namespace: iki
+  labels: { app.kubernetes.io/name: mailpit }
+spec:
+  selector: { app.kubernetes.io/name: mailpit }
+  ports:
+    - { name: smtp, port: 1025, targetPort: smtp }
+    - { name: http, port: 8025, targetPort: http }

@@ -63,6 +63,8 @@ ACTIONS: dict[str, str] = {
     "encryption.rotated": "Re-encrypted stored secrets",
     "oauth.client_registered": "An app registered itself",
     "oauth.client_approval_requested": "Asked an Org Admin to approve an app",
+    "notifications.email_preferences_changed": "Changed which notifications they get by email",
+    "notifications.email_details_changed": "Changed what notification emails say",
     "oauth.client_approved": "Approved an app",
     "oauth.client_blocked": "Blocked an app",
     "oauth.approval_policy_changed": "Changed whether apps need approval",

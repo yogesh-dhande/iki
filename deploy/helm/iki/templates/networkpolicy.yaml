@@ -96,6 +96,30 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
 {{- end }}
+{{- if and .Values.email.existingSecret $egress.email.to }}
+---
+# Web pods (the Org Admin's test email) and task runners reach the mail server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" $ }}-email
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "iki.name" $ }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ $.Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [web, tasks] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- toYaml $egress.email.to | nindent 8 }}
+      ports:
+        {{- range $egress.email.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
 {{- with .Values.networkPolicy.ingressFrom }}
 ---
 apiVersion: networking.k8s.io/v1

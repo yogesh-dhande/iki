@@ -2,7 +2,8 @@
 
     uv run python deploy/dev/sso.py           # set up (or re-set up) SSO, bob becomes admin
     uv run python deploy/dev/sso.py --check   # same, then end-to-end checks: sign-in as
-                                              # alice (also in Chromium), SCIM
+                                              # alice (also in Chromium), her
+                                              # notification and its email, SCIM
                                               # provisioning, the API, OAuth, and SAML
 
 It drives Iki like a browser: opens a one-time setup link from
@@ -35,6 +36,8 @@ IKI = "http://localhost:8000"
 WEB = {"target": "deploy/iki-web"}
 ISSUER = "http://keycloak.iki.localhost:8080/realms/iki"
 SAML_METADATA = f"{ISSUER}/protocol/saml/descriptor"
+#: Mailpit's API (``--mailpit-port``), where the dev cluster's email lands.
+MAILPIT = {"url": "http://127.0.0.1:8025"}
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
 
@@ -235,6 +238,7 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
     if "Added " not in response.text:
         fail(f"adding {email} to the team failed (HTTP {response.status_code})")
     ok("the Org Admin created a team and added a member")
+    told(member, email, name)
 
     teams = api_call(member, "GET", "/teams?can_create_projects=true&limit=100").json()["items"]
     team = next((t for t in teams if t["name"] == name), None)
@@ -265,6 +269,47 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
     if "Created a project: Atlas" not in log.text or "Granted an org role" not in log.text:
         fail(f"the audit log page lacks the team and project events (HTTP {log.status_code})")
     ok("an Auditor reads the team, project and role changes in the audit log")
+
+
+def told(member: requests.Session, email: str, team: str) -> None:
+    """Being added to a team tells the person: in Iki, live, and by email (a task)."""
+    with member.get(
+        f"{IKI}/api/v1/events", headers={"Origin": IKI}, stream=True, timeout=10
+    ) as stream:
+        if stream.headers.get("Content-Type", "").split(";")[0] != "text/event-stream":
+            fail(f"live updates: HTTP {stream.status_code} {stream.headers.get('Content-Type')}")
+        lines = stream.iter_lines()
+        first = [next(lines).decode() for _ in range(4)]
+    ready = next((line for line in first if line.startswith("data:")), "")
+    if "event: ready" not in first or json.loads(ready[5:])["unread"] < 1:
+        fail(f"the live-update stream didn't start with the unread count: {first}")
+    inbox = api_call(member, "GET", "/notifications?unread=true").json()["items"]
+    if not any(n["kind"] == "team.added" and team in n["title"] for n in inbox):
+        fail(f"no notification about joining {team}: {inbox}")
+    ok("the new member has a notification, and the live-update stream counts it")
+
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        messages = requests.get(f"{MAILPIT['url']}/api/v1/messages?limit=50", timeout=5).json()
+        found = next(
+            (
+                m
+                for m in messages["messages"]
+                if team in m["Subject"] and any(t["Address"] == email for t in m["To"])
+            ),
+            None,
+        )
+        if found:
+            break
+        time.sleep(1)
+    else:
+        fail(f"no email to {email} about {team} reached Mailpit within a minute")
+    headers = requests.get(
+        f"{MAILPIT['url']}/api/v1/message/{found['ID']}/headers", timeout=5
+    ).json()
+    if headers.get("Auto-Submitted") != ["auto-generated"] or "List-Unsubscribe" not in headers:
+        fail(f"the email lacks Auto-Submitted or List-Unsubscribe: {sorted(headers)}")
+    ok("the task runner emailed it, marked automatic (no out-of-office replies)")
 
 
 def landed(session: requests.Session, response: requests.Response, user: str) -> None:
@@ -738,11 +783,13 @@ def main() -> None:
     parser.add_argument("--admin", default="bob", help="Keycloak user who finishes setup")
     parser.add_argument("--iki-port", type=int, default=8000)
     parser.add_argument("--keycloak-port", type=int, default=8080)
+    parser.add_argument("--mailpit-port", type=int, default=8025)
     parser.add_argument(
         "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
     )
     args = parser.parse_args()
     WEB["target"] = args.web
+    MAILPIT["url"] = f"http://127.0.0.1:{args.mailpit_port}"
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:

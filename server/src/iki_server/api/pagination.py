@@ -3,8 +3,9 @@
 A page holds ``items`` and ``next_cursor``; pass the cursor back to get the
 next page, until it is null. Items come oldest first (IDs are UUIDv7, so
 ordering by ID is ordering by creation), which keeps pages stable while
-items are added. Cursors are signed, so they are opaque and can't be forged
-to skip filters.
+items are added. Inboxes (notifications) come newest first instead, and stay
+stable the same way: newer items never push older ones onto the next page.
+Cursors are signed, so they are opaque and can't be forged to skip filters.
 """
 
 from typing import Any
@@ -40,11 +41,14 @@ def _decode(cursor: str) -> str:
         ) from error
 
 
-def page[M: Model](queryset: QuerySet[M], params: PageParams, *, key: str = "pk") -> dict[str, Any]:
+def page[M: Model](
+    queryset: QuerySet[M], params: PageParams, *, key: str = "pk", newest_first: bool = False
+) -> dict[str, Any]:
     """One page of the queryset, ordered by ``key`` (unique and increasing)."""
-    queryset = queryset.order_by(key)
+    queryset = queryset.order_by(f"-{key}" if newest_first else key)
     if params.cursor:
-        queryset = queryset.filter(**{f"{key}__gt": _decode(params.cursor)})
+        after = "lt" if newest_first else "gt"
+        queryset = queryset.filter(**{f"{key}__{after}": _decode(params.cursor)})
     rows = list(queryset[: params.limit + 1])
     more = len(rows) > params.limit
     rows = rows[: params.limit]

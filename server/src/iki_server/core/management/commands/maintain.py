@@ -4,6 +4,7 @@
 - Prunes rate-limit windows older than an hour.
 - Deletes expired OAuth tokens, codes and device grants.
 - Deletes self-registered OAuth apps nobody asked to approve within a week.
+- Deletes finished background tasks after a week (failed ones after 30 days).
 """
 
 from typing import Any
@@ -14,25 +15,28 @@ from django.utils import timezone
 
 from iki_server.accounts.models import UserSession
 from iki_server.oauth import maintenance as oauth_maintenance
+from iki_server.tasks import maintenance as task_maintenance
 from iki_server.web import ratelimit
 
 logger = structlog.get_logger("iki.maintenance")
 
 
 class Command(BaseCommand):
-    help = "Delete expired sessions, tokens and rate-limit counters."
+    help = "Delete expired sessions, tokens, rate-limit counters and finished tasks."
 
     def handle(self, *args: Any, **options: Any) -> None:  # noqa: ANN401 - Django's signature
         sessions, _ = UserSession.objects.filter(expire_date__lt=timezone.now()).delete()
         counters = ratelimit.prune()
         apps = oauth_maintenance.prune()
+        tasks = task_maintenance.prune()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
             rate_limit_windows=counters,
             abandoned_oauth_apps=apps,
+            finished_tasks=tasks,
         )
         self.stdout.write(
-            f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s) "
-            f"and {apps} abandoned app registration(s)."
+            f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
+            f"{apps} abandoned app registration(s) and {tasks} finished task(s)."
         )

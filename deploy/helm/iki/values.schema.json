@@ -139,6 +139,41 @@
         }
       }
     },
+    "email": {
+      "type": "object",
+      "properties": {
+        "existingSecret": {
+          "type": "string"
+        },
+        "urlKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string"
+        },
+        "allowPlaintext": {
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": {
+          "existingSecret": {
+            "minLength": 1
+          }
+        },
+        "required": ["existingSecret"]
+      },
+      "then": {
+        "properties": {
+          "from": {
+            "minLength": 3,
+            "pattern": "@"
+          }
+        },
+        "required": ["from"]
+      }
+    },
     "database": {
       "type": "object",
       "required": ["existingSecret", "uriKey", "sslmode", "migrator"],
@@ -219,6 +254,28 @@
         },
         "devServer": {
           "type": "boolean"
+        }
+      }
+    },
+    "tasks": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "graceSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
         }
       }
     },

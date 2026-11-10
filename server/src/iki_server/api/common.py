@@ -19,6 +19,18 @@ def caller(request: HttpRequest) -> User:
     return user
 
 
+def require_scope(user: User, scope: str) -> None:
+    """For endpoints about the caller themselves, which no role governs: a token needs the scope."""
+    limits = permissions.token_limits(user)
+    if limits is not None and scope not in limits.scopes:
+        raise Problem(
+            403,
+            f"This needs the {scope} scope, which your token doesn’t have.",
+            code="insufficient_scope",
+            headers={"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{scope}"'},
+        )
+
+
 def require(user: User, action: Action, target: Team | Project | None = None) -> None:
     if permissions.can(user, action, target):
         return

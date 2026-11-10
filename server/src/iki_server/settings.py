@@ -8,6 +8,7 @@ explicitly. Required values have no default and fail fast at startup.
 
 import os
 from pathlib import Path
+from typing import Any
 
 import environ
 from django.utils.csp import CSP
@@ -31,7 +32,7 @@ IKI_ENVIRONMENT: str = env.str("IKI_ENVIRONMENT")
 IKI_VERSION: str = __version__
 
 #: Public base URL of this deployment, e.g. ``https://iki.example.com``. Used
-#: in links Iki prints or sends (setup links now; emails later).
+#: in links Iki prints or sends (setup links, emails).
 IKI_PUBLIC_URL: str = env.str("IKI_PUBLIC_URL", default="")
 
 INSTALLED_APPS = [
@@ -48,6 +49,9 @@ INSTALLED_APPS = [
     "iki_server.setup",
     "iki_server.scim",
     "iki_server.oauth",
+    "iki_server.tasks",
+    "iki_server.realtime",
+    "iki_server.notifications",
     "oauth2_provider",
     "allauth",
     "allauth.account",
@@ -95,6 +99,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "iki_server.web.context_processors.installation",
                 "iki_server.org.context_processors.navigation",
+                "iki_server.notifications.context_processors.unread",
             ],
         },
     }
@@ -308,6 +313,63 @@ SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = False
 SOCIALACCOUNT_STORE_TOKENS = False
 SOCIALACCOUNT_REQUESTS_TIMEOUT = 10
 SOCIALACCOUNT_OPENID_CONNECT_URL_PREFIX = "oidc"
+
+# --- Email ------------------------------------------------------------------
+# IKI_EMAIL_URL turns email notifications on:
+#   smtp+tls://user:password@email-smtp.eu-west-1.amazonaws.com:587  (STARTTLS)
+#   smtp+ssl://user:password@smtp.example.com:465                    (TLS from the start)
+# Plain smtp:// sends credentials and mail unencrypted, so it's refused
+# unless IKI_HTTPS is off (local development) or IKI_EMAIL_ALLOW_PLAINTEXT
+# says the relay is inside your own network. Percent-encode special
+# characters in the user and password.
+
+_EMAIL_URL = env.str("IKI_EMAIL_URL", default="")
+IKI_EMAIL_ENABLED: bool = bool(_EMAIL_URL)
+if IKI_EMAIL_ENABLED:
+    _scheme = _EMAIL_URL.split("://", 1)[0]
+    if _scheme not in ("smtp", "smtp+tls", "smtp+ssl"):
+        raise environ.ImproperlyConfigured(
+            "IKI_EMAIL_URL must start with smtp+tls:// (STARTTLS), smtp+ssl:// (TLS from the "
+            "start) or smtp:// (no encryption)."
+        )
+    if _scheme == "smtp" and HTTPS and not env.bool("IKI_EMAIL_ALLOW_PLAINTEXT", default=False):
+        raise environ.ImproperlyConfigured(
+            "IKI_EMAIL_URL sends mail without encryption. Use smtp+tls:// or smtp+ssl://, or "
+            "set IKI_EMAIL_ALLOW_PLAINTEXT=true for a relay inside your own network."
+        )
+    _email = env.email_url_config(_EMAIL_URL)
+    MAILERS: dict[str, dict[str, Any]] = {
+        "default": {
+            "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+            "OPTIONS": {
+                "host": _email["EMAIL_HOST"] or "",
+                "port": _email["EMAIL_PORT"] or {"smtp+ssl": 465, "smtp+tls": 587}.get(_scheme, 25),
+                "username": _email["EMAIL_HOST_USER"] or "",
+                "password": _email["EMAIL_HOST_PASSWORD"] or "",
+                "use_tls": _scheme == "smtp+tls",
+                "use_ssl": _scheme == "smtp+ssl",
+                "timeout": 20,
+            },
+        }
+    }
+    #: The sender, such as ``Iki <iki@example.com>``. Use an address your mail
+    #: system lets Iki send as (SPF, DKIM), or mail lands in spam.
+    DEFAULT_FROM_EMAIL: str = env.str("IKI_EMAIL_FROM")
+else:
+    # Iki sends nothing: notifications stay in Iki. Django's deployment check
+    # flags the dummy backend (mail.E001); here it's the operator's choice.
+    MAILERS = {"default": {"BACKEND": "django.core.mail.backends.dummy.EmailBackend"}}
+    SILENCED_SYSTEM_CHECKS.append("mail.E001")
+
+# --- Background tasks -------------------------------------------------------
+# Django's Tasks framework on Postgres; ``iki-server tasks`` runs them.
+
+TASKS = {
+    "default": {
+        "BACKEND": "iki_server.tasks.backend.PostgresBackend",
+        "QUEUES": ["default"],
+    }
+}
 
 # --- Static files -------------------------------------------------------------
 # Collected into the image at build time and served by ServeStatic with

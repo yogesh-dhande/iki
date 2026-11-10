@@ -3,6 +3,7 @@
 {% block main_class %}page-wide{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Authorized apps</h1></div>
+{% include "web/_account_tabs.html" %}
 <p class="muted">Apps you’ve allowed to use Iki for you, such as the Iki CLI or an AI assistant over MCP. Each can do only what you allowed, and never more than you can. Revoking one signs it out at once.</p>
 {% if consents %}
 <ul class="rows">

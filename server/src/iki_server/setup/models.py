@@ -25,6 +25,10 @@ class Installation(models.Model):
     setup_completed_at = models.DateTimeField(null=True, blank=True)
     #: New self-registered OAuth clients wait for an Org Admin's approval (ADR 0028).
     require_oauth_app_approval = models.BooleanField(default=True)
+    #: Notification emails say what happened (project names, who did it).
+    #: Off, they only say there's something new in Iki, for organizations
+    #: that keep project details out of email.
+    email_details = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

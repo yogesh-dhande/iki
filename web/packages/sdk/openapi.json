@@ -1,6 +1,159 @@
 {
   "components": {
     "schemas": {
+      "EmailKindOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "boolean"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "description",
+          "group",
+          "email"
+        ],
+        "title": "EmailKindOut",
+        "type": "object"
+      },
+      "EmailSettingsIn": {
+        "properties": {
+          "email": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "Kind → whether to email it. Kinds left out keep their setting.",
+            "title": "Email",
+            "type": "object"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "EmailSettingsIn",
+        "type": "object"
+      },
+      "EmailSettingsOut": {
+        "properties": {
+          "address": {
+            "description": "Where emails go: your address from the identity provider.",
+            "title": "Address",
+            "type": "string"
+          },
+          "email_available": {
+            "description": "Whether this organization sends email. If not, choices are kept for later.",
+            "title": "Email Available",
+            "type": "boolean"
+          },
+          "kinds": {
+            "items": {
+              "$ref": "#/components/schemas/EmailKindOut"
+            },
+            "title": "Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "email_available",
+          "address",
+          "kinds"
+        ],
+        "title": "EmailSettingsOut",
+        "type": "object"
+      },
+      "InboxFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "unread": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "true: only unread ones.",
+            "title": "Unread"
+          }
+        },
+        "title": "InboxFilters",
+        "type": "object"
+      },
+      "MarkAllIn": {
+        "properties": {
+          "up_to": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only those created by then: the newest you've seen. Ones that arrive meanwhile stay unread.",
+            "title": "Up To"
+          }
+        },
+        "title": "MarkAllIn",
+        "type": "object"
+      },
+      "MarkAllOut": {
+        "properties": {
+          "marked": {
+            "title": "Marked",
+            "type": "integer"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "marked",
+          "unread"
+        ],
+        "title": "MarkAllOut",
+        "type": "object"
+      },
       "MeCan": {
         "properties": {
           "create_projects": {
@@ -82,6 +235,127 @@
         "title": "MeOut",
         "type": "object"
       },
+      "NotificationActor": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "NotificationActor",
+        "type": "object"
+      },
+      "NotificationOut": {
+        "properties": {
+          "actor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationActor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who caused it, if anyone did."
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What it's about, such as project.added.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "description": "Where it leads in Iki (a path on this site), or empty.",
+            "title": "Path",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationProject"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "body",
+          "path",
+          "project",
+          "actor",
+          "created_at",
+          "read_at"
+        ],
+        "title": "NotificationOut",
+        "type": "object"
+      },
+      "NotificationProject": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "title": "NotificationProject",
+        "type": "object"
+      },
       "OrgRolesIn": {
         "properties": {
           "roles": {
@@ -148,6 +422,35 @@
           }
         },
         "title": "PageParams",
+        "type": "object"
+      },
+      "Page_NotificationOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[NotificationOut]",
         "type": "object"
       },
       "Page_ProjectMemberOut_": {
@@ -684,6 +987,19 @@
         "title": "ProjectRoleOut",
         "type": "object"
       },
+      "ReadIn": {
+        "properties": {
+          "read": {
+            "title": "Read",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "read"
+        ],
+        "title": "ReadIn",
+        "type": "object"
+      },
       "RoleIn": {
         "properties": {
           "role": {
@@ -838,6 +1154,19 @@
           }
         },
         "title": "ServiceAccountPatch",
+        "type": "object"
+      },
+      "SummaryOut": {
+        "properties": {
+          "unread": {
+            "title": "Unread",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unread"
+        ],
+        "title": "SummaryOut",
         "type": "object"
       },
       "TeamFilters": {
@@ -1177,7 +1506,7 @@
     }
   },
   "info": {
-    "description": "Iki's REST API. Errors are RFC 9457 problem details; lists use cursors.",
+    "description": "Iki's REST API. Errors are RFC 9457 problem details; lists use cursors. Live updates (Server-Sent Events) come from GET /api/v1/events.",
     "title": "Iki API",
     "version": "1"
   },
@@ -1210,6 +1539,277 @@
         "summary": "Who you are",
         "tags": [
           "me"
+        ]
+      }
+    },
+    "/api/v1/me/notification-email": {
+      "get": {
+        "operationId": "iki_server_api_notifications_email_settings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailSettingsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Which notifications you get by email",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "patch": {
+        "operationId": "iki_server_api_notifications_change_email_settings",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailSettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailSettingsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Choose which notifications you get by email",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "description": "Newest first. Live updates (``GET /api/v1/events``) say when new ones arrive.",
+        "operationId": "iki_server_api_notifications_notifications",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "true: only unread ones.",
+            "in": "query",
+            "name": "unread",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "true: only unread ones.",
+              "title": "Unread"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_NotificationOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Your notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/read": {
+      "post": {
+        "operationId": "iki_server_api_notifications_mark_all",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkAllIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkAllOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Mark all read",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/summary": {
+      "get": {
+        "operationId": "iki_server_api_notifications_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How many are unread",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/{notification_id}": {
+      "patch": {
+        "operationId": "iki_server_api_notifications_mark",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Notification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Mark a notification read or unread",
+        "tags": [
+          "notifications"
         ]
       }
     },

@@ -17,6 +17,7 @@ import { meQuery, projectQuery, queryClient, rolesQuery } from "./api";
 import { Layout } from "./layout";
 import { ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
+import { Notifications } from "./pages/notifications";
 import { ProjectList } from "./pages/project-list";
 import { ProjectMembers } from "./pages/project-members";
 import { ProjectNew } from "./pages/project-new";
@@ -33,6 +34,15 @@ const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
 });
 
 const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Home });
+
+const notificationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "notifications",
+  // ?show=unread: only unread ones.
+  validateSearch: (search: Record<string, unknown>): { show?: "unread" } =>
+    search["show"] === "unread" ? { show: "unread" } : {},
+  component: Notifications,
+});
 
 const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "projects" });
 
@@ -84,6 +94,7 @@ const projectSettingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   homeRoute,
+  notificationsRoute,
   projectsRoute.addChildren([
     projectListRoute,
     projectNewRoute,

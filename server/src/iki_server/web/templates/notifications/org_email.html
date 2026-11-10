@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Email{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Email</h1></div>
+{% include "web/_settings_tabs.html" %}
+<p class="muted">Iki emails people about their notifications, as each of them chooses in their account settings.</p>
+
+<section class="card">
+  <h2 class="section-title">Delivery</h2>
+  {% if email_available %}
+  <dl class="summary">
+    <dt>Sent from</dt><dd>{{ sender }}</dd>
+    <dt>Mail server</dt><dd><code>{{ server }}</code></dd>
+    <dt>Encryption</dt><dd>{{ encryption }}</dd>
+  </dl>
+  <form method="post" data-busy-form>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="test">
+    <button class="button" type="submit" data-busy-text="Sending…">Send me a test email</button>
+  </form>
+  <p class="field-help">It goes to {{ user.email }}. The server and sender are set when Iki is deployed (<code>IKI_EMAIL_URL</code> and <code>IKI_EMAIL_FROM</code>).</p>
+  {% else %}
+  <p>Email isn’t set up, so notifications stay in Iki. To turn it on, set <code>IKI_EMAIL_URL</code> (your mail server, such as Amazon SES) and <code>IKI_EMAIL_FROM</code> when deploying Iki (the Helm chart’s <code>email</code> values).</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2 class="section-title">What emails say</h2>
+  <form method="post" data-busy-form>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="details">
+    <label class="choice"><input type="checkbox" name="email_details" aria-describedby="details-help"{% if details %} checked{% endif %}><span>Say what happened: the notification, with project names and who did it</span></label>
+    <p class="field-help" id="details-help">Turn it off to keep project details out of email. Emails then only say there’s something new, with a link to it in Iki, where people sign in to read it.</p>
+    <button class="button" type="submit" data-busy-text="Saving…">Save</button>
+  </form>
+</section>
+{% endblock %}

@@ -120,4 +120,62 @@ export function page<T>(items: T[]): { items: T[]; next_cursor: null } {
 export function signedIn(me: Partial<Schemas["MeOut"]> = {}): void {
   answer("GET /api/v1/me", { ...ME, ...me });
   answer("GET /api/v1/project-roles", ROLES);
+  answer("GET /api/v1/notifications/summary", { unread: 0 });
+}
+
+export function notification(
+  overrides: Partial<Schemas["NotificationOut"]> = {},
+): Schemas["NotificationOut"] {
+  return {
+    id: "00000000-0000-7000-8000-0000000000n1",
+    kind: "project.added",
+    title: "Maurice Wilkins added you to Kinase Atlas as Editor",
+    body: "",
+    path: "/projects/kinase-atlas/",
+    project: {
+      id: "00000000-0000-7000-8000-0000000000p1",
+      name: "Kinase Atlas",
+      slug: "kinase-atlas",
+    },
+    actor: { id: "00000000-0000-7000-8000-000000000002", name: "Maurice Wilkins" },
+    created_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+    read_at: null,
+    ...overrides,
+  };
+}
+
+/** A stand-in for the browser's EventSource: tests send it events. */
+export class FakeEventSource extends EventTarget {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 2;
+  static opened: FakeEventSource[] = [];
+  readyState = FakeEventSource.OPEN;
+
+  constructor(
+    readonly url: string,
+    readonly init?: EventSourceInit,
+  ) {
+    super();
+    FakeEventSource.opened.push(this);
+  }
+
+  /** The stream the app has open now. */
+  static current(): FakeEventSource | undefined {
+    return FakeEventSource.opened.filter((s) => s.readyState !== FakeEventSource.CLOSED).at(-1);
+  }
+
+  send(event: string, data: unknown): void {
+    this.dispatchEvent(new MessageEvent(event, { data: JSON.stringify(data) }));
+  }
+
+  /** The server refused the stream or went away for good. */
+  fail(): void {
+    this.readyState = FakeEventSource.CLOSED;
+    this.dispatchEvent(new Event("error"));
+  }
+
+  close(): void {
+    this.readyState = FakeEventSource.CLOSED;
+  }
 }
