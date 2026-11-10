@@ -6,6 +6,12 @@
 !NOTICE
 !server/
 !cli/
+# The spec package: only what resolving the workspace needs (the server image
+# doesn't install it yet).
+!spec/pyproject.toml
+!spec/README.md
+!spec/LICENSE
+!spec/NOTICE
 # The web app, built into the image by its own stage.
 !package.json
 !pnpm-lock.yaml
