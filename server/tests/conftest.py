@@ -1,6 +1,7 @@
 import os
 import socket
 from collections.abc import Iterator
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -183,6 +184,31 @@ def client() -> "Client":
     from browser import Browser
 
     return Browser()
+
+
+@pytest.fixture(autouse=True)
+def _one_rate_limit_window(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep each test's rate-limited requests in a single one-minute window.
+
+    Limits count in fixed windows. A test that makes `limit` requests and
+    expects the next one refused would otherwise pass or fail depending on
+    whether a minute boundary fell between them. Tests of the windows
+    themselves opt out with `@pytest.mark.real_rate_limit_clock`.
+    """
+    if request.node.get_closest_marker("real_rate_limit_clock"):
+        return
+    from django.utils import timezone
+
+    from iki_server.web import ratelimit
+
+    pinned = timezone.now().replace(second=30, microsecond=0)
+
+    class _Clock:
+        @staticmethod
+        def now() -> datetime:
+            return pinned
+
+    monkeypatch.setattr(ratelimit, "timezone", _Clock)
 
 
 @pytest.fixture(autouse=True)

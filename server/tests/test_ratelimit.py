@@ -8,7 +8,8 @@ from django.utils import timezone
 from iki_server.core.models import RateLimitCounter
 from iki_server.web.ratelimit import RateLimiter
 
-pytestmark = pytest.mark.django_db
+# These tests set the clock themselves.
+pytestmark = [pytest.mark.django_db, pytest.mark.real_rate_limit_clock]
 
 
 def test_counts_are_shared_between_processes() -> None:
