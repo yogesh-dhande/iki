@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "iki_server.webhooks",
     "iki_server.files",
     "iki_server.entities",
+    "iki_server.plugins",
     "oauth2_provider",
     "allauth",
     "allauth.account",

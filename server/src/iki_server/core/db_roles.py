@@ -20,7 +20,7 @@ from django.db.backends.utils import CursorWrapper
 from psycopg import sql
 
 #: Tables the app may only read.
-READ_ONLY_TABLES = ("django_migrations",)
+READ_ONLY_TABLES = ("django_migrations", "iki_plugin_migration")
 
 
 def append_only_tables() -> list[str]:

@@ -79,6 +79,50 @@ that it did. A server only starts with such a build when
 sets it. The dev cluster builds its image this same way, from
 `deploy/dev/plugins.lock.yaml`.
 
+**Rolling back is deploying an older build, and it never loses data.** The
+migrate Job runs `migrate_deployment` instead of `migrate`, on install,
+upgrade and `helm rollback`. An older build doesn't have the newer plugin
+migrations the database has applied, and Django would just ignore them. So
+the Job keeps a copy of every plugin migration it applies
+(`iki_plugin_migration`, which the app can only read), each with its hash.
+When a build lacks applied migrations, the Job reverses them from those
+copies. First it checks what reversing would destroy:
+
+- every operation must be reversible
+- no table it would drop may hold rows
+- no column it would drop may hold anything but its default, or, in a
+  history table, anything at all
+- no column whose type it would change back may hold values
+
+If any check fails, it changes nothing and says what would be lost, and
+restoring the backup taken before the upgrade is the way back. A rollback
+right after a bad deploy, before anyone used the new fields, goes through.
+
+It also refuses:
+
+- a database a newer Iki migrated
+- a plugin that disappeared from the lockfile: removing one is ADR 0008's
+  detach
+- an applied migration whose file has changed: a change belongs in a new
+  migration
+
+**Each company keeps one config repository for its deployments.**
+[`deploy/config-template`](../../deploy/config-template) is a starting
+point. Each deployment directory holds:
+
+- `iki.yaml`: the Iki release, as version, server image and chart
+- the lockfile, and a settings file per plugin
+- Helm values
+- `image.yaml`: the image CI built
+
+Its workflow checks every pull request with `iki deploy build`. On merge,
+it checks Iki's signature on the server image, then builds, signs and
+attests the deployment's image. Then it opens a pull request that points
+`image.yaml` at the new image, so deploying is itself a reviewed merge.
+Argo CD or Flux applies the chart from there. This is the GitOps flow
+enterprises already use for their other services, with the audit trail
+that validated environments need.
+
 ## Consequences
 
 - Promoting from staging to production means copying lockfile lines. What
@@ -90,3 +134,7 @@ sets it. The dev cluster builds its image this same way, from
   GitLab and Bitbucket do.
 - Upgrading Iki means rebuilding the plugins with the new `iki`, in the same
   change that bumps the server image.
+- A plugin author who wants rollbacks to keep working writes migrations
+  that can be reversed: `RunPython` and `RunSQL` with a reverse.
+- Plugin migrations applied before Iki kept copies can't be rolled back
+  automatically. Only development databases have them.

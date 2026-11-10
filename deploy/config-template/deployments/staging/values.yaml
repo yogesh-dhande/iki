@@ -1,0 +1,13 @@
+# Helm values for staging (see the chart's values.yaml). Argo CD or Flux
+# applies the chart with this file and image.yaml.
+environment: staging
+publicUrl: https://iki.staging.acme.example
+allowedHosts: ["iki.staging.acme.example"]
+secretKey:
+  existingSecret: iki-secret-key
+encryptionKeys:
+  existingSecret: iki-encryption-keys
+database:
+  existingSecret: iki-db-app
+  migrator:
+    existingSecret: iki-db-owner

@@ -1,0 +1,165 @@
+name: Build
+
+# For each deployment (deployments/<name>):
+# - on every pull request, builds and checks its plugins with `iki deploy build`;
+# - on main, also builds its image (Iki's server image plus the plugins),
+#   signs it, attests its provenance, and opens a pull request that points
+#   the deployment's image.yaml at it. Merging that pull request deploys it.
+#
+# Secrets:
+# - PLUGIN_REPOS_TOKEN: read-only access to the plugin repositories the
+#   lockfiles name (a fine-grained token, or a GitHub App's).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore: ["deployments/*/image.yaml"]
+
+permissions: {}
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: ${{ matrix.deployment }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        deployment: [staging, production]
+    permissions:
+      contents: read
+      packages: write # push the image (main only)
+      id-token: write # sign it without keys (main only)
+      attestations: write # store its provenance (main only)
+    env:
+      DEPLOYMENT: deployments/${{ matrix.deployment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Read the Iki release
+        id: iki
+        run: |
+          echo "version=$(yq -r .version "$DEPLOYMENT/iki.yaml")" >> "$GITHUB_OUTPUT"
+          echo "server=$(yq -r .serverImage "$DEPLOYMENT/iki.yaml")" >> "$GITHUB_OUTPUT"
+      - name: Let git read the plugin repositories
+        env:
+          TOKEN: ${{ secrets.PLUGIN_REPOS_TOKEN }}
+        run: |
+          git config --global credential.helper \
+            '!f() { echo username=x-access-token; echo "password=$TOKEN"; }; f'
+      - name: Build and check the plugins
+        env:
+          VERSION: ${{ steps.iki.outputs.version }}
+        run: uvx --from "iki-cli==$VERSION" iki deploy build "$DEPLOYMENT" --output build/plugins
+
+      - if: github.ref == 'refs/heads/main'
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Check Iki's signature on the server image
+        if: github.ref == 'refs/heads/main'
+        env:
+          SERVER: ${{ steps.iki.outputs.server }}
+        run: |
+          cosign verify "$SERVER" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp '^https://github.com/ikisci/iki/\.github/workflows/publish\.yml@refs/tags/v'
+      - if: github.ref == 'refs/heads/main'
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - if: github.ref == 'refs/heads/main'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Name the image
+        if: github.ref == 'refs/heads/main'
+        id: name
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "image=ghcr.io/${OWNER,,}/iki-${{ matrix.deployment }}" >> "$GITHUB_OUTPUT"
+      - name: Build and push the image
+        if: github.ref == 'refs/heads/main'
+        id: image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: build
+          file: plugins.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: IKI_SERVER_IMAGE=${{ steps.iki.outputs.server }}
+          tags: ${{ steps.name.outputs.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          push: true
+          provenance: false
+          sbom: false
+      - name: Sign the image
+        if: github.ref == 'refs/heads/main'
+        env:
+          REF: ${{ steps.name.outputs.image }}@${{ steps.image.outputs.digest }}
+        run: cosign sign --yes "$REF"
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - name: Keep the image's details for the pull request
+        if: github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.name.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          mkdir -p out
+          printf '%s\n' \
+            "# Written by CI (.github/workflows/build.yml) when it builds ${{ matrix.deployment }}'s image." \
+            "# Merge its pull request to deploy that image." \
+            "image:" \
+            "  repository: $IMAGE" \
+            "  digest: \"$DIGEST\"" > out/image.yaml
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ matrix.deployment }}
+          path: out/image.yaml
+
+  propose:
+    name: Propose deploying ${{ matrix.deployment }}
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        deployment: [staging, production]
+    permissions:
+      contents: write # push the pull request's branch
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-${{ matrix.deployment }}
+          path: out
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOYMENT: ${{ matrix.deployment }}
+        run: |
+          cp out/image.yaml "deployments/$DEPLOYMENT/image.yaml"
+          if git diff --quiet; then exit 0; fi
+          branch="deploy/$DEPLOYMENT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git commit -qam "Deploy $DEPLOYMENT's image built from ${GITHUB_SHA::12}"
+          git push --force origin "$branch"
+          gh pr create --head "$branch" --title "Deploy $DEPLOYMENT" \
+            --body "Points $DEPLOYMENT at the image built from $GITHUB_SHA, signed and attested." \
+            || gh pr edit "$branch" --body "Points $DEPLOYMENT at the image built from $GITHUB_SHA, signed and attested."

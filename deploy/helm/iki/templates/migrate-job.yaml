@@ -1,11 +1,12 @@
 {{- if .Values.migrate.enabled }}
-# Applies database migrations before any new web pod starts, as the migrator
-# (the schema's owner), syncs what plugins need beyond migrations (HRID
-# sequences, comments, analyst views), then grants the app's role exactly
-# what it needs. As
-# a Helm hook it runs before the release's other resources exist, so it
-# references only Secrets that the operator created beforehand. A failed
-# step fails the install or upgrade, and the old pods keep serving.
+# Migrates the database to this release's build before any new web pod
+# starts, as the migrator (the schema's owner). Rolling back to an older build
+# reverses the plugin migrations it lacks, unless that could lose data (ADR
+# 0034). Then it syncs what plugins need beyond migrations (HRID sequences,
+# comments, analyst views), and grants the app's role exactly what it needs.
+# As a Helm hook it runs before the release's other resources exist, so it
+# references only Secrets that the operator created beforehand. A failed step
+# fails the install, upgrade or rollback, and the old pods keep serving.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -14,7 +15,7 @@ metadata:
     {{- include "iki.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook: pre-install,pre-upgrade,pre-rollback
     helm.sh/hook-weight: "0"
     # Keep the last run for inspection; replace it on the next upgrade.
     helm.sh/hook-delete-policy: before-hook-creation
@@ -58,7 +59,7 @@ spec:
         - name: migrate
           image: {{ include "iki.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["migrate", "--no-input"]
+          args: ["migrate_deployment"]
           env:
             {{- include "iki.migratorEnv" . | nindent 12 }}
             # One short-lived connection is enough for migrations.

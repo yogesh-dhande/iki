@@ -1,0 +1,3 @@
+# staging's values for the dna plugin's settings. Not secret: secrets are
+# declared on the actions that use them.
+ncbi_email: iki-staging@acme.example

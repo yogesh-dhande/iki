@@ -1,0 +1,12 @@
+# The plugins staging installs, each pinned to a commit. Change it in a pull
+# request: CI builds and checks it, and merging builds and signs the image.
+# `git ls-remote <repository> <tag>` prints a tag's commit.
+apiVersion: iki/v1
+kind: PluginLock
+plugins:
+  - name: dna
+    git: https://github.com/acme/iki-plugins.git
+    path: dna
+    sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
+    state: active
+    settings: settings/dna.yaml

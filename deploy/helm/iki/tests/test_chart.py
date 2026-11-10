@@ -157,14 +157,14 @@ def test_database_tls_cannot_be_disabled() -> None:
 def test_migrations_run_as_a_pre_upgrade_hook_that_never_retries() -> None:
     (job,) = by_kind(manifests(), "Job")
     hooks = job["metadata"]["annotations"]["helm.sh/hook"].split(",")
-    assert hooks == ["pre-install", "pre-upgrade"]
+    assert hooks == ["pre-install", "pre-upgrade", "pre-rollback"]
     assert job["spec"]["backoffLimit"] == 0
     pod = job["spec"]["template"]["spec"]
     # In order: wait for Postgres, migrate, sync plugins, then grant the app's role its
     # privileges.
     wait, migrate, sync = pod["initContainers"]
     assert wait["args"] == ["wait_for_database", "--timeout", "300"]
-    assert migrate["args"] == ["migrate", "--no-input"]
+    assert migrate["args"] == ["migrate_deployment"]
     assert sync["args"] == ["sync_plugins"]
     assert "IKI_DB_ANALYST_ROLE" not in {e["name"] for e in sync["env"]}
     (grant,) = pod["containers"]
@@ -183,6 +183,26 @@ def test_local_plugins_are_refused_unless_allowed() -> None:
     }
     assert env["IKI_ALLOW_LOCAL_PLUGINS"] == "true"
     assert "allowLocal" in str(render({"plugins": {"allowLocal": "yes"}}, ok=False))
+
+
+@pytest.mark.parametrize("deployment", ["staging", "production"])
+def test_the_config_templates_values_render(deployment: str) -> None:
+    directory = CHART.parents[1] / "config-template" / "deployments" / deployment
+    values: dict[str, Any] = {}
+    for name in ("values.yaml", "image.yaml"):
+        values.update(yaml.safe_load((directory / name).read_text()))
+    helm = shutil.which("helm")
+    assert helm
+    result = subprocess.run(  # noqa: S603 - fixed argv
+        [helm, "template", "iki", str(CHART), "--namespace", "iki", "-f", "-"],
+        input=yaml.safe_dump(values),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"ghcr.io/acme/iki-{deployment}" in result.stdout
 
 
 def test_an_analyst_role_reads_the_views() -> None:

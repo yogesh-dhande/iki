@@ -680,3 +680,158 @@ def test_renaming_a_type_renames_its_entities(lab: Path, database: str) -> None:
     assert query(database, "SELECT count(*) FROM lab_specimen__history") == [(0,)]
     migrate(out, database, "lab", "0001")
     assert query(database, "SELECT type FROM iki_entity") == [("lab.Sample",)]
+
+
+# --- Deploying and rolling back -------------------------------------------------------------------
+
+
+def build_to(plugins: Path, name: str, *plugin_names: str) -> Path:
+    output = plugins.parent / name
+    result = iki("plugin", "build", *plugin_names, "--output", output, cwd=plugins)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return output
+
+
+def deploy(build: Path, database: str) -> subprocess.CompletedProcess[str]:
+    return django(build, database, "-m", "django", "migrate_deployment")
+
+
+def deployed(build: Path, database: str) -> str:
+    result = deploy(build, database)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout
+
+
+def refused(build: Path, database: str) -> str:
+    result = deploy(build, database)
+    assert result.returncode != 0, result.stdout
+    return result.stderr
+
+
+def applied(database: str, app: str) -> list[str]:
+    rows = query(database, "SELECT name FROM django_migrations WHERE app = %s ORDER BY id", app)
+    return [r[0] for r in rows]
+
+
+def columns(database: str, table: str) -> set[str]:
+    rows = query(
+        database,
+        "SELECT attname FROM pg_attribute WHERE attrelid = %s::regclass AND attnum > 0 "
+        "AND NOT attisdropped",
+        table,
+    )
+    return {r[0] for r in rows}
+
+
+SAMPLE_ROW = """
+from iki_plugin_lab.models import Sample
+Sample.objects.create(hrid="SMP-000001", owner_project=project, name="S1", NOTES)
+result = None
+"""
+
+
+@pytest.fixture
+def two_builds(lab: Path) -> tuple[Path, Path]:
+    """The lab plugin before and after adding a `notes` field."""
+    made("lab", "--no-input", cwd=lab.parent)
+    v1 = build_to(lab.parent, "v1", "lab")
+    write_sample(lab, ("  count: { type: int }", "  count: { type: int }\n  notes: { type: text }"))
+    made("lab", "--name", "notes", "--no-input", cwd=lab.parent)
+    return v1, build_to(lab.parent, "v2", "lab")
+
+
+def test_deploying_an_older_build_reverses_what_it_lacks(
+    two_builds: tuple[Path, Path], database: str
+) -> None:
+    v1, v2 = two_builds
+    assert "Kept a copy of lab.0001_initial" in deployed(v1, database)
+    out = deployed(v2, database)
+    assert "Kept a copy of lab.0002_notes" in out
+    assert "lab.0001_initial" not in out  # kept once
+    orm(v2, database, SAMPLE_ROW.replace("NOTES", "notes=None"))
+
+    out = deployed(v1, database)
+    assert "Reversed lab.0002_notes (rolled back)" in out
+    assert applied(database, "lab") == ["0001_initial"]
+    assert "notes" not in columns(database, "lab_sample")
+    assert "notes" not in columns(database, "lab_sample__history")
+    assert query(database, "SELECT name FROM lab_sample") == [("S1",)]
+    # Deploying the same build again changes nothing; the newer one applies again.
+    assert "Reversed" not in deployed(v1, database)
+    deployed(v2, database)
+    assert "notes" in columns(database, "lab_sample")
+
+
+def test_a_rollback_that_would_lose_data_changes_nothing(
+    two_builds: tuple[Path, Path], database: str
+) -> None:
+    v1, v2 = two_builds
+    deployed(v1, database)
+    deployed(v2, database)
+    orm(v2, database, SAMPLE_ROW.replace("NOTES", "notes='Grown at 37 °C'"))
+    err = refused(v1, database)
+    assert "Rolling back would lose data, so nothing was changed:" in err
+    assert "lab.0002_notes: lab_sample.notes has values, and reversing would drop it." in err
+    assert "restore the database from the backup" in err
+    assert applied(database, "lab") == ["0001_initial", "0002_notes"]
+    assert "notes" in columns(database, "lab_sample")
+
+
+def test_irreversible_migrations_block_a_rollback(lab: Path, database: str) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    v1 = build_to(lab.parent, "v1", "lab")
+    (lab / "migrations" / "0002_backfill.py").write_text(
+        "from django.db import migrations\n\n\n"
+        "def backfill(apps, schema_editor):\n    pass\n\n\n"
+        "class Migration(migrations.Migration):\n"
+        '    dependencies = [("lab", "0001_initial")]\n'
+        "    operations = [migrations.RunPython(backfill)]\n"
+    )
+    v2 = build_to(lab.parent, "v2", "lab")
+    deployed(v1, database)
+    deployed(v2, database)
+    err = refused(v1, database)
+    assert "lab.0002_backfill: Raw Python operation can't be reversed." in err
+    assert applied(database, "lab") == ["0001_initial", "0002_backfill"]
+
+
+def test_plugins_cant_simply_disappear(two_builds: tuple[Path, Path], database: str) -> None:
+    v1, _ = two_builds
+    deployed(v1, database)
+    empty = v1.parent / "empty" / "iki_installed_plugins"
+    empty.mkdir(parents=True)
+    from iki_server import __version__
+
+    (empty / "__init__.py").write_text(f"IKI_VERSION = {__version__!r}\nLOCAL = False\nAPPS = []\n")
+    err = refused(empty.parent, database)
+    assert "The database has the plugin(s) lab, but this build doesn't." in err
+    assert "detached first (ADR 0008)" in err
+
+
+def test_a_database_a_newer_iki_migrated_is_refused(
+    two_builds: tuple[Path, Path], database: str
+) -> None:
+    v1, _ = two_builds
+    deployed(v1, database)
+    with psycopg.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO django_migrations (app, name, applied) "
+            "VALUES ('iki_entities', '0099_future', now())"
+        )
+    err = refused(v1, database)
+    assert "A newer Iki migrated this database (iki_entities.0099_future)" in err
+
+
+def test_applied_migrations_cant_change(two_builds: tuple[Path, Path], database: str) -> None:
+    v1, _ = two_builds
+    deployed(v1, database)
+    migration = v1 / "iki_plugin_lab" / "migrations" / "0001_initial.py"
+    migration.write_text(migration.read_text() + "# edited\n")
+    err = refused(v1, database)
+    assert "Applied migrations changed since they ran here: lab.0001_initial." in err
+
+
+def test_the_app_can_only_read_the_kept_copies() -> None:
+    from iki_server.core import db_roles
+
+    assert "iki_plugin_migration" in db_roles.READ_ONLY_TABLES

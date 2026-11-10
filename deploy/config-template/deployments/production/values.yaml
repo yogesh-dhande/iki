@@ -1,0 +1,15 @@
+# Helm values for production (see the chart's values.yaml). Argo CD or Flux
+# applies the chart with this file and image.yaml.
+environment: production
+publicUrl: https://iki.acme.example
+allowedHosts: ["iki.acme.example"]
+secretKey:
+  existingSecret: iki-secret-key
+encryptionKeys:
+  existingSecret: iki-encryption-keys
+database:
+  existingSecret: iki-db-app
+  migrator:
+    existingSecret: iki-db-owner
+web:
+  replicas: 3

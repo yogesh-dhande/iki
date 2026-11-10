@@ -26,6 +26,7 @@ server.
 | `codegen/`  | Compiles plugin manifests into Django apps (`iki_codegen`)           |
 | `web/`      | React host app and the `@ikisci/*` TypeScript packages               |
 | `worker/`   | Rust workspace: the `iki-worker` agent and `iki-protocol` wire types |
+| `deploy/`   | Helm chart, dev cluster, and a deployment's config repo template     |
 | `docs/adr/` | Architecture Decision Records                                        |
 
 More directories (`plugins/`, `sdk/python/`) arrive
