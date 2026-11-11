@@ -72,6 +72,11 @@ view, served by the same uvicorn processes as the rest of Iki.
 - **Streams are limited.** A person can have 20 at once on each process, and
   a process holds at most 2000. Hidden browser tabs close theirs after five
   minutes.
+- **A page can follow one thing.** `/api/v1/runs/{ref}/events` streams one
+  run's changes (its status, attempts and progress, and how far its log has
+  grown) to whoever can read it, checked at each event, so a run's page
+  follows it as it runs. These streams count toward the same limits. Later
+  things worth following get a stream of their own the same way.
 
 We chose SSE over WebSockets because it's plain HTTP. It passes the proxies
 and inspection appliances our customers run, it reconnects by itself, and

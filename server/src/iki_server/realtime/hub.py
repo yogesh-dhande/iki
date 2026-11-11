@@ -30,6 +30,8 @@ QUEUE_SIZE = 100
 @dataclass(eq=False)
 class Stream:
     user_id: str
+    #: What it follows: its person's own events (their ID), or a thing's, such as ``run:<id>``.
+    topic: str = ""
     queue: asyncio.Queue[dict[str, Any]] = field(
         default_factory=lambda: asyncio.Queue(maxsize=QUEUE_SIZE)
     )
@@ -53,33 +55,42 @@ class Hub:
     listening: asyncio.Event = field(default_factory=asyncio.Event)
     _listener: asyncio.Task[None] | None = None
 
-    def subscribe(self, user_id: UUID) -> Stream:
-        stream = Stream(str(user_id))
-        self.streams[stream.user_id].add(stream)
+    #: Open streams per person, whatever they follow.
+    people: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+
+    def subscribe(self, user_id: UUID, topic: str | None = None) -> Stream:
+        """A stream of `user_id`'s own events, or of `topic`'s, for them."""
+        stream = Stream(str(user_id), topic or str(user_id))
+        self.streams[stream.topic].add(stream)
+        self.people[stream.user_id] += 1
         if self._listener is None or self._listener.done():
             self._listener = asyncio.get_running_loop().create_task(self._listen())
         return stream
 
     def unsubscribe(self, stream: Stream) -> None:
-        mine = self.streams.get(stream.user_id)
-        if mine is not None:
-            mine.discard(stream)
-            if not mine:
-                del self.streams[stream.user_id]
+        following = self.streams.get(stream.topic)
+        if following is not None and stream in following:
+            following.discard(stream)
+            if not following:
+                del self.streams[stream.topic]
+            self.people[stream.user_id] -= 1
+            if not self.people[stream.user_id]:
+                del self.people[stream.user_id]
 
     def count(self, user_id: UUID | None = None) -> int:
+        """Open streams: one person's, or all of them."""
         if user_id is not None:
-            return len(self.streams.get(str(user_id), ()))
+            return self.people.get(str(user_id), 0)
         return sum(len(s) for s in self.streams.values())
 
     def deliver(self, payload: str) -> None:
         try:
             message = json.loads(payload)
-            user, event, data = message["user"], message["event"], message.get("data", {})
+            topic, event, data = message["to"], message["event"], message.get("data", {})
         except (ValueError, KeyError, TypeError):
             logger.warning("realtime_bad_payload")
             return
-        for stream in list(self.streams.get(user, ())):
+        for stream in list(self.streams.get(topic, ())):
             stream.put({"event": event, "data": data})
 
     def broadcast(self, event: str) -> None:

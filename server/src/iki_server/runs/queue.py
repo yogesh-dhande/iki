@@ -29,7 +29,7 @@ from django.utils import timezone
 
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
-from iki_server.runs import quotas
+from iki_server.runs import live, quotas
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -211,6 +211,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         run.status = RunStatus.RUNNING
         run.started_at = run.started_at or now
         run.save(update_fields=["status", "started_at"])
+        live.changed(run.pk)
         return job, payload(job, run)
 
 
@@ -308,6 +309,7 @@ def heartbeat(
                 raise ValueError(f"A job can't go from {job.state} back to {state}.")
             job.state = state
             fields.append("state")
+            live.changed(job.run_id)
         job.lease_expires_at = timezone.now() + LEASE_TTL
         job.save(update_fields=fields)
         cancelled = ActionRun.objects.filter(
@@ -324,6 +326,7 @@ def progress(
         job.progress = max(0.0, min(1.0, fraction))
         job.progress_message = message[:500]
         job.save(update_fields=["progress", "progress_message"])
+        live.changed(job.run_id)
 
 
 def append_log(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, offset: int, text: str) -> int:
@@ -342,6 +345,7 @@ def append_log(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, offset: int,
             raise LogGap(end)
         job.log_size = end + size
         job.save(update_fields=["log_size"])
+        live.logged(job.run_id, job.attempt, job.log_size)
         if end >= MAX_LOG_BYTES:
             return job.log_size  # past the limit: counted, not kept
         if end + size > MAX_LOG_BYTES:
@@ -427,6 +431,7 @@ def complete(
         job.save(update_fields=["state", "finished_at", "error", "lease_token", "lease_expires_at"])
         run.status, run.finished_at, run.error = final[1], now, error
         run.save(update_fields=["status", "finished_at", "error"])
+        live.changed(run.pk)
         return run
 
 
@@ -492,6 +497,7 @@ def recover_expired() -> int:
 
 def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
     """Ends this attempt, then retries the run or ends it. Call inside a transaction."""
+    live.changed(job.run_id)
     now = timezone.now()
     job.state = state
     job.finished_at = now

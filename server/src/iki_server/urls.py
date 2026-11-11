@@ -21,6 +21,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("scim/v2/", include("iki_server.scim.urls")),
     # Before the API's own routes: an async streaming view, outside django-ninja.
     path("api/v1/events", realtime.events, name="events"),
+    path("api/v1/runs/<str:ref>/events", realtime.run_events, name="run-events"),
     path("api/v1/", api_v1.urls),
     # Workers' (ADR 0043). Leasing waits for a job, and watching one waits for it to be
     # cancelled, so they're async views outside django-ninja.

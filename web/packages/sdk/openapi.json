@@ -1898,6 +1898,24 @@
         "title": "InventoryOut",
         "type": "object"
       },
+      "JobState": {
+        "enum": [
+          "queued",
+          "leased",
+          "staging",
+          "running",
+          "uploading",
+          "committing",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "timed_out",
+          "rejected",
+          "interrupted"
+        ],
+        "title": "JobState",
+        "type": "string"
+      },
       "LastDelivery": {
         "properties": {
           "created_at": {
@@ -2034,6 +2052,62 @@
           "locations"
         ],
         "title": "LocationsOut",
+        "type": "object"
+      },
+      "LogOut": {
+        "properties": {
+          "ended": {
+            "description": "The attempt has ended, so nothing more will come.",
+            "title": "Ended",
+            "type": "boolean"
+          },
+          "more": {
+            "description": "More is kept already: ask again from `next_offset` now.",
+            "title": "More",
+            "type": "boolean"
+          },
+          "next_offset": {
+            "description": "Where to ask from next.",
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "Where `text` starts, in bytes of UTF-8.",
+            "title": "Offset",
+            "type": "integer"
+          },
+          "size": {
+            "description": "Bytes the command has written. Past 16 MiB they're counted, not kept.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "text",
+          "next_offset",
+          "more",
+          "size",
+          "ended"
+        ],
+        "title": "LogOut",
+        "type": "object"
+      },
+      "LogParams": {
+        "properties": {
+          "offset": {
+            "default": 0,
+            "description": "Bytes of UTF-8 to skip, such as a `next_offset`.",
+            "minimum": 0,
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "title": "LogParams",
         "type": "object"
       },
       "MarkAllIn": {
@@ -9334,6 +9408,114 @@
           }
         ],
         "summary": "A run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/attempts": {
+      "get": {
+        "description": "Oldest first. A run is attempted again when its machine goes away.",
+        "operationId": "iki_server_api_runs_list_attempts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AttemptOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A run's attempts",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/attempts/{attempt}/log": {
+      "get": {
+        "description": "What the attempt's command printed, from `offset` on. Follow a running attempt with\nthe run's live updates (`GET /runs/{ref}/events`): each `log` event says it grew.",
+        "operationId": "iki_server_api_runs_attempt_log",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt",
+            "required": true,
+            "schema": {
+              "title": "Attempt",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Bytes of UTF-8 to skip, such as a `next_offset`.",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Bytes of UTF-8 to skip, such as a `next_offset`.",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An attempt's log",
         "tags": [
           "runs"
         ]

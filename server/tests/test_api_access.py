@@ -481,6 +481,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/runs", fixed("/runs"), row(200)),
     ("GET", "/runs/{ref}", run(), readers(200)),
     ("POST", "/runs/{ref}/cancel", run("/cancel", {}), editors(200)),
+    ("GET", "/runs/{ref}/attempts", run("/attempts"), readers(200)),
+    ("GET", "/runs/{ref}/attempts/{attempt}/log", run("/attempts/1/log"), readers(200)),
     # Workers and the tokens they register with are the Compute admin's.
     ("GET", "/compute/registration-tokens", fixed("/compute/registration-tokens"), COMPUTE_ONLY),
     (

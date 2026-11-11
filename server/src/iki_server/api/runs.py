@@ -25,7 +25,16 @@ from iki_server.entities import access
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.runs import catalog, quotas, services
-from iki_server.runs.models import ActionRun, Job, RunEffect, RunInput, RunOutput, RunStatus
+from iki_server.runs.models import (
+    ActionRun,
+    Job,
+    JobLog,
+    JobState,
+    RunEffect,
+    RunInput,
+    RunOutput,
+    RunStatus,
+)
 from iki_server.runs.services import TIER_PERMISSIONS
 from iki_spec.model import Action
 
@@ -419,3 +428,98 @@ def cancel_run(request: HttpRequest, ref: str, payload: CancelIn) -> dict[str, A
     except PermissionDenied:
         raise Problem(403) from None
     return _runs_out(me, [_find(me, ref)])[0]
+
+
+# --- Attempts and their logs ---------------------------------------------------------------------
+
+
+class AttemptOut(Schema):
+    attempt: int = Field(description="1 for the first, then 2, 3, ...")
+    state: JobState
+    worker: str | None = Field(description="The name of the worker that ran it.")
+    environment_build: str = Field(
+        description="The digest of the environment it ran in; empty for the host's own software."
+    )
+    queued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    progress: float | None = Field(description="From 0 to 1, as its command reports it.")
+    progress_message: str
+    log_size: int = Field(description="Bytes its command has written so far.")
+    error: ErrorOut | None
+
+
+@router.get("/runs/{ref}/attempts", response=list[AttemptOut], summary="A run's attempts")
+def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+    """Oldest first. A run is attempted again when its machine goes away."""
+    run = _find(caller(request), ref)
+    return [
+        {
+            "attempt": job.attempt,
+            "state": job.state,
+            "worker": job.worker.name if job.worker else None,
+            "environment_build": job.environment_build,
+            "queued_at": job.queued_at,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+            "progress": job.progress,
+            "progress_message": job.progress_message,
+            "log_size": job.log_size,
+            "error": job.error,
+        }
+        for job in Job.objects.filter(run=run).select_related("worker").order_by("attempt")
+    ]
+
+
+#: The most of a log one answer holds; ask again from ``next_offset`` for more.
+LOG_PAGE_BYTES = 1024**2
+
+
+class LogOut(Schema):
+    offset: int = Field(description="Where `text` starts, in bytes of UTF-8.")
+    text: str
+    next_offset: int = Field(description="Where to ask from next.")
+    more: bool = Field(description="More is kept already: ask again from `next_offset` now.")
+    size: int = Field(
+        description="Bytes the command has written. Past 16 MiB they're counted, not kept."
+    )
+    ended: bool = Field(description="The attempt has ended, so nothing more will come.")
+
+
+class LogParams(Schema):
+    offset: int = Field(0, ge=0, description="Bytes of UTF-8 to skip, such as a `next_offset`.")
+
+
+@router.get("/runs/{ref}/attempts/{attempt}/log", response=LogOut, summary="An attempt's log")
+def attempt_log(
+    request: HttpRequest, ref: str, attempt: int, params: Query[LogParams]
+) -> dict[str, Any]:
+    """What the attempt's command printed, from `offset` on. Follow a running attempt with
+    the run's live updates (`GET /runs/{ref}/events`): each `log` event says it grew."""
+    run = _find(caller(request), ref)
+    job = Job.objects.filter(run=run, attempt=attempt).first()
+    if job is None:
+        raise Problem(404, f"{run.hrid} has no attempt {attempt}.")
+    chunks = JobLog.objects.filter(job=job).order_by("offset")
+    first = chunks.filter(offset__lte=params.offset).order_by("-offset").first()
+    start = first.offset if first is not None else 0
+    parts: list[bytes] = []
+    taken, more, end = 0, False, params.offset
+    for chunk in chunks.filter(offset__gte=start).iterator(chunk_size=64):
+        data = chunk.text.encode()
+        if chunk.offset < params.offset:
+            data = data[params.offset - chunk.offset :]
+        if taken and taken + len(data) > LOG_PAGE_BYTES:
+            more = True
+            break
+        parts.append(data)
+        taken += len(data)
+        end = max(chunk.offset, params.offset) + len(data)
+    return {
+        "offset": params.offset,
+        "text": b"".join(parts).decode(errors="replace"),
+        "next_offset": end,
+        "more": more,
+        "size": job.log_size,
+        "ended": job.finished_at is not None,
+    }

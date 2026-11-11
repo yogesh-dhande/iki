@@ -955,6 +955,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{ref}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A run's attempts
+         * @description Oldest first. A run is attempted again when its machine goes away.
+         */
+        get: operations["iki_server_api_runs_list_attempts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{ref}/attempts/{attempt}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An attempt's log
+         * @description What the attempt's command printed, from `offset` on. Follow a running attempt with
+         *     the run's live updates (`GET /runs/{ref}/events`): each `log` event says it grew.
+         */
+        get: operations["iki_server_api_runs_attempt_log"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{ref}/cancel": {
         parameters: {
             query?: never;
@@ -2341,6 +2382,11 @@ export interface components {
             id: string;
             project: components["schemas"]["ProjectRef"];
         };
+        /**
+         * JobState
+         * @enum {string}
+         */
+        JobState: "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted";
         /** LastDelivery */
         LastDelivery: {
             /**
@@ -2408,6 +2454,45 @@ export interface components {
              * @description Where files may be registered, such as s3://lab/.
              */
             locations: string[];
+        };
+        /** LogOut */
+        LogOut: {
+            /**
+             * Ended
+             * @description The attempt has ended, so nothing more will come.
+             */
+            ended: boolean;
+            /**
+             * More
+             * @description More is kept already: ask again from `next_offset` now.
+             */
+            more: boolean;
+            /**
+             * Next Offset
+             * @description Where to ask from next.
+             */
+            next_offset: number;
+            /**
+             * Offset
+             * @description Where `text` starts, in bytes of UTF-8.
+             */
+            offset: number;
+            /**
+             * Size
+             * @description Bytes the command has written. Past 16 MiB they're counted, not kept.
+             */
+            size: number;
+            /** Text */
+            text: string;
+        };
+        /** LogParams */
+        LogParams: {
+            /**
+             * Offset
+             * @description Bytes of UTF-8 to skip, such as a `next_offset`.
+             * @default 0
+             */
+            offset: number;
         };
         /** MarkAllIn */
         MarkAllIn: {
@@ -5602,6 +5687,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_list_attempts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttemptOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_attempt_log: {
+        parameters: {
+            query?: {
+                /** @description Bytes of UTF-8 to skip, such as a `next_offset`. */
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+                attempt: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogOut"];
                 };
             };
         };

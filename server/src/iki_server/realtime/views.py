@@ -21,8 +21,10 @@ import asyncio
 import json
 import random
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from functools import partial
 from typing import Any
+from uuid import UUID
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -39,6 +41,8 @@ from iki_server.api.security import ANONYMOUS_LIMIT, POLICY, BearerAuth, _limit
 from iki_server.notifications import services as notifications
 from iki_server.org import permissions
 from iki_server.realtime.hub import Hub, Stream, hub
+from iki_server.runs import live
+from iki_server.runs import services as runs
 from iki_server.web.ratelimit import RateLimiter, client_key
 
 HEARTBEAT = 20.0
@@ -124,42 +128,94 @@ def _visible(user: User, notification_id: str) -> bool:
     return notifications.inbox(user).filter(pk=notification_id).exists()
 
 
-async def events(request: HttpRequest) -> HttpResponseBase:
+Prepare = Callable[[User, dict[str, Any]], Awaitable[bytes | None]]
+
+
+async def _open(request: HttpRequest) -> tuple[User, Check, Hub]:
+    """Who's asking, and the hub, if there's room for another stream; else a Problem."""
     if request.method not in ("GET", "HEAD"):
-        problem = Problem(405, headers={"Allow": "GET"})
-        return response(problem)
-    try:
-        await request.auser()
-        user, still_valid = await db(_authenticate, request)
-    except Problem as problem:
-        return response(problem)
+        raise Problem(405, headers={"Allow": "GET"})
+    await request.auser()
+    user, still_valid = await db(_authenticate, request)
     streams = hub()
     if streams.closing.is_set() or streams.count() >= MAX_STREAMS:
-        return response(
-            Problem(503, "Live updates are busy. Try again shortly.", headers={"Retry-After": "5"})
+        raise Problem(
+            503, "Live updates are busy. Try again shortly.", headers={"Retry-After": "5"}
         )
     if streams.count(user.pk) >= MAX_STREAMS_PER_USER:
-        return response(
-            Problem(
-                429,
-                "Too many tabs are getting live updates. Close some, or reload this one later.",
-                headers={"Retry-After": "30"},
-            )
+        raise Problem(
+            429,
+            "Too many tabs are getting live updates. Close some, or reload this one later.",
+            headers={"Retry-After": "30"},
         )
-    unread = await db(_unread, user)
-    stream = streams.subscribe(user.pk)
-    reply = StreamingHttpResponse(
-        _run(streams, stream, user, still_valid, unread),
-        content_type="text/event-stream; charset=utf-8",
-    )
+    return user, still_valid, streams
+
+
+def _streaming(body: AsyncIterator[bytes]) -> StreamingHttpResponse:
+    reply = StreamingHttpResponse(body, content_type="text/event-stream; charset=utf-8")
     reply["Cache-Control"] = "no-store"
     # nginx and similar proxies would otherwise buffer the stream.
     reply["X-Accel-Buffering"] = "no"
     return reply
 
 
+async def events(request: HttpRequest) -> HttpResponseBase:
+    try:
+        user, still_valid, streams = await _open(request)
+    except Problem as problem:
+        return response(problem)
+    unread = await db(_unread, user)
+    stream = streams.subscribe(user.pk)
+    ready = sse("ready", {"unread": unread})
+    return _streaming(_run(streams, stream, user, still_valid, ready, _prepare))
+
+
+def _readable_run(user: User, ref: str) -> str:
+    """The run's ID, if `user` can read it."""
+    found = runs.visible_runs(user)
+    try:
+        run = found.filter(pk=UUID(ref)).values_list("pk", flat=True).first()
+    except ValueError:
+        run = found.filter(hrid=ref.upper()).values_list("pk", flat=True).first()
+    if run is None:
+        raise Problem(404, "No such run, or you can't read its project.")
+    return str(run)
+
+
+def _can_read_run(user: User, run_id: str) -> bool:
+    return runs.visible_runs(user).filter(pk=run_id).exists()
+
+
+async def run_events(request: HttpRequest, ref: str) -> HttpResponseBase:
+    """``GET /api/v1/runs/{ref}/events``: live updates about one run, for its page.
+
+    Starts with ``ready``, then sends ``run`` when its status, an attempt or progress
+    changes, and ``log`` (an attempt's ID and its log's size) when an attempt's log grows,
+    and ``resync``. Each is checked against the caller's access to the run.
+    """
+    try:
+        user, still_valid, streams = await _open(request)
+        run_id = await db(_readable_run, user, ref)
+    except Problem as problem:
+        return response(problem)
+    stream = streams.subscribe(user.pk, live.topic(UUID(run_id)))
+    ready = sse("ready", {"id": run_id})
+    return _streaming(
+        _run(streams, stream, user, still_valid, ready, partial(_prepare_run, run_id))
+    )
+
+
+async def _prepare_run(run_id: str, user: User, item: dict[str, Any]) -> bytes | None:
+    event, data = item["event"], item.get("data", {})
+    if event == "resync":
+        return sse(event, {})
+    if event in ("run", "log") and await db(_can_read_run, user, run_id):
+        return sse(event, data)
+    return None
+
+
 async def _run(
-    streams: Hub, stream: Stream, user: User, still_valid: Check, unread: int
+    streams: Hub, stream: Stream, user: User, still_valid: Check, ready: bytes, prepare: Prepare
 ) -> AsyncIterator[bytes]:
     loop = asyncio.get_running_loop()
     # Spread reconnects out, so pods restarted together aren't hit at once.
@@ -167,7 +223,7 @@ async def _run(
     opened, reason = loop.time(), "disconnected"
     logger.info("realtime_stream_opened", user=str(user.pk), streams=streams.count())
     try:
-        yield f"retry: {RETRY_MS}\n\n".encode() + sse("ready", {"unread": unread})
+        yield f"retry: {RETRY_MS}\n\n".encode() + ready
         next_check = loop.time() + HEARTBEAT
         while True:
             wait = max(min(next_check, deadline) - loop.time(), 0)
@@ -184,7 +240,7 @@ async def _run(
                 reason = "shutdown"
                 return
             if getting in done:
-                message = await _prepare(user, getting.result())
+                message = await prepare(user, getting.result())
                 if message is not None:
                     yield message
                 continue

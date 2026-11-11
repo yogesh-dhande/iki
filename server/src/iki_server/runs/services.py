@@ -29,7 +29,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
-from iki_server.runs import catalog, queue, quotas
+from iki_server.runs import catalog, live, queue, quotas
 from iki_server.runs.models import (
     HRID_PREFIX,
     HRID_SEQUENCE,
@@ -270,4 +270,5 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             )
             # Its worker is watching for this: the command stops within a second.
             queue.notify_job(job.pk)
+        live.changed(run.pk)
     return run

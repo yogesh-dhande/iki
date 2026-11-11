@@ -19,9 +19,14 @@ MAX_PAYLOAD = 7000
 
 
 def publish(user_id: UUID, event: str, data: dict[str, Any] | None = None) -> None:
-    payload = json.dumps(
-        {"user": str(user_id), "event": event, "data": data or {}}, separators=(",", ":")
-    )
+    """To each of one person's streams."""
+    publish_to(str(user_id), event, data)
+
+
+def publish_to(topic: str, event: str, data: dict[str, Any] | None = None) -> None:
+    """To every stream following ``topic``: a person's ID, or a thing many people may
+    watch, such as ``run:<id>``. Each stream checks its caller may see it before sending."""
+    payload = json.dumps({"to": topic, "event": event, "data": data or {}}, separators=(",", ":"))
     if len(payload.encode()) > MAX_PAYLOAD:
         raise ValueError(f"Event {event!r} is too large for NOTIFY; send identifiers, not content.")
     with connection.cursor() as cursor:
