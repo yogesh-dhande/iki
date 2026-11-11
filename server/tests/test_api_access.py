@@ -161,6 +161,24 @@ def run(suffix: str = "", body: Any = None) -> Build:
     return lambda w: (f"/runs/{_run(w).pk}{suffix}", body)
 
 
+def _registration(w: World) -> Any:
+    from iki_server.runs import workers
+
+    token, _ = workers.create_registration(
+        label="Pods", tier="backend", by=w.users["compute_admin"]
+    )
+    return token
+
+
+def _worker(w: World) -> Any:
+    from iki_server.runs import workers
+
+    worker, _ = workers.register(
+        _registration(w), name="pod-1", version="0.1.0", capacity={"cpu": 2, "memory": 2**31}
+    )
+    return worker
+
+
 #: Entities are read by anyone with a role in one of their projects. Org Admins see that
 #: projects exist, but read their data only with a role, like everyone else.
 ENTITY_READERS = ("viewer", "editor", "runner", "admin", "via_team", "mixed")
@@ -264,6 +282,7 @@ def file(suffix: str = "") -> Build:
 
 
 ORG_ADMIN_ONLY = row(403, org_admin=200)
+COMPUTE_ONLY = row(403, compute_admin=200)
 TEAM_VISIBLE = row(404, org_admin=200, team_member=200)
 TEAM_MANAGE = row(404, org_admin=200, team_member=403)
 PROJECT_MEMBERS = visible(403, org_admin=200, admin=200)
@@ -449,6 +468,27 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/runs", fixed("/runs"), row(200)),
     ("GET", "/runs/{ref}", run(), readers(200)),
     ("POST", "/runs/{ref}/cancel", run("/cancel", {}), editors(200)),
+    # Workers and the tokens they register with are the Compute admin's.
+    ("GET", "/compute/registration-tokens", fixed("/compute/registration-tokens"), COMPUTE_ONLY),
+    (
+        "POST",
+        "/compute/registration-tokens",
+        fixed("/compute/registration-tokens", {"label": "Pods", "tier": "backend"}),
+        row(403, compute_admin=201),
+    ),
+    (
+        "POST",
+        "/compute/registration-tokens/{token_id}/revoke",
+        lambda w: (f"/compute/registration-tokens/{_registration(w).pk}/revoke", {}),
+        COMPUTE_ONLY,
+    ),
+    ("GET", "/compute/workers", fixed("/compute/workers"), COMPUTE_ONLY),
+    (
+        "POST",
+        "/compute/workers/{worker_id}/revoke",
+        lambda w: (f"/compute/workers/{_worker(w).pk}/revoke", None),
+        COMPUTE_ONLY,
+    ),
     # Uploads are their maker's; files are read through the project they were added to.
     (
         "POST",

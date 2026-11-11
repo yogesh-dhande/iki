@@ -416,6 +416,47 @@ Actions whose environments aren't bound on their tier can't run on that
 deployment; the build warns about each. Client-tier actions need no
 template.
 
+## What a command reads
+
+When a worker leases a job, it gets the run input and writes it to
+`input.json` for the action's command
+([`run-input/v1`](src/iki_spec/schemas/run-input/v1.json)):
+
+```json
+{
+  "apiVersion": "iki/v1",
+  "kind": "RunInput",
+  "run": {
+    "id": "…",
+    "hrid": "RUN-000123",
+    "attempt": 1,
+    "action": "protein.compute_properties",
+    "plugin": { "name": "protein", "version": "1.2.0", "sha": "…" },
+    "project": "…"
+  },
+  "params": { "ph": 7.4 },
+  "inputs": {
+    "protein": [
+      {
+        "id": "…",
+        "hrid": "PRT-000042",
+        "type": "protein.Protein",
+        "schema_version": 1,
+        "revision": 3,
+        "values": { "sequence": "MKV…" }
+      }
+    ]
+  },
+  "command": ["python", "scripts/properties.py"],
+  "environment": "protein.protein-tools",
+  "job": { "…": "the lease, for iki-worker" }
+}
+```
+
+Each input is a list, even when the input takes one entity. Values are the
+ones at the revision the run was launched on, as the REST API shows them,
+with references and files given as IDs.
+
 ## YAML
 
 Manifests are read as YAML 1.2: only `true` and `false` are booleans, so

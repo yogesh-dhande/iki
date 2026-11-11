@@ -66,6 +66,10 @@ ACTIONS: dict[str, str] = {
     "run.launched": "Launched an action",
     "run.cancelled": "Cancelled a run",
     "run.cancel_requested": "Asked a running action to stop",
+    "worker_registration.created": "Created a worker registration token",
+    "worker_registration.revoked": "Revoked a worker registration token",
+    "worker.registered": "A worker registered",
+    "worker.revoked": "Revoked a worker",
     "entity.unlinked": "Took an entity out of a project",
     "encryption.rotated": "Re-encrypted stored secrets",
     "oauth.client_registered": "An app registered itself",
@@ -229,5 +233,7 @@ class AuditContextMiddleware:
         # the web app. Calls with a token (a script, an integration) are the API's.
         api = request.path.startswith("/api/") and "HTTP_AUTHORIZATION" in request.META
         via = Via.API if api else Via.WEB
+        if request.path.startswith("/worker/"):
+            via = Via.SYSTEM  # a worker: Iki's own machinery
         with using(Context(via=via, client_ip=request.META.get("REMOTE_ADDR") or None)):
             return await self.get_response(request)

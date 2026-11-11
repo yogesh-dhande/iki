@@ -1,4 +1,4 @@
-"""Makes every response under ``/api/`` an API response.
+"""Makes every response under ``/api/`` and ``/worker/`` an API response.
 
 - Errors that never reached an endpoint (unknown paths, unsupported
   methods, crashes) become problem details too.
@@ -14,13 +14,16 @@ from iki_server.api import problems
 from iki_server.api.security import bearer_challenge, rate_limit_headers
 
 PREFIX = "/api/"
+#: The workers' API (ADR 0043): problem details too, but its tokens aren't OAuth's.
+WORKER_PREFIX = "/worker/"
 #: Headers worth keeping when an error response is replaced.
 _KEEP = ("Allow", "Retry-After", "WWW-Authenticate")
 
 
 class ApiResponseMiddleware(MiddlewareMixin):
     def process_response(self, request: HttpRequest, response: HttpResponse) -> HttpResponse:
-        if not request.path.startswith(PREFIX):
+        worker = request.path.startswith(WORKER_PREFIX)
+        if not (worker or request.path.startswith(PREFIX)):
             return response
         if response.status_code >= 400 and not response.get("Content-Type", "").startswith(
             problems.CONTENT_TYPE
@@ -37,5 +40,7 @@ class ApiResponseMiddleware(MiddlewareMixin):
             for header, value in rate_limit_headers(decision).items():
                 response[header] = value
         if response.status_code == 401 and "WWW-Authenticate" not in response:
-            response["WWW-Authenticate"] = bearer_challenge(request)
+            response["WWW-Authenticate"] = (
+                'Bearer realm="iki-worker"' if worker else bearer_challenge(request)
+            )
         return response

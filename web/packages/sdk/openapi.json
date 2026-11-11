@@ -2690,6 +2690,35 @@
         "title": "Page[WebhookOut]",
         "type": "object"
       },
+      "Page_WorkerOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[WorkerOut]",
+        "type": "object"
+      },
       "ParamOut": {
         "properties": {
           "default": {
@@ -3365,6 +3394,97 @@
         "title": "RefOut",
         "type": "object"
       },
+      "RegistrationCreatedOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/PersonOut"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "hint": {
+            "description": "The token's last four characters, to tell it by.",
+            "title": "Hint",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "token": {
+            "description": "Shown once. Give it to the tier's workers as a secret.",
+            "title": "Token",
+            "type": "string"
+          },
+          "workers": {
+            "description": "Workers registered with it and not revoked.",
+            "title": "Workers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "tier",
+          "hint",
+          "created_by",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at",
+          "workers",
+          "token"
+        ],
+        "title": "RegistrationCreatedOut",
+        "type": "object"
+      },
       "RegistrationIn": {
         "properties": {
           "media_type": {
@@ -3640,6 +3760,18 @@
           "created_at"
         ],
         "title": "RevisionOut",
+        "type": "object"
+      },
+      "RevokeIn": {
+        "properties": {
+          "workers": {
+            "default": false,
+            "description": "Also revoke the workers that registered with it.",
+            "title": "Workers",
+            "type": "boolean"
+          }
+        },
+        "title": "RevokeIn",
         "type": "object"
       },
       "RoleIn": {
@@ -5385,6 +5517,162 @@
         },
         "title": "WebhookPatch",
         "type": "object"
+      },
+      "WorkerFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "revoked": {
+            "default": false,
+            "description": "Include revoked workers.",
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client",
+                  "backend",
+                  "container",
+                  "vm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          }
+        },
+        "title": "WorkerFilters",
+        "type": "object"
+      },
+      "WorkerOut": {
+        "properties": {
+          "capacity": {
+            "additionalProperties": true,
+            "description": "What it can give one job: cpu, memory, gpu_count, gpu_memory and scratch_disk (bytes).",
+            "title": "Capacity",
+            "type": "object"
+          },
+          "hint": {
+            "title": "Hint",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "jobs": {
+            "description": "Jobs it holds now.",
+            "title": "Jobs",
+            "type": "integer"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For the client tier: whose machine it is."
+          },
+          "registered_at": {
+            "format": "date-time",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "registration": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registration"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "status": {
+            "enum": [
+              "online",
+              "offline",
+              "revoked"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tier",
+          "hint",
+          "version",
+          "capacity",
+          "registration",
+          "owner",
+          "registered_at",
+          "last_seen_at",
+          "revoked_at",
+          "status",
+          "jobs"
+        ],
+        "title": "WorkerOut",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -5637,6 +5925,300 @@
         "summary": "Freeze a dynamic collection",
         "tags": [
           "collections"
+        ]
+      }
+    },
+    "/api/v1/compute/registration-tokens": {
+      "get": {
+        "description": "Newest first, revoked ones included.",
+        "operationId": "iki_server_api_compute_list_registrations",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RegistrationOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Worker registration tokens",
+        "tags": [
+          "compute"
+        ]
+      },
+      "post": {
+        "operationId": "iki_server_api_compute_create_registration",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationCreatedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Make a worker registration token",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/registration-tokens/{token_id}/revoke": {
+      "post": {
+        "description": "New workers can't register with it. Workers that did keep working, unless you also\nrevoke them (`workers: true`, for a token that leaked); their jobs are then interrupted,\nand retried on other workers if their action allows.",
+        "operationId": "iki_server_api_compute_revoke_registration",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Token Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Revoke a worker registration token",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/workers": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "iki_server_api_compute_list_workers",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "client",
+                    "backend",
+                    "container",
+                    "vm"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tier"
+            }
+          },
+          {
+            "description": "Include revoked workers.",
+            "in": "query",
+            "name": "revoked",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include revoked workers.",
+              "title": "Revoked",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WorkerOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Workers",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/workers/{worker_id}/revoke": {
+      "post": {
+        "description": "Its token stops working at once. Jobs it holds are interrupted, and retried on other\nworkers if their action allows.",
+        "operationId": "iki_server_api_compute_revoke_worker",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Worker Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Revoke a worker",
+        "tags": [
+          "compute"
         ]
       }
     },

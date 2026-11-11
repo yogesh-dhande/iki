@@ -29,7 +29,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
-from iki_server.runs import catalog
+from iki_server.runs import catalog, queue
 from iki_server.runs.models import (
     HRID_PREFIX,
     HRID_SEQUENCE,
@@ -116,6 +116,7 @@ def launch(
             resources=asdict(environment.resources.at_least(action.resources)),
             owner=user if action.tier == "client" else None,
         )
+        queue.notify(action.tier)
         audit.record(
             "run.launched",
             actor=user,
@@ -232,13 +233,14 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
     if not permissions.can(user, TIER_PERMISSIONS[run.tier], run.project):
         raise PermissionDenied
     with transaction.atomic():
+        # Jobs before their run, as the queue locks them, so the two never deadlock.
+        job = Job.objects.select_for_update().filter(run=run).order_by("-attempt").first()
         run = ActionRun.objects.select_for_update().get(pk=run.pk)
         if run.finished:
             raise Refused(f"{run.hrid} has already finished ({run.get_status_display().lower()}).")
         if run.cancel_requested_at is not None:
             return run
         now = timezone.now()
-        job = Job.objects.select_for_update().filter(run=run).order_by("-attempt").first()
         data = {"reason": reason} if reason else {}
         if job is None or job.state == JobState.QUEUED:
             if job is not None:

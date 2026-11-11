@@ -223,6 +223,41 @@ Plugins' actions run on entities (ADR 0042):
 - `POST /runs/{ref}/cancel` cancels a queued run at once, or asks a running
   one's worker to stop. Whoever may run its tier in the project may cancel it.
 
+### Workers
+
+Workers run the jobs and pull them from the server over HTTPS (ADR 0043).
+Nothing connects to a worker. A Compute admin manages them under
+`/api/v1/compute`:
+
+- `POST /compute/registration-tokens` makes a registration token
+  (`iki_wreg_…`) for the backend, container or vm tier, optionally with an
+  expiry. Its value is shown once; put it in that tier's secret store.
+- `POST /compute/registration-tokens/{id}/revoke` stops new registrations.
+  Workers that already registered keep working, unless you pass
+  `{"workers": true}` for a token that leaked.
+- `GET /compute/workers` lists workers as online, offline or revoked, with
+  the jobs each holds. `POST /compute/workers/{id}/revoke` ends a worker's
+  token at once. Its jobs are interrupted and retried elsewhere.
+
+`iki-worker` uses `/worker/v1`, with its OpenAPI document at
+`/worker/v1/openapi.json`:
+
+1. `POST /register` with the registration token returns the worker's own
+   token (`iki_wkr_…`).
+2. `POST /lease?wait=30` waits for a job that fits the worker's capacity and
+   returns its run input (`run-input/v1`), or 204 if none arrives.
+3. While it holds the job, it sends heartbeats every 20 seconds with the
+   job's state. The response says whether the run was cancelled. A lease
+   that isn't renewed within 60 seconds is ended, and the job retried.
+4. It sends `progress`, and `logs` in ordered chunks with byte offsets; each
+   job keeps up to 16 MiB of log.
+5. `fail` ends an attempt with no results. Attempts lost to `worker_lost` or
+   `interrupted` are retried by default; failures in the command itself are
+   not.
+
+Every report carries the lease token from the job. A report with a stale
+token answers 409 `stale_lease`, and the worker drops that job.
+
 ## Web app
 
 Home, notifications and the project pages are the React app in `web/app` (ADR 0029). The

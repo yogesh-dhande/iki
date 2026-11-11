@@ -16,6 +16,7 @@ from ninja.errors import AuthenticationError, HttpError, ValidationError
 
 from iki_server.api import (
     collections,
+    compute,
     entities,
     files,
     me,
@@ -57,6 +58,7 @@ for module in (
     collections,
     searches,
     runs,
+    compute,
     files,
     notifications,
     webhooks,

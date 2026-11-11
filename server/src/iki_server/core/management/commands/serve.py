@@ -10,6 +10,7 @@ import uvicorn
 from django.core.management.base import BaseCommand, CommandParser
 
 from iki_server.realtime import hub
+from iki_server.runs import wakeup
 
 env = environ.Env()
 
@@ -32,6 +33,7 @@ class Server(uvicorn.Server):
         super().handle_exit(sig, frame)
         if self._loop is not None:
             self._loop.call_soon_threadsafe(hub.shutting_down)
+            self._loop.call_soon_threadsafe(wakeup.shutting_down)
 
 
 class Command(BaseCommand):

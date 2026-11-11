@@ -8,6 +8,10 @@ so the record stays true after the plugin changes.
 A run is carried out by one or more :class:`Job` attempts. A worker leases a
 job, runs it and reports back; an attempt that's lost or interrupted is
 retried as a new job, under the action's retry policy.
+
+Workers (:class:`Worker`) register with a :class:`RegistrationToken` a
+compute admin made for their tier, and get a token of their own. Only
+hashes of either are stored.
 """
 
 from typing import ClassVar
@@ -181,6 +185,76 @@ class RunInput(models.Model):
         return f"{self.run_id} {self.name}[{self.position}]"
 
 
+class RegistrationToken(models.Model):
+    """What a pool of workers on one tier registers with. Shown once, when made."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    label = models.CharField(max_length=100)
+    tier = models.CharField(max_length=16)
+    token_hash = models.CharField(max_length=64, unique=True)
+    #: The token's last four characters, so people can tell tokens apart.
+    hint = models.CharField(max_length=4)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(db_default=Now())
+    expires_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_worker_registration_token"
+        db_table_comment = "Tokens pools of workers register with. Only their hashes are kept."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            # Client-tier workers sign in as their person instead.
+            models.CheckConstraint(
+                condition=Q(tier__in=["backend", "container", "vm"]),
+                name="iki_worker_registration_tier",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.label} (…{self.hint})"
+
+
+class Worker(models.Model):
+    """One running ``iki-worker``: what it can run, and when it was last heard from."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    name = models.CharField(max_length=200, db_comment="Such as its host or pod name.")
+    tier = models.CharField(max_length=16)
+    token_hash = models.CharField(max_length=64, unique=True)
+    hint = models.CharField(max_length=4)
+    registration = models.ForeignKey(
+        RegistrationToken, null=True, blank=True, on_delete=models.PROTECT, related_name="workers"
+    )
+    #: For client-tier workers: the person whose machine it runs on.
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    version = models.CharField(max_length=50)
+    #: What one job may use on it: cpu, memory, gpu_count, gpu_memory and scratch_disk.
+    capacity = models.JSONField(default=dict)
+    registered_at = models.DateTimeField(db_default=Now())
+    last_seen_at = models.DateTimeField(db_default=Now())
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_worker"
+        db_table_comment = "Every registered worker. Only hashes of their tokens are kept."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(tier__in=TIERS), name="iki_worker_tier"),
+            models.CheckConstraint(
+                condition=Q(tier="client", owner__isnull=False)
+                | Q(~Q(tier="client"), registration__isnull=False),
+                name="iki_worker_registered",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.tier})"
+
+
 class Job(models.Model):
     """One attempt at a run, as workers see it."""
 
@@ -205,6 +279,14 @@ class Job(models.Model):
     #: attempt, so a worker whose lease ran out can't overwrite what replaced it.
     lease_token = models.UUIDField(null=True, blank=True)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
+    worker = models.ForeignKey(
+        Worker, null=True, blank=True, on_delete=models.PROTECT, related_name="jobs"
+    )
+    #: From 0 to 1, as the command reports it, with what it's doing.
+    progress = models.FloatField(null=True, blank=True)
+    progress_message = models.CharField(max_length=500, blank=True, default="")
+    #: Bytes of log the worker has sent; past the limit they're counted, not kept.
+    log_size = models.BigIntegerField(default=0)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     error = models.JSONField(null=True, blank=True)
@@ -241,3 +323,26 @@ class Job(models.Model):
 
     def __str__(self) -> str:
         return f"{self.run_id} attempt {self.attempt}"
+
+
+class JobLog(models.Model):
+    """A chunk of what a job's command wrote, at its byte offset in the job's log."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="logs")
+    offset = models.BigIntegerField()
+    text = models.TextField()
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_job_log"
+        db_table_comment = "What each job's command wrote, in chunks, in order."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["job", "offset"], name="iki_job_log_offset"),
+            models.CheckConstraint(condition=Q(offset__gte=0), name="iki_job_log_offset_min"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.job_id} @{self.offset}"

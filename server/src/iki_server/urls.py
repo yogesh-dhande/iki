@@ -3,6 +3,7 @@
 from django.urls import URLPattern, URLResolver, include, path
 
 from iki_server.accounts import views as accounts
+from iki_server.api import worker
 from iki_server.api.v1 import api as api_v1
 from iki_server.realtime import views as realtime
 from iki_server.web import views as web
@@ -21,6 +22,9 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # Before the API's own routes: an async streaming view, outside django-ninja.
     path("api/v1/events", realtime.events, name="events"),
     path("api/v1/", api_v1.urls),
+    # Workers' (ADR 0043). Leasing waits for a job, so it's an async view outside django-ninja.
+    path("worker/v1/lease", worker.lease, name="worker_lease"),
+    path("worker/v1/", worker.api.urls),
     path("", include("iki_server.oauth.urls")),
     path("", include("iki_server.oauth.page_urls")),
     path("", include("iki_server.notifications.urls")),

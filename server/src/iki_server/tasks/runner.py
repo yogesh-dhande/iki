@@ -36,6 +36,7 @@ from django.utils.json import normalize_json
 from opentelemetry import metrics, trace
 
 from iki_server import health
+from iki_server.runs import queue as runs_queue
 from iki_server.tasks.backend import CHANNEL, GiveUp, LeaseExpired, Retry, load_task, to_result
 from iki_server.tasks.models import TaskRecord
 
@@ -310,6 +311,15 @@ class Runner:
                 self.last_housekeeping = time.monotonic()
             except Exception:
                 logger.exception("task_housekeeping_error")
+            finally:
+                close_old_connections()
+            try:
+                # Jobs whose workers went away (ADR 0043): any runner can end them.
+                ended = runs_queue.recover_expired()
+                if ended:
+                    logger.info("jobs_recovered", count=ended)
+            except Exception:
+                logger.exception("jobs_housekeeping_error")
             finally:
                 close_old_connections()
 

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/run-input/v1",
+  "title": "Iki run input (iki/v1)",
+  "description": "What an action's command reads: the run, its params, and its inputs' values at the revisions the run was launched on. iki-worker gets it when it leases a job and writes it to input.json.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "run", "job", "command", "environment", "params", "inputs"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "RunInput" },
+    "run": {
+      "type": "object",
+      "required": ["id", "hrid", "attempt", "action", "plugin", "project"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "hrid": { "type": "string", "pattern": "^RUN-[0-9]{6,}$" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "action": {
+          "type": "string",
+          "description": "The qualified name, such as `protein.compute_properties`."
+        },
+        "plugin": {
+          "type": "object",
+          "required": ["name", "version", "sha"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "version": { "type": "string" },
+            "sha": {
+              "type": ["string", "null"],
+              "description": "The plugin's commit, when the deployment was built from a lockfile."
+            }
+          }
+        },
+        "project": { "type": "string", "format": "uuid" }
+      }
+    },
+    "job": {
+      "type": "object",
+      "description": "For iki-worker, not the command: the lease it holds, and its limits.",
+      "required": [
+        "id",
+        "lease_token",
+        "lease_expires_at",
+        "heartbeat_every",
+        "timeout",
+        "resources"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "lease_token": { "type": "string", "format": "uuid" },
+        "lease_expires_at": { "type": "string", "format": "date-time" },
+        "heartbeat_every": { "type": "integer", "minimum": 1, "description": "Seconds." },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds the attempt may run."
+        },
+        "resources": {
+          "type": "object",
+          "description": "What the job needs. Memory and disk are in bytes.",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": { "type": ["number", "null"] },
+            "memory": { "type": ["integer", "null"] },
+            "gpu_count": { "type": ["integer", "null"] },
+            "gpu_memory": { "type": ["integer", "null"] },
+            "scratch_disk": { "type": ["integer", "null"] }
+          }
+        }
+      }
+    },
+    "command": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "The action's command, run in its environment from the plugin's directory."
+    },
+    "environment": { "type": "string", "description": "plugin.environment" },
+    "params": {
+      "type": "object",
+      "description": "Every param, by name, with its default filled in."
+    },
+    "inputs": {
+      "type": "object",
+      "description": "Every input, by name: a list of entities (one item for inputs that take one; none for an optional input left out).",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "$ref": "#/$defs/entity" }
+      }
+    }
+  },
+  "$defs": {
+    "entity": {
+      "type": "object",
+      "required": ["id", "hrid", "type", "schema_version", "revision", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "hrid": { "type": "string" },
+        "type": {
+          "type": "string",
+          "description": "The qualified type, such as `protein.Protein`."
+        },
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The revision the run reads."
+        },
+        "values": {
+          "type": "object",
+          "description": "Field values as the REST API shows them: references and files as IDs."
+        }
+      }
+    }
+  }
+}

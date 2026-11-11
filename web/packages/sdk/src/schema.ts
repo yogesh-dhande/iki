@@ -105,6 +105,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/registration-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Worker registration tokens
+         * @description Newest first, revoked ones included.
+         */
+        get: operations["iki_server_api_compute_list_registrations"];
+        put?: never;
+        /** Make a worker registration token */
+        post: operations["iki_server_api_compute_create_registration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/registration-tokens/{token_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke a worker registration token
+         * @description New workers can't register with it. Workers that did keep working, unless you also
+         *     revoke them (`workers: true`, for a token that leaked); their jobs are then interrupted,
+         *     and retried on other workers if their action allows.
+         */
+        post: operations["iki_server_api_compute_revoke_registration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/workers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workers
+         * @description Newest first.
+         */
+        get: operations["iki_server_api_compute_list_workers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/workers/{worker_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke a worker
+         * @description Its token stops working at once. Jobs it holds are interrupted, and retried on other
+         *     workers if their action allows.
+         */
+        post: operations["iki_server_api_compute_revoke_worker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities": {
         parameters: {
             query?: never;
@@ -2491,6 +2575,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[WorkerOut] */
+        Page_WorkerOut_: {
+            /** Items */
+            items: components["schemas"]["WorkerOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** ParamOut */
         ParamOut: {
             /** Default */
@@ -2769,6 +2863,45 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** RegistrationCreatedOut */
+        RegistrationCreatedOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["PersonOut"];
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Hint
+             * @description The token's last four characters, to tell it by.
+             */
+            hint: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Tier */
+            tier: string;
+            /**
+             * Token
+             * @description Shown once. Give it to the tier's workers as a secret.
+             */
+            token: string;
+            /**
+             * Workers
+             * @description Workers registered with it and not revoked.
+             */
+            workers: number;
+        };
         /** RegistrationIn */
         RegistrationIn: {
             /**
@@ -2921,6 +3054,15 @@ export interface components {
              * @description How: web, api, mcp, run, …
              */
             via: string;
+        };
+        /** RevokeIn */
+        RevokeIn: {
+            /**
+             * Workers
+             * @description Also revoke the workers that registered with it.
+             * @default false
+             */
+            workers: boolean;
         };
         /** RoleIn */
         RoleIn: {
@@ -3682,6 +3824,77 @@ export interface components {
             /** Url */
             url?: string | null;
         };
+        /** WorkerFilters */
+        WorkerFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Revoked
+             * @description Include revoked workers.
+             * @default false
+             */
+            revoked: boolean;
+            /** Tier */
+            tier?: ("client" | "backend" | "container" | "vm") | null;
+        };
+        /** WorkerOut */
+        WorkerOut: {
+            /**
+             * Capacity
+             * @description What it can give one job: cpu, memory, gpu_count, gpu_memory and scratch_disk (bytes).
+             */
+            capacity: {
+                [key: string]: unknown;
+            };
+            /** Hint */
+            hint: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Jobs
+             * @description Jobs it holds now.
+             */
+            jobs: number;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Name */
+            name: string;
+            /** @description For the client tier: whose machine it is. */
+            owner: components["schemas"]["PersonOut"] | null;
+            /**
+             * Registered At
+             * Format: date-time
+             */
+            registered_at: string;
+            /** Registration */
+            registration: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "online" | "offline" | "revoked";
+            /** Tier */
+            tier: string;
+            /** Version */
+            version: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -3807,6 +4020,131 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_list_registrations: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RegistrationOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_create_registration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationCreatedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_revoke_registration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_list_workers: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                tier?: ("client" | "backend" | "container" | "vm") | null;
+                /** @description Include revoked workers. */
+                revoked?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WorkerOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_revoke_worker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerOut"];
                 };
             };
         };
