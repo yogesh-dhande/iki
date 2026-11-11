@@ -177,6 +177,9 @@ class RevisionOut(Schema):
     changed_fields: list[str]
     user: UserOut | None = Field(description="Who, or for a run, who launched it.")
     via: str = Field(description="How: web, api, mcp, run, …")
+    client: str = Field(
+        description="The OAuth app it came through, such as an AI agent's MCP client, if any."
+    )
     run: RunRefOut | None = Field(
         None,
         description="The run that made it, when `via` is `run` and you can read the run's project.",
@@ -817,6 +820,7 @@ def _revision(revision: Revision, runs: dict[int, dict[str, Any]]) -> dict[str, 
         "changed_fields": revision.changed_fields,
         "user": revision.user,
         "via": revision.via,
+        "client": revision.client,
         "run": runs.get(revision.number),
         "reason": revision.reason,
         "created_at": revision.created_at,

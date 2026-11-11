@@ -41,7 +41,7 @@ from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.audit.log import current_via
+from iki_server.audit.log import current_oauth_client, current_via
 from iki_server.entities import access, identity, registry, rules
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Part, Refs, Shape, read_value, shape, to_db
@@ -519,6 +519,7 @@ def _revise(
         changed_fields=changed,
         user=user,
         via=via or current_via(),
+        client=current_oauth_client(),
         reason=reason.strip(),
     )
     Entity.objects.filter(pk=entity.pk).update(revision=number, updated_at=Now())

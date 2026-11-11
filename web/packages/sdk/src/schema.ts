@@ -3526,6 +3526,11 @@ export interface components {
                 [key: string]: components["schemas"]["ChangeOut"];
             };
             /**
+             * Client
+             * @description The OAuth app it came through, such as an AI agent's MCP client, if any.
+             */
+            client: string;
+            /**
              * Created At
              * Format: date-time
              */
@@ -3574,6 +3579,11 @@ export interface components {
         RevisionOut: {
             /** Changed Fields */
             changed_fields: string[];
+            /**
+             * Client
+             * @description The OAuth app it came through, such as an AI agent's MCP client, if any.
+             */
+            client: string;
             /**
              * Created At
              * Format: date-time

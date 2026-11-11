@@ -68,7 +68,9 @@ function Via({ revision }: { revision: Revision }) {
       <>by a run in a project you can’t see</>
     );
   }
-  return <>{VIA[revision.via] ?? revision.via}</>;
+  const how = VIA[revision.via] ?? revision.via;
+  // The OAuth app it came through, as the audit log names it: an agent's MCP client, say.
+  return <>{revision.client ? `${how}, through ${revision.client}` : how}</>;
 }
 
 const KIND: Record<string, string> = {

@@ -90,8 +90,10 @@ claude mcp add --transport http iki https://iki.example.com/mcp
 ```
 
 Its tools search and read entities with their provenance, history and
-lineage, and actions and runs with their logs. Everything an agent does is
-recorded as done through MCP, by its app.
+lineage, and actions and runs with their logs. They also create, change,
+archive and restore entities, giving a reason for each change. Everything an
+agent does is recorded as done through MCP, through its app, for the person
+it acts for.
 
 ### Database roles
 

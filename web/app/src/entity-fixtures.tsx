@@ -177,6 +177,7 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
     changed_fields: ["name", "sequence"],
     reason: "",
     via: "web",
+    client: "",
     user: ALICE,
     created_at: "2026-03-14T09:00:00Z",
     ...overrides,

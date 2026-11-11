@@ -4401,6 +4401,11 @@
             "title": "Changes",
             "type": "object"
           },
+          "client": {
+            "description": "The OAuth app it came through, such as an AI agent's MCP client, if any.",
+            "title": "Client",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -4480,6 +4485,7 @@
           "changed_fields",
           "user",
           "via",
+          "client",
           "reason",
           "created_at",
           "values",
@@ -4498,6 +4504,11 @@
             },
             "title": "Changed Fields",
             "type": "array"
+          },
+          "client": {
+            "description": "The OAuth app it came through, such as an AI agent's MCP client, if any.",
+            "title": "Client",
+            "type": "string"
           },
           "created_at": {
             "format": "date-time",
@@ -4556,6 +4567,7 @@
           "changed_fields",
           "user",
           "via",
+          "client",
           "reason",
           "created_at"
         ],

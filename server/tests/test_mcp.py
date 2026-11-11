@@ -143,13 +143,21 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "get_entity",
         "get_entity_history",
         "get_lineage",
+        "create_entity",
+        "update_entity",
+        "set_entity_archived",
         "list_actions",
         "describe_action",
         "list_runs",
         "get_run",
         "get_run_log",
     ]
-    assert all(t["annotations"]["readOnlyHint"] is True for t in listed)
+    writes = {"create_entity", "update_entity", "set_entity_archived"}
+    for t in listed:
+        assert t["annotations"]["readOnlyHint"] is (t["name"] not in writes), t["name"]
+        assert t["annotations"]["openWorldHint"] is False
+    hints = {t["name"]: t["annotations"].get("destructiveHint") for t in listed}
+    assert (hints["create_entity"], hints["update_entity"]) == (False, True)
     search = next(t for t in listed if t["name"] == "search_entities")
     assert set(search["inputSchema"]["properties"]) >= {"type", "project", "q", "where", "sort"}
 
@@ -298,3 +306,82 @@ async def test_tools_see_only_what_the_grant_allows(world: World) -> None:
     assert "(404" in error(await tool(token, "get_entity", ref=secret["hrid"]))
     projects = data(await tool(token, "list_projects", member=True))
     assert other.name not in {p["name"] for p in projects["items"]}
+
+
+# --- Writing ------------------------------------------------------------------------------------
+
+
+async def test_agents_create_and_change_entities_on_the_record(world: World) -> None:
+    token = await token_for(world)
+    made = data(
+        await tool(
+            token,
+            "create_entity",
+            type="protein.Protein",
+            project=str(world.project.pk),
+            values={"sequence": "MKVLA", "name": "ABL1"},
+            reason="From the paper's table 2",
+        )
+    )
+    assert made["reused"] is False
+    ref = made["hrid"]
+
+    # A change names the revision it was decided on, and gives a reason.
+    stale = error(
+        await tool(token, "update_entity", ref=ref, revision=9, values={"name": "x"}, reason="y")
+    )
+    assert "(412" in stale
+    unexplained = error(
+        await tool(token, "update_entity", ref=ref, revision=1, values={}, reason="")
+    )
+    assert "reason" in unexplained
+    changed = data(
+        await tool(
+            token,
+            "update_entity",
+            ref=ref,
+            revision=1,
+            values={"name": "ABL1 kinase"},
+            reason="Full name",
+        )
+    )
+    assert (changed["revision"], changed["values"]["name"]) == (2, "ABL1 kinase")
+    archived = data(
+        await tool(token, "set_entity_archived", ref=ref, revision=2, archived=True, reason="Dup")
+    )
+    assert archived["archived"] is True
+
+    # Its history says each change was made through MCP, by the person, through which app,
+    # with why.
+    history = data(await tool(token, "get_entity_history", ref=ref))["items"]
+    assert {r["client"].split(" (")[0] for r in history} == {"Notebook"}
+    assert [(r["kind"], r["via"], r["user"]["email"], r["reason"]) for r in history] == [
+        ("archived", "mcp", "editor@example.com", "Dup"),
+        ("edited", "mcp", "editor@example.com", "Full name"),
+        ("created", "mcp", "editor@example.com", "From the paper's table 2"),
+    ]
+
+
+async def test_writes_need_the_scope_and_the_role(world: World) -> None:
+    reader = await token_for(world, "editor", scope="read")
+    refused = error(
+        await tool(
+            reader,
+            "create_entity",
+            type="protein.Protein",
+            project=str(world.project.pk),
+            values={"sequence": "MKV"},
+        )
+    )
+    assert "(403, insufficient_scope)" in refused
+    assert "write scope" in refused
+    viewer = await token_for(world, "viewer")
+    assert "(403" in error(
+        await tool(
+            viewer,
+            "create_entity",
+            type="protein.Protein",
+            project=str(world.project.pk),
+            values={"sequence": "MKV"},
+        )
+    )

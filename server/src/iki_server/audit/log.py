@@ -137,6 +137,12 @@ def current_via() -> str:
     return _context.get(_SYSTEM).via
 
 
+def current_oauth_client() -> str:
+    """The OAuth app the current change comes through, if any, as ``note_oauth_client``
+    named it."""
+    return _context.get(_SYSTEM).oauth_client
+
+
 def note_oauth_client(label: str) -> None:
     """Marks the rest of this request as made through an OAuth client."""
     _context.set(dataclasses.replace(_context.get(_SYSTEM), oauth_client=label[:254]))

@@ -50,12 +50,20 @@ everything else, has no lifespan hook.
   written by people and tools and isn't instructions. The server's
   instructions say the same. Answers also carry the JSON as structured
   content.
-- **Read tools first.** `whoami`, `list_projects`, `list_entity_types`,
-  `describe_entity_type`, `search_entities`, `get_entity` (with
-  provenance), `get_entity_history`, `get_lineage`, `list_actions`,
-  `describe_action`, `list_runs`, `get_run` and `get_run_log` are marked
-  read-only. Tools that change data and start runs follow, with approvals
-  for runs on the container and VM tiers (ADR 0013).
+- **Tools say what they do.**
+  - Read-only: `whoami`, `list_projects`, `list_entity_types`,
+    `describe_entity_type`, `search_entities`, `get_entity` (with
+    provenance), `get_entity_history`, `get_lineage`, `list_actions`,
+    `describe_action`, `list_runs`, `get_run` and `get_run_log`.
+  - Adding: `create_entity`.
+  - Changing, marked destructive so clients ask first: `update_entity` and
+    `set_entity_archived`. They name the revision they were decided on
+    (`If-Match`), and need a reason for the entity's history.
+  - Tools that start runs follow, with approvals for runs on the container
+    and VM tiers (ADR 0013).
+- **Revisions name the app.** Each revision records the OAuth app it came
+  through, as the audit log names it. An agent's change reads as made by
+  the person it acted for, through MCP, through that app.
 
 ## Consequences
 

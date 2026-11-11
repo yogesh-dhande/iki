@@ -150,6 +150,9 @@ class Revision(models.Model):
     #: How the change was made: web, api, mcp, cli or system (as in the audit log), or run
     #: for a run's results (its RunEffect names the run).
     via = models.CharField(max_length=16)
+    #: The OAuth app it came through, if any, as the audit log names it: an MCP client,
+    #: say, acting for ``user``.
+    client = models.CharField(max_length=255, blank=True, default="")
     #: Why, if the person said.
     reason = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(db_default=Now())

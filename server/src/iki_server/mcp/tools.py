@@ -41,12 +41,37 @@ or HRIDs (such as PRT-000123 or RUN-000045)."""
 
 #: Tools that only read, and stay inside Iki.
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
+#: Tools that add to Iki's data. Nothing is lost: what's there stays as it was.
+ADD = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False
+)
+#: Tools that change what's there. Its history keeps the old values, but what people see
+#: changes, so clients should ask first.
+CHANGE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=True, open_world_hint=False
+)
 
 Ref = Annotated[str, Field(description="Its ID, or its HRID such as PRT-000123.", max_length=64)]
 Cursor = Annotated[
     str | None, Field(description="To get the next page: the last page's next_cursor.")
 ]
 Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT, description="Items per page.")]
+Revision = Annotated[
+    int,
+    Field(
+        ge=1,
+        description="Its revision you read (get_entity's entity.revision). If it has changed "
+        "since, nothing is changed: read it again and decide.",
+    ),
+]
+Reason = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=2000,
+        description="Why, in a sentence, for its history: people will read it.",
+    ),
+]
 
 
 def answer(data: Any) -> CallToolResult:  # noqa: ANN401 - JSON
@@ -193,6 +218,75 @@ def build() -> MCPServer:
                 "GET",
                 path("/entities/{ref}/lineage/graph", ref=ref),
                 query={"up": up, "down": down},
+            )
+        )
+
+    @server.tool(annotations=ADD, title="Create an entity")
+    async def create_entity(
+        type: Annotated[str, Field(description="Its type, such as dna.DNASequence.")],
+        project: Annotated[
+            UUID, Field(description="The project it belongs to. It needs the person as Editor.")
+        ],
+        values: Annotated[
+            dict[str, Any],
+            Field(description="Its fields' values, as describe_entity_type's values_schema says."),
+        ],
+        reason: Annotated[str, Field(max_length=2000, description="Why, for its history.")] = "",
+        allow_duplicate: Annotated[
+            bool,
+            Field(
+                description="Create it even if its type warns about a duplicate. Only when the "
+                "person has said they want one."
+            ),
+        ] = False,
+    ) -> CallToolResult:
+        """A new entity. If its type reuses duplicates and one with the same identity
+        exists, that one comes back (`reused`) and is added to the project instead."""
+        body = {
+            "type": type,
+            "project": str(project),
+            "values": values,
+            "reason": reason,
+            "allow_duplicate": allow_duplicate,
+        }
+        return answer(await call("POST", "/entities", body=body))
+
+    @server.tool(annotations=CHANGE, title="Change an entity")
+    async def update_entity(
+        ref: Ref,
+        revision: Revision,
+        values: Annotated[
+            dict[str, Any],
+            Field(description="Only the fields to change, with their new values; null unsets."),
+        ],
+        reason: Reason,
+    ) -> CallToolResult:
+        """Changes some of an entity's values, as one new revision. Its owning project
+        decides who may: the person must be an Editor there."""
+        return answer(
+            await call(
+                "PATCH",
+                path("/entities/{ref}", ref=ref),
+                body={"values": values, "reason": reason},
+                if_match=f'"{revision}"',
+            )
+        )
+
+    @server.tool(annotations=CHANGE, title="Archive or restore an entity")
+    async def set_entity_archived(
+        ref: Ref,
+        revision: Revision,
+        archived: Annotated[bool, Field(description="true archives it; false restores it.")],
+        reason: Reason,
+    ) -> CallToolResult:
+        """Archives an entity (it's kept, with its history, and can't change) or restores
+        one. Nothing in Iki is deleted this way."""
+        return answer(
+            await call(
+                "PATCH",
+                path("/entities/{ref}", ref=ref),
+                body={"archived": archived, "reason": reason},
+                if_match=f'"{revision}"',
             )
         )
 
