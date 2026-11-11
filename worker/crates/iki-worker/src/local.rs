@@ -170,15 +170,13 @@ pub fn run(options: &Options, work_dir: &Path) -> Result<Ran, String> {
         ],
     );
     let host = Arc::new(Local { id });
-    let report = job::execute(
-        &host,
-        &input,
-        &plugin_dir,
-        &dirs,
-        &raw,
-        &interrupted,
+    let plan = job::Plan {
+        input: &input,
+        plugin_dir: &plugin_dir,
+        built: None,
         timeout,
-    );
+    };
+    let report = job::execute(&host, &plan, &dirs, &raw, &interrupted);
     Ok(match report {
         Some(Report::Complete(output)) => {
             let text = serde_json::to_string_pretty(&output)

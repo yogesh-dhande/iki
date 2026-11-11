@@ -146,14 +146,14 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         signal_hook::flag::register(signal, Arc::clone(&interrupted))
             .map_err(|error| format!("Couldn't watch for signals: {error}"))?;
     }
-    let plugins = plugins::discover(&config.plugins_dir)?;
-    if plugins.is_empty() {
+    let have = plugins::discover(&config.plugins_dir)?;
+    if have.code.is_empty() {
         say::warn(
             "IKI_PLUGINS_DIR holds no plugins, so this worker can run nothing.",
             &[("path", &config.plugins_dir.display())],
         );
     }
-    let (api, ephemeral) = sign_in(config, &plugins)?;
+    let (api, ephemeral) = sign_in(config, &have.code)?;
     let lease = format!("{}?wait={LEASE_WAIT}", paths::LEASE);
     let mut failures = 0;
     let mut outcome = Ok(());
@@ -162,7 +162,7 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         match api.post::<_, serde_json::Value>(&lease, &serde_json::json!({})) {
             Ok(Some(raw)) => {
                 failures = 0;
-                if job::run(&api, config, &plugins, &interrupted, &raw) == Ended::Unauthorized {
+                if job::run(&api, config, &have, &interrupted, &raw) == Ended::Unauthorized {
                     outcome = Err(revoked());
                     break;
                 }

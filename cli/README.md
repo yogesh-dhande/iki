@@ -116,12 +116,28 @@ them up. See [ADR 0034](../docs/adr/0034-deployment-lockfile-and-plugin-builds.m
 Use the server image of the same Iki version: the server refuses plugins
 another version built.
 
-| Option               | What it does                                                                   |
-| -------------------- | ------------------------------------------------------------------------------ |
-| `DEPLOYMENT`         | The deployment's directory, holding `plugins.lock.yaml` (or the lockfile).     |
-| `--output DIRECTORY` | Where to write the plugins. Replaces an earlier build there, and nothing else. |
-| `--allow-local`      | Accept `local:` plugins, for development. Servers refuse them unless told to.  |
-| `--cache DIRECTORY`  | Where to keep fetched repositories (default `~/.cache/iki/git`).               |
+| Option                         | What it does                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| `DEPLOYMENT`                   | The deployment's directory, holding `plugins.lock.yaml` (or the lockfile).     |
+| `--output DIRECTORY`           | Where to write the plugins. Replaces an earlier build there, and nothing else. |
+| `--workers DIRECTORY`          | Also write what the deployment's workers need (below).                         |
+| `--environments-dir DIRECTORY` | Where the worker image builds environments (default `/opt/iki/envs`).          |
+| `--allow-local`                | Accept `local:` plugins, for development. Servers refuse them unless told to.  |
+| `--cache DIRECTORY`            | Where to keep fetched repositories (default `~/.cache/iki/git`).               |
+
+With `--workers build/worker`, it also writes what the deployment's
+backend workers need, from the same commits as the server, so the two
+agree on what each run's code is
+([ADR 0047](../docs/adr/0047-workers-run-only-the-code-a-run-was-launched-with.md)):
+
+- `plugins/<name>/`: each plugin's code at its commit;
+- `plugins/plugins.json`: what the worker tells the server it has;
+- `build-environments.sh`: builds each Python or conda environment the
+  plugins declare for the backend or client tier, installing only the
+  packages its requirements file or lockfile pins, by hash.
+
+The worker image's Dockerfile copies `plugins/` to `/opt/iki/plugins` and
+runs the script.
 
 ```console
 $ iki --version

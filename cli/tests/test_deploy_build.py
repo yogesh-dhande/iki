@@ -135,6 +135,60 @@ def test_builds_the_pinned_commits(
     assert tree_hash(out) == first
 
 
+@pytest.mark.usefixtures("allow_file")
+def test_builds_what_workers_need_from_the_same_commits(
+    tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo, sha = upstream
+    out, bundle = tmp_path / "plugins", tmp_path / "worker"
+    command = ["deploy", "build", str(deployment(tmp_path, sha)), "-o", str(out)]
+    assert main([*command, "--workers", str(bundle)]) == 0
+    assert f"Wrote what workers need to {bundle}." in capsys.readouterr().out
+    assert sorted(p.name for p in bundle.iterdir()) == ["build-environments.sh", "plugins"]
+    # Each plugin's code, exported at its commit.
+    script = bundle / "plugins" / "protein" / "scripts" / "relax.py"
+    assert script.read_bytes() == (repo / "plugins/protein/scripts/relax.py").read_bytes()
+    manifest = json.loads((bundle / "plugins" / "plugins.json").read_text())
+    requirements = (repo / "plugins/protein/requirements.txt").read_bytes()
+    definition = {
+        "kind": "python",
+        "python": "3.12",
+        "requirements_sha256": hashlib.sha256(requirements).hexdigest(),
+    }
+    canonical = json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
+    assert manifest == {
+        "apiVersion": "iki/v1",
+        "kind": "WorkerPlugins",
+        "plugins": [
+            {"name": "dna", "version": "1.2.0", "sha": sha, "environments": {}},
+            {
+                "name": "protein",
+                "version": "3.0.0",
+                "sha": sha,
+                "environments": {
+                    "protein-tools": {
+                        "digest": "sha256:" + hashlib.sha256(canonical).hexdigest(),
+                        "kind": "python",
+                        "prefix": "/opt/iki/envs/protein/protein-tools",
+                    }
+                },
+            },
+        ],
+    }
+    built = (bundle / "build-environments.sh").read_text()
+    assert "uv venv --quiet --python 3.12 /opt/iki/envs/protein/protein-tools" in built
+    # Its requirements name no packages, so there's nothing to install.
+    assert "uv pip install" not in built
+
+    # It replaces a previous bundle, but nothing else.
+    first = tree_hash(bundle)
+    assert main([*command, "--workers", str(bundle)]) == 0
+    assert tree_hash(bundle) == first
+    (bundle / "notes.txt").write_text("mine")
+    assert main([*command, "--workers", str(bundle)]) == 1
+    assert "holds files a build didn't write (notes.txt)" in capsys.readouterr().err
+
+
 def test_git_cant_be_sent_to_other_transports(
     tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
 ) -> None:

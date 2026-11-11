@@ -40,8 +40,12 @@ iki-worker start
 
 The worker leases only runs launched with the plugin code it has
 ([ADR 0047](../docs/adr/0047-workers-run-only-the-code-a-run-was-launched-with.md)).
-A plugin in a plain directory counts as local: it runs what a development
-server launches, with the host's own software.
+Its plugins come from `iki deploy build --workers`, which writes each
+plugin's code at its commit, a `plugins.json` saying what it has, and a
+script that builds its environments into the image. Without
+`plugins.json`, each directory holding a `plugin.yaml` counts as a local
+plugin: it runs what a development server launches, with the host's own
+software.
 
 `iki-worker start --once` runs one job and exits. SIGTERM or SIGINT stops
 the current job's command (SIGTERM, then SIGKILL after 10 seconds), reports

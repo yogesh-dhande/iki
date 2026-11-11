@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use iki_protocol::{
     CompleteIn, CompleteOut, FailIn, FailInReason, FailOut, HeartbeatIn, HeartbeatInState,
-    HeartbeatOut, LogIn, LogOut, PluginCode, ProgressIn, RunInput, RunInputFile, fill, paths,
+    HeartbeatOut, LogIn, LogOut, ProgressIn, RunInput, RunInputFile, fill, paths,
 };
 use rustix::process::{Pid, Signal, kill_process_group};
 
@@ -33,7 +33,7 @@ use crate::api::{self, Api, Error};
 use crate::config::Config;
 use crate::files;
 use crate::logs::{self, Log};
-use crate::plugins;
+use crate::plugins::{self, Built, Kind};
 use crate::say;
 
 /// The most `output.json` may hold, as the server accepts.
@@ -407,9 +407,27 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     builder.create(dir)
 }
 
+/// What to run, and how.
+pub struct Plan<'a> {
+    pub input: &'a RunInput,
+    /// The plugin's code, which it runs from.
+    pub plugin_dir: &'a Path,
+    /// The environment to run it in; `None` for the host's own software.
+    pub built: Option<&'a Built>,
+    pub timeout: Duration,
+}
+
 /// The command's environment: nothing of the worker's but what programs need to run.
-fn environment(dirs: &Dirs, input: &RunInput) -> Vec<(String, String)> {
-    const PASSED: &[&str] = &["PATH", "LANG", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR"];
+fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(String, String)> {
+    const PASSED: &[&str] = &[
+        "PATH",
+        "LANG",
+        "TZ",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        // Where micromamba keeps its packages, for conda environments.
+        "MAMBA_ROOT_PREFIX",
+    ];
     let mut env: Vec<(String, String)> = PASSED
         .iter()
         .filter_map(|name| {
@@ -423,6 +441,20 @@ fn environment(dirs: &Dirs, input: &RunInput) -> Vec<(String, String)> {
         env.push(("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into()));
     }
     let path = |p: &Path| p.to_string_lossy().into_owned();
+    if let Some(built) = built {
+        // Its programs first, so `python` is the environment's.
+        let bin = path(&built.prefix.join("bin"));
+        for (name, value) in &mut env {
+            if name == "PATH" {
+                *value = format!("{bin}:{value}");
+            }
+        }
+        let variable = match built.kind {
+            Kind::Python => "VIRTUAL_ENV",
+            Kind::Conda => "CONDA_PREFIX",
+        };
+        env.push((variable.into(), path(&built.prefix)));
+    }
     env.extend([
         ("HOME".into(), path(&dirs.home)),
         ("TMPDIR".into(), path(&dirs.tmp)),
@@ -437,23 +469,44 @@ fn environment(dirs: &Dirs, input: &RunInput) -> Vec<(String, String)> {
     env
 }
 
-fn spawn(input: &RunInput, plugin_dir: &Path, dirs: &Dirs) -> Result<Child, String> {
-    let (program, args) = input
+/// The program and its arguments: the action's command, run through `micromamba run` in
+/// a conda environment so its activation scripts run.
+fn command_line(plan: &Plan) -> Result<(PathBuf, Vec<String>), String> {
+    let (program, args) = plan
+        .input
         .command
         .split_first()
         .ok_or("The action has no command.")?;
     // A relative path to a program (`bin/fold`) is the plugin's; a bare name is on PATH.
     let program = if program.contains('/') && !Path::new(program).is_absolute() {
-        plugin_dir.join(program)
+        plan.plugin_dir.join(program)
     } else {
         PathBuf::from(program)
     };
+    Ok(match plan.built {
+        Some(built) if built.kind == Kind::Conda => {
+            let mut wrapped = vec![
+                "run".to_owned(),
+                "--prefix".to_owned(),
+                built.prefix.to_string_lossy().into_owned(),
+                "--".to_owned(),
+                program.to_string_lossy().into_owned(),
+            ];
+            wrapped.extend(args.iter().cloned());
+            (PathBuf::from("micromamba"), wrapped)
+        }
+        _ => (program, args.to_vec()),
+    })
+}
+
+fn spawn(plan: &Plan, dirs: &Dirs) -> Result<Child, String> {
+    let (program, args) = command_line(plan)?;
     let mut command = Command::new(&program);
     command
-        .args(args)
-        .current_dir(plugin_dir)
+        .args(&args)
+        .current_dir(plan.plugin_dir)
         .env_clear()
-        .envs(environment(dirs, input))
+        .envs(environment(dirs, plan.input, plan.built))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -535,7 +588,7 @@ fn clip(text: &str, max: usize) -> String {
 pub fn run(
     api: &Api,
     config: &Config,
-    have: &[PluginCode],
+    have: &plugins::Have,
     interrupted: &AtomicBool,
     raw: &serde_json::Value,
 ) -> Ended {
@@ -577,25 +630,32 @@ pub fn run(
     };
     let dirs = Dirs::new(&config.work_dir, &job.id);
     let plugin_dir = config.plugins_dir.join(&input.run.plugin.name);
-    let mismatch = plugins::mismatch(
-        have,
+    let wanted = have.for_run(
         &input.run.plugin.name,
         input.run.plugin.sha.as_deref(),
+        &input.environment,
     );
-    let report = if let Some(message) = mismatch {
-        Some(Report::Fail(FailInReason::Failed, message))
-    } else if plugin_dir.is_dir() {
-        let timeout = Duration::from_secs(u64::try_from(input.job.timeout.max(1)).unwrap_or(3600));
-        execute(&job, &input, &plugin_dir, &dirs, raw, interrupted, timeout)
-    } else {
-        Some(Report::Fail(
+    let report = match wanted {
+        Err(message) => Some(Report::Fail(FailInReason::Failed, message)),
+        Ok(_) if !plugin_dir.is_dir() => Some(Report::Fail(
             FailInReason::Failed,
             format!(
                 "This worker has no code for the plugin {} (looked in {}).",
                 input.run.plugin.name,
                 plugin_dir.display()
             ),
-        ))
+        )),
+        Ok(built) => {
+            let plan = Plan {
+                input: &input,
+                plugin_dir: &plugin_dir,
+                built,
+                timeout: Duration::from_secs(
+                    u64::try_from(input.job.timeout.max(1)).unwrap_or(3600),
+                ),
+            };
+            execute(&job, &plan, &dirs, raw, interrupted)
+        }
     };
     job.signals.output_read.store(true, Ordering::SeqCst);
     let _ = sending.join();
@@ -691,13 +751,12 @@ fn upload_results(
 /// a local one. `None` if the lease was lost.
 pub fn execute<H: Host>(
     host: &Arc<H>,
-    input: &RunInput,
-    plugin_dir: &Path,
+    plan: &Plan,
     dirs: &Dirs,
     raw: &serde_json::Value,
     interrupted: &AtomicBool,
-    timeout: Duration,
 ) -> Option<Report> {
+    let (input, timeout) = (plan.input, plan.timeout);
     if let Err(error) = dirs.create() {
         let message = format!("Couldn't stage the job: {error}.");
         return Some(Report::Fail(FailInReason::Failed, message));
@@ -713,7 +772,7 @@ pub fn execute<H: Host>(
         }
     }
     host.state(HeartbeatInState::Running);
-    let mut child = match spawn(input, plugin_dir, dirs) {
+    let mut child = match spawn(plan, dirs) {
         Ok(child) => child,
         Err(message) => return Some(Report::Fail(FailInReason::Failed, message)),
     };
@@ -927,6 +986,83 @@ fn unreadable(api: &Api, raw: &serde_json::Value, error: &str) -> Ended {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn input(command: &[&str]) -> RunInput {
+        serde_json::from_value(serde_json::json!({
+            "apiVersion": "iki/v1",
+            "kind": "RunInput",
+            "run": {
+                "id": "r", "hrid": "RUN-1", "attempt": 1, "action": "dna.gc",
+                "plugin": {"name": "dna", "version": "1.0.0", "sha": null}, "project": "p",
+            },
+            "job": {
+                "id": "j", "lease_token": "t", "lease_expires_at": "", "heartbeat_every": 20,
+                "timeout": 60, "resources": {},
+            },
+            "command": command,
+            "environment": "dna.tools",
+            "params": {},
+            "inputs": {},
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn commands_run_in_their_built_environment() {
+        let input = input(&["python", "gc.py"]);
+        let venv = Built {
+            digest: "sha256:x".into(),
+            kind: Kind::Python,
+            prefix: "/opt/iki/envs/dna/tools".into(),
+        };
+        let plan = Plan {
+            input: &input,
+            plugin_dir: Path::new("/opt/iki/plugins/dna"),
+            built: Some(&venv),
+            timeout: Duration::from_secs(60),
+        };
+        assert_eq!(
+            command_line(&plan).unwrap(),
+            (PathBuf::from("python"), vec!["gc.py".to_owned()])
+        );
+        let dirs = Dirs::new(Path::new("/work"), "j");
+        let env: std::collections::HashMap<_, _> = environment(&dirs, &input, Some(&venv))
+            .into_iter()
+            .collect();
+        assert!(env["PATH"].starts_with("/opt/iki/envs/dna/tools/bin:"));
+        assert_eq!(env["VIRTUAL_ENV"], "/opt/iki/envs/dna/tools");
+
+        let conda = Built {
+            kind: Kind::Conda,
+            ..venv.clone()
+        };
+        let plan = Plan {
+            built: Some(&conda),
+            ..plan
+        };
+        let (program, args) = command_line(&plan).unwrap();
+        assert_eq!(program, PathBuf::from("micromamba"));
+        assert_eq!(
+            args,
+            [
+                "run",
+                "--prefix",
+                "/opt/iki/envs/dna/tools",
+                "--",
+                "python",
+                "gc.py"
+            ]
+        );
+        // Without one, the host's own software.
+        let plan = Plan {
+            built: None,
+            ..plan
+        };
+        assert_eq!(command_line(&plan).unwrap().0, PathBuf::from("python"));
+        let env: std::collections::HashMap<_, _> =
+            environment(&dirs, &input, None).into_iter().collect();
+        assert!(!env.contains_key("VIRTUAL_ENV") && !env.contains_key("CONDA_PREFIX"));
+    }
 
     #[test]
     fn clips_long_messages() {

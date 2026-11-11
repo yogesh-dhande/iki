@@ -43,6 +43,27 @@ software, as a plugin author's machine does. A deployment's workers get
 their plugins and built environments from `iki deploy build`, from the
 same lockfile as the server, so the commits match.
 
+**How a deployment's workers get them.** `iki deploy build --workers`
+writes, from the server's own lockfile:
+
+- each plugin's code, exported at its commit;
+- `plugins.json`, listing each plugin and the environments built for it;
+- a script that builds those environments.
+
+The worker image runs that script when it's built, so a worker never
+installs anything when it starts. That suits default-deny networks, and
+an image can be scanned and signed as it will run. A Python environment
+is a virtual environment, made with `uv`, that installs only the packages
+its requirements file pins, by hash. A conda environment is made with
+`micromamba`, from an explicit lockfile.
+
+A build's digest covers only what decides its contents: the Python
+version and the requirements file, or the conda lockfile. An environment
+that didn't change keeps its digest and its cached image layer across
+plugin commits. A command runs from its plugin's code. A virtual
+environment's `bin` goes first on its `PATH`. A conda environment's
+command runs through `micromamba run`, so its activation scripts run too.
+
 ## Consequences
 
 - A run is either run with the code and environment it was launched with,

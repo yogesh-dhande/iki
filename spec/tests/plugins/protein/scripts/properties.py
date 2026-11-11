@@ -26,6 +26,7 @@ def weight(sequence: str) -> float:
 def main() -> None:
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
     proteins = run["inputs"]["protein"]
+    print(f"Python {sys.version.split()[0]} in {sys.prefix}")
     updates = []
     for done, protein in enumerate(proteins, start=1):
         sequence = protein["values"]["sequence"]

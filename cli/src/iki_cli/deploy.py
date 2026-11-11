@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
+from iki_cli import workers
 from iki_cli.fetch import FetchError, fetch
 from iki_cli.plugin import _missing_dependencies, write_problems
 from iki_codegen import REGISTRY
@@ -59,6 +60,21 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         type=Path,
         metavar="DIRECTORY",
         help="Where to write the plugins, for the image's /opt/iki/plugins.",
+    )
+    build.add_argument(
+        "--workers",
+        type=Path,
+        metavar="DIRECTORY",
+        help=(
+            "Also write what the deployment's workers need, for the worker image: each "
+            "plugin's code at its commit, and a script that builds its environments."
+        ),
+    )
+    build.add_argument(
+        "--environments-dir",
+        default=workers.ENVIRONMENTS,
+        metavar="DIRECTORY",
+        help=f"Where the worker image builds environments (default: {workers.ENVIRONMENTS}).",
     )
     build.add_argument(
         "--allow-local",
@@ -145,6 +161,20 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         )
         if not _replace(staging, args.output, err):
             return 1
+        if args.workers is not None:
+            bundle = workspace / "workers"
+            workers.write(
+                [
+                    workers.WorkerPlugin(f.plugin, f.directory, f.entry.sha)
+                    for f in fetched
+                    if f.plugin is not None
+                ],
+                bundle,
+                args.environments_dir,
+            )
+            if not _replace_workers(bundle, args.workers, err):
+                return 1
+            out.write(f"Wrote what workers need to {args.workers}.\n")
     summary = ", ".join(f"{f.entry.name} {f.plugin.version}" for f in fetched if f.plugin)
     out.write(f"Built {args.output}: {summary or 'no plugins besides core'}.\n")
     return 0
@@ -277,6 +307,23 @@ def _migrations_complete(fetched: Sequence[_Fetched], build: Path, err: TextIO) 
         "repository, run `iki plugin makemigrations`, commit the migration, and pin that commit.\n"
     )
     return False
+
+
+def _replace_workers(bundle: Path, output: Path, err: TextIO) -> bool:
+    """Puts the workers' bundle at ``output``, replacing an earlier one but nothing else."""
+    if output.exists():
+        unexpected = sorted(
+            p.name for p in output.iterdir() if p.name not in ("plugins", workers.SCRIPT)
+        )
+        if unexpected:
+            err.write(
+                f"error: {output} holds files a build didn't write ({', '.join(unexpected)}). "
+                "Give an empty directory, or a previous build's.\n"
+            )
+            return False
+        shutil.rmtree(output)
+    shutil.copytree(bundle, output, symlinks=True)
+    return True
 
 
 def _replace(staging: Path, output: Path, err: TextIO) -> bool:

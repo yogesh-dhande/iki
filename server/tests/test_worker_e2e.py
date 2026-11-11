@@ -292,6 +292,33 @@ def test_stopping_the_worker_interrupts_its_job(
     assert "Deregistered." in said
 
 
+def test_a_deployment_worker_runs_in_the_environment_built_for_it(
+    world: World, start: Callable[..., Running], tmp_path: Path
+) -> None:
+    from iki_cli import workers as bundle
+    from iki_spec.validate import load_plugin
+
+    loaded = load_plugin(PLUGINS / "protein", dependencies=[PLUGINS / "dna"])
+    assert loaded.plugin is not None
+    item = bundle.WorkerPlugin(loaded.plugin, PLUGINS / "protein", None)
+    manifest = bundle.write([item], tmp_path / "bundle", str(tmp_path / "envs"))
+    script = tmp_path / "bundle" / bundle.SCRIPT
+    # This machine's Python, rather than downloading the version the plugin asks for.
+    script.write_text(script.read_text().replace("--python 3.12", f"--python {sys.executable}"))
+    subprocess.run(["sh", str(script)], check=True, capture_output=True)  # noqa: S603, S607
+    built = manifest["plugins"][0]["environments"]["protein-tools"]
+
+    run = queued(world)
+    code, said = start(
+        registration(world), "--once", plugins=tmp_path / "bundle" / "plugins"
+    ).wait()
+    assert code == 0, said
+    assert api_as(world).get(f"/runs/{run['id']}").json()["status"] == "succeeded"
+    assert Job.objects.get(run_id=run["id"]).environment_build == built["digest"]
+    # Its own interpreter, not the worker's.
+    assert f" in {built['prefix']}\n" in log_of(run)
+
+
 def test_a_worker_leases_only_runs_of_plugins_it_has(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:
