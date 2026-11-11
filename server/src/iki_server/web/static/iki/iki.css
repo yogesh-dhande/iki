@@ -1130,6 +1130,82 @@ input[type="date"] {
   margin: 0 0 1.25rem;
 }
 
+.toolbar > .button {
+  margin-bottom: 1.25rem;
+}
+
+/* The grid's filters: one row each, field, condition and value side by side where they fit. */
+.filters {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.filter-rows {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-row > select {
+  max-width: 100%;
+}
+
+.filter-value {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.filter-value .field {
+  margin: 0;
+}
+
+.filters > .button {
+  margin-bottom: 0.75rem;
+}
+
+/* A heading that sorts its column: the whole cell is the button. */
+.sort-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: calc(100% + 1.8rem);
+  height: 44px;
+  margin: 0 -0.9rem;
+  padding: 0 0.9rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sort-heading:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.sort-heading:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.sort-mark {
+  font-size: 0.7rem;
+}
+
 /* The grid of entities: a scrolling region whose rows are drawn as they come into view. */
 .data-grid {
   position: relative;

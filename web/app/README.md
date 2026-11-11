@@ -43,6 +43,10 @@ console.
   scripts), then its parts straight to storage, retried and re-signed as
   needed. `src/media.ts` names lab formats browsers don't know (`.pdb`,
   `.cif`, `.fcs`) by extension.
+- `src/filters.ts` and `src/pages/entity-filters.tsx`: the grid's filters,
+  as the search API takes them (ADR 0037): each kind of field's conditions
+  in words, typed into the same inputs as forms, and kept in the page's
+  address so a filtered, sorted grid can be bookmarked and shared.
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
   addresses. Pages other than the frame, home and a project's overview load
   when they're first opened (`lazyRouteComponent`), so the first page stays

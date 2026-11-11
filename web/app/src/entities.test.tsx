@@ -78,7 +78,7 @@ describe("a project's entities", () => {
 
   it("shows one type's fields as columns, in their display units", async () => {
     onProject();
-    answer("GET /api/v1/entities", page([entity()]));
+    answer("POST /api/v1/entities/search", page([entity()]));
     await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
     const grid = await screen.findByRole("table", { name: "1 protein" });
     const rows = within(grid).getAllByRole("row");
@@ -97,18 +97,19 @@ describe("a project's entities", () => {
       "href",
       "/entities/PRT-000001/",
     );
-    const call = nth(calls("GET", "/api/v1/entities"), 0);
-    expect(Object.fromEntries(call.query)).toEqual({
-      limit: "100",
+    const call = nth(calls("POST", "/api/v1/entities/search"), 0);
+    expect(call.body).toEqual({
+      limit: 100,
+      exact_type: false,
       project: KINASE.id,
       type: "protein.Protein",
-      archived: "false",
+      archived: false,
     });
   });
 
   it("filters by type and by archived, in the address", async () => {
     onProject();
-    answer("GET /api/v1/entities", page([entity()]));
+    answer("POST /api/v1/entities/search", page([entity()]));
     const { router, user } = await renderApp("/projects/kinase-atlas/entities/");
     await screen.findByRole("table", { name: "1 entity" });
     expect(screen.getByRole("link", { name: "Entities" })).toHaveAttribute("aria-current", "page");
@@ -120,10 +121,10 @@ describe("a project's entities", () => {
         show: "all",
       });
     });
-    const sent = calls("GET", "/api/v1/entities");
-    const last = nth(sent, sent.length - 1);
-    expect(last.query.get("type")).toBe("protein.ProteinStructure");
-    expect(last.query.has("archived")).toBe(false);
+    const sent = calls("POST", "/api/v1/entities/search");
+    const last = nth(sent, sent.length - 1).body as Record<string, unknown>;
+    expect(last["type"]).toBe("protein.ProteinStructure");
+    expect(last).not.toHaveProperty("archived");
   });
 
   it("fetches more as the grid scrolls towards the end", async () => {
@@ -134,20 +135,130 @@ describe("a project's entities", () => {
         hrid: `PRT-${String(i + 1).padStart(6, "0")}`,
       }),
     );
-    answer("GET /api/v1/entities", ({ query }: { query: URLSearchParams }) =>
-      query.get("cursor")
+    answer("POST /api/v1/entities/search", ({ body }: { body: unknown }) =>
+      (body as { cursor?: string }).cursor
         ? page([entity({ id: "00000000-0000-7000-8000-0000000fffff", hrid: "PRT-000041" })])
         : { items: many, next_cursor: "next" },
     );
     await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
     await screen.findByRole("table", { name: "41 proteins" });
-    const sent = calls("GET", "/api/v1/entities");
-    expect(nth(sent, sent.length - 1).query.get("cursor")).toBe("next");
+    const sent = calls("POST", "/api/v1/entities/search");
+    expect(nth(sent, sent.length - 1).body).toMatchObject({ cursor: "next" });
+  });
+
+  it("searches by ID or name as people type", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const { router, user } = await renderApp(
+      "/projects/kinase-atlas/entities/?type=protein.Protein",
+    );
+    await screen.findByRole("table", { name: "1 protein" });
+    await user.type(screen.getByRole("searchbox", { name: "Search" }), "abl");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ type: "protein.Protein", q: "abl" });
+    });
+    const sent = calls("POST", "/api/v1/entities/search");
+    expect(nth(sent, sent.length - 1).body).toMatchObject({ q: "abl" });
+    expect(await screen.findByRole("table", { name: "1 protein match" })).toBeInTheDocument();
+  });
+
+  it("filters by fields, kept in the address", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const { router, user } = await renderApp(
+      "/projects/kinase-atlas/entities/?type=protein.Protein",
+    );
+    await screen.findByRole("table", { name: "1 protein" });
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+    const panel = screen.getByRole("region", { name: "Filters" });
+    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(within(panel).getByLabelText("Filter 1: field"), "Molecular weight");
+    await user.selectOptions(within(panel).getByLabelText("Filter 1: condition"), "is at least");
+    await user.type(within(panel).getByLabelText("Filter 1: value"), "50");
+    const want = [{ field: "molecular_weight", op: "gte", value: 50 }];
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ type: "protein.Protein", filters: want });
+    });
+    const sent = calls("POST", "/api/v1/entities/search");
+    expect(nth(sent, sent.length - 1).body).toMatchObject({ where: { all: want } });
+    expect(screen.getByRole("button", { name: "Filters (1)" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    // What can't be searched for says why, and isn't sent.
+    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(within(panel).getByLabelText("Filter 2: field"), "Last changed");
+    await user.selectOptions(within(panel).getByLabelText("Filter 2: condition"), "is after");
+    expect(within(panel).getByLabelText("Filter 2: value")).toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: "Remove filter 1" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ type: "protein.Protein" });
+    });
+  });
+
+  it("opens with the address's filters, and changing type clears them", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const filters = encodeURIComponent(
+      JSON.stringify([{ field: "name", op: "contains", value: "abl" }]),
+    );
+    const { router, user } = await renderApp(
+      `/projects/kinase-atlas/entities/?type=protein.Protein&filters=${filters}`,
+    );
+    const panel = await screen.findByRole("region", { name: "Filters" });
+    expect(within(panel).getByLabelText("Filter 1: value")).toHaveValue("abl");
+    expect(within(panel).getByLabelText("Filter 1: condition")).toHaveDisplayValue("contains");
+    await user.selectOptions(screen.getByLabelText("Type"), "Protein structure");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ type: "protein.ProteinStructure" });
+    });
+  });
+
+  it("sorts by a column's heading", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const { router, user } = await renderApp(
+      "/projects/kinase-atlas/entities/?type=protein.Protein",
+    );
+    const grid = await screen.findByRole("table", { name: "1 protein" });
+    const heading = within(grid).getByRole("columnheader", { name: /Name/ });
+    expect(heading).toHaveAttribute("aria-sort", "none");
+    await user.click(within(heading).getByRole("button", { name: "Name" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({ type: "protein.Protein", sort: "name" });
+    });
+    expect(within(grid).getByRole("columnheader", { name: /Name/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    await user.click(within(grid).getByRole("button", { name: "Name" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({
+        type: "protein.Protein",
+        sort: "name",
+        desc: true,
+      });
+    });
+    const sent = calls("POST", "/api/v1/entities/search");
+    expect(nth(sent, sent.length - 1).body).toMatchObject({
+      sort: { field: "name", descending: true },
+    });
+  });
+
+  it("says when a search can't be run", async () => {
+    onProject();
+    answer(
+      "POST /api/v1/entities/search",
+      problem(422, "search_too_slow", "This search took too long. Narrow it."),
+    );
+    await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein&q=a");
+    expect(await screen.findByText("This search took too long. Narrow it.")).toBeInTheDocument();
   });
 
   it("says when there's nothing to show", async () => {
     onProject();
-    answer("GET /api/v1/entities", page([]));
+    answer("POST /api/v1/entities/search", page([]));
     await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
     expect(await screen.findByText("No proteins in this project.")).toBeInTheDocument();
   });

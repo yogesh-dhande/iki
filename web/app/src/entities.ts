@@ -5,9 +5,10 @@
  */
 
 import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
+import { validateFilters, type Filter } from "./filters";
 
 export type EntityType = Schemas["EntityTypeOut"];
 export type FieldDef = Schemas["FieldOut"];
@@ -48,28 +49,48 @@ export interface EntityFilter {
   project?: string | undefined;
   type?: string | undefined;
   archived?: boolean | undefined;
+  /** Text in their HRID or title. */
+  q?: string | undefined;
+  /** Conditions on fields, all of which must hold. */
+  filters?: Filter[] | undefined;
+  sort?: string | undefined;
+  descending?: boolean | undefined;
 }
 
-/** A page at a time, oldest first; the grid asks for more as it scrolls. */
+/** A page at a time, in the order asked for; the grid asks for more as it scrolls. */
 export function entitiesQuery(filter: EntityFilter) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "list", filter],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       unwrap(
-        await iki.GET("/api/v1/entities", {
-          params: {
-            query: {
-              limit: 100,
-              ...(filter.project ? { project: filter.project } : {}),
-              ...(filter.type ? { type: filter.type } : {}),
-              ...(filter.archived === undefined ? {} : { archived: filter.archived }),
-              ...(pageParam ? { cursor: pageParam } : {}),
-            },
+        await iki.POST("/api/v1/entities/search", {
+          body: {
+            limit: 100,
+            exact_type: false,
+            ...(filter.project ? { project: filter.project } : {}),
+            ...(filter.type ? { type: filter.type } : {}),
+            ...(filter.archived === undefined ? {} : { archived: filter.archived }),
+            ...(filter.q?.trim() ? { q: filter.q.trim() } : {}),
+            ...(filter.filters?.length
+              ? { where: { all: filter.filters as Schemas["Condition"][] } }
+              : {}),
+            ...(filter.sort
+              ? { sort: { field: filter.sort, descending: filter.descending ?? false } }
+              : {}),
+            ...(pageParam ? { cursor: pageParam } : {}),
           },
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+    // A search that went wrong (too slow, say) won't go right by asking again.
+    retry: false,
+    // Changing a filter or the sort keeps the grid in place until the new results come.
+    // Another type has other columns, so its rows aren't kept.
+    placeholderData: (previous, query) =>
+      (query?.queryKey[2] as EntityFilter | undefined)?.type === filter.type
+        ? keepPreviousData(previous)
+        : undefined,
   });
 }
 
@@ -170,12 +191,21 @@ export type Showing = "current" | "archived" | "all";
 export interface EntitySearch {
   type?: string | undefined;
   show?: Showing | undefined;
+  q?: string | undefined;
+  filters?: Filter[] | undefined;
+  sort?: string | undefined;
+  desc?: boolean | undefined;
 }
 
 export function validateEntitySearch(search: Record<string, unknown>): EntitySearch {
   const out: EntitySearch = {};
   if (typeof search["type"] === "string" && search["type"]) out.type = search["type"];
   if (search["show"] === "archived" || search["show"] === "all") out.show = search["show"];
+  if (typeof search["q"] === "string" && search["q"]) out.q = search["q"].slice(0, 200);
+  const filters = validateFilters(search["filters"]);
+  if (filters) out.filters = filters;
+  if (typeof search["sort"] === "string" && search["sort"]) out.sort = search["sort"];
+  if (search["desc"] === true) out.desc = true;
   return out;
 }
 

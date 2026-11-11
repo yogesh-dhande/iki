@@ -297,6 +297,67 @@ def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> 
     assert_clean(page)
 
 
+def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+
+    admin = world.users["admin"]
+    for name, sequence, organism, temperature in (
+        ("ABL1", "MKVL", "Homo sapiens", 37.0),
+        ("SRC", "MSTL", "Homo sapiens", 30.0),
+        ("LacZ", "MTMI", "Escherichia coli", 25.0),
+    ):
+        entities.create(
+            admin,
+            "protein.Protein",
+            world.project,
+            {
+                "sequence": sequence,
+                "name": name,
+                "organism": organism,
+                "temperature_optimum": temperature,
+            },
+        )
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    page.get_by_role("table", name="3 proteins").wait_for()
+
+    page.get_by_role("searchbox", name="Search").fill("ab")
+    page.get_by_role("table", name="1 protein match").wait_for()
+    page.get_by_role("searchbox", name="Search").fill("")
+    page.get_by_role("table", name="3 proteins").wait_for()
+
+    page.get_by_role("button", name="Filters").click()
+    panel = page.get_by_role("region", name="Filters")
+    panel.get_by_role("button", name="Add a filter").click()
+    panel.get_by_label("Filter 1: field").select_option(label="Organism")
+    panel.get_by_label("Filter 1: condition").select_option(label="is")
+    panel.get_by_label("Filter 1: value").fill("Homo sapiens")
+    panel.get_by_role("button", name="Add a filter").click()
+    panel.get_by_label("Filter 2: field").select_option(label="Temperature optimum")
+    panel.get_by_label("Filter 2: condition").select_option(label="is more than")
+    panel.get_by_role("textbox", name="Filter 2: value").fill("90")
+    panel.get_by_label("Unit for Filter 2: value").select_option("[degF]")
+    grid = page.get_by_role("table", name="1 protein match")
+    grid.get_by_role("cell", name="ABL1", exact=True).wait_for()
+    assert_clean(page)
+
+    # The address keeps it: a reload, or a shared link, shows the same.
+    page.reload()
+    page.get_by_role("table", name="1 protein match").wait_for()
+    assert page.get_by_role("textbox", name="Filter 2: value").input_value() == "90"
+    page.get_by_role("button", name="Remove filter 2").click()
+    grid = page.get_by_role("table", name="2 proteins match")
+    grid.wait_for()
+
+    grid.get_by_role("button", name="Name").click()
+    page.wait_for_url(re.compile(r"sort=name"))
+    grid.get_by_role("button", name="Name").click()
+    page.wait_for_url(re.compile(r"desc=true"))
+    first = grid.get_by_role("row").nth(1)
+    first.get_by_role("cell", name="SRC", exact=True).wait_for()
+    assert grid.get_by_role("columnheader", name="Name").get_attribute("aria-sort") == "descending"
+    assert_clean(page)
+
+
 def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity

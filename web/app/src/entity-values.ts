@@ -32,7 +32,7 @@ export function formFields(type: EntityType): FieldDef[] {
   return type.fields.filter((f) => !f.computed);
 }
 
-function itemField(field: FieldDef): FieldDef {
+export function itemField(field: FieldDef): FieldDef {
   return { ...field, type: field.items ?? "string", required: false };
 }
 
@@ -216,6 +216,11 @@ export function isBlank(field: FieldDef, draft: Draft): boolean {
  */
 export function encode(field: FieldDef, draft: Draft, type: EntityType): Encoded {
   return encodeWith(field, draft, propertySchema(type, field.name));
+}
+
+/** A draft as a value to search for: as the API takes it, without the field's rules. */
+export function encodeValue(field: FieldDef, draft: Draft): Encoded {
+  return encodeWith(field, draft, {});
 }
 
 function encodeWith(field: FieldDef, draft: Draft, schema: PropertySchema): Encoded {

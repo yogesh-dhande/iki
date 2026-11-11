@@ -8,7 +8,7 @@
 import { useInfiniteQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import {
   entitiesQuery,
@@ -21,8 +21,11 @@ import {
   type FieldDef,
 } from "../entities";
 import type { Showing } from "../entities";
+import { filterable, HRID, sortable, UPDATED, type Filter } from "../filters";
+import { problemOf } from "../api";
 import { usePageTitle } from "../layout";
-import { buttonClass, Loading, RelativeTime, SelectField } from "../ui";
+import { buttonClass, Loading, ProblemAlert, RelativeTime, SelectField } from "../ui";
+import { FilterPanel, SearchBox, SortHeading, type Direction } from "./entity-filters";
 import { useProject } from "./project-overview";
 
 const ROW_HEIGHT = 44;
@@ -33,12 +36,15 @@ interface Column {
   key: string;
   label: string;
   cell: (entity: Entity) => React.ReactNode;
+  /** The field it sorts by, if it can. */
+  sort?: string | undefined;
 }
 
 function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[] {
   const id: Column = {
     key: "hrid",
     label: "ID",
+    sort: HRID.name,
     cell: (e) => (
       <Link to="/entities/$ref/" params={{ ref: e.hrid }}>
         {e.hrid}
@@ -54,6 +60,7 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
     key: "updated",
     label: "Last changed",
     cell: (e) => <RelativeTime value={e.updated_at} />,
+    sort: UPDATED.name,
   };
   if (!type) {
     const name: Column = {
@@ -66,6 +73,7 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
   const fields: Column[] = type.fields.map((f: FieldDef) => ({
     key: `field:${f.name}`,
     label: f.type === "quantity" ? `${f.label} (${unitOf(f)})` : f.label,
+    sort: sortable(f) ? f.name : undefined,
     cell: (e) => {
       const value = e.values[f.name];
       if (f.type === "quantity" && typeof value === "number") {
@@ -94,13 +102,38 @@ export function ProjectEntities() {
   const show = search.show ?? "current";
   usePageTitle(`${type ? type.label_plural : "Entities"} · ${project.name}`);
 
+  const fields = filterable(type);
+  const filters = search.filters ?? [];
+  const sort = fields.some((f) => f.name === search.sort && sortable(f)) ? search.sort : undefined;
+  const narrowed = Boolean(search.q) || filters.length > 0;
+  const [filtersOpen, setFiltersOpen] = useState(filters.length > 0);
+  const panelId = useId();
   const list = useInfiniteQuery(
     entitiesQuery({
       project: project.id,
       type: type?.name,
       archived: show === "all" ? undefined : show === "archived",
+      q: search.q,
+      filters,
+      sort,
+      descending: sort ? search.desc : undefined,
     }),
   );
+  const applyFilters = (next: Filter[]) => {
+    void navigate({
+      search: (prev) => ({ ...prev, filters: next.length ? next : undefined }),
+      replace: true,
+    });
+  };
+  const sortBy = (field: string, direction: Direction) => {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        sort: direction === "none" ? undefined : field,
+        desc: direction === "descending" ? true : undefined,
+      }),
+    });
+  };
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   const columns = columnsFor(type, types);
 
@@ -149,7 +182,14 @@ export function ProjectEntities() {
           value={type?.name ?? ""}
           options={typeOptions}
           onChange={(value) => {
-            void navigate({ search: (prev) => ({ ...prev, type: value || undefined }) });
+            // Other types have other fields: their filters and sort don't carry over.
+            void navigate({
+              search: (prev) => ({
+                type: value || undefined,
+                show: prev.show,
+                q: prev.q,
+              }),
+            });
           }}
         />
         <SelectField<Showing>
@@ -166,6 +206,25 @@ export function ProjectEntities() {
             });
           }}
         />
+        <SearchBox
+          key={search.q ?? ""}
+          value={search.q ?? ""}
+          placeholder={type ? `ID or ${inSentence(type.label)} name` : "ID or name"}
+          onSearch={(q) => {
+            void navigate({ search: (prev) => ({ ...prev, q: q || undefined }), replace: true });
+          }}
+        />
+        <button
+          type="button"
+          className={buttonClass()}
+          aria-expanded={filtersOpen}
+          aria-controls={panelId}
+          onClick={() => {
+            setFiltersOpen((open) => !open);
+          }}
+        >
+          Filters{filters.length ? ` (${String(filters.length)})` : ""}
+        </button>
         {type ? (
           <p className="toolbar-note">
             <Link to="/types/$name/" params={{ name: type.name }}>
@@ -184,12 +243,27 @@ export function ProjectEntities() {
           </Link>
         ) : null}
       </div>
+      {filtersOpen ? (
+        <FilterPanel
+          key={type?.name ?? ""}
+          id={panelId}
+          type={type}
+          types={types}
+          fields={fields}
+          applied={filters}
+          projectId={project.id}
+          onApply={applyFilters}
+        />
+      ) : null}
+      {list.isError ? <ProblemAlert problem={problemOf(list.error)} /> : null}
       {list.isPending ? <Loading label="Loading entities…" /> : null}
       {list.isSuccess && rows.length === 0 ? (
         <p className="empty">
-          {type
-            ? `No ${inSentence(type.label_plural)} in this project${show === "current" ? "" : " match"}.`
-            : "No entities in this project yet."}
+          {narrowed
+            ? `No ${type ? inSentence(type.label_plural) : "entities"} in this project match.`
+            : type
+              ? `No ${inSentence(type.label_plural)} in this project${show === "current" ? "" : " match"}.`
+              : "No entities in this project yet."}
         </p>
       ) : null}
       {rows.length ? (
@@ -197,6 +271,7 @@ export function ProjectEntities() {
           <p className="muted" id={captionId}>
             {count} {noun}
             {show === "archived" ? ", archived" : ""}
+            {narrowed ? " match" : ""}
           </p>
           {/* A scrolling region people reach with Tab, so the keyboard scrolls it. */}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region */}
@@ -204,6 +279,7 @@ export function ProjectEntities() {
             <div
               role="table"
               aria-labelledby={captionId}
+              aria-busy={list.isPlaceholderData || undefined}
               aria-rowcount={list.hasNextPage ? -1 : rows.length + 1}
             >
               <div role="rowgroup" className="data-grid-head">
@@ -213,11 +289,34 @@ export function ProjectEntities() {
                   className="data-grid-row"
                   style={{ gridTemplateColumns: template, minWidth }}
                 >
-                  {columns.map((c) => (
-                    <div role="columnheader" key={c.key} className="data-grid-cell">
-                      {c.label}
-                    </div>
-                  ))}
+                  {columns.map((c) => {
+                    const sorted = c.sort !== undefined && c.sort === sort;
+                    const direction: Direction = sorted
+                      ? search.desc
+                        ? "descending"
+                        : "ascending"
+                      : "none";
+                    return (
+                      <div
+                        role="columnheader"
+                        key={c.key}
+                        className="data-grid-cell"
+                        aria-sort={c.sort ? direction : undefined}
+                      >
+                        {c.sort ? (
+                          <SortHeading
+                            label={c.label}
+                            direction={direction}
+                            onSort={(next) => {
+                              if (c.sort) sortBy(c.sort, next);
+                            }}
+                          />
+                        ) : (
+                          c.label
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div
