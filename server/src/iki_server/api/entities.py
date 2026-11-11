@@ -38,6 +38,7 @@ from iki_server.runs.models import Lineage, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
 from iki_spec.model import EntityType
+from iki_spec.model import Field as SpecField
 
 router = Router(tags=["entities"])
 
@@ -287,6 +288,29 @@ def _types() -> dict[str, EntityType]:
     return {n: t for n, t in registry.types().items() if n != "core.Entity"}
 
 
+def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
+    """A field as `FieldOut` describes it: an entity type's, or an action's param."""
+    return {
+        "name": name,
+        "label": f.label,
+        "description": f.description,
+        "type": f.type,
+        "plugin": plugin,
+        "required": f.required,
+        "immutable": f.immutable,
+        "computed": f.computed,
+        "unit": f.unit,
+        "unit_symbol": units.symbol(f.unit) if f.unit else None,
+        "display_unit": f.display_unit,
+        "display_unit_symbol": units.symbol(f.display_unit) if f.display_unit else None,
+        **_display(f.unit, f.display_unit),
+        "input_units": _input_units(f.unit, f.display_unit),
+        "to": f.to,
+        "values": list(f.values),
+        "items": f.items.type if f.items is not None else None,
+    }
+
+
 def _type_out(entity_type: EntityType) -> dict[str, Any]:
     form = shape(entity_type.qualified_name)
     owner = registry.identity_owner(entity_type)
@@ -295,27 +319,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         for name, f in part.fields.items():
             if f.removed:
                 continue
-            fields.append(
-                {
-                    "name": name,
-                    "label": f.label,
-                    "description": f.description,
-                    "type": f.type,
-                    "plugin": part.plugin,
-                    "required": f.required,
-                    "immutable": f.immutable,
-                    "computed": f.computed,
-                    "unit": f.unit,
-                    "unit_symbol": units.symbol(f.unit) if f.unit else None,
-                    "display_unit": f.display_unit,
-                    "display_unit_symbol": units.symbol(f.display_unit) if f.display_unit else None,
-                    **_display(f.unit, f.display_unit),
-                    "input_units": _input_units(f.unit, f.display_unit),
-                    "to": f.to,
-                    "values": list(f.values),
-                    "items": f.items.type if f.items is not None else None,
-                }
-            )
+            fields.append(field_out(name, f, part.plugin))
     name = entity_type.qualified_name
     return {
         "name": name,

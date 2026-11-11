@@ -43,6 +43,18 @@ def for_type(qualified: str) -> dict[str, Any]:
     return out
 
 
+def for_params(title: str, params: dict[str, Field]) -> dict[str, Any]:
+    """An action's params, as one JSON object: the shape of a run's `params`."""
+    return {
+        "$schema": DIALECT,
+        "title": title,
+        "type": "object",
+        "properties": {name: field_schema(f) for name, f in params.items()},
+        "required": [n for n, f in params.items() if f.required and not f.has_default],
+        "additionalProperties": False,
+    }
+
+
 def field_schema(f: Field) -> dict[str, Any]:
     schema = _value(f)
     if not f.required:

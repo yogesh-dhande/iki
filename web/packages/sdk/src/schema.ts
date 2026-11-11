@@ -63,6 +63,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/actions/{name}/runs/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an action on each of several entities
+         * @description Queue one run for each entity, as `POST /actions/{name}/runs` would one at a time,
+         *     but all or none: if any can't run, none is queued, and the problem says which and why.
+         */
+        post: operations["iki_server_api_runs_launch_runs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collections": {
         parameters: {
             query?: never;
@@ -1546,6 +1567,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionFilters */
+        ActionFilters: {
+            /**
+             * Takes
+             * @description Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it.
+             */
+            takes?: string[];
+        };
         /** ActionOut */
         ActionOut: {
             /**
@@ -1582,6 +1611,13 @@ export interface components {
             network: string[];
             /** Params */
             params: components["schemas"]["ParamOut"][];
+            /**
+             * Params Schema
+             * @description The params as JSON Schema (2020-12), as entity types' `values_schema`.
+             */
+            params_schema: {
+                [key: string]: unknown;
+            };
             /** Plugin */
             plugin: string;
             /**
@@ -2862,29 +2898,90 @@ export interface components {
              */
             next_cursor: string | null;
         };
-        /** ParamOut */
+        /**
+         * ParamOut
+         * @description A param is a field, as entity types' are, with its default and limits.
+         */
         ParamOut: {
-            /** Default */
+            /**
+             * Computed
+             * @description Set only by actions.
+             */
+            computed: boolean;
+            /**
+             * Default
+             * @description What it is when not given.
+             */
             default?: unknown;
             /** Description */
             description: string | null;
+            /** Display Offset */
+            display_offset: number | null;
+            /**
+             * Display Scale
+             * @description With a display unit: shown as value * display_scale + display_offset.
+             */
+            display_scale: number | null;
+            /** Display Unit */
+            display_unit: string | null;
+            /** Display Unit Symbol */
+            display_unit_symbol: string | null;
+            /**
+             * Immutable
+             * @description Can be set once, and can't change after.
+             */
+            immutable: boolean;
+            /**
+             * Input Units
+             * @description Quantities: common units values can be given in. Any convertible UCUM unit works.
+             */
+            input_units: components["schemas"]["UnitOption"][];
+            /**
+             * Items
+             * @description Lists: the type of each item.
+             */
+            items: string | null;
             /** Label */
             label: string;
             /** Max */
             max: number | null;
+            /** Max Length */
+            max_length: number | null;
             /** Min */
             min: number | null;
+            /** Min Length */
+            min_length: number | null;
             /** Name */
             name: string;
+            /** Pattern */
+            pattern: string | null;
+            /**
+             * Plugin
+             * @description The plugin that defines the field.
+             */
+            plugin: string;
             /** Required */
             required: boolean;
+            /**
+             * To
+             * @description References: the type they refer to.
+             */
+            to: string | null;
             /** Type */
             type: string;
-            /** Unit */
+            /**
+             * Unit
+             * @description Quantities: the UCUM unit values are in.
+             */
             unit: string | null;
             /**
+             * Unit Symbol
+             * @description The unit as people write it, such as Å for Ao.
+             */
+            unit_symbol: string | null;
+            /**
              * Values
-             * @description For enum params: the choices.
+             * @description Enums: the allowed values.
              */
             values: string[];
         };
@@ -3424,6 +3521,50 @@ export interface components {
              * @description The name of the worker that ran it.
              */
             worker: string | null;
+        };
+        /** RunBatchIn */
+        RunBatchIn: {
+            /**
+             * Each
+             * @description The input each run takes one of `entities` for.
+             */
+            each: string;
+            /**
+             * Entities
+             * @description One run for each, in this order: at most 100.
+             */
+            entities: string[];
+            /**
+             * Inputs
+             * @description Every run's other inputs, as for one run.
+             */
+            inputs?: {
+                [key: string]: string | string[];
+            };
+            /**
+             * Params
+             * @description Every run's params.
+             */
+            params?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Project
+             * Format: uuid
+             * @description Where they run. Entities they create belong to it.
+             */
+            project: string;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+        };
+        /** RunBatchOut */
+        RunBatchOut: {
+            /** Runs */
+            runs: components["schemas"]["RunOut"][];
         };
         /** RunCan */
         RunCan: {
@@ -4397,7 +4538,10 @@ export type $defs = Record<string, never>;
 export interface operations {
     iki_server_api_runs_list_actions: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it. */
+                takes?: string[];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4459,6 +4603,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_launch_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunBatchIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunBatchOut"];
                 };
             };
         };

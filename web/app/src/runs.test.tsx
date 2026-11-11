@@ -7,7 +7,7 @@ import type { Schemas } from "@ikisci/sdk";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { entity, KINASE, nth, renderApp, revision, withTypes } from "./entity-fixtures";
+import { entity, field, KINASE, nth, renderApp, revision, withTypes } from "./entity-fixtures";
 import { answer, calls, FakeEventSource, ME, page } from "./test-server";
 
 const RUN_ID = "00000000-0000-7000-8000-0000000000r1";
@@ -88,18 +88,16 @@ const ACTION = {
   ],
   params: [
     {
-      name: "ph",
-      label: "pH",
-      description: null,
-      type: "number",
-      required: false,
+      ...field({ name: "ph", label: "pH", type: "number" }),
       default: 7,
-      values: [],
-      min: null,
-      max: null,
-      unit: null,
+      min: 0,
+      max: 14,
+      min_length: null,
+      max_length: null,
+      pattern: null,
     },
   ],
+  params_schema: { type: "object", properties: {}, additionalProperties: false },
   creates: [],
   updates: [],
   deterministic: true,

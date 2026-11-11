@@ -47,6 +47,13 @@ that can't be committed:
 Entities created by a run belong to its project. Inputs may come from any
 project the caller can read; the run records them as they were read.
 
+**Running on several entities at once** makes one run for each
+(`POST /actions/{name}/runs/batch`, at most 100). Each is an ordinary run
+with its own record. The batch is all or none: every run is checked first,
+and they're queued in one transaction under the same waiting-runs limit. A
+problem with any entity queues none, and says which entity and why. A
+half-launched selection would leave people working out which ones ran.
+
 **Cancelling** takes the same role as running. A queued run is cancelled at
 once. A running one is marked, and its worker stops it.
 

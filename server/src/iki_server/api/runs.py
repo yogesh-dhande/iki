@@ -18,10 +18,11 @@ from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
+from iki_server.api.entities import FieldOut, field_out
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
-from iki_server.entities import access
+from iki_server.entities import access, schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.runs import catalog, quotas, services
@@ -56,17 +57,15 @@ class InputOut(Schema):
     optional: bool
 
 
-class ParamOut(Schema):
-    name: str
-    label: str
-    description: str | None
-    type: str
-    required: bool
-    default: Any = None
-    values: list[str] = Field(description="For enum params: the choices.")
+class ParamOut(FieldOut):
+    """A param is a field, as entity types' are, with its default and limits."""
+
+    default: Any = Field(None, description="What it is when not given.")
     min: float | None
     max: float | None
-    unit: str | None
+    min_length: int | None
+    max_length: int | None
+    pattern: str | None
 
 
 class CreatesOut(Schema):
@@ -89,6 +88,9 @@ class ActionOut(Schema):
     environment: str
     inputs: list[InputOut]
     params: list[ParamOut]
+    params_schema: dict[str, Any] = Field(
+        description="The params as JSON Schema (2020-12), as entity types' `values_schema`."
+    )
     creates: list[CreatesOut]
     updates: list[UpdatesOut]
     deterministic: bool
@@ -126,19 +128,17 @@ def _action_out(action: Action) -> dict[str, Any]:
         ],
         "params": [
             {
-                "name": p.name,
-                "label": p.label,
-                "description": p.description,
-                "type": p.type,
-                "required": p.required,
+                **field_out(name, p, action.plugin),
                 "default": p.default,
-                "values": list(p.values),
                 "min": p.min,
                 "max": p.max,
-                "unit": p.unit,
+                "min_length": p.min_length,
+                "max_length": p.max_length,
+                "pattern": p.pattern,
             }
-            for p in action.params.values()
+            for name, p in action.params.items()
         ],
+        "params_schema": schema.for_params(action.label or action.name, dict(action.params)),
         "creates": [
             {"type": c.type, "cardinality": c.cardinality, "derived_from": list(c.derived_from)}
             for c in action.creates
@@ -161,11 +161,23 @@ def _action(name: str) -> Action:
     return found
 
 
+class ActionFilters(Schema):
+    takes: list[str] = Field(
+        default_factory=list,
+        description="Only actions with an input that takes entities of each of these types, "
+        "such as `takes=dna.Primer`. An input takes its own type and every type that extends it.",
+    )
+
+
 @router.get("/actions", response=list[ActionOut], summary="Installed actions")
-def list_actions(request: HttpRequest) -> list[dict[str, Any]]:
+def list_actions(request: HttpRequest, filters: Query[ActionFilters]) -> list[dict[str, Any]]:
     """Every action installed plugins provide, in name order, with whether it can run here."""
     caller(request)
-    return [_action_out(a) for a in catalog.actions().values()]
+    return [
+        _action_out(a)
+        for a in catalog.actions().values()
+        if not filters.takes or services.input_taking(a, filters.takes) is not None
+    ]
 
 
 @router.get("/actions/{name}", response=ActionOut, summary="An action")
@@ -380,6 +392,65 @@ def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpRe
         raise _invalid(error) from None
     response["Location"] = f"/api/v1/runs/{run.pk}"
     return Status(201, _runs_out(me, [_find(me, str(run.pk))])[0])
+
+
+#: The most runs one batch launches.
+MAX_BATCH = 100
+
+
+class RunBatchIn(Schema):
+    project: UUID = Field(description="Where they run. Entities they create belong to it.")
+    each: str = Field(description="The input each run takes one of `entities` for.")
+    entities: list[UUID] = Field(
+        min_length=1,
+        max_length=MAX_BATCH,
+        description=f"One run for each, in this order: at most {MAX_BATCH}.",
+    )
+    inputs: dict[str, UUID | list[UUID]] = Field(
+        default_factory=dict, description="Every run's other inputs, as for one run."
+    )
+    params: dict[str, Any] = Field(default_factory=dict, description="Every run's params.")
+    reason: str = Field("", max_length=2000, description="Why, for the record.")
+
+
+class RunBatchOut(Schema):
+    runs: list[RunOut]
+
+
+@router.post(
+    "/actions/{name}/runs/batch",
+    response={201: RunBatchOut},
+    summary="Run an action on each of several entities",
+    tags=["runs"],
+)
+def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  # noqa: ANN401
+    """Queue one run for each entity, as `POST /actions/{name}/runs` would one at a time,
+    but all or none: if any can't run, none is queued, and the problem says which and why."""
+    me = caller(request)
+    action = _action(name)
+    target = project(me, payload.project, services.TIER_PERMISSIONS[action.tier])
+    inputs = {k: v if isinstance(v, list) else [v] for k, v in payload.inputs.items()}
+    try:
+        launched = services.launch_each(
+            me,
+            action,
+            target,
+            payload.each,
+            payload.entities,
+            inputs,
+            payload.params,
+            reason=payload.reason,
+        )
+    except Invalid as error:
+        raise _invalid(error) from None
+    found = {
+        r.pk: r
+        for r in services.visible_runs(me)
+        .filter(pk__in=[r.pk for r in launched])
+        .select_related("project__team", "requested_by")
+    }
+    runs = [found[r.pk] for r in launched]
+    return Status(201, {"runs": _runs_out(me, runs)})
 
 
 class RunFilters(PageParams):

@@ -72,6 +72,66 @@ def launch(
     Raises :class:`PermissionDenied` if the caller can't run the action's tier in the project,
     :class:`Refused` if it can't run here now, and :class:`Invalid` for inputs and params.
     """
+    _may_launch(user, action, project)
+    errors: dict[str, list[str]] = {}
+    entities = _inputs(user, action, inputs, errors)
+    values = _params(action, params, errors)
+    if errors:
+        raise Invalid(errors)
+    with transaction.atomic():
+        return _queue(user, action, project, entities, values, reason)
+
+
+def launch_each(
+    user: User,
+    action: Action,
+    project: Project,
+    each: str,
+    entity_ids: Sequence[UUID],
+    inputs: Mapping[str, Sequence[UUID]],
+    params: Mapping[str, Any],
+    *,
+    reason: str = "",
+) -> list[ActionRun]:
+    """Queue one run of `action` for each of `entity_ids` as its `each` input, the others the
+    same for all, or none of them: raises as :func:`launch` does, with problems with the
+    entities under ``entities``."""
+    _may_launch(user, action, project)
+    errors: dict[str, list[str]] = {}
+    put = action.inputs.get(each)
+    if put is None:
+        errors["each"] = [f"`{action.qualified_name}` has no input `{each}`."]
+    elif put.cardinality != "one":
+        errors["each"] = ["This input takes several entities: give them to one run instead."]
+    elif each in inputs:
+        errors["each"] = [f"`{each}` is given in `inputs` too."]
+    elif len(set(entity_ids)) != len(entity_ids):
+        errors["entities"] = ["Each entity can be given once."]
+    if errors:
+        raise Invalid(errors)
+    entities = _inputs(user, action, {**inputs, each: entity_ids}, errors, each=each)
+    values = _params(action, params, errors)
+    if f"inputs/{each}" in errors:
+        errors["entities"] = errors.pop(f"inputs/{each}")
+    if errors:
+        raise Invalid(errors)
+    chosen = entities.pop(each)
+    with transaction.atomic():
+        return [
+            _queue(user, action, project, {**entities, each: [entity]}, values, reason)
+            for entity in chosen
+        ]
+
+
+def input_taking(action: Action, types: Sequence[str]) -> str | None:
+    """The first of `action`'s inputs that takes entities of every one of `types`."""
+    for name, put in action.inputs.items():
+        if all(is_a(t, put.type) for t in types):
+            return name
+    return None
+
+
+def _may_launch(user: User, action: Action, project: Project) -> None:
     if not permissions.can(user, TIER_PERMISSIONS[action.tier], project):
         raise PermissionDenied
     if project.archived_at is not None:
@@ -79,56 +139,61 @@ def launch(
     available = catalog.availability(action)
     if not available.available:
         raise Refused(available.reason or "This action can't run on this deployment.")
-    errors: dict[str, list[str]] = {}
-    entities = _inputs(user, action, inputs, errors)
-    values = _params(action, params, errors)
-    if errors:
-        raise Invalid(errors)
+
+
+def _queue(
+    user: User,
+    action: Action,
+    project: Project,
+    entities: Mapping[str, Sequence[Entity]],
+    values: dict[str, Any],
+    reason: str,
+) -> ActionRun:
+    """Queues the run. Call inside a transaction, with its inputs and params checked."""
     environment = catalog.environment(action)
-    with transaction.atomic():
-        quotas.check_queued(project, action.tier)
-        run = ActionRun.objects.create(
-            hrid=_next_hrid(),
-            action=action.qualified_name,
-            plugin_version=registry.plugins()[action.plugin].version,
-            plugin_sha=plugin_sha(action.plugin),
-            spec=asdict(action),
-            project=project,
-            requested_by=user,
-            via=audit.current_via(),
-            reason=reason,
-            tier=action.tier,
-            environment=action.environment,
-            params=values,
-            timeout=action.timeout,
-            max_attempts=1 + action.retry_max,
-            retry_on=list(action.retry_on),
-        )
-        RunInput.objects.bulk_create(
-            RunInput(run=run, name=name, position=index, entity=entity, revision=entity.revision)
-            for name, chosen in entities.items()
-            for index, entity in enumerate(chosen)
-        )
-        Job.objects.create(
-            run=run,
-            project=project,
-            tier=action.tier,
-            environment=f"{action.plugin}.{action.environment}",
-            resources=asdict(environment.resources.at_least(action.resources)),
-            owner=user if action.tier == "client" else None,
-        )
-        queue.notify(action.tier)
-        audit.record(
-            "run.launched",
-            actor=user,
-            target=run,
-            project=project,
-            data={
-                "action": action.qualified_name,
-                "tier": action.tier,
-                "inputs": sum(len(e) for e in entities.values()),
-            },
-        )
+    quotas.check_queued(project, action.tier)
+    run = ActionRun.objects.create(
+        hrid=_next_hrid(),
+        action=action.qualified_name,
+        plugin_version=registry.plugins()[action.plugin].version,
+        plugin_sha=plugin_sha(action.plugin),
+        spec=asdict(action),
+        project=project,
+        requested_by=user,
+        via=audit.current_via(),
+        reason=reason,
+        tier=action.tier,
+        environment=action.environment,
+        params=values,
+        timeout=action.timeout,
+        max_attempts=1 + action.retry_max,
+        retry_on=list(action.retry_on),
+    )
+    RunInput.objects.bulk_create(
+        RunInput(run=run, name=name, position=index, entity=entity, revision=entity.revision)
+        for name, chosen in entities.items()
+        for index, entity in enumerate(chosen)
+    )
+    Job.objects.create(
+        run=run,
+        project=project,
+        tier=action.tier,
+        environment=f"{action.plugin}.{action.environment}",
+        resources=asdict(environment.resources.at_least(action.resources)),
+        owner=user if action.tier == "client" else None,
+    )
+    queue.notify(action.tier)
+    audit.record(
+        "run.launched",
+        actor=user,
+        target=run,
+        project=project,
+        data={
+            "action": action.qualified_name,
+            "tier": action.tier,
+            "inputs": sum(len(e) for e in entities.values()),
+        },
+    )
     return run
 
 
@@ -137,7 +202,11 @@ def _inputs(
     action: Action,
     given: Mapping[str, Sequence[UUID]],
     errors: dict[str, list[str]],
+    *,
+    each: str | None = None,
 ) -> dict[str, list[Entity]]:
+    """The entities for each input, checked; problems go in `errors`. The `each` input is
+    one entity per run: it may be given several."""
     for name in sorted(given.keys() - action.inputs.keys()):
         errors[f"inputs/{name}"] = [f"`{action.qualified_name}` has no input `{name}`."]
     wanted = {i for name in action.inputs for i in given.get(name, ())}
@@ -151,7 +220,7 @@ def _inputs(
             if not put.optional:
                 errors[key] = ["Choose an entity for this input."]
             continue
-        if put.cardinality == "one" and len(ids) > 1:
+        if put.cardinality == "one" and len(ids) > 1 and name != each:
             errors[key] = ["This input takes one entity."]
             continue
         if put.max is not None and len(ids) > put.max:

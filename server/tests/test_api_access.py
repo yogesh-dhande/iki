@@ -161,6 +161,11 @@ def launch_run(w: World) -> tuple[str, Any]:
     return "/actions/protein.compute_properties/runs", body
 
 
+def launch_batch(w: World) -> tuple[str, Any]:
+    body = {"project": str(w.project.pk), "each": "protein", "entities": [str(_protein(w).pk)]}
+    return "/actions/protein.compute_properties/runs/batch", body
+
+
 def run(suffix: str = "", body: Any = None) -> Build:
     return lambda w: (f"/runs/{_run(w).pk}{suffix}", body)
 
@@ -480,6 +485,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "POST",
         "/actions/{name}/runs",
         launch_run,
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
+    ),
+    (
+        "POST",
+        "/actions/{name}/runs/batch",
+        launch_batch,
         visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
     ),
     ("GET", "/runs", fixed("/runs"), row(200)),

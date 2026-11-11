@@ -1,6 +1,20 @@
 {
   "components": {
     "schemas": {
+      "ActionFilters": {
+        "properties": {
+          "takes": {
+            "description": "Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Takes",
+            "type": "array"
+          }
+        },
+        "title": "ActionFilters",
+        "type": "object"
+      },
       "ActionOut": {
         "properties": {
           "available": {
@@ -70,6 +84,12 @@
             "title": "Params",
             "type": "array"
           },
+          "params_schema": {
+            "additionalProperties": true,
+            "description": "The params as JSON Schema (2020-12), as entity types' `values_schema`.",
+            "title": "Params Schema",
+            "type": "object"
+          },
           "plugin": {
             "title": "Plugin",
             "type": "string"
@@ -125,6 +145,7 @@
           "environment",
           "inputs",
           "params",
+          "params_schema",
           "creates",
           "updates",
           "deterministic",
@@ -3017,8 +3038,15 @@
         "type": "object"
       },
       "ParamOut": {
+        "description": "A param is a field, as entity types' are, with its default and limits.",
         "properties": {
+          "computed": {
+            "description": "Set only by actions.",
+            "title": "Computed",
+            "type": "boolean"
+          },
           "default": {
+            "description": "What it is when not given.",
             "title": "Default"
           },
           "description": {
@@ -3031,6 +3059,76 @@
               }
             ],
             "title": "Description"
+          },
+          "display_offset": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Offset"
+          },
+          "display_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With a display unit: shown as value * display_scale + display_offset.",
+            "title": "Display Scale"
+          },
+          "display_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Unit"
+          },
+          "display_unit_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Unit Symbol"
+          },
+          "immutable": {
+            "description": "Can be set once, and can't change after.",
+            "title": "Immutable",
+            "type": "boolean"
+          },
+          "input_units": {
+            "description": "Quantities: common units values can be given in. Any convertible UCUM unit works.",
+            "items": {
+              "$ref": "#/components/schemas/UnitOption"
+            },
+            "title": "Input Units",
+            "type": "array"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lists: the type of each item.",
+            "title": "Items"
           },
           "label": {
             "title": "Label",
@@ -3047,6 +3145,17 @@
             ],
             "title": "Max"
           },
+          "max_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Length"
+          },
           "min": {
             "anyOf": [
               {
@@ -3058,13 +3167,52 @@
             ],
             "title": "Min"
           },
+          "min_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Length"
+          },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pattern"
+          },
+          "plugin": {
+            "description": "The plugin that defines the field.",
+            "title": "Plugin",
             "type": "string"
           },
           "required": {
             "title": "Required",
             "type": "boolean"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "References: the type they refer to.",
+            "title": "To"
           },
           "type": {
             "title": "Type",
@@ -3079,10 +3227,23 @@
                 "type": "null"
               }
             ],
+            "description": "Quantities: the UCUM unit values are in.",
             "title": "Unit"
           },
+          "unit_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The unit as people write it, such as Å for Ao.",
+            "title": "Unit Symbol"
+          },
           "values": {
-            "description": "For enum params: the choices.",
+            "description": "Enums: the allowed values.",
             "items": {
               "type": "string"
             },
@@ -3095,11 +3256,25 @@
           "label",
           "description",
           "type",
+          "plugin",
           "required",
+          "immutable",
+          "computed",
+          "unit",
+          "unit_symbol",
+          "display_unit",
+          "display_unit_symbol",
+          "display_scale",
+          "display_offset",
+          "input_units",
+          "to",
           "values",
+          "items",
           "min",
           "max",
-          "unit"
+          "min_length",
+          "max_length",
+          "pattern"
         ],
         "title": "ParamOut",
         "type": "object"
@@ -4324,6 +4499,88 @@
           "error"
         ],
         "title": "RunAttemptOut",
+        "type": "object"
+      },
+      "RunBatchIn": {
+        "properties": {
+          "each": {
+            "description": "The input each run takes one of `entities` for.",
+            "title": "Each",
+            "type": "string"
+          },
+          "entities": {
+            "description": "One run for each, in this order: at most 100.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Entities",
+            "type": "array"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "description": "Every run's other inputs, as for one run.",
+            "title": "Inputs",
+            "type": "object"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Every run's params.",
+            "title": "Params",
+            "type": "object"
+          },
+          "project": {
+            "description": "Where they run. Entities they create belong to it.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "each",
+          "entities"
+        ],
+        "title": "RunBatchIn",
+        "type": "object"
+      },
+      "RunBatchOut": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/RunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs"
+        ],
+        "title": "RunBatchOut",
         "type": "object"
       },
       "RunCan": {
@@ -6553,7 +6810,22 @@
       "get": {
         "description": "Every action installed plugins provide, in name order, with whether it can run here.",
         "operationId": "iki_server_api_runs_list_actions",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it.",
+            "in": "query",
+            "name": "takes",
+            "required": false,
+            "schema": {
+              "description": "Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Takes",
+              "type": "array"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -6670,6 +6942,57 @@
           }
         ],
         "summary": "Run an action",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/actions/{name}/runs/batch": {
+      "post": {
+        "description": "Queue one run for each entity, as `POST /actions/{name}/runs` would one at a time,\nbut all or none: if any can't run, none is queued, and the problem says which and why.",
+        "operationId": "iki_server_api_runs_launch_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunBatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunBatchOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Run an action on each of several entities",
         "tags": [
           "runs"
         ]

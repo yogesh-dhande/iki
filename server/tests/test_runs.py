@@ -100,9 +100,43 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         "model_preset": "monomer",
         "seed": 0,
     }
+    assert predict["params_schema"]["properties"]["seed"] == {
+        "anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}],
+        "title": "Seed",
+        "default": 0,
+    }
+    assert predict["params_schema"]["required"] == []
+    assert predict["params_schema"]["additionalProperties"] is False
+    # Params are fields, described as entity types' are, with their limits.
+    seed = next(p for p in predict["params"] if p["name"] == "seed")
+    assert seed == {
+        **seed,
+        "type": "int",
+        "plugin": "structure_prediction",
+        "required": False,
+        "unit": None,
+        "input_units": [],
+        "default": 0,
+        "min": 0,
+        "max": None,
+    }
     assert api_as(world, "viewer").get(f"/actions/{PREDICT}").json() == predict
     problem(api_as(world, "viewer").get("/actions/protein.nope"), 404, "not_found")
     assert api_as(world, "anonymous").get("/actions").status_code == 401
+
+
+def test_lists_the_actions_that_take_a_type(world: World) -> None:
+    viewer = api_as(world, "viewer")
+
+    def taking(*types: str) -> list[str]:
+        found = viewer.get("/actions", takes=list(types))
+        assert found.status_code == 200, found.content
+        return [a["name"] for a in found.json()]
+
+    assert taking("protein.Protein") == [COMPUTE, PREDICT]
+    assert taking("protein.ProteinStructure") == [RELAX]
+    assert taking("protein.Protein", "protein.ProteinStructure") == []
+    assert taking("dna.DNASequence") == []
 
 
 def test_without_compute_only_client_tier_actions_run(
@@ -289,6 +323,69 @@ def test_params_are_checked_and_defaulted(
     # The action's own 96Gi raises the environment's 64Gi minimum.
     assert job.resources["memory"] == 96 * 1024**3
     assert job.resources["gpu_count"] == 1
+
+
+# --- Launching on each of several --------------------------------------------------------------
+
+
+def launch_each(api: Api, project: Project, entities: list[str], **kw: Any) -> Any:
+    return api.post(
+        f"/actions/{COMPUTE}/runs/batch",
+        {"project": str(project.pk), "each": "protein", "entities": entities, **kw},
+    )
+
+
+def test_launches_one_run_for_each_entity(world: World) -> None:
+    editor = api_as(world, "editor")
+    made = [protein(editor, world.project, name) for name in ("abl1", "src", "lck")]
+    launched = launch_each(editor, world.project, [p["id"] for p in made], reason="Weights")
+    assert launched.status_code == 201, launched.content
+    runs = launched.json()["runs"]
+    assert [r["inputs"][0]["hrid"] for r in runs] == [p["hrid"] for p in made]
+    assert {(r["status"], r["reason"], r["attempts"]) for r in runs} == {("queued", "Weights", 1)}
+    numbers = [int(r["hrid"][4:]) for r in runs]
+    assert numbers == list(range(numbers[0], numbers[0] + 3))
+    assert AuditEvent.objects.filter(action="run.launched").count() == 3
+    assert Job.objects.count() == 3
+
+
+def test_a_batch_runs_all_or_none(world: World) -> None:
+    editor = api_as(world, "editor")
+    abl = protein(editor, world.project)
+    dna = create(editor, world.project, {"bases": "ACGT", "topology": "linear"}).json()
+    missing = "0195f2a8-0000-7000-8000-000000000000"
+    errors = _errors(launch_each(editor, world.project, [abl["id"], dna["id"], missing]))
+    assert errors == {
+        "#/entities": f"{dna['hrid']} is a dna.DNASequence, not a protein.Protein. "
+        f"No such entity, or you can't read it: {missing}."
+    }
+    assert _errors(launch_each(editor, world.project, [abl["id"], abl["id"]])) == {
+        "#/entities": "Each entity can be given once."
+    }
+    assert _errors(
+        launch_each(editor, world.project, [abl["id"]], each="nope", params={"x": 1})
+    ) == {"#/each": f"`{COMPUTE}` has no input `nope`."}
+    assert _errors(
+        launch_each(editor, world.project, [abl["id"]], inputs={"protein": abl["id"]})
+    ) == {"#/each": "`protein` is given in `inputs` too."}
+    assert _errors(launch_each(editor, world.project, [abl["id"]], params={"x": 1})) == {
+        "#/params/x": f"`{COMPUTE}` has no param `x`."
+    }
+    problem(launch_each(editor, world.project, []), 422, "validation_failed")
+    too_many = [abl["id"]] * 101
+    problem(launch_each(editor, world.project, too_many), 422, "validation_failed")
+    problem(launch_each(api_as(world, "viewer"), world.project, [abl["id"]]), 403, "forbidden")
+    assert not ActionRun.objects.exists()
+
+
+def test_a_batch_past_a_waiting_runs_limit_queues_none(world: World) -> None:
+    from iki_server.runs.models import RunQuota
+
+    editor = api_as(world, "editor")
+    made = [protein(editor, world.project, name) for name in ("abl1", "src", "lck")]
+    RunQuota.objects.create(project=world.project, max_queued=2, created_by=world.users["admin"])
+    problem(launch_each(editor, world.project, [p["id"] for p in made]), 409, "refused")
+    assert not ActionRun.objects.exists()
 
 
 # --- Reading and cancelling --------------------------------------------------------------------
