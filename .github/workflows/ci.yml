@@ -35,12 +35,15 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
       - name: actionlint
-        run: uvx --from actionlint-py==1.7.12.25 actionlint -color
+        run: |
+          uvx --from actionlint-py==1.7.12.25 actionlint -color
+          # The plugin template's workflow, which plugin repositories start from.
+          uvx --from actionlint-py==1.7.12.25 actionlint -color plugin-template/.github/workflows/*.yml
       - name: zizmor (workflow security audit)
         env:
           # Read-only token so zizmor can also check actions against known advisories.
           GH_TOKEN: ${{ github.token }}
-        run: uvx zizmor==1.32.0 --persona=auditor --format=github .github/
+        run: uvx zizmor==1.32.0 --persona=auditor --format=github .github/ plugin-template/.github/
 
   python:
     name: Python ${{ matrix.python }}

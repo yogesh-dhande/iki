@@ -1,0 +1,15 @@
+# Anything with a sequence of residues: DNA, RNA, proteins. Plugins add the
+# concrete types (dna.DNASequence, protein.Protein), each with its residues,
+# so searching core.Sequence finds every kind at once.
+apiVersion: iki/v1
+kind: EntityType
+name: Sequence
+label: Sequence
+label_plural: Sequences
+abstract: true
+schema_version: 1
+description: Anything with a sequence of residues, such as DNA or a protein.
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  organism: { type: string, max_length: 200, indexed: true, description: The source organism. }

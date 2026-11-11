@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: dna
+version: 0.1.0
+title: DNA
+description: DNA sequences, with their features, and primers.
+license: Apache-2.0
+homepage: https://ikisci.org/plugins/dna
+settings:
+  ncbi_email:
+    type: string
+    format: email
+    description: >-
+      The address NCBI asks automated clients to give, so it can contact the
+      lab before blocking heavy use. Fetching from NCBI needs it.

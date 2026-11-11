@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# An entity type: its own table, with history and per-field provenance.
+# Increase schema_version whenever its fields change.
+apiVersion: iki/v1
+kind: EntityType
+name: Sample
+label: Sample
+label_plural: Samples
+schema_version: 1
+description: A physical sample in the lab.
+hrid: { prefix: SMP }
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  kind: { type: enum, values: [tissue, cells, blood, dna, rna, protein, other], required: true }
+  collected_on: { type: date }
+  volume: { type: quantity, unit: mL, display_unit: uL, min: 0 }
+  storage: { type: string, max_length: 100, indexed: true }
+  # A reference: to a type of this plugin by its name, to another plugin's as plugin.Type.
+  derived_from: { type: ref, to: Sample, description: The sample it was taken from. }
+  construct: { type: ref, to: dna.DNASequence, description: The construct it carries. }
+  notes: { type: text }
+display:
+  title: "{{ name }}"

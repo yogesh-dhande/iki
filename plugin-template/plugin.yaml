@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Your plugin. Rename it (`name`, lowercase with underscores) before its first
+# migration: the name is in every table it makes, so it can't change later.
+apiVersion: iki/v1
+kind: Plugin
+name: example
+version: 0.1.0
+title: Example
+description: A starting point for a lab's own entity types.
+# An SPDX identifier. For a plugin only your company uses, "LicenseRef-Proprietary".
+license: Apache-2.0
+# The plugins whose types this one uses, with the schema versions it works with.
+dependencies:
+  dna:
+    types:
+      DNASequence: ">=1"
+# Settings a deployment gives values for, checked when it builds. Your actions
+# read them; this one is an example.
+settings:
+  default_storage:
+    type: string
+    max_length: 100
+    default: "-80 °C freezer"
+    description: Where new samples are stored unless someone says otherwise.

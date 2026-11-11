@@ -230,7 +230,8 @@ aren't secret, so names that look like secrets (`api_key`, `password`,
 A plugin lists the plugins whose types it uses, with the schema versions it
 works with. To check those references, pass the dependencies' directories
 with `--with`. Without them, the validator says it can't check them rather
-than guessing. Core types (`core.Entity`, `core.Collection`) need no dependency.
+than guessing. Core types (`core.Entity`, `core.Sequence`, `core.Collection`)
+need no dependency.
 
 ## The core plugin
 
@@ -239,6 +240,8 @@ in [`iki_spec/core`](src/iki_spec/core). Other plugins use its types without
 declaring a dependency, and no other plugin can be named `core`:
 
 - `core.Entity`: any entity. It's the server's own model, so it isn't generated.
+- `core.Sequence`: anything with a sequence of residues (abstract). Plugins'
+  sequence types extend it, so one search finds DNA and proteins alike.
 - `core.Collection`: a named set of entities. A static collection lists its
   `members`; a dynamic one has a `search`, run as whoever reads it
   ([ADR 0038](../docs/adr/0038-core-plugin-app-and-collections.md)).

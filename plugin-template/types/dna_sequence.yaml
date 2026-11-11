@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# An extension: fields this plugin adds to another plugin's type. They live in
+# this plugin's own table, so removing the plugin leaves dna's data alone.
+apiVersion: iki/v1
+kind: EntityTypeExtension
+extends_type: dna.DNASequence
+fields:
+  construct_id: { type: string, max_length: 50, indexed: true, pattern: "^[A-Z]{2,5}-[0-9]+$" }
+  sequence_verified: { type: bool, default: false }

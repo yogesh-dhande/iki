@@ -23,7 +23,8 @@ check: check-workflows check-chart check-deps check-web check-python check-rust 
 .PHONY: check-workflows
 check-workflows: ## Lint GitHub workflows (actionlint, zizmor)
 	uvx --from actionlint-py==1.7.12.25 actionlint
-	uvx zizmor==1.32.0 --persona=auditor .github/
+	uvx --from actionlint-py==1.7.12.25 actionlint plugin-template/.github/workflows/*.yml
+	uvx zizmor==1.32.0 --persona=auditor .github/ plugin-template/.github/
 
 .PHONY: check-deps
 check-deps: ## Vulnerabilities and licenses in every lockfile (osv-scanner, cargo-deny)

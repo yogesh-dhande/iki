@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Primer
+label: Primer
+label_plural: Primers
+extends: core.Sequence
+schema_version: 1
+description: >-
+  An oligonucleotide primer. Two with the same bases are the same primer, so
+  ordering one again reuses it.
+hrid: { prefix: PRM }
+identity: [bases]
+on_duplicate: reuse
+fields:
+  bases:
+    type: string
+    format: dna_sequence
+    required: true
+    immutable: true
+    max_length: 200
+    description: The bases, 5′ to 3′, in IUPAC codes.
+  direction: { type: enum, values: [forward, reverse] }
+  target: { type: ref, to: DNASequence, description: The sequence it binds. }
+  length: { type: quantity, unit: "{b}", computed: true, indexed: true }
+  gc_content: { type: quantity, unit: "%", computed: true, min: 0, max: 100 }
+  melting_temperature:
+    type: quantity
+    unit: Cel
+    computed: true
+    indexed: true
+    description: Its melting temperature (Tm), as computed by the plugin's action.
+  vendor: { type: string, max_length: 200 }
+  order_number: { type: string, max_length: 100 }
+display:
+  title: "{{ name or hrid }}"

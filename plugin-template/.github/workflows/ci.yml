@@ -1,0 +1,56 @@
+# Checks every change to the plugin, as a deployment's build will:
+#   - its manifests are valid against the plugins it depends on;
+#   - its committed migrations match its manifests (run `iki plugin
+#     makemigrations .` and commit what it writes if not).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Every job starts with no token permissions and asks only for what it needs.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The Iki your deployments run: a plugin is checked and built by the same version.
+  IKI_VERSION: "0.1.0"
+  # The commit of ikisci/iki whose first-party plugins (here, dna) this one is
+  # checked against: the one your deployment's lockfile pins.
+  IKI_PLUGINS_SHA: "0000000000000000000000000000000000000000"
+  UV_VERSION: "0.13.7"
+
+jobs:
+  check:
+    name: Validate and check migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the plugins it depends on
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ikisci/iki
+          ref: ${{ env.IKI_PLUGINS_SHA }}
+          path: .deps/iki
+          sparse-checkout: plugins/dna
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Install the iki CLI
+        run: uv tool install "iki-cli==${IKI_VERSION}"
+      - name: Validate
+        run: iki plugin validate . --with .deps/iki/plugins/dna
+      - name: Migrations match the manifests
+        run: iki plugin makemigrations . --with .deps/iki/plugins/dna --check --no-input

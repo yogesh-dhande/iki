@@ -68,6 +68,8 @@ custom_build(
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
+        # First-party plugins the dev lockfile installs from their directories.
+        'plugins',
     ],
     ignore=[
         'server/tests', 'cli/tests', 'codegen/tests', '**/__pycache__', '**/node_modules',

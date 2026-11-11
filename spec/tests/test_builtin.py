@@ -12,7 +12,7 @@ def test_the_core_plugin_is_valid_and_strict() -> None:
 
 
 def test_its_types_are_the_builtin_ones() -> None:
-    assert sorted(BUILTIN_TYPES) == ["core.Collection", "core.Entity"]
+    assert sorted(BUILTIN_TYPES) == ["core.Collection", "core.Entity", "core.Sequence"]
     entity = BUILTIN_TYPES["core.Entity"]
     assert entity.abstract
     assert entity.fields == {}
@@ -20,6 +20,9 @@ def test_its_types_are_the_builtin_ones() -> None:
     assert not collection.abstract
     assert set(collection.fields) == {"name", "description", "members", "search"}
     assert collection.hrid_prefix == "COL"
+    sequence = BUILTIN_TYPES["core.Sequence"]
+    assert sequence.abstract
+    assert set(sequence.fields) == {"name", "description", "organism"}
 
 
 def test_its_version_is_ikis() -> None:

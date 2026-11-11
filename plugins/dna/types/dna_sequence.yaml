@@ -1,0 +1,83 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: DNASequence
+label: DNA sequence
+label_plural: DNA sequences
+extends: core.Sequence
+schema_version: 1
+description: >-
+  A DNA sequence: a plasmid, a gene, a construct, a genome. Two with the same
+  bases and topology are the same sequence, so registering one again reuses it.
+hrid: { prefix: DNA }
+identity: [bases, topology]
+on_duplicate: reuse
+fields:
+  bases:
+    type: string
+    format: dna_sequence
+    required: true
+    immutable: true
+    description: The bases, 5′ to 3′, in IUPAC codes.
+  topology:
+    type: enum
+    values: [linear, circular]
+    default: linear
+    required: true
+    immutable: true
+  strandedness:
+    type: enum
+    values: [double, single]
+    default: double
+  length: { type: quantity, unit: "{bp}", computed: true, indexed: true }
+  gc_content:
+    type: quantity
+    unit: "%"
+    computed: true
+    indexed: true
+    min: 0
+    max: 100
+    description: The share of G and C among its bases.
+  accession:
+    type: string
+    max_length: 64
+    indexed: true
+    pattern: "^[A-Za-z0-9_.]+$"
+    description: Its accession in GenBank, ENA or DDBJ, with its version (such as L09137.2).
+  features:
+    type: json
+    description: >-
+      Its annotated regions, as GenBank lists them: each with a type (a
+      Sequence Ontology or GenBank feature key), where it lies, its strand, and
+      its qualifiers.
+    schema:
+      type: array
+      maxItems: 10000
+      items:
+        type: object
+        additionalProperties: false
+        required: [type, start, end]
+        properties:
+          type:
+            type: string
+            minLength: 1
+            maxLength: 64
+            description: Such as CDS, promoter or rep_origin.
+          name: { type: string, maxLength: 200 }
+          start:
+            type: integer
+            minimum: 1
+            description: The first base, counting from 1.
+          end:
+            type: integer
+            minimum: 1
+            description: >-
+              The last base. Before start, it wraps the origin of a circular
+              sequence.
+          strand: { enum: [forward, reverse, none], default: none }
+          qualifiers:
+            type: object
+            maxProperties: 50
+            additionalProperties: { type: string, maxLength: 10000 }
+display:
+  title: "{{ name or accession or hrid }}"

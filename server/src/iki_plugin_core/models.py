@@ -112,3 +112,83 @@ class Collection_members(models.Model):
                 name='core_collection__members__position__max_items',
             ),
         ]
+
+
+class Sequence(Entity):
+    """Sequence (core.Sequence), schema version 1. Anything with a sequence of residues, such as DNA or a protein."""
+
+    IKI_TYPE = 'core.Sequence'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=255, null=True, db_index=True)
+    description = models.TextField(null=True)
+    organism = models.CharField(max_length=200, null=True, db_index=True)
+
+    class Meta:
+        db_table = 'core_sequence'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='core_sequence__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='core_sequence__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='core_sequence__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 10000),
+                name='core_sequence__description__max_length',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('organism'), 1),
+                name='core_sequence__organism__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(organism__regex='[\\r\\n]'),
+                name='core_sequence__organism__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_952eb46567b1a564b79b',
+            ),
+            GinIndex(
+                SearchVector('description', config='simple'),
+                name='descriptio_fts_8d31ffb831aedcd',
+            ),
+            GinIndex(
+                fields=['organism'],
+                opclasses=['gin_trgm_ops'],
+                name='organism_trgm_54cc477dbfbf8930',
+            ),
+        ]
+
+
+class Sequence_History(models.Model):
+    """The history of core_sequence: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Sequence'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    description = models.TextField(null=True)
+    organism = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'core_sequence__history'
