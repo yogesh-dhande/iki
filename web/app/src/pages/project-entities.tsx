@@ -27,6 +27,7 @@ import { usePageTitle } from "../layout";
 import { buttonClass, Loading, ProblemAlert, RelativeTime, SelectField } from "../ui";
 import { FilterPanel, SearchBox, SortHeading, type Direction } from "./entity-filters";
 import { useProject } from "./project-overview";
+import { SavedSearches } from "./saved-searches";
 
 const ROW_HEIGHT = 44;
 /** Fetch the next page when this many rows remain below the view. */
@@ -243,6 +244,7 @@ export function ProjectEntities() {
           </Link>
         ) : null}
       </div>
+      <SavedSearches project={project} search={search} />
       {filtersOpen ? (
         <FilterPanel
           key={type?.name ?? ""}

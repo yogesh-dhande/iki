@@ -47,6 +47,8 @@ console.
   as the search API takes them (ADR 0037): each kind of field's conditions
   in words, typed into the same inputs as forms, and kept in the page's
   address so a filtered, sorted grid can be bookmarked and shared.
+  `src/pages/saved-searches.tsx` keeps a grid's search under a name, for
+  oneself or shared with the project.
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
   addresses. Pages other than the frame, home and a project's overview load
   when they're first opened (`lazyRouteComponent`), so the first page stays

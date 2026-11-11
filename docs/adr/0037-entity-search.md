@@ -83,6 +83,16 @@ a 15-second statement timeout. One that runs out answers 422,
 `search_too_slow`, saying to narrow it with indexed fields. One costly
 search can't hold the database the lab's work runs on.
 
+**Searches can be saved, for oneself or for the project.** A saved search
+keeps its JSON under a name, in a project. Anyone who can read the project
+saves searches for themselves. Sharing one with everyone who can read the
+project takes Editor there, so viewers can't fill a project's list. Only
+its owner changes it, and the project's Admins can remove a shared one,
+as Jira's shared filters work. A search is checked as its owner when it's
+saved, and again each time it runs, since types change. Shared searches
+are audited (shared, changed, unshared, removed), because they're what a
+project's people see. Personal ones aren't: they're like bookmarks.
+
 ## Consequences
 
 - Positive: one search for the web app, the SDK, agents and saved

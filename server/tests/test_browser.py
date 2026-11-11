@@ -358,6 +358,39 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     assert_clean(page)
 
 
+def test_saving_and_sharing_a_search(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+
+    for name, sequence in (("ABL1", "MKVL"), ("SRC", "MSTL")):
+        entities.create(
+            world.users["admin"],
+            "protein.Protein",
+            world.project,
+            {"sequence": sequence, "name": name},
+        )
+    page = open_as("editor", "/projects/kinase-atlas/entities/?type=protein.Protein&q=abl")
+    page.get_by_role("table", name="1 protein match").wait_for()
+    page.get_by_role("button", name="Save this search").click()
+    dialog = page.get_by_role("alertdialog", name="Save this search")
+    dialog.get_by_label("Name").fill("ABL proteins")
+    dialog.get_by_label(re.compile("Share with everyone in Kinase Atlas")).check()
+    assert_clean(page)
+    dialog.get_by_role("button", name="Save").click()
+    page.get_by_text("Saved “ABL proteins”.").wait_for()
+    saved = page.get_by_role("navigation", name="Saved searches")
+    assert saved.get_by_role("link", name="ABL proteins").get_attribute("aria-current") == "page"
+    assert_clean(page)
+
+    other = open_as("viewer", "/projects/kinase-atlas/entities/")
+    other.get_by_role("navigation", name="Saved searches").get_by_role(
+        "link", name="ABL proteins"
+    ).click()
+    other.get_by_role("table", name="1 protein match").wait_for()
+    # Viewers can't remove what someone else shared.
+    assert other.get_by_role("button", name="Remove saved search ABL proteins").count() == 0
+    assert_clean(other)
+
+
 def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity

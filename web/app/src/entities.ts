@@ -94,6 +94,20 @@ export function entitiesQuery(filter: EntityFilter) {
   });
 }
 
+export type SavedSearch = Schemas["SavedSearchOut"];
+export const SAVED_SEARCHES = ["saved-searches"] as const;
+
+/** A project's saved searches: the caller's own, and those shared with the project. */
+export function savedSearchesQuery(projectId: string) {
+  return queryOptions({
+    queryKey: [...SAVED_SEARCHES, projectId],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/saved-searches", { params: { query: { project: projectId } } }),
+      ),
+  });
+}
+
 /** Entities a reference can point at, for a picker: by HRID or the text in their title. */
 export function pickerQuery(type: string | undefined, q: string) {
   return queryOptions({

@@ -130,6 +130,20 @@ ENTITY_READERS = ("viewer", "editor", "runner", "admin", "via_team", "mixed")
 ENTITY_EDITORS = ("editor", "runner", "admin", "via_team", "mixed")
 
 
+def saved(suffix: str = "", body: Any = None) -> Build:
+    """A search the editor saved and shared with the project."""
+
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.searches import services
+
+        found = services.create(
+            w.users["editor"], w.project, name="Shared", query={"q": "kin"}, shared=True
+        )
+        return f"/saved-searches/{found.pk}{suffix}", body
+
+    return build
+
+
 def readers(status: int, **overrides: int) -> dict[str, int]:
     return row(404, **{**dict.fromkeys(ENTITY_READERS, status), **overrides})
 
@@ -312,6 +326,31 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entity-types/{name}", fixed("/entity-types/dna.DNASequence"), row(200)),
     ("GET", "/entities", fixed("/entities"), row(200)),
     ("POST", "/entities/search", lambda w: ("/entities/search", {"q": "kin"}), row(200)),
+    # Saved searches: a project's readers save their own; the owner changes one; Admins
+    # can remove shared ones.
+    (
+        "GET",
+        "/saved-searches",
+        lambda w: (f"/saved-searches?project={w.project.pk}", None),
+        readers(200, org_admin=403),
+    ),
+    (
+        "POST",
+        "/saved-searches",
+        lambda w: (
+            "/saved-searches",
+            {"project": str(w.project.pk), "name": "Mine", "query": {"q": "kin"}},
+        ),
+        readers(201, org_admin=403),
+    ),
+    ("GET", "/saved-searches/{saved_id}", saved(), readers(200)),
+    (
+        "PATCH",
+        "/saved-searches/{saved_id}",
+        saved(body={"name": "Renamed"}),
+        readers(403, editor=200),
+    ),
+    ("DELETE", "/saved-searches/{saved_id}", saved(), readers(403, editor=204, admin=204)),
     (
         "POST",
         "/entities",

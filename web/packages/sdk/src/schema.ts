@@ -662,6 +662,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/saved-searches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A project's saved searches
+         * @description Yours, and those shared with the project, by name.
+         */
+        get: operations["iki_server_api_searches_list_saved_searches"];
+        put?: never;
+        /**
+         * Save a search
+         * @description Checked as you, now. Sharing it with the project takes Editor there.
+         */
+        post: operations["iki_server_api_searches_create_saved_search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/saved-searches/{saved_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A saved search */
+        get: operations["iki_server_api_searches_get_saved_search"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a saved search
+         * @description Its owner can, and the project's Admins can remove a shared one.
+         */
+        delete: operations["iki_server_api_searches_delete_saved_search"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a saved search
+         * @description Only its owner can change it.
+         */
+        patch: operations["iki_server_api_searches_update_saved_search"];
+        trace?: never;
+    };
     "/api/v1/service-accounts": {
         parameters: {
             query?: never;
@@ -2293,6 +2342,25 @@ export interface components {
              */
             name: "viewer" | "editor" | "runner" | "admin";
         };
+        /**
+         * QueryIn
+         * @description A search, as ``POST /entities/search`` takes it, without its project or paging.
+         */
+        QueryIn: {
+            /** Archived */
+            archived?: boolean | null;
+            /**
+             * Exact Type
+             * @default false
+             */
+            exact_type: boolean;
+            /** Q */
+            q?: string | null;
+            sort?: components["schemas"]["SortIn"] | null;
+            /** Type */
+            type?: string | null;
+            where?: components["schemas"]["Condition"] | null;
+        };
         /** ReadIn */
         ReadIn: {
             /** Read */
@@ -2472,6 +2540,82 @@ export interface components {
              * @enum {string}
              */
             role: "viewer" | "editor" | "runner" | "admin";
+        };
+        /** SavedSearchCan */
+        SavedSearchCan: {
+            /** Change */
+            change: boolean;
+            /** Delete */
+            delete: boolean;
+        };
+        /** SavedSearchFilters */
+        SavedSearchFilters: {
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+        };
+        /** SavedSearchIn */
+        SavedSearchIn: {
+            /** Name */
+            name: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            query: components["schemas"]["QueryIn"];
+            /**
+             * Shared
+             * @description Show it to everyone who can read the project.
+             * @default false
+             */
+            shared: boolean;
+        };
+        /** SavedSearchOut */
+        SavedSearchOut: {
+            can: components["schemas"]["SavedSearchCan"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["PersonRef"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /**
+             * Query
+             * @description The search, ready for POST /entities/search.
+             */
+            query: {
+                [key: string]: unknown;
+            };
+            /** Shared */
+            shared: boolean;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SavedSearchPatch */
+        SavedSearchPatch: {
+            /** Name */
+            name?: string | null;
+            query?: components["schemas"]["QueryIn"] | null;
+            /** Shared */
+            shared?: boolean | null;
         };
         /** SearchIn */
         SearchIn: {
@@ -4004,6 +4148,120 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegistrationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_searches_list_saved_searches: {
+        parameters: {
+            query: {
+                project: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSearchOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_searches_create_saved_search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedSearchIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSearchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_searches_get_saved_search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                saved_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSearchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_searches_delete_saved_search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                saved_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_searches_update_saved_search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                saved_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedSearchPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedSearchOut"];
                 };
             };
         };

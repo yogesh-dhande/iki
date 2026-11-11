@@ -1175,6 +1175,53 @@ input[type="date"] {
   margin-bottom: 0.75rem;
 }
 
+/* Saved searches above a grid: links, each with what it is and a way to remove it. */
+.saved-searches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.saved-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.saved-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.25rem 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.saved-item .button {
+  min-height: 2rem;
+  padding: 0 0.6rem;
+}
+
+.saved-link {
+  padding: 0.35rem 0;
+}
+
+.saved-link[aria-current="page"] {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.saved-shared {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 /* A heading that sorts its column: the whole cell is the button. */
 .sort-heading {
   display: flex;

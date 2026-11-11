@@ -2696,6 +2696,72 @@
         "title": "ProjectRoleOut",
         "type": "object"
       },
+      "QueryIn": {
+        "description": "A search, as ``POST /entities/search`` takes it, without its project or paging.",
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "exact_type": {
+            "default": false,
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "QueryIn",
+        "type": "object"
+      },
       "ReadIn": {
         "properties": {
           "read": {
@@ -3032,6 +3098,164 @@
           "role"
         ],
         "title": "RoleIn",
+        "type": "object"
+      },
+      "SavedSearchCan": {
+        "properties": {
+          "change": {
+            "title": "Change",
+            "type": "boolean"
+          },
+          "delete": {
+            "title": "Delete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "change",
+          "delete"
+        ],
+        "title": "SavedSearchCan",
+        "type": "object"
+      },
+      "SavedSearchFilters": {
+        "properties": {
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "title": "SavedSearchFilters",
+        "type": "object"
+      },
+      "SavedSearchIn": {
+        "properties": {
+          "name": {
+            "maxLength": 100,
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/QueryIn"
+          },
+          "shared": {
+            "default": false,
+            "description": "Show it to everyone who can read the project.",
+            "title": "Shared",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project",
+          "name",
+          "query"
+        ],
+        "title": "SavedSearchIn",
+        "type": "object"
+      },
+      "SavedSearchOut": {
+        "properties": {
+          "can": {
+            "$ref": "#/components/schemas/SavedSearchCan"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "query": {
+            "additionalProperties": true,
+            "description": "The search, ready for POST /entities/search.",
+            "title": "Query",
+            "type": "object"
+          },
+          "shared": {
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "name",
+          "query",
+          "shared",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "can"
+        ],
+        "title": "SavedSearchOut",
+        "type": "object"
+      },
+      "SavedSearchPatch": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QueryIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shared": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shared"
+          }
+        },
+        "title": "SavedSearchPatch",
         "type": "object"
       },
       "SearchIn": {
@@ -6464,6 +6688,215 @@
         "summary": "One of your registrations",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/v1/saved-searches": {
+      "get": {
+        "description": "Yours, and those shared with the project, by name.",
+        "operationId": "iki_server_api_searches_list_saved_searches",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedSearchOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A project's saved searches",
+        "tags": [
+          "saved searches"
+        ]
+      },
+      "post": {
+        "description": "Checked as you, now. Sharing it with the project takes Editor there.",
+        "operationId": "iki_server_api_searches_create_saved_search",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedSearchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSearchOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Save a search",
+        "tags": [
+          "saved searches"
+        ]
+      }
+    },
+    "/api/v1/saved-searches/{saved_id}": {
+      "delete": {
+        "description": "Its owner can, and the project's Admins can remove a shared one.",
+        "operationId": "iki_server_api_searches_delete_saved_search",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "saved_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Saved Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Delete a saved search",
+        "tags": [
+          "saved searches"
+        ]
+      },
+      "get": {
+        "operationId": "iki_server_api_searches_get_saved_search",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "saved_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Saved Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSearchOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A saved search",
+        "tags": [
+          "saved searches"
+        ]
+      },
+      "patch": {
+        "description": "Only its owner can change it.",
+        "operationId": "iki_server_api_searches_update_saved_search",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "saved_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Saved Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedSearchPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSearchOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change a saved search",
+        "tags": [
+          "saved searches"
         ]
       }
     },

@@ -17,7 +17,7 @@ import {
   revision,
   withTypes,
 } from "./entity-fixtures";
-import { answer, calls, page, problem } from "./test-server";
+import { answer, calls, ME, page, problem, respond } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -243,6 +243,61 @@ describe("a project's entities", () => {
     const sent = calls("POST", "/api/v1/entities/search");
     expect(nth(sent, sent.length - 1).body).toMatchObject({
       sort: { field: "name", descending: true },
+    });
+  });
+
+  it("saves a search, and lists saved ones as links to them", async () => {
+    onProject();
+    answer("POST /api/v1/entities/search", page([entity()]));
+    const human = {
+      id: "00000000-0000-7000-8000-0000000a0001",
+      project: KINASE.id,
+      name: "Human proteins",
+      query: {
+        type: "protein.Protein",
+        archived: false,
+        where: { all: [{ field: "name", op: "contains", value: "abl" }] },
+      },
+      shared: true,
+      created_by: { id: ME.id, name: ME.name },
+      created_at: "2026-03-14T09:00:00Z",
+      updated_at: "2026-03-14T09:00:00Z",
+      can: { change: true, delete: true },
+    };
+    answer("GET /api/v1/saved-searches", [human]);
+    answer("POST /api/v1/saved-searches", respond(201, { ...human, name: "Sorted" }));
+    const { router, user } = await renderApp(
+      "/projects/kinase-atlas/entities/?type=protein.Protein",
+    );
+    const saved = await screen.findByRole("navigation", { name: "Saved searches" });
+    await user.click(within(saved).getByRole("link", { name: "Human proteins" }));
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({
+        type: "protein.Protein",
+        filters: [{ field: "name", op: "contains", value: "abl" }],
+      });
+    });
+    expect(within(saved).getByRole("link", { name: "Human proteins" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save this search" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Save this search" });
+    await user.type(within(dialog).getByLabelText("Name"), "Sorted");
+    await user.click(within(dialog).getByLabelText(/Share with everyone in Kinase Atlas/));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await screen.findByText("Saved “Sorted”.");
+    expect(nth(calls("POST", "/api/v1/saved-searches"), 0).body).toEqual({
+      project: KINASE.id,
+      name: "Sorted",
+      shared: true,
+      query: {
+        exact_type: false,
+        type: "protein.Protein",
+        archived: false,
+        where: { all: [{ field: "name", op: "contains", value: "abl" }] },
+      },
     });
   });
 
