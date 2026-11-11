@@ -172,3 +172,13 @@ def test_the_published_openapi_document_is_current() -> None:
     assert json.loads(committed.read_text()) == json.loads(json.dumps(current)), (
         "The API changed. Run `make client` and commit web/packages/sdk."
     )
+
+
+def test_the_worker_protocol_document_is_current() -> None:
+    from iki_server.api.worker import api
+
+    committed = Path(__file__).parents[2] / "worker/crates/iki-protocol/worker-openapi.json"
+    current = api.get_openapi_schema()
+    assert json.loads(committed.read_text()) == json.loads(json.dumps(current)), (
+        "The worker API changed. Run `make protocol` and commit worker/."
+    )

@@ -12,6 +12,8 @@ server/src/**/templates/
 # Generated from the server's OpenAPI document by `make client`.
 web/packages/sdk/openapi.json
 web/packages/sdk/src/schema.ts
+# Generated from the worker API by `make protocol`.
+worker/crates/iki-protocol/worker-openapi.json
 # The built web app, served by the server.
 server/src/iki_server/web/static/app/
 # Vendored as published (UCUM licence); never reformatted.

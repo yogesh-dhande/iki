@@ -61,6 +61,12 @@ client: ## Regenerate the TypeScript API client from the server's OpenAPI docume
 	scripts/openapi.sh > web/packages/sdk/openapi.json
 	$(PNPM) --filter @ikisci/sdk generate
 
+.PHONY: protocol
+protocol: ## Regenerate the worker's protocol types from the server's schemas and API
+	scripts/openapi.sh --worker > worker/crates/iki-protocol/worker-openapi.json
+	uv run python -m iki_codegen.protocol worker/crates/iki-protocol/worker-openapi.json \
+	  > worker/crates/iki-protocol/src/generated.rs
+
 .PHONY: check-web
 check-web: ## ESLint, Prettier, tsc, Vitest, the generated client, and the build
 	$(PNPM) lint

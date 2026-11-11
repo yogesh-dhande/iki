@@ -139,3 +139,14 @@ def test_plugins_that_cant_be_installed_together(plugins: list[Plugin], tmp_path
     ]
     with pytest.raises(ValueError, match="both use the HRID prefix PRT"):
         build([*plugins, copy], tmp_path)
+
+
+def test_the_worker_protocol_types_are_current() -> None:
+    from iki_codegen import protocol
+
+    crate = Path(__file__).parents[2] / "worker" / "crates" / "iki-protocol"
+    document = json.loads((crate / "worker-openapi.json").read_text(encoding="utf-8"))
+    committed = (crate / "src" / "generated.rs").read_text(encoding="utf-8")
+    assert protocol.generate(document) == committed, (
+        "The protocol types are out of date. Run `make protocol` and commit worker/."
+    )

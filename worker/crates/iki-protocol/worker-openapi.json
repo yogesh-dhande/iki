@@ -1,0 +1,1083 @@
+{
+  "components": {
+    "schemas": {
+      "Capacity": {
+        "description": "What the worker can give one job. Memory and disk are in bytes.",
+        "properties": {
+          "cpu": {
+            "exclusiveMinimum": 0,
+            "maximum": 4096,
+            "title": "Cpu",
+            "type": "number"
+          },
+          "gpu_count": {
+            "default": 0,
+            "maximum": 64,
+            "minimum": 0,
+            "title": "Gpu Count",
+            "type": "integer"
+          },
+          "gpu_memory": {
+            "default": 0,
+            "maximum": 9007199254740992,
+            "minimum": 0,
+            "title": "Gpu Memory",
+            "type": "integer"
+          },
+          "memory": {
+            "maximum": 9007199254740992,
+            "minimum": 0,
+            "title": "Memory",
+            "type": "integer"
+          },
+          "scratch_disk": {
+            "default": 0,
+            "maximum": 9007199254740992,
+            "minimum": 0,
+            "title": "Scratch Disk",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cpu",
+          "memory"
+        ],
+        "title": "Capacity",
+        "type": "object"
+      },
+      "CompleteIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "output": {
+            "additionalProperties": true,
+            "description": "The command's output.json (`run-output/v1`). Up to 2.5 MB; files come separately.",
+            "title": "Output",
+            "type": "object"
+          }
+        },
+        "required": [
+          "lease_token",
+          "output"
+        ],
+        "title": "CompleteIn",
+        "type": "object"
+      },
+      "CompleteOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/OutputErrorOut"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "run_status": {
+            "description": "`succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run.",
+            "title": "Run Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_status"
+        ],
+        "title": "CompleteOut",
+        "type": "object"
+      },
+      "FailIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Message",
+            "type": "string"
+          },
+          "reason": {
+            "description": "`failed`: the command's own error. `timed_out`: it ran past its timeout. `interrupted`: the machine was stopped. `cancelled`: it was asked to stop.",
+            "enum": [
+              "failed",
+              "timed_out",
+              "interrupted",
+              "cancelled"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_token",
+          "reason"
+        ],
+        "title": "FailIn",
+        "type": "object"
+      },
+      "FailOut": {
+        "properties": {
+          "run_status": {
+            "description": "`queued` again if it's retried; otherwise how it ended.",
+            "title": "Run Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_status"
+        ],
+        "title": "FailOut",
+        "type": "object"
+      },
+      "HeartbeatIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "leased",
+                  "staging",
+                  "running",
+                  "uploading"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it's doing now: staging inputs, running, or uploading results.",
+            "title": "State"
+          }
+        },
+        "required": [
+          "lease_token"
+        ],
+        "title": "HeartbeatIn",
+        "type": "object"
+      },
+      "HeartbeatOut": {
+        "properties": {
+          "cancel_requested": {
+            "description": "Someone cancelled the run: stop the command, then report `cancelled`.",
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "title": "Lease Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_expires_at",
+          "cancel_requested"
+        ],
+        "title": "HeartbeatOut",
+        "type": "object"
+      },
+      "LeaseIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_token"
+        ],
+        "title": "LeaseIn",
+        "type": "object"
+      },
+      "LogIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "offset": {
+            "description": "Where this chunk starts, in bytes of UTF-8.",
+            "minimum": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 262144,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_token",
+          "offset",
+          "text"
+        ],
+        "title": "LogIn",
+        "type": "object"
+      },
+      "LogOut": {
+        "properties": {
+          "next_offset": {
+            "title": "Next Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "next_offset"
+        ],
+        "title": "LogOut",
+        "type": "object"
+      },
+      "OutputErrorOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "pointer": {
+            "description": "Where in the output, as a JSON pointer.",
+            "title": "Pointer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pointer",
+          "detail"
+        ],
+        "title": "OutputErrorOut",
+        "type": "object"
+      },
+      "PartOut": {
+        "properties": {
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "size": {
+            "description": "Bytes this part must hold.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "PUT the part's bytes here. It works for an hour.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "size",
+          "url"
+        ],
+        "title": "PartOut",
+        "type": "object"
+      },
+      "PartsIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "numbers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 1000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parts to sign again; all of them if left out.",
+            "title": "Numbers"
+          }
+        },
+        "required": [
+          "lease_token"
+        ],
+        "title": "PartsIn",
+        "type": "object"
+      },
+      "ProgressIn": {
+        "properties": {
+          "fraction": {
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Fraction",
+            "type": "number"
+          },
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_token",
+          "fraction"
+        ],
+        "title": "ProgressIn",
+        "type": "object"
+      },
+      "RegisterIn": {
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/Capacity"
+          },
+          "name": {
+            "description": "Its host or pod name, for people to tell it by.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "description": "The iki-worker version.",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "capacity"
+        ],
+        "title": "RegisterIn",
+        "type": "object"
+      },
+      "RegisteredOut": {
+        "properties": {
+          "heartbeat_every": {
+            "description": "Seconds between heartbeats while it holds a job.",
+            "title": "Heartbeat Every",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "token": {
+            "description": "Its own token, for everything else. Shown once.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tier",
+          "token",
+          "heartbeat_every"
+        ],
+        "title": "RegisteredOut",
+        "type": "object"
+      },
+      "StartedOut": {
+        "properties": {
+          "error": {
+            "description": "Why it failed.",
+            "title": "Error",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once ready: the file's ID, for output.json.",
+            "title": "File"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PartOut"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "checking",
+              "ready",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "file",
+          "error",
+          "parts"
+        ],
+        "title": "StartedOut",
+        "type": "object"
+      },
+      "UploadIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "media_type": {
+            "description": "Such as chemical/x-pdb.",
+            "maxLength": 255,
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its file name, such as model_1.pdb.",
+            "maxLength": 1000,
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Of its bytes, as hex.",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lease_token",
+          "name",
+          "media_type",
+          "size",
+          "sha256"
+        ],
+        "title": "UploadIn",
+        "type": "object"
+      },
+      "UploadOut": {
+        "properties": {
+          "error": {
+            "description": "Why it failed.",
+            "title": "Error",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once ready: the file's ID, for output.json.",
+            "title": "File"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "checking",
+              "ready",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "file",
+          "error"
+        ],
+        "title": "UploadOut",
+        "type": "object"
+      },
+      "WorkerOut": {
+        "properties": {
+          "capacity": {
+            "additionalProperties": true,
+            "title": "Capacity",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tier",
+          "version",
+          "capacity"
+        ],
+        "title": "WorkerOut",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "RegistrationAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "WorkerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "What `iki-worker` uses to lease jobs and report on them. Not for people.",
+    "title": "Iki worker API",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/worker/v1/deregister": {
+      "post": {
+        "description": "Revokes this worker's token, when it shuts down for good. Jobs it still holds are\ninterrupted, and retried elsewhere if their action allows.",
+        "operationId": "iki_server_api_worker_deregister",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Stop being a worker"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/complete": {
+      "post": {
+        "description": "Writes the results in one transaction, all or none, after checking them against\nwhat the action declares. Whatever the answer, the attempt is over: don't retry it.",
+        "operationId": "iki_server_api_worker_complete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Finish with results"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/fail": {
+      "post": {
+        "operationId": "iki_server_api_worker_fail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FailIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "End an attempt without results"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/heartbeat": {
+      "post": {
+        "operationId": "iki_server_api_worker_heartbeat",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeartbeatOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Keep a lease"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/logs": {
+      "post": {
+        "description": "Chunks go in order. Sending one again (after a timeout, say) is harmless; skipping\nahead answers 409 ``log_gap`` with where the log continues.",
+        "operationId": "iki_server_api_worker_logs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Send log output"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/progress": {
+      "post": {
+        "operationId": "iki_server_api_worker_progress",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProgressIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Report progress"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/uploads": {
+      "post": {
+        "description": "Answers with the parts to PUT. Then finish it, and finish it again until it's `ready`\n(Iki checks the bytes), and attach its file to entities in output.json.",
+        "operationId": "iki_server_api_worker_start_upload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Upload a result file"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/uploads/{upload_id}/complete": {
+      "post": {
+        "description": "Once every part is in. Ask again until it's `ready` (or `failed`): finishing it again\nchanges nothing.",
+        "operationId": "iki_server_api_worker_complete_upload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Finish a result file"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/uploads/{upload_id}/parts": {
+      "post": {
+        "operationId": "iki_server_api_worker_sign_parts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PartOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Sign a result file's parts again"
+      }
+    },
+    "/worker/v1/me": {
+      "get": {
+        "description": "Whether its token still works, and what the server knows of it.",
+        "operationId": "iki_server_api_worker_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "This worker"
+      }
+    },
+    "/worker/v1/register": {
+      "post": {
+        "operationId": "iki_server_api_worker_register",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisteredOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "RegistrationAuth": []
+          }
+        ],
+        "summary": "Register a worker"
+      }
+    }
+  },
+  "servers": []
+}
