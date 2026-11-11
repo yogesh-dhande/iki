@@ -15,4 +15,5 @@ fields:
   encoded_by: { type: ref, to: dna.DNASequence }
   temperature_optimum: { type: quantity, unit: Cel }
   uniprot_ids: { type: list, items: { type: string, pattern: "^[A-Z0-9]{6,10}$" } }
+  summary: { type: text }
 display: { title: "{{ name or hrid }}" }

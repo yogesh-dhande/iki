@@ -125,7 +125,8 @@ plugin, wouldn't have them), can't reuse a name the type already has, and
 
 Every field has a `type`, and may have `label`, `description`, `required`,
 `immutable` (set once, never changed), `computed` (set only by actions),
-`indexed` (a database index for fast filtering and sorting), `default` and
+`indexed` (a database index for fast filtering and sorting; indexed strings
+are also fast to search for text they contain), `default` and
 `removed`.
 
 A field is never deleted, because its history is kept. To stop using one,
@@ -135,7 +136,7 @@ type's history. Identity fields can't be removed.
 | Type       | Options                                         | Notes                                                                      |
 | ---------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
 | `string`   | `format`, `pattern`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600. |
-| `text`     | `max_length`                                    | Long text. Not indexable.                                                  |
+| `text`     | `max_length`                                    | Long text. Not indexable: searched by its words (full text) instead.       |
 | `int`      | `min`, `max`                                    | 64-bit.                                                                    |
 | `float`    | `min`, `max`                                    | Double precision.                                                          |
 | `bool`     |                                                 |                                                                            |

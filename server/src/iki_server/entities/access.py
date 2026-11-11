@@ -11,7 +11,7 @@ Entities people can't read behave as if they don't exist (404).
 or an entity that refers to them, at any revision.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
@@ -29,10 +29,15 @@ def readable_projects(user: Any) -> QuerySet[Project]:  # noqa: ANN401 - User or
 
 def visible(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
     """The entities the user can read."""
+    return visible_of(user, Entity)
+
+
+def visible_of[E: Entity](user: Any, model: type[E]) -> QuerySet[E]:  # noqa: ANN401 - User or AnonymousUser
+    """The entities of a type's model (its subtypes' included) the user can read."""
     links = ProjectLink.objects.filter(
         entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
     )
-    return Entity.objects.filter(Exists(links))
+    return cast("QuerySet[E]", model._default_manager.filter(Exists(links)))
 
 
 def readable_files(user: Any) -> QuerySet[File]:  # noqa: ANN401 - User or AnonymousUser

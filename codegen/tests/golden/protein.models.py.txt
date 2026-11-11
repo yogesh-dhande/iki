@@ -8,6 +8,8 @@ Don't edit this file: change the manifests, then run `iki plugin makemigrations`
 import datetime
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Length
@@ -41,6 +43,7 @@ class Protein(iki_plugin_dna.models.Sequence):
     encoded_by = models.ForeignKey('dna.DNASequence', models.PROTECT, related_name='+', null=True)
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
+    summary = models.TextField(null=True)
 
     class Meta:
         db_table = 'protein_protein'
@@ -94,6 +97,21 @@ class Protein(iki_plugin_dna.models.Sequence):
                 condition=checks.AllMatch('uniprot_ids', '^(?:^[A-Z0-9]{6,10}$)$'),
                 name='protein_protein__uniprot_ids__item_pattern',
             ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('summary'), 1),
+                name='protein_protein__summary__not_empty',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['organism'],
+                opclasses=['gin_trgm_ops'],
+                name='organism_trgm_e955a4eb7aca66c4',
+            ),
+            GinIndex(
+                SearchVector('summary', config='simple'),
+                name='summary_fts_8f966f390fa0b0f37b',
+            ),
         ]
 
 
@@ -113,6 +131,7 @@ class Protein_History(models.Model):
     encoded_by = models.UUIDField(db_column='encoded_by_id', null=True)
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
+    summary = models.TextField(null=True)
 
     class Meta:
         db_table = 'protein_protein__history'

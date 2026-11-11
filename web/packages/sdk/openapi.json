@@ -49,6 +49,96 @@
         "title": "ChangeOut",
         "type": "object"
       },
+      "Condition": {
+        "additionalProperties": false,
+        "description": "A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and\n``value``), ``all``, ``any`` or ``not``.",
+        "properties": {
+          "all": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Condition"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every one of these.",
+            "title": "All"
+          },
+          "any": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Condition"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At least one of these.",
+            "title": "Any"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A field of the type, or of every entity.",
+            "title": "Field"
+          },
+          "not": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Not this."
+          },
+          "op": {
+            "anyOf": [
+              {
+                "enum": [
+                  "is_set",
+                  "eq",
+                  "ne",
+                  "in",
+                  "lt",
+                  "lte",
+                  "gt",
+                  "gte",
+                  "contains",
+                  "starts_with",
+                  "matches",
+                  "has"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Op"
+          },
+          "value": {
+            "description": "What to compare with, as the field takes it.",
+            "title": "Value"
+          }
+        },
+        "title": "Condition",
+        "type": "object"
+      },
       "CreatedOut": {
         "properties": {
           "archived": {
@@ -2944,6 +3034,107 @@
         "title": "RoleIn",
         "type": "object"
       },
+      "SearchIn": {
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "exact_type": {
+            "default": false,
+            "description": "Only the type itself, not its subtypes.",
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities that belong to this project.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text in their HRID, or a text field in their title.",
+            "title": "Q"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This type and its subtypes.",
+            "title": "Type"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "SearchIn",
+        "type": "object"
+      },
       "SecretOut": {
         "properties": {
           "previous_secret_expires_at": {
@@ -3099,6 +3290,25 @@
           }
         },
         "title": "ServiceAccountPatch",
+        "type": "object"
+      },
+      "SortIn": {
+        "properties": {
+          "descending": {
+            "default": false,
+            "title": "Descending",
+            "type": "boolean"
+          },
+          "field": {
+            "description": "A field to sort by: text, numbers, dates or yes/no.",
+            "title": "Field",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "title": "SortIn",
         "type": "object"
       },
       "StartedOut": {
@@ -4051,7 +4261,7 @@
   "paths": {
     "/api/v1/entities": {
       "get": {
-        "description": "Oldest first. Filter by type to get one type and its subtypes.",
+        "description": "Oldest first. Filter by type to get one type and its subtypes. For conditions on\nfields, and sorting, use ``POST /entities/search``.",
         "operationId": "iki_server_api_entities_list_entities",
         "parameters": [
           {
@@ -4241,6 +4451,47 @@
           }
         ],
         "summary": "Create an entity",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/search": {
+      "post": {
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), and ``where``, conditions\non the type's fields. Sorted by ``sort`` (then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or ``{\"value\": 50, \"unit\": \"kDa\"}``)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "operationId": "iki_server_api_entities_search_entities",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_EntityOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Search entities",
         "tags": [
           "entities"
         ]

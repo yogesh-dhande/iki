@@ -60,7 +60,8 @@ Per-item rules call small `IMMUTABLE` SQL functions with a fixed
 References and files are foreign keys, so nothing they point to can be
 deleted from under them.
 Required fields are `NOT NULL`, defaults are database defaults, and
-`indexed` fields get B-tree indexes. A missing value is NULL, never an
+`indexed` fields get B-tree indexes (indexed strings also get trigram
+indexes, and text fields full-text ones: see ADR 0037). A missing value is NULL, never an
 empty string.
 
 **A quantity column records its unit.** `QuantityField(unit=…)` puts the

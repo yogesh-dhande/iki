@@ -66,3 +66,4 @@ supersedes the old one, and update the old one's status.
 | [0034](0034-deployment-lockfile-and-plugin-builds.md)            | Each deployment pins its plugins in a lockfile, and builds its own image                        | Accepted |
 | [0035](0035-entity-revisions-provenance-and-edit-rules.md)       | Every change is an append-only revision; edits name their revision; duplicates are reused       | Accepted |
 | [0036](0036-files-content-addressed-uploads.md)                  | Files upload straight to object storage, are checked against their SHA-256, and are stored once | Accepted |
+| [0037](0037-entity-search.md)                                    | Entity search: typed JSON conditions, compiled to indexed SQL                                   | Accepted |

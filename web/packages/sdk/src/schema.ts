@@ -13,7 +13,8 @@ export interface paths {
         };
         /**
          * Entities you can read
-         * @description Oldest first. Filter by type to get one type and its subtypes.
+         * @description Oldest first. Filter by type to get one type and its subtypes. For conditions on
+         *     fields, and sorting, use ``POST /entities/search``.
          */
         get: operations["iki_server_api_entities_list_entities"];
         put?: never;
@@ -25,6 +26,41 @@ export interface paths {
          *     ``allow_duplicate`` is set.
          */
         post: operations["iki_server_api_entities_create_entity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search entities
+         * @description Entities you can read that match every filter given: a type (with its subtypes), a
+         *     project, archived or not, text in their HRID or title (``q``), and ``where``, conditions
+         *     on the type's fields. Sorted by ``sort`` (then by ID), oldest first without one.
+         *
+         *     Each kind of field takes its own operators, and every field takes ``is_set``:
+         *
+         *     - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)
+         *     - text: ``contains``, ``matches`` (its words: ``"kinase -fragment"``, ``""active site""``)
+         *     - enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)
+         *     - int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,
+         *       ``gte`` (quantities in the field's unit, or ``{"value": 50, "unit": "kDa"}``)
+         *     - bool: ``eq``; file: ``eq``, ``ne``; list: ``has``
+         *
+         *     ``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,
+         *     ``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``.
+         *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
+         */
+        post: operations["iki_server_api_entities_search_entities"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1106,6 +1142,37 @@ export interface components {
             after?: unknown;
             /** Before */
             before?: unknown;
+        };
+        /**
+         * Condition
+         * @description A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and
+         *     ``value``), ``all``, ``any`` or ``not``.
+         */
+        Condition: {
+            /**
+             * All
+             * @description Every one of these.
+             */
+            all?: components["schemas"]["Condition"][] | null;
+            /**
+             * Any
+             * @description At least one of these.
+             */
+            any?: components["schemas"]["Condition"][] | null;
+            /**
+             * Field
+             * @description A field of the type, or of every entity.
+             */
+            field?: string | null;
+            /** @description Not this. */
+            not?: components["schemas"]["Condition"] | null;
+            /** Op */
+            op?: ("is_set" | "eq" | "ne" | "in" | "lt" | "lte" | "gt" | "gte" | "contains" | "starts_with" | "matches" | "has") | null;
+            /**
+             * Value
+             * @description What to compare with, as the field takes it.
+             */
+            value?: unknown;
         };
         /** CreatedOut */
         CreatedOut: {
@@ -2406,6 +2473,45 @@ export interface components {
              */
             role: "viewer" | "editor" | "runner" | "admin";
         };
+        /** SearchIn */
+        SearchIn: {
+            /** Archived */
+            archived?: boolean | null;
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Exact Type
+             * @description Only the type itself, not its subtypes.
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Entities that belong to this project.
+             */
+            project?: string | null;
+            /**
+             * Q
+             * @description Text in their HRID, or a text field in their title.
+             */
+            q?: string | null;
+            sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Type
+             * @description This type and its subtypes.
+             */
+            type?: string | null;
+            where?: components["schemas"]["Condition"] | null;
+        };
         /** SecretOut */
         SecretOut: {
             /**
@@ -2467,6 +2573,19 @@ export interface components {
             description?: string | null;
             /** Name */
             name?: string | null;
+        };
+        /** SortIn */
+        SortIn: {
+            /**
+             * Descending
+             * @default false
+             */
+            descending: boolean;
+            /**
+             * Field
+             * @description A field to sort by: text, numbers, dates or yes/no.
+             */
+            field: string;
         };
         /** StartedOut */
         StartedOut: {
@@ -2950,6 +3069,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_search_entities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_EntityOut_"];
                 };
             };
         };

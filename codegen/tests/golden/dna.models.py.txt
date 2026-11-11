@@ -8,6 +8,8 @@ Don't edit this file: change the manifests, then run `iki plugin makemigrations`
 import datetime
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Length
@@ -44,6 +46,13 @@ class Sequence(Entity):
             models.CheckConstraint(
                 condition=~Q(name__regex='[\\r\\n]'),
                 name='dna_sequence__name__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_b7235ac83d5ea378d286',
             ),
         ]
 

@@ -609,6 +609,32 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
     ]
 
 
+def test_indexing_a_field_adds_search_indexes_after_pg_trgm(lab: Path, database: str) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    write_sample(
+        lab,
+        (
+            "name: { type: string, max_length: 100 }",
+            "name: { type: string, max_length: 100, indexed: true }",
+        ),
+        ("old: { type: string }", "old: { type: string }\n  notes: { type: text }"),
+    )
+    made("lab", "--name", "search", cwd=lab.parent)
+    migration = (lab / "migrations" / "0002_search.py").read_text()
+    assert "('iki_entities', '0004_search')" in migration
+    migrate(build(lab.parent, "lab"), database)
+    indexes = dict(
+        query(database, "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'lab_sample'")
+    )
+    defs = sorted(indexes.values())
+    # name keeps its B-tree and gains trigrams; notes, as text, is searched by its words.
+    assert any("btree (name)" in d for d in defs)
+    assert any("gin (name gin_trgm_ops)" in d for d in defs)
+    assert any(
+        "gin (to_tsvector('simple'::regconfig, COALESCE(notes, ''::text)))" in d for d in defs
+    )
+
+
 def test_migrations_are_named_after_what_changed(lab: Path) -> None:
     made("lab", "--no-input", cwd=lab.parent)
     write_sample(lab, ("  name: {", "  title: {"))

@@ -12,21 +12,23 @@
 """
 
 import math
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
+from pydantic import ConfigDict
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, UserOut
-from iki_server.entities import access, registry, schema, services
+from iki_server.entities import access, registry, schema, search, services
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid, shape, subtypes, to_json
 from iki_server.org import permissions
@@ -209,6 +211,55 @@ class EntityFilters(PageParams):
         max_length=200,
         description="Entities whose HRID, or a text field in their title, contains this.",
     )
+
+
+OPERATOR = Literal[
+    "is_set",
+    "eq",
+    "ne",
+    "in",
+    "lt",
+    "lte",
+    "gt",
+    "gte",
+    "contains",
+    "starts_with",
+    "matches",
+    "has",
+]
+
+
+class Condition(Schema):
+    """A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and
+    ``value``), ``all``, ``any`` or ``not``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str | None = Field(None, description="A field of the type, or of every entity.")
+    op: OPERATOR | None = None
+    value: Any = Field(None, description="What to compare with, as the field takes it.")
+    all: list["Condition"] | None = Field(None, description="Every one of these.")
+    any: list["Condition"] | None = Field(None, description="At least one of these.")
+    not_: "Condition | None" = Field(None, alias="not", description="Not this.")
+
+
+class SortIn(Schema):
+    field: str = Field(description="A field to sort by: text, numbers, dates or yes/no.")
+    descending: bool = False
+
+
+class SearchIn(Schema):
+    type: str | None = Field(None, description="This type and its subtypes.")
+    exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
+    project: UUID | None = Field(None, description="Entities that belong to this project.")
+    archived: bool | None = None
+    q: str | None = Field(
+        None, max_length=200, description="Text in their HRID, or a text field in their title."
+    )
+    where: Condition | None = None
+    sort: SortIn | None = None
+    cursor: str | None = Field(None, description="From the previous page's next_cursor.")
+    limit: int = Field(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Items per page.")
 
 
 # --- Entity types --------------------------------------------------------------------------------
@@ -424,32 +475,6 @@ def _title(entity: Entity, values: dict[str, Any]) -> str:
     return titles.render(_template(entity.type), values, entity.hrid, shape(entity.type).fields())
 
 
-def _title_text_fields(type_name: str) -> list[str]:
-    """The text fields a type's title shows, which ``q`` searches."""
-    template = _template(type_name)
-    if template is None:
-        return []
-    fields = shape(type_name).fields()
-    words = {m.group("word") for m in titles.TOKEN.finditer(template) if m.group("word")}
-    return sorted(w for w in words if w in fields and fields[w].type in ("string", "text"))
-
-
-def _matching(q: str, type_names: set[str]) -> Q:
-    """Entities whose HRID contains ``q``, or whose title's text fields do."""
-    found = Q(hrid__icontains=q)
-    for name in sorted(type_names):
-        # Titles name the type's own fields; an extension's are in other tables.
-        form = shape(name)
-        fields = [f for f in _title_text_fields(name) if not form.part_of(f).extension]
-        if not fields or registry.types()[name].abstract:
-            continue
-        text = Q()
-        for f in fields:
-            text |= Q(**{f"{f}__icontains": q})
-        found |= Q(pk__in=form.model._default_manager.filter(text).values("pk"))
-    return found
-
-
 def _etag(entity: Entity) -> str:
     return f'"{entity.revision}"'
 
@@ -461,32 +486,90 @@ def _one(user: User, entity: Entity, response: HttpResponse) -> dict[str, Any]:
 
 @router.get("/entities", response=Page[EntityOut], summary="Entities you can read")
 def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[str, Any]:
-    """Oldest first. Filter by type to get one type and its subtypes."""
+    """Oldest first. Filter by type to get one type and its subtypes. For conditions on
+    fields, and sorting, use ``POST /entities/search``."""
     me = caller(request)
-    entities = access.visible(me).select_related("created_by")
-    if filters.type:
-        if filters.type not in registry.types():
-            raise Problem(
-                422,
-                "Some fields are invalid.",
-                errors=[{"parameter": "type", "detail": f"There’s no entity type {filters.type}."}],
-            )
-        names = {filters.type} if filters.exact_type else subtypes(filters.type)
-        entities = entities.filter(type__in=names)
     if filters.project:
-        entities = entities.filter(links__project_id=project(me, filters.project).pk)
-    if filters.archived is not None:
-        entities = entities.filter(archived_at__isnull=not filters.archived)
-    if filters.q and filters.q.strip():
-        names = (
-            ({filters.type} if filters.exact_type else subtypes(filters.type))
-            if filters.type
-            else set(_types())
-        )
-        entities = entities.filter(_matching(filters.q.strip(), names))
-    result = page(entities, filters)
-    result["items"] = _out(me, result["items"])
+        project(me, filters.project)
+    wanted = search.Search(
+        type=filters.type,
+        exact_type=filters.exact_type,
+        project=filters.project,
+        archived=filters.archived,
+        q=filters.q,
+    )
+    with _searching(parameters=True):
+        result = page(search.queryset(me, wanted), filters)
+        result["items"] = _out(me, result["items"])
     return result
+
+
+@router.post("/entities/search", response=Page[EntityOut], summary="Search entities")
+def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
+    """Entities you can read that match every filter given: a type (with its subtypes), a
+    project, archived or not, text in their HRID or title (``q``), and ``where``, conditions
+    on the type's fields. Sorted by ``sort`` (then by ID), oldest first without one.
+
+    Each kind of field takes its own operators, and every field takes ``is_set``:
+
+    - string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case)
+    - text: ``contains``, ``matches`` (its words: ``"kinase -fragment"``, ``"\"active site\""``)
+    - enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)
+    - int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,
+      ``gte`` (quantities in the field's unit, or ``{"value": 50, "unit": "kDa"}``)
+    - bool: ``eq``; file: ``eq``, ``ne``; list: ``has``
+
+    ``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,
+    ``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``.
+    A search may run for 15 seconds: conditions on indexed fields keep it fast.
+    """
+    me = caller(request)
+    if payload.project:
+        project(me, payload.project)
+    wanted = search.Search(
+        type=payload.type,
+        exact_type=payload.exact_type,
+        project=payload.project,
+        archived=payload.archived,
+        q=payload.q,
+        where=payload.where.model_dump(by_alias=True, exclude_unset=True)
+        if payload.where
+        else None,
+        sort=payload.sort.field if payload.sort else None,
+        descending=payload.sort.descending if payload.sort else False,
+    )
+    with _searching():
+        rows, cursor = search.page(
+            search.queryset(me, wanted), wanted, payload.cursor, payload.limit
+        )
+        return {"items": _out(me, rows), "next_cursor": cursor}
+
+
+@contextmanager
+def _searching(*, parameters: bool = False) -> Iterator[None]:
+    """Runs a search with its time limit, answering for its mistakes."""
+    try:
+        with search.time_limit():
+            yield
+    except search.SearchError as error:
+        raise Problem(
+            422,
+            "Some fields are invalid." if parameters else "This search is invalid.",
+            code="validation_failed",
+            errors=[
+                {"parameter": pointer.removeprefix("#/"), "detail": detail}
+                if parameters
+                else {"pointer": pointer, "detail": detail}
+                for pointer, detail in error.errors
+            ],
+        ) from error
+    except search.TooSlow as error:
+        raise Problem(
+            422,
+            "This search took too long. Narrow it with conditions on indexed fields, or sort "
+            "by an indexed field.",
+            code="search_too_slow",
+        ) from error
 
 
 @router.get(

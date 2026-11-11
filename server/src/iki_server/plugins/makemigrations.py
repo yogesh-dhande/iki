@@ -93,6 +93,12 @@ def _command() -> Any:  # noqa: ANN401 - a Django command, built after setup
     return PluginCommand()
 
 
+def _uses_trigrams(op: Any) -> bool:  # noqa: ANN401 - a Django operation
+    """Whether the operation makes an index with a pg_trgm operator class."""
+    indexes = [getattr(op, "index", None), *getattr(op, "options", {}).get("indexes", [])]
+    return any("gin_trgm_ops" in (getattr(i, "opclasses", None) or ()) for i in indexes)
+
+
 def _autodetector() -> type:
     from django.core.management.base import CommandError
     from django.db import migrations
@@ -121,9 +127,14 @@ def _autodetector() -> type:
                 for migration in app_migrations:
                     operations = self._with_history_rules(app_label, migration.operations)
                     migration.operations = operations  # type: ignore[misc]
+                    needs = []
                     if any(isinstance(op, AppendOnly) for op in operations):
                         # AppendOnly's trigger function.
-                        needed = ("iki_entities", "0002_history_append_only")
+                        needs.append(("iki_entities", "0002_history_append_only"))
+                    if any(_uses_trigrams(op) for op in operations):
+                        # Trigram indexes need pg_trgm.
+                        needs.append(("iki_entities", "0004_search"))
+                    for needed in needs:
                         if needed not in migration.dependencies:
                             migration.dependencies = [*migration.dependencies, needed]  # type: ignore[misc]
                 if len(app_migrations) == 1 and not named:

@@ -22,12 +22,14 @@ import hashlib
 
 __all__ = [
     "MAX_IDENTIFIER",
+    "MAX_INDEX_NAME",
     "constraint_name",
     "extension_model",
     "extension_related_name",
     "extension_table",
     "history_model",
     "history_table",
+    "index_name",
     "list_model",
     "list_table",
     "package",
@@ -85,6 +87,19 @@ def parent_link(parent: str) -> str:
 def extension_related_name(plugin: str) -> str:
     """From a type's row to the fields ``plugin`` adds: ``structure.structure_prediction_Ext``."""
     return f"{plugin}_Ext"
+
+
+#: Django's limit on index names, shorter than Postgres's.
+MAX_INDEX_NAME = 30
+
+
+def index_name(table: str, field: str, kind: str) -> str:
+    """An index's name, such as ``name_trgm_3f2a9c01d4e7``: the field's start, the kind
+    of index, and a hash of the table, field and kind, so it's unique in the database
+    and within Django's 30 characters."""
+    digest = hashlib.sha256(f"{table}.{field}.{kind}".encode()).hexdigest()
+    stem = f"{field[:10].rstrip('_')}_{kind}_"
+    return stem + digest[: MAX_INDEX_NAME - len(stem)]
 
 
 def constraint_name(table: str, field: str, rule: str) -> str:

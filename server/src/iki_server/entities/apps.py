@@ -5,3 +5,8 @@ class EntitiesConfig(AppConfig):
     name = "iki_server.entities"
     label = "iki_entities"
     verbose_name = "Iki entities"
+
+    def ready(self) -> None:
+        from iki_server.entities import lookups
+
+        lookups.register()

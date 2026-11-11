@@ -14,6 +14,7 @@ from typing import Any, ClassVar
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Now
@@ -53,6 +54,8 @@ class Entity(models.Model):
         verbose_name_plural = "entities"
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["type", "created_at"], name="iki_entity_type"),
+            models.Index(fields=["type", "updated_at", "id"], name="iki_entity_updated"),
+            GinIndex(fields=["hrid"], opclasses=["gin_trgm_ops"], name="iki_entity_hrid_trgm"),
             models.Index(
                 fields=["identity_hash"],
                 name="iki_entity_identity",

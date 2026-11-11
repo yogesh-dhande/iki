@@ -44,6 +44,8 @@ Don't edit this file: change the manifests, then run `iki plugin makemigrations`
 import datetime
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Length
@@ -103,6 +105,7 @@ class _Model:
     attributes: list[str] = field(default_factory=list)
     fields: list[tuple[str, str]] = field(default_factory=list)
     constraints: list[str] = field(default_factory=list)
+    indexes: list[str] = field(default_factory=list)
 
     def render(self) -> str:
         lines = [f"\n\nclass {self.name}({self.base}):", f"    {_docstring(self.doc)}", ""]
@@ -119,6 +122,10 @@ class _Model:
         if self.constraints:
             lines.append("        constraints = [")
             lines += [f"            {_wrap(c, 12, 0, 1)}," for c in self.constraints]
+            lines.append("        ]")
+        if self.indexes:
+            lines.append("        indexes = [")
+            lines += [f"            {_wrap(i, 12, 0, 1)}," for i in self.indexes]
             lines.append("        ]")
         return "\n".join(lines) + "\n"
 
@@ -194,6 +201,7 @@ def _with_fields(model: _Model, owner: str, fields: dict[str, Field], plugin: st
             continue
         model.fields.append((f.name, _column(f, plugin)))
         model.constraints.extend(_checks(model.table, f))
+        model.indexes.extend(_indexes(model.table, f))
     history = _Model(
         name=naming.history_model(model.name),
         base="models.Model",
@@ -304,6 +312,30 @@ def _column(
         base = _column(f.items, plugin, item=True)
         return _call("ArrayField", _raw(base), **options)
     raise AssertionError(kind)  # pragma: no cover
+
+
+def _indexes(table: str, f: Field) -> list[str]:
+    """The GIN indexes a field gets for search: trigrams for indexed strings, so finding
+    one that contains some text is fast; words for every text field, for full-text
+    search, since long text can't be indexed otherwise."""
+    if f.type == "string" and f.indexed:
+        return [
+            _call(
+                "GinIndex",
+                fields=[f.name],
+                opclasses=["gin_trgm_ops"],
+                name=naming.index_name(table, f.name, "trgm"),
+            )
+        ]
+    if f.type == "text":
+        return [
+            _call(
+                "GinIndex",
+                _raw(f"SearchVector({f.name!r}, config='simple')"),
+                name=naming.index_name(table, f.name, "fts"),
+            )
+        ]
+    return []
 
 
 def _history_column(f: Field) -> str:

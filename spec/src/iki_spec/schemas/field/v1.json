@@ -26,7 +26,7 @@
     },
     "indexed": {
       "type": "boolean",
-      "description": "Keep a database index on this field, for fast filtering and sorting."
+      "description": "Keep a database index on this field, for fast filtering and sorting. Indexed strings are also fast to search for text they contain."
     },
     "removed": {
       "type": "boolean",
