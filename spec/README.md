@@ -253,7 +253,7 @@ checkpointable: true # saves progress in $IKI_CHECKPOINT_DIR and resumes
 batchable: 1 # more than 1 runs one job on several entities (one input only)
 artifacts: { keep: ["msas/**", ranking_debug.json], retention: 365d }
 network: [] # hosts a run may reach; none by default
-secrets: [] # environment variables admins map to their secret manager
+secrets: [] # e.g. [LIMS_TOKEN, { name: NCBI_API_KEY, required: false, description: ... }]
 timeout: 8h # 1h by default, at most 7d
 retries: { max: 2, on: [worker_lost, interrupted] }
 ```
@@ -273,6 +273,15 @@ validator checks that:
 - client-tier actions declare no `secrets`, `network` or `resources`, since
   Iki can't keep secrets from, or limit, a person's own machine
 - files the command names with `./` are in the plugin, and aren't symbolic links
+
+A run gets the secrets its action declares under `secrets` as environment
+variables, and no others. Each deployment keeps them in its own secret
+manager, for this plugin alone (`dna.NCBI_API_KEY` is the dna plugin's), so a
+secret is never another plugin's even under the same name. Their values are
+never in `input.json`, and `***` stands for them in the log. A required secret
+the deployment hasn't set keeps the action from running, and says so; give
+optional ones (`required: false`) a `description` that tells administrators
+what they're for and where to get one.
 
 A run reaches the network only if its action names the hosts under
 `network` (`*.example.com` covers subdomains, not example.com itself), and

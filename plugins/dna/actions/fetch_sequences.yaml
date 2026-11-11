@@ -23,4 +23,10 @@ effects:
 runs_on: { tier: backend, environment: sequence-tools }
 command: [python, ./scripts/ncbi.py]
 network: [eutils.ncbi.nlm.nih.gov]
+secrets:
+  - name: NCBI_API_KEY
+    required: false
+    description: >-
+      An NCBI API key (from an NCBI account's settings) raises the rate limit
+      from 3 to 10 requests a second. Without one, fetching is slower.
 timeout: 30m

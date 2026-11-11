@@ -161,6 +161,23 @@ describe("starting a run", () => {
       inputs: [],
       creates: [{ type: "protein.Protein", cardinality: "many", derived_from: [] }],
       updates: [],
+      network: ["rest.uniprot.org"],
+      secrets: [
+        {
+          name: "UNIPROT_TOKEN",
+          required: false,
+          description: "",
+          key: "protein.UNIPROT_TOKEN",
+          set: true,
+        },
+        {
+          name: "UNSET_TOKEN",
+          required: false,
+          description: "",
+          key: "protein.UNSET_TOKEN",
+          set: false,
+        },
+      ],
       params: [
         {
           ...field({ name: "file", label: "FASTA file", type: "file", required: true }),
@@ -210,6 +227,11 @@ describe("starting a run", () => {
       "Import proteins",
     );
     expect(await screen.findByText("It makes new proteins.")).toBeInTheDocument();
+    expect(screen.getByText("It can reach rest.uniprot.org on the internet.")).toBeInTheDocument();
+    // Only the secrets this deployment has set: the others it runs without.
+    expect(screen.getByText(/^It gets/)).toHaveTextContent(
+      "It gets UNIPROT_TOKEN from this deployment’s secrets, which its log never shows.",
+    );
     const file = screen.getByRole("group", { name: /FASTA file/ });
     const existing = within(file).getByRole("combobox", { name: /already in the project/ });
     // Only files the param takes are offered.

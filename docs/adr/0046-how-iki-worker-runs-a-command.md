@@ -36,8 +36,8 @@ from its plugin's directory with an environment that holds only `PATH`,
 locale and certificate settings, those directories (`IKI_INPUT`,
 `IKI_OUTPUT`, `IKI_OUT_DIR`), and the run's ID and attempt. For an action
 that declares hosts, it also holds `HTTPS_PROXY`, the egress proxy with the
-attempt's credentials (ADR 0053). Nothing of the worker's own, so the
-command never sees its token.
+attempt's credentials (ADR 0053), and the secrets it declares (ADR 0054).
+Nothing of the worker's own, so the command never sees its token.
 
 **The command runs in a process group of its own.** Stopping it sends
 SIGTERM to the whole group, then SIGKILL 10 seconds later. When it exits,

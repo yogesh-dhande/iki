@@ -880,3 +880,30 @@ def test_only_workers_reach_the_egress_proxy_and_only_it_reaches_the_internet() 
     assert {"key": "app.kubernetes.io/component", "operator": "NotIn", "values": ["worker"]} in (
         shared
     )
+
+
+# --- Run secrets (ADR 0054) ---------------------------------------------------------------------
+
+
+def test_only_web_pods_hold_run_secrets_mounted_read_only() -> None:
+    for name, spec in pod_specs(manifests(EGRESS)):
+        names = {e["name"] for e in spec["containers"][0]["env"]}
+        assert "IKI_RUN_SECRETS_DIR" not in names, name
+    docs = manifests({**EGRESS, "runSecrets": {"existingSecret": "iki-run-secrets"}})
+    for name, spec in pod_specs(docs):
+        (container,) = spec["containers"]
+        env = {e["name"]: e.get("value") for e in container["env"]}
+        mounts = {m["name"]: m for m in container.get("volumeMounts", [])}
+        if name == "Deployment/iki-web":
+            assert env["IKI_RUN_SECRETS_DIR"] == "/etc/iki/run-secrets"
+            assert mounts["run-secrets"] == {
+                "name": "run-secrets",
+                "mountPath": "/etc/iki/run-secrets",
+                "readOnly": True,
+            }
+            (volume,) = [v for v in spec["volumes"] if v["name"] == "run-secrets"]
+            assert volume["secret"] == {"secretName": "iki-run-secrets", "defaultMode": 0o440}
+        else:
+            assert "IKI_RUN_SECRETS_DIR" not in env, name
+            assert "run-secrets" not in mounts, name
+            assert all(v["name"] != "run-secrets" for v in spec.get("volumes", [])), name

@@ -375,6 +375,8 @@ class Job(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     error = models.JSONField(null=True, blank=True)
+    #: The names of the secrets its worker was given, never their values (ADR 0054).
+    secrets = models.JSONField(default=list)
 
     class Meta:
         db_table = "iki_job"

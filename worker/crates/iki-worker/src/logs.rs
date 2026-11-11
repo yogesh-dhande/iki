@@ -128,9 +128,61 @@ pub fn error(line: &str) -> Option<String> {
     Some(text.chars().take(1000).collect())
 }
 
+/// Hides secrets' values in what a command prints, as GitHub Actions does: each line of
+/// each secret becomes `***`, longest first, so a secret that holds another is hidden
+/// whole. Values under three characters would hide ordinary text, so they aren't masked.
+#[derive(Clone, Default)]
+pub struct Mask {
+    values: Vec<String>,
+}
+
+impl Mask {
+    pub fn new<'a>(secrets: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut values: Vec<String> = secrets
+            .into_iter()
+            .flat_map(str::lines)
+            .map(str::trim)
+            .filter(|v| v.chars().count() >= 3)
+            .map(str::to_owned)
+            .collect();
+        values.sort_by_key(|v| std::cmp::Reverse(v.len()));
+        values.dedup();
+        Mask { values }
+    }
+
+    pub fn apply<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
+        let mut masked = std::borrow::Cow::Borrowed(text);
+        for value in &self.values {
+            if masked.contains(value.as_str()) {
+                masked = std::borrow::Cow::Owned(masked.replace(value.as_str(), "***"));
+            }
+        }
+        masked
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hides_secrets_in_what_a_command_prints() {
+        let mask = Mask::new([
+            "s3cr3t-key",
+            "ab",
+            "-----BEGIN KEY-----\nMIIEv\n-----END KEY-----",
+        ]);
+        assert_eq!(mask.apply("key=s3cr3t-key&x=1"), "key=***&x=1");
+        assert_eq!(mask.apply("MIIEv"), "***");
+        // Too short to mask without hiding ordinary text.
+        assert_eq!(mask.apply("about"), "about");
+        assert!(matches!(
+            mask.apply("nothing here"),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        let nested = Mask::new(["abc", "xabcx"]);
+        assert_eq!(nested.apply("xabcx abc"), "*** ***");
+    }
 
     #[test]
     fn sends_the_same_chunk_until_it_is_acknowledged() {

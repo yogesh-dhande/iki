@@ -254,6 +254,18 @@ class Updates:
 
 
 @dataclass(frozen=True)
+class Secret:
+    """A secret an action's runs get as an environment variable, which each deployment
+    keeps in its own secret manager."""
+
+    name: str
+    #: A required secret the deployment hasn't set keeps the action from running.
+    required: bool = True
+    #: For the administrators who set it: what it's for, and where to get one.
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class Action:
     plugin: str
     name: str
@@ -274,7 +286,7 @@ class Action:
     artifacts: tuple[str, ...] = ()  # glob patterns
     artifact_retention: int | None = None  # seconds
     network: tuple[str, ...] = ()
-    secrets: tuple[str, ...] = ()
+    secrets: tuple[Secret, ...] = ()
     timeout: int = 3600  # seconds
     retry_max: int = 0
     retry_on: tuple[str, ...] = ()
@@ -415,6 +427,7 @@ _DATACLASSES = (
     Extension,
     Plugin,
     Action,
+    Secret,
     Input,
     Creates,
     Updates,
@@ -485,7 +498,9 @@ def _action(data: dict[str, Any]) -> Action:
             "resources": Resources(**data["resources"]),
             "artifacts": tuple(data["artifacts"]),
             "network": tuple(data["network"]),
-            "secrets": tuple(data["secrets"]),
+            "secrets": tuple(
+                Secret(**s) if isinstance(s, dict) else Secret(s) for s in data["secrets"]
+            ),
             "retry_on": tuple(data["retry_on"]),
         }
     )

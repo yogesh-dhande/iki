@@ -37,6 +37,8 @@ from iki_server.runs.models import ActionRun, Job, JobLog, JobState, Worker
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.worker_e2e]
 
 RELAX = "protein.relax_structure"
+SECRET_NAME = "LAB_TOKEN"
+SECRET = "s3cr3t-lab-token-0451"
 
 ROOT = Path(__file__).parents[2]
 PLUGINS = ROOT / "spec" / "tests" / "plugins"
@@ -84,11 +86,14 @@ def server(
         plugins = os.pathsep.join(
             p for p in (str(ensure_built()), os.environ.get("PYTHONPATH")) if p
         )
+        secrets = tmp_path_factory.mktemp("run-secrets")
+        (secrets / f"protein.{SECRET_NAME}").write_text(SECRET + "\n", encoding="utf-8")
         env = server_env(
             role,
             tmp_path_factory.mktemp("static"),
             PYTHONPATH=plugins,
             IKI_COMPUTE_FILE=os.environ["IKI_COMPUTE_FILE"],
+            IKI_RUN_SECRETS_DIR=str(secrets),
             IKI_FILES_BUCKET="iki",
             IKI_FILES_PREFIX=PREFIX,
             IKI_FILES_ENDPOINT_URL=_s3_endpoint,
@@ -258,6 +263,38 @@ def test_a_command_that_says_why_it_failed_fails_the_run_with_that(
     body = api_as(world).get(f"/runs/{run['id']}").json()
     assert body["status"] == "failed", body
     assert body["error"]["message"] == "Record 3 (pUC19) has no bases (exit status 2)"
+
+
+def test_a_command_gets_its_secrets_in_its_environment_and_never_shows_them(
+    world: World, start: Callable[..., Running], tmp_path: Path
+) -> None:
+    run = queued(world)
+    # As if the action declared it: the server reads the run's spec when it leases.
+    ActionRun.objects.filter(pk=run["id"]).update(
+        spec={
+            **ActionRun.objects.get(pk=run["id"]).spec,
+            "secrets": [{"name": SECRET_NAME, "required": True, "description": ""}],
+        }
+    )
+    script = (
+        "import json, os\n"
+        f"print('token:', os.environ.get('{SECRET_NAME}'), flush=True)\n"
+        "job = json.load(open(os.environ['IKI_INPUT']))['job']\n"
+        "print('in input.json:', 'secrets' in job, flush=True)\n"
+        f"print('::error It was', os.environ['{SECRET_NAME}'], flush=True)\n"
+        "raise SystemExit(3)\n"
+    )
+    code, said = start(registration(world), "--once", plugins=with_script(tmp_path, script)).wait()
+    assert code == 0, said
+    log = log_of(run)
+    assert "token: ***" in log
+    assert "in input.json: False" in log
+    assert SECRET not in log
+    assert SECRET not in said
+    body = api_as(world).get(f"/runs/{run['id']}").json()
+    assert body["error"]["message"] == "It was *** (exit status 3)"
+    (attempt,) = api_as(world).get(f"/runs/{run['id']}/attempts").json()
+    assert attempt["secrets"] == [SECRET_NAME]
 
 
 def test_a_cancel_stops_the_command_at_once(

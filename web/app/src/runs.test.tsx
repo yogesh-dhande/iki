@@ -186,6 +186,7 @@ describe("a run's page", () => {
       () => run({ action: "protein.fetch_proteins", network: ["rest.uniprot.org"] }),
       () => [
         attempt({
+          secrets: ["UNIPROT_TOKEN"],
           network: [
             {
               ...reached,
@@ -215,6 +216,9 @@ describe("a run's page", () => {
       "May reach rest.uniprot.org, through Iki’s egress proxy",
     );
     const used = await screen.findByRole("list", { name: "Network use of attempt 1" });
+    expect(screen.getByText("UNIPROT_TOKEN").closest("p")).toHaveTextContent(
+      "Given UNIPROT_TOKEN from this deployment’s secrets",
+    );
     const [ok, refused] = within(used).getAllByRole("listitem");
     expect(ok).toHaveTextContent(
       "rest.uniprot.org · 2 connections, 3.0 MiB received, 1.0 KiB sent",

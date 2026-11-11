@@ -100,6 +100,9 @@ pub struct RunInputJob {
     /// For an action that declares hosts under `network`: the egress proxy, with this attempt's credentials. The worker gives it to the command as HTTPS_PROXY.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
+    /// The secrets the action declares that the deployment has set, by name. The worker gives them to the command as environment variables, leaves them out of input.json, and masks them in the log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// What the job needs. Memory and disk are in bytes.

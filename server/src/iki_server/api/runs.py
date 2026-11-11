@@ -25,7 +25,7 @@ from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
-from iki_server.runs import approvals, catalog, input_files, quotas, services
+from iki_server.runs import approvals, catalog, input_files, quotas, secrets, services
 from iki_server.runs.models import (
     ActionRun,
     ApprovalState,
@@ -81,6 +81,14 @@ class UpdatesOut(Schema):
     fields: list[str]
 
 
+class ActionSecretOut(Schema):
+    name: str = Field(description="The environment variable its runs get it as.")
+    required: bool = Field(description="Whether the action can run without it.")
+    description: str = Field(description="What it's for, as the plugin says.")
+    key: str = Field(description="Where administrators set it: its key in the run secrets.")
+    set: bool = Field(description="Whether this deployment has set it. Its value is never shown.")
+
+
 class ActionOut(Schema):
     name: str = Field(description="The qualified name, such as `protein.compute_properties`.")
     plugin: str
@@ -97,7 +105,7 @@ class ActionOut(Schema):
     updates: list[UpdatesOut]
     deterministic: bool
     network: list[str] = Field(description="The hosts its runs may reach.")
-    secrets: list[str] = Field(description="The secrets its runs get, by name.")
+    secrets: list[ActionSecretOut] = Field(description="The secrets its runs get, by name.")
     timeout: int = Field(description="Seconds each attempt may run.")
     available: bool = Field(description="Whether it can run on this deployment.")
     unavailable_reason: str | None
@@ -148,7 +156,16 @@ def _action_out(action: Action) -> dict[str, Any]:
         "updates": [{"input": u.input, "fields": list(u.fields)} for u in action.updates],
         "deterministic": action.deterministic,
         "network": list(action.network),
-        "secrets": list(action.secrets),
+        "secrets": [
+            {
+                "name": s.name,
+                "required": s.required,
+                "description": s.description,
+                "key": secrets.key(action.plugin, s.name),
+                "set": secrets.is_set(action.plugin, s.name),
+            }
+            for s in action.secrets
+        ],
         "timeout": action.timeout,
         "available": available.available,
         "unavailable_reason": available.reason,
@@ -708,6 +725,7 @@ class RunAttemptOut(Schema):
     network: list[EgressOut] = Field(
         description="The hosts it reached through the egress proxy, or tried to (ADR 0053)."
     )
+    secrets: list[str] = Field(description="The secrets its worker was given, by name (ADR 0054).")
 
 
 @router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
@@ -727,6 +745,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
             "progress_message": job.progress_message,
             "log_size": job.log_size,
             "error": job.error,
+            "secrets": job.secrets,
             "network": [
                 {
                     "host": e.host,

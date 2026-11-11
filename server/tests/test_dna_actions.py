@@ -276,6 +276,7 @@ class FakeNcbi:
         import urllib.error
         import urllib.parse
 
+        # Nothing in the URL: a key would be in access logs.
         assert request.full_url == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
         assert timeout <= 120
         self.asked.append(urllib.parse.parse_qs(request.data.decode()))
@@ -306,6 +307,7 @@ def ncbi(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
     monkeypatch.setattr(time, "sleep", slept.append)
     monkeypatch.setenv("IKI_INPUT", str(tmp_path / "input.json"))
     monkeypatch.setenv("IKI_OUTPUT", str(tmp_path / "out.json"))
+    monkeypatch.delenv("NCBI_API_KEY", raising=False)
     return SimpleNamespace(script=module, fake=fake, slept=slept)
 
 
@@ -356,6 +358,16 @@ def test_asks_ncbi_in_batches_no_faster_than_it_allows(
     fetched(tmp_path, ncbi, "L09137.2 NM_000546.6")
     assert [a["id"] for a in ncbi.fake.asked] == [["L09137.2"], ["NM_000546.6"]]
     assert ncbi.slept == [0.34]
+
+
+def test_an_api_key_goes_in_the_body_and_lets_it_ask_faster(
+    tmp_path: Path, ncbi: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ncbi.script, "BATCH", 1)
+    monkeypatch.setenv("NCBI_API_KEY", "k3y")
+    fetched(tmp_path, ncbi, "L09137.2 NM_000546.6")
+    assert [a["api_key"] for a in ncbi.fake.asked] == [["k3y"], ["k3y"]]
+    assert ncbi.slept == [0.1]
 
 
 def test_waits_and_asks_again_when_ncbi_says_to_slow_down(tmp_path: Path, ncbi: Any) -> None:

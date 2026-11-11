@@ -112,11 +112,31 @@
       }
     },
     "secrets": {
-      "description": "Secrets a run needs, by name. Each deployment maps them to its secret manager; runs get them as environment variables.",
+      "description": "Secrets a run needs, by name, such as `NCBI_API_KEY`. Each deployment keeps them in its secret manager, for this plugin alone; runs get them as environment variables, and their logs never show them.",
       "type": "array",
       "maxItems": 20,
       "uniqueItems": true,
-      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+      "items": {
+        "if": { "type": "string" },
+        "then": { "$ref": "#/$defs/secret_name" },
+        "else": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": { "$ref": "#/$defs/secret_name" },
+            "required": {
+              "description": "Whether the action can run without it. Defaults to true.",
+              "type": "boolean"
+            },
+            "description": {
+              "description": "For the administrators who set it: what it's for, and where to get one.",
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "additionalProperties": false
+        }
+      }
     },
     "timeout": {
       "description": "The longest a run may take before it's stopped. Defaults to 1h; at most 7d.",
@@ -139,6 +159,10 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "secret_name": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,62}$"
+    },
     "tier": {
       "description": "`client`: the person's own machine. `backend`: Iki's isolated worker pods. `container`: the plugin's image on Kubernetes. `vm`: a virtual machine, with GPUs if needed.",
       "enum": ["client", "backend", "container", "vm"]

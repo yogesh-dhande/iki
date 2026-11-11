@@ -49,6 +49,11 @@ spec:
             {{- include "iki.env" . | nindent 12 }}
             - name: IKI_FORWARDED_ALLOW_IPS
               value: {{ .Values.forwardedAllowIps | quote }}
+            {{- if .Values.runSecrets.existingSecret }}
+            # Only web pods hold run secrets: they lease jobs, each with its own (ADR 0054).
+            - name: IKI_RUN_SECRETS_DIR
+              value: /etc/iki/run-secrets
+            {{- end }}
             - name: IKI_KEEP_ALIVE_SECONDS
               value: {{ .Values.web.keepAliveSeconds | quote }}
             {{- if .Values.web.devServer }}
@@ -85,8 +90,20 @@ spec:
             {{- include "iki.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "iki.volumeMounts" . | nindent 12 }}
+            {{- if .Values.runSecrets.existingSecret }}
+            - name: run-secrets
+              mountPath: /etc/iki/run-secrets
+              readOnly: true
+            {{- end }}
       volumes:
         {{- include "iki.volumes" . | nindent 8 }}
+        {{- with .Values.runSecrets.existingSecret }}
+        # Mounted, not in the environment, so a rotated secret reaches the next run.
+        - name: run-secrets
+          secret:
+            secretName: {{ . }}
+            defaultMode: 0440
+        {{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone

@@ -295,6 +295,15 @@ backendWorkers:
   affinity: {}
   podAnnotations: {}
 
+runSecrets:
+  # Secret holding the secrets plugins' actions declare (ADR 0054), one key
+  # each, named for the plugin and the secret: dna.NCBI_API_KEY. Sync it from
+  # your secret manager (External Secrets, the Vault or AWS Secrets Manager
+  # CSI driver). Only web pods mount it; each run gets only the secrets its
+  # action declares, and they never appear in logs. An action that needs one
+  # you haven't set says so where people would run it.
+  existingSecret: ""
+
 egressProxy:
   # The proxy through which actions' runs reach the hosts their plugin
   # declares under `network`, and nothing else (ADR 0053). Workers' pods reach

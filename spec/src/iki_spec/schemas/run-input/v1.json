@@ -75,6 +75,12 @@
           "type": "string",
           "pattern": "^http://",
           "description": "For an action that declares hosts under `network`: the egress proxy, with this attempt's credentials. The worker gives it to the command as HTTPS_PROXY."
+        },
+        "secrets": {
+          "type": "object",
+          "description": "The secrets the action declares that the deployment has set, by name. The worker gives them to the command as environment variables, leaves them out of input.json, and masks them in the log.",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
         }
       }
     },

@@ -97,7 +97,7 @@
           "secrets": {
             "description": "The secrets its runs get, by name.",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ActionSecretOut"
             },
             "title": "Secrets",
             "type": "array"
@@ -157,6 +157,44 @@
           "needs"
         ],
         "title": "ActionOut",
+        "type": "object"
+      },
+      "ActionSecretOut": {
+        "properties": {
+          "description": {
+            "description": "What it's for, as the plugin says.",
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "description": "Where administrators set it: its key in the run secrets.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "The environment variable its runs get it as.",
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "description": "Whether the action can run without it.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "set": {
+            "description": "Whether this deployment has set it. Its value is never shown.",
+            "title": "Set",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "required",
+          "description",
+          "key",
+          "set"
+        ],
+        "title": "ActionSecretOut",
         "type": "object"
       },
       "ApprovalCan": {
@@ -4983,6 +5021,14 @@
             "title": "Queued At",
             "type": "string"
           },
+          "secrets": {
+            "description": "The secrets its worker was given, by name (ADR 0054).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Secrets",
+            "type": "array"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -5023,7 +5069,8 @@
           "progress_message",
           "log_size",
           "error",
-          "network"
+          "network",
+          "secrets"
         ],
         "title": "RunAttemptOut",
         "type": "object"

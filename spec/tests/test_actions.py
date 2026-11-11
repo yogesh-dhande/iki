@@ -585,6 +585,26 @@ def test_commands(tmp_path: Path) -> None:
 def test_reserved_secrets(tmp_path: Path) -> None:
     result = make(tmp_path, action(secrets="[IKI_TOKEN, PATH, NCBI_API_KEY]"))
     assert codes(result) == ["reserved-secret", "reserved-secret"]
+    proxy = make(tmp_path, action(secrets="[HTTPS_PROXY]"))
+    assert codes(proxy) == ["reserved-secret"]
+
+
+def test_secrets_can_be_optional_and_say_what_theyre_for(tmp_path: Path) -> None:
+    declared = (
+        "[ LIMS_TOKEN, { name: NCBI_API_KEY, required: false, description: Raises NCBI's "
+        "rate limit. } ]"
+    )
+    result = make(tmp_path, action(secrets=declared))
+    assert result.problems == []
+    assert result.plugin is not None
+    (found,) = result.plugin.actions.values()
+    assert [(s.name, s.required, s.description) for s in found.secrets] == [
+        ("LIMS_TOKEN", True, ""),
+        ("NCBI_API_KEY", False, "Raises NCBI's rate limit."),
+    ]
+    twice = make(tmp_path, action(secrets="[LIMS_TOKEN, { name: LIMS_TOKEN, required: false }]"))
+    assert codes(twice) == ["secret-twice"]
+    assert codes(make(tmp_path, action(secrets="[{ name: lims }]"))) == ["schema"]
 
 
 def test_timeouts(tmp_path: Path) -> None:

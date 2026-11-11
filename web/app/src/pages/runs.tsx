@@ -582,6 +582,18 @@ function AttemptRow({
         {attempt.error && !(latest && runError) ? (
           <p className="row-reason">{attempt.error.message}</p>
         ) : null}
+        {attempt.secrets.length ? (
+          <p className="row-meta">
+            Given{" "}
+            {attempt.secrets.map((name, index) => (
+              <span key={name}>
+                {index ? ", " : ""}
+                <code>{name}</code>
+              </span>
+            ))}{" "}
+            from this deployment’s secrets
+          </p>
+        ) : null}
         {attempt.network.length ? (
           <ul
             className="value-list"

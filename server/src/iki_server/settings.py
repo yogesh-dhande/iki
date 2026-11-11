@@ -478,6 +478,18 @@ except ValueError as _error:
         f"IKI_EGRESS_ALLOWED_NETWORKS must be CIDRs such as 10.20.0.0/16: {_error}"
     ) from None
 
+# --- Run secrets (ADR 0054) ------------------------------------------------
+# The secrets actions declare, kept in the deployment's secret manager and
+# mounted here (a Kubernetes Secret, synced by External Secrets or the like):
+# one file per secret, named for its plugin and name, such as
+# dna.NCBI_API_KEY. Only web pods mount it; each run gets only its own.
+
+IKI_RUN_SECRETS_DIR: str = env.str("IKI_RUN_SECRETS_DIR", default="")
+if IKI_RUN_SECRETS_DIR and not Path(IKI_RUN_SECRETS_DIR).is_dir():
+    raise environ.ImproperlyConfigured(
+        f"IKI_RUN_SECRETS_DIR: no directory at {IKI_RUN_SECRETS_DIR}"
+    )
+
 # --- Files ------------------------------------------------------------------
 # Object storage for entities' files (ADR 0036): S3, or an S3-compatible store
 # such as SeaweedFS in development. Credentials come from the standard AWS

@@ -82,6 +82,30 @@ def test_openapi_is_published_without_a_bundled_ui() -> None:
     problem(api.get("/docs"), 404, "not_found")
 
 
+def test_no_two_schemas_share_a_name() -> None:
+    """The OpenAPI document names schemas by class: two of a name would become one, and
+    clients would get the wrong shape for one of them. (The worker API is a document of
+    its own.)"""
+    import importlib
+    import pkgutil
+    from collections import defaultdict
+
+    from ninja import Schema
+
+    import iki_server.api
+
+    for module in pkgutil.iter_modules(iki_server.api.__path__):
+        importlib.import_module(f"iki_server.api.{module.name}")
+    found: dict[str, set[str]] = defaultdict(set)
+    pending = list(Schema.__subclasses__())
+    while pending:
+        cls = pending.pop()
+        pending.extend(cls.__subclasses__())
+        if cls.__module__.startswith("iki_server.") and cls.__module__ != "iki_server.api.worker":
+            found[cls.__name__].add(cls.__module__)
+    assert {name: where for name, where in found.items() if len(where) > 1} == {}
+
+
 # --- Sessions, CSRF and the audit channel -------------------------------------
 
 

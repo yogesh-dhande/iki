@@ -427,6 +427,16 @@ function RunForm({
         ) : (
           <li>It can’t reach the internet.</li>
         )}
+        {action.secrets.some((secret) => secret.set) ? (
+          <li>
+            It gets{" "}
+            {action.secrets
+              .filter((secret) => secret.set)
+              .map((secret) => secret.name)
+              .join(", ")}{" "}
+            from this deployment’s secrets, which its log never shows.
+          </li>
+        ) : null}
       </ul>
       {each ? (
         <fieldset className="field">

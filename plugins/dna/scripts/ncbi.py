@@ -6,7 +6,8 @@ create, each saying which record and version it came from and when it was fetche
 
 It follows NCBI's rules for automated clients: it gives a tool name and the address the
 deployment set in the plugin's `ncbi_email` setting, asks for up to 100 records at a time,
-and makes no more than three requests a second. NCBI's answers that ask it to slow down
+and makes no more than three requests a second, or ten with the deployment's
+NCBI_API_KEY secret. NCBI's answers that ask it to slow down
 (429) or that fail on its side (5xx) are retried, with backoff.
 
 All or nothing: an accession NCBI has no record for fails the run with a `::error` line
@@ -35,8 +36,9 @@ TOOL = "iki-dna"
 ACCESSION = re.compile(r"^[A-Z]{1,6}_?[0-9]{1,9}(\.[0-9]+)?$")
 MAX_ACCESSIONS = 500
 BATCH = 100
-#: NCBI allows three requests a second without an API key.
+#: NCBI allows three requests a second without an API key, and ten with one.
 PAUSE = 0.34
+PAUSE_WITH_KEY = 0.1
 ATTEMPTS = 4
 MAX_BYTES = 1024**3
 
@@ -61,16 +63,19 @@ def accessions(text: str) -> list[str]:
 
 def efetch(ids: list[str], email: str) -> str:
     """GenBank text for `ids`, from NCBI."""
-    body = urllib.parse.urlencode(
-        {
-            "db": "nuccore",
-            "id": ",".join(ids),
-            "rettype": "gbwithparts",
-            "retmode": "text",
-            "tool": TOOL,
-            "email": email,
-        }
-    ).encode()
+    query = {
+        "db": "nuccore",
+        "id": ",".join(ids),
+        "rettype": "gbwithparts",
+        "retmode": "text",
+        "tool": TOOL,
+        "email": email,
+    }
+    key = os.environ.get("NCBI_API_KEY")
+    if key:
+        query["api_key"] = key
+    # In the body, not the URL, so the key isn't in any proxy's or server's access log.
+    body = urllib.parse.urlencode(query).encode()
     for attempt in range(1, ATTEMPTS + 1):
         request = urllib.request.Request(EFETCH, data=body, method="POST")
         try:
@@ -107,7 +112,7 @@ def fetch(asked: list[str], email: str) -> list[Record]:
     records: list[Record] = []
     for start in range(0, len(asked), BATCH):
         if start:
-            time.sleep(PAUSE)
+            time.sleep(PAUSE_WITH_KEY if os.environ.get("NCBI_API_KEY") else PAUSE)
         batch = asked[start : start + BATCH]
         text = efetch(batch, email)
         got = genbank(text) if text.strip() else []

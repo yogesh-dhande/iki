@@ -20,6 +20,12 @@ proteins and other plugins' sequences.
 - `ncbi_email`: the address NCBI asks automated clients to give, so it can
   contact the lab before blocking heavy use. Fetching from NCBI needs it.
 
+## Secrets
+
+- `NCBI_API_KEY` (optional, for `fetch_sequences`): an NCBI API key, from an
+  NCBI account's settings, raises NCBI's rate limit from 3 to 10 requests a
+  second. Set it in the deployment's run secrets as `dna.NCBI_API_KEY`.
+
 ## Actions
 
 They run on backend workers, in the `sequence-tools` environment (Python's
@@ -63,7 +69,7 @@ why, so nothing is half imported.
 
 Fetching follows NCBI's rules for automated clients: it names itself
 (`tool=iki-dna`) with the lab's address, asks for up to 100 records at a time,
-and makes at most three requests a second. When NCBI says to slow down or
+and makes at most three requests a second (ten with `NCBI_API_KEY`). When NCBI says to slow down or
 fails on its side, it waits and asks again. An accession NCBI has no record
 for fails the run, which names it.
 

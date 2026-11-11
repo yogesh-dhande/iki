@@ -375,6 +375,14 @@
         }
       }
     },
+    "runSecrets": {
+      "type": "object",
+      "properties": {
+        "existingSecret": {
+          "type": "string"
+        }
+      }
+    },
     "egressProxy": {
       "type": "object",
       "properties": {

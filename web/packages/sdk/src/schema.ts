@@ -1728,7 +1728,7 @@ export interface components {
              * Secrets
              * @description The secrets its runs get, by name.
              */
-            secrets: string[];
+            secrets: components["schemas"]["ActionSecretOut"][];
             /**
              * Tier
              * @enum {string}
@@ -1743,6 +1743,34 @@ export interface components {
             unavailable_reason: string | null;
             /** Updates */
             updates: components["schemas"]["UpdatesOut"][];
+        };
+        /** ActionSecretOut */
+        ActionSecretOut: {
+            /**
+             * Description
+             * @description What it's for, as the plugin says.
+             */
+            description: string;
+            /**
+             * Key
+             * @description Where administrators set it: its key in the run secrets.
+             */
+            key: string;
+            /**
+             * Name
+             * @description The environment variable its runs get it as.
+             */
+            name: string;
+            /**
+             * Required
+             * @description Whether the action can run without it.
+             */
+            required: boolean;
+            /**
+             * Set
+             * @description Whether this deployment has set it. Its value is never shown.
+             */
+            set: boolean;
         };
         /** ApprovalCan */
         ApprovalCan: {
@@ -3900,6 +3928,11 @@ export interface components {
              * Format: date-time
              */
             queued_at: string;
+            /**
+             * Secrets
+             * @description The secrets its worker was given, by name (ADR 0054).
+             */
+            secrets: string[];
             /** Started At */
             started_at: string | null;
             state: components["schemas"]["JobState"];

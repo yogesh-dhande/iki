@@ -22,6 +22,7 @@ from iki_spec.model import (
     Field,
     Input,
     Resources,
+    Secret,
     Updates,
     Volume,
     parse_duration,
@@ -43,11 +44,44 @@ PROVISIONED = frozenset({"container", "vm"})
 
 #: Environment variables the worker sets, which a secret can't replace.
 RESERVED_VARIABLES = frozenset(
-    {"PATH", "HOME", "USER", "SHELL", "PWD", "TMPDIR", "LANG", "LD_PRELOAD", "LD_LIBRARY_PATH"}
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "PWD",
+        "TMPDIR",
+        "LANG",
+        "TZ",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "PYTHONPATH",
+        "PYTHONUNBUFFERED",
+        "VIRTUAL_ENV",
+        "CONDA_PREFIX",
+        "MAMBA_ROOT_PREFIX",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        # The egress proxy, with the attempt's credentials (ADR 0053).
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "NO_PROXY",
+        "ALL_PROXY",
+    }
 )
 
 
 # --- Reading -----------------------------------------------------------------------------------
+
+
+def _secret(given: str | dict[str, Any]) -> Secret:
+    if isinstance(given, str):
+        return Secret(given)
+    return Secret(
+        given["name"],
+        required=bool(given.get("required", True)),
+        description=str(given.get("description", "")).strip(),
+    )
 
 
 def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action:
@@ -103,7 +137,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
         if "retention" in artifacts
         else None,
         network=tuple(body.get("network", ())),
-        secrets=tuple(body.get("secrets", ())),
+        secrets=tuple(_secret(given) for given in body.get("secrets", ())),
         timeout=parse_duration(body["timeout"]) if "timeout" in body else 3600,
         # Runs whose machine went away are retried, unless they reach the network: a retry
         # could repeat what they did elsewhere, such as placing an order.
@@ -666,11 +700,21 @@ class _Rules:
                         key=True,
                         hint="Run it on the backend tier, or leave this out.",
                     )
-        for index, name in enumerate(action.secrets):
-            if name.startswith("IKI_") or name in RESERVED_VARIABLES:
+        seen: set[str] = set()
+        for index, secret in enumerate(action.secrets):
+            if secret.name in seen:
+                self.add(
+                    "secret-twice",
+                    f"`{secret.name}` is declared more than once.",
+                    source,
+                    ("secrets", index),
+                    hint="Declare each secret once.",
+                )
+            seen.add(secret.name)
+            if secret.name.startswith("IKI_") or secret.name in RESERVED_VARIABLES:
                 self.add(
                     "reserved-secret",
-                    f"`{name}` is an environment variable the worker sets itself.",
+                    f"`{secret.name}` is an environment variable the worker sets itself.",
                     source,
                     ("secrets", index),
                     hint="Choose another name, such as `NCBI_API_KEY`.",

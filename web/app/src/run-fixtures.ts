@@ -86,6 +86,7 @@ export function attempt(
     log_size: 6,
     error: null,
     network: [],
+    secrets: [],
     ...overrides,
   };
 }

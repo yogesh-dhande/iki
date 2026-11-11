@@ -11,4 +11,8 @@ effects:
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/fetch.py]
 network: [rest.uniprot.org]
+secrets:
+  - name: UNIPROT_TOKEN
+    required: false
+    description: A token for UniProt's higher rate limits.
 timeout: 5m

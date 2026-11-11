@@ -31,7 +31,7 @@ from django.utils import timezone
 
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
-from iki_server.runs import live, quotas
+from iki_server.runs import live, quotas, secrets
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -242,6 +242,10 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             }
         )
     assert job.lease_token is not None and job.lease_expires_at is not None  # noqa: S101
+    given = secrets.for_run(run.action.split(".")[0], run.spec.get("secrets") or [])
+    if sorted(given) != job.secrets:
+        job.secrets = sorted(given)
+        job.save(update_fields=["secrets"])
     return {
         "apiVersion": "iki/v1",
         "kind": "RunInput",
@@ -265,6 +269,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             "timeout": run.timeout,
             "resources": job.resources,
             **_proxy(job, run),
+            **({"secrets": given} if given else {}),
         },
         "command": run.spec["command"],
         "environment": f"{run.action.split('.')[0]}.{run.environment}",

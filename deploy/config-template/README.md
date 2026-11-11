@@ -98,6 +98,13 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   no database credentials, no cloud role, and a network policy that lets
   them reach just the server and object storage. Allow more destinations
   that actions need in `networkPolicy.egress.workers`.
+- Plugins' actions declare the secrets they need (an API key, a LIMS token).
+  Keep them in your secret manager, sync them into one Kubernetes Secret
+  (External Secrets, or the Vault or AWS Secrets Manager CSI driver) with a
+  key per secret named for its plugin (`dna.NCBI_API_KEY`), and set
+  `runSecrets.existingSecret`. Only web pods mount it; each run gets only
+  the secrets its action declares. Rotate them in the secret manager: the
+  next run gets the new value.
 - Actions that fetch from the internet (NCBI, UniProt, the PDB) need the
   egress proxy: turn on `egressProxy` in `values.yaml`. Runs then reach the
   hosts their action declares, and only those, through it; each plugin's

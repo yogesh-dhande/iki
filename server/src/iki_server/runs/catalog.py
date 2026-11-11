@@ -20,6 +20,7 @@ from pathlib import Path
 from django.conf import settings
 
 from iki_server.entities import registry
+from iki_server.runs import secrets
 from iki_spec.compute import Compute, Template, compute_from_dict
 from iki_spec.model import Action, Environment
 
@@ -73,6 +74,15 @@ class Availability:
 def availability(of: Action) -> Availability:
     if of.tier == "client":
         return Availability(True)
+    missing = [s.name for s in of.secrets if s.required and not secrets.is_set(of.plugin, s.name)]
+    if missing:
+        keys = ", ".join(f"`{secrets.key(of.plugin, name)}`" for name in missing)
+        return Availability(
+            False,
+            f"It needs {_list(missing)}, which this deployment hasn't set. An Iki "
+            f"administrator can add {'it' if len(missing) == 1 else 'them'} to the run "
+            f"secrets as {keys}.",
+        )
     if of.network and not settings.IKI_EGRESS_PROXY_URL:
         return Availability(
             False,
@@ -95,6 +105,11 @@ def availability(of: Action) -> Availability:
         )
     ordered = sorted(bound, key=lambda pair: (pair[0], _size(pair[1])))
     return Availability(True, templates=tuple(t for _, t in ordered))
+
+
+def _list(names: list[str]) -> str:
+    quoted = [f"`{n}`" for n in names]
+    return quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} and {quoted[-1]}"
 
 
 def _hosts(network: tuple[str, ...]) -> str:

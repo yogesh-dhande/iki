@@ -264,7 +264,12 @@ impl Host for Job {
 }
 
 /// Reads what the command prints, line by line, for its host.
-fn read_lines(host: &impl Host, stream: impl Read, said: &Mutex<Option<String>>) {
+fn read_lines(
+    host: &impl Host,
+    stream: impl Read,
+    said: &Mutex<Option<String>>,
+    mask: &logs::Mask,
+) {
     let mut reader = BufReader::new(stream);
     let mut line = Vec::new();
     loop {
@@ -272,7 +277,8 @@ fn read_lines(host: &impl Host, stream: impl Read, said: &Mutex<Option<String>>)
         match reader.by_ref().take(MAX_LINE).read_until(b'\n', &mut line) {
             Ok(0) | Err(_) => return,
             Ok(_) => {
-                let text = String::from_utf8_lossy(&line);
+                let raw = String::from_utf8_lossy(&line);
+                let text = mask.apply(&raw);
                 if let Some(why) = logs::error(&text) {
                     *said.lock().unwrap_or_else(PoisonError::into_inner) = Some(why);
                 }
@@ -479,6 +485,10 @@ fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(Str
         for name in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
             env.push((name.into(), proxy.clone()));
         }
+    }
+    // The secrets the action declares, for this command alone (ADR 0054).
+    if let Some(secrets) = &input.job.secrets {
+        env.extend(secrets.iter().map(|(n, v)| (n.clone(), v.clone())));
     }
     env
 }
@@ -742,6 +752,13 @@ fn stage_input(
     raw: &serde_json::Value,
 ) -> Result<(), files::Failed> {
     let mut written = raw.clone();
+    // The command gets its secrets in its environment, never in a file it might copy.
+    if let Some(job) = written
+        .get_mut("job")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        job.remove("secrets");
+    }
     if let Some(wanted) = input.files.as_ref().filter(|f| !f.is_empty()) {
         let staged = host.stage(wanted, &dirs.inputs)?;
         say::info(
@@ -805,6 +822,13 @@ pub fn execute<H: Host>(
     let (done, readers_done) = mpsc::channel::<()>();
     // The last `::error` line the command printed: why it failed, if it fails.
     let said: Arc<Mutex<Option<String>>> = Arc::default();
+    let mask = logs::Mask::new(
+        input
+            .job
+            .secrets
+            .iter()
+            .flat_map(|secrets| secrets.values().map(String::as_str)),
+    );
     for stream in [
         child
             .stdout
@@ -818,9 +842,14 @@ pub fn execute<H: Host>(
     .into_iter()
     .flatten()
     {
-        let (host, done, said) = (Arc::clone(host), done.clone(), Arc::clone(&said));
+        let (host, done, said, mask) = (
+            Arc::clone(host),
+            done.clone(),
+            Arc::clone(&said),
+            mask.clone(),
+        );
         thread::spawn(move || {
-            read_lines(host.as_ref(), stream, &said);
+            read_lines(host.as_ref(), stream, &said, &mask);
             let _ = done.send(());
         });
     }
