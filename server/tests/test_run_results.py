@@ -6,6 +6,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import requests
@@ -18,6 +19,7 @@ from test_workers import LOCAL, WorkerClient, keep_connection, queued, registrat
 
 from iki_server.entities.models import Entity, Revision
 from iki_server.files import services as files
+from iki_server.files import storage
 from iki_server.files.models import UploadState
 from iki_server.files.services import EMPTY_SHA256
 from iki_server.org.models import ProjectMembership
@@ -435,6 +437,52 @@ def test_workers_upload_result_files_for_their_run(world: World, s3: Any) -> Non
     # Made for the launcher, in the run's project.
     file = api_as(world, "runner").get(f"/files/{upload['file']}").json()
     assert file["project"]["id"] == str(world.project.pk)
+
+
+def _alias(url: str) -> str:
+    """The same store under another name, as a cluster's internal address would be."""
+    parts = urlsplit(url)
+    other = {"localhost": "127.0.0.1", "127.0.0.1": "localhost"}.get(parts.hostname or "")
+    if other is None:
+        pytest.skip("the test store has no second name to reach it by")
+    return f"{parts.scheme}://{other}:{parts.port}"
+
+
+def test_workers_reach_the_store_at_their_own_address(world: World, s3: Any, settings: Any) -> None:
+    public = settings.IKI_FILES_PUBLIC_ENDPOINT_URL
+    inside = _alias(public)
+    settings.IKI_FILES_WORKER_ENDPOINT_URL = inside
+    storage.reset()
+    gpu, _, job = _predicting(world)
+    data = b"ATOM\n"
+    started = gpu.report(
+        job,
+        "uploads",
+        name="model_1.pdb",
+        media_type="chemical/x-pdb",
+        size=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+    ).json()
+    (part,) = started["parts"]
+    assert part["url"].startswith(f"{inside}/")
+    requests.put(part["url"], data=data, timeout=30).raise_for_status()
+    (again,) = gpu.report(job, f"uploads/{started['id']}/parts", numbers=[1]).json()
+    assert again["url"].startswith(f"{inside}/")
+    assert gpu.report(job, f"uploads/{started['id']}/complete").json()["state"] == "checking"
+    # People's browsers still get the public address.
+    upload = files.start(
+        world.users["editor"],
+        world.project,
+        name="abl.pdb",
+        media_type="chemical/x-pdb",
+        size=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+    )
+    (theirs,) = files.parts(upload)
+    assert theirs["url"].startswith(f"{public}/")
+    uri = f"s3://iki/{settings.IKI_FILES_PREFIX}/x"
+    assert storage.download_url(uri, "", "x", "text/plain").startswith(f"{public}/")
+    assert storage.download_url(uri, "", "x", "text/plain", workers=True).startswith(f"{inside}/")
 
 
 def test_results_attach_only_their_own_files(world: World, s3: Any) -> None:

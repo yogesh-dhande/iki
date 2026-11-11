@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: primer_properties
+label: Compute length, GC content and Tm
+inputs:
+  primer: { type: Primer, schema: ">=1" }
+effects:
+  updates: [{ input: primer, fields: [length, gc_content, melting_temperature] }]
+runs_on: { tier: backend, environment: sequence-tools }
+command: [python, ./scripts/sequences.py, primers]
+deterministic: true
+batchable: 100
+timeout: 5m

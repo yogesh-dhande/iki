@@ -5,7 +5,8 @@
                                               # alice (also in Chromium), her
                                               # notification and its email, SCIM
                                               # provisioning, the API, webhooks,
-                                              # OAuth, and SAML
+                                              # the DNA plugin's actions on the
+                                              # cluster's worker, OAuth, and SAML
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -860,6 +861,65 @@ def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
     ok("audit events reach the log stream for a SIEM; no OAuth codes in the logs")
 
 
+def finished(session: requests.Session, run: dict[str, Any]) -> dict[str, Any]:
+    """The run, once it has ended, within two minutes."""
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        found: dict[str, Any] = api_call(session, "GET", f"/runs/{run['id']}").json()
+        if found["status"] in ("succeeded", "failed", "cancelled"):
+            return found
+        time.sleep(1)
+    fail(f"{run['hrid']} didn't finish in two minutes: {found['status']} ({found.get('waiting')})")
+
+
+def actions() -> None:
+    """The DNA plugin's actions, run by the cluster's backend worker in its built environment."""
+    alice = sign_in_as("alice")
+    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
+    project = next(p for p in mine if p["name"] == "Atlas")
+    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
+    for name in ("dna.compute_composition", "dna.primer_properties"):
+        if not listed.get(name, {}).get("available"):
+            fail(f"{name} isn't available to run: {listed.get(name)}")
+    # New bases each time, so each check registers new entities.
+    bases = "".join(secrets.choice("ACGT") for _ in range(40))
+    primer = bases[:20]
+    expected = {
+        "dna.compute_composition": ("dna.DNASequence", "sequence", bases, {"length": 40}),
+        "dna.primer_properties": ("dna.Primer", "primer", primer, {"length": 20}),
+    }
+    for action, (kind, name, sequence, values) in expected.items():
+        made = api_call(
+            alice,
+            "POST",
+            "/entities",
+            {"type": kind, "project": project["id"], "values": {"bases": sequence}},
+        )
+        if made.status_code not in (200, 201):
+            fail(f"registering a {kind} answered HTTP {made.status_code}: {made.text[:300]}")
+        entity = made.json()
+        launched = api_call(
+            alice,
+            "POST",
+            f"/actions/{action}/runs",
+            {"project": project["id"], "inputs": {name: entity["id"]}},
+        )
+        if launched.status_code != 201:
+            fail(f"launching {action} answered HTTP {launched.status_code}: {launched.text[:300]}")
+        run = finished(alice, launched.json())
+        if run["status"] != "succeeded":
+            fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
+        got = api_call(alice, "GET", f"/entities/{entity['id']}").json()["values"]
+        gc = round(100 * sum(b in "GC" for b in sequence) / len(sequence), 2)
+        if got.get("length") != values["length"] or got.get("gc_content") != gc:
+            fail(f"{run['hrid']} wrote {got}, not length {values['length']} and GC {gc}%")
+        if action == "dna.primer_properties" and not isinstance(
+            got.get("melting_temperature"), (int, float)
+        ):
+            fail(f"{run['hrid']} wrote no melting temperature: {got}")
+        ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="also run end-to-end sign-in checks")
@@ -882,6 +942,7 @@ def main() -> None:
         provisioning(admin)
         rest_api(admin)
         webhooks(admin)
+        actions()
         oauth(admin)
         saml()
 

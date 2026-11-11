@@ -453,7 +453,7 @@ def start_upload(request: HttpRequest, job_id: UUID, payload: UploadIn) -> Any: 
         size=payload.size,
         sha256=payload.sha256,
     )
-    parts = files.parts(upload) if upload.state == UploadState.PENDING else []
+    parts = files.parts(upload, workers=True) if upload.state == UploadState.PENDING else []
     return Status(201, {**_upload_out(upload), "parts": parts})
 
 

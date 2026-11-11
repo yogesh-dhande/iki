@@ -83,10 +83,21 @@ def client() -> S3Client:
     return _client(settings.IKI_FILES_ENDPOINT_URL)
 
 
+def _endpoint_for(*, workers: bool) -> str:
+    """The address URLs are signed for: where people's browsers reach the store, or
+    where workers do, if that's elsewhere (such as the store's address in the cluster)."""
+    public = str(settings.IKI_FILES_PUBLIC_ENDPOINT_URL)
+    return str(settings.IKI_FILES_WORKER_ENDPOINT_URL or public) if workers else public
+
+
 @cache
-def signer() -> S3Client:
-    """For URLs that browsers and workers use: signed for the address they reach."""
-    return _client(settings.IKI_FILES_PUBLIC_ENDPOINT_URL)
+def _signer(endpoint: str) -> S3Client:
+    return _client(endpoint)
+
+
+def signer(*, workers: bool = False) -> S3Client:
+    """For URLs that browsers, or workers, use: signed for the address they reach."""
+    return _signer(_endpoint_for(workers=workers))
 
 
 @cache
@@ -116,16 +127,16 @@ def client_for(bucket_name: str) -> S3Client:
     return _regional(settings.IKI_FILES_ENDPOINT_URL, region)
 
 
-def signer_for(bucket_name: str) -> S3Client:
+def signer_for(bucket_name: str, *, workers: bool = False) -> S3Client:
     region = region_of(bucket_name)
     if region == settings.IKI_FILES_REGION:
-        return signer()
-    return _regional(settings.IKI_FILES_PUBLIC_ENDPOINT_URL, region)
+        return signer(workers=workers)
+    return _regional(_endpoint_for(workers=workers), region)
 
 
 def reset() -> None:
     """Forgets the clients, after settings change (tests)."""
-    for cached in (client, signer, region_of, _regional, upload_origin):
+    for cached in (client, _signer, region_of, _regional, upload_origin):
         cached.cache_clear()
 
 
@@ -163,8 +174,8 @@ def upload_origin() -> str | None:
     return f"{parts.scheme}://{parts.netloc}"
 
 
-def part_url(key: str, multipart_id: str, number: int) -> str:
-    return signer().generate_presigned_url(
+def part_url(key: str, multipart_id: str, number: int, *, workers: bool = False) -> str:
+    return signer(workers=workers).generate_presigned_url(
         "upload_part",
         Params={"Bucket": bucket(), "Key": key, "UploadId": multipart_id, "PartNumber": number},
         ExpiresIn=UPLOAD_URL_SECONDS,
@@ -287,8 +298,11 @@ def delete(key: str) -> None:
     client().delete_object(Bucket=bucket(), Key=key)
 
 
-def download_url(storage_uri: str, version: str, name: str, media_type: str) -> str:
-    """A short-lived URL that downloads the object, saved under ``name``."""
+def download_url(
+    storage_uri: str, version: str, name: str, media_type: str, *, workers: bool = False
+) -> str:
+    """A short-lived URL that downloads the object, saved under ``name``: for a worker,
+    signed for the address workers reach the store at."""
     bucket_name, key = split_uri(storage_uri)
     params: dict[str, Any] = {
         "Bucket": bucket_name,
@@ -299,7 +313,7 @@ def download_url(storage_uri: str, version: str, name: str, media_type: str) -> 
     }
     if version:
         params["VersionId"] = version
-    return signer_for(bucket_name).generate_presigned_url(
+    return signer_for(bucket_name, workers=workers).generate_presigned_url(
         "get_object", Params=params, ExpiresIn=DOWNLOAD_URL_SECONDS
     )
 

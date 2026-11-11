@@ -3,6 +3,9 @@
 import asyncio
 import io
 import json
+import logging
+import re
+import sys
 import uuid
 from collections.abc import Iterator
 from datetime import datetime, timedelta
@@ -187,6 +190,28 @@ def test_operators_make_registration_tokens_from_the_command_line(world: World) 
     for bad in (["--tier=client", "--label=x"], ["--tier=vm", "--label= "]):
         with pytest.raises(CommandError):
             call_command("create_registration_token", *bad, stdout=out, stderr=err)
+
+
+# Committed for real, so the audit event is logged while the command runs, as in a pod.
+@pytest.mark.django_db(transaction=True)
+def test_the_command_prints_only_the_token_even_where_logs_go_to_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # As in a container, where JSON logs (the audit event among them) go to stdout.
+    handler = logging.StreamHandler(sys.stdout)
+    audit_logger = logging.getLogger("iki.audit")
+    audit_logger.addHandler(handler)
+    level = audit_logger.level
+    audit_logger.setLevel(logging.INFO)
+    try:
+        call_command("create_registration_token", "--tier=backend", "--label=Pods")
+    finally:
+        audit_logger.removeHandler(handler)
+        audit_logger.setLevel(level)
+    captured = capsys.readouterr()
+    assert re.fullmatch(r"iki_wreg_[A-Za-z0-9_-]+", captured.out), captured.out
+    assert "worker_registration.created" in captured.err
+    assert handler.stream is sys.stdout
 
 
 def test_workers_register_with_a_registration_token(world: World) -> None:

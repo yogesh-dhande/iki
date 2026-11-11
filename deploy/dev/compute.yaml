@@ -1,0 +1,12 @@
+# The dev cluster's compute: its backend worker pod (backendWorkers in
+# values-dev.yaml), sized as the pod is.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: backend-small
+provisioner: backend_pool
+capacity: { cpu: 0.25, memory: 512Mi, scratch_disk: 2Gi }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: dna.sequence-tools
+templates: [{ template: backend-small }]

@@ -78,6 +78,20 @@ custom_build(
     ],
 )
 
+# The worker image, then the dev cluster's plugins and their environments on top.
+custom_build(
+    'iki-worker',
+    'deploy/dev/build-worker.sh $EXPECTED_REF',
+    deps=[
+        'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
+        'worker/crates', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
+        'deploy/dev/build-worker.sh',
+        # What `iki deploy build --workers` reads and runs.
+        'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'cli', 'spec/src',
+    ],
+    ignore=['**/__pycache__'],
+)
+
 k8s_yaml(helm(
     'deploy/helm/iki',
     name='iki',
@@ -97,6 +111,21 @@ k8s_resource(
     ],
 )
 k8s_resource('iki-tasks', resource_deps=['iki-migrate', 'otel-lgtm'], labels=['iki'])
+
+# A backend-tier registration token for the workers, made in the cluster.
+local_resource(
+    'worker-registration',
+    cmd='deploy/dev/worker-registration.sh',
+    deps=['deploy/dev/worker-registration.sh'],
+    resource_deps=['iki-web'],
+    labels=['iki'],
+)
+k8s_resource(
+    'iki-worker',
+    objects=['iki-worker:serviceaccount', 'iki-worker-egress:networkpolicy'],
+    resource_deps=['worker-registration'],
+    labels=['iki'],
+)
 
 # Gives the dev bucket the CORS and lifecycle rules Iki needs (browser
 # uploads from localhost:8000 and the web dev server), once the web pod is up.

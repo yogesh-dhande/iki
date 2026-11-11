@@ -8,7 +8,8 @@ plugins:
   # The dev lockfile (deploy/dev/plugins.lock.yaml) may use local directories.
   allowLocal: true
 publicUrl: http://localhost:8000
-allowedHosts: ["localhost", "127.0.0.1"]
+# The Service name is how the dev workers reach the server.
+allowedHosts: ["localhost", "127.0.0.1", "iki-web.iki.svc"]
 # Local access is plain HTTP through port-forwards.
 https: false
 forwardedAllowIps: "127.0.0.1"
@@ -37,6 +38,8 @@ files:
   bucket: iki
   endpoint: http://seaweedfs.iki.svc:8333
   publicEndpoint: http://localhost:8333
+  # Workers are in the cluster, so their signed URLs name its Service.
+  workerEndpoint: http://seaweedfs.iki.svc:8333
   credentials:
     existingSecret: seaweedfs-s3
     accessKeyIdKey: access-key
@@ -65,9 +68,36 @@ web:
   devServer: true
   podDisruptionBudget:
     enabled: false
+backendWorkers:
+  enabled: true
+  image:
+    # Tilt builds this image (deploy/dev/build-worker.sh) and rewrites the reference.
+    repository: iki-worker
+    tag: dev
+  # Made by deploy/dev/worker-registration.sh once the web pod is up.
+  registrationToken:
+    existingSecret: iki-worker-registration
+  # Straight to the web Service on plain HTTP: the dev cluster has no TLS.
+  serverUrl: http://iki-web.iki.svc:8000
+  allowHttp: true
+  replicas: 1
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 512Mi }
+  scratch:
+    sizeLimit: 2Gi
 networkPolicy:
   enabled: true
+  # The workers reach the web pods directly (in production, through the ingress).
+  ingressFrom:
+    - podSelector:
+        matchLabels: { app.kubernetes.io/component: worker }
   egress:
+    server:
+      ports: [8000]
+      to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/component: web }
     database:
       to:
         - podSelector:

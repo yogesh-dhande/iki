@@ -127,6 +127,9 @@ files:
   # Where browsers and workers reach the store, if not at endpoint: signed
   # URLs name it.
   publicEndpoint: ""
+  # Where workers reach the store, if not at publicEndpoint, such as its
+  # address inside the cluster. Signed URLs for workers name it.
+  workerEndpoint: ""
   # A Secret holding an access key. Leave it empty on AWS and give the
   # service account an IAM role instead (serviceAccount.annotations).
   credentials:

@@ -22,9 +22,21 @@ proteins and other plugins' sequences.
 
 ## Actions
 
-Importing FASTA and GenBank files, fetching from NCBI, GC content and melting
-temperature, reverse complements, restriction digests, primer design and
-GenBank export arrive with Iki's action runtime.
+Both run on backend workers, in the `sequence-tools` environment (Python's
+standard library only), and on many entities at once.
+
+- **`compute_composition`**: a DNA sequence's length and GC content.
+- **`primer_properties`**: a primer's length, GC content and melting
+  temperature.
+
+GC content counts G, C and S among the bases whose pairing is known (A, C, G,
+T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
+temperature uses SantaLucia's unified nearest-neighbour parameters (1998) with
+his salt correction, at 50 mM Na⁺ and 50 nM primer, as Primer3 does by
+default. It's computed only for primers of A, C, G and T alone.
+
+Importing FASTA and GenBank files, fetching from NCBI, reverse complements,
+restriction digests, primer design and GenBank export come later.
 
 ## Developing it
 

@@ -570,6 +570,15 @@ def test_storage_keys_come_only_from_a_secret() -> None:
         assert variables["IKI_FILES_PUBLIC_ENDPOINT_URL"]["value"] == (
             "https://s3.internal.example.com"
         ), name
+        # Workers' name the public one too, unless they have their own.
+        assert variables["IKI_FILES_WORKER_ENDPOINT_URL"]["value"] == "", name
+    values["files"]["workerEndpoint"] = "https://s3.cluster.example.com"
+    for name, spec in pod_specs(manifests(values)):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert variables["IKI_FILES_WORKER_ENDPOINT_URL"] == "https://s3.cluster.example.com", name
+    assert "workerEndpoint" in str(
+        render({"files": {"bucket": "iki", "workerEndpoint": "s3.cluster"}}, ok=False)
+    )
 
 
 def test_only_web_task_maintenance_and_worker_pods_reach_object_storage() -> None:

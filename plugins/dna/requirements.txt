@@ -1,0 +1,3 @@
+# The sequence tools need nothing beyond Python's standard library. Pin every
+# package an environment does need, with its hash, as
+# `uv pip compile requirements.in --generate-hashes` writes it.

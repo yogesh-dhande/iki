@@ -115,8 +115,11 @@ def start(
     return upload
 
 
-def parts(upload: Upload, numbers: list[int] | None = None) -> list[dict[str, Any]]:
-    """Signed URLs for the parts still to send (or the ones asked for), with their sizes."""
+def parts(
+    upload: Upload, numbers: list[int] | None = None, *, workers: bool = False
+) -> list[dict[str, Any]]:
+    """Signed URLs for the parts still to send (or the ones asked for), with their sizes:
+    for a worker, signed for the address workers reach the store at."""
     if upload.state != UploadState.PENDING:
         raise Refused("The upload isn't waiting for parts any more.")
     count = storage.part_count(upload.size, upload.part_size)
@@ -128,7 +131,7 @@ def parts(upload: Upload, numbers: list[int] | None = None) -> list[dict[str, An
         {
             "number": n,
             "size": _part_size(upload, n, count),
-            "url": storage.part_url(upload.staging_key, upload.multipart_id, n),
+            "url": storage.part_url(upload.staging_key, upload.multipart_id, n, workers=workers),
         }
         for n in sorted(set(wanted))
     ]

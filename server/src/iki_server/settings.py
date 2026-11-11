@@ -441,6 +441,9 @@ IKI_FILES_ENDPOINT_URL: str = env.str("IKI_FILES_ENDPOINT_URL", default="")
 IKI_FILES_PUBLIC_ENDPOINT_URL: str = env.str(
     "IKI_FILES_PUBLIC_ENDPOINT_URL", default=IKI_FILES_ENDPOINT_URL
 )
+#: Where workers reach the store, if not where browsers do (signed URLs for them name it).
+#: Empty: the same address as browsers.
+IKI_FILES_WORKER_ENDPOINT_URL: str = env.str("IKI_FILES_WORKER_ENDPOINT_URL", default="")
 try:
     from iki_spec.model import parse_size as _parse_size
 
@@ -474,6 +477,7 @@ for _location in env.list("IKI_FILES_REGISTER_LOCATIONS", default=[]):
 for _name, _url in (
     ("IKI_FILES_ENDPOINT_URL", IKI_FILES_ENDPOINT_URL),
     ("IKI_FILES_PUBLIC_ENDPOINT_URL", IKI_FILES_PUBLIC_ENDPOINT_URL),
+    ("IKI_FILES_WORKER_ENDPOINT_URL", IKI_FILES_WORKER_ENDPOINT_URL),
 ):
     if _url.startswith("http://") and HTTPS:
         raise environ.ImproperlyConfigured(

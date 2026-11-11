@@ -152,6 +152,8 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ .endpoint | quote }}
 - name: IKI_FILES_PUBLIC_ENDPOINT_URL
   value: {{ .publicEndpoint | default .endpoint | quote }}
+- name: IKI_FILES_WORKER_ENDPOINT_URL
+  value: {{ .workerEndpoint | quote }}
 - name: IKI_FILES_MAX_UPLOAD_SIZE
   value: {{ .maxUploadSize | quote }}
 - name: IKI_FILES_REGISTER_LOCATIONS

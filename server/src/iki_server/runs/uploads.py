@@ -76,7 +76,7 @@ def parts(
     numbers: list[int] | None,
 ) -> list[dict[str, Any]]:
     with transaction.atomic():
-        return files.parts(_upload(worker, job_id, token, upload_id), numbers)
+        return files.parts(_upload(worker, job_id, token, upload_id), numbers, workers=True)
 
 
 def complete(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, upload_id: uuid.UUID) -> Upload:

@@ -13,6 +13,10 @@ audit log records it as made from the command line. Compute admins see the
 token in Compute settings, and can revoke it there.
 """
 
+import logging
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
@@ -24,6 +28,26 @@ from iki_server.runs import workers
 
 #: The tiers whose workers register with a token. Client-tier workers sign in as their person.
 TIERS = ("backend", "container", "vm")
+
+
+@contextmanager
+def _logs_to_stderr() -> Iterator[None]:
+    """Sends log lines (such as the audit event's) to standard error meanwhile, so standard
+    output holds only the token, wherever the logs normally go."""
+    loggers = [logging.getLogger(), *map(logging.getLogger, logging.root.manager.loggerDict)]
+    to_stdout = [
+        handler
+        for logger in loggers
+        for handler in getattr(logger, "handlers", [])
+        if isinstance(handler, logging.StreamHandler)
+        and handler.stream in (sys.stdout, sys.__stdout__)
+    ]
+    moved = [(handler, handler.setStream(sys.stderr)) for handler in to_stdout]
+    try:
+        yield
+    finally:
+        for handler, stream in moved:
+            handler.setStream(stream)
 
 
 class Command(BaseCommand):
@@ -48,7 +72,7 @@ class Command(BaseCommand):
         if days is not None and not 1 <= days <= 3650:
             raise CommandError("--expires-in-days must be between 1 and 3650.")
         expires_at = timezone.now() + timedelta(days=days) if days else None
-        with audit.cli():
+        with _logs_to_stderr(), audit.cli():
             token, value = workers.create_registration(
                 label=label, tier=options["tier"], by=None, expires_at=expires_at
             )
@@ -56,4 +80,4 @@ class Command(BaseCommand):
             f"Made registration token …{token.hint} for {token.tier} workers ({token.label}). "
             "It isn't shown again: store it as the workers' secret."
         )
-        self.stdout.write(value)
+        self.stdout.write(value, ending="")

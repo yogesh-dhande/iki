@@ -29,6 +29,15 @@ the plugins in [`plugins.lock.yaml`](plugins.lock.yaml), built with
 [`deploy/plugins.Dockerfile`](../plugins.Dockerfile). To try a plugin you
 are writing, add it there with `local:`.
 
+It builds the worker image the same way: Iki's worker image, then the same
+plugins with their environments built in (`iki deploy build --workers`,
+[`deploy/worker.Dockerfile`](../worker.Dockerfile)). Once the web pod is up,
+[`worker-registration.sh`](worker-registration.sh) makes the workers'
+registration token with `iki-server create_registration_token` and stores
+it in the `iki-worker-registration` Secret. Delete that Secret to make a new
+one. [`compute.yaml`](compute.yaml) binds the plugins' environments to the
+worker pod, so their backend actions run there.
+
 ## What runs
 
 | Component                        | Local URL                            | Notes                                                                             |
@@ -36,6 +45,7 @@ are writing, add it there with `local:`.
 | Iki web (`iki-web`)              | <http://localhost:8000>              | Helm chart with `values-dev.yaml`                                                 |
 | Task runner (`iki-tasks`)        | n/a                                  | `iki-server tasks`: sends email and other background work                         |
 | Migrations (`iki-migrate`)       | n/a                                  | Job; web pods turn ready only once it has finished                                |
+| Backend worker (`iki-worker`)    | n/a                                  | Runs backend actions; reaches the web Service over plain HTTP (dev only)          |
 | Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                       |
 | SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                     |
 | Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` with users `alice` and `bob`; OIDC client `iki-web` and a SAML client |

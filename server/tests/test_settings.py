@@ -223,6 +223,10 @@ def test_register_locations_name_folders() -> None:
     [
         ({"IKI_FILES_ENDPOINT_URL": "http://s3.internal:9000"}, "files would travel unencrypted"),
         ({"IKI_FILES_ENDPOINT_URL": "s3.internal:9000"}, "must be a URL"),
+        (
+            {"IKI_FILES_WORKER_ENDPOINT_URL": "http://seaweedfs:8333"},
+            "IKI_FILES_WORKER_ENDPOINT_URL is plain HTTP",
+        ),
         ({"IKI_FILES_MAX_UPLOAD_SIZE": "lots"}, "IKI_FILES_MAX_UPLOAD_SIZE must be a size"),
         ({"IKI_FILES_REGISTER_LOCATIONS": "lab-data/runs"}, "isn't a location such as"),
         ({"IKI_FILES_REGISTER_LOCATIONS": "s3://Lab_Data/"}, "isn't a location such as"),

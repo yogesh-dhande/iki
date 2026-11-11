@@ -116,6 +116,18 @@ impl Config {
         let allow_http = flag("IKI_ALLOW_HTTP");
         let url = server_url(&get("IKI_URL").ok_or(URL_RULE)?, allow_http)?;
         let registration_token = get("IKI_REGISTRATION_TOKEN");
+        // It goes in a header: anything else in the value (a log line that was captured
+        // with it, say) would fail every call, so say so now.
+        if registration_token
+            .as_deref()
+            .is_some_and(|t| !t.bytes().all(|b| b.is_ascii_graphic()))
+        {
+            return Err(
+                "IKI_REGISTRATION_TOKEN must be the token alone, such as iki_wreg_…, \
+                 with no spaces or other lines."
+                    .to_owned(),
+            );
+        }
         let state_file = get("IKI_WORKER_STATE").map(PathBuf::from);
         if registration_token.is_none() && state_file.is_none() {
             return Err(
@@ -251,6 +263,38 @@ mod tests {
         assert!(strict("http://localhost@evil.com").is_err());
         assert!(strict("iki.example.com").is_err());
         assert!(strict("ftp://localhost").is_err());
+    }
+
+    #[test]
+    fn a_registration_token_is_the_token_alone() {
+        let mut bad: Vec<(&str, &str)> = BASE
+            .iter()
+            .copied()
+            .filter(|(k, _)| *k != "IKI_REGISTRATION_TOKEN")
+            .collect();
+        bad.push(("IKI_REGISTRATION_TOKEN", "{\"event\": \"x\"}\niki_wreg_x"));
+        assert!(
+            Config::from_env(&env(&bad))
+                .unwrap_err()
+                .contains("the token alone")
+        );
+        let padded: Vec<(&str, &str)> = BASE
+            .iter()
+            .map(|&(k, v)| {
+                if k == "IKI_REGISTRATION_TOKEN" {
+                    (k, " iki_wreg_x\n")
+                } else {
+                    (k, v)
+                }
+            })
+            .collect();
+        assert_eq!(
+            Config::from_env(&env(&padded))
+                .unwrap()
+                .registration_token
+                .as_deref(),
+            Some("iki_wreg_x")
+        );
     }
 
     #[test]

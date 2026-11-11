@@ -36,7 +36,9 @@ default. The shared egress policy, which carries the database, now
 excludes workers. Their own policy allows DNS and the server's HTTPS
 address: the ingress controller (`networkPolicy.ingressFrom`) and, by
 default, public addresses, for a cloud load balancer. They can also reach
-object storage, through the URLs the server signs. Anything else actions
+object storage, through the URLs the server signs. Those URLs name
+`files.workerEndpoint` when it's set, such as the store's address in the
+cluster, and otherwise the address browsers use. Anything else actions
 need, such as a licence server, is listed in
 `networkPolicy.egress.workers`. Nothing reaches the workers.
 

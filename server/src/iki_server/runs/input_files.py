@@ -79,5 +79,5 @@ def download(
         found = File.objects.select_related("blob").get(pk=file_id)
     blob = found.blob
     return found, storage.download_url(
-        blob.storage_uri, blob.object_version, found.name, found.media_type
+        blob.storage_uri, blob.object_version, found.name, found.media_type, workers=True
     )

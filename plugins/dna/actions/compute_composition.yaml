@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_composition
+label: Compute length and GC content
+inputs:
+  sequence: { type: DNASequence, schema: ">=1" }
+effects:
+  updates: [{ input: sequence, fields: [length, gc_content] }]
+runs_on: { tier: backend, environment: sequence-tools }
+command: [python, ./scripts/sequences.py, composition]
+deterministic: true
+batchable: 100
+timeout: 5m
