@@ -73,3 +73,4 @@ supersedes the old one, and update the old one's status.
 | [0041](0041-compute-templates-and-bindings.md)                   | Each deployment's compute is reviewed config, checked against its plugins                       | Accepted |
 | [0042](0042-action-runs-and-jobs.md)                             | A run records what was asked; jobs are its attempts                                             | Accepted |
 | [0043](0043-workers-lease-jobs.md)                               | Workers pull jobs over HTTPS, with fenced leases                                                | Accepted |
+| [0044](0044-run-results-are-written-all-or-nothing.md)           | A run's results are checked, then written all or nothing                                        | Accepted |

@@ -147,7 +147,8 @@ class Revision(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
     )
-    #: How the change was made: web, api, mcp, cli or system (as in the audit log).
+    #: How the change was made: web, api, mcp, cli or system (as in the audit log), or run
+    #: for a run's results (its RunEffect names the run).
     via = models.CharField(max_length=16)
     #: Why, if the person said.
     reason = models.TextField(blank=True, default="")

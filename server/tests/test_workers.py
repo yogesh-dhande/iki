@@ -396,7 +396,7 @@ def test_a_failed_attempt_ends_the_run(world: World) -> None:
     assert failed.json() == {"run_status": "failed"}
     body = api_as(world).get(f"/runs/{run['id']}").json()
     assert body["status"] == "failed"
-    assert body["error"] == {"code": "failed", "message": "ValueError: bad sequence"}
+    assert body["error"] == {"code": "failed", "message": "ValueError: bad sequence", "errors": []}
     assert body["attempts"] == 1
     problem(pod.report(job, "heartbeat"), 409, "stale_lease")
 

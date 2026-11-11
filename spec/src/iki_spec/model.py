@@ -29,6 +29,7 @@ __all__ = [
     "Resources",
     "Updates",
     "Volume",
+    "action_from_dict",
     "plugin_from_dict",
     "plugin_to_dict",
 ]
@@ -461,6 +462,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "environments": {k: _environment(v) for k, v in data["environments"].items()},
         }
     )
+
+
+def action_from_dict(data: dict[str, Any]) -> Action:
+    """An action from its JSON form (``dataclasses.asdict``), as a run keeps it."""
+    return _action(data)
 
 
 def _action(data: dict[str, Any]) -> Action:

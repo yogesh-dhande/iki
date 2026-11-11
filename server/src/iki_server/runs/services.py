@@ -90,7 +90,7 @@ def launch(
             hrid=_next_hrid(),
             action=action.qualified_name,
             plugin_version=registry.plugins()[action.plugin].version,
-            plugin_sha=_plugin_sha(action.plugin),
+            plugin_sha=plugin_sha(action.plugin),
             spec=asdict(action),
             project=project,
             requested_by=user,
@@ -168,7 +168,7 @@ def _inputs(
                 continue
             if entity.archived_at is not None:
                 problems.append(f"{entity.hrid} is archived.")
-            elif not _is_a(entity.type, put.type):
+            elif not is_a(entity.type, put.type):
                 problems.append(f"{entity.hrid} is a {entity.type}, not a {put.type}.")
             elif name in updated and not access.can_edit(user, entity):
                 problems.append(
@@ -182,7 +182,7 @@ def _inputs(
     return out
 
 
-def _is_a(entity_type: str, wanted: str) -> bool:
+def is_a(entity_type: str, wanted: str) -> bool:
     if wanted in (entity_type, "core.Entity"):
         return True
     own = registry.types().get(entity_type)
@@ -217,7 +217,7 @@ def _next_hrid() -> str:
     return hrids.format_hrid(HRID_PREFIX, 6, number)
 
 
-def _plugin_sha(plugin: str) -> str:
+def plugin_sha(plugin: str) -> str:
     record = registry.installed() or {}
     for entry in record.get("plugins", ()):
         if entry.get("name") == plugin:

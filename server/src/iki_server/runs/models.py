@@ -346,3 +346,89 @@ class JobLog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.job_id} @{self.offset}"
+
+
+class RunOutput(models.Model):
+    """What a run's command reported, as it sent it (ADR 0044). Kept even when its results
+    weren't written, so a rejected run's work isn't lost."""
+
+    APPEND_ONLY = True
+
+    run = models.OneToOneField(
+        ActionRun, primary_key=True, on_delete=models.PROTECT, related_name="output"
+    )
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="+")
+    #: The output document (``run-output/v1``), as received.
+    document = models.JSONField()
+    received_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_run_output"
+        db_table_comment = "Each run's output document, as its worker sent it."
+
+    def __str__(self) -> str:
+        return f"output of {self.run_id}"
+
+
+class EffectKind(models.TextChoices):
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    #: The run made an entity that existed already (its type reuses duplicates).
+    REUSED = "reused", "Reused"
+
+
+class RunEffect(models.Model):
+    """One entity a run wrote, and the revision it made: where a value set by a run points."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="effects")
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    kind = models.CharField(max_length=16, choices=EffectKind.choices)
+    #: The revision it made (none when it reused an entity, or changed nothing).
+    revision = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_run_effect"
+        db_table_comment = "Every entity each run created or updated, with the revision it made."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["entity", "revision"], name="iki_run_effect_revision"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["run", "entity"], name="iki_run_effect_once"),
+            models.CheckConstraint(
+                condition=Q(kind__in=EffectKind.values), name="iki_run_effect_kind"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id} {self.kind} {self.entity_id}"
+
+
+class Lineage(models.Model):
+    """An entity a run made, and an input it was made from, at the revision the run read."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    parent = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    parent_revision = models.PositiveIntegerField()
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="lineage")
+    #: The run's input the parent was given as.
+    input = models.CharField(max_length=63)
+
+    class Meta:
+        db_table = "iki_lineage"
+        db_table_comment = "Which entities each run made from which, at which revisions."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["entity"], name="iki_lineage_entity"),
+            models.Index(fields=["parent"], name="iki_lineage_parent"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["entity", "parent", "run"], name="iki_lineage_once"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.parent_id} -> {self.entity_id} ({self.run_id})"

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/run-output/v1",
+  "title": "Iki run output (iki/v1)",
+  "description": "What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.",
+  "type": "object",
+  "required": ["apiVersion", "kind"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "RunOutput" },
+    "updates": {
+      "type": "object",
+      "description": "By input name (one the action declares it updates): the entities it was given there, and the new values of fields the action declares.",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["entity", "values"],
+          "additionalProperties": false,
+          "properties": {
+            "entity": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The input entity's ID, from input.json."
+            },
+            "values": { "type": "object", "minProperties": 1 }
+          }
+        }
+      }
+    },
+    "creates": {
+      "type": "array",
+      "description": "New entities, of types the action declares it creates.",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "required": ["type", "values"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
+          },
+          "values": { "type": "object" },
+          "derived_from": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "uniqueItems": true,
+            "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity."
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "description": "Numbers about the run, such as a score or a count, kept on the run.",
+      "maxProperties": 100,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+      "additionalProperties": { "type": "number" }
+    },
+    "messages": {
+      "type": "array",
+      "description": "Notes for whoever reads the run.",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["level", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "level": { "enum": ["info", "warning", "error"] },
+          "text": { "type": "string", "maxLength": 2000 }
+        }
+      }
+    }
+  }
+}

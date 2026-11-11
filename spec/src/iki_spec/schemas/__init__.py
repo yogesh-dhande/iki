@@ -39,6 +39,7 @@ NAMES = (
     "compute-template",
     "environment-binding",
     "run-input",
+    "run-output",
 )
 
 BASE_URL = "https://ikisci.org/schemas"

@@ -278,6 +278,42 @@ def fail(request: HttpRequest, job_id: UUID, payload: FailIn) -> dict[str, str]:
     return {"run_status": run.status}
 
 
+class CompleteIn(LeaseIn):
+    output: dict[str, Any] = Field(
+        description="The command's output.json (`run-output/v1`). Up to 2.5 MB; files come "
+        "separately."
+    )
+
+
+class OutputErrorOut(Schema):
+    pointer: str = Field(description="Where in the output, as a JSON pointer.")
+    detail: str
+
+
+class CompleteOut(Schema):
+    run_status: str = Field(
+        description="`succeeded` if the results were written; `failed` (`invalid_output`) or "
+        "`rejected` if they weren't. Either way the output is kept with the run."
+    )
+    code: str | None = None
+    message: str | None = None
+    errors: list[OutputErrorOut] = Field(default_factory=list)
+
+
+@api.post("/jobs/{job_id}/complete", response=CompleteOut, summary="Finish with results")
+def complete(request: HttpRequest, job_id: UUID, payload: CompleteIn) -> dict[str, Any]:
+    """Writes the results in one transaction, all or none, after checking them against
+    what the action declares. Whatever the answer, the attempt is over: don't retry it."""
+    run = queue.complete(_worker(request), job_id, payload.lease_token, payload.output)
+    error = run.error or {}
+    return {
+        "run_status": run.status,
+        "code": error.get("code"),
+        "message": error.get("message"),
+        "errors": error.get("errors", []),
+    }
+
+
 # --- Leasing (an async view, outside django-ninja) ---------------------------------------------
 
 

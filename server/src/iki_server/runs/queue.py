@@ -29,7 +29,16 @@ from django.utils import timezone
 
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
-from iki_server.runs.models import ActionRun, Job, JobLog, JobState, RunInput, RunStatus, Worker
+from iki_server.runs.models import (
+    ActionRun,
+    Job,
+    JobLog,
+    JobState,
+    RunInput,
+    RunOutput,
+    RunStatus,
+    Worker,
+)
 
 __all__ = [
     "HEARTBEAT_EVERY",
@@ -37,6 +46,7 @@ __all__ = [
     "LogGap",
     "Stale",
     "append_log",
+    "complete",
     "fail",
     "heartbeat",
     "interrupt_worker",
@@ -285,6 +295,76 @@ def fail(
             "cancelled": JobState.CANCELLED,
         }[reason]
         return _end_attempt(job, state, reason, message[:2000])
+
+
+def complete(
+    worker: Worker, job_id: uuid.UUID, token: uuid.UUID, document: dict[str, Any]
+) -> ActionRun:
+    """The command finished: write its results (ADR 0044), all or none, and end the run.
+
+    The output is kept whatever happens. Results that don't fit what the action declared
+    fail the run (``invalid_output``), unless the plugin changed since it was launched: then
+    it's ``rejected`` (``schema_changed``), as is a run whose results can't be written now
+    (an entity archived meanwhile, or the launcher's access gone). A run cancelled meanwhile
+    writes nothing. None of these is retried: another attempt would end the same way.
+    """
+    from iki_server.runs import results
+
+    with transaction.atomic():
+        job = _held(worker, job_id, token)
+        run = (
+            ActionRun.objects.select_for_update()
+            .select_related("project__team", "requested_by")
+            .get(pk=job.run_id)
+        )
+        RunOutput.objects.create(run=run, job=job, document=document)
+        if run.cancel_requested_at is not None:
+            return _end_attempt(job, JobState.CANCELLED, "cancelled", "Cancelled before it ended.")
+        error: dict[str, Any] | None = None
+        try:
+            results.commit(run, document)
+        except results.InvalidOutput as invalid:
+            changed = _plugin_changed(run)
+            error = {
+                "code": "schema_changed" if changed else "invalid_output",
+                "message": (
+                    f"The {run.action.split('.')[0]} plugin changed while the run ran, and its "
+                    "results no longer fit. They're kept with the run."
+                    if changed
+                    else "The results don't fit what the action declares."
+                ),
+                "errors": invalid.errors,
+            }
+            final = (
+                (JobState.REJECTED, RunStatus.REJECTED)
+                if changed
+                else (
+                    JobState.FAILED,
+                    RunStatus.FAILED,
+                )
+            )
+        except results.Rejected as rejected:
+            error = {"code": rejected.code, "message": rejected.message}
+            final = (JobState.REJECTED, RunStatus.REJECTED)
+        else:
+            final = (JobState.SUCCEEDED, RunStatus.SUCCEEDED)
+        now = timezone.now()
+        job.state, job.finished_at, job.error = final[0], now, error
+        job.lease_token = job.lease_expires_at = None
+        job.save(update_fields=["state", "finished_at", "error", "lease_token", "lease_expires_at"])
+        run.status, run.finished_at, run.error = final[1], now, error
+        run.save(update_fields=["status", "finished_at", "error"])
+        return run
+
+
+def _plugin_changed(run: ActionRun) -> bool:
+    from iki_server.runs.services import plugin_sha
+
+    plugin = run.action.split(".")[0]
+    installed = registry.plugins().get(plugin)
+    if installed is None:
+        return True
+    return installed.version != run.plugin_version or plugin_sha(plugin) != run.plugin_sha
 
 
 def interrupt_worker(worker: Worker, *, code: str) -> int:

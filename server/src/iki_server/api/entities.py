@@ -34,6 +34,8 @@ from iki_server.entities.values import Invalid, shape, subtypes, to_json
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
+from iki_server.runs.models import Lineage, RunEffect
+from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
 from iki_spec.model import EntityType
 
@@ -168,12 +170,22 @@ class EntityPatch(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
 
 
+class RunRefOut(Schema):
+    id: UUID
+    hrid: str
+    action: str
+
+
 class RevisionOut(Schema):
     number: int
     kind: Literal["created", "edited", "archived", "restored"]
     changed_fields: list[str]
-    user: UserOut | None
+    user: UserOut | None = Field(description="Who, or for a run, who launched it.")
     via: str = Field(description="How: web, api, mcp, run, …")
+    run: RunRefOut | None = Field(
+        None,
+        description="The run that made it, when `via` is `run` and you can read the run's project.",
+    )
     reason: str
     created_at: datetime
 
@@ -743,9 +755,13 @@ def _current(entity: Entity) -> int:
 )
 def list_revisions(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first: who changed what, how, when and why."""
-    entity = _find(caller(request), ref)
+    me = caller(request)
+    entity = _find(me, ref)
     revisions = Revision.objects.filter(entity=entity).select_related("user")
-    return page(revisions, params, key="number", newest_first=True)
+    result = page(revisions, params, key="number", newest_first=True)
+    made = _runs_of(me, entity, result["items"])
+    result["items"] = [_revision(r, made) for r in result["items"]]
+    return result
 
 
 @router.get(
@@ -770,7 +786,7 @@ def get_revision(request: HttpRequest, ref: str, number: int) -> dict[str, Any]:
             wanted[kind] |= ids
     refs, files = _lookup(me, wanted)
     return {
-        **_revision(revision),
+        **_revision(revision, _runs_of(me, entity, [revision])),
         "values": {n: to_json(fields[n], v) for n, v in values.items()},
         "changes": {
             name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
@@ -781,13 +797,29 @@ def get_revision(request: HttpRequest, ref: str, number: int) -> dict[str, Any]:
     }
 
 
-def _revision(revision: Revision) -> dict[str, Any]:
+def _runs_of(me: User, entity: Entity, revisions: list[Revision]) -> dict[int, dict[str, Any]]:
+    """The runs that made these revisions, by revision number, if the caller can read them."""
+    numbers = [r.number for r in revisions if r.via == "run"]
+    if not numbers:
+        return {}
+    effects = RunEffect.objects.filter(
+        entity=entity, revision__in=numbers, run__in=visible_runs(me)
+    ).select_related("run")
+    return {
+        e.revision: {"id": e.run.pk, "hrid": e.run.hrid, "action": e.run.action}
+        for e in effects
+        if e.revision is not None
+    }
+
+
+def _revision(revision: Revision, runs: dict[int, dict[str, Any]]) -> dict[str, Any]:
     return {
         "number": revision.number,
         "kind": revision.kind,
         "changed_fields": revision.changed_fields,
         "user": revision.user,
         "via": revision.via,
+        "run": runs.get(revision.number),
         "reason": revision.reason,
         "created_at": revision.created_at,
     }
@@ -800,12 +832,80 @@ def _revision(revision: Revision) -> dict[str, Any]:
 )
 def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     """For each field, the revision that set its current value: who or what, how and when."""
-    entity = _find(caller(request), ref)
+    me = caller(request)
+    entity = _find(me, ref)
     fields = shape(entity.type).fields()
+    found = {n: r for n, r in services.provenance(entity).items() if n in fields}
+    made = _runs_of(me, entity, list(found.values()))
+    return {name: _revision(revision, made) for name, revision in found.items()}
+
+
+# --- Lineage -------------------------------------------------------------------------------------
+
+
+class LineageEntityOut(Schema):
+    id: UUID
+    hrid: str
+    type: str
+    archived: bool
+
+
+class LineageLinkOut(Schema):
+    entity: LineageEntityOut
+    revision: int = Field(description="The parent's revision the run read.")
+    input: str = Field(description="The run's input it was given as.")
+    run: RunRefOut | None = Field(description="The run, if you can read its project.")
+
+
+class LineageOut(Schema):
+    made_from: list[LineageLinkOut] = Field(description="What runs made it from.")
+    used_to_make: list[LineageLinkOut] = Field(
+        description="What runs made from it: the newest 100."
+    )
+    more: bool = Field(description="Runs made more from it than are listed.")
+
+
+@router.get("/entities/{ref}/lineage", response=LineageOut, summary="What it was made from")
+def get_lineage(request: HttpRequest, ref: str) -> dict[str, Any]:
+    """One step each way: the entities runs made it from (at the revisions they read), and
+    those they made from it. Only entities you can read are listed."""
+    me = caller(request)
+    entity = _find(me, ref)
+    readable = access.visible(me).values("pk")
+    runs = set(visible_runs(me).values_list("pk", flat=True))
+
+    def link(row: Lineage, other: Entity) -> dict[str, Any]:
+        return {
+            "entity": {
+                "id": other.pk,
+                "hrid": other.hrid,
+                "type": other.type,
+                "archived": other.archived_at is not None,
+            },
+            "revision": row.parent_revision,
+            "input": row.input,
+            "run": (
+                {"id": row.run.pk, "hrid": row.run.hrid, "action": row.run.action}
+                if row.run_id in runs
+                else None
+            ),
+        }
+
+    parents = (
+        Lineage.objects.filter(entity=entity, parent__in=readable)
+        .select_related("parent", "run")
+        .order_by("id")
+    )
+    children = (
+        Lineage.objects.filter(parent=entity, entity__in=readable)
+        .select_related("entity", "run")
+        .order_by("-id")[: MAX_LIMIT + 1]
+    )
+    made = list(children)
     return {
-        name: _revision(revision)
-        for name, revision in services.provenance(entity).items()
-        if name in fields
+        "made_from": [link(row, row.parent) for row in parents],
+        "used_to_make": [link(row, row.entity) for row in made[:MAX_LIMIT]],
+        "more": len(made) > MAX_LIMIT,
     }
 
 

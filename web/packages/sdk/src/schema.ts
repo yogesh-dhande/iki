@@ -278,6 +278,27 @@ export interface paths {
         patch: operations["iki_server_api_entities_patch_entity"];
         trace?: never;
     };
+    "/api/v1/entities/{ref}/lineage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What it was made from
+         * @description One step each way: the entities runs made it from (at the revisions they read), and
+         *     those they made from it. Only entities you can read are listed.
+         */
+        get: operations["iki_server_api_entities_get_lineage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/projects": {
         parameters: {
             query?: never;
@@ -1763,6 +1784,28 @@ export interface components {
              */
             status: "pending" | "succeeded" | "failed";
         };
+        /** EffectOut */
+        EffectOut: {
+            /**
+             * Entity
+             * Format: uuid
+             */
+            entity: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "created" | "updated" | "reused";
+            /**
+             * Revision
+             * @description The revision it made; none if it changed nothing.
+             */
+            revision: number | null;
+            /** Type */
+            type: string;
+        };
         /** EmailKindOut */
         EmailKindOut: {
             /** Description */
@@ -2028,6 +2071,11 @@ export interface components {
         ErrorOut: {
             /** Code */
             code: string;
+            /**
+             * Errors
+             * @description For `invalid_output` and `schema_changed`.
+             */
+            errors?: components["schemas"]["OutputErrorOut"][];
             /** Message */
             message: string;
         };
@@ -2259,6 +2307,54 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** LineageEntityOut */
+        LineageEntityOut: {
+            /** Archived */
+            archived: boolean;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Type */
+            type: string;
+        };
+        /** LineageLinkOut */
+        LineageLinkOut: {
+            entity: components["schemas"]["LineageEntityOut"];
+            /**
+             * Input
+             * @description The run's input it was given as.
+             */
+            input: string;
+            /**
+             * Revision
+             * @description The parent's revision the run read.
+             */
+            revision: number;
+            /** @description The run, if you can read its project. */
+            run: components["schemas"]["RunRefOut"] | null;
+        };
+        /** LineageOut */
+        LineageOut: {
+            /**
+             * Made From
+             * @description What runs made it from.
+             */
+            made_from: components["schemas"]["LineageLinkOut"][];
+            /**
+             * More
+             * @description Runs made more from it than are listed.
+             */
+            more: boolean;
+            /**
+             * Used To Make
+             * @description What runs made from it: the newest 100.
+             */
+            used_to_make: components["schemas"]["LineageLinkOut"][];
+        };
         /** LocationsOut */
         LocationsOut: {
             /**
@@ -2327,6 +2423,16 @@ export interface components {
             /** Org Roles */
             org_roles: ("org_admin" | "compute_admin" | "auditor")[];
         };
+        /** MessageOut */
+        MessageOut: {
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "info" | "warning" | "error";
+            /** Text */
+            text: string;
+        };
         /** NotificationActor */
         NotificationActor: {
             /**
@@ -2390,6 +2496,16 @@ export interface components {
         OrgRolesOut: {
             /** Roles */
             roles: ("org_admin" | "compute_admin" | "auditor")[];
+        };
+        /** OutputErrorOut */
+        OutputErrorOut: {
+            /** Detail */
+            detail: string;
+            /**
+             * Pointer
+             * @description Where in the run's output, as a JSON pointer.
+             */
+            pointer: string;
         };
         /** PageParams */
         PageParams: {
@@ -3016,6 +3132,9 @@ export interface components {
             refs: {
                 [key: string]: components["schemas"]["RefOut"];
             };
+            /** @description The run that made it, when `via` is `run` and you can read the run's project. */
+            run?: components["schemas"]["RunRefOut"] | null;
+            /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**
              * Values
@@ -3048,6 +3167,9 @@ export interface components {
             number: number;
             /** Reason */
             reason: string;
+            /** @description The run that made it, when `via` is `run` and you can read the run's project. */
+            run?: components["schemas"]["RunRefOut"] | null;
+            /** @description Who, or for a run, who launched it. */
             user: components["schemas"]["UserOut"] | null;
             /**
              * Via
@@ -3159,6 +3281,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Effects
+             * @description The entities it created or updated, that you can read.
+             */
+            effects: components["schemas"]["EffectOut"][];
             /** Environment */
             environment: string;
             error: components["schemas"]["ErrorOut"] | null;
@@ -3173,6 +3300,12 @@ export interface components {
             id: string;
             /** Inputs */
             inputs: components["schemas"]["RunInputOut"][];
+            /** Messages */
+            messages: components["schemas"]["MessageOut"][];
+            /** Metrics */
+            metrics: {
+                [key: string]: number;
+            };
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -3206,6 +3339,18 @@ export interface components {
             tier: "client" | "backend" | "container" | "vm";
             /** Via */
             via: string;
+        };
+        /** RunRefOut */
+        RunRefOut: {
+            /** Action */
+            action: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /**
          * RunStatus
@@ -4297,6 +4442,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_get_lineage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineageOut"];
                 };
             };
         };

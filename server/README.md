@@ -258,6 +258,28 @@ Nothing connects to a worker. A Compute admin manages them under
 Every report carries the lease token from the job. A report with a stale
 token answers 409 `stale_lease`, and the worker drops that job.
 
+### Results
+
+The worker sends the command's `output.json` with `POST /jobs/{id}/complete`
+(ADR 0044). Iki checks it against what the action declares: which inputs it
+updates and which fields, which types it creates and how many, and what each
+new entity was made from. It then writes all of it in one transaction, as
+the person who launched the run, or writes none of it.
+
+- `GET /runs/{ref}` lists the entities a run created or updated (`effects`),
+  with its `metrics` and `messages`. A failed run's `error.errors` points at
+  each problem in its output.
+- Revisions a run made have `via: "run"` and name the run, so
+  `GET /entities/{ref}/provenance` shows which run set each value.
+- `GET /entities/{ref}/lineage` lists what runs made an entity from, at the
+  revisions they read, and what runs made from it.
+
+Results that don't fit what the action declares end the run `failed`
+(`invalid_output`), or `rejected` (`schema_changed`) if the plugin was
+upgraded while it ran. If the launcher lost access, or an entity or the
+project was archived meanwhile, the run ends `rejected`. The output is kept
+either way.
+
 ## Web app
 
 Home, notifications and the project pages are the React app in `web/app` (ADR 0029). The

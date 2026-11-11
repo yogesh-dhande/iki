@@ -21,10 +21,11 @@ from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page
+from iki_server.entities import access
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.runs import catalog, services
-from iki_server.runs.models import ActionRun, Job, RunInput, RunStatus
+from iki_server.runs.models import ActionRun, Job, RunEffect, RunInput, RunOutput, RunStatus
 from iki_server.runs.services import TIER_PERMISSIONS
 from iki_spec.model import Action
 
@@ -193,9 +194,30 @@ class RunInputOut(Schema):
     revision: int = Field(description="The revision the run read.")
 
 
+class OutputErrorOut(Schema):
+    pointer: str = Field(description="Where in the run's output, as a JSON pointer.")
+    detail: str
+
+
 class ErrorOut(Schema):
     code: str
     message: str
+    errors: list[OutputErrorOut] = Field(
+        default_factory=list, description="For `invalid_output` and `schema_changed`."
+    )
+
+
+class EffectOut(Schema):
+    entity: UUID
+    hrid: str
+    type: str
+    kind: Literal["created", "updated", "reused"]
+    revision: int | None = Field(description="The revision it made; none if it changed nothing.")
+
+
+class MessageOut(Schema):
+    level: Literal["info", "warning", "error"]
+    text: str
 
 
 class RunCan(Schema):
@@ -225,6 +247,11 @@ class RunOut(Schema):
     finished_at: datetime | None
     cancel_requested_at: datetime | None
     error: ErrorOut | None
+    effects: list[EffectOut] = Field(
+        description="The entities it created or updated, that you can read."
+    )
+    metrics: dict[str, float]
+    messages: list[MessageOut]
     can: RunCan
 
 
@@ -240,6 +267,22 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         row["run"]: row["count"]
         for row in Job.objects.filter(run__in=runs).values("run").annotate(count=Count("id"))
     }
+    effects: dict[Any, list[dict[str, Any]]] = {}
+    for effect in (
+        RunEffect.objects.filter(run__in=runs, entity__in=access.visible(me).values("pk"))
+        .select_related("entity")
+        .order_by("id")
+    ):
+        effects.setdefault(effect.run_id, []).append(
+            {
+                "entity": effect.entity_id,
+                "hrid": effect.entity.hrid,
+                "type": effect.entity.type,
+                "kind": effect.kind,
+                "revision": effect.revision,
+            }
+        )
+    outputs = {o.run_id: o.document for o in RunOutput.objects.filter(run__in=runs)}
     projects = {r.project_id: r.project for r in runs}
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
@@ -252,6 +295,9 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "requested_by": {"id": run.requested_by.pk, "name": run.requested_by.name},
             "inputs": inputs.get(run.pk, []),
             "attempts": attempts.get(run.pk, 0),
+            "effects": effects.get(run.pk, []),
+            "metrics": outputs.get(run.pk, {}).get("metrics") or {},
+            "messages": outputs.get(run.pk, {}).get("messages") or [],
             "can": {
                 "cancel": not run.finished
                 and run.cancel_requested_at is None

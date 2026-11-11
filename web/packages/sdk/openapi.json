@@ -784,6 +784,53 @@
         "title": "DeliverySummary",
         "type": "object"
       },
+      "EffectOut": {
+        "properties": {
+          "entity": {
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "created",
+              "updated",
+              "reused"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision it made; none if it changed nothing.",
+            "title": "Revision"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity",
+          "hrid",
+          "type",
+          "kind",
+          "revision"
+        ],
+        "title": "EffectOut",
+        "type": "object"
+      },
       "EmailKindOut": {
         "properties": {
           "description": {
@@ -1327,6 +1374,14 @@
             "title": "Code",
             "type": "string"
           },
+          "errors": {
+            "description": "For `invalid_output` and `schema_changed`.",
+            "items": {
+              "$ref": "#/components/schemas/OutputErrorOut"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
           "message": {
             "title": "Message",
             "type": "string"
@@ -1867,6 +1922,103 @@
         "title": "LastDelivery",
         "type": "object"
       },
+      "LineageEntityOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type",
+          "archived"
+        ],
+        "title": "LineageEntityOut",
+        "type": "object"
+      },
+      "LineageLinkOut": {
+        "properties": {
+          "entity": {
+            "$ref": "#/components/schemas/LineageEntityOut"
+          },
+          "input": {
+            "description": "The run's input it was given as.",
+            "title": "Input",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The parent's revision the run read.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run, if you can read its project."
+          }
+        },
+        "required": [
+          "entity",
+          "revision",
+          "input",
+          "run"
+        ],
+        "title": "LineageLinkOut",
+        "type": "object"
+      },
+      "LineageOut": {
+        "properties": {
+          "made_from": {
+            "description": "What runs made it from.",
+            "items": {
+              "$ref": "#/components/schemas/LineageLinkOut"
+            },
+            "title": "Made From",
+            "type": "array"
+          },
+          "more": {
+            "description": "Runs made more from it than are listed.",
+            "title": "More",
+            "type": "boolean"
+          },
+          "used_to_make": {
+            "description": "What runs made from it: the newest 100.",
+            "items": {
+              "$ref": "#/components/schemas/LineageLinkOut"
+            },
+            "title": "Used To Make",
+            "type": "array"
+          }
+        },
+        "required": [
+          "made_from",
+          "used_to_make",
+          "more"
+        ],
+        "title": "LineageOut",
+        "type": "object"
+      },
       "LocationsOut": {
         "properties": {
           "locations": {
@@ -2006,6 +2158,29 @@
           "can"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "MessageOut": {
+        "properties": {
+          "level": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "level",
+          "text"
+        ],
+        "title": "MessageOut",
         "type": "object"
       },
       "NotificationActor": {
@@ -2169,6 +2344,25 @@
           "roles"
         ],
         "title": "OrgRolesOut",
+        "type": "object"
+      },
+      "OutputErrorOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "pointer": {
+            "description": "Where in the run's output, as a JSON pointer.",
+            "title": "Pointer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pointer",
+          "detail"
+        ],
+        "title": "OutputErrorOut",
         "type": "object"
       },
       "PageParams": {
@@ -3664,6 +3858,17 @@
             "title": "Refs",
             "type": "object"
           },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run that made it, when `via` is `run` and you can read the run's project."
+          },
           "user": {
             "anyOf": [
               {
@@ -3672,7 +3877,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Who, or for a run, who launched it."
           },
           "values": {
             "additionalProperties": true,
@@ -3734,6 +3940,17 @@
             "title": "Reason",
             "type": "string"
           },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run that made it, when `via` is `run` and you can read the run's project."
+          },
           "user": {
             "anyOf": [
               {
@@ -3742,7 +3959,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Who, or for a run, who launched it."
           },
           "via": {
             "description": "How: web, api, mcp, run, …",
@@ -3974,6 +4192,14 @@
             "title": "Created At",
             "type": "string"
           },
+          "effects": {
+            "description": "The entities it created or updated, that you can read.",
+            "items": {
+              "$ref": "#/components/schemas/EffectOut"
+            },
+            "title": "Effects",
+            "type": "array"
+          },
           "environment": {
             "title": "Environment",
             "type": "string"
@@ -4015,6 +4241,20 @@
             },
             "title": "Inputs",
             "type": "array"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageOut"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Metrics",
+            "type": "object"
           },
           "params": {
             "additionalProperties": true,
@@ -4103,9 +4343,36 @@
           "finished_at",
           "cancel_requested_at",
           "error",
+          "effects",
+          "metrics",
+          "messages",
           "can"
         ],
         "title": "RunOut",
+        "type": "object"
+      },
+      "RunRefOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "action"
+        ],
+        "title": "RunRefOut",
         "type": "object"
       },
       "RunStatus": {
@@ -6599,6 +6866,47 @@
           }
         ],
         "summary": "Change, archive or restore",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/lineage": {
+      "get": {
+        "description": "One step each way: the entities runs made it from (at the revisions they read), and\nthose they made from it. Only entities you can read are listed.",
+        "operationId": "iki_server_api_entities_get_lineage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineageOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What it was made from",
         "tags": [
           "entities"
         ]

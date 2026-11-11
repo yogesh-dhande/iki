@@ -457,6 +457,34 @@ Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
 with references and files given as IDs.
 
+The command writes `output.json`
+([`run-output/v1`](src/iki_spec/schemas/run-output/v1.json)). It can only
+change what its action declares:
+
+```json
+{
+  "apiVersion": "iki/v1",
+  "kind": "RunOutput",
+  "updates": {
+    "protein": [{ "entity": "…", "values": { "molecular_weight": 45123.4 } }]
+  },
+  "creates": [
+    {
+      "type": "protein.ProteinStructure",
+      "values": { "method": "predicted", "structure": "…" },
+      "derived_from": ["…"]
+    }
+  ],
+  "metrics": { "plddt": 91.2 },
+  "messages": [{ "level": "info", "text": "Used model 3 of 5." }]
+}
+```
+
+`updates` are keyed by input name and may set only the declared fields of
+entities given there. `creates` may make only the declared types. Leave out
+`derived_from` when the inputs the type is derived from hold one entity.
+Iki writes all of it in one transaction, or none.
+
 ## YAML
 
 Manifests are read as YAML 1.2: only `true` and `false` are booleans, so

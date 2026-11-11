@@ -111,8 +111,13 @@ def create(
     *,
     reason: str = "",
     allow_duplicate: bool = False,
+    by_run: bool = False,
 ) -> Saved:
-    """A new entity of ``type_name`` in ``project``, or the existing one it duplicates."""
+    """A new entity of ``type_name`` in ``project``, or the existing one it duplicates.
+
+    ``by_run``: an action run is writing its results (ADR 0044), for ``user``. It may set
+    computed fields, and its revision is marked ``via="run"``.
+    """
     if type_name not in registry.types() or type_name == "core.Entity":
         raise Invalid({"type": [f"There's no entity type {type_name}."]})
     form = shape(type_name)
@@ -127,7 +132,7 @@ def create(
         f = fields.get(name)
         if f is None:
             errors[name] = [f"{type_name} has no field `{name}`."]
-        elif f.computed:
+        elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         else:
             try:
@@ -170,7 +175,9 @@ def create(
                 if _is_list(f) and given.get(name):
                     _write_list(part, f, instance.pk, given[name])
         changed = sorted(n for n, v in given.items() if v is not None)
-        revision = _revise(instance, RevisionKind.CREATED, changed, user, reason)
+        revision = _revise(
+            instance, RevisionKind.CREATED, changed, user, reason, via="run" if by_run else None
+        )
         _write_history(form, touched, instance, revision.number)
         _use_files(fields, instance.pk, given, revision.number)
         ProjectLink.objects.create(entity_id=instance.pk, project=project, linked_by=user)
@@ -212,8 +219,12 @@ def update(
     *,
     expected_revision: int,
     reason: str = "",
+    by_run: bool = False,
 ) -> Saved:
-    """Changes some of an entity's fields. Fields not named keep their values."""
+    """Changes some of an entity's fields. Fields not named keep their values.
+
+    ``by_run``: as for :func:`create`.
+    """
     with transaction.atomic():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
         if locked.revision != expected_revision:
@@ -232,7 +243,7 @@ def update(
             if f is None:
                 errors[name] = [f"{locked.type} has no field `{name}`."]
                 continue
-            if f.computed:
+            if f.computed and not by_run:
                 errors[name] = ["is computed: only actions set it."]
                 continue
             try:
@@ -286,7 +297,9 @@ def update(
         # Identity fields are required and immutable (the spec checks), so the hash stays put.
         if any(not p.extension for p in touched):
             instance.save()
-        revision = _revise(locked, RevisionKind.EDITED, sorted(new), user, reason)
+        revision = _revise(
+            locked, RevisionKind.EDITED, sorted(new), user, reason, via="run" if by_run else None
+        )
         _write_history(form, touched, instance, revision.number, rows=rows)
         _use_files(fields, locked.pk, new, revision.number)
     return Saved(_specific(locked), revision)
@@ -495,7 +508,9 @@ def _current(part: Part, f: Field, instance: Model, rows: Mapping[type[Model], M
     return read_value(instance, f, part)
 
 
-def _revise(entity: Model, kind: str, changed: list[str], user: User, reason: str) -> Revision:
+def _revise(
+    entity: Model, kind: str, changed: list[str], user: User, reason: str, via: str | None = None
+) -> Revision:
     number = Entity.objects.filter(pk=entity.pk).values_list("revision", flat=True).get() + 1
     revision = Revision.objects.create(
         entity_id=entity.pk,
@@ -503,7 +518,7 @@ def _revise(entity: Model, kind: str, changed: list[str], user: User, reason: st
         kind=kind,
         changed_fields=changed,
         user=user,
-        via=current_via(),
+        via=via or current_via(),
         reason=reason.strip(),
     )
     Entity.objects.filter(pk=entity.pk).update(revision=number, updated_at=Now())
