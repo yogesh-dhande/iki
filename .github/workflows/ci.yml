@@ -49,8 +49,10 @@ jobs:
     name: Python ${{ matrix.python }}
     runs-on: ubuntu-24.04
     # A guard against hangs, with room for the suite to grow: it takes about 14 minutes
-    # on 3.14, which also runs the browser and worker end-to-end tests.
-    timeout-minutes: 30
+    # on 3.14, which also runs the browser and worker end-to-end tests. And room for a
+    # slow Ubuntu mirror before the browsers' packages are cached: that install alone
+    # has taken 17 minutes.
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -110,7 +112,8 @@ jobs:
           pnpm --filter @ikisci/app build
       # The browsers' system packages, kept between runs: Ubuntu's mirrors are
       # sometimes too slow from the runners to download them in time.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: apt-all
         if: matrix.browsers
         with:
           path: ~/.cache/ci-apt
@@ -124,6 +127,12 @@ jobs:
           UV_NO_SYNC: "1"
           CI_APT_CACHE: ~/.cache/ci-apt
         run: scripts/ci/install-browsers.sh chromium firefox webkit
+      # Saved at once, not at the job's end, so a job that fails later still keeps them.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: matrix.browsers && steps.apt-all.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/ci-apt
+          key: ${{ steps.apt-all.outputs.cache-primary-key }}
       - name: Install the pinned Rust toolchain (for the worker end-to-end tests)
         if: matrix.rust
         working-directory: worker
@@ -341,7 +350,8 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
       # The checks sign in through Keycloak in Chromium.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: apt-chromium
         with:
           path: ~/.cache/ci-apt
           key: apt-${{ runner.os }}-${{ runner.arch }}-chromium-${{ hashFiles('uv.lock') }}
@@ -351,6 +361,11 @@ jobs:
         env:
           CI_APT_CACHE: ~/.cache/ci-apt
         run: scripts/ci/install-browsers.sh chromium
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.apt-chromium.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/ci-apt
+          key: ${{ steps.apt-chromium.outputs.cache-primary-key }}
       - name: Bring up the dev cluster and run end-to-end checks
         run: make dev-ci
       - name: Diagnostics on failure
