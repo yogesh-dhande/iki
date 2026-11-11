@@ -2,22 +2,26 @@
 //!
 //! `iki-worker start` registers with `IKI_REGISTRATION_TOKEN` and runs jobs until it's
 //! stopped. Everything else it needs comes from the environment too; see `config`.
+//! `iki-worker run --local input.json` runs one action's command offline, the same way.
 
 mod api;
 mod config;
 mod files;
 mod job;
+mod local;
 mod logs;
 mod say;
 mod worker;
 
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 /// What the command line asked for.
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Start { once: bool },
+    RunLocal(local::Options),
     Version,
     Help,
     Unknown(String),
@@ -28,9 +32,48 @@ fn parse(args: &[String]) -> Command {
     match args.as_slice() {
         ["start"] => Command::Start { once: false },
         ["start", "--once"] => Command::Start { once: true },
+        ["run", rest @ ..] => parse_run(rest),
         ["--version" | "-V"] => Command::Version,
         [] | ["--help" | "-h"] => Command::Help,
-        [first, ..] => Command::Unknown((*first).to_owned()),
+        [first, ..] => Command::Unknown(format!("unknown argument '{first}'")),
+    }
+}
+
+/// `run --local <input.json> [--plugin DIR] [--timeout SECONDS]`, in any order.
+fn parse_run(args: &[&str]) -> Command {
+    let mut local = false;
+    let mut input = None;
+    let mut plugin_dir = None;
+    let mut timeout = None;
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        match *arg {
+            "--local" => local = true,
+            "--plugin" => match rest.next() {
+                Some(dir) => plugin_dir = Some(PathBuf::from(dir)),
+                None => return Command::Unknown("--plugin needs a directory".into()),
+            },
+            "--timeout" => match rest.next().and_then(|s| s.parse::<u64>().ok()) {
+                Some(seconds) if seconds > 0 => timeout = Some(seconds),
+                _ => return Command::Unknown("--timeout needs a number of seconds".into()),
+            },
+            flag if flag.starts_with('-') => {
+                return Command::Unknown(format!("unknown option '{flag}'"));
+            }
+            path if input.is_none() => input = Some(PathBuf::from(path)),
+            extra => return Command::Unknown(format!("unexpected argument '{extra}'")),
+        }
+    }
+    match (local, input) {
+        (false, _) => Command::Unknown(
+            "run needs --local: it runs an input.json on this machine, with no server".into(),
+        ),
+        (true, None) => Command::Unknown("run --local needs an input.json".into()),
+        (true, Some(input)) => Command::RunLocal(local::Options {
+            input,
+            plugin_dir,
+            timeout,
+        }),
     }
 }
 
@@ -44,6 +87,10 @@ fn version_line() -> String {
 
 const USAGE: &str = "\
 Usage: iki-worker start [--once]   Lease jobs and run them until stopped (or one job)
+       iki-worker run --local <input.json> [--plugin DIR] [--timeout SECONDS]
+                                   Run one action's command here, with no server: its
+                                   output goes to stdout, what it prints to stderr.
+                                   DIR is the plugin's (the current directory unless set).
        iki-worker --version
 
 Set in the environment:
@@ -72,11 +119,24 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Command::RunLocal(options) => {
+            let work_dir = std::env::var_os("IKI_WORK_DIR")
+                .map_or_else(|| std::env::temp_dir().join("iki-worker"), PathBuf::from);
+            match local::run(&options, &work_dir) {
+                Ok(local::Ran::Succeeded) => ExitCode::SUCCESS,
+                Ok(local::Ran::Failed) => ExitCode::FAILURE,
+                Ok(local::Ran::Interrupted) => ExitCode::from(130),
+                Err(message) => {
+                    say::error(&message, &[]);
+                    ExitCode::from(2)
+                }
+            }
+        }
         Command::Version => write_or_fail(&mut io::stdout(), &version_line(), ExitCode::SUCCESS),
         Command::Help => write_or_fail(&mut io::stdout(), USAGE, ExitCode::SUCCESS),
         Command::Unknown(arg) => write_or_fail(
             &mut io::stderr(),
-            &format!("iki-worker: unknown argument '{arg}'\n{USAGE}"),
+            &format!("iki-worker: {arg}\n{USAGE}"),
             ExitCode::from(2),
         ),
     }
@@ -104,11 +164,50 @@ mod tests {
         assert_eq!(parse(&args(&["--version"])), Command::Version);
         assert_eq!(parse(&args(&["-V"])), Command::Version);
         assert_eq!(parse(&[]), Command::Help);
-        assert_eq!(parse(&args(&["--nope"])), Command::Unknown("--nope".into()));
+        assert_eq!(
+            parse(&args(&["--nope"])),
+            Command::Unknown("unknown argument '--nope'".into())
+        );
         assert_eq!(
             parse(&args(&["start", "--twice"])),
-            Command::Unknown("start".into())
+            Command::Unknown("unknown argument 'start'".into())
         );
+    }
+
+    #[test]
+    fn parses_local_runs() {
+        assert_eq!(
+            parse(&args(&["run", "--local", "in.json"])),
+            Command::RunLocal(local::Options {
+                input: "in.json".into(),
+                plugin_dir: None,
+                timeout: None,
+            })
+        );
+        assert_eq!(
+            parse(&args(&[
+                "run",
+                "in.json",
+                "--timeout",
+                "60",
+                "--local",
+                "--plugin",
+                "p"
+            ])),
+            Command::RunLocal(local::Options {
+                input: "in.json".into(),
+                plugin_dir: Some("p".into()),
+                timeout: Some(60),
+            })
+        );
+        let refused = |list: &[&str]| matches!(parse(&args(list)), Command::Unknown(_));
+        assert!(refused(&["run", "in.json"]));
+        assert!(refused(&["run", "--local"]));
+        assert!(refused(&["run", "--local", "a.json", "b.json"]));
+        assert!(refused(&["run", "--local", "a.json", "--timeout", "0"]));
+        assert!(refused(&["run", "--local", "a.json", "--timeout"]));
+        assert!(refused(&["run", "--local", "a.json", "--plugin"]));
+        assert!(refused(&["run", "--local", "a.json", "--twice"]));
     }
 
     #[test]

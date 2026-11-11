@@ -47,8 +47,40 @@ How a command is run, and what it can see, is in
 [ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md); what it reads
 and writes is in [`spec/`](../spec/README.md#what-a-command-reads).
 
+## Running an action locally
+
+`iki-worker run --local input.json` runs one action's command on this
+machine with no server, through the same code as a leased job: the same
+private directory, environment, process group, timeout and checks.
+Plugin authors use it to try an action, and `iki plugin test` uses it for
+fixtures.
+
+```sh
+cd my-plugin
+iki-worker run --local tests/relax/input.json > output.json
+```
+
+The input is a run input ([`run-input/v1`](../spec/README.md#what-a-command-reads))
+that may leave out `job`. Each of its `files` gives a `path` relative to
+input.json; leave out `name`, `media_type`, `size` and `sha256` to have
+them read from the file, or give them to check the fixture still matches.
+
+What the command prints goes to stderr as it prints it. If it succeeds,
+its output goes to stdout, and each `{"$file": …}` is checked as an
+upload would be and described with its size, SHA-256 and path. The job's
+directory is kept, and its path is printed.
+
+| Option              | What it's for                                                   |
+| ------------------- | --------------------------------------------------------------- |
+| `--plugin DIR`      | The plugin's directory. The current directory unless set.       |
+| `--timeout SECONDS` | Stop it after this long. The input's `job.timeout`, or an hour. |
+
+It exits 0 if the command succeeded, 1 if it failed, 2 if the input can't
+be run at all, and 130 if it was interrupted.
+
 ## Developing
 
 `make check-rust` runs rustfmt, Clippy and the unit tests. The end-to-end
 tests in `server/tests/test_worker_e2e.py` build the binary and run it
-against the real server.
+against the real server; `server/tests/test_worker_local.py` runs it with
+`run --local`.

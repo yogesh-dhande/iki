@@ -7,6 +7,9 @@
 //!   in `IKI_OUT_DIR`, optionally with `media_type` and `name`), the file is uploaded in
 //!   parts, checked by the server, and replaced with its file ID.
 //!
+//! A local run (`run --local`) copies inputs from the paths input.json gives instead,
+//! and checks results the same way but describes them rather than uploading them.
+//!
 //! Object storage URLs are signed for this one transfer, so they get no `Authorization`
 //! header: the worker's token never leaves for anywhere but the server.
 
@@ -232,6 +235,8 @@ fn guess_media_type(path: &Path) -> &'static str {
 /// A `$file` reference in output.json, once checked.
 struct Made {
     path: PathBuf,
+    /// Its path in `IKI_OUT_DIR`.
+    relative: String,
     name: String,
     media_type: String,
 }
@@ -263,8 +268,13 @@ fn resolve(
         .or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "file".to_owned());
     let media_type = text("media_type").unwrap_or_else(|| guess_media_type(&path).to_owned());
+    let relative = path
+        .strip_prefix(&root)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
     Ok(Made {
         path,
+        relative,
         name,
         media_type,
     })
@@ -300,16 +310,14 @@ fn value_maps(
     found
 }
 
-/// Uploads every `$file` in `output` (a field's value, or an item of a list field's), and
-/// puts each one's file ID in its place. Returns how many files went.
-pub fn upload_results(
-    lease: &Lease,
-    storage: &Agent,
+/// Puts what `place` makes of each `$file` in `output` (a field's value, or an item of a
+/// list field's) in its place, once per file. Returns how many files there were.
+fn replace_file_refs(
     out_dir: &Path,
     output: &mut serde_json::Map<String, serde_json::Value>,
+    mut place: impl FnMut(&Made) -> Result<serde_json::Value, Failed>,
 ) -> Result<usize, Failed> {
-    let deadline = Instant::now() + TRANSFERS_FOR;
-    let mut uploaded: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut placed: BTreeMap<PathBuf, serde_json::Value> = BTreeMap::new();
     for values in value_maps(output) {
         let Some(values) = values.as_object_mut() else {
             continue;
@@ -325,18 +333,121 @@ pub fn upload_results(
             for slot in slots {
                 let reference = slot.as_object().cloned().unwrap_or_default();
                 let made = resolve(&reference, out_dir).map_err(Failed::Job)?;
-                let id = if let Some(id) = uploaded.get(&made.path) {
-                    id.clone()
+                let value = if let Some(value) = placed.get(&made.path) {
+                    value.clone()
                 } else {
-                    let id = upload(lease, storage, &made, deadline)?;
-                    uploaded.insert(made.path.clone(), id.clone());
-                    id
+                    let value = place(&made)?;
+                    placed.insert(made.path.clone(), value.clone());
+                    value
                 };
-                *slot = serde_json::Value::String(id);
+                *slot = value;
             }
         }
     }
-    Ok(uploaded.len())
+    Ok(placed.len())
+}
+
+/// Uploads every `$file` in `output`, and puts each one's file ID in its place. Returns
+/// how many files went.
+pub fn upload_results(
+    lease: &Lease,
+    storage: &Agent,
+    out_dir: &Path,
+    output: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<usize, Failed> {
+    let deadline = Instant::now() + TRANSFERS_FOR;
+    replace_file_refs(out_dir, output, |made| {
+        upload(lease, storage, made, deadline).map(serde_json::Value::String)
+    })
+}
+
+/// For a local run: checks every `$file` in `output` as an upload would, and describes
+/// each one in its place, with its size, SHA-256 and where it is.
+pub fn describe_results(
+    out_dir: &Path,
+    output: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<usize, Failed> {
+    replace_file_refs(out_dir, output, |made| {
+        let (size, sha256) = digest(&made.path)
+            .map_err(|e| Failed::Job(format!("Couldn't read {}: {e}.", made.relative)))?;
+        Ok(serde_json::json!({
+            "$file": made.relative,
+            "name": made.name,
+            "media_type": made.media_type,
+            "size": size,
+            "sha256": sha256,
+            "path": made.path.to_string_lossy(),
+        }))
+    })
+}
+
+/// For a local run: fills in what an input file's entry leaves out from the file at its
+/// `path` (relative to `base`), and makes that path absolute.
+pub fn describe_local(
+    entry: &mut serde_json::Map<String, serde_json::Value>,
+    base: &Path,
+) -> Result<(), String> {
+    let given = entry
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or("give its path, relative to input.json.")?;
+    let source = base
+        .join(&given)
+        .canonicalize()
+        .ok()
+        .filter(|p| p.is_file())
+        .ok_or_else(|| format!("there's no file at {given}."))?;
+    let name = source
+        .file_name()
+        .map_or_else(|| "file".to_owned(), |n| n.to_string_lossy().into_owned());
+    entry.entry("name").or_insert_with(|| name.into());
+    entry
+        .entry("media_type")
+        .or_insert_with(|| guess_media_type(&source).into());
+    if !entry.contains_key("size") || !entry.contains_key("sha256") {
+        let (size, sha256) = digest(&source).map_err(|e| format!("couldn't read {given}: {e}."))?;
+        entry.entry("size").or_insert_with(|| size.into());
+        entry.entry("sha256").or_insert_with(|| sha256.into());
+    }
+    entry.insert("path".into(), source.to_string_lossy().into_owned().into());
+    Ok(())
+}
+
+/// For a local run: copies every input file from its `path` into `dir`, laid out as
+/// downloads are, checks each against its entry, and returns them with their new paths.
+pub fn copy_in(
+    files: &BTreeMap<String, RunInputFile>,
+    dir: &Path,
+) -> Result<BTreeMap<String, RunInputFile>, String> {
+    let mut staged = BTreeMap::new();
+    for (id, file) in files {
+        let source = file.path.as_deref().unwrap_or_default();
+        let target = dir.join(safe_name(id)).join(safe_name(&file.name));
+        let copied = target
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::copy(source, &target))
+            .and_then(|_| digest(&target));
+        let (size, sha256) =
+            copied.map_err(|e| format!("Couldn't copy {} from {source}: {e}.", file.name))?;
+        if u64::try_from(file.size).ok() != Some(size) {
+            return Err(format!(
+                "{} is {size} bytes, not the {} input.json gives.",
+                file.name, file.size
+            ));
+        }
+        if sha256 != file.sha256 {
+            return Err(format!(
+                "{}'s SHA-256 is {sha256}, not the {} input.json gives.",
+                file.name, file.sha256
+            ));
+        }
+        let mut file = file.clone();
+        file.path = Some(target.to_string_lossy().into_owned());
+        staged.insert(id.clone(), file);
+    }
+    Ok(staged)
 }
 
 /// Uploads one file: start, PUT each part, then finish until the server has checked it.

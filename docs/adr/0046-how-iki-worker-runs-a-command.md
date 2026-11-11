@@ -73,6 +73,14 @@ is missing or unreadable, the attempt fails with a message that says why,
 such as "The command exited with status 3." Reports are retried with
 backoff for five minutes, while heartbeats keep the lease.
 
+**Locally:** `iki-worker run --local input.json` runs a command with no
+server, for plugin authors and `iki plugin test`. Only what touches the
+server differs: input files are copied from paths input.json gives (and
+checked against it), `$file`s are checked as for an upload but described
+rather than uploaded, what the command prints goes to stderr, and its
+output to stdout. The rest is the same code, so a fixture that passes
+locally runs the same way on a worker.
+
 The worker logs one `logfmt` line per event to stderr, readable in a
 terminal and parsed as-is by Loki and Datadog.
 

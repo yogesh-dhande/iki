@@ -1,5 +1,6 @@
 //! Running one leased job: stage it, run its command, stream what it writes, and report
-//! how it ended (ADR 0010, ADR 0043).
+//! how it ended (ADR 0010, ADR 0043). `run --local` runs a command through the same
+//! `execute`, with a `Host` of its own in place of the server (`local`).
 //!
 //! The command runs in a process group of its own, from its plugin's directory, with an
 //! environment that holds only what it needs: never the worker's token. It finds its
@@ -12,6 +13,7 @@
 //!
 //! Lines it prints like `::progress 0.4 Folding chain A` report progress.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -23,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use iki_protocol::{
     CompleteIn, CompleteOut, FailIn, FailInReason, FailOut, HeartbeatIn, HeartbeatInState,
-    HeartbeatOut, LogIn, LogOut, ProgressIn, RunInput, fill, paths,
+    HeartbeatOut, LogIn, LogOut, ProgressIn, RunInput, RunInputFile, fill, paths,
 };
 use rustix::process::{Pid, Signal, kill_process_group};
 
@@ -44,7 +46,7 @@ const REPORT_FOR: Duration = Duration::from_secs(300);
 
 /// Why the worker stopped a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Stop {
+pub enum Stop {
     Cancelled,
     TimedOut,
     Interrupted,
@@ -73,6 +75,40 @@ struct Signals {
     finished: AtomicBool,
 }
 
+/// What differs between a leased job and one run with `run --local`: where input files
+/// come from, where results and what the command prints go, and what else may stop it.
+/// Everything else, from the job's directory to how it ended, is the same code.
+pub trait Host: Send + Sync + 'static {
+    /// The job's ID, for its directory and what the worker says.
+    fn id(&self) -> &str;
+    /// Puts the input files in `dir` and returns them with their paths.
+    fn stage(
+        &self,
+        wanted: &BTreeMap<String, RunInputFile>,
+        dir: &Path,
+    ) -> Result<BTreeMap<String, RunInputFile>, files::Failed>;
+    /// Puts what the results should hold in place of each `$file`. Returns how many.
+    fn results(
+        &self,
+        out_dir: &Path,
+        output: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<usize, files::Failed>;
+    /// What to say once `results` has placed some files.
+    fn results_done(&self) -> &'static str {
+        "Uploaded the result files."
+    }
+    /// A line the command printed.
+    fn line(&self, text: &str);
+    /// Where the job has got to.
+    fn state(&self, _state: HeartbeatInState) {}
+    /// Why to stop the command, besides the worker stopping or its timeout.
+    fn stop_for(&self) -> Option<Stop> {
+        None
+    }
+    /// A transfer found the lease gone.
+    fn lost(&self, _error: &Error) {}
+}
+
 struct Job {
     api: Api,
     id: String,
@@ -86,10 +122,6 @@ struct Job {
 impl Job {
     fn path(&self, template: &str) -> String {
         fill(template, &[&self.id])
-    }
-
-    fn set_state(&self, state: HeartbeatInState) {
-        *self.state.lock().unwrap_or_else(PoisonError::into_inner) = state;
     }
 
     fn note(&self, error: &Error) {
@@ -174,22 +206,71 @@ impl Job {
         }
     }
 
-    fn read_output(&self, stream: impl Read) {
-        let mut reader = BufReader::new(stream);
-        let mut line = Vec::new();
-        loop {
-            line.clear();
-            match reader.by_ref().take(MAX_LINE).read_until(b'\n', &mut line) {
-                Ok(0) | Err(_) => return,
-                Ok(_) => {
-                    let text = String::from_utf8_lossy(&line);
-                    if let Some(progress) = logs::progress(&text) {
-                        *self.progress.lock().unwrap_or_else(PoisonError::into_inner) =
-                            Some(progress);
-                    }
-                    self.log.push(&text);
-                }
-            }
+    fn lease(&self) -> files::Lease<'_> {
+        files::Lease {
+            api: &self.api,
+            job: &self.id,
+            token: &self.lease_token,
+        }
+    }
+}
+
+impl Host for Job {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn stage(
+        &self,
+        wanted: &BTreeMap<String, RunInputFile>,
+        dir: &Path,
+    ) -> Result<BTreeMap<String, RunInputFile>, files::Failed> {
+        files::stage(&self.lease(), &files::storage_agent(), wanted, dir)
+    }
+
+    fn results(
+        &self,
+        out_dir: &Path,
+        output: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Result<usize, files::Failed> {
+        files::upload_results(&self.lease(), &files::storage_agent(), out_dir, output)
+    }
+
+    fn line(&self, text: &str) {
+        if let Some(progress) = logs::progress(text) {
+            *self.progress.lock().unwrap_or_else(PoisonError::into_inner) = Some(progress);
+        }
+        self.log.push(text);
+    }
+
+    fn state(&self, state: HeartbeatInState) {
+        *self.state.lock().unwrap_or_else(PoisonError::into_inner) = state;
+    }
+
+    fn stop_for(&self) -> Option<Stop> {
+        if self.signals.lost.load(Ordering::SeqCst) {
+            Some(Stop::Lost)
+        } else if self.signals.cancel.load(Ordering::SeqCst) {
+            Some(Stop::Cancelled)
+        } else {
+            None
+        }
+    }
+
+    fn lost(&self, error: &Error) {
+        self.note(error);
+    }
+}
+
+/// Reads what the command prints, line by line, for its host.
+fn read_lines(host: &impl Host, stream: impl Read) {
+    let mut reader = BufReader::new(stream);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.by_ref().take(MAX_LINE).read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => host.line(&String::from_utf8_lossy(&line)),
         }
     }
 }
@@ -280,8 +361,8 @@ fn sender(job: &Job) {
 }
 
 /// Where a job's files go.
-struct Dirs {
-    root: PathBuf,
+pub struct Dirs {
+    pub root: PathBuf,
     input: PathBuf,
     output: PathBuf,
     out: PathBuf,
@@ -292,7 +373,7 @@ struct Dirs {
 }
 
 impl Dirs {
-    fn new(work_dir: &Path, job_id: &str) -> Self {
+    pub fn new(work_dir: &Path, job_id: &str) -> Self {
         let root = work_dir.join("jobs").join(job_id);
         Self {
             input: root.join("input.json"),
@@ -416,7 +497,7 @@ fn describe(status: ExitStatus) -> String {
 }
 
 /// How the attempt ended, to report.
-enum Report {
+pub enum Report {
     Fail(FailInReason, String),
     Complete(serde_json::Map<String, serde_json::Value>),
 }
@@ -483,8 +564,27 @@ pub fn run(api: &Api, config: &Config, interrupted: &AtomicBool, raw: &serde_jso
         let job = Arc::clone(&job);
         thread::spawn(move || watcher(&job));
     }
+    let sending = {
+        let job = Arc::clone(&job);
+        thread::spawn(move || sender(&job))
+    };
     let dirs = Dirs::new(&config.work_dir, &job.id);
-    let report = execute(&job, &input, config, &dirs, raw, interrupted);
+    let plugin_dir = config.plugins_dir.join(&input.run.plugin.name);
+    let report = if plugin_dir.is_dir() {
+        let timeout = Duration::from_secs(u64::try_from(input.job.timeout.max(1)).unwrap_or(3600));
+        execute(&job, &input, &plugin_dir, &dirs, raw, interrupted, timeout)
+    } else {
+        Some(Report::Fail(
+            FailInReason::Failed,
+            format!(
+                "This worker has no code for the plugin {} (looked in {}).",
+                input.run.plugin.name,
+                plugin_dir.display()
+            ),
+        ))
+    };
+    job.signals.output_read.store(true, Ordering::SeqCst);
+    let _ = sending.join();
     let ended = finish(&job, report);
     job.signals.finished.store(true, Ordering::SeqCst);
     let _ = beating.join();
@@ -503,7 +603,7 @@ pub fn run(api: &Api, config: &Config, interrupted: &AtomicBool, raw: &serde_jso
 /// Waits for the command to end, or stops it: when its lease is lost, the worker is
 /// stopping, the run is cancelled, or it runs past `deadline`.
 fn supervise(
-    job: &Job,
+    host: &impl Host,
     child: &mut Child,
     interrupted: &AtomicBool,
     deadline: Instant,
@@ -514,21 +614,19 @@ fn supervise(
             signal_group(child, Signal::KILL);
             return (Some(status), None);
         }
-        let why = if job.signals.lost.load(Ordering::SeqCst) {
-            Some(Stop::Lost)
-        } else if interrupted.load(Ordering::SeqCst) {
-            Some(Stop::Interrupted)
-        } else if job.signals.cancel.load(Ordering::SeqCst) {
-            Some(Stop::Cancelled)
-        } else if Instant::now() >= deadline {
-            Some(Stop::TimedOut)
-        } else {
-            None
-        };
+        let why = host.stop_for().or_else(|| {
+            if interrupted.load(Ordering::SeqCst) {
+                Some(Stop::Interrupted)
+            } else if Instant::now() >= deadline {
+                Some(Stop::TimedOut)
+            } else {
+                None
+            }
+        });
         if let Some(why) = why {
             say::info(
                 "Stopping the command.",
-                &[("job", &job.id), ("why", &format!("{why:?}"))],
+                &[("job", &host.id()), ("why", &format!("{why:?}"))],
             );
             return (stop(child), Some(why));
         }
@@ -536,24 +634,19 @@ fn supervise(
     }
 }
 
-/// Downloads the input files, then writes input.json, saying where they are.
+/// Stages the input files, then writes input.json, saying where they are.
 fn stage_input(
-    job: &Job,
+    host: &impl Host,
     input: &RunInput,
     dirs: &Dirs,
     raw: &serde_json::Value,
 ) -> Result<(), files::Failed> {
     let mut written = raw.clone();
     if let Some(wanted) = input.files.as_ref().filter(|f| !f.is_empty()) {
-        let lease = files::Lease {
-            api: &job.api,
-            job: &job.id,
-            token: &job.lease_token,
-        };
-        let staged = files::stage(&lease, &files::storage_agent(), wanted, &dirs.inputs)?;
+        let staged = host.stage(wanted, &dirs.inputs)?;
         say::info(
             "Staged the input files.",
-            &[("job", &job.id), ("files", &staged.len())],
+            &[("job", &host.id()), ("files", &staged.len())],
         );
         written["files"] = serde_json::to_value(staged)
             .map_err(|e| files::Failed::Job(format!("Couldn't write input.json: {e}")))?;
@@ -564,63 +657,49 @@ fn stage_input(
         .map_err(|e| files::Failed::Job(format!("Couldn't write input.json: {e}.")))
 }
 
-/// Uploads the files output.json names with `$file`, putting their IDs in its place.
+/// Puts what the results hold in place of each `$file` output.json names.
 fn upload_results(
-    job: &Job,
+    host: &impl Host,
     dirs: &Dirs,
     output: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), files::Failed> {
-    let lease = files::Lease {
-        api: &job.api,
-        job: &job.id,
-        token: &job.lease_token,
-    };
-    let count = files::upload_results(&lease, &files::storage_agent(), &dirs.out, output)?;
+    let count = host.results(&dirs.out, output)?;
     if count > 0 {
         say::info(
-            "Uploaded the result files.",
-            &[("job", &job.id), ("files", &count)],
+            host.results_done(),
+            &[("job", &host.id()), ("files", &count)],
         );
     }
     Ok(())
 }
 
-/// Stages the job and runs its command. `None` if the lease was lost.
-fn execute(
-    job: &Arc<Job>,
+/// Stages the job and runs its command from `plugin_dir`, the same for a leased job and
+/// a local one. `None` if the lease was lost.
+pub fn execute<H: Host>(
+    host: &Arc<H>,
     input: &RunInput,
-    config: &Config,
+    plugin_dir: &Path,
     dirs: &Dirs,
     raw: &serde_json::Value,
     interrupted: &AtomicBool,
+    timeout: Duration,
 ) -> Option<Report> {
-    let plugin_dir = config.plugins_dir.join(&input.run.plugin.name);
-    if !plugin_dir.is_dir() {
-        return Some(Report::Fail(
-            FailInReason::Failed,
-            format!(
-                "This worker has no code for the plugin {} (looked in {}).",
-                input.run.plugin.name,
-                plugin_dir.display()
-            ),
-        ));
-    }
     if let Err(error) = dirs.create() {
         let message = format!("Couldn't stage the job: {error}.");
         return Some(Report::Fail(FailInReason::Failed, message));
     }
-    match stage_input(job, input, dirs, raw) {
+    match stage_input(host.as_ref(), input, dirs, raw) {
         Ok(()) => {}
         Err(files::Failed::Lost(error)) => {
-            job.note(&error);
+            host.lost(&error);
             return None;
         }
         Err(files::Failed::Job(message)) => {
             return Some(Report::Fail(FailInReason::Failed, message));
         }
     }
-    job.set_state(HeartbeatInState::Running);
-    let mut child = match spawn(input, &plugin_dir, dirs) {
+    host.state(HeartbeatInState::Running);
+    let mut child = match spawn(input, plugin_dir, dirs) {
         Ok(child) => child,
         Err(message) => return Some(Report::Fail(FailInReason::Failed, message)),
     };
@@ -638,36 +717,29 @@ fn execute(
     .into_iter()
     .flatten()
     {
-        let (job, done) = (Arc::clone(job), done.clone());
+        let (host, done) = (Arc::clone(host), done.clone());
         thread::spawn(move || {
-            job.read_output(stream);
+            read_lines(host.as_ref(), stream);
             let _ = done.send(());
         });
     }
     drop(done);
-    let sending = {
-        let job = Arc::clone(job);
-        thread::spawn(move || sender(&job))
-    };
 
-    let timeout = Duration::from_secs(u64::try_from(input.job.timeout.max(1)).unwrap_or(3600));
     let deadline = Instant::now() + timeout;
-    let (status, stopped) = supervise(job, &mut child, interrupted, deadline);
+    let (status, stopped) = supervise(host.as_ref(), &mut child, interrupted, deadline);
     // The readers end when the pipes close; one a stray process holds open isn't waited on.
     let wait_until = Instant::now() + Duration::from_secs(5);
     while readers_done
         .recv_timeout(wait_until.saturating_duration_since(Instant::now()))
         .is_ok()
     {}
-    job.signals.output_read.store(true, Ordering::SeqCst);
-    let _ = sending.join();
 
-    outcome(job, dirs, status, stopped, timeout)
+    outcome(host.as_ref(), dirs, status, stopped, timeout)
 }
 
 /// What to report, once the command has ended. `None` if the lease was lost.
 fn outcome(
-    job: &Job,
+    host: &impl Host,
     dirs: &Dirs,
     status: Option<ExitStatus>,
     stopped: Option<Stop>,
@@ -693,12 +765,12 @@ fn outcome(
         ),
         None => match status {
             Some(status) if status.success() => {
-                job.set_state(HeartbeatInState::Uploading);
+                host.state(HeartbeatInState::Uploading);
                 match read_output(&dirs.output) {
-                    Ok(mut output) => match upload_results(job, dirs, &mut output) {
+                    Ok(mut output) => match upload_results(host, dirs, &mut output) {
                         Ok(()) => Report::Complete(output),
                         Err(files::Failed::Lost(error)) => {
-                            job.note(&error);
+                            host.lost(&error);
                             return None;
                         }
                         Err(files::Failed::Job(message)) => {
