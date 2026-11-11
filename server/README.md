@@ -238,6 +238,11 @@ Nothing connects to a worker. A Compute admin manages them under
 - `GET /compute/workers` lists workers as online, offline or revoked, with
   the jobs each holds. `POST /compute/workers/{id}/revoke` ends a worker's
   token at once. Its jobs are interrupted and retried elsewhere.
+- `/compute/quotas` limits runs for the organization, a team or a project,
+  on one tier or all of them (ADR 0045). `max_running` caps jobs running at
+  once (0 pauses the scope). `max_queued` caps runs waiting to start;
+  launching more is refused. A queued run held back by a quota says why in
+  `waiting`.
 
 `iki-worker` uses `/worker/v1`, with its OpenAPI document at
 `/worker/v1/openapi.json`:

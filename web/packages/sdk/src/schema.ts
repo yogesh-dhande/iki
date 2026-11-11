@@ -105,6 +105,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/quotas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run quotas
+         * @description Every quota, the organization's first, with how much of each is in use.
+         */
+        get: operations["iki_server_api_compute_list_quotas"];
+        put?: never;
+        /**
+         * Set a run quota
+         * @description One per scope and tier. Lowering a limit doesn't stop what's running or cancel what's
+         *     waiting; it holds back what's next.
+         */
+        post: operations["iki_server_api_compute_create_quota"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/quotas/{quota_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a run quota */
+        delete: operations["iki_server_api_compute_delete_quota"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a run quota
+         * @description Send both limits: a limit left out is removed.
+         */
+        patch: operations["iki_server_api_compute_update_quota"];
+        trace?: never;
+    };
     "/api/v1/compute/registration-tokens": {
         parameters: {
             query?: never;
@@ -2960,6 +3006,81 @@ export interface components {
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
         };
+        /** QuotaIn */
+        QuotaIn: {
+            /** Max Queued */
+            max_queued?: number | null;
+            /** Max Running */
+            max_running?: number | null;
+            /**
+             * Project
+             * @description A project's runs.
+             */
+            project?: string | null;
+            /**
+             * Team
+             * @description A team's runs. Leave out team and project for the organization's.
+             */
+            team?: string | null;
+            /**
+             * Tier
+             * @description Only this tier's runs; all tiers if left out.
+             */
+            tier?: ("client" | "backend" | "container" | "vm") | null;
+        };
+        /** QuotaOut */
+        QuotaOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["PersonOut"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Max Queued
+             * @description Runs waiting to start.
+             */
+            max_queued: number | null;
+            /**
+             * Max Running
+             * @description Jobs running at once. 0 pauses the scope.
+             */
+            max_running: number | null;
+            project: components["schemas"]["ScopeOut"] | null;
+            /**
+             * Queued
+             * @description Runs waiting in its scope now.
+             */
+            queued: number;
+            /**
+             * Running
+             * @description Jobs running in its scope now.
+             */
+            running: number;
+            team: components["schemas"]["ScopeOut"] | null;
+            /**
+             * Tier
+             * @description None: every tier together.
+             */
+            tier: ("client" | "backend" | "container" | "vm") | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** QuotaPatch */
+        QuotaPatch: {
+            /** Max Queued */
+            max_queued?: number | null;
+            /** Max Running */
+            max_running?: number | null;
+        };
         /** ReadIn */
         ReadIn: {
             /** Read */
@@ -3339,6 +3460,11 @@ export interface components {
             tier: "client" | "backend" | "container" | "vm";
             /** Via */
             via: string;
+            /**
+             * Waiting
+             * @description Why a queued run hasn't started, when a quota is holding it.
+             */
+            waiting: string | null;
         };
         /** RunRefOut */
         RunRefOut: {
@@ -3432,6 +3558,16 @@ export interface components {
             query?: components["schemas"]["QueryIn"] | null;
             /** Shared */
             shared?: boolean | null;
+        };
+        /** ScopeOut */
+        ScopeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** SearchIn */
         SearchIn: {
@@ -4165,6 +4301,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_list_quotas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_create_quota: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuotaIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_delete_quota: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quota_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_compute_update_quota: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quota_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuotaPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaOut"];
                 };
             };
         };

@@ -170,6 +170,14 @@ def _registration(w: World) -> Any:
     return token
 
 
+def _quota(w: World) -> Any:
+    from iki_server.runs.models import RunQuota
+
+    return RunQuota.objects.create(
+        project=w.project, max_running=4, created_by=w.users["compute_admin"]
+    )
+
+
 def _worker(w: World) -> Any:
     from iki_server.runs import workers
 
@@ -484,6 +492,25 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         COMPUTE_ONLY,
     ),
     ("GET", "/compute/workers", fixed("/compute/workers"), COMPUTE_ONLY),
+    ("GET", "/compute/quotas", fixed("/compute/quotas"), COMPUTE_ONLY),
+    (
+        "POST",
+        "/compute/quotas",
+        lambda w: ("/compute/quotas", {"project": str(w.project.pk), "max_running": 2}),
+        row(403, compute_admin=201),
+    ),
+    (
+        "PATCH",
+        "/compute/quotas/{quota_id}",
+        lambda w: (f"/compute/quotas/{_quota(w).pk}", {"max_running": 8}),
+        COMPUTE_ONLY,
+    ),
+    (
+        "DELETE",
+        "/compute/quotas/{quota_id}",
+        lambda w: (f"/compute/quotas/{_quota(w).pk}", None),
+        row(403, compute_admin=204),
+    ),
     (
         "POST",
         "/compute/workers/{worker_id}/revoke",

@@ -3546,6 +3546,223 @@
         "title": "QueryIn",
         "type": "object"
       },
+      "QuotaIn": {
+        "properties": {
+          "max_queued": {
+            "anyOf": [
+              {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Queued"
+          },
+          "max_running": {
+            "anyOf": [
+              {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Running"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project's runs.",
+            "title": "Project"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A team's runs. Leave out team and project for the organization's.",
+            "title": "Team"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client",
+                  "backend",
+                  "container",
+                  "vm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only this tier's runs; all tiers if left out.",
+            "title": "Tier"
+          }
+        },
+        "title": "QuotaIn",
+        "type": "object"
+      },
+      "QuotaOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/PersonOut"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_queued": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Runs waiting to start.",
+            "title": "Max Queued"
+          },
+          "max_running": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Jobs running at once. 0 pauses the scope.",
+            "title": "Max Running"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScopeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "queued": {
+            "description": "Runs waiting in its scope now.",
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "description": "Jobs running in its scope now.",
+            "title": "Running",
+            "type": "integer"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScopeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client",
+                  "backend",
+                  "container",
+                  "vm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "None: every tier together.",
+            "title": "Tier"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "team",
+          "project",
+          "tier",
+          "max_running",
+          "max_queued",
+          "running",
+          "queued",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "QuotaOut",
+        "type": "object"
+      },
+      "QuotaPatch": {
+        "properties": {
+          "max_queued": {
+            "anyOf": [
+              {
+                "maximum": 1000000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Queued"
+          },
+          "max_running": {
+            "anyOf": [
+              {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Running"
+          }
+        },
+        "title": "QuotaPatch",
+        "type": "object"
+      },
       "ReadIn": {
         "properties": {
           "read": {
@@ -4320,6 +4537,18 @@
           "via": {
             "title": "Via",
             "type": "string"
+          },
+          "waiting": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a queued run hasn't started, when a quota is holding it.",
+            "title": "Waiting"
           }
         },
         "required": [
@@ -4346,6 +4575,7 @@
           "effects",
           "metrics",
           "messages",
+          "waiting",
           "can"
         ],
         "title": "RunOut",
@@ -4544,6 +4774,25 @@
           }
         },
         "title": "SavedSearchPatch",
+        "type": "object"
+      },
+      "ScopeOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ScopeOut",
         "type": "object"
       },
       "SearchIn": {
@@ -6192,6 +6441,164 @@
         "summary": "Freeze a dynamic collection",
         "tags": [
           "collections"
+        ]
+      }
+    },
+    "/api/v1/compute/quotas": {
+      "get": {
+        "description": "Every quota, the organization's first, with how much of each is in use.",
+        "operationId": "iki_server_api_compute_list_quotas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QuotaOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Run quotas",
+        "tags": [
+          "compute"
+        ]
+      },
+      "post": {
+        "description": "One per scope and tier. Lowering a limit doesn't stop what's running or cancel what's\nwaiting; it holds back what's next.",
+        "operationId": "iki_server_api_compute_create_quota",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuotaIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Set a run quota",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/quotas/{quota_id}": {
+      "delete": {
+        "operationId": "iki_server_api_compute_delete_quota",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quota_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Quota Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Remove a run quota",
+        "tags": [
+          "compute"
+        ]
+      },
+      "patch": {
+        "description": "Send both limits: a limit left out is removed.",
+        "operationId": "iki_server_api_compute_update_quota",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quota_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Quota Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuotaPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change a run quota",
+        "tags": [
+          "compute"
         ]
       }
     },

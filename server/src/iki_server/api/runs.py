@@ -24,7 +24,7 @@ from iki_server.api.schemas import Page
 from iki_server.entities import access
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
-from iki_server.runs import catalog, services
+from iki_server.runs import catalog, quotas, services
 from iki_server.runs.models import ActionRun, Job, RunEffect, RunInput, RunOutput, RunStatus
 from iki_server.runs.services import TIER_PERMISSIONS
 from iki_spec.model import Action
@@ -252,6 +252,9 @@ class RunOut(Schema):
     )
     metrics: dict[str, float]
     messages: list[MessageOut]
+    waiting: str | None = Field(
+        description="Why a queued run hasn't started, when a quota is holding it."
+    )
     can: RunCan
 
 
@@ -284,6 +287,10 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         )
     outputs = {o.run_id: o.document for o in RunOutput.objects.filter(run__in=runs)}
     projects = {r.project_id: r.project for r in runs}
+    holds = {
+        tier: quotas.blocked(tier)
+        for tier in {r.tier for r in runs if r.status == RunStatus.QUEUED}
+    }
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
         for pid, tier in {(r.project_id, r.tier) for r in runs}
@@ -298,6 +305,9 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "effects": effects.get(run.pk, []),
             "metrics": outputs.get(run.pk, {}).get("metrics") or {},
             "messages": outputs.get(run.pk, {}).get("messages") or [],
+            "waiting": (
+                holds[run.tier].why(run.project) if run.status == RunStatus.QUEUED else None
+            ),
             "can": {
                 "cancel": not run.finished
                 and run.cancel_requested_at is None

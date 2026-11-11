@@ -29,6 +29,7 @@ from django.utils import timezone
 
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
+from iki_server.runs import quotas
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -138,6 +139,13 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
     if worker.tier == "client":
         candidates = candidates.filter(owner=worker.owner_id)
     with transaction.atomic():
+        stop = quotas.blocked(worker.tier, lock=True)
+        if stop.organization:
+            return None
+        if stop.projects:
+            candidates = candidates.exclude(project__in=list(stop.projects))
+        if stop.teams:
+            candidates = candidates.exclude(project__team__in=list(stop.teams))
         job = (
             candidates.annotate(active=Coalesce(Subquery(active), 0))
             .order_by("active", "-priority", "queued_at", "id")

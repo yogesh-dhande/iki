@@ -1,4 +1,5 @@
-"""Compute admin: the tokens workers register with, and the workers themselves (ADR 0043).
+"""Compute admin: the tokens workers register with, the workers themselves (ADR 0043), and
+quotas on runs (ADR 0045).
 
 All of it takes the Compute admin role. A registration token's value is
 shown once, when it's made; only a hash is kept.
@@ -8,7 +9,8 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
-from django.db.models import Count, Q, QuerySet
+from django.db import transaction
+from django.db.models import Count, F, Q, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
@@ -17,9 +19,20 @@ from iki_server.api.common import caller, require
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page
+from iki_server.audit import log as audit
+from iki_server.org.models import Project, Team
 from iki_server.org.permissions import Action
-from iki_server.runs import workers
-from iki_server.runs.models import RegistrationToken, Worker
+from iki_server.org.services import Refused
+from iki_server.runs import queue, workers
+from iki_server.runs.models import (
+    TIERS,
+    ActionRun,
+    Job,
+    RegistrationToken,
+    RunQuota,
+    RunStatus,
+    Worker,
+)
 from iki_server.runs.queue import HELD
 
 router = Router(tags=["compute"])
@@ -235,3 +248,203 @@ def revoke_worker(request: HttpRequest, worker_id: UUID) -> dict[str, Any]:
     require(me, Action.COMPUTE_MANAGE)
     workers.revoke_worker(_worker(worker_id), by=me)
     return _worker_out(_worker(worker_id))
+
+
+# --- Quotas --------------------------------------------------------------------------------------
+
+Tier = Literal["client", "backend", "container", "vm"]
+
+
+class ScopeOut(Schema):
+    id: UUID
+    name: str
+
+
+class QuotaOut(Schema):
+    id: UUID
+    team: ScopeOut | None
+    project: ScopeOut | None
+    tier: Tier | None = Field(description="None: every tier together.")
+    max_running: int | None = Field(description="Jobs running at once. 0 pauses the scope.")
+    max_queued: int | None = Field(description="Runs waiting to start.")
+    running: int = Field(description="Jobs running in its scope now.")
+    queued: int = Field(description="Runs waiting in its scope now.")
+    created_by: PersonOut
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuotaIn(Schema):
+    team: UUID | None = Field(
+        None, description="A team's runs. Leave out team and project for the organization's."
+    )
+    project: UUID | None = Field(None, description="A project's runs.")
+    tier: Tier | None = Field(None, description="Only this tier's runs; all tiers if left out.")
+    max_running: int | None = Field(None, ge=0, le=100_000)
+    max_queued: int | None = Field(None, ge=0, le=1_000_000)
+
+
+class QuotaPatch(Schema):
+    max_running: int | None = Field(None, ge=0, le=100_000)
+    max_queued: int | None = Field(None, ge=0, le=1_000_000)
+
+
+def _quota_out(quota: RunQuota) -> dict[str, Any]:
+    held = Job.objects.filter(state__in=HELD)
+    waiting = ActionRun.objects.filter(status=RunStatus.QUEUED)
+    if quota.tier:
+        held, waiting = held.filter(tier=quota.tier), waiting.filter(tier=quota.tier)
+    if quota.project_id is not None:
+        held, waiting = (
+            held.filter(project_id=quota.project_id),
+            waiting.filter(project_id=quota.project_id),
+        )
+    elif quota.team_id is not None:
+        held, waiting = (
+            held.filter(project__team_id=quota.team_id),
+            waiting.filter(project__team_id=quota.team_id),
+        )
+    return {
+        "id": quota.pk,
+        "team": {"id": quota.team.pk, "name": quota.team.name} if quota.team else None,
+        "project": (
+            {"id": quota.project.pk, "name": quota.project.name} if quota.project else None
+        ),
+        "tier": quota.tier,
+        "max_running": quota.max_running,
+        "max_queued": quota.max_queued,
+        "running": held.count(),
+        "queued": waiting.count(),
+        "created_by": {"id": quota.created_by.pk, "name": quota.created_by.name},
+        "created_at": quota.created_at,
+        "updated_at": quota.updated_at,
+    }
+
+
+def _quotas() -> QuerySet[RunQuota]:
+    return RunQuota.objects.select_related("team", "project", "created_by")
+
+
+def _quota(quota_id: UUID) -> RunQuota:
+    found = _quotas().filter(pk=quota_id).first()
+    if found is None:
+        raise Problem(404, "No such quota.")
+    return found
+
+
+def _limits_given(max_running: int | None, max_queued: int | None) -> None:
+    if max_running is None and max_queued is None:
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            errors=[{"pointer": "#/max_running", "detail": "Set max_running, max_queued or both."}],
+        )
+
+
+@router.get("/compute/quotas", response=list[QuotaOut], summary="Run quotas")
+def list_quotas(request: HttpRequest) -> list[dict[str, Any]]:
+    """Every quota, the organization's first, with how much of each is in use."""
+    require(caller(request), Action.COMPUTE_MANAGE)
+    ordered = _quotas().order_by(
+        F("project").asc(nulls_first=True), F("team").asc(nulls_first=True), "tier", "id"
+    )
+    return [_quota_out(q) for q in ordered]
+
+
+@router.post("/compute/quotas", response={201: QuotaOut}, summary="Set a run quota")
+def create_quota(request: HttpRequest, payload: QuotaIn, response: HttpResponse) -> Any:  # noqa: ANN401
+    """One per scope and tier. Lowering a limit doesn't stop what's running or cancel what's
+    waiting; it holds back what's next."""
+    me = caller(request)
+    require(me, Action.COMPUTE_MANAGE)
+    _limits_given(payload.max_running, payload.max_queued)
+    if payload.team is not None and payload.project is not None:
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            errors=[{"pointer": "#/project", "detail": "Choose a team or a project, not both."}],
+        )
+    team = Team.objects.filter(pk=payload.team).first() if payload.team else None
+    project = Project.objects.filter(pk=payload.project).first() if payload.project else None
+    if payload.team is not None and team is None:
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            errors=[{"pointer": "#/team", "detail": "No such team."}],
+        )
+    if payload.project is not None and project is None:
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            errors=[{"pointer": "#/project", "detail": "No such project."}],
+        )
+    if RunQuota.objects.filter(team=team, project=project, tier=payload.tier).exists():
+        raise Refused("There's a quota for this scope and tier already: change that one.")
+    with transaction.atomic():
+        quota = RunQuota.objects.create(
+            team=team,
+            project=project,
+            tier=payload.tier,
+            max_running=payload.max_running,
+            max_queued=payload.max_queued,
+            created_by=me,
+        )
+        audit.record(
+            "quota.created",
+            actor=me,
+            target=quota,
+            project=project,
+            team=team,
+            data=_limits(quota),
+        )
+    response["Location"] = f"/api/v1/compute/quotas/{quota.pk}"
+    return Status(201, _quota_out(_quota(quota.pk)))
+
+
+def _limits(quota: RunQuota) -> dict[str, Any]:
+    return {"tier": quota.tier, "max_running": quota.max_running, "max_queued": quota.max_queued}
+
+
+@router.patch("/compute/quotas/{quota_id}", response=QuotaOut, summary="Change a run quota")
+def update_quota(request: HttpRequest, quota_id: UUID, payload: QuotaPatch) -> dict[str, Any]:
+    """Send both limits: a limit left out is removed."""
+    me = caller(request)
+    require(me, Action.COMPUTE_MANAGE)
+    _limits_given(payload.max_running, payload.max_queued)
+    with transaction.atomic():
+        quota = RunQuota.objects.select_for_update().get(pk=_quota(quota_id).pk)
+        before = _limits(quota)
+        quota.max_running, quota.max_queued = payload.max_running, payload.max_queued
+        quota.updated_at = timezone.now()
+        quota.save(update_fields=["max_running", "max_queued", "updated_at"])
+        audit.record(
+            "quota.updated",
+            actor=me,
+            target=quota,
+            project=quota.project,
+            team=quota.team,
+            data={"before": before, "after": _limits(quota)},
+        )
+    for tier in [quota.tier] if quota.tier else list(TIERS):
+        queue.notify(tier)  # a raised limit may let jobs start
+    return _quota_out(_quota(quota.pk))
+
+
+@router.delete("/compute/quotas/{quota_id}", response={204: None}, summary="Remove a run quota")
+def delete_quota(request: HttpRequest, quota_id: UUID) -> Any:  # noqa: ANN401
+    me = caller(request)
+    require(me, Action.COMPUTE_MANAGE)
+    quota = _quota(quota_id)
+    with transaction.atomic():
+        audit.record(
+            "quota.removed",
+            actor=me,
+            target=quota,
+            project=quota.project,
+            team=quota.team,
+            data=_limits(quota),
+        )
+        quota.delete()
+    for tier in [quota.tier] if quota.tier else list(TIERS):
+        queue.notify(tier)
+    return Status(204, None)

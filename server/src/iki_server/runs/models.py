@@ -24,7 +24,7 @@ from django.db.models.functions import Now
 from iki_server.core.ids import uuid7
 from iki_server.entities.models import Entity
 from iki_server.files.models import Upload
-from iki_server.org.models import Project
+from iki_server.org.models import Project, Team
 
 TIERS = ("client", "backend", "container", "vm")
 
@@ -452,3 +452,54 @@ class RunUpload(models.Model):
 
     def __str__(self) -> str:
         return f"{self.run_id} {self.upload_id}"
+
+
+class RunQuota(models.Model):
+    """A Compute admin's limit on runs: for the organization, a team or a project, on one
+    tier or all of them (ADR 0045)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    #: Neither: the whole organization.
+    team = models.ForeignKey(
+        Team, null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+    project = models.ForeignKey(
+        Project, null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+    #: None: every tier together.
+    tier = models.CharField(max_length=16, null=True, blank=True)
+    #: Jobs running at once. 0 pauses the scope: nothing new starts.
+    max_running = models.PositiveIntegerField(null=True, blank=True)
+    #: Runs waiting to start. Launching more is refused.
+    max_queued = models.PositiveIntegerField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_run_quota"
+        db_table_comment = "Limits on running and waiting runs, per organization, team or project."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["team", "project", "tier"],
+                name="iki_run_quota_once",
+                nulls_distinct=False,
+            ),
+            models.CheckConstraint(
+                condition=Q(team__isnull=True) | Q(project__isnull=True),
+                name="iki_run_quota_one_scope",
+            ),
+            models.CheckConstraint(
+                condition=Q(tier__isnull=True) | Q(tier__in=TIERS), name="iki_run_quota_tier"
+            ),
+            models.CheckConstraint(
+                condition=Q(max_running__isnull=False) | Q(max_queued__isnull=False),
+                name="iki_run_quota_limits",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        scope = self.project or self.team or "organization"
+        return f"{scope} ({self.tier or 'all tiers'})"

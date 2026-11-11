@@ -29,7 +29,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
-from iki_server.runs import catalog, queue
+from iki_server.runs import catalog, queue, quotas
 from iki_server.runs.models import (
     HRID_PREFIX,
     HRID_SEQUENCE,
@@ -86,6 +86,7 @@ def launch(
         raise Invalid(errors)
     environment = catalog.environment(action)
     with transaction.atomic():
+        quotas.check_queued(project, action.tier)
         run = ActionRun.objects.create(
             hrid=_next_hrid(),
             action=action.qualified_name,
