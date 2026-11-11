@@ -201,7 +201,10 @@ mod tests {
         );
         assert_eq!(error("::error   "), None);
         assert_eq!(error("error: no"), None);
-        assert_eq!(error(&format!("::error {}", "x".repeat(5000))).map(|e| e.len()), Some(1000));
+        assert_eq!(
+            error(&format!("::error {}", "x".repeat(5000))).map(|e| e.len()),
+            Some(1000)
+        );
         assert_eq!(progress("::progress soon"), None);
         assert_eq!(progress("progress 0.4"), None);
     }

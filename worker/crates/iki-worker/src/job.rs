@@ -551,9 +551,10 @@ fn exit(status: ExitStatus) -> String {
     if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(&status) {
         return format!("signal {signal}");
     }
-    status
-        .code()
-        .map_or_else(|| "no exit status".to_owned(), |code| format!("exit status {code}"))
+    status.code().map_or_else(
+        || "no exit status".to_owned(),
+        |code| format!("exit status {code}"),
+    )
 }
 
 fn describe(status: ExitStatus) -> String {
@@ -877,7 +878,10 @@ fn outcome(
             Some(status) => Report::Fail(
                 FailInReason::Failed,
                 // What the command said, if it said why; otherwise how it exited.
-                why.map_or_else(|| describe(status), |why| format!("{why} ({})", exit(status))),
+                why.map_or_else(
+                    || describe(status),
+                    |why| format!("{why} ({})", exit(status)),
+                ),
             ),
             None => Report::Fail(FailInReason::Failed, "Lost track of the command.".into()),
         },
