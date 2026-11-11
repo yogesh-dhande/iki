@@ -28,9 +28,10 @@ from urllib.parse import urlsplit
 import urllib3
 from django.conf import settings
 
+from iki_server.core import addresses
+
 TIMEOUT_SECONDS = 15.0
 USER_AGENT = "Iki-Webhooks/1"
-NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 
 class Refused(Exception):  # noqa: N818 - what happened: Iki refused to send
@@ -48,34 +49,9 @@ class Result:
         return self.status_code is not None and 200 <= self.status_code < 300
 
 
-def _embedded(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> list[ipaddress.IPv4Address]:
-    """IPv4 addresses an IPv6 address carries (mapped, 6to4, Teredo, NAT64)."""
-    if not isinstance(ip, ipaddress.IPv6Address):
-        return []
-    if ip.teredo is not None:
-        return list(ip.teredo)
-    if ip.ipv4_mapped is not None:
-        return [ip.ipv4_mapped]
-    if ip.sixtofour is not None:
-        return [ip.sixtofour]
-    if ip in NAT64:
-        return [ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)]
-    return []
-
-
 def allowed(address: str) -> bool:
-    """Whether Iki may connect to this address."""
-    try:
-        ip = ipaddress.ip_address(address.split("%", 1)[0])
-    except ValueError:
-        return False
-    networks = settings.IKI_WEBHOOK_ALLOWED_NETWORKS
-    if any(ip in network for network in networks if network.version == ip.version):
-        return True
-    embedded = _embedded(ip)
-    if embedded:
-        return all(part.is_global for part in embedded)
-    return ip.is_global
+    """Whether Iki may send to this address."""
+    return addresses.allowed(address, settings.IKI_WEBHOOK_ALLOWED_NETWORKS)
 
 
 def check_url(url: str) -> None:

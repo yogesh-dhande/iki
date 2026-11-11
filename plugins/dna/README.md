@@ -33,6 +33,12 @@ standard library only).
   (up to 10,000, and 1 GiB) as a DNA sequence. A sequence already in Iki is
   reused. Each records the file and record it came from, with the record's
   SHA-256.
+- **`fetch_sequences`**: fetches nucleotide records from NCBI by accession
+  (up to 500, such as `NM_000546.6`, or `L09137` for the latest version), in
+  GenBank format with their features, and registers each as a DNA sequence.
+  Each records the NCBI record and version it came from, its link, when it
+  was fetched and its SHA-256. It reaches only `eutils.ncbi.nlm.nih.gov`,
+  through the deployment's egress proxy, and needs the `ncbi_email` setting.
 
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
@@ -55,8 +61,14 @@ A record that can't be read (RNA, gaps, letters that aren't IUPAC bases, a
 file cut short) fails the whole import, and the run says which record and
 why, so nothing is half imported.
 
-Fetching from NCBI, reverse complements, restriction digests, primer design
-and GenBank export come later.
+Fetching follows NCBI's rules for automated clients: it names itself
+(`tool=iki-dna`) with the lab's address, asks for up to 100 records at a time,
+and makes at most three requests a second. When NCBI says to slow down or
+fails on its side, it waits and asks again. An accession NCBI has no record
+for fails the run, which names it.
+
+Reverse complements, restriction digests, primer design and GenBank export
+come later.
 
 ## Developing it
 

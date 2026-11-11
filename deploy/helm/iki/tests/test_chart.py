@@ -794,3 +794,89 @@ def test_workers_get_extra_egress_only_when_listed() -> None:
         if p["metadata"]["name"] == "iki-worker-egress"
     ]
     assert len(policy["spec"]["egress"]) == 2
+
+
+# --- The egress proxy (ADR 0053) ----------------------------------------------------------------
+
+EGRESS: dict[str, Any] = {**WORKERS, "egressProxy": {"enabled": True}}
+
+
+def test_the_egress_proxy_is_off_unless_turned_on() -> None:
+    names = {f"{d['kind']}/{d['metadata']['name']}" for d in manifests(EGRESS)}
+    assert names - {f"{d['kind']}/{d['metadata']['name']}" for d in manifests(WORKERS)} == {
+        "Deployment/iki-egress-proxy",
+        "Service/iki-egress-proxy",
+        "PodDisruptionBudget/iki-egress-proxy",
+        "ServiceAccount/iki-egress-proxy",
+        "NetworkPolicy/iki-egress-proxy",
+    }
+    for name, spec in pod_specs(manifests(WORKERS)):
+        env = {e["name"] for e in spec["containers"][0]["env"]}
+        assert not {v for v in env if v.startswith("IKI_EGRESS_")}, name
+
+
+def test_the_egress_proxy_meets_pod_security_restricted_and_reaches_every_container() -> None:
+    docs = manifests(EGRESS)
+    pod = named(docs, "Deployment", "iki-egress-proxy")["spec"]["template"]["spec"]
+    assert pod["automountServiceAccountToken"] is False
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    (container,) = pod["containers"]
+    assert container["args"] == ["egress_proxy"]
+    assert container["securityContext"]["readOnlyRootFilesystem"] is True
+    assert container["securityContext"]["capabilities"]["drop"] == ["ALL"]
+    assert container["readinessProbe"]["tcpSocket"]["port"] == "proxy"
+    # Web pods (which lease jobs and say which actions can run) and task runners know it.
+    for name, spec in pod_specs(docs):
+        if name in ("Deployment/iki-worker",):
+            continue
+        env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert env["IKI_EGRESS_PROXY_URL"] == "http://iki-egress-proxy:3128", name
+    # Workers themselves get it per job, from the server, with the job's credentials.
+    assert not {v for v in worker_env(docs) if v.startswith("IKI_EGRESS_")}
+
+
+def test_an_upstream_proxys_credentials_come_only_from_a_secret() -> None:
+    upstream = {"existingSecret": "corporate-proxy", "key": "url"}
+    docs = manifests({**EGRESS, "egressProxy": {"enabled": True, "upstreamProxy": upstream}})
+    pod = named(docs, "Deployment", "iki-egress-proxy")["spec"]["template"]["spec"]
+    env = {e["name"]: e for e in pod["containers"][0]["env"]}
+    assert env["IKI_EGRESS_UPSTREAM_PROXY"]["valueFrom"]["secretKeyRef"] == {
+        "name": "corporate-proxy",
+        "key": "url",
+    }
+    plain = {"enabled": True, "upstreamProxy": {"url": "http://proxy.corp.example:3128"}}
+    docs = manifests({**EGRESS, "egressProxy": plain})
+    pod = named(docs, "Deployment", "iki-egress-proxy")["spec"]["template"]["spec"]
+    env = {e["name"]: e for e in pod["containers"][0]["env"]}
+    assert env["IKI_EGRESS_UPSTREAM_PROXY"]["value"] == "http://proxy.corp.example:3128"
+    secret = {"enabled": True, "upstreamProxy": {"url": "http://u:p@proxy.corp.example:3128"}}
+    assert "upstreamProxy" in str(render({**EGRESS, "egressProxy": secret}, ok=False))
+
+
+def test_only_workers_reach_the_egress_proxy_and_only_it_reaches_the_internet() -> None:
+    policies = {
+        p["metadata"]["name"]: p["spec"] for p in by_kind(manifests(EGRESS), "NetworkPolicy")
+    }
+    proxy = policies["iki-egress-proxy"]
+    assert proxy["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "egress-proxy"
+    (ingress,) = proxy["ingress"]
+    (source,) = ingress["from"]
+    assert source["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "worker"
+    assert ingress["ports"] == [{"protocol": "TCP", "port": 3128}]
+    (out,) = proxy["egress"]
+    assert out["ports"] == [{"protocol": "TCP", "port": 443}]
+    v4 = out["to"][0]["ipBlock"]
+    assert v4["cidr"] == "0.0.0.0/0"
+    assert {"10.0.0.0/8", "169.254.0.0/16"} <= set(v4["except"])
+    # Workers reach the proxy, and still nothing on the internet themselves.
+    worker = policies["iki-worker-egress"]["egress"]
+    to_proxy = worker[-1]
+    assert to_proxy["to"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == (
+        "egress-proxy"
+    )
+    assert to_proxy["ports"] == [{"protocol": "TCP", "port": 3128}]
+    # The proxy reaches the database (to check credentials and keep what runs reached).
+    shared = policies["iki-egress"]["podSelector"]["matchExpressions"]
+    assert {"key": "app.kubernetes.io/component", "operator": "NotIn", "values": ["worker"]} in (
+        shared
+    )

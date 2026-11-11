@@ -180,6 +180,24 @@ schema, and knows the app's role so it can grant it privileges.
 - name: IKI_WEBHOOK_CA_FILE
   value: /etc/iki/webhook-ca/{{ $ctx.Values.webhooks.caSecret.key }}
 {{- end }}
+{{- if $ctx.Values.egressProxy.enabled }}
+- name: IKI_EGRESS_PROXY_URL
+  value: {{ printf "http://%s-egress-proxy:%d" (include "iki.fullname" $ctx) (int $ctx.Values.egressProxy.port) | quote }}
+- name: IKI_EGRESS_ALLOWED_NETWORKS
+  value: {{ join "," $ctx.Values.egressProxy.allowedNetworks | quote }}
+{{- with $ctx.Values.egressProxy.upstreamProxy }}
+{{- if .existingSecret }}
+- name: IKI_EGRESS_UPSTREAM_PROXY
+  valueFrom:
+    secretKeyRef:
+      name: {{ .existingSecret }}
+      key: {{ .key }}
+{{- else if .url }}
+- name: IKI_EGRESS_UPSTREAM_PROXY
+  value: {{ .url | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
 - name: IKI_DB_SSLMODE
   value: {{ $ctx.Values.database.sslmode | quote }}
 {{- if $ctx.Values.database.caSecret.name }}

@@ -582,6 +582,22 @@ function AttemptRow({
         {attempt.error && !(latest && runError) ? (
           <p className="row-reason">{attempt.error.message}</p>
         ) : null}
+        {attempt.network.length ? (
+          <ul
+            className="value-list"
+            aria-label={`Network use of attempt ${String(attempt.attempt)}`}
+          >
+            {attempt.network.map((reached) => (
+              <li key={`${reached.host}:${String(reached.port)}:${reached.refused ?? ""}`}>
+                <code>{reached.host}</code>
+                {reached.port === 443 ? "" : `:${String(reached.port)}`}
+                {reached.refused === null
+                  ? ` · ${String(reached.connections)} connection${reached.connections === 1 ? "" : "s"}, ${formatSize(reached.bytes_received)} received, ${formatSize(reached.bytes_sent)} sent`
+                  : ` · refused: ${reached.refused}`}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {open ? <AttemptLog runRef={runRef} attempt={attempt} size={size} /> : null}
       </div>
       <div className="row-actions">
@@ -853,6 +869,23 @@ export function RunPage() {
               </dd>
             </>
           ) : null}
+          <dt>Network</dt>
+          <dd>
+            {run.network.length ? (
+              <>
+                May reach{" "}
+                {run.network.map((host, index) => (
+                  <span key={host}>
+                    {index ? ", " : ""}
+                    <code>{host}</code>
+                  </span>
+                ))}
+                , through Iki’s egress proxy
+              </>
+            ) : (
+              "None: it couldn’t reach the internet"
+            )}
+          </dd>
           <dt>Ran on</dt>
           <dd>
             {run.tier === "client" ? "A client" : `A ${run.tier} worker`}

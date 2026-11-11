@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: fetch_sequences
+label: Fetch DNA sequences from NCBI
+description: >-
+  Fetches nucleotide records from NCBI by accession, in GenBank format, and
+  registers each as a DNA sequence, with its name, description, accession,
+  organism, topology and features. A sequence already in Iki (the same bases
+  and topology) is reused. Each records which NCBI record and version it came
+  from, and when it was fetched.
+params:
+  accessions:
+    type: text
+    label: Accessions
+    required: true
+    max_length: 10000
+    description: >-
+      Separated by spaces, commas or new lines, such as NM_000546.6 L09137.
+      Without a version, NCBI's latest. Up to 500.
+effects:
+  creates: [{ type: DNASequence, cardinality: many }]
+runs_on: { tier: backend, environment: sequence-tools }
+command: [python, ./scripts/ncbi.py]
+network: [eutils.ncbi.nlm.nih.gov]
+timeout: 30m

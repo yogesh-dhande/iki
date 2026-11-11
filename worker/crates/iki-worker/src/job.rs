@@ -472,6 +472,14 @@ fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(Str
         // Output reaches the log as it's written, not when a buffer fills.
         ("PYTHONUNBUFFERED".into(), "1".into()),
     ]);
+    // An action that declares hosts reaches them through the egress proxy, with this
+    // attempt's credentials (ADR 0053). Plain-HTTP requests go there too, to be refused
+    // with a reason rather than time out.
+    if let Some(proxy) = &input.job.proxy {
+        for name in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
+            env.push((name.into(), proxy.clone()));
+        }
+    }
     env
 }
 
@@ -1090,6 +1098,26 @@ mod tests {
         let env: std::collections::HashMap<_, _> =
             environment(&dirs, &input, None).into_iter().collect();
         assert!(!env.contains_key("VIRTUAL_ENV") && !env.contains_key("CONDA_PREFIX"));
+    }
+
+    #[test]
+    fn only_runs_that_declare_hosts_get_the_proxy() {
+        let dirs = Dirs::new(Path::new("/work"), "j");
+        let mut input = input(&["python", "fetch.py"]);
+        let env: std::collections::HashMap<_, _> =
+            environment(&dirs, &input, None).into_iter().collect();
+        assert!(
+            !env.keys()
+                .any(|name| name.to_lowercase().ends_with("_proxy"))
+        );
+
+        let proxy = "http://j:t@iki-egress-proxy:3128".to_owned();
+        input.job.proxy = Some(proxy.clone());
+        let env: std::collections::HashMap<_, _> =
+            environment(&dirs, &input, None).into_iter().collect();
+        for name in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
+            assert_eq!(env[name], proxy);
+        }
     }
 
     #[test]

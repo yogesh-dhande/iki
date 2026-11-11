@@ -1,0 +1,131 @@
+{{- if .Values.egressProxy.enabled }}
+# The egress proxy (ADR 0053): runs reach the hosts their action declares
+# through it, with their attempt's credentials, and nothing else.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "iki.fullname" . }}-egress-proxy
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+spec:
+  replicas: {{ .Values.egressProxy.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" . "component" "egress-proxy") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "iki.labels" . | nindent 8 }}
+        {{- include "iki.selectorLabels" (dict "ctx" . "component" "egress-proxy") | nindent 8 }}
+      {{- with .Values.egressProxy.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "iki.fullname" . }}-egress-proxy
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "iki.podSecurityContext" . | nindent 8 }}
+      terminationGracePeriodSeconds: {{ add .Values.egressProxy.graceSeconds 10 }}
+      containers:
+        - name: egress-proxy
+          image: {{ include "iki.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["egress_proxy"]
+          env:
+            {{- include "iki.env" (dict "ctx" . "service" "iki-egress-proxy" "poolMaxSize" 8) | nindent 12 }}
+            - name: IKI_EGRESS_PORT
+              value: {{ .Values.egressProxy.port | quote }}
+            - name: IKI_EGRESS_GRACE_SECONDS
+              value: {{ .Values.egressProxy.graceSeconds | quote }}
+          ports:
+            - name: proxy
+              containerPort: {{ .Values.egressProxy.port }}
+              protocol: TCP
+          startupProbe:
+            tcpSocket: { port: proxy }
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: { port: proxy }
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          readinessProbe:
+            tcpSocket: { port: proxy }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+          resources:
+            {{- toYaml .Values.egressProxy.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "iki.volumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "iki.volumes" . | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "iki.selectorLabels" (dict "ctx" . "component" "egress-proxy") | nindent 14 }}
+      {{- with .Values.egressProxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.egressProxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.egressProxy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "iki.fullname" . }}-egress-proxy
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "iki.selectorLabels" (dict "ctx" . "component" "egress-proxy") | nindent 4 }}
+  ports:
+    - name: proxy
+      port: {{ .Values.egressProxy.port }}
+      targetPort: proxy
+      protocol: TCP
+{{- if .Values.egressProxy.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "iki.fullname" . }}-egress-proxy
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: egress-proxy
+spec:
+  minAvailable: {{ .Values.egressProxy.podDisruptionBudget.minAvailable }}
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" . "component" "egress-proxy") | nindent 6 }}
+{{- end }}
+{{- end }}

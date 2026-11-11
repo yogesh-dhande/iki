@@ -21,7 +21,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce, Now
@@ -262,6 +264,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             "heartbeat_every": int(HEARTBEAT_EVERY.total_seconds()),
             "timeout": run.timeout,
             "resources": job.resources,
+            **_proxy(job, run),
         },
         "command": run.spec["command"],
         "environment": f"{run.action.split('.')[0]}.{run.environment}",
@@ -270,6 +273,15 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "inputs": inputs,
         "files": input_files.describe(files),
     }
+
+
+def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
+    """For an action that declares hosts: the egress proxy, with this attempt's job ID and
+    lease token as its credentials (ADR 0053). They work while the attempt holds its lease."""
+    if not run.spec.get("network") or not settings.IKI_EGRESS_PROXY_URL:
+        return {}
+    parts = urlsplit(settings.IKI_EGRESS_PROXY_URL)
+    return {"proxy": f"http://{job.pk}:{job.lease_token}@{parts.netloc}"}
 
 
 # --- Reports from the worker -------------------------------------------------------------------

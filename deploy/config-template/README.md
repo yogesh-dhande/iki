@@ -98,6 +98,12 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   no database credentials, no cloud role, and a network policy that lets
   them reach just the server and object storage. Allow more destinations
   that actions need in `networkPolicy.egress.workers`.
+- Actions that fetch from the internet (NCBI, UniProt, the PDB) need the
+  egress proxy: turn on `egressProxy` in `values.yaml`. Runs then reach the
+  hosts their action declares, and only those, through it; each plugin's
+  `network` lists them, so review it when you add a plugin. If all traffic
+  must pass your corporate proxy, set `egressProxy.upstreamProxy` and point
+  `networkPolicy.egress.egressProxy` at that proxy.
 - If your package index is a mirror, pass it to the worker image's build as
   a secret (see `worker.Dockerfile`).
 

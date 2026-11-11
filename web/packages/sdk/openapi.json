@@ -941,6 +941,64 @@
         "title": "EffectOut",
         "type": "object"
       },
+      "EgressOut": {
+        "properties": {
+          "bytes_received": {
+            "title": "Bytes Received",
+            "type": "integer"
+          },
+          "bytes_sent": {
+            "title": "Bytes Sent",
+            "type": "integer"
+          },
+          "connections": {
+            "title": "Connections",
+            "type": "integer"
+          },
+          "first_at": {
+            "format": "date-time",
+            "title": "First At",
+            "type": "string"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "last_at": {
+            "format": "date-time",
+            "title": "Last At",
+            "type": "string"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "refused": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the egress proxy refused; null when it let the connections through.",
+            "title": "Refused"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "refused",
+          "connections",
+          "bytes_sent",
+          "bytes_received",
+          "first_at",
+          "last_at"
+        ],
+        "title": "EgressOut",
+        "type": "object"
+      },
       "EmailKindOut": {
         "properties": {
           "description": {
@@ -4896,6 +4954,14 @@
             "title": "Log Size",
             "type": "integer"
           },
+          "network": {
+            "description": "The hosts it reached through the egress proxy, or tried to (ADR 0053).",
+            "items": {
+              "$ref": "#/components/schemas/EgressOut"
+            },
+            "title": "Network",
+            "type": "array"
+          },
           "progress": {
             "anyOf": [
               {
@@ -4956,7 +5022,8 @@
           "progress",
           "progress_message",
           "log_size",
-          "error"
+          "error",
+          "network"
         ],
         "title": "RunAttemptOut",
         "type": "object"
@@ -5335,6 +5402,14 @@
             "title": "Metrics",
             "type": "object"
           },
+          "network": {
+            "description": "The hosts it may reach, as its action declared them when it was launched.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Network",
+            "type": "array"
+          },
           "params": {
             "additionalProperties": true,
             "title": "Params",
@@ -5437,6 +5512,7 @@
           "environment",
           "params",
           "settings",
+          "network",
           "inputs",
           "files",
           "status",

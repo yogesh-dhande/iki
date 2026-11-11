@@ -295,6 +295,40 @@ backendWorkers:
   affinity: {}
   podAnnotations: {}
 
+egressProxy:
+  # The proxy through which actions' runs reach the hosts their plugin
+  # declares under `network`, and nothing else (ADR 0053). Workers' pods reach
+  # no host on the internet themselves. Off by default: until it's on,
+  # actions that declare hosts can't run. It needs HTTPS egress to the
+  # internet (networkPolicy.egress.egressProxy), or an upstream proxy.
+  enabled: false
+  replicas: 2
+  port: 3128
+  # Networks (CIDRs) inside your network that actions may reach, such as
+  # [10.20.0.0/16] for an internal data store; the proxy refuses private
+  # addresses otherwise. Allow them in networkPolicy.egress.egressProxy too.
+  allowedNetworks: []
+  # Where the proxy itself goes out, when everything must pass a corporate
+  # proxy: http://proxy.example.com:3128. It still checks each host against
+  # what the action declares. With credentials, put the whole URL
+  # (http://user:password@proxy.example.com:3128) in a Secret instead.
+  upstreamProxy:
+    url: ""
+    existingSecret: ""
+    key: url
+  # Seconds open connections get to finish when a proxy pod stops.
+  graceSeconds: 25
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
 networkPolicy:
   enabled: true
   # Peers allowed to reach the web pods, typically your ingress controller.
@@ -309,6 +343,27 @@ networkPolicy:
     # in-cluster ingress controller) and to public addresses (a cloud load
     # balancer). Narrow it to your load balancer if you can.
     server:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+              - ::1/128
+    # Only with egressProxy: where the proxy reaches the hosts actions
+    # declare. HTTPS to public addresses by default, as above; with an
+    # upstream proxy, list that proxy instead.
+    egressProxy:
       ports: [443]
       to:
         - ipBlock:

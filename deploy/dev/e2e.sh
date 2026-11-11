@@ -116,6 +116,21 @@ if probe webhook-receiver 8080; then fail "web pod reached the webhook receiver;
 pass "only task runners reach webhook receivers"
 tasks_probe seaweedfs 8333 || fail "task runners cannot reach object storage (SeaweedFS)"
 pass "task runners reach object storage"
+worker_python() { # runs Python in a worker pod, as a run's command would
+  kc exec deploy/iki-worker -c worker -- /opt/iki/envs/dna/sequence-tools/bin/python -I -c "$1" 2>/dev/null
+}
+if worker_python "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(s.connect_ex(('1.1.1.1', 443)))"; then
+  fail "a worker pod reached the internet directly; runs go through the egress proxy"
+fi
+refused=$(worker_python "
+import socket
+s = socket.create_connection(('iki-egress-proxy', 3128), timeout=5)
+s.sendall(b'CONNECT eutils.ncbi.nlm.nih.gov:443 HTTP/1.1\r\n\r\n')
+print(s.recv(200).split(b'\r\n')[0].decode())") || fail "a worker pod cannot reach the egress proxy"
+[ "$refused" = "HTTP/1.1 407 Proxy Authentication Required" ] ||
+  fail "the egress proxy answered a CONNECT without credentials with: $refused"
+if probe iki-egress-proxy 3128; then fail "web pod reached the egress proxy; only workers do"; fi
+pass "workers reach the internet only through the egress proxy, which wants a run's credentials"
 
 # --- Keycloak -------------------------------------------------------------------
 issuer=$(curl -fsS http://127.0.0.1:18080/realms/iki/.well-known/openid-configuration | jq -r .issuer)

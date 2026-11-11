@@ -73,8 +73,14 @@ def launch(
 
 def test_lists_installed_actions_and_where_they_run(world: World) -> None:
     actions = api_as(world, "viewer").get("/actions").json()
-    assert [a["name"] for a in actions] == [COMPUTE, "protein.import_proteins", RELAX, PREDICT]
-    compute, _, _, predict = actions
+    assert [a["name"] for a in actions] == [
+        COMPUTE,
+        "protein.fetch_proteins",
+        "protein.import_proteins",
+        RELAX,
+        PREDICT,
+    ]
+    compute, _, _, _, predict = actions
     assert compute["tier"] == "backend"
     assert compute["available"] is True
     assert compute["needs"] == "Editor"

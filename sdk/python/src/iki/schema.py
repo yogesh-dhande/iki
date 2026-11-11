@@ -213,6 +213,18 @@ class EffectOut(TypedDict):
     type: str
 
 
+class EgressOut(TypedDict):
+    bytes_received: int
+    bytes_sent: int
+    connections: int
+    first_at: str
+    host: str
+    last_at: str
+    port: int
+    #: Why the egress proxy refused; null when it let the connections through.
+    refused: str | None
+
+
 class EmailKindOut(TypedDict):
     description: str
     email: bool
@@ -1068,6 +1080,8 @@ class RunAttemptOut(TypedDict):
     finished_at: str | None
     #: Bytes its command has written so far.
     log_size: int
+    #: The hosts it reached through the egress proxy, or tried to (ADR 0053).
+    network: list[EgressOut]
     #: From 0 to 1, as its command reports it.
     progress: float | None
     progress_message: str
@@ -1159,6 +1173,8 @@ class RunOut(TypedDict):
     inputs: list[RunInputOut]
     messages: list[MessageOut]
     metrics: dict[str, float]
+    #: The hosts it may reach, as its action declared them when it was launched.
+    network: list[str]
     params: dict[str, Any]
     #: The plugin's commit, when built from a lockfile.
     plugin_sha: str
@@ -1547,4 +1563,4 @@ class WorkerRegistrationOut(TypedDict):
     workers: int
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptLogOut', 'AttemptOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'EffectOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageDeliverySummary', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptLogOut', 'AttemptOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageDeliverySummary', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']

@@ -97,6 +97,9 @@ pub struct RunInputJob {
     pub timeout: i64,
     /// What the job needs. Memory and disk are in bytes.
     pub resources: RunInputJobResources,
+    /// For an action that declares hosts under `network`: the egress proxy, with this attempt's credentials. The worker gives it to the command as HTTPS_PROXY.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<String>,
 }
 
 /// What the job needs. Memory and disk are in bytes.

@@ -17,6 +17,8 @@ from functools import cache
 from importlib.util import find_spec
 from pathlib import Path
 
+from django.conf import settings
+
 from iki_server.entities import registry
 from iki_spec.compute import Compute, Template, compute_from_dict
 from iki_spec.model import Action, Environment
@@ -71,6 +73,12 @@ class Availability:
 def availability(of: Action) -> Availability:
     if of.tier == "client":
         return Availability(True)
+    if of.network and not settings.IKI_EGRESS_PROXY_URL:
+        return Availability(
+            False,
+            f"It reaches {_hosts(of.network)} on the internet, and this deployment gives runs "
+            "no network access. An Iki administrator can turn on the egress proxy.",
+        )
     deployment = compute()
     qualified = f"{of.plugin}.{of.environment}"
     binding = deployment.bindings.get(qualified)
@@ -87,6 +95,10 @@ def availability(of: Action) -> Availability:
         )
     ordered = sorted(bound, key=lambda pair: (pair[0], _size(pair[1])))
     return Availability(True, templates=tuple(t for _, t in ordered))
+
+
+def _hosts(network: tuple[str, ...]) -> str:
+    return ", ".join(network) if len(network) <= 3 else f"{', '.join(network[:3])} and others"
 
 
 def _size(template: Template) -> tuple[float, int, int]:

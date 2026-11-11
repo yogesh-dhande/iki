@@ -82,3 +82,4 @@ supersedes the old one, and update the old one's status.
 | [0050](0050-agents-runs-on-costly-tiers-wait-for-approval.md)     | An agent's runs on costly tiers wait for the person's approval                                  | Accepted |
 | [0051](0051-the-python-sdk.md)                                    | The Python SDK signs in as the person and keeps the API's shapes                                | Accepted |
 | [0052](0052-imports-file-params-and-origins.md)                   | Imports take files as params, and say where what they make came from                            | Accepted |
+| [0053](0053-runs-reach-the-internet-through-an-egress-proxy.md)   | Runs reach the internet through an egress proxy, and only the hosts their action declares       | Accepted |

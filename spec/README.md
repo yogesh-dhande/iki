@@ -274,6 +274,15 @@ validator checks that:
   Iki can't keep secrets from, or limit, a person's own machine
 - files the command names with `./` are in the plugin, and aren't symbolic links
 
+A run reaches the network only if its action names the hosts under
+`network` (`*.example.com` covers subdomains, not example.com itself), and
+only over HTTPS on port 443, through the deployment's egress proxy. The
+command finds the proxy, with its attempt's credentials, in `HTTPS_PROXY`,
+which Python's `urllib`, `requests`, `httpx` and `curl` use as they are.
+Hosts it doesn't name, plain HTTP and private addresses are refused, and the
+run's page lists each host an attempt reached or was refused. On a deployment
+without the proxy, such actions can't run.
+
 Runs whose machine went away (`worker_lost`, `interrupted`) are retried twice
 by default. Actions that reach the network aren't retried unless they say so,
 since a retry could repeat what they did elsewhere, such as placing an order.

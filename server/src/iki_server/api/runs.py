@@ -295,6 +295,9 @@ class RunOut(Schema):
         alias="plugin_settings",
         description="The plugin's settings, as the deployment set them when it was launched.",
     )
+    network: list[str] = Field(
+        description="The hosts it may reach, as its action declared them when it was launched."
+    )
     inputs: list[RunInputOut]
     files: dict[str, RunFileOut] = Field(
         description="The files its file params name, by ID, that you can read."
@@ -378,6 +381,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "project_id": run.project_id,
             "requested_by": run.requested_by,
             "approval": held.get(run.approval_id) if run.approval_id else None,
+            "network": run.spec.get("network") or [],
             "inputs": inputs.get(run.pk, []),
             "files": {
                 str(i): {
@@ -674,6 +678,19 @@ def decline_runs(request: HttpRequest, approval_id: UUID, payload: DeclineIn) ->
 # --- Attempts and their logs ---------------------------------------------------------------------
 
 
+class EgressOut(Schema):
+    host: str
+    port: int
+    refused: str | None = Field(
+        description="Why the egress proxy refused; null when it let the connections through."
+    )
+    connections: int
+    bytes_sent: int
+    bytes_received: int
+    first_at: datetime
+    last_at: datetime
+
+
 class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
@@ -688,6 +705,9 @@ class RunAttemptOut(Schema):
     progress_message: str
     log_size: int = Field(description="Bytes its command has written so far.")
     error: ErrorOut | None
+    network: list[EgressOut] = Field(
+        description="The hosts it reached through the egress proxy, or tried to (ADR 0053)."
+    )
 
 
 @router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
@@ -707,8 +727,24 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
             "progress_message": job.progress_message,
             "log_size": job.log_size,
             "error": job.error,
+            "network": [
+                {
+                    "host": e.host,
+                    "port": e.port,
+                    "refused": e.refused or None,
+                    "connections": e.connections,
+                    "bytes_sent": e.bytes_sent,
+                    "bytes_received": e.bytes_received,
+                    "first_at": e.first_at,
+                    "last_at": e.last_at,
+                }
+                for e in sorted(job.egress.all(), key=lambda e: (bool(e.refused), e.first_at))
+            ],
         }
-        for job in Job.objects.filter(run=run).select_related("worker").order_by("attempt")
+        for job in Job.objects.filter(run=run)
+        .select_related("worker")
+        .prefetch_related("egress")
+        .order_by("attempt")
     ]
 
 

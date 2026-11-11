@@ -1,0 +1,14 @@
+apiVersion: iki/v1
+kind: Action
+name: fetch_proteins
+label: Fetch a protein from UniProt
+params:
+  accession:
+    type: string
+    required: true
+effects:
+  creates: [{ type: Protein, cardinality: one }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/fetch.py]
+network: [rest.uniprot.org]
+timeout: 5m

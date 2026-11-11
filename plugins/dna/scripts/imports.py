@@ -26,7 +26,10 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 BASES = re.compile(r"^[ACGTRYSWKMBDHVN]*$")
 ACCESSION = re.compile(r"^[A-Z]{1,6}_?[0-9]{5,9}\.[0-9]+$")
@@ -336,18 +339,29 @@ def main() -> None:
     except UnreadableError as why:
         print(f"::error {given['name']}: {why}", flush=True)
         sys.exit(1)
-    creates = []
-    messages = []
-    for done, record in enumerate(records, start=1):
-        origin = {
+
+    def origin(record: Record) -> dict[str, Any]:
+        found = {
             "source": source,
             "id": record.values.get("name") or record.label,
             "file": file_id,
             "sha256": hashlib.sha256(record.text.encode("utf-8")).hexdigest(),
         }
         if record.values.get("accession"):
-            origin["version"] = record.values["accession"]
-        creates.append({"type": "dna.DNASequence", "values": record.values, "origin": origin})
+            found["version"] = record.values["accession"]
+        return found
+
+    finish(records, origin)
+
+
+def finish(records: list[Record], origin: Callable[[Record], dict[str, Any]]) -> None:
+    """Writes the sequences to create, each with where it came from, to $IKI_OUTPUT."""
+    creates = []
+    messages = []
+    for done, record in enumerate(records, start=1):
+        creates.append(
+            {"type": "dna.DNASequence", "values": record.values, "origin": origin(record)}
+        )
         messages.extend({"level": "warning", "text": w[:2000]} for w in record.warnings)
         print(f"{record.label}: {len(record.values['bases']):,} bp")
         if done % 100 == 0 or done == len(records):

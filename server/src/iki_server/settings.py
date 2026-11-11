@@ -11,6 +11,7 @@ import os
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import environ
 from django.utils.csp import CSP
@@ -426,6 +427,56 @@ if IKI_WEBHOOK_ALLOW_HTTP and HTTPS:
 IKI_WEBHOOK_CA_FILE: str = env.str("IKI_WEBHOOK_CA_FILE", default="")
 if IKI_WEBHOOK_CA_FILE and not Path(IKI_WEBHOOK_CA_FILE).is_file():
     raise environ.ImproperlyConfigured(f"IKI_WEBHOOK_CA_FILE: no file at {IKI_WEBHOOK_CA_FILE}")
+
+# --- Egress (ADR 0053) ------------------------------------------------------
+# Runs reach the internet only through Iki's egress proxy (`iki-server
+# egress_proxy`), and only the hosts their action declares. Without a proxy,
+# actions that declare hosts can't run here.
+
+
+def _proxy_url(name: str, *, credentials: bool) -> str:
+    value: str = env.str(name, default="")
+    if not value:
+        return ""
+    parts = urlsplit(value)
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    if (
+        parts.scheme != "http"
+        or not parts.hostname
+        or port is None
+        or parts.path not in ("", "/")
+        or parts.query
+        or parts.fragment
+        or (parts.username is not None and not credentials)
+    ):
+        example = (
+            "http://user:password@proxy.example.com:3128"
+            if credentials
+            else "http://iki-egress-proxy:3128"
+        )
+        raise environ.ImproperlyConfigured(f"{name} must be an address such as {example}.")
+    return value.rstrip("/")
+
+
+#: Where workers reach the egress proxy, such as http://iki-egress-proxy:3128.
+IKI_EGRESS_PROXY_URL: str = _proxy_url("IKI_EGRESS_PROXY_URL", credentials=False)
+#: The proxy's own way out, for networks where everything goes through a corporate proxy.
+#: The proxy still checks each host against what the action declares.
+IKI_EGRESS_UPSTREAM_PROXY: str = _proxy_url("IKI_EGRESS_UPSTREAM_PROXY", credentials=True)
+try:
+    #: Networks (CIDRs) inside the firewall that actions may reach, such as a LIMS's.
+    IKI_EGRESS_ALLOWED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
+        ipaddress.ip_network(network.strip())
+        for network in env.list("IKI_EGRESS_ALLOWED_NETWORKS", default=[])
+        if network.strip()
+    ]
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_EGRESS_ALLOWED_NETWORKS must be CIDRs such as 10.20.0.0/16: {_error}"
+    ) from None
 
 # --- Files ------------------------------------------------------------------
 # Object storage for entities' files (ADR 0036): S3, or an S3-compatible store

@@ -533,6 +533,35 @@ class ExternalOrigin(models.Model):
         return f"{self.source} {self.identifier}"
 
 
+class JobEgress(models.Model):
+    """The hosts an attempt reached, or tried to, through the egress proxy: one row per
+    host, port and answer, counting connections and bytes."""
+
+    id = models.BigAutoField(primary_key=True)
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="egress")
+    host = models.CharField(max_length=253)
+    port = models.PositiveIntegerField()
+    #: Why the proxy refused; empty when it let the connection through.
+    refused = models.CharField(max_length=300, blank=True, default="")
+    connections = models.PositiveIntegerField(default=0)
+    bytes_sent = models.BigIntegerField(default=0)
+    bytes_received = models.BigIntegerField(default=0)
+    first_at = models.DateTimeField(db_default=Now())
+    last_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_job_egress"
+        db_table_comment = "Hosts each attempt reached, or was refused, through the egress proxy."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["job", "host", "port", "refused"], name="iki_job_egress_once"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.job_id} {self.host}:{self.port}"
+
+
 class Lineage(models.Model):
     """An entity a run made, and an input it was made from, at the revision the run read."""
 

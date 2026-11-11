@@ -179,6 +179,66 @@ describe("a run's page", () => {
     );
   });
 
+  it("says what a run may reach, and what each attempt reached or was refused", async () => {
+    const at = "2026-03-14T09:00:10Z";
+    const reached = { port: 443, first_at: at, last_at: at };
+    onRun(
+      () => run({ action: "protein.fetch_proteins", network: ["rest.uniprot.org"] }),
+      () => [
+        attempt({
+          network: [
+            {
+              ...reached,
+              host: "rest.uniprot.org",
+              refused: null,
+              connections: 2,
+              bytes_sent: 1024,
+              bytes_received: 3 * 1024 * 1024,
+            },
+            {
+              ...reached,
+              host: "www.uniprot.org",
+              refused: "protein.fetch_proteins doesn't declare www.uniprot.org.",
+              connections: 1,
+              bytes_sent: 0,
+              bytes_received: 0,
+            },
+          ],
+        }),
+      ],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(await within(details).findByText("Network")).toBeInTheDocument();
+    expect(within(details).getByText("Network").nextSibling).toHaveTextContent(
+      "May reach rest.uniprot.org, through Iki’s egress proxy",
+    );
+    const used = await screen.findByRole("list", { name: "Network use of attempt 1" });
+    const [ok, refused] = within(used).getAllByRole("listitem");
+    expect(ok).toHaveTextContent(
+      "rest.uniprot.org · 2 connections, 3.0 MiB received, 1.0 KiB sent",
+    );
+    expect(refused).toHaveTextContent(
+      "www.uniprot.org · refused: protein.fetch_proteins doesn't declare www.uniprot.org.",
+    );
+  });
+
+  it("says when a run couldn't reach the internet", async () => {
+    onRun(
+      () => run(),
+      () => [attempt()],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(await within(details).findByText("Network")).toBeInTheDocument();
+    expect(within(details).getByText("Network").nextSibling).toHaveTextContent(
+      "None: it couldn’t reach the internet",
+    );
+    expect(screen.queryByRole("list", { name: /Network use/ })).not.toBeInTheDocument();
+  });
+
   it("follows the log as it grows, and the run until it ends", async () => {
     let log = "hello\n";
     let current = run();

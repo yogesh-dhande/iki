@@ -24,6 +24,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     environment: "sequence-tools",
     params: { ph: 7.4 },
     settings: {},
+    network: [],
     files: {},
     inputs: [
       {
@@ -84,6 +85,7 @@ export function attempt(
     progress_message: "Weighing",
     log_size: 6,
     error: null,
+    network: [],
     ...overrides,
   };
 }

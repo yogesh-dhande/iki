@@ -2110,6 +2110,34 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** EgressOut */
+        EgressOut: {
+            /** Bytes Received */
+            bytes_received: number;
+            /** Bytes Sent */
+            bytes_sent: number;
+            /** Connections */
+            connections: number;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /** Host */
+            host: string;
+            /**
+             * Last At
+             * Format: date-time
+             */
+            last_at: string;
+            /** Port */
+            port: number;
+            /**
+             * Refused
+             * @description Why the egress proxy refused; null when it let the connections through.
+             */
+            refused: string | null;
+        };
         /** EmailKindOut */
         EmailKindOut: {
             /** Description */
@@ -3856,6 +3884,11 @@ export interface components {
              */
             log_size: number;
             /**
+             * Network
+             * @description The hosts it reached through the egress proxy, or tried to (ADR 0053).
+             */
+            network: components["schemas"]["EgressOut"][];
+            /**
              * Progress
              * @description From 0 to 1, as its command reports it.
              */
@@ -4055,6 +4088,11 @@ export interface components {
             metrics: {
                 [key: string]: number;
             };
+            /**
+             * Network
+             * @description The hosts it may reach, as its action declared them when it was launched.
+             */
+            network: string[];
             /** Params */
             params: {
                 [key: string]: unknown;

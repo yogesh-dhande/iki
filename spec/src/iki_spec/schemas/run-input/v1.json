@@ -70,6 +70,11 @@
             "gpu_memory": { "type": ["integer", "null"] },
             "scratch_disk": { "type": ["integer", "null"] }
           }
+        },
+        "proxy": {
+          "type": "string",
+          "pattern": "^http://",
+          "description": "For an action that declares hosts under `network`: the egress proxy, with this attempt's credentials. The worker gives it to the command as HTTPS_PROXY."
         }
       }
     },

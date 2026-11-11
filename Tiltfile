@@ -111,6 +111,12 @@ k8s_resource(
     ],
 )
 k8s_resource('iki-tasks', resource_deps=['iki-migrate', 'otel-lgtm'], labels=['iki'])
+k8s_resource(
+    'iki-egress-proxy',
+    objects=['iki-egress-proxy:serviceaccount', 'iki-egress-proxy:networkpolicy'],
+    resource_deps=['iki-migrate'],
+    labels=['iki'],
+)
 
 # A backend-tier registration token for the workers, made in the cluster.
 local_resource(

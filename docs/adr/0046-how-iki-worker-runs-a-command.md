@@ -34,8 +34,10 @@ ends: `input.json`, `inputs/` with the input files, `output.json` for the
 command to write, `out/` for files, and its own `TMPDIR` and `HOME`. The command runs
 from its plugin's directory with an environment that holds only `PATH`,
 locale and certificate settings, those directories (`IKI_INPUT`,
-`IKI_OUTPUT`, `IKI_OUT_DIR`), and the run's ID and attempt. Nothing of the
-worker's own, so the command never sees its token.
+`IKI_OUTPUT`, `IKI_OUT_DIR`), and the run's ID and attempt. For an action
+that declares hosts, it also holds `HTTPS_PROXY`, the egress proxy with the
+attempt's credentials (ADR 0053). Nothing of the worker's own, so the
+command never sees its token.
 
 **The command runs in a process group of its own.** Stopping it sends
 SIGTERM to the whole group, then SIGKILL 10 seconds later. When it exits,

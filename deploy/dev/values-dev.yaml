@@ -86,6 +86,13 @@ backendWorkers:
     limits: { memory: 512Mi }
   scratch:
     sizeLimit: 2Gi
+# Runs reach the hosts their action declares (NCBI, UniProt, ...) through it.
+egressProxy:
+  enabled: true
+  replicas: 1
+  podDisruptionBudget:
+    enabled: false
+
 networkPolicy:
   enabled: true
   # The workers reach the web pods directly (in production, through the ingress).
