@@ -236,6 +236,11 @@ class Worker(models.Model):
     version = models.CharField(max_length=50)
     #: What one job may use on it: cpu, memory, gpu_count, gpu_memory and scratch_disk.
     capacity = models.JSONField(default=dict)
+    #: The plugin code it has, which is all it runs: ``[{"name", "sha", "environments"}]``.
+    #: ``sha`` is None for a plugin from a local directory. ``environments`` maps each
+    #: environment it has built to that build's digest, or is None for a worker that runs
+    #: every one with its host's own software.
+    plugins = models.JSONField(default=list)
     registered_at = models.DateTimeField(db_default=Now())
     last_seen_at = models.DateTimeField(db_default=Now())
     revoked_at = models.DateTimeField(null=True, blank=True)
@@ -269,6 +274,9 @@ class Job(models.Model):
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
     tier = models.CharField(max_length=16)
     environment = models.CharField(max_length=200, db_comment="plugin.environment")
+    #: The digest of the environment build its worker ran it with, for provenance; empty
+    #: when the worker used its host's own software.
+    environment_build = models.CharField(max_length=100, blank=True, default="")
     #: What the job needs: the environment's minimum, raised by the action's own.
     resources = models.JSONField(default=dict)
     #: For client-tier jobs: only this person's own worker may lease it.

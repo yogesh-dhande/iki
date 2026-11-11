@@ -136,6 +136,27 @@ def _fits(worker: Worker) -> Q:
     return fits
 
 
+def _runnable(worker: Worker) -> Q:
+    """Jobs launched with plugin code the worker has, in an environment it has built."""
+    runnable = Q(pk__in=[])
+    for plugin in worker.plugins:
+        name, sha, built = plugin["name"], plugin.get("sha") or "", plugin.get("environments")
+        mine = Q(environment__startswith=f"{name}.", run__plugin_sha=sha)
+        if built is not None:
+            mine &= Q(environment__in=[f"{name}.{env}" for env in built])
+        runnable |= mine
+    return runnable
+
+
+def _build(worker: Worker, environment: str) -> str:
+    """The digest of the worker's build of a ``plugin.environment``, if it has one."""
+    name, _, env = environment.partition(".")
+    for plugin in worker.plugins:
+        if plugin["name"] == name:
+            return str((plugin.get("environments") or {}).get(env, ""))
+    return ""
+
+
 def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
     """Leases the best job this worker can run, with what it needs to run it; None if none."""
     now = timezone.now()
@@ -146,7 +167,11 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         .values("n")
     )
     candidates = Job.objects.filter(
-        _fits(worker), state=JobState.QUEUED, tier=worker.tier, queued_at__lte=Now()
+        _fits(worker),
+        _runnable(worker),
+        state=JobState.QUEUED,
+        tier=worker.tier,
+        queued_at__lte=Now(),
     )
     if worker.tier == "client":
         candidates = candidates.filter(owner=worker.owner_id)
@@ -171,7 +196,17 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         job.lease_token = uuid.uuid4()
         job.lease_expires_at = now + LEASE_TTL
         job.started_at = now
-        job.save(update_fields=["state", "worker", "lease_token", "lease_expires_at", "started_at"])
+        job.environment_build = _build(worker, job.environment)
+        job.save(
+            update_fields=[
+                "state",
+                "worker",
+                "lease_token",
+                "lease_expires_at",
+                "started_at",
+                "environment_build",
+            ]
+        )
         run = ActionRun.objects.select_for_update().get(pk=job.run_id)
         run.status = RunStatus.RUNNING
         run.started_at = run.started_at or now

@@ -30,6 +30,11 @@ pytestmark = pytest.mark.django_db
 GI = 1024**3
 #: protein-tools needs half a CPU and 512Mi.
 ROOMY = {"cpu": 4, "memory": 16 * GI}
+#: The test plugins, from local directories, run with the host's own software.
+LOCAL = [
+    {"name": name, "sha": None, "environments": None}
+    for name in ("dna", "protein", "structure_prediction")
+]
 
 
 @pytest.fixture
@@ -84,10 +89,21 @@ def registration(world: World, tier: str = "backend") -> str:
     return value
 
 
-def worker(world: World, capacity: dict[str, Any] | None = None, name: str = "pod-1") -> Any:
+def worker(
+    world: World,
+    capacity: dict[str, Any] | None = None,
+    name: str = "pod-1",
+    plugins: list[dict[str, Any]] | None = None,
+) -> Any:
     registering = WorkerClient(registration(world))
     made = registering.post(
-        "/register", {"name": name, "version": "0.1.0", "capacity": capacity or ROOMY}
+        "/register",
+        {
+            "name": name,
+            "version": "0.1.0",
+            "capacity": capacity or ROOMY,
+            "plugins": plugins or LOCAL,
+        },
     )
     assert made.status_code == 201, made.content
     return WorkerClient(made.json()["token"])
@@ -143,7 +159,7 @@ def test_compute_admins_make_registration_tokens(world: World) -> None:
 def test_workers_register_with_a_registration_token(world: World) -> None:
     value = registration(world)
     made = WorkerClient(value).post(
-        "/register", {"name": "pod-1", "version": "0.1.0", "capacity": ROOMY}
+        "/register", {"name": "pod-1", "version": "0.1.0", "capacity": ROOMY, "plugins": LOCAL}
     )
     assert made.status_code == 201, made.content
     body = made.json()
@@ -166,7 +182,7 @@ def test_workers_register_with_a_registration_token(world: World) -> None:
     problem(WorkerClient(value).call("GET", "/me"), 401, "not_authenticated")
     problem(
         WorkerClient(body["token"]).post(
-            "/register", {"name": "x", "version": "0.1.0", "capacity": ROOMY}
+            "/register", {"name": "x", "version": "0.1.0", "capacity": ROOMY, "plugins": LOCAL}
         ),
         401,
         "not_authenticated",
@@ -191,7 +207,7 @@ def test_revoked_and_expired_registration_tokens_register_no_one(world: World) -
     assert revoked.status_code == 200, revoked.content
     assert revoked.json()["revoked_at"] is not None
     attempt = WorkerClient(value).post(
-        "/register", {"name": "pod-2", "version": "0.1.0", "capacity": ROOMY}
+        "/register", {"name": "pod-2", "version": "0.1.0", "capacity": ROOMY, "plugins": LOCAL}
     )
     problem(attempt, 401, "not_authenticated")
     # Workers that registered with another token are untouched.
@@ -204,7 +220,7 @@ def test_revoked_and_expired_registration_tokens_register_no_one(world: World) -
         expires_at=timezone.now() - timedelta(seconds=1),
     )[1]
     late = WorkerClient(soon).post(
-        "/register", {"name": "pod-3", "version": "0.1.0", "capacity": ROOMY}
+        "/register", {"name": "pod-3", "version": "0.1.0", "capacity": ROOMY, "plugins": LOCAL}
     )
     problem(late, 401, "not_authenticated")
 
@@ -213,7 +229,7 @@ def test_revoking_a_leaked_registration_token_can_revoke_its_workers(world: Worl
     admin = api_as(world, "compute_admin")
     value = registration(world)
     made = WorkerClient(value).post(
-        "/register", {"name": "pod-1", "version": "0.1.0", "capacity": ROOMY}
+        "/register", {"name": "pod-1", "version": "0.1.0", "capacity": ROOMY, "plugins": LOCAL}
     )
     pod = WorkerClient(made.json()["token"])
     reg = admin.get("/compute/registration-tokens").json()["items"][0]
@@ -236,6 +252,7 @@ def test_compute_admins_see_and_revoke_workers(world: World) -> None:
     job = pod.lease().json()
     listed = admin.get("/compute/workers").json()["items"]
     assert [(w["name"], w["status"], w["jobs"]) for w in listed] == [("pod-1", "online", 1)]
+    assert listed[0]["plugins"] == LOCAL
     Worker.objects.update(last_seen_at=timezone.now() - timedelta(minutes=5))
     assert admin.get("/compute/workers").json()["items"][0]["status"] == "offline"
     revoked = admin.post(f"/compute/workers/{listed[0]['id']}/revoke")
@@ -308,7 +325,7 @@ def test_workers_lease_only_what_fits_on_their_tier(world: World) -> None:
     vm_value = registration(world, tier="vm")
     vm = WorkerClient(
         WorkerClient(vm_value)
-        .post("/register", {"name": "vm", "version": "0.1.0", "capacity": ROOMY})
+        .post("/register", {"name": "vm", "version": "0.1.0", "capacity": ROOMY, "plugins": LOCAL})
         .json()["token"]
     )
     queued(world)
@@ -316,6 +333,77 @@ def test_workers_lease_only_what_fits_on_their_tier(world: World) -> None:
     assert tight.lease().status_code == 204
     assert vm.lease().status_code == 204
     assert worker(world, name="roomy").lease().status_code == 200
+
+
+BUILT = "sha256:" + "b" * 64
+
+
+def _code(sha: str | None, environments: dict[str, str] | None) -> list[dict[str, Any]]:
+    return [{"name": "protein", "sha": sha, "environments": environments}]
+
+
+def test_workers_lease_only_runs_of_the_code_and_environments_they_have(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iki_server.runs import services
+
+    sha = "a" * 40
+    monkeypatch.setattr(services, "plugin_sha", lambda plugin: sha)
+    queued(world)
+    # From a local directory: runs only what a development server launches.
+    assert worker(world).lease().status_code == 204
+    other = worker(world, name="pod-2", plugins=_code("c" * 40, None))
+    assert other.lease().status_code == 204
+    unbuilt = worker(world, name="pod-3", plugins=_code(sha, {"other-tools": BUILT}))
+    assert unbuilt.lease().status_code == 204
+    built = worker(world, name="pod-4", plugins=_code(sha, {"protein-tools": BUILT}))
+    leased = built.lease()
+    assert leased.status_code == 200, leased.content
+    assert leased.json()["run"]["plugin"]["sha"] == sha
+    # What ran it, for provenance.
+    assert Job.objects.get(pk=leased.json()["job"]["id"]).environment_build == BUILT
+
+
+def test_development_workers_record_no_environment_build(world: World) -> None:
+    queued(world)
+    leased = worker(world).lease()
+    assert leased.status_code == 200, leased.content
+    assert Job.objects.get(pk=leased.json()["job"]["id"]).environment_build == ""
+
+
+def test_workers_say_what_they_run_each_time_they_start(world: World) -> None:
+    pod = worker(world)
+    me = pod.call("GET", "/me").json()
+    assert me["plugins"] == LOCAL
+    body = {
+        "version": "0.2.0",
+        "capacity": ROOMY,
+        "plugins": _code("a" * 40, {"protein-tools": BUILT}),
+    }
+    updated = pod.call("PUT", "/me", body)
+    assert updated.status_code == 200, updated.content
+    assert updated.json()["version"] == "0.2.0"
+    assert updated.json()["plugins"] == body["plugins"]
+    event = AuditEvent.objects.get(action="worker.updated")
+    assert set(event.data) == {"version", "plugins"}
+    # Starting again with nothing new records nothing.
+    assert pod.call("PUT", "/me", body).status_code == 200
+    assert AuditEvent.objects.filter(action="worker.updated").count() == 1
+
+
+def test_what_a_worker_runs_is_checked(world: World) -> None:
+    registering = WorkerClient(registration(world))
+    base = {"name": "pod-1", "version": "0.1.0", "capacity": ROOMY}
+    problem(registering.post("/register", base), 422, "validation_failed")
+    twice = [*LOCAL, LOCAL[0]]
+    problem(registering.post("/register", {**base, "plugins": twice}), 422, "validation_failed")
+    for bad in (
+        {"name": "Protein", "sha": None, "environments": None},
+        {"name": "protein", "sha": "main", "environments": None},
+        {"name": "protein", "sha": None, "environments": {"tools": "md5:abc"}},
+    ):
+        made = registering.post("/register", {**base, "plugins": [bad]})
+        problem(made, 422, "validation_failed")
 
 
 def test_projects_with_fewer_jobs_running_go_first(world: World) -> None:

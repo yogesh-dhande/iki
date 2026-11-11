@@ -24,6 +24,7 @@ from django.views.decorators.csrf import csrf_exempt
 from ninja import Field, NinjaAPI, Schema, Status
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import HttpBearer
+from pydantic import field_validator
 
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import ANONYMOUS_LIMIT, _limit
@@ -151,12 +152,56 @@ class Capacity(Schema):
     scratch_disk: Bytes = 0
 
 
-class RegisterIn(Schema):
+PluginName = Annotated[
+    str, Field(min_length=2, max_length=30, pattern=r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+]
+EnvironmentName = Annotated[
+    str, Field(min_length=1, max_length=63, pattern=r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+]
+BuildDigest = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+
+
+class PluginCode(Schema):
+    """Plugin code a worker has. It leases only runs launched with that very code."""
+
+    name: PluginName
+    sha: str | None = Field(
+        pattern=r"^[0-9a-f]{40}$",
+        description="The commit it was built from, or null for a local directory, which "
+        "runs only what a development server launches.",
+    )
+    environments: dict[EnvironmentName, BuildDigest] | None = Field(
+        max_length=100,
+        description="Each environment it has built, with that build's digest; the worker "
+        "leases only runs in these. Null runs every one with the host's own software, "
+        "as for development.",
+    )
+
+
+class WorkerIn(Schema):
+    version: str = Field(min_length=1, max_length=50, description="The iki-worker version.")
+    capacity: Capacity
+    plugins: list[PluginCode] = Field(
+        max_length=200, description="All it runs. A worker without plugins leases nothing."
+    )
+
+    @field_validator("plugins")
+    @classmethod
+    def _once_each(cls, plugins: list[PluginCode]) -> list[PluginCode]:
+        names = [p.name for p in plugins]
+        if len(set(names)) != len(names):
+            raise ValueError("lists a plugin more than once.")
+        return plugins
+
+
+class RegisterIn(WorkerIn):
     name: str = Field(
         min_length=1, max_length=200, description="Its host or pod name, for people to tell it by."
     )
-    version: str = Field(min_length=1, max_length=50, description="The iki-worker version.")
-    capacity: Capacity
+
+
+def _plugins(payload: WorkerIn) -> list[dict[str, Any]]:
+    return [p.model_dump() for p in sorted(payload.plugins, key=lambda p: p.name)]
 
 
 class RegisteredOut(Schema):
@@ -180,6 +225,7 @@ def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
         name=payload.name,
         version=payload.version,
         capacity=payload.capacity.model_dump(),
+        plugins=_plugins(payload),
     )
     return Status(
         201,
@@ -198,12 +244,25 @@ class WorkerOut(Schema):
     tier: str
     version: str
     capacity: dict[str, Any]
+    plugins: list[PluginCode]
 
 
 @api.get("/me", response=WorkerOut, summary="This worker")
 def me(request: HttpRequest) -> Worker:
     """Whether its token still works, and what the server knows of it."""
     return _worker(request)
+
+
+@api.put("/me", response=WorkerOut, summary="Say what this worker runs now")
+def update_me(request: HttpRequest, payload: WorkerIn) -> Worker:
+    """For a worker that kept its token, each time it starts: a new image can bring a new
+    version, plugins or environments."""
+    return workers.update(
+        _worker(request),
+        version=payload.version,
+        capacity=payload.capacity.model_dump(),
+        plugins=_plugins(payload),
+    )
 
 
 @api.post("/deregister", response={204: None}, summary="Stop being a worker")

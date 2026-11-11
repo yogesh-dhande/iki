@@ -37,6 +37,8 @@ jobs. Client-tier workers will sign in as their person instead (commit 30).
 **A worker leases the best job it can run:**
 
 - on its tier, with resources that fit its reported capacity
+- launched with plugin code it has, in an environment it has built
+  ([ADR 0047](0047-workers-run-only-the-code-a-run-was-launched-with.md))
 - from projects with fewer jobs running first, so one project's batch
   doesn't starve the rest
 - then by priority, then oldest first

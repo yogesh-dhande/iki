@@ -6125,6 +6125,15 @@
             ],
             "description": "For the client tier: whose machine it is."
           },
+          "plugins": {
+            "description": "The plugin code it has, which is all it leases: each one's `name`, `sha` (null for a local directory) and `environments` it has built, with each build's digest (null when it runs them with its host's own software).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
           "registered_at": {
             "format": "date-time",
             "title": "Registered At",
@@ -6179,6 +6188,7 @@
           "hint",
           "version",
           "capacity",
+          "plugins",
           "registration",
           "owner",
           "registered_at",

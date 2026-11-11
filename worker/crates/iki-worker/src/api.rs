@@ -118,13 +118,18 @@ impl Api {
         read(reply)
     }
 
-    pub fn get<R: DeserializeOwned>(&self, path: &str) -> Result<Option<R>, Error> {
+    /// PUTs `body` as JSON to `path`, as `post` does.
+    pub fn put<B: Serialize, R: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<Option<R>, Error> {
         let reply = self
             .agent
-            .get(format!("{}{path}", self.base))
+            .put(format!("{}{path}", self.base))
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/json")
-            .call();
+            .send_json(body);
         read(reply)
     }
 }

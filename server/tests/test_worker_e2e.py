@@ -292,17 +292,21 @@ def test_stopping_the_worker_interrupts_its_job(
     assert "Deregistered." in said
 
 
-def test_a_worker_without_the_plugin_says_so(
+def test_a_worker_leases_only_runs_of_plugins_it_has(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:
     run = queued(world)
-    (tmp_path / "empty").mkdir()
-    code, said = start(registration(world), "--once", plugins=tmp_path / "empty").wait()
+    only_dna = tmp_path / "plugins"
+    only_dna.mkdir()
+    (only_dna / "dna").symlink_to(PLUGINS / "dna", target_is_directory=True)
+    running = start(registration(world), plugins=only_dna)
+    pod = eventually(lambda: Worker.objects.filter(name="e2e-worker").first())
+    assert pod.plugins == [{"name": "dna", "sha": None, "environments": None}]
+    time.sleep(2)  # Long enough to lease, were it allowed to.
+    assert Job.objects.get(run_id=run["id"]).state == JobState.QUEUED
+    running.process.send_signal(signal.SIGTERM)
+    code, said = running.wait()
     assert code == 0, said
-    body = api_as(world).get(f"/runs/{run['id']}").json()
-    assert body["status"] == "failed", body
-    assert body["error"]["message"].startswith("This worker has no code for the plugin protein")
-    assert "Couldn't remove" not in said
 
 
 def test_input_files_are_staged_and_result_files_uploaded(

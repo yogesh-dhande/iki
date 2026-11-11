@@ -4158,6 +4158,13 @@ export interface components {
             /** @description For the client tier: whose machine it is. */
             owner: components["schemas"]["PersonOut"] | null;
             /**
+             * Plugins
+             * @description The plugin code it has, which is all it leases: each one's `name`, `sha` (null for a local directory) and `environments` it has built, with each build's digest (null when it runs them with its host's own software).
+             */
+            plugins: {
+                [key: string]: unknown;
+            }[];
+            /**
              * Registered At
              * Format: date-time
              */

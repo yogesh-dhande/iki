@@ -371,6 +371,61 @@
         "title": "PartsIn",
         "type": "object"
       },
+      "PluginCode": {
+        "description": "Plugin code a worker has. It leases only runs launched with that very code.",
+        "properties": {
+          "environments": {
+            "anyOf": [
+              {
+                "maxProperties": 100,
+                "patternProperties": {
+                  "^[a-z][a-z0-9]*(-[a-z0-9]+)*$": {
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                    "type": "string"
+                  }
+                },
+                "propertyNames": {
+                  "maxLength": 63,
+                  "minLength": 1
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Each environment it has built, with that build's digest; the worker leases only runs in these. Null runs every one with the host's own software, as for development.",
+            "title": "Environments"
+          },
+          "name": {
+            "maxLength": 30,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "sha": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The commit it was built from, or null for a local directory, which runs only what a development server launches.",
+            "title": "Sha"
+          }
+        },
+        "required": [
+          "name",
+          "sha",
+          "environments"
+        ],
+        "title": "PluginCode",
+        "type": "object"
+      },
       "ProgressIn": {
         "properties": {
           "fraction": {
@@ -410,6 +465,15 @@
             "title": "Name",
             "type": "string"
           },
+          "plugins": {
+            "description": "All it runs. A worker without plugins leases nothing.",
+            "items": {
+              "$ref": "#/components/schemas/PluginCode"
+            },
+            "maxItems": 200,
+            "title": "Plugins",
+            "type": "array"
+          },
           "version": {
             "description": "The iki-worker version.",
             "maxLength": 50,
@@ -419,9 +483,10 @@
           }
         },
         "required": [
-          "name",
           "version",
-          "capacity"
+          "capacity",
+          "plugins",
+          "name"
         ],
         "title": "RegisterIn",
         "type": "object"
@@ -602,6 +667,36 @@
         "title": "UploadOut",
         "type": "object"
       },
+      "WorkerIn": {
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/Capacity"
+          },
+          "plugins": {
+            "description": "All it runs. A worker without plugins leases nothing.",
+            "items": {
+              "$ref": "#/components/schemas/PluginCode"
+            },
+            "maxItems": 200,
+            "title": "Plugins",
+            "type": "array"
+          },
+          "version": {
+            "description": "The iki-worker version.",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "capacity",
+          "plugins"
+        ],
+        "title": "WorkerIn",
+        "type": "object"
+      },
       "WorkerOut": {
         "properties": {
           "capacity": {
@@ -618,6 +713,13 @@
             "title": "Name",
             "type": "string"
           },
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/PluginCode"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
           "tier": {
             "title": "Tier",
             "type": "string"
@@ -632,7 +734,8 @@
           "name",
           "tier",
           "version",
-          "capacity"
+          "capacity",
+          "plugins"
         ],
         "title": "WorkerOut",
         "type": "object"
@@ -1134,6 +1237,39 @@
           }
         ],
         "summary": "This worker"
+      },
+      "put": {
+        "description": "For a worker that kept its token, each time it starts: a new image can bring a new\nversion, plugins or environments.",
+        "operationId": "iki_server_api_worker_update_me",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Say what this worker runs now"
       }
     },
     "/worker/v1/register": {

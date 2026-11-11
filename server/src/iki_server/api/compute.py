@@ -168,6 +168,11 @@ class WorkerOut(Schema):
         description="What it can give one job: cpu, memory, gpu_count, gpu_memory and "
         "scratch_disk (bytes)."
     )
+    plugins: list[dict[str, Any]] = Field(
+        description="The plugin code it has, which is all it leases: each one's `name`, "
+        "`sha` (null for a local directory) and `environments` it has built, with each "
+        "build's digest (null when it runs them with its host's own software)."
+    )
     registration: UUID | None = Field(alias="registration_id")
     owner: PersonOut | None = Field(description="For the client tier: whose machine it is.")
     registered_at: datetime
@@ -194,6 +199,7 @@ def _worker_out(worker: Worker) -> dict[str, Any]:
                 "hint",
                 "version",
                 "capacity",
+                "plugins",
                 "registration_id",
                 "registered_at",
                 "last_seen_at",

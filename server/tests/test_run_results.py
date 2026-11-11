@@ -14,7 +14,7 @@ from org_world import World, build_world
 from test_api_entities import api_as, create
 from test_files import run_tasks
 from test_runs import TEMPLATE, _capacity, launch, protein
-from test_workers import WorkerClient, keep_connection, queued, registration, worker
+from test_workers import LOCAL, WorkerClient, keep_connection, queued, registration, worker
 
 from iki_server.entities.models import Entity, Revision
 from iki_server.files import services as files
@@ -253,7 +253,12 @@ def test_a_run_cancelled_meanwhile_writes_nothing(world: World) -> None:
 def _vm(world: World) -> WorkerClient:
     made = WorkerClient(registration(world, tier="vm")).post(
         "/register",
-        {"name": "gpu-1", "version": "0.1.0", "capacity": _capacity(96, 1152, gpus=8)},
+        {
+            "name": "gpu-1",
+            "version": "0.1.0",
+            "capacity": _capacity(96, 1152, gpus=8),
+            "plugins": LOCAL,
+        },
     )
     assert made.status_code == 201, made.content
     return WorkerClient(made.json()["token"])

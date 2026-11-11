@@ -326,6 +326,16 @@ pub struct PartsIn {
     pub numbers: Option<Vec<i64>>,
 }
 
+/// Plugin code a worker has. It leases only runs launched with that very code.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginCode {
+    /// Each environment it has built, with that build's digest; the worker leases only runs in these. Null runs every one with the host's own software, as for development.
+    pub environments: Option<serde_json::Map<String, serde_json::Value>>,
+    pub name: String,
+    /// The commit it was built from, or null for a local directory, which runs only what a development server launches.
+    pub sha: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProgressIn {
     pub fraction: f64,
@@ -339,6 +349,8 @@ pub struct RegisterIn {
     pub capacity: Capacity,
     /// Its host or pod name, for people to tell it by.
     pub name: String,
+    /// All it runs. A worker without plugins leases nothing.
+    pub plugins: Vec<PluginCode>,
     /// The iki-worker version.
     pub version: String,
 }
@@ -426,10 +438,20 @@ pub enum UploadOutState {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkerIn {
+    pub capacity: Capacity,
+    /// All it runs. A worker without plugins leases nothing.
+    pub plugins: Vec<PluginCode>,
+    /// The iki-worker version.
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkerOut {
     pub capacity: serde_json::Map<String, serde_json::Value>,
     pub id: String,
     pub name: String,
+    pub plugins: Vec<PluginCode>,
     pub tier: String,
     pub version: String,
 }

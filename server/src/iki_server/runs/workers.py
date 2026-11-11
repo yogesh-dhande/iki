@@ -107,7 +107,12 @@ def registration_for(header: str) -> RegistrationToken | None:
 
 
 def register(
-    registration: RegistrationToken, *, name: str, version: str, capacity: dict[str, Any]
+    registration: RegistrationToken,
+    *,
+    name: str,
+    version: str,
+    capacity: dict[str, Any],
+    plugins: list[dict[str, Any]],
 ) -> tuple[Worker, str]:
     """A new worker for the registration's tier, and its token (shown once)."""
     value = _token(WORKER_PREFIX)
@@ -121,15 +126,41 @@ def register(
             registration=registration,
             version=version,
             capacity={k: capacity.get(k) for k in CAPACITY_KEYS},
+            plugins=plugins,
             last_seen_at=now,
         )
         RegistrationToken.objects.filter(pk=registration.pk).update(last_used_at=now)
         audit.record(
             "worker.registered",
             target=worker,
-            data={"tier": worker.tier, "registration": str(registration.pk), "version": version},
+            data={
+                "tier": worker.tier,
+                "registration": str(registration.pk),
+                "version": version,
+                "plugins": plugins,
+            },
         )
     return worker, value
+
+
+def update(
+    worker: Worker, *, version: str, capacity: dict[str, Any], plugins: list[dict[str, Any]]
+) -> Worker:
+    """What a worker that kept its token says it is now, each time it starts: a new image
+    can bring a new version, plugins or environments. Audited when it changes."""
+    capacity = {k: capacity.get(k) for k in CAPACITY_KEYS}
+    changed = {
+        key: value
+        for key, value in (("version", version), ("capacity", capacity), ("plugins", plugins))
+        if getattr(worker, key) != value
+    }
+    with transaction.atomic():
+        Worker.objects.filter(pk=worker.pk).update(**changed, last_seen_at=timezone.now())
+        if changed:
+            audit.record("worker.updated", target=worker, data=changed)
+    for key, value in changed.items():
+        setattr(worker, key, value)
+    return worker
 
 
 def authenticate(header: str) -> Worker | None:

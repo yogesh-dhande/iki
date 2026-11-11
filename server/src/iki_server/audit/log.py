@@ -69,6 +69,7 @@ ACTIONS: dict[str, str] = {
     "worker_registration.created": "Created a worker registration token",
     "worker_registration.revoked": "Revoked a worker registration token",
     "worker.registered": "A worker registered",
+    "worker.updated": "A worker changed what it runs",
     "worker.revoked": "Revoked a worker",
     "quota.created": "Set a run quota",
     "quota.updated": "Changed a run quota",

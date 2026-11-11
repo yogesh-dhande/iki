@@ -8,12 +8,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use iki_protocol::{RegisterIn, RegisteredOut, WorkerOut, paths};
+use iki_protocol::{PluginCode, RegisterIn, RegisteredOut, WorkerIn, WorkerOut, paths};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{self, Api, Error};
 use crate::config::Config;
 use crate::job::{self, Ended};
+use crate::plugins;
 use crate::say;
 
 /// Seconds a lease request waits for work. Short enough that a stopping worker isn't
@@ -53,14 +54,20 @@ fn save(path: &Path, saved: &Saved) -> std::io::Result<()> {
 
 /// The worker's API client, with its own token: the saved one if it still works, or a
 /// new one from registering.
-fn sign_in(config: &Config) -> Result<(Api, bool), String> {
+/// Signs in with the saved token, saying what the worker runs now, or registers.
+fn sign_in(config: &Config, plugins: &[PluginCode]) -> Result<(Api, bool), String> {
     let anonymous = Api::new(&config.url, "");
     if let Some(path) = &config.state_file
         && let Some(saved) = load(path, &config.url)
     {
         let api = anonymous.with_token(&saved.token);
+        let body = WorkerIn {
+            capacity: config.capacity.clone(),
+            plugins: plugins.to_vec(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+        };
         match api::retrying(std::time::Instant::now() + Duration::from_secs(120), || {
-            api.get::<WorkerOut>(paths::ME)
+            api.put::<_, WorkerOut>(paths::ME, &body)
         }) {
             Ok(_) => {
                 say::info("Signed in with the saved token.", &[("worker", &saved.id)]);
@@ -82,6 +89,7 @@ fn sign_in(config: &Config) -> Result<(Api, bool), String> {
     let body = RegisterIn {
         capacity: config.capacity.clone(),
         name: config.name.clone(),
+        plugins: plugins.to_vec(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
     };
     let registering = anonymous.with_token(registration);
@@ -138,7 +146,14 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         signal_hook::flag::register(signal, Arc::clone(&interrupted))
             .map_err(|error| format!("Couldn't watch for signals: {error}"))?;
     }
-    let (api, ephemeral) = sign_in(config)?;
+    let plugins = plugins::discover(&config.plugins_dir)?;
+    if plugins.is_empty() {
+        say::warn(
+            "IKI_PLUGINS_DIR holds no plugins, so this worker can run nothing.",
+            &[("path", &config.plugins_dir.display())],
+        );
+    }
+    let (api, ephemeral) = sign_in(config, &plugins)?;
     let lease = format!("{}?wait={LEASE_WAIT}", paths::LEASE);
     let mut failures = 0;
     let mut outcome = Ok(());
@@ -147,7 +162,7 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         match api.post::<_, serde_json::Value>(&lease, &serde_json::json!({})) {
             Ok(Some(raw)) => {
                 failures = 0;
-                if job::run(&api, config, &interrupted, &raw) == Ended::Unauthorized {
+                if job::run(&api, config, &plugins, &interrupted, &raw) == Ended::Unauthorized {
                     outcome = Err(revoked());
                     break;
                 }

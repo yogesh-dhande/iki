@@ -182,7 +182,11 @@ def _worker(w: World) -> Any:
     from iki_server.runs import workers
 
     worker, _ = workers.register(
-        _registration(w), name="pod-1", version="0.1.0", capacity={"cpu": 2, "memory": 2**31}
+        _registration(w),
+        name="pod-1",
+        version="0.1.0",
+        capacity={"cpu": 2, "memory": 2**31},
+        plugins=[],
     )
     return worker
 

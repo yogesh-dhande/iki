@@ -10,6 +10,7 @@ mod files;
 mod job;
 mod local;
 mod logs;
+mod plugins;
 mod say;
 mod worker;
 

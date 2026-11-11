@@ -28,7 +28,7 @@ iki-worker start
 | `IKI_URL`                                  | The server. `https://` only; `http://` is accepted for localhost.               |
 | `IKI_REGISTRATION_TOKEN`                   | Registers the worker. Not needed again once `IKI_WORKER_STATE` holds a token.   |
 | `IKI_WORKER_STATE`                         | A file to keep the worker's own token in (mode 0600), so restarts reuse it.     |
-| `IKI_PLUGINS_DIR`                          | Each plugin's code, in a directory named for the plugin.                        |
+| `IKI_PLUGINS_DIR`                          | Each plugin's code, in a directory named for the plugin. All the worker runs.   |
 | `IKI_WORK_DIR`                             | Where jobs run, a private directory each. A temporary directory unless set.     |
 | `IKI_WORKER_NAME`                          | How people tell it apart in Compute settings. The host name unless set.         |
 | `IKI_WORKER_CPU`, `IKI_WORKER_MEMORY`      | What one job may use, such as `4` and `16Gi`. Detected on Linux (cgroup-aware). |
@@ -37,6 +37,11 @@ iki-worker start
 | `HTTPS_PROXY`, `NO_PROXY`                  | A proxy to reach the server through.                                            |
 | `SSL_CERT_FILE`                            | CA certificates, if the operating system's don't cover the server or the proxy. |
 | `IKI_KEEP_JOB_DIRS`                        | `1` keeps each job's directory after it ends, to debug a command.               |
+
+The worker leases only runs launched with the plugin code it has
+([ADR 0047](../docs/adr/0047-workers-run-only-the-code-a-run-was-launched-with.md)).
+A plugin in a plain directory counts as local: it runs what a development
+server launches, with the host's own software.
 
 `iki-worker start --once` runs one job and exits. SIGTERM or SIGINT stops
 the current job's command (SIGTERM, then SIGKILL after 10 seconds), reports

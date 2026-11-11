@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use iki_protocol::{
     CompleteIn, CompleteOut, FailIn, FailInReason, FailOut, HeartbeatIn, HeartbeatInState,
-    HeartbeatOut, LogIn, LogOut, ProgressIn, RunInput, RunInputFile, fill, paths,
+    HeartbeatOut, LogIn, LogOut, PluginCode, ProgressIn, RunInput, RunInputFile, fill, paths,
 };
 use rustix::process::{Pid, Signal, kill_process_group};
 
@@ -33,6 +33,7 @@ use crate::api::{self, Api, Error};
 use crate::config::Config;
 use crate::files;
 use crate::logs::{self, Log};
+use crate::plugins;
 use crate::say;
 
 /// The most `output.json` may hold, as the server accepts.
@@ -531,7 +532,13 @@ fn clip(text: &str, max: usize) -> String {
 }
 
 /// Runs a job the worker just leased, from the run input as the server sent it.
-pub fn run(api: &Api, config: &Config, interrupted: &AtomicBool, raw: &serde_json::Value) -> Ended {
+pub fn run(
+    api: &Api,
+    config: &Config,
+    have: &[PluginCode],
+    interrupted: &AtomicBool,
+    raw: &serde_json::Value,
+) -> Ended {
     let input: RunInput = match serde_json::from_value(raw.clone()) {
         Ok(input) => input,
         Err(error) => return unreadable(api, raw, &error.to_string()),
@@ -570,7 +577,14 @@ pub fn run(api: &Api, config: &Config, interrupted: &AtomicBool, raw: &serde_jso
     };
     let dirs = Dirs::new(&config.work_dir, &job.id);
     let plugin_dir = config.plugins_dir.join(&input.run.plugin.name);
-    let report = if plugin_dir.is_dir() {
+    let mismatch = plugins::mismatch(
+        have,
+        &input.run.plugin.name,
+        input.run.plugin.sha.as_deref(),
+    );
+    let report = if let Some(message) = mismatch {
+        Some(Report::Fail(FailInReason::Failed, message))
+    } else if plugin_dir.is_dir() {
         let timeout = Duration::from_secs(u64::try_from(input.job.timeout.max(1)).unwrap_or(3600));
         execute(&job, &input, &plugin_dir, &dirs, raw, interrupted, timeout)
     } else {
