@@ -22,6 +22,7 @@ server.
 | ------------------ | -------------------------------------------------------------------- |
 | `server/`          | Django project (`iki_server`): REST API, worker API, MCP server      |
 | `cli/`             | The `iki` command-line tool (`iki_cli`)                              |
+| `sdk/python/`      | The Python SDK, `ikisci` on PyPI, imported as `iki`                  |
 | `spec/`            | The versioned plugin specs (JSON Schemas), their validator, UCUM     |
 | `codegen/`         | Compiles plugin manifests into Django apps (`iki_codegen`)           |
 | `web/`             | React host app and the `@ikisci/*` TypeScript packages               |
@@ -30,9 +31,6 @@ server.
 | `plugins/`         | Iki's first-party plugins, such as `dna`                             |
 | `plugin-template/` | Where a lab's own plugin starts: example types, migrations, CI       |
 | `docs/adr/`        | Architecture Decision Records                                        |
-
-More directories (`sdk/python/`) arrive
-as the features that need them land.
 
 ## Development
 

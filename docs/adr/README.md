@@ -80,3 +80,4 @@ supersedes the old one, and update the old one's status.
 | [0048](0048-backend-workers-run-in-baked-isolated-pods.md)        | Backend workers run in baked, isolated pods                                                     | Accepted |
 | [0049](0049-mcp-tools-call-the-rest-api.md)                       | MCP tools call Iki's REST API in-process, as the agent                                          | Accepted |
 | [0050](0050-agents-runs-on-costly-tiers-wait-for-approval.md)     | An agent's runs on costly tiers wait for the person's approval                                  | Accepted |
+| [0051](0051-the-python-sdk.md)                                    | The Python SDK signs in as the person and keeps the API's shapes                                | Accepted |

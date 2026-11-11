@@ -88,6 +88,7 @@ def server(
             role,
             tmp_path_factory.mktemp("static"),
             PYTHONPATH=plugins,
+            IKI_COMPUTE_FILE=os.environ["IKI_COMPUTE_FILE"],
             IKI_FILES_BUCKET="iki",
             IKI_FILES_PREFIX=PREFIX,
             IKI_FILES_ENDPOINT_URL=_s3_endpoint,

@@ -1,0 +1,39 @@
+[project]
+name = "ikisci"
+version = "0.1.0.dev0"
+description = "Iki's Python SDK: search, read and change entities, run actions and wait for them, from notebooks and scripts."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The Iki Authors" }]
+keywords = ["iki", "lims", "eln", "bioinformatics", "provenance"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Typing :: Typed",
+]
+dependencies = [
+  # Uses the system's trusted certificates (truststore), as corporate proxies need.
+  "httpx2>=2.16.0",
+  # Keeps sign-ins in the system keychain: macOS Keychain, Windows Credential
+  # Manager, or the Secret Service on Linux.
+  "keyring>=25.6.0",
+]
+
+[project.optional-dependencies]
+pandas = ["pandas>=2.3.0"]
+
+[project.urls]
+Homepage = "https://ikisci.org"
+Source = "https://github.com/ikisci/iki"
+
+[tool.uv.build-backend]
+module-name = "iki"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"

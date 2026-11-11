@@ -59,9 +59,10 @@ core: ## Regenerate the core plugin's app in the server, and make its migrations
 	cd server && uv run python -m iki_server.plugins.makemigrations core
 
 .PHONY: client
-client: ## Regenerate the TypeScript API client from the server's OpenAPI document
+client: ## Regenerate the API clients (TypeScript, and the Python SDK's types) from the OpenAPI document
 	scripts/openapi.sh > web/packages/sdk/openapi.json
 	$(PNPM) --filter @ikisci/sdk generate
+	uv run python -m iki_codegen.sdk web/packages/sdk/openapi.json > sdk/python/src/iki/schema.py
 
 .PHONY: protocol
 protocol: ## Regenerate the worker's protocol types from the server's schemas and API

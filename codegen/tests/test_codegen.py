@@ -150,3 +150,14 @@ def test_the_worker_protocol_types_are_current() -> None:
     assert protocol.generate(document) == committed, (
         "The protocol types are out of date. Run `make protocol` and commit worker/."
     )
+
+
+def test_the_python_sdk_types_are_current() -> None:
+    from iki_codegen import sdk
+
+    root = Path(__file__).parents[2]
+    document = json.loads((root / "web/packages/sdk/openapi.json").read_text(encoding="utf-8"))
+    committed = (root / "sdk/python/src/iki/schema.py").read_text(encoding="utf-8")
+    assert sdk.generate(document) == committed, (
+        "The Python SDK's types are out of date. Run `make client` and commit sdk/python/."
+    )

@@ -65,6 +65,11 @@ name = "iki-codegen"
 ecosystem = "PyPI"
 license.override = ["Apache-2.0"]
 
+[[PackageOverrides]]
+name = "ikisci"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0"]
+
 # iki-spec's code is Apache-2.0. It also ships the UCUM units table, unmodified,
 # under the UCUM License (see NOTICE and spec/src/iki_spec/units/UCUM-LICENSE.md).
 [[PackageOverrides]]
@@ -144,6 +149,18 @@ license.ignore = true
 [[PackageOverrides]]
 name = "mdn-data"
 ecosystem = "npm"
+license.ignore = true
+
+# numpy is BSD-3-Clause, with vendored parts under 0BSD, MIT and Zlib (all allowed)
+# and two small random-number routines dedicated to the public domain under CC0-1.0:
+# Highway's random-inl.h and SplitMix64. It's installed only with the SDK's optional
+# `pandas` extra, which no Iki image includes, and used unmodified. CC0 is a
+# public-domain dedication: nothing it covers asks anything of Iki. This exception
+# covers numpy alone, not CC0-1.0 in general.
+
+[[PackageOverrides]]
+name = "numpy"
+ecosystem = "PyPI"
 license.ignore = true
 
 # webpki-root-certs (CDLA-Permissive-2.0, Mozilla's root certificates as data) is

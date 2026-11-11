@@ -67,9 +67,10 @@ join teams. On a service account's page, Org Admins create credentials
 
 ### OAuth apps
 
-Iki is an OAuth 2.1 server (ADR 0028). The CLI and SDK sign in with the
-device flow; MCP clients and other tools register themselves and use the
-authorization code flow with PKCE. Clients find everything from
+Iki is an OAuth 2.1 server (ADR 0028). The CLI and the Python SDK
+(`sdk/python`, ADR 0051) sign in with the device flow; MCP clients and
+other tools register themselves and use the authorization code flow with
+PKCE. Clients find everything from
 `/.well-known/oauth-authorization-server`.
 
 New self-registered apps wait for an Org Admin's approval under **Settings
