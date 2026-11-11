@@ -4,6 +4,65 @@
  */
 
 export interface paths {
+    "/api/v1/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Installed actions
+         * @description Every action installed plugins provide, in name order, with whether it can run here.
+         */
+        get: operations["iki_server_api_runs_list_actions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actions/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An action */
+        get: operations["iki_server_api_runs_get_action"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/actions/{name}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an action
+         * @description Queue a run. Everything is checked first: your role for the action's tier, that it can
+         *     run on this deployment, its inputs (entities you can read, of the right types, not archived,
+         *     and editable by you where it changes them) and its params.
+         */
+        post: operations["iki_server_api_runs_launch_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collections": {
         parameters: {
             query?: never;
@@ -705,6 +764,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runs you can read
+         * @description Newest first.
+         */
+        get: operations["iki_server_api_runs_list_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A run
+         * @description By its ID or HRID (RUN-000123).
+         */
+        get: operations["iki_server_api_runs_get_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{ref}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a run
+         * @description A queued run is cancelled at once; a running one is asked to stop, and its worker ends
+         *     it. Whoever may launch the run's tier in its project may cancel it.
+         */
+        post: operations["iki_server_api_runs_cancel_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/saved-searches": {
         parameters: {
             query?: never;
@@ -1214,6 +1334,64 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionOut */
+        ActionOut: {
+            /**
+             * Available
+             * @description Whether it can run on this deployment.
+             */
+            available: boolean;
+            /** Creates */
+            creates: components["schemas"]["CreatesOut"][];
+            /** Description */
+            description: string | null;
+            /** Deterministic */
+            deterministic: boolean;
+            /** Environment */
+            environment: string;
+            /** Inputs */
+            inputs: components["schemas"]["InputOut"][];
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description The qualified name, such as `protein.compute_properties`.
+             */
+            name: string;
+            /**
+             * Needs
+             * @description The project role that runs it: Editor (client and backend tiers) or Runner (container and vm).
+             */
+            needs: string;
+            /**
+             * Network
+             * @description The hosts its runs may reach.
+             */
+            network: string[];
+            /** Params */
+            params: components["schemas"]["ParamOut"][];
+            /** Plugin */
+            plugin: string;
+            /**
+             * Secrets
+             * @description The secrets its runs get, by name.
+             */
+            secrets: string[];
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "client" | "backend" | "container" | "vm";
+            /**
+             * Timeout
+             * @description Seconds each attempt may run.
+             */
+            timeout: number;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+            /** Updates */
+            updates: components["schemas"]["UpdatesOut"][];
+        };
         /** AttemptOut */
         AttemptOut: {
             /**
@@ -1227,6 +1405,15 @@ export interface components {
             error: string;
             /** Status Code */
             status_code: number | null;
+        };
+        /** CancelIn */
+        CancelIn: {
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
         };
         /** ChangeOut */
         ChangeOut: {
@@ -1396,6 +1583,18 @@ export interface components {
             values: {
                 [key: string]: unknown;
             };
+        };
+        /** CreatesOut */
+        CreatesOut: {
+            /**
+             * Cardinality
+             * @enum {string}
+             */
+            cardinality: "one" | "many";
+            /** Derived From */
+            derived_from: string[];
+            /** Type */
+            type: string;
         };
         /** DeliveryFilters */
         DeliveryFilters: {
@@ -1741,6 +1940,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ErrorOut */
+        ErrorOut: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
         /** EventTypeOut */
         EventTypeOut: {
             /** Description */
@@ -1910,6 +2116,26 @@ export interface components {
              * @description true: only unread ones.
              */
             unread?: boolean | null;
+        };
+        /** InputOut */
+        InputOut: {
+            /**
+             * Cardinality
+             * @enum {string}
+             */
+            cardinality: "one" | "many";
+            /** Description */
+            description: string | null;
+            /** Label */
+            label: string;
+            /** Max */
+            max: number | null;
+            /** Name */
+            name: string;
+            /** Optional */
+            optional: boolean;
+            /** Type */
+            type: string;
         };
         /**
          * InventoryOut
@@ -2185,6 +2411,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[RunOut] */
+        Page_RunOut_: {
+            /** Items */
+            items: components["schemas"]["RunOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[ServiceAccountOut] */
         Page_ServiceAccountOut_: {
             /** Items */
@@ -2255,6 +2491,32 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** ParamOut */
+        ParamOut: {
+            /** Default */
+            default?: unknown;
+            /** Description */
+            description: string | null;
+            /** Label */
+            label: string;
+            /** Max */
+            max: number | null;
+            /** Min */
+            min: number | null;
+            /** Name */
+            name: string;
+            /** Required */
+            required: boolean;
+            /** Type */
+            type: string;
+            /** Unit */
+            unit: string | null;
+            /**
+             * Values
+             * @description For enum params: the choices.
+             */
+            values: string[];
+        };
         /** PartOut */
         PartOut: {
             /** Number */
@@ -2277,6 +2539,16 @@ export interface components {
              * @description The parts to sign again; all of them if left out.
              */
             numbers?: number[] | null;
+        };
+        /** PersonOut */
+        PersonOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** PersonRef */
         PersonRef: {
@@ -2658,6 +2930,146 @@ export interface components {
              */
             role: "viewer" | "editor" | "runner" | "admin";
         };
+        /** RunCan */
+        RunCan: {
+            /** Cancel */
+            cancel: boolean;
+        };
+        /** RunFilters */
+        RunFilters: {
+            /**
+             * Action
+             * @description Only runs of this action.
+             */
+            action?: string | null;
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Only runs in this project.
+             */
+            project?: string | null;
+            status?: components["schemas"]["RunStatus"] | null;
+        };
+        /** RunIn */
+        RunIn: {
+            /**
+             * Inputs
+             * @description Entity IDs for each input: one, or a list for inputs that take many.
+             */
+            inputs?: {
+                [key: string]: string | string[];
+            };
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Project
+             * Format: uuid
+             * @description Where it runs. Entities it creates belong to it.
+             */
+            project: string;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+        };
+        /** RunInputOut */
+        RunInputOut: {
+            /**
+             * Entity
+             * Format: uuid
+             */
+            entity: string;
+            /** Hrid */
+            hrid: string;
+            /** Name */
+            name: string;
+            /**
+             * Revision
+             * @description The revision the run read.
+             */
+            revision: number;
+        };
+        /** RunOut */
+        RunOut: {
+            /** Action */
+            action: string;
+            /** Attempts */
+            attempts: number;
+            can: components["schemas"]["RunCan"];
+            /** Cancel Requested At */
+            cancel_requested_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Environment */
+            environment: string;
+            error: components["schemas"]["ErrorOut"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inputs */
+            inputs: components["schemas"]["RunInputOut"][];
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /**
+             * Plugin Sha
+             * @description The plugin's commit, when built from a lockfile.
+             */
+            plugin_sha: string;
+            /** Plugin Version */
+            plugin_version: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Reason */
+            reason: string;
+            requested_by: components["schemas"]["PersonOut"];
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected";
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "client" | "backend" | "container" | "vm";
+            /** Via */
+            via: string;
+        };
+        /**
+         * RunStatus
+         * @enum {string}
+         */
+        RunStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected";
         /** SavedSearchCan */
         SavedSearchCan: {
             /** Change */
@@ -3011,6 +3423,13 @@ export interface components {
              */
             symbol: string;
         };
+        /** UpdatesOut */
+        UpdatesOut: {
+            /** Fields */
+            fields: string[];
+            /** Input */
+            input: string;
+        };
         /** UploadIn */
         UploadIn: {
             /**
@@ -3272,6 +3691,74 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    iki_server_api_runs_list_actions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_get_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_launch_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"];
+                };
+            };
+        };
+    };
     iki_server_api_collections_create_collection: {
         parameters: {
             query?: never;
@@ -4324,6 +4811,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegistrationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_list_runs: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only runs in this project. */
+                project?: string | null;
+                /** @description Only runs of this action. */
+                action?: string | null;
+                status?: components["schemas"]["RunStatus"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RunOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_get_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_cancel_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"];
                 };
             };
         };

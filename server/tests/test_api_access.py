@@ -135,6 +135,32 @@ def linked_into_archived(w: World) -> tuple[str, Any]:
     return f"/entities/{found.pk}/projects/{w.archived.pk}", None
 
 
+def _protein(w: World) -> Any:
+    from iki_server.entities import services as entities
+
+    return entities.create(
+        w.users["editor"], "protein.Protein", w.project, {"sequence": "MKV"}
+    ).entity
+
+
+def _run(w: World) -> Any:
+    from iki_server.runs import catalog
+    from iki_server.runs import services as runs
+
+    action = catalog.action("protein.compute_properties")
+    assert action is not None
+    return runs.launch(w.users["editor"], action, w.project, {"protein": [_protein(w).pk]}, {})
+
+
+def launch_run(w: World) -> tuple[str, Any]:
+    body = {"project": str(w.project.pk), "inputs": {"protein": str(_protein(w).pk)}}
+    return "/actions/protein.compute_properties/runs", body
+
+
+def run(suffix: str = "", body: Any = None) -> Build:
+    return lambda w: (f"/runs/{_run(w).pk}{suffix}", body)
+
+
 #: Entities are read by anyone with a role in one of their projects. Org Admins see that
 #: projects exist, but read their data only with a role, like everyone else.
 ENTITY_READERS = ("viewer", "editor", "runner", "admin", "via_team", "mixed")
@@ -410,6 +436,19 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
     ),
     ("POST", "/collections/{ref}/freeze", dynamic_collection, editors(200)),
+    # Actions are listed to everyone signed in. Running on the backend tier takes Editor;
+    # runs are read with their project, and cancelled by whoever may run them.
+    ("GET", "/actions", fixed("/actions"), row(200)),
+    ("GET", "/actions/{name}", fixed("/actions/protein.compute_properties"), row(200)),
+    (
+        "POST",
+        "/actions/{name}/runs",
+        launch_run,
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
+    ),
+    ("GET", "/runs", fixed("/runs"), row(200)),
+    ("GET", "/runs/{ref}", run(), readers(200)),
+    ("POST", "/runs/{ref}/cancel", run("/cancel", {}), editors(200)),
     # Uploads are their maker's; files are read through the project they were added to.
     (
         "POST",

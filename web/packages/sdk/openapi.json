@@ -1,6 +1,143 @@
 {
   "components": {
     "schemas": {
+      "ActionOut": {
+        "properties": {
+          "available": {
+            "description": "Whether it can run on this deployment.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "creates": {
+            "items": {
+              "$ref": "#/components/schemas/CreatesOut"
+            },
+            "title": "Creates",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "deterministic": {
+            "title": "Deterministic",
+            "type": "boolean"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/InputOut"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "The qualified name, such as `protein.compute_properties`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "needs": {
+            "description": "The project role that runs it: Editor (client and backend tiers) or Runner (container and vm).",
+            "title": "Needs",
+            "type": "string"
+          },
+          "network": {
+            "description": "The hosts its runs may reach.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Network",
+            "type": "array"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamOut"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "secrets": {
+            "description": "The secrets its runs get, by name.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Secrets",
+            "type": "array"
+          },
+          "tier": {
+            "enum": [
+              "client",
+              "backend",
+              "container",
+              "vm"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "timeout": {
+            "description": "Seconds each attempt may run.",
+            "title": "Timeout",
+            "type": "integer"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "updates": {
+            "items": {
+              "$ref": "#/components/schemas/UpdatesOut"
+            },
+            "title": "Updates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "plugin",
+          "label",
+          "description",
+          "tier",
+          "environment",
+          "inputs",
+          "params",
+          "creates",
+          "updates",
+          "deterministic",
+          "network",
+          "secrets",
+          "timeout",
+          "available",
+          "unavailable_reason",
+          "needs"
+        ],
+        "title": "ActionOut",
+        "type": "object"
+      },
       "AttemptOut": {
         "properties": {
           "at": {
@@ -35,6 +172,19 @@
           "duration_ms"
         ],
         "title": "AttemptOut",
+        "type": "object"
+      },
+      "CancelIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "CancelIn",
         "type": "object"
       },
       "ChangeOut": {
@@ -407,6 +557,36 @@
           "linked"
         ],
         "title": "CreatedOut",
+        "type": "object"
+      },
+      "CreatesOut": {
+        "properties": {
+          "cardinality": {
+            "enum": [
+              "one",
+              "many"
+            ],
+            "title": "Cardinality",
+            "type": "string"
+          },
+          "derived_from": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Derived From",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "cardinality",
+          "derived_from"
+        ],
+        "title": "CreatesOut",
         "type": "object"
       },
       "DeliveryFilters": {
@@ -1141,6 +1321,24 @@
         "title": "EntityTypeOut",
         "type": "object"
       },
+      "ErrorOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorOut",
+        "type": "object"
+      },
       "EventTypeOut": {
         "properties": {
           "description": {
@@ -1523,6 +1721,67 @@
           }
         },
         "title": "InboxFilters",
+        "type": "object"
+      },
+      "InputOut": {
+        "properties": {
+          "cardinality": {
+            "enum": [
+              "one",
+              "many"
+            ],
+            "title": "Cardinality",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "optional": {
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "description",
+          "type",
+          "cardinality",
+          "max",
+          "optional"
+        ],
+        "title": "InputOut",
         "type": "object"
       },
       "InventoryOut": {
@@ -2199,6 +2458,35 @@
         "title": "Page[RevisionOut]",
         "type": "object"
       },
+      "Page_RunOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RunOut]",
+        "type": "object"
+      },
       "Page_ServiceAccountOut_": {
         "properties": {
           "items": {
@@ -2402,6 +2690,94 @@
         "title": "Page[WebhookOut]",
         "type": "object"
       },
+      "ParamOut": {
+        "properties": {
+          "default": {
+            "title": "Default"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "values": {
+            "description": "For enum params: the choices.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "description",
+          "type",
+          "required",
+          "values",
+          "min",
+          "max",
+          "unit"
+        ],
+        "title": "ParamOut",
+        "type": "object"
+      },
       "PartOut": {
         "properties": {
           "number": {
@@ -2447,6 +2823,25 @@
           }
         },
         "title": "PartsIn",
+        "type": "object"
+      },
+      "PersonOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "PersonOut",
         "type": "object"
       },
       "PersonRef": {
@@ -3266,6 +3661,334 @@
         "title": "RoleIn",
         "type": "object"
       },
+      "RunCan": {
+        "properties": {
+          "cancel": {
+            "title": "Cancel",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cancel"
+        ],
+        "title": "RunCan",
+        "type": "object"
+      },
+      "RunFilters": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only runs of this action.",
+            "title": "Action"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only runs in this project.",
+            "title": "Project"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "RunFilters",
+        "type": "object"
+      },
+      "RunIn": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "description": "Entity IDs for each input: one, or a list for inputs that take many.",
+            "title": "Inputs",
+            "type": "object"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "project": {
+            "description": "Where it runs. Entities it creates belong to it.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "title": "RunIn",
+        "type": "object"
+      },
+      "RunInputOut": {
+        "properties": {
+          "entity": {
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The revision the run read.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "entity",
+          "hrid",
+          "revision"
+        ],
+        "title": "RunInputOut",
+        "type": "object"
+      },
+      "RunOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "can": {
+            "$ref": "#/components/schemas/RunCan"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/RunInputOut"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "plugin_sha": {
+            "description": "The plugin's commit, when built from a lockfile.",
+            "title": "Plugin Sha",
+            "type": "string"
+          },
+          "plugin_version": {
+            "title": "Plugin Version",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonOut"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "client",
+              "backend",
+              "container",
+              "vm"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "action",
+          "plugin_version",
+          "plugin_sha",
+          "project",
+          "requested_by",
+          "via",
+          "reason",
+          "tier",
+          "environment",
+          "params",
+          "inputs",
+          "status",
+          "attempts",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "cancel_requested_at",
+          "error",
+          "can"
+        ],
+        "title": "RunOut",
+        "type": "object"
+      },
+      "RunStatus": {
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "timed_out",
+          "rejected"
+        ],
+        "title": "RunStatus",
+        "type": "string"
+      },
       "SavedSearchCan": {
         "properties": {
           "change": {
@@ -4053,6 +4776,27 @@
         "title": "UnitOption",
         "type": "object"
       },
+      "UpdatesOut": {
+        "properties": {
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "input": {
+            "title": "Input",
+            "type": "string"
+          }
+        },
+        "required": [
+          "input",
+          "fields"
+        ],
+        "title": "UpdatesOut",
+        "type": "object"
+      },
       "UploadIn": {
         "properties": {
           "media_type": {
@@ -4662,6 +5406,132 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/actions": {
+      "get": {
+        "description": "Every action installed plugins provide, in name order, with whether it can run here.",
+        "operationId": "iki_server_api_runs_list_actions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActionOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Installed actions",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/actions/{name}": {
+      "get": {
+        "operationId": "iki_server_api_runs_get_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An action",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/actions/{name}/runs": {
+      "post": {
+        "description": "Queue a run. Everything is checked first: your role for the action's tier, that it can\nrun on this deployment, its inputs (entities you can read, of the right types, not archived,\nand editable by you where it changes them) and its params.",
+        "operationId": "iki_server_api_runs_launch_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Run an action",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/api/v1/collections": {
       "post": {
         "description": "Keep the search (a dynamic collection), or the members it finds for you now, in its\norder (a fixed list). Either way it's checked as you.",
@@ -6994,6 +7864,214 @@
         "summary": "One of your registrations",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "iki_server_api_runs_list_runs",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only runs in this project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs in this project.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "Only runs of this action.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs of this action.",
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RunStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RunOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Runs you can read",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}": {
+      "get": {
+        "description": "By its ID or HRID (RUN-000123).",
+        "operationId": "iki_server_api_runs_get_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/cancel": {
+      "post": {
+        "description": "A queued run is cancelled at once; a running one is asked to stop, and its worker ends\nit. Whoever may launch the run's tier in its project may cancel it.",
+        "operationId": "iki_server_api_runs_cancel_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Cancel a run",
+        "tags": [
+          "runs"
         ]
       }
     },

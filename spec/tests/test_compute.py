@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from iki_spec.compute import ComputeResult, compute_to_dict, load_compute
+from iki_spec.compute import ComputeResult, compute_from_dict, compute_to_dict, load_compute
 from iki_spec.model import Plugin
 from iki_spec.problems import Severity
 from iki_spec.validate import load_plugin
@@ -94,6 +94,7 @@ def test_a_deployment_that_runs_every_action(tmp_path: Path, plugins: list[Plugi
     assert a100.capacity.memory == 1152 * 1024**3
     assert result.compute.bindings["protein.protein-tools"].templates == (("backend-small", 0),)
     data = json.loads(json.dumps(compute_to_dict(result.compute)))
+    assert compute_from_dict(data) == result.compute
     assert data["templates"]["a100-spot"]["aws"]["instance_type"] == "p4d.24xlarge"
     assert data["bindings"]["structure_prediction.alphafold-gpu"]["templates"] == [["a100-spot", 0]]
 

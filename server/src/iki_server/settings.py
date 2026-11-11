@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "iki_server.files",
     "iki_server.entities",
     "iki_server.searches",
+    "iki_server.runs",
     "iki_server.plugins",
     # The core plugin's types (core.Collection), which every deployment has
     # (ADR 0038). Its app is generated like any plugin's: `make core`.

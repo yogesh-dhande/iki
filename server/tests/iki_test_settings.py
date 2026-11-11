@@ -6,6 +6,7 @@ database is created.
 """
 
 import os
+from pathlib import Path
 
 _TEST_ENV = {
     "IKI_SECRET_KEY": "test-only-" + "x" * 50,
@@ -21,6 +22,8 @@ _TEST_ENV = {
     "IKI_DB_REQUIRE_LEAST_PRIVILEGE": "false",
     "IKI_ENCRYPTION_KEYS": "dGVzdC1vbmx5LWtleS1kby1ub3QtdXNlLWFueXdoZXI=",
 }
+# The tests' deployment binds the fixture plugins' backend environment, and nothing else.
+_TEST_ENV["IKI_COMPUTE_FILE"] = str(Path(__file__).with_name("iki_test_compute.json"))
 for _key, _value in _TEST_ENV.items():
     os.environ.setdefault(_key, _value)
 

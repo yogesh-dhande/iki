@@ -50,6 +50,7 @@ __all__ = [
     "ComputeResult",
     "Template",
     "TemplateVolume",
+    "compute_from_dict",
     "compute_to_dict",
     "load_compute",
 ]
@@ -596,3 +597,26 @@ def compute_to_dict(compute: Compute) -> dict[str, Any]:
         "templates": {n: asdict(t) for n, t in sorted(compute.templates.items())},
         "bindings": {n: asdict(b) for n, b in sorted(compute.bindings.items())},
     }
+
+
+def compute_from_dict(data: dict[str, Any]) -> Compute:
+    """Reads `compute_to_dict`'s JSON back to an equal `Compute`."""
+    return Compute(
+        templates={
+            n: Template(
+                **{
+                    **t,
+                    "capacity": Resources(**t["capacity"]),
+                    "volumes": {k: TemplateVolume(**v) for k, v in t["volumes"].items()},
+                }
+            )
+            for n, t in data["templates"].items()
+        },
+        bindings={
+            n: Binding(
+                environment=b["environment"],
+                templates=tuple((name, priority) for name, priority in b["templates"]),
+            )
+            for n, b in data["bindings"].items()
+        },
+    )

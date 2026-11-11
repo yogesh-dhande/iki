@@ -1,0 +1,34 @@
+{
+  "apiVersion": "iki/v1",
+  "bindings": {
+    "protein.protein-tools": {
+      "environment": "protein.protein-tools",
+      "templates": [["backend-small", 0]]
+    }
+  },
+  "templates": {
+    "backend-small": {
+      "aws": {},
+      "capacity": {
+        "cpu": 1,
+        "gpu_count": 0,
+        "gpu_memory": null,
+        "memory": 2147483648,
+        "scratch_disk": null
+      },
+      "currency": null,
+      "description": null,
+      "gpu_model": null,
+      "idle_shutdown": null,
+      "kubernetes": {},
+      "label": "Backend small",
+      "lifecycle": "persistent",
+      "max_concurrent": null,
+      "min_warm": 0,
+      "name": "backend-small",
+      "price_per_hour": null,
+      "provisioner": "backend_pool",
+      "volumes": {}
+    }
+  }
+}

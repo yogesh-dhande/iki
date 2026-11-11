@@ -71,3 +71,4 @@ supersedes the old one, and update the old one's status.
 | [0039](0039-first-party-plugins-and-the-plugin-template.md)      | First-party plugins live in this repository; labs start theirs from a template                  | Accepted |
 | [0040](0040-action-and-environment-manifests.md)                 | Actions and environments are manifests; what they install is pinned                             | Accepted |
 | [0041](0041-compute-templates-and-bindings.md)                   | Each deployment's compute is reviewed config, checked against its plugins                       | Accepted |
+| [0042](0042-action-runs-and-jobs.md)                             | A run records what was asked; jobs are its attempts                                             | Accepted |

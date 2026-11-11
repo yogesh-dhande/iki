@@ -140,6 +140,7 @@ and the server refuses to start without them.
 | `IKI_TASKS_CONCURRENCY`               | `4`           | `iki-server tasks`: tasks one runner runs at once                                      |
 | `IKI_TASKS_GRACE_SECONDS`             | `25`          | `iki-server tasks`: time running tasks get to finish after SIGTERM                     |
 | `IKI_TASKS_HEALTH_PORT`               | `8001`        | `iki-server tasks`: port for `/healthz/live` and `/healthz/ready` (`0`: off)           |
+| `IKI_COMPUTE_FILE`                    | unset         | Development and tests: a `compute.json` to use instead of the one the build wrote      |
 | `IKI_STATIC_ROOT`                     | `.static`     | Collected static files (`/opt/iki/static` in the image)                                |
 | `IKI_DEBUG`                           | `false`       | Django debug mode. Never in production                                                 |
 | `IKI_WEB_DEV_SERVER`                  | `false`       | Development only: pages requested through Vite load the web app from it                |
@@ -161,8 +162,8 @@ To rotate, put the new key first, keep the old one after it, run
 
 The API lives at `/api/v1` (ADR 0027), described by the OpenAPI document at
 `/api/v1/openapi.json`. Today it covers you (`/me`), people and their org
-roles, service accounts, teams, projects and project access, entities, and
-your notifications. Live updates come from `/api/v1/events` (see below).
+roles, service accounts, teams, projects and project access, entities,
+actions and their runs, and your notifications. Live updates come from `/api/v1/events` (see below).
 
 - **Authentication:** an OAuth access token (`Authorization: Bearer ...`),
   or the browser session with the CSRF token (from the page's `csrf-token`
@@ -192,8 +193,8 @@ Every plugin's types share one API (ADR 0035):
 - Reads carry the entity's revision as the `ETag`. `PATCH` must send it back
   as `If-Match`. A change made since answers 412 (`stale`), and a missing
   `If-Match` answers 428, so nobody overwrites someone else's change.
-- Quantities are numbers in the field's unit, or `{"value": 310.15, "unit":
-"K"}` in any unit that converts.
+- Quantities are numbers in the field's unit, or a value with any unit that
+  converts, such as `{"value": 310.15, "unit": "K"}`.
 - File fields take a file's ID (see [Files](#files)). The file must be one
   you can read, of a media type the field allows (`image/*` allows any
   image), and no larger than its `max_size`.
@@ -201,6 +202,26 @@ Every plugin's types share one API (ADR 0035):
   `…/projects` give the history: who changed what, how, when and why.
 - Reading takes a role in any of the entity's projects. Changing it takes
   Editor in its owner project. Entities you can't read answer 404.
+
+### Actions and runs
+
+Plugins' actions run on entities (ADR 0042):
+
+- `GET /actions` lists the installed actions: inputs, params, effects, tier,
+  and whether this deployment can run each one (`available`, with
+  `unavailable_reason`). An action can run when its environment is bound to
+  compute templates on its tier in the deployment's `compute.yaml`.
+- `POST /actions/{name}/runs` queues a run in a project, with its inputs
+  (entity IDs) and params. Everything is checked before it's queued: your
+  role for the tier (Editor for client and backend, Runner for container and
+  vm), every input is an entity you can read, of the right type and not
+  archived, entities it updates are ones you can edit, and every param
+  fits. Defaults are filled in.
+- `GET /runs` and `GET /runs/{ref}` (ID or `RUN-000123`) show runs to
+  whoever can read their project: who ran what, on which revisions, with
+  which params, and how it ended.
+- `POST /runs/{ref}/cancel` cancels a queued run at once, or asks a running
+  one's worker to stop. Whoever may run its tier in the project may cancel it.
 
 ## Web app
 
