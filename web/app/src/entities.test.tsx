@@ -17,7 +17,9 @@ import {
   revision,
   withTypes,
 } from "./entity-fixtures";
-import { answer, calls, ME, page, problem, respond } from "./test-server";
+import { answer, calls, ME, page, problem, project, respond } from "./test-server";
+
+const SECOND_ID = "00000000-0000-7000-8000-00000000e002";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -88,11 +90,11 @@ describe("a project's entities", () => {
       within(head)
         .getAllByRole("columnheader")
         .map((c) => c.textContent),
-    ).toEqual(["ID", "Name", "Sequence", "Molecular weight (ku)", "Last changed"]);
+    ).toEqual(["", "ID", "Name", "Sequence", "Molecular weight (ku)", "Last changed"]);
     const cells = within(first)
       .getAllByRole("cell")
       .map((c) => c.textContent);
-    expect(cells.slice(0, 4)).toEqual(["PRT-000001", "ABL1 kinase", "MLEICLKLVG", "52.3415"]);
+    expect(cells.slice(1, 5)).toEqual(["PRT-000001", "ABL1 kinase", "MLEICLKLVG", "52.3415"]);
     expect(within(first).getByRole("link", { name: "PRT-000001" })).toHaveAttribute(
       "href",
       "/entities/PRT-000001/",
@@ -125,6 +127,68 @@ describe("a project's entities", () => {
     const last = nth(sent, sent.length - 1).body as Record<string, unknown>;
     expect(last["type"]).toBe("protein.ProteinStructure");
     expect(last).not.toHaveProperty("archived");
+  });
+
+  it("picks rows to run an action on", async () => {
+    onProject();
+    answer(
+      "POST /api/v1/entities/search",
+      page([entity(), entity({ id: SECOND_ID, hrid: "PRT-000002" })]),
+    );
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    await screen.findByRole("table", { name: "2 proteins" });
+    expect(screen.queryByRole("link", { name: "Run action" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Select PRT-000002" }));
+    expect(screen.getByText("1 selected")).toHaveAttribute("role", "status");
+    const all = screen.getByRole<HTMLInputElement>("checkbox", { name: "Select all 2 shown" });
+    expect(all.indeterminate).toBe(true);
+    await user.click(all);
+    expect(all).toBeChecked();
+    expect(all.indeterminate).toBe(false);
+    expect(screen.getByText("2 selected")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Run action" })).toHaveAttribute(
+      "href",
+      "/projects/kinase-atlas/runs/new/?entities=PRT-000002%2CPRT-000001",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select PRT-000001" })).not.toBeChecked();
+
+    // A different list starts afresh.
+    await user.click(screen.getByRole("checkbox", { name: "Select PRT-000001" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search" }), "abl");
+    await waitFor(() => {
+      expect(screen.queryByText("1 selected")).not.toBeInTheDocument();
+    });
+  });
+
+  it("says when more are picked than an action runs on at once", async () => {
+    onProject();
+    const many = Array.from({ length: 101 }, (_, i) =>
+      entity({
+        id: `00000000-0000-7000-8000-0000000${String(i).padStart(5, "0")}`,
+        hrid: `PRT-${String(i + 1).padStart(6, "0")}`,
+      }),
+    );
+    answer("POST /api/v1/entities/search", { items: many, next_cursor: null });
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    await screen.findByRole("table", { name: "101 proteins" });
+    await user.click(screen.getByRole("checkbox", { name: "Select all 101 shown" }));
+    expect(
+      screen.getByText("101 selected: an action runs on at most 100 at once"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Run action" })).not.toBeInTheDocument();
+  });
+
+  it("offers no picking to those who can't run actions in the project", async () => {
+    withTypes();
+    answer("GET /api/v1/projects", page([project({ can: { ...KINASE.can, run: [] } })]));
+    answer("POST /api/v1/entities/search", page([entity()]));
+    await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    await screen.findByRole("table", { name: "1 protein" });
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
   it("fetches more as the grid scrolls towards the end", async () => {

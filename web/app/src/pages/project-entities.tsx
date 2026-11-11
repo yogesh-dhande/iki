@@ -26,6 +26,7 @@ import { problemOf } from "../api";
 import { usePageTitle } from "../layout";
 import { buttonClass, Loading, ProblemAlert, RelativeTime, SelectField } from "../ui";
 import { FilterPanel, SearchBox, SortHeading, type Direction } from "./entity-filters";
+import { MAX_BATCH } from "../runs";
 import { useProject } from "./project-overview";
 import { CollectionBanner, SaveAsCollection } from "./collections";
 import { SavedSearches } from "./saved-searches";
@@ -40,6 +41,46 @@ interface Column {
   cell: (entity: Entity) => React.ReactNode;
   /** The field it sorts by, if it can. */
   sort?: string | undefined;
+  /** Its heading, when it's more than the label. */
+  header?: React.ReactNode;
+  /** Its width, when it isn't a field's. */
+  width?: string;
+}
+
+/** Entities picked in the grid, for the list they were picked in. */
+interface Selection {
+  list: string;
+  hrids: ReadonlySet<string>;
+}
+
+/** A checkbox that can be part-checked, as "select all" is when some are. */
+function Tick({
+  label,
+  checked,
+  mixed = false,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  mixed?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = mixed;
+  }, [mixed]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      className="grid-tick"
+      aria-label={label}
+      checked={checked}
+      onChange={(event) => {
+        onChange(event.currentTarget.checked);
+      }}
+    />
+  );
 }
 
 function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[] {
@@ -138,7 +179,57 @@ export function ProjectEntities() {
     });
   };
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
-  const columns = columnsFor(type, types);
+
+  // Picking entities to run an action on. A different list starts a new selection.
+  const listKey = JSON.stringify([
+    type?.name,
+    show,
+    search.q,
+    filters,
+    sort,
+    search.desc,
+    search.collection,
+  ]);
+  const [selection, setSelection] = useState<Selection>({ list: listKey, hrids: new Set() });
+  const picked = selection.list === listKey ? selection.hrids : new Set<string>();
+  const pick = (hrids: string[], on: boolean) => {
+    const next = new Set(picked);
+    for (const hrid of hrids) {
+      if (on) next.add(hrid);
+      else next.delete(hrid);
+    }
+    setSelection({ list: listKey, hrids: next });
+  };
+  const selectable = project.can.run.length > 0 && !project.archived;
+  const allPicked = rows.length > 0 && rows.every((e) => picked.has(e.hrid));
+  const select: Column = {
+    key: "select",
+    label: "Select",
+    width: "2.75rem",
+    header: (
+      <Tick
+        label={`Select all ${String(rows.length)} shown`}
+        checked={allPicked}
+        mixed={!allPicked && picked.size > 0}
+        onChange={(on) => {
+          pick(
+            rows.map((e) => e.hrid),
+            on,
+          );
+        }}
+      />
+    ),
+    cell: (e) => (
+      <Tick
+        label={`Select ${e.hrid}`}
+        checked={picked.has(e.hrid)}
+        onChange={(on) => {
+          pick([e.hrid], on);
+        }}
+      />
+    ),
+  };
+  const columns = [...(selectable ? [select] : []), ...columnsFor(type, types)];
 
   const scroller = useRef<HTMLDivElement>(null);
   // TanStack Virtual hands back functions that read its live state, so the React Compiler
@@ -160,8 +251,8 @@ export function ProjectEntities() {
   }, [last, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const captionId = useId();
-  const template = `repeat(${String(columns.length)}, minmax(9rem, 1fr))`;
-  const minWidth = `${String(columns.length * 9)}rem`;
+  const template = columns.map((c) => c.width ?? "minmax(9rem, 1fr)").join(" ");
+  const minWidth = `${String(columns.filter((c) => !c.width).length * 9 + (selectable ? 2.75 : 0))}rem`;
   const typeOptions = [
     { value: "", label: "All types" },
     ...types
@@ -282,6 +373,38 @@ export function ProjectEntities() {
       ) : null}
       {rows.length ? (
         <>
+          {/* The count stays in the page, so screen readers hear it change as rows are picked. */}
+          {selectable ? (
+            <div className={picked.size ? "selection-bar" : undefined}>
+              <p role="status" className={picked.size ? undefined : "visually-hidden"}>
+                {picked.size ? `${String(picked.size)} selected` : ""}
+                {picked.size > MAX_BATCH
+                  ? `: an action runs on at most ${String(MAX_BATCH)} at once`
+                  : ""}
+              </p>
+              {picked.size && picked.size <= MAX_BATCH ? (
+                <Link
+                  to="/projects/$slug/runs/new/"
+                  params={{ slug: project.slug }}
+                  search={{ entities: [...picked].join(",") }}
+                  className={buttonClass("primary")}
+                >
+                  Run action
+                </Link>
+              ) : null}
+              {picked.size ? (
+                <button
+                  type="button"
+                  className={buttonClass("quiet")}
+                  onClick={() => {
+                    setSelection({ list: listKey, hrids: new Set() });
+                  }}
+                >
+                  Clear selection
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <p className="muted" id={captionId}>
             {count} {noun}
             {show === "archived" ? ", archived" : ""}
@@ -317,17 +440,18 @@ export function ProjectEntities() {
                         className="data-grid-cell"
                         aria-sort={c.sort ? direction : undefined}
                       >
-                        {c.sort ? (
-                          <SortHeading
-                            label={c.label}
-                            direction={direction}
-                            onSort={(next) => {
-                              if (c.sort) sortBy(c.sort, next);
-                            }}
-                          />
-                        ) : (
-                          c.label
-                        )}
+                        {c.header ??
+                          (c.sort ? (
+                            <SortHeading
+                              label={c.label}
+                              direction={direction}
+                              onSort={(next) => {
+                                if (c.sort) sortBy(c.sort, next);
+                              }}
+                            />
+                          ) : (
+                            c.label
+                          ))}
                       </div>
                     );
                   })}

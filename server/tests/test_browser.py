@@ -619,6 +619,32 @@ def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> Non
     assert_clean(page)
 
 
+def test_picking_rows_and_running_an_action_on_each(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.runs.models import ActionRun
+
+    for name, sequence in [("ABL1", "MKV"), ("SRC", "MGS")]:
+        entities.create(
+            world.users["admin"],
+            "protein.Protein",
+            world.project,
+            {"sequence": sequence, "name": name},
+        )
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    page.get_by_role("checkbox", name="Select all 2 shown").check()
+    page.get_by_text("2 selected").wait_for()
+    assert_clean(page)
+    page.get_by_role("link", name="Run action").click()
+    page.get_by_role("heading", level=2, name="Run an action").wait_for()
+    page.get_by_role("combobox", name="Action").select_option(label="Compute properties")
+    page.get_by_text("One run for each of these 2").wait_for()
+    assert_clean(page)
+    page.get_by_role("button", name="Start 2 runs").click()
+    page.get_by_text("Started 2 runs of Compute properties.").wait_for()
+    assert ActionRun.objects.count() == 2
+    assert_clean(page)
+
+
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     page = open_as("org_admin", "/projects/kinase-atlas/")
     page.get_by_text("You’re not a member of this project").wait_for()
