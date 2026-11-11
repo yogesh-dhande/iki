@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: Action
+name: compute_properties
+label: Compute properties
+inputs:
+  protein: { type: Protein, schema: ">=1" }
+effects:
+  updates: [{ input: protein, fields: [molecular_weight] }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/properties.py]
+deterministic: true
+batchable: 100
+timeout: 5m

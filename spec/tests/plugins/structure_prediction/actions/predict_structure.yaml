@@ -1,0 +1,22 @@
+apiVersion: iki/v1
+kind: Action
+name: predict_structure
+label: Predict structure
+inputs:
+  protein: { type: protein.Protein, schema: ">=1" }
+params:
+  model_preset: { type: enum, values: [monomer, multimer], default: monomer }
+  seed: { type: int, default: 0, min: 0 }
+effects:
+  creates: [{ type: protein.ProteinStructure, cardinality: many, derived_from: [protein] }]
+runs_on:
+  tier: vm
+  environment: alphafold-gpu
+  lifecycle: ephemeral
+  resources: { memory: 96Gi }
+command: [python, /app/run_alphafold.py]
+deterministic: true
+checkpointable: true
+artifacts: { keep: ["msas/**", ranking_debug.json], retention: 365d }
+timeout: 8h
+retries: { max: 2, on: [worker_lost, interrupted] }

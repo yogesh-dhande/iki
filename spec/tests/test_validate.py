@@ -966,5 +966,6 @@ def test_the_manifest_schema_dispatches_on_kind() -> None:
     )
     issues = schemas.check("manifest", {"apiVersion": "iki/v1", "kind": "Nope"})
     assert [i.message for i in issues] == [
-        "`kind` can't be `Nope`. Choose one of: `Plugin`, `EntityType`, `EntityTypeExtension`."
+        "`kind` can't be `Nope`. Choose one of: `Plugin`, `EntityType`, `EntityTypeExtension`, "
+        "`Action`, `Environment`."
     ]

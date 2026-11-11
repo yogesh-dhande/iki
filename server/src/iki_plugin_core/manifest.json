@@ -1,8 +1,10 @@
 {
   "apiVersion": "iki/v1",
   "plugin": {
+    "actions": {},
     "dependencies": {},
     "description": "The types every Iki deployment has.",
+    "environments": {},
     "extensions": [],
     "homepage": "https://ikisci.org",
     "license": "Apache-2.0",

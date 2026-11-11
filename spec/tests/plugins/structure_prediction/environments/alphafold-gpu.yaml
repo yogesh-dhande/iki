@@ -1,0 +1,18 @@
+apiVersion: iki/v1
+kind: Environment
+name: alphafold-gpu
+tiers: [vm, container]
+resources: { cpu: 8, memory: 64Gi, gpu: { count: 1, min_memory: 40Gi }, scratch_disk: 200Gi }
+image: ghcr.io/acme/alphafold@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+volumes:
+  af-db:
+    size: 3Ti
+    access: read_only_many
+    performance: high_iops
+    populated_by: setup
+    mount: /data/af
+setup:
+  script: setup/download_dbs.sh
+  timeout: 12h
+  requires_approval: true
+  network: [storage.googleapis.com]

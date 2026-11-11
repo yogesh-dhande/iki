@@ -33,6 +33,8 @@ NAMES = (
     "settings",
     "unit",
     "plugin-lock",
+    "action",
+    "environment",
 )
 
 BASE_URL = "https://ikisci.org/schemas"

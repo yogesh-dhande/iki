@@ -28,7 +28,8 @@ def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
     code = main(["plugin", "validate", str(PLUGINS / "protein"), "--with", str(PLUGINS / "dna")])
     assert code == 0
     assert capsys.readouterr().out == (
-        "✓ protein 3.0.0 is valid: 2 entity types, 0 extensions, 0 settings.\n"
+        "✓ protein 3.0.0 is valid: 2 entity types, 0 extensions, 0 settings, 1 action, "
+        "1 environment.\n"
     )
 
 
@@ -38,7 +39,8 @@ def test_validates_the_current_directory_by_default(
     monkeypatch.chdir(PLUGINS / "dna")
     assert main(["plugin", "validate"]) == 0
     assert (
-        "✓ dna 1.2.0 is valid: 2 entity types, 0 extensions, 2 settings." in capsys.readouterr().out
+        "✓ dna 1.2.0 is valid: 2 entity types, 0 extensions, 2 settings, 0 actions, "
+        "0 environments." in capsys.readouterr().out
     )
 
 
@@ -71,7 +73,8 @@ def test_warnings_pass_unless_strict(tmp_path: Path, capsys: pytest.CaptureFixtu
     out = capsys.readouterr().out
     assert "warning: `api_key` looks like a secret." in out
     assert out.endswith(
-        "✓ acme 1.0.0 is valid: 0 entity types, 0 extensions, 1 setting, with 1 warning.\n"
+        "✓ acme 1.0.0 is valid: 0 entity types, 0 extensions, 1 setting, 0 actions, "
+        "0 environments, with 1 warning.\n"
     )
     assert main(["plugin", "validate", str(plugin), "--strict"]) == 1
 
@@ -117,6 +120,8 @@ def test_json_output(broken: Path, capsys: pytest.CaptureFixture[str]) -> None:
         "types": ["dna.DNASequence", "dna.Sequence"],
         "extensions": [],
         "settings": ["max_sequence_length", "ncbi_email"],
+        "actions": [],
+        "environments": [],
     }
 
 

@@ -1,0 +1,6 @@
+apiVersion: iki/v1
+kind: Environment
+name: protein-tools
+tiers: [backend, client]
+resources: { cpu: 0.5, memory: 512Mi }
+python: { version: "3.12", requirements: requirements.txt }

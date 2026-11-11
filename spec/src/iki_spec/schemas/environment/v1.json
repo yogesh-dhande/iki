@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/environment/v1",
+  "title": "Iki environment (iki/v1)",
+  "description": "What a plugin's actions need to run, wherever they run: software, the smallest machine, and data volumes. Each deployment binds it to its own compute templates.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "tiers"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "Environment" },
+    "name": { "$ref": "#/$defs/name" },
+    "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "tiers": {
+      "description": "The compute tiers it can run on.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "https://ikisci.org/schemas/action/v1#/$defs/tier" }
+    },
+    "resources": {
+      "description": "The smallest machine its actions run on.",
+      "$ref": "#/$defs/resources"
+    },
+    "image": {
+      "description": "The container image with its registry, pinned by its digest (`ghcr.io/acme/alphafold@sha256:…`). The container and vm tiers run it, and so does the client tier when people have Docker or Podman.",
+      "type": "string",
+      "maxLength": 500,
+      "pattern": "^[a-z0-9]([a-z0-9._-]*[a-z0-9])?(:[0-9]{1,5})?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$"
+    },
+    "python": {
+      "description": "A Python virtual environment, for the backend and client tiers.",
+      "type": "object",
+      "required": ["version", "requirements"],
+      "properties": {
+        "version": {
+          "description": "The Python version, such as `3.12`.",
+          "type": "string",
+          "pattern": "^3\\.(1[0-9]|[2-9][0-9])$"
+        },
+        "requirements": {
+          "description": "A requirements file in the plugin, every package pinned with `==` and its `--hash`, as `uv pip compile --generate-hashes` writes it.",
+          "$ref": "#/$defs/file"
+        }
+      },
+      "additionalProperties": false
+    },
+    "conda": {
+      "description": "A conda environment, for the backend and client tiers.",
+      "type": "object",
+      "required": ["lockfile"],
+      "properties": {
+        "lockfile": {
+          "description": "An explicit lockfile in the plugin, every package with its hash, as `conda-lock` or `conda list --explicit --md5` writes it.",
+          "$ref": "#/$defs/file"
+        }
+      },
+      "additionalProperties": false
+    },
+    "volumes": {
+      "description": "Data volumes its actions read, such as reference databases, by name.",
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/volume" }
+    },
+    "setup": {
+      "description": "A script that fills its volumes once, when the environment is built. Its runs are recorded as data versions.",
+      "type": "object",
+      "required": ["script"],
+      "properties": {
+        "script": { "$ref": "#/$defs/file" },
+        "timeout": { "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration" },
+        "requires_approval": {
+          "description": "A compute admin approves each build before it starts, for setups that cost a lot.",
+          "type": "boolean"
+        },
+        "network": {
+          "description": "The hosts the setup may download from.",
+          "$ref": "https://ikisci.org/schemas/action/v1#/properties/network"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [{ "not": { "required": ["python", "conda"] } }],
+  "additionalProperties": false,
+  "$defs": {
+    "name": {
+      "description": "A name in kebab-case, such as `alphafold-gpu`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+    },
+    "file": {
+      "description": "A path in the plugin, relative to its root.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\\\x00]+$"
+    },
+    "quantity": {
+      "description": "An amount of memory or disk, such as `512Mi`, `64Gi` or `3Ti`.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,5}(Mi|Gi|Ti)$"
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "cpu": {
+          "description": "CPU cores, such as `0.5` or `8`.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1024
+        },
+        "memory": { "$ref": "#/$defs/quantity" },
+        "gpu": {
+          "type": "object",
+          "required": ["count"],
+          "properties": {
+            "count": { "type": "integer", "minimum": 1, "maximum": 16 },
+            "min_memory": {
+              "description": "The memory each GPU must have.",
+              "$ref": "#/$defs/quantity"
+            }
+          },
+          "additionalProperties": false
+        },
+        "scratch_disk": {
+          "description": "Local disk for the run's working files.",
+          "$ref": "#/$defs/quantity"
+        }
+      },
+      "additionalProperties": false
+    },
+    "volume": {
+      "type": "object",
+      "required": ["size", "mount"],
+      "properties": {
+        "size": { "$ref": "#/$defs/quantity" },
+        "access": {
+          "description": "`read_only_many` (the default): many runs read it at once. `read_write_once`: one run at a time may change it.",
+          "enum": ["read_only_many", "read_write_once"]
+        },
+        "performance": {
+          "description": "What the data needs from the disk: `standard` (the default), `high_iops` for many small reads, or `high_throughput` for large ones.",
+          "enum": ["standard", "high_iops", "high_throughput"]
+        },
+        "populated_by": {
+          "description": "`setup`: the environment's setup fills it.",
+          "enum": ["setup"]
+        },
+        "mount": {
+          "description": "Where runs see it: an absolute path.",
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^(?!.*//)(?!.*/\\.\\.?(/|$))/[A-Za-z0-9._/-]*[A-Za-z0-9._-]$"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

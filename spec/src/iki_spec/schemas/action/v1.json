@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/action/v1",
+  "title": "Iki action (iki/v1)",
+  "description": "Something a plugin does to entities: compute properties, create new entities from them, or import them. Each run records what it read, what it wrote and where it ran.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "runs_on", "command"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "Action" },
+    "name": {
+      "description": "The action's name in snake_case. Elsewhere it is `plugin.name`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "inputs": {
+      "description": "The entities a run reads, by name. Leave it out for an action that imports or fetches entities.",
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "#/$defs/input" }
+    },
+    "params": {
+      "description": "The values a person (or an agent) chooses when they run it, by name.",
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "#/$defs/param" }
+    },
+    "effects": {
+      "description": "What a run may write. Its output is checked against these, and anything else is refused.",
+      "type": "object",
+      "properties": {
+        "creates": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/creates" }
+        },
+        "updates": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/updates" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "runs_on": {
+      "description": "Where it runs: a compute tier and one of the plugin's environments.",
+      "type": "object",
+      "required": ["tier", "environment"],
+      "properties": {
+        "tier": { "$ref": "#/$defs/tier" },
+        "environment": { "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name" },
+        "lifecycle": {
+          "description": "For the container and vm tiers: a machine for each run (`ephemeral`, the default), or a warm pool (`persistent`).",
+          "enum": ["ephemeral", "persistent"]
+        },
+        "resources": {
+          "description": "More than the environment's minimum, if this action needs it.",
+          "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/resources"
+        }
+      },
+      "additionalProperties": false
+    },
+    "command": {
+      "description": "What the worker runs, as a list of arguments (no shell). Paths are relative to the plugin's root, or absolute inside its image.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "deterministic": {
+      "description": "The same inputs and params always give the same results, so an earlier run's results can be reused.",
+      "type": "boolean"
+    },
+    "checkpointable": {
+      "description": "It saves its progress in $IKI_CHECKPOINT_DIR, so an interrupted run resumes instead of starting again.",
+      "type": "boolean"
+    },
+    "batchable": {
+      "description": "How many entities one job may handle at once, for quick actions with one input.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "artifacts": {
+      "description": "Files a run writes besides its results, kept for people to download.",
+      "type": "object",
+      "required": ["keep"],
+      "properties": {
+        "keep": {
+          "description": "Glob patterns, relative to the run's output directory.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^/]" }
+        },
+        "retention": { "$ref": "#/$defs/duration" }
+      },
+      "additionalProperties": false
+    },
+    "network": {
+      "description": "The hosts a run may reach. None by default: runs have no network access.",
+      "type": "array",
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "maxLength": 253,
+        "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+      }
+    },
+    "secrets": {
+      "description": "Secrets a run needs, by name. Each deployment maps them to its secret manager; runs get them as environment variables.",
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,62}$" }
+    },
+    "timeout": {
+      "description": "The longest a run may take before it's stopped. Defaults to 1h; at most 7d.",
+      "$ref": "#/$defs/duration"
+    },
+    "retries": {
+      "type": "object",
+      "properties": {
+        "max": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "on": {
+          "description": "Which failures are retried. A run that ended in an error of its own isn't, unless `failed` is listed.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["worker_lost", "interrupted", "timed_out", "failed"] }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tier": {
+      "description": "`client`: the person's own machine. `backend`: Iki's isolated worker pods. `container`: the plugin's image on Kubernetes. `vm`: a virtual machine, with GPUs if needed.",
+      "enum": ["client", "backend", "container", "vm"]
+    },
+    "duration": {
+      "description": "A length of time, such as `90s`, `30m`, `8h` or `365d`.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,5}(s|m|h|d)$"
+    },
+    "constraint": {
+      "description": "The schema versions it works with, such as `>=2` or `>=2,<4`.",
+      "type": "string",
+      "pattern": "^(==|>=|<=|>|<|!=)[0-9]+(,(==|>=|<=|>|<|!=)[0-9]+)*$"
+    },
+    "input": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "description": "The type of entity it takes; its subtypes are taken too.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+        },
+        "schema": { "$ref": "#/$defs/constraint" },
+        "cardinality": {
+          "description": "`one` entity (the default), or `many`.",
+          "enum": ["one", "many"]
+        },
+        "max": {
+          "description": "With `many`: the most entities one run takes.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 100000
+        },
+        "optional": { "type": "boolean" },
+        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" }
+      },
+      "additionalProperties": false
+    },
+    "param": {
+      "type": "object",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typed",
+      "properties": {
+        "type": {
+          "enum": ["string", "text", "int", "float", "bool", "enum", "date", "quantity", "list"]
+        },
+        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+        "required": {
+          "description": "The person must choose a value. A param with a default can't be required.",
+          "type": "boolean"
+        },
+        "default": { "description": "The value when the person doesn't choose one." },
+        "items": {
+          "properties": { "type": { "enum": ["string", "int", "float", "bool", "enum"] } }
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "creates": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "description": "The type of entity it creates.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+        },
+        "cardinality": { "enum": ["one", "many"] },
+        "derived_from": {
+          "description": "The inputs each created entity comes from, for its lineage.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "updates": {
+      "type": "object",
+      "required": ["input", "fields"],
+      "properties": {
+        "input": {
+          "description": "The input whose entities it changes.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "fields": {
+          "description": "The fields it sets on them.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

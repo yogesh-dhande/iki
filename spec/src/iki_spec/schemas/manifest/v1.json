@@ -10,7 +10,7 @@
       "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
-    "kind": { "enum": ["Plugin", "EntityType", "EntityTypeExtension"] }
+    "kind": { "enum": ["Plugin", "EntityType", "EntityTypeExtension", "Action", "Environment"] }
   },
   "allOf": [
     {
@@ -27,6 +27,14 @@
         "required": ["kind"]
       },
       "then": { "$ref": "https://ikisci.org/schemas/entity-type-extension/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "Action" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/action/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "Environment" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/environment/v1" }
     }
   ]
 }

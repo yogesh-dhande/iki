@@ -1,7 +1,8 @@
 """Read a plugin's manifests and check everything about them.
 
-A plugin is a directory with `plugin.yaml` at its root and entity types under
-`types/` (any number of `.yaml` files, each holding one or more documents).
+A plugin is a directory with `plugin.yaml` at its root, entity types under
+`types/`, actions under `actions/` and environments under `environments/`
+(any number of `.yaml` files in each, each holding one or more documents).
 Checks run in two stages: each document against its JSON Schema, then the
 rules no schema can express, across documents and plugins. Dependencies are
 other plugins' directories, given with `--with`; references to them can only
@@ -20,10 +21,12 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from iki_spec import API_VERSION, naming, schemas, titles, units
+from iki_spec import API_VERSION, actions, naming, schemas, titles, units
 from iki_spec.model import (
     BUILTIN_TYPES,
+    Action,
     EntityType,
+    Environment,
     Extension,
     Field,
     Plugin,
@@ -42,6 +45,16 @@ KINDS = {
     "Plugin": "plugin",
     "EntityType": "entity-type",
     "EntityTypeExtension": "entity-type-extension",
+    "Action": "action",
+    "Environment": "environment",
+}
+
+#: Where each kind of manifest lives in a plugin.
+DIRECTORIES = {
+    "EntityType": TYPES_DIR,
+    "EntityTypeExtension": TYPES_DIR,
+    "Action": "actions",
+    "Environment": "environments",
 }
 
 MAX_IDENTIFIER = naming.MAX_IDENTIFIER
@@ -251,6 +264,8 @@ class _Loaded:
     plugin_source: Document | None = None
     type_sources: dict[str, Document] = field(default_factory=dict)
     extension_sources: list[Document] = field(default_factory=list)
+    action_sources: dict[str, Document] = field(default_factory=dict)
+    environment_sources: dict[str, Document] = field(default_factory=dict)
     # The raw (schema-valid) documents, for checks on things the model drops.
     raw: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -291,7 +306,8 @@ def _read(root: FilePath) -> _Loaded:
                 "wrong-file",
                 f"plugin.yaml holds only the Plugin manifest, not {_kind_phrase(document)}.",
                 document,
-                hint=f"Move it to a file under {TYPES_DIR}/.",
+                hint="Move it to a file under "
+                f"{DIRECTORIES.get(_kind(document) or '', TYPES_DIR)}/.",
             )
     if len(plugin_docs) > 1:
         checker.add(
@@ -318,49 +334,54 @@ def _read(root: FilePath) -> _Loaded:
 
     types: dict[str, EntityType] = {}
     extensions: list[Extension] = []
-    for file in _type_files(root, checker):
-        for document in _documents(root, file, checker):
-            kind = _kind(document)
-            if kind not in ("EntityType", "EntityTypeExtension"):
-                if kind is not None and kind in KINDS:
-                    checker.add(
-                        "wrong-file",
-                        f"Files under {TYPES_DIR}/ hold entity types and extensions, "
-                        f"not {_kind_phrase(document)}.",
-                        document,
-                        ("kind",),
-                        hint="The Plugin manifest belongs in plugin.yaml.",
-                    )
-                continue
-            if not _schema_ok(document, checker):
-                continue
-            body = document.data
-            if kind == "EntityType":
-                entity_type = _entity_type(name, body, document)
-                if entity_type.qualified_name in types:
-                    first = loaded.type_sources[entity_type.qualified_name]
-                    checker.add(
-                        "duplicate-type",
-                        f"`{entity_type.name}` is defined twice "
-                        f"(first in {first.file}, line {first.start.line}).",
-                        document,
-                        ("name",),
-                    )
-                    continue
-                types[entity_type.qualified_name] = entity_type
-                loaded.type_sources[entity_type.qualified_name] = document
-            else:
-                extensions.append(
-                    Extension(
-                        plugin=name,
-                        extends_type=qualify(body["extends_type"], name),
-                        fields=_fields(body.get("fields", {}), name),
-                        description=body.get("description"),
-                        file=document.file,
-                    )
+    for document in _manifests(root, TYPES_DIR, checker):
+        body = document.data
+        if _kind(document) == "EntityType":
+            entity_type = _entity_type(name, body, document)
+            if entity_type.qualified_name in types:
+                first = loaded.type_sources[entity_type.qualified_name]
+                checker.add(
+                    "duplicate-type",
+                    f"`{entity_type.name}` is defined twice "
+                    f"(first in {first.file}, line {first.start.line}).",
+                    document,
+                    ("name",),
                 )
-                loaded.extension_sources.append(document)
-            loaded.raw[id(document)] = body
+                continue
+            types[entity_type.qualified_name] = entity_type
+            loaded.type_sources[entity_type.qualified_name] = document
+        else:
+            extensions.append(
+                Extension(
+                    plugin=name,
+                    extends_type=qualify(body["extends_type"], name),
+                    fields=_fields(body.get("fields", {}), name),
+                    description=body.get("description"),
+                    file=document.file,
+                )
+            )
+            loaded.extension_sources.append(document)
+        loaded.raw[id(document)] = body
+
+    environments: dict[str, Environment] = {}
+    for document in _manifests(root, "environments", checker):
+        environment = actions.read_environment(name, document.data, document)
+        if _unique(
+            "duplicate-environment",
+            environment.name,
+            environments,
+            loaded.environment_sources,
+            document,
+            checker,
+        ):
+            environments[environment.name] = environment
+    found: dict[str, Action] = {}
+    for document in _manifests(root, "actions", checker):
+        action = actions.read_action(name, document.data, document)
+        if _unique(
+            "duplicate-action", action.name, found, loaded.action_sources, document, checker
+        ):
+            found[action.name] = action
 
     loaded.plugin = Plugin(
         name=name,
@@ -376,8 +397,59 @@ def _read(root: FilePath) -> _Loaded:
         settings=_fields(data.get("settings", {}), name),
         types=types,
         extensions=tuple(extensions),
+        actions=found,
+        environments=environments,
     )
     return loaded
+
+
+def _manifests(root: FilePath, directory: str, checker: _Checker) -> list[Document]:
+    """The schema-valid manifests under `directory`, after reporting any that belong elsewhere."""
+    usable = []
+    for file in _files(root, directory):
+        for document in _documents(root, file, checker):
+            kind = _kind(document)
+            if kind not in KINDS:
+                continue
+            if DIRECTORIES.get(kind) != directory:
+                here = sorted(
+                    {_kind_phrase_plural(k) for k, d in DIRECTORIES.items() if d == directory}
+                )
+                checker.add(
+                    "wrong-file",
+                    f"Files under {directory}/ hold {' and '.join(here)}, not "
+                    f"{_kind_phrase(document)}.",
+                    document,
+                    ("kind",),
+                    hint="The Plugin manifest belongs in plugin.yaml."
+                    if kind == "Plugin"
+                    else f"Move it to a file under {DIRECTORIES[kind]}/.",
+                )
+                continue
+            if _schema_ok(document, checker):
+                usable.append(document)
+    return usable
+
+
+def _unique(
+    code: str,
+    name: str,
+    found: dict[str, Any],
+    sources: dict[str, Document],
+    document: Document,
+    checker: _Checker,
+) -> bool:
+    if name in found:
+        first = sources[name]
+        checker.add(
+            code,
+            f"`{name}` is defined twice (first in {first.file}, line {first.start.line}).",
+            document,
+            ("name",),
+        )
+        return False
+    sources[name] = document
+    return True
 
 
 def _documents(root: FilePath, file: FilePath, checker: _Checker) -> list[Document]:
@@ -407,8 +479,8 @@ def _documents(root: FilePath, file: FilePath, checker: _Checker) -> list[Docume
     return usable
 
 
-def _type_files(root: FilePath, checker: _Checker) -> list[FilePath]:
-    directory = root / TYPES_DIR
+def _files(root: FilePath, name: str) -> list[FilePath]:
+    directory = root / name
     if not directory.is_dir():
         return []
     found = [
@@ -428,9 +500,21 @@ def _kind(document: Document) -> str | None:
 
 def _kind_phrase(document: Document) -> str:
     kind = _kind(document)
-    return {"EntityType": "an entity type", "EntityTypeExtension": "an extension"}.get(
-        kind or "", f"a {kind}"
-    )
+    return {
+        "EntityType": "an entity type",
+        "EntityTypeExtension": "an extension",
+        "Action": "an action",
+        "Environment": "an environment",
+    }.get(kind or "", f"a {kind}")
+
+
+def _kind_phrase_plural(kind: str) -> str:
+    return {
+        "EntityType": "entity types",
+        "EntityTypeExtension": "extensions",
+        "Action": "actions",
+        "Environment": "environments",
+    }[kind]
 
 
 def _header_ok(document: Document, checker: _Checker) -> bool:
@@ -549,6 +633,7 @@ class _Semantics:
         ):
             self.extension(extension, document, seen)
         self.settings()
+        actions.check(self)
         self.unpinned()
 
     # The plugin manifest ------------------------------------------------------------------------
