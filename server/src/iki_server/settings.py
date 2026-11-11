@@ -317,6 +317,8 @@ OAUTH2_PROVIDER: dict[str, object] = {
     "OAUTH2_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED": ["none", "client_secret_basic"],
     "OAUTH2_PROTECTED_RESOURCE_BEARER_METHODS_SUPPORTED": ["header"],
     "OAUTH2_PROTECTED_RESOURCE_NAME": "Iki",
+    # Tokens for the MCP server (RFC 8707) also serve the API calls its tools make.
+    "RESOURCE_SERVER_TOKEN_RESOURCE_VALIDATOR": "iki_server.mcp.api.resource_allowed",
 }
 
 SESSION_ENGINE = "iki_server.accounts.sessions"

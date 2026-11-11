@@ -713,6 +713,7 @@ def oauth(admin: requests.Session) -> None:
     if bearer_call(app_token, "GET", "/me").json().get("email") != "alice@iki.test":
         fail("the app's token isn't alice's")
     ok("a self-registered app waited for approval, then got alice's consent with PKCE")
+    mcp(app_token)
 
     revoke = alice.get(f"{IKI}/account/apps/")
     consent_id = re.search(r'name="consent" value="(\d+)"', revoke.text)
@@ -749,6 +750,47 @@ def oauth(admin: requests.Session) -> None:
     if bearer_call(issued.json()["access_token"], "GET", "/me").status_code != 401:
         fail("a deactivated service account's token still works")
     ok("a service account got a token with client credentials; deactivating ended it")
+
+
+def mcp(token: str) -> None:
+    """An agent's view: the MCP server, through the ingress, with the app's token."""
+
+    def rpc(method: str, params: dict[str, Any], auth: str | None = token) -> requests.Response:
+        return requests.post(
+            f"{IKI}/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "MCP-Protocol-Version": "2025-11-25",
+                **({"Authorization": f"Bearer {auth}"} if auth else {}),
+            },
+            timeout=30,
+        )
+
+    unsigned = rpc("tools/list", {}, auth=None)
+    if unsigned.status_code != 401 or "resource_metadata=" not in unsigned.headers.get(
+        "WWW-Authenticate", ""
+    ):
+        fail(f"MCP without a token answered HTTP {unsigned.status_code}: {unsigned.headers}")
+    hello = rpc(
+        "initialize",
+        {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "e2e-agent", "version": "1"},
+        },
+    )
+    if hello.status_code != 200 or hello.json()["result"]["serverInfo"]["name"] != "iki":
+        fail(f"MCP initialize answered HTTP {hello.status_code}: {hello.text[:300]}")
+    called = rpc("tools/call", {"name": "list_projects", "arguments": {"member": True}})
+    result = called.json().get("result", {}) if called.status_code == 200 else {}
+    names = {p["name"] for p in result.get("structuredContent", {}).get("items", [])}
+    granted = bearer_call(token, "GET", "/projects?member=true").json()["items"]
+    if result.get("isError") or not names or names != {p["name"] for p in granted}:
+        fail(f"MCP list_projects answered HTTP {called.status_code}: {called.text[:300]}")
+    if "<iki-data-" not in result["content"][0]["text"]:
+        fail("MCP answers aren't fenced as data")
+    ok(f"an agent signed in as alice reached the MCP server and saw what the API shows: {names}")
 
 
 def saml() -> None:

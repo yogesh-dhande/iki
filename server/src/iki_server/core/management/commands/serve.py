@@ -74,9 +74,9 @@ class Command(BaseCommand):
             "port": options["port"],
             "workers": options["workers"],
             "reload": options["reload"],
-            # Django has no ASGI lifespan support; turning it off avoids a
-            # misleading startup warning.
-            "lifespan": "off",
+            # The lifespan starts the MCP server's session manager (see asgi.py): without
+            # it, the web process mustn't start.
+            "lifespan": "on",
             # Logging is already configured by Django settings (JSON lines).
             "log_config": None,
             "access_log": False,

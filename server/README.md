@@ -78,6 +78,21 @@ People choose which scopes and projects each app gets, and revoke apps
 under **Account → Apps** (the link on their name). Deactivating someone
 ends all their tokens.
 
+### AI agents (MCP)
+
+Iki's MCP server is at `/mcp`, over Streamable HTTP (ADR 0013, ADR 0049).
+Agents sign in as the person they act for, with the OAuth apps flow above,
+and can do only what that person can, within the scopes and projects they
+grant. For example, to add it to Claude Code:
+
+```sh
+claude mcp add --transport http iki https://iki.example.com/mcp
+```
+
+Its tools search and read entities with their provenance, history and
+lineage, and actions and runs with their logs. Everything an agent does is
+recorded as done through MCP, by its app.
+
 ### Database roles
 
 Iki connects to Postgres as two roles (ADR 0025):

@@ -134,3 +134,9 @@ def test_server_serves_probes_logs_json_and_exports_traces(
     assert "secret" not in output
     assert "color_message" not in output
     assert any(line["logger"].startswith("uvicorn") for line in lines)
+    # The lifespan starts the MCP server's session manager with the server, and stops it.
+    events = [line["event"] for line in lines if line["logger"].startswith("mcp.")]
+    assert events == [
+        "StreamableHTTP session manager started",
+        "StreamableHTTP session manager shutting down",
+    ], output

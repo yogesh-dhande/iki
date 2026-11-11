@@ -78,3 +78,4 @@ supersedes the old one, and update the old one's status.
 | [0046](0046-how-iki-worker-runs-a-command.md)                     | How iki-worker runs a command                                                                   | Accepted |
 | [0047](0047-workers-run-only-the-code-a-run-was-launched-with.md) | Workers run only the plugin code a run was launched with                                        | Accepted |
 | [0048](0048-backend-workers-run-in-baked-isolated-pods.md)        | Backend workers run in baked, isolated pods                                                     | Accepted |
+| [0049](0049-mcp-tools-call-the-rest-api.md)                       | MCP tools call Iki's REST API in-process, as the agent                                          | Accepted |

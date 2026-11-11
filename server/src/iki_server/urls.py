@@ -5,6 +5,7 @@ from django.urls import URLPattern, URLResolver, include, path
 from iki_server.accounts import views as accounts
 from iki_server.api import worker
 from iki_server.api.v1 import api as api_v1
+from iki_server.mcp import views as mcp
 from iki_server.realtime import views as realtime
 from iki_server.web import views as web
 
@@ -23,6 +24,8 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("api/v1/events", realtime.events, name="events"),
     path("api/v1/runs/<str:ref>/events", realtime.run_events, name="run-events"),
     path("api/v1/", api_v1.urls),
+    # AI agents' (ADR 0013): MCP over Streamable HTTP.
+    path("mcp", mcp.endpoint, name="mcp"),
     # Workers' (ADR 0043). Leasing waits for a job, and watching one waits for it to be
     # cancelled, so they're async views outside django-ninja.
     path("worker/v1/lease", worker.lease, name="worker_lease"),

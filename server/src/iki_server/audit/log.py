@@ -239,5 +239,10 @@ class AuditContextMiddleware:
         via = Via.API if api else Via.WEB
         if request.path.startswith("/worker/"):
             via = Via.SYSTEM  # a worker: Iki's own machinery
+        # An MCP request, and the API calls its tools make: the tools mark theirs in the
+        # ASGI scope, which no client can reach.
+        scope = getattr(request, "scope", {})
+        if request.path == "/mcp" or scope.get("iki.via") == Via.MCP:
+            via = Via.MCP
         with using(Context(via=via, client_ip=request.META.get("REMOTE_ADDR") or None)):
             return await self.get_response(request)
