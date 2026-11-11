@@ -91,7 +91,8 @@ and your compute admins to review changes, with `CODEOWNERS` if you use it.
 - Point Argo CD or Flux at each deployment: the Iki chart at the version in
   `iki.yaml`, with `values.yaml` and `image.yaml` as value files.
 - Once Iki is up, a Compute admin makes a backend-tier registration token
-  in Compute settings. Store it in the `iki-worker-registration` Secret
+  in Compute settings (or an operator runs `iki-server
+create_registration_token --tier backend --label ...` in a web pod). Store it in the `iki-worker-registration` Secret
   (key `token`, ideally through your secrets manager) and turn on
   `backendWorkers` in `values.yaml`. The worker pods hold only that token:
   no database credentials, no cloud role, and a network policy that lets

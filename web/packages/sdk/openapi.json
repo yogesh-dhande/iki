@@ -3813,7 +3813,15 @@
             "type": "string"
           },
           "created_by": {
-            "$ref": "#/components/schemas/PersonOut"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when an operator made it with `iki-server create_registration_token`."
           },
           "expires_at": {
             "anyOf": [

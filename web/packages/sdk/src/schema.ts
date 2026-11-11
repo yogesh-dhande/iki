@@ -3107,7 +3107,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            created_by: components["schemas"]["PersonOut"];
+            /** @description Null when an operator made it with `iki-server create_registration_token`. */
+            created_by: components["schemas"]["PersonOut"] | null;
             /** Expires At */
             expires_at: string | null;
             /**

@@ -1,15 +1,17 @@
 """Workers: registering, leasing jobs, reporting on them, retries and recovery (ADR 0043)."""
 
 import asyncio
+import io
 import json
 import uuid
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from api_client import problem
 from asgiref.sync import sync_to_async
+from django.core.management import CommandError, call_command
 from django.db import connection
 from django.db.models.functions import Now
 from django.test import Client
@@ -154,6 +156,37 @@ def test_compute_admins_make_registration_tokens(world: World) -> None:
         {"label": "Old", "tier": "vm", "expires_at": past.isoformat()},
     )
     assert problem(expired, 422, "validation_failed")["errors"][0]["pointer"] == "#/expires_at"
+
+
+def test_operators_make_registration_tokens_from_the_command_line(world: World) -> None:
+    out, err = io.StringIO(), io.StringIO()
+    call_command(
+        "create_registration_token",
+        "--tier=backend",
+        "--label=Backend pool",
+        "--expires-in-days=30",
+        stdout=out,
+        stderr=err,
+    )
+    value = out.getvalue().strip()
+    assert value.startswith("iki_wreg_")
+    assert value not in err.getvalue()
+    assert f"…{value[-4:]}" in err.getvalue()
+    made = WorkerClient(value).post(
+        "/register", {"name": "pod-1", "version": "0.1.0", "capacity": ROOMY, "plugins": LOCAL}
+    )
+    assert made.status_code == 201, made.content
+    (listed,) = api_as(world, "compute_admin").get("/compute/registration-tokens").json()["items"]
+    assert listed["label"] == "Backend pool"
+    assert listed["created_by"] is None
+    assert listed["workers"] == 1
+    assert 29 <= (datetime.fromisoformat(listed["expires_at"]) - timezone.now()).days <= 30
+    event = AuditEvent.objects.get(action="worker_registration.created")
+    assert event.actor is None
+    assert event.via == "cli"
+    for bad in (["--tier=client", "--label=x"], ["--tier=vm", "--label= "]):
+        with pytest.raises(CommandError):
+            call_command("create_registration_token", *bad, stdout=out, stderr=err)
 
 
 def test_workers_register_with_a_registration_token(world: World) -> None:

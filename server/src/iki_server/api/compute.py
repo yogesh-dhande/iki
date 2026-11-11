@@ -61,7 +61,9 @@ class RegistrationOut(Schema):
     label: str
     tier: str
     hint: str = Field(description="The token's last four characters, to tell it by.")
-    created_by: PersonOut
+    created_by: PersonOut | None = Field(
+        description="Null when an operator made it with `iki-server create_registration_token`."
+    )
     created_at: datetime
     expires_at: datetime | None
     last_used_at: datetime | None
@@ -79,7 +81,9 @@ def _registration_out(token: RegistrationToken) -> dict[str, Any]:
         "label": token.label,
         "tier": token.tier,
         "hint": token.hint,
-        "created_by": {"id": token.created_by.pk, "name": token.created_by.name},
+        "created_by": (
+            {"id": token.created_by.pk, "name": token.created_by.name} if token.created_by else None
+        ),
         "created_at": token.created_at,
         "expires_at": token.expires_at,
         "last_used_at": token.last_used_at,

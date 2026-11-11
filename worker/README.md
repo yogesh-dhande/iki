@@ -14,6 +14,14 @@ HTTPS calls, so it works behind NAT and corporate proxies
 ## Running it
 
 A Compute admin makes a registration token for a tier in Compute settings.
+For an install set up from code, an operator can make one inside the
+cluster instead; it prints only the token:
+
+```sh
+kubectl exec -n iki deploy/iki-web -- iki-server create_registration_token \
+  --tier backend --label "Backend pool"
+```
+
 Then:
 
 ```sh

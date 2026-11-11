@@ -51,9 +51,10 @@ def _token(prefix: str) -> str:
 
 
 def create_registration(
-    *, label: str, tier: str, by: User, expires_at: datetime | None = None
+    *, label: str, tier: str, by: User | None, expires_at: datetime | None = None
 ) -> tuple[RegistrationToken, str]:
-    """A new registration token, and its value (shown once)."""
+    """A new registration token, and its value (shown once). ``by`` is None when an
+    operator makes it with `iki-server create_registration_token`."""
     value = _token(REGISTRATION_PREFIX)
     with transaction.atomic():
         token = RegistrationToken.objects.create(

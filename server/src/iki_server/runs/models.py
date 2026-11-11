@@ -195,8 +195,9 @@ class RegistrationToken(models.Model):
     token_hash = models.CharField(max_length=64, unique=True)
     #: The token's last four characters, so people can tell tokens apart.
     hint = models.CharField(max_length=4)
+    #: None: made with `iki-server create_registration_token`, by whoever can run it.
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+", null=True
     )
     created_at = models.DateTimeField(db_default=Now())
     expires_at = models.DateTimeField(null=True, blank=True)
