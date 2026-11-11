@@ -412,6 +412,25 @@ function paramText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+/** A param's value: a file param's file by name, downloadable, when the reader can read it. */
+function ParamValue({ run, type, value }: { run: Run; type: string | undefined; value: unknown }) {
+  const file = typeof value === "string" ? run.files[value] : undefined;
+  if (file && typeof value === "string") {
+    return (
+      <span>
+        <a href={`/api/v1/files/${value}/content`} download={file.name}>
+          {file.name}
+        </a>{" "}
+        <span className="muted">
+          {formatSize(file.size)} · {file.media_type}
+        </span>
+      </span>
+    );
+  }
+  if (type === "file") return <span className="muted">A file you can’t read</span>;
+  return <>{paramText(value)}</>;
+}
+
 /**
  * What an attempt's command printed. It reads the log from where it got to
  * whenever it's known to be longer (live updates say so), and keeps to the
@@ -608,6 +627,7 @@ export function RunPage() {
   }, [done, client, run.hrid]);
 
   const paramLabels = new Map(action?.params.map((p) => [p.name, p.label]) ?? []);
+  const paramTypes = new Map(action?.params.map((p) => [p.name, p.type]) ?? []);
   const inputLabels = new Map(action?.inputs.map((i) => [i.name, i.label]) ?? []);
   const params = Object.entries(run.params);
   const metrics = Object.entries(run.metrics);
@@ -766,7 +786,9 @@ export function RunPage() {
           {params.map(([name, value]) => (
             <div key={name} className="value-row">
               <dt>{paramLabels.get(name) ?? name}</dt>
-              <dd>{paramText(value)}</dd>
+              <dd>
+                <ParamValue run={run} type={paramTypes.get(name)} value={value} />
+              </dd>
             </div>
           ))}
         </dl>
@@ -818,6 +840,19 @@ export function RunPage() {
               </>
             ) : null}
           </dd>
+          {Object.keys(run.settings).length ? (
+            <>
+              <dt>Plugin settings</dt>
+              <dd>
+                {Object.entries(run.settings).map(([name, value], index) => (
+                  <span key={name}>
+                    {index ? "; " : ""}
+                    <code>{name}</code>: {paramText(value)}
+                  </span>
+                ))}
+              </dd>
+            </>
+          ) : null}
           <dt>Ran on</dt>
           <dd>
             {run.tier === "client" ? "A client" : `A ${run.tier} worker`}

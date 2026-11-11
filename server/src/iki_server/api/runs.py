@@ -25,7 +25,7 @@ from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
-from iki_server.runs import approvals, catalog, quotas, services
+from iki_server.runs import approvals, catalog, input_files, quotas, services
 from iki_server.runs.models import (
     ActionRun,
     ApprovalState,
@@ -212,6 +212,12 @@ class RunInputOut(Schema):
     revision: int = Field(description="The revision the run read.")
 
 
+class RunFileOut(Schema):
+    name: str
+    media_type: str
+    size: int
+
+
 class OutputErrorOut(Schema):
     pointer: str = Field(description="Where in the run's output, as a JSON pointer.")
     detail: str
@@ -285,7 +291,14 @@ class RunOut(Schema):
     tier: Tier
     environment: str
     params: dict[str, Any]
+    settings: dict[str, Any] = Field(
+        alias="plugin_settings",
+        description="The plugin's settings, as the deployment set them when it was launched.",
+    )
     inputs: list[RunInputOut]
+    files: dict[str, RunFileOut] = Field(
+        description="The files its file params name, by ID, that you can read."
+    )
     status: Literal[
         "awaiting_approval",
         "queued",
@@ -342,6 +355,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             }
         )
     outputs = {o.run_id: o.document for o in RunOutput.objects.filter(run__in=runs)}
+    named = {run.pk: input_files.of_params(run) for run in runs}
+    readable = {
+        f.pk: f
+        for f in access.readable_files(me)
+        .filter(pk__in=set().union(*named.values()))
+        .select_related("blob")
+    }
     projects = {r.project_id: r.project for r in runs}
     holds = {
         tier: quotas.blocked(tier)
@@ -359,6 +379,14 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "requested_by": run.requested_by,
             "approval": held.get(run.approval_id) if run.approval_id else None,
             "inputs": inputs.get(run.pk, []),
+            "files": {
+                str(i): {
+                    "name": readable[i].name,
+                    "media_type": readable[i].media_type,
+                    "size": readable[i].blob.size,
+                }
+                for i in sorted(named[run.pk] & readable.keys())
+            },
             "attempts": attempts.get(run.pk, 0),
             "effects": effects.get(run.pk, []),
             "metrics": outputs.get(run.pk, {}).get("metrics") or {},
@@ -388,6 +416,7 @@ _RUN_FIELDS = (
     "tier",
     "environment",
     "params",
+    "plugin_settings",
     "status",
     "created_at",
     "started_at",

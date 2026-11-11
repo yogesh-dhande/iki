@@ -466,6 +466,58 @@ describe("an entity's page", () => {
     expect(screen.getByText("(52,341.5 u)")).toBeInTheDocument();
   });
 
+  it("says where an imported entity came from", async () => {
+    withTypes();
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    const origin = {
+      source: "UniProtKB",
+      id: "P00519",
+      version: "2026_04",
+      url: "https://www.uniprot.org/uniprotkb/P00519",
+      retrieved_at: "2026-11-11T09:30:00Z",
+      sha256: "ab12".repeat(16),
+      file: null,
+      run: { id: "r1", hrid: "RUN-000007", action: "protein.fetch_uniprot" },
+      revision: 1,
+      recorded_at: "2026-11-11T09:31:00Z",
+    };
+    const fromFile = {
+      ...origin,
+      source: "FASTA file",
+      id: "ABL1",
+      version: "",
+      url: "",
+      retrieved_at: null,
+      file: { id: FILE_ID, name: "kinases.fasta" },
+      run: null,
+      revision: null,
+    };
+    answer("GET /api/v1/entities/PRT-000001/origins", [origin, fromFile]);
+    await renderApp("/entities/PRT-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    const record = await within(details).findByRole("link", { name: "P00519 (2026_04)" });
+    expect(record).toHaveAttribute("href", "https://www.uniprot.org/uniprotkb/P00519");
+    expect(record).toHaveAttribute("rel", "noreferrer noopener");
+    const [fetched, read] = within(details).getAllByRole("listitem") as [HTMLElement, HTMLElement];
+    expect(fetched).toHaveTextContent(
+      /^UniProtKB: P00519 \(2026_04\), retrieved .+, by RUN-000007 · SHA-256 ab12ab12ab12…$/,
+    );
+    expect(within(fetched).getByRole("link", { name: "RUN-000007" })).toHaveAttribute(
+      "href",
+      "/runs/RUN-000007/",
+    );
+    // A run the reader can't see isn't named; a record found again says so.
+    expect(read).toHaveTextContent(
+      /^FASTA file: ABL1 in kinases.fasta \(found again: it was already here\)/,
+    );
+    expect(within(read).getByRole("link", { name: "kinases.fasta" })).toHaveAttribute(
+      "href",
+      `/api/v1/files/${FILE_ID}/content`,
+    );
+  });
+
   it("shows its history, and what each revision changed", async () => {
     onStructure();
     answer(

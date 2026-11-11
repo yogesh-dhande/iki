@@ -222,10 +222,12 @@ def build() -> MCPServer:
     @server.tool(annotations=READ, title="Get an entity")
     async def get_entity(ref: Ref) -> CallToolResult:
         """An entity's values, and for each one who set it, how (by hand, or which run)
-        and when."""
+        and when. If it was imported, `origins` says from where: a database's record (with
+        its version, link and when it was fetched) or a file's."""
         found = await call("GET", path("/entities/{ref}", ref=ref))
         provenance = await call("GET", path("/entities/{ref}/provenance", ref=ref))
-        return answer({"entity": found, "provenance": provenance})
+        origins = await call("GET", path("/entities/{ref}/origins", ref=ref))
+        return answer({"entity": found, "provenance": provenance, "origins": origins})
 
     @server.tool(annotations=READ, title="Get an entity's history")
     async def get_entity_history(

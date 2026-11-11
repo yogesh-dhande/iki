@@ -82,7 +82,11 @@
     "environment": { "type": "string", "description": "plugin.environment" },
     "params": {
       "type": "object",
-      "description": "Every param, by name, with its default filled in."
+      "description": "Every param, by name, with its default filled in. A file param's value is the file's ID, in `files`."
+    },
+    "settings": {
+      "type": "object",
+      "description": "The plugin's settings, as the deployment set them (in its lockfile) when the run was launched. Settings it doesn't set are left out."
     },
     "inputs": {
       "type": "object",
@@ -94,7 +98,7 @@
     },
     "files": {
       "type": "object",
-      "description": "Every file the inputs' values hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.",
+      "description": "Every file the inputs' values and the file params hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.",
       "additionalProperties": { "$ref": "#/$defs/file" }
     }
   },

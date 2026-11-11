@@ -248,6 +248,18 @@ def test_a_command_that_fails_fails_the_run_with_its_log(
     assert "no luck" in log_of(run)
 
 
+def test_a_command_that_says_why_it_failed_fails_the_run_with_that(
+    world: World, start: Callable[..., Running], tmp_path: Path
+) -> None:
+    run = queued(world)
+    script = "print('::error Record 3 (pUC19) has no bases', flush=True)\nraise SystemExit(2)\n"
+    code, said = start(registration(world), "--once", plugins=with_script(tmp_path, script)).wait()
+    assert code == 0, said
+    body = api_as(world).get(f"/runs/{run['id']}").json()
+    assert body["status"] == "failed", body
+    assert body["error"]["message"] == "Record 3 (pUC19) has no bases (exit status 2)"
+
+
 def test_a_cancel_stops_the_command_at_once(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:

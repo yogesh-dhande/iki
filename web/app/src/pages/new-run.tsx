@@ -23,7 +23,14 @@ import {
   type FieldDef,
 } from "../entities";
 import { FieldInput } from "../entity-inputs";
-import { encode, initialDraft, isBlank, type Draft, type Schemaed } from "../entity-values";
+import {
+  blankMessage,
+  encode,
+  initialDraft,
+  isBlank,
+  type Draft,
+  type Schemaed,
+} from "../entity-values";
 import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
 import {
@@ -355,8 +362,7 @@ function RunForm({
       const key = `params/${param.name}`;
       const draft = drafts[key] ?? null;
       if (isBlank(param, draft)) {
-        if (param.required && param.default === null)
-          errors[key] = `Enter ${inSentence(param.label)}.`;
+        if (param.required && param.default === null) errors[key] = blankMessage(param);
         continue;
       }
       const encoded = encode(param, draft, params);

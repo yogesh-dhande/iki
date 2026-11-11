@@ -388,6 +388,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/origins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where it was imported from
+         * @description The records runs imported it from, newest first: a public database's, or one in a
+         *     file. An entity found again by a later import lists each.
+         */
+        get: operations["iki_server_api_entities_get_origins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/projects": {
         parameters: {
             query?: never;
@@ -2901,6 +2922,63 @@ export interface components {
             /** Roles */
             roles: ("org_admin" | "compute_admin" | "auditor")[];
         };
+        /** OriginFileOut */
+        OriginFileOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** OriginOut */
+        OriginOut: {
+            /** @description The file it was read from, if you can read it. */
+            file: components["schemas"]["OriginFileOut"] | null;
+            /**
+             * Id
+             * @description Its identifier there: an accession, or a record's name.
+             */
+            id: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /**
+             * Retrieved At
+             * @description When the run fetched it.
+             */
+            retrieved_at: string | null;
+            /**
+             * Revision
+             * @description The revision the run made; none if the entity was already there.
+             */
+            revision: number | null;
+            /** @description The run that imported it, if you can read it. */
+            run: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Sha256
+             * @description The SHA-256 of the record as the run read it.
+             */
+            sha256: string;
+            /**
+             * Source
+             * @description The database or format, such as NCBI Nucleotide.
+             */
+            source: string;
+            /**
+             * Url
+             * @description Where people can see the record (https), if the run said.
+             */
+            url: string;
+            /**
+             * Version
+             * @description The record's version or the database's release.
+             */
+            version: string;
+        };
         /** OutputErrorOut */
         OutputErrorOut: {
             /** Detail */
@@ -3847,6 +3925,15 @@ export interface components {
             /** Cancel */
             cancel: boolean;
         };
+        /** RunFileOut */
+        RunFileOut: {
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
+        };
         /** RunFilters */
         RunFilters: {
             /**
@@ -3944,6 +4031,13 @@ export interface components {
             /** Environment */
             environment: string;
             error: components["schemas"]["ErrorOut"] | null;
+            /**
+             * Files
+             * @description The files its file params name, by ID, that you can read.
+             */
+            files: {
+                [key: string]: components["schemas"]["RunFileOut"];
+            };
             /** Finished At */
             finished_at: string | null;
             /** Hrid */
@@ -3980,6 +4074,13 @@ export interface components {
             /** Reason */
             reason: string;
             requested_by: components["schemas"]["PersonRef"];
+            /**
+             * Settings
+             * @description The plugin's settings, as the deployment set them when it was launched.
+             */
+            settings: {
+                [key: string]: unknown;
+            };
             /** Started At */
             started_at: string | null;
             /**
@@ -5380,6 +5481,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineageGraphOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_get_origins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OriginOut"][];
                 };
             };
         };

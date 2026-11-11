@@ -115,6 +115,19 @@ pub fn progress(line: &str) -> Option<(f64, String)> {
     Some((fraction.clamp(0.0, 1.0), message))
 }
 
+/// Why a command says it failed, from a line `::error Record 3 has no bases`, as GitHub
+/// Actions' `::error::` lines do. The worker reports the last one if the command fails.
+pub fn error(line: &str) -> Option<String> {
+    let text = line
+        .trim_end_matches(['\r', '\n'])
+        .strip_prefix("::error ")?
+        .trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.chars().take(1000).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +191,17 @@ mod tests {
         assert_eq!(progress("::progress 40%"), Some((0.4, String::new())));
         assert_eq!(progress("::progress 7"), Some((1.0, String::new())));
         assert_eq!(progress("::progress NaN"), None);
+    }
+
+    #[test]
+    fn reads_why_a_command_failed() {
+        assert_eq!(
+            error("::error Record 3 (pUC19) has no bases\n"),
+            Some("Record 3 (pUC19) has no bases".to_owned())
+        );
+        assert_eq!(error("::error   "), None);
+        assert_eq!(error("error: no"), None);
+        assert_eq!(error(&format!("::error {}", "x".repeat(5000))).map(|e| e.len()), Some(1000));
         assert_eq!(progress("::progress soon"), None);
         assert_eq!(progress("progress 0.4"), None);
     }

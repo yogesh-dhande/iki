@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Action
+name: import_proteins
+label: Import proteins from a FASTA file
+params:
+  file:
+    type: file
+    required: true
+    media_types: [chemical/seq-aa-fasta, text/plain]
+    max_size: 1MiB
+effects:
+  creates: [{ type: Protein, cardinality: many }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/imports.py]
+deterministic: true
+timeout: 5m

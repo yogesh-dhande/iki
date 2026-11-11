@@ -20,6 +20,7 @@ The launcher's access is checked again: a run doesn't outlive the role that star
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,6 +38,7 @@ from iki_server.runs import input_files
 from iki_server.runs.models import (
     ActionRun,
     EffectKind,
+    ExternalOrigin,
     Lineage,
     RunEffect,
     RunInput,
@@ -207,6 +209,42 @@ class _Create:
     values: Mapping[str, Any]
     #: parent entity → (input name, revision read)
     parents: dict[UUID, tuple[str, int]]
+    #: Where it came from, checked: ExternalOrigin's fields.
+    origin: dict[str, Any] | None = None
+
+
+def _origin(check: _Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
+    """An entity's origin as ExternalOrigin keeps it. The schema checked its shape."""
+    origin: dict[str, Any] = {
+        "source": given["source"],
+        "identifier": given["id"],
+        "version": given.get("version", ""),
+        "url": given.get("url", ""),
+        "sha256": given.get("sha256", ""),
+        "retrieved_at": None,
+        "file_id": None,
+    }
+    if "retrieved_at" in given:
+        try:
+            when = dt.datetime.fromisoformat(given["retrieved_at"])
+        except ValueError:
+            when = None
+        if when is None or when.tzinfo is None:
+            check.error(
+                _pointer(*at, "origin", "retrieved_at"),
+                "Give a date and time with a time zone, such as 2026-11-11T09:30:00Z.",
+            )
+        else:
+            origin["retrieved_at"] = when
+    if "file" in given:
+        file_id = UUID(given["file"])
+        if file_id not in input_files.of_params(check.run):
+            check.error(
+                _pointer(*at, "origin", "file"),
+                "Name a file the run was given in a file param.",
+            )
+        origin["file_id"] = file_id
+    return origin
 
 
 def _creates(check: _Check, given: list[Mapping[str, Any]]) -> list[_Create]:
@@ -233,8 +271,9 @@ def _creates(check: _Check, given: list[Mapping[str, Any]]) -> list[_Create]:
             continue
         _check_files(check, _pointer(*at), item["type"], item["values"])
         parents = _parents(check, effect, item.get("derived_from"), at)
+        origin = _origin(check, at, item["origin"]) if "origin" in item else None
         if parents is not None:
-            out.append(_Create(_pointer(*at), item["type"], item["values"], parents))
+            out.append(_Create(_pointer(*at), item["type"], item["values"], parents, origin))
     return out
 
 
@@ -328,12 +367,18 @@ def _write_creates(check: _Check, creates: list[_Create]) -> None:
         if RunEffect.objects.filter(run=run, entity_id=entity_id).exists():
             # The same entity, made twice: its type reuses duplicates.
             continue
+        revision = saved.revision.number if saved.revision is not None else None
         RunEffect.objects.create(
             run=run,
             entity_id=entity_id,
             kind=EffectKind.REUSED if saved.reused else EffectKind.CREATED,
-            revision=saved.revision.number if saved.revision is not None else None,
+            revision=revision,
         )
+        if create.origin is not None:
+            # Kept for reused entities too: the run found the same record again.
+            ExternalOrigin.objects.create(
+                run=run, entity_id=entity_id, revision=revision, **create.origin
+            )
         Lineage.objects.bulk_create(
             Lineage(
                 entity_id=entity_id,

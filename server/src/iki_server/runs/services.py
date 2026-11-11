@@ -18,7 +18,7 @@ from dataclasses import asdict
 from typing import Any
 from uuid import UUID
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied
 from django.db import connection, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -27,7 +27,7 @@ from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.entities import access, hrids, registry
 from iki_server.entities.models import Entity
-from iki_server.entities.values import Invalid
+from iki_server.entities.values import Invalid, Refs, to_db
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action as Permission
@@ -79,7 +79,7 @@ def launch(
     _may_launch(user, action, project)
     errors: dict[str, list[str]] = {}
     entities = _inputs(user, action, inputs, errors)
-    values = _params(action, params, errors)
+    values = _params(user, action, params, errors)
     if errors:
         raise Invalid(errors)
     with transaction.atomic():
@@ -118,7 +118,7 @@ def launch_each(
     if errors:
         raise Invalid(errors)
     entities = _inputs(user, action, {**inputs, each: entity_ids}, errors, each=each)
-    values = _params(action, params, errors)
+    values = _params(user, action, params, errors)
     if f"inputs/{each}" in errors:
         errors["entities"] = errors.pop(f"inputs/{each}")
     if errors:
@@ -154,6 +154,18 @@ def _may_launch(user: User, action: Action, project: Project) -> None:
         raise Refused(available.reason or "This action can't run on this deployment.")
 
 
+def plugin_settings(action: Action) -> dict[str, Any]:
+    """The deployment's values for the settings of `action`'s plugin, which its runs get.
+    Raises :class:`Refused` if the plugins were built without them."""
+    if not registry.plugins()[action.plugin].settings:
+        return {}
+    try:
+        values = registry.settings(action.plugin)
+    except ImproperlyConfigured as error:
+        raise Refused(f"{error} Until then, its actions can't run.") from None
+    return {name: value for name, value in values.items() if value is not None}
+
+
 def _queue(
     user: User,
     action: Action,
@@ -184,6 +196,7 @@ def _queue(
         tier=action.tier,
         environment=action.environment,
         params=values,
+        plugin_settings=plugin_settings(action),
         timeout=action.timeout,
         max_attempts=1 + action.retry_max,
         retry_on=list(action.retry_on),
@@ -282,14 +295,23 @@ def is_a(entity_type: str, wanted: str) -> bool:
 
 
 def _params(
-    action: Action, given: Mapping[str, Any], errors: dict[str, list[str]]
+    user: User, action: Action, given: Mapping[str, Any], errors: dict[str, list[str]]
 ) -> dict[str, Any]:
     for name in sorted(given.keys() - action.params.keys()):
         errors[f"params/{name}"] = [f"`{action.qualified_name}` has no param `{name}`."]
     values: dict[str, Any] = {}
+    files: Refs | None = None
     for name, f in action.params.items():
         key = f"params/{name}"
         if name in given and given[name] is not None:
+            if f.type == "file":
+                # A file the person can read, of a type and size the param takes.
+                files = files or Refs(access.visible(user), access.readable_files(user))
+                try:
+                    values[name] = str(to_db(f, given[name], files))
+                except ValueError as error:
+                    errors[key] = [f"The value {error}"]
+                continue
             problems = value_problems(f, given[name])
             if problems:
                 errors[key] = [f"The value {p}" for p in problems]

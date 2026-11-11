@@ -168,6 +168,8 @@ class ActionRun(models.Model):
     environment = models.CharField(max_length=63)
     #: Every param's value, defaults filled in.
     params = models.JSONField(default=dict)
+    #: The plugin's settings, as the deployment set them at launch (never secrets).
+    plugin_settings = models.JSONField(default=dict)
     status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.QUEUED)
     created_at = models.DateTimeField(db_default=Now())
     started_at = models.DateTimeField(null=True, blank=True)
@@ -487,6 +489,48 @@ class RunEffect(models.Model):
 
     def __str__(self) -> str:
         return f"{self.run_id} {self.kind} {self.entity_id}"
+
+
+class ExternalOrigin(models.Model):
+    """Where a run says an entity it made came from: a public database's record, or one in
+    a file the run was given. Kept for anyone who reads the entity, as imports' provenance."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="origins")
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    #: The revision the run made (none when it found the entity already there).
+    revision = models.PositiveIntegerField(null=True, blank=True)
+    source = models.CharField(max_length=100, db_comment="Such as NCBI Nucleotide.")
+    identifier = models.CharField(max_length=255, db_comment="An accession, or a record's name.")
+    version = models.CharField(max_length=100, blank=True, default="")
+    url = models.CharField(max_length=2000, blank=True, default="")
+    retrieved_at = models.DateTimeField(null=True, blank=True)
+    sha256 = models.CharField(max_length=64, blank=True, default="")
+    #: The file it was read from: one of the run's file params.
+    file = models.ForeignKey(
+        "iki_files.File", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_external_origin"
+        db_table_comment = "Where imported entities came from, as the runs that made them said."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["entity", "id"], name="iki_external_origin_entity"),
+            models.Index(fields=["source", "identifier"], name="iki_external_origin_record"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["run", "entity"], name="iki_external_origin_once"),
+            models.CheckConstraint(
+                condition=Q(url="") | Q(url__startswith="https://"),
+                name="iki_external_origin_https",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source} {self.identifier}"
 
 
 class Lineage(models.Model):

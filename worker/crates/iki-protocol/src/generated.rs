@@ -42,11 +42,14 @@ pub struct RunInput {
     pub command: Vec<String>,
     /// plugin.environment
     pub environment: String,
-    /// Every param, by name, with its default filled in.
+    /// Every param, by name, with its default filled in. A file param's value is the file's ID, in `files`.
     pub params: serde_json::Map<String, serde_json::Value>,
+    /// The plugin's settings, as the deployment set them (in its lockfile) when the run was launched. Settings it doesn't set are left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<serde_json::Map<String, serde_json::Value>>,
     /// Every input, by name: a list of entities (one item for inputs that take one; none for an optional input left out).
     pub inputs: std::collections::BTreeMap<String, Vec<RunInputEntity>>,
-    /// Every file the inputs' values hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.
+    /// Every file the inputs' values and the file params hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<std::collections::BTreeMap<String, RunInputFile>>,
 }
@@ -111,6 +114,30 @@ pub struct RunInputJobResources {
     pub scratch_disk: Option<i64>,
 }
 
+/// Where an imported entity came from: a public database, or a file the run was given. Iki keeps it with the entity, for anyone who reads it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunOutputOrigin {
+    /// The database or format, such as `NCBI Nucleotide`, `RCSB PDB` or `GenBank file`.
+    pub source: String,
+    /// Its identifier there: an accession, or a record's name in a file.
+    pub id: String,
+    /// The record's version or the database's release, such as `L09137.2` or `2026-11`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Where people can see the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// When the command fetched it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieved_at: Option<String>,
+    /// The SHA-256 of the record as the command read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    /// The file it was read from: one of the run's file params.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+}
+
 /// What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutput {
@@ -157,6 +184,8 @@ pub struct RunOutputCreatesItem {
     /// The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derived_from: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<RunOutputOrigin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -403,6 +403,13 @@ def downloadable(fake: FakeIki, content: bytes, sha256: str, name: str = "abl1.p
     fake.on("GET", "/abl1", httpx2.Response(200, content=content))
 
 
+def test_entities_say_where_they_were_imported_from(fake: FakeIki, client: Client) -> None:
+    record: dict[str, Any] = {"source": "NCBI Nucleotide", "id": "L09137", "version": "L09137.2"}
+    fake.on("GET", "/api/v1/entities/DNA-000001/origins", [record])
+    (found,) = client.entities.origins("DNA-000001")
+    assert (found["source"], found["version"]) == ("NCBI Nucleotide", "L09137.2")
+
+
 def test_files_download_from_the_signed_url_without_ikis_token(
     fake: FakeIki, client: Client, tmp_path: Path
 ) -> None:

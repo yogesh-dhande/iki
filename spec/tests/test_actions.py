@@ -459,8 +459,24 @@ def test_params_take_dates_and_quantities(tmp_path: Path) -> None:
     assert make(tmp_path, action(params=params)).problems == []
 
 
-def test_params_cant_be_files_or_refs(tmp_path: Path) -> None:
-    result = make(tmp_path, action(params="{ f: { type: file } }"))
+def test_params_take_files_to_import(tmp_path: Path) -> None:
+    params = (
+        "\n  file: { type: file, required: true, media_types: [chemical/seq-na-fasta],"
+        " max_size: 1MiB }"
+    )
+    assert make(tmp_path, action(params=params)).problems == []
+
+
+@pytest.mark.parametrize(
+    "param",
+    [
+        "{ type: ref, to: Assay }",  # entities are inputs, checked as inputs are
+        "{ type: file, default: 0190e9a4-0000-7000-8000-000000000000 }",
+        "{ type: list, items: { type: file } }",
+    ],
+)
+def test_params_cant_be_refs_or_default_files(tmp_path: Path, param: str) -> None:
+    result = make(tmp_path, action(params=f"{{ f: {param} }}"))
     assert codes(result) == ["schema"]
 
 

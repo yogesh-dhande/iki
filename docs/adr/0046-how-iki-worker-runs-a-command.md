@@ -56,7 +56,9 @@ server has it, so a retry is never an overlap. While the server can't be
 reached, up to 16 MiB waits, as much as the server keeps, and anything
 past that is dropped with a note in the log. A line like
 `::progress 0.4 Folding chain A` reports progress, as GitHub Actions'
-`::` commands do.
+`::` commands do. A command that fails can say why with a line like
+`::error Record 3 has no bases`: the last one is the run's error, with how
+it exited (ADR 0052).
 
 **Files** go through object storage, never the API: the server hands out
 a short-lived link per file. Before the command starts, the worker

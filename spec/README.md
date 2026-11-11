@@ -266,7 +266,9 @@ validator checks that:
   removed or `immutable`; updates reach inherited fields and fields this
   plugin adds to the type
 - every `derived_from` and `updates` names an input
-- params follow the rules for settings, and also take `date` and `quantity`
+- params follow the rules for settings, and also take `date`, `quantity`
+  and `file` (one file, such as one to import, with `media_types` and
+  `max_size`; never a default, and never a reference, which is an input)
 - the environment is one of this plugin's and runs on the action's tier
 - client-tier actions declare no `secrets`, `network` or `resources`, since
   Iki can't keep secrets from, or limit, a person's own machine
@@ -435,6 +437,7 @@ When a worker leases a job, it gets the run input and writes it to
     "project": "…"
   },
   "params": { "ph": 7.4 },
+  "settings": { "ncbi_email": "lab@example.com" },
   "inputs": {
     "protein": [
       {
@@ -464,9 +467,12 @@ When a worker leases a job, it gets the run input and writes it to
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
-with references and files given as IDs. `files` describes every file the
-inputs hold, by ID. The worker downloads each one before the command
-starts, checks its size and SHA-256, and adds its `path`.
+with references and files given as IDs. A file param's value is the
+file's ID too. `files` describes every file the inputs hold and every file
+param names, by ID. The worker downloads each one before the command
+starts, checks its size and SHA-256, and adds its `path`. `settings` holds
+the plugin's settings as the deployment set them when the run was launched.
+An action with no inputs (an import) gets `"inputs": {}`.
 
 The command runs from its plugin's directory, and finds its files through
 the environment ([ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md)):
@@ -482,7 +488,9 @@ the environment ([ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md)):
 What it prints goes to the run's log. A line like
 `::progress 0.4 Folding chain A` reports progress (a fraction, or `40%`).
 It should exit 0 once it has written `output.json`; any other exit fails
-the attempt. On SIGTERM (a cancel, its timeout, or the machine stopping)
+the attempt. Before failing, it can say why with a line like
+`::error Record 3 (pUC19) has no bases`: the last one is what the run's
+page shows. On SIGTERM (a cancel, its timeout, or the machine stopping)
 it has 10 seconds to stop.
 
 The command writes `output.json`
@@ -501,6 +509,18 @@ change what its action declares:
       "type": "protein.ProteinStructure",
       "values": { "method": "predicted", "structure": "…" },
       "derived_from": ["…"]
+    },
+    {
+      "type": "dna.DNASequence",
+      "values": { "name": "pUC19", "bases": "TCGCGCGTTT…" },
+      "origin": {
+        "source": "NCBI Nucleotide",
+        "id": "L09137",
+        "version": "L09137.2",
+        "url": "https://www.ncbi.nlm.nih.gov/nuccore/L09137.2",
+        "retrieved_at": "2026-11-11T09:30:00Z",
+        "sha256": "…"
+      }
     }
   ],
   "metrics": { "plddt": 91.2 },
@@ -511,7 +531,11 @@ change what its action declares:
 `updates` are keyed by input name and may set only the declared fields of
 entities given there. `creates` may make only the declared types. Leave out
 `derived_from` when the inputs the type is derived from hold one entity.
-A file field takes a file the inputs already had, by ID, or one the
+An imported entity says where it came from in `origin`: a database's record
+(its `version`, an `https` `url`, when it was `retrieved_at`, and the
+`sha256` of what was read), or a record in a file the run was given (`file`,
+one of its file params). Iki keeps it with the entity, for whoever reads
+it, and again each time an import finds the same entity. A file field takes a file the inputs already had, by ID, or one the
 command made:
 
 ```json

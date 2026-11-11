@@ -6,6 +6,54 @@
   "type": "object",
   "required": ["apiVersion", "kind"],
   "additionalProperties": false,
+  "$defs": {
+    "origin": {
+      "type": "object",
+      "description": "Where an imported entity came from: a public database, or a file the run was given. Iki keeps it with the entity, for anyone who reads it.",
+      "required": ["source", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The database or format, such as `NCBI Nucleotide`, `RCSB PDB` or `GenBank file`."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Its identifier there: an accession, or a record's name in a file."
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "The record's version or the database's release, such as `L09137.2` or `2026-11`."
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2000,
+          "pattern": "^https://",
+          "description": "Where people can see the record."
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the command fetched it."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The SHA-256 of the record as the command read it."
+        },
+        "file": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The file it was read from: one of the run's file params."
+        }
+      }
+    }
+  },
   "properties": {
     "apiVersion": { "const": "iki/v1" },
     "kind": { "const": "RunOutput" },
@@ -49,7 +97,8 @@
             "items": { "type": "string", "format": "uuid" },
             "uniqueItems": true,
             "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity."
-          }
+          },
+          "origin": { "$ref": "#/$defs/origin" }
         }
       }
     },

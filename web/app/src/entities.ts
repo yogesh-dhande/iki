@@ -16,6 +16,7 @@ export type Entity = Schemas["EntityOut"];
 export type Revision = Schemas["RevisionOut"];
 export type RevisionDetail = Schemas["RevisionDetailOut"];
 export type EntityProject = Schemas["EntityProjectOut"];
+export type Origin = Schemas["OriginOut"];
 
 export const ENTITIES = ["entities"] as const;
 
@@ -162,6 +163,15 @@ export function provenanceQuery(ref: string) {
     queryKey: [...ENTITIES, "provenance", ref.toUpperCase()],
     queryFn: async () =>
       unwrap(await iki.GET("/api/v1/entities/{ref}/provenance", { params: { path: { ref } } })),
+  });
+}
+
+/** Where runs imported it from, newest first. */
+export function originsQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...ENTITIES, "origins", ref.toUpperCase()],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/entities/{ref}/origins", { params: { path: { ref } } })),
   });
 }
 

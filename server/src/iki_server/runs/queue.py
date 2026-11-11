@@ -220,7 +220,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
     from iki_server.runs import input_files
 
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in run.spec["inputs"]}
-    files: set[uuid.UUID] = set()
+    files: set[uuid.UUID] = input_files.of_params(run)
     rows = RunInput.objects.filter(run=run).select_related("entity").order_by("name", "position")
     for row in rows:
         entity = row.entity
@@ -266,6 +266,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "command": run.spec["command"],
         "environment": f"{run.action.split('.')[0]}.{run.environment}",
         "params": run.params,
+        "settings": run.plugin_settings,
         "inputs": inputs,
         "files": input_files.describe(files),
     }

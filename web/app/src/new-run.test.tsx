@@ -6,12 +6,13 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { entity, KINASE, PROTEIN_ID, renderApp, withTypes } from "./entity-fixtures";
+import { entity, field, KINASE, PROTEIN_ID, renderApp, withTypes } from "./entity-fixtures";
 import { ACTION, run } from "./run-fixtures";
 import { answer, calls, page, problem, project } from "./test-server";
 import type { Schemas } from "@ikisci/sdk";
 
 const SECOND_ID = "00000000-0000-7000-8000-00000000e002";
+const FILE_ID = "00000000-0000-7000-8000-00000000f001";
 
 const COMPUTE: Schemas["ActionOut"] = {
   ...ACTION,
@@ -149,6 +150,90 @@ describe("starting a run", () => {
     await user.click(screen.getByRole("button", { name: "Start 2 runs" }));
     expect(await screen.findByText("Started 2 runs of Compute properties.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("imports from a file in the project, with no entities to choose", async () => {
+    onProject();
+    const IMPORT: Schemas["ActionOut"] = {
+      ...ACTION,
+      name: "protein.import_proteins",
+      label: "Import proteins",
+      inputs: [],
+      creates: [{ type: "protein.Protein", cardinality: "many", derived_from: [] }],
+      updates: [],
+      params: [
+        {
+          ...field({ name: "file", label: "FASTA file", type: "file", required: true }),
+          default: null,
+          min: null,
+          max: null,
+          min_length: null,
+          max_length: null,
+          pattern: null,
+        },
+      ],
+      params_schema: {
+        type: "object",
+        properties: {
+          file: {
+            type: "string",
+            format: "uuid",
+            title: "FASTA file",
+            "x-iki-media-types": ["chemical/seq-aa-fasta"],
+          },
+        },
+        required: ["file"],
+        additionalProperties: false,
+      },
+    };
+    answer("GET /api/v1/actions", [COMPUTE, IMPORT]);
+    const fasta = {
+      id: FILE_ID,
+      name: "kinases.fasta",
+      media_type: "chemical/seq-aa-fasta",
+      size: 2048,
+      sha256: "x".repeat(64),
+      project: null,
+      created_by: null,
+      created_at: "2026-11-11T09:00:00Z",
+      external: false,
+    };
+    const notes = { ...fasta, id: SECOND_ID, name: "notes.txt", media_type: "text/plain" };
+    answer("GET /api/v1/files", page([fasta, notes]));
+    answer("POST /api/v1/actions/protein.import_proteins/runs", () => run());
+    answer("GET /api/v1/runs/RUN-000001", run());
+    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    const { user, router } = await renderApp("/projects/kinase-atlas/runs/new/");
+
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Action" }),
+      "Import proteins",
+    );
+    expect(await screen.findByText("It makes new proteins.")).toBeInTheDocument();
+    const file = screen.getByRole("group", { name: /FASTA file/ });
+    const existing = within(file).getByRole("combobox", { name: /already in the project/ });
+    // Only files the param takes are offered.
+    await waitFor(() => {
+      expect(
+        within(existing)
+          .getAllByRole("option")
+          .map((o) => o.textContent),
+      ).toEqual(["No file", "kinases.fasta (2.0 KiB)"]);
+    });
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    expect(await within(file).findByText("Choose FASTA file.")).toBeInTheDocument();
+    await user.selectOptions(existing, FILE_ID);
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/runs/RUN-000001/");
+    });
+    expect(calls("POST", "/api/v1/actions/protein.import_proteins/runs").at(-1)?.body).toEqual({
+      project: KINASE.id,
+      inputs: {},
+      params: { file: FILE_ID },
+      reason: "",
+    });
   });
 
   it("says when the person can't run anything in the project", async () => {

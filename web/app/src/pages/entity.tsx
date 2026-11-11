@@ -19,6 +19,7 @@ import {
   entityProjectsQuery,
   entityQuery,
   formatSize,
+  originsQuery,
   personName,
   provenanceQuery,
   quantity,
@@ -29,6 +30,7 @@ import {
   type Entity,
   type EntityType,
   type FieldDef,
+  type Origin,
   type Revision,
 } from "../entities";
 import { usePageTitle } from "../layout";
@@ -163,6 +165,55 @@ export function Value({
     default:
       return <>{valueText(field, value, entity)}</>;
   }
+}
+
+/** One record an import read it from: which, where, when, by which run, and its checksum. */
+function ImportedFrom({ origin }: { origin: Origin }) {
+  const record =
+    origin.version && origin.version !== origin.id ? `${origin.id} (${origin.version})` : origin.id;
+  return (
+    <span>
+      {origin.source}:{" "}
+      {origin.url ? (
+        <a href={origin.url} target="_blank" rel="noreferrer noopener">
+          {record}
+        </a>
+      ) : (
+        record
+      )}
+      {origin.file ? (
+        <>
+          {" "}
+          in{" "}
+          <a href={`/api/v1/files/${origin.file.id}/content`} download={origin.file.name}>
+            {origin.file.name}
+          </a>
+        </>
+      ) : null}
+      {origin.retrieved_at ? (
+        <>
+          , retrieved <RelativeTime value={origin.retrieved_at} />
+        </>
+      ) : null}
+      {origin.run ? (
+        <>
+          , by{" "}
+          <Link to="/runs/$ref/" params={{ ref: origin.run.hrid }}>
+            {origin.run.hrid}
+          </Link>
+        </>
+      ) : null}
+      {origin.revision === null ? (
+        <span className="muted"> (found again: it was already here)</span>
+      ) : null}
+      {origin.sha256 ? (
+        <span className="muted">
+          {" "}
+          · SHA-256 <code title={origin.sha256}>{origin.sha256.slice(0, 12)}…</code>
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function Provenance({ revision }: { revision: Revision | undefined }) {
@@ -341,6 +392,7 @@ export function EntityOverview() {
   usePageTitle(`${entity.title} (${entity.hrid})`);
   const provenance = useQuery(provenanceQuery(entity.hrid)).data;
   const projects = useQuery(entityProjectsQuery(entity.hrid)).data;
+  const origins = useQuery(originsQuery(entity.hrid)).data ?? [];
   const collection = isCollection(type, types);
   // A collection's members and search have a section of their own.
   const fields = (type?.fields ?? []).filter((f) => !collection || !COLLECTION_FIELDS.has(f.name));
@@ -431,6 +483,20 @@ export function EntityOverview() {
           <dd>
             <RelativeTime value={entity.updated_at} /> (revision {entity.revision})
           </dd>
+          {origins.length ? (
+            <>
+              <dt>Imported from</dt>
+              <dd>
+                <ul className="value-list">
+                  {origins.map((o, index) => (
+                    <li key={index}>
+                      <ImportedFrom origin={o} />
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          ) : null}
         </dl>
       </section>
     </>

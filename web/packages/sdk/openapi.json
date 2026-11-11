@@ -2669,6 +2669,120 @@
         "title": "OrgRolesOut",
         "type": "object"
       },
+      "OriginFileOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "OriginFileOut",
+        "type": "object"
+      },
+      "OriginOut": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OriginFileOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file it was read from, if you can read it."
+          },
+          "id": {
+            "description": "Its identifier there: an accession, or a record's name.",
+            "title": "Id",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "retrieved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the run fetched it.",
+            "title": "Retrieved At"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision the run made; none if the entity was already there.",
+            "title": "Revision"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run that imported it, if you can read it."
+          },
+          "sha256": {
+            "description": "The SHA-256 of the record as the run read it.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "source": {
+            "description": "The database or format, such as NCBI Nucleotide.",
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "description": "Where people can see the record (https), if the run said.",
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "The record's version or the database's release.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "version",
+          "url",
+          "retrieved_at",
+          "sha256",
+          "file",
+          "run",
+          "revision",
+          "recorded_at"
+        ],
+        "title": "OriginOut",
+        "type": "object"
+      },
       "OutputErrorOut": {
         "properties": {
           "detail": {
@@ -4942,6 +5056,29 @@
         "title": "RunCan",
         "type": "object"
       },
+      "RunFileOut": {
+        "properties": {
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "media_type",
+          "size"
+        ],
+        "title": "RunFileOut",
+        "type": "object"
+      },
       "RunFilters": {
         "properties": {
           "action": {
@@ -5148,6 +5285,14 @@
               }
             ]
           },
+          "files": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RunFileOut"
+            },
+            "description": "The files its file params name, by ID, that you can read.",
+            "title": "Files",
+            "type": "object"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -5215,6 +5360,12 @@
           },
           "requested_by": {
             "$ref": "#/components/schemas/PersonRef"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "description": "The plugin's settings, as the deployment set them when it was launched.",
+            "title": "Settings",
+            "type": "object"
           },
           "started_at": {
             "anyOf": [
@@ -5285,7 +5436,9 @@
           "tier",
           "environment",
           "params",
+          "settings",
           "inputs",
+          "files",
           "status",
           "attempts",
           "created_at",
@@ -8413,6 +8566,51 @@
           }
         ],
         "summary": "Its ancestors and descendants",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/origins": {
+      "get": {
+        "description": "The records runs imported it from, newest first: a public database's, or one in a\nfile. An entity found again by a later import lists each.",
+        "operationId": "iki_server_api_entities_get_origins",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OriginOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Where it was imported from",
         "tags": [
           "entities"
         ]

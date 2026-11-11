@@ -1,9 +1,11 @@
-"""Files a run's inputs hold, which its worker downloads before the command starts.
+"""Files a run's inputs and file params hold, which its worker downloads before the command
+starts.
 
 The run input lists them (``files``, by ID, with name, size and SHA-256), and the worker
 asks for each through ``POST /worker/v1/jobs/{id}/files/{file_id}``, which answers a
-short-lived download URL. A worker can download only files its job's inputs hold, at
-the revisions the run was launched on, and only while it holds the job's lease.
+short-lived download URL. A worker can download only files its job's inputs hold (at
+the revisions the run was launched on) and its file params name, and only while it holds
+the job's lease.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from iki_server.runs.models import ActionRun, RunInput, Worker
 from iki_server.runs.queue import held
 from iki_spec.model import Field
 
-__all__ = ["describe", "download", "file_ids", "of_run"]
+__all__ = ["describe", "download", "file_ids", "of_params", "of_run"]
 
 
 def file_ids(f: Field, value: Any) -> set[uuid.UUID]:  # noqa: ANN401 - a field's value
@@ -43,9 +45,20 @@ def file_ids(f: Field, value: Any) -> set[uuid.UUID]:  # noqa: ANN401 - a field'
     return out
 
 
+def of_params(run: ActionRun) -> set[uuid.UUID]:
+    """The files the run's file params name, as the action was when it was launched."""
+    declared = run.spec.get("params") or {}
+    return {
+        uuid.UUID(str(value))
+        for name, value in run.params.items()
+        if value is not None and (declared.get(name) or {}).get("type") == "file"
+    }
+
+
 def of_run(run: ActionRun) -> set[uuid.UUID]:
-    """Every file the run's inputs hold, at the revisions it was launched on."""
-    found: set[uuid.UUID] = set()
+    """Every file the run's inputs hold, at the revisions it was launched on, and the files
+    its file params name."""
+    found = of_params(run)
     for row in RunInput.objects.filter(run=run).select_related("entity"):
         fields = shape(row.entity.type).fields()
         for name, value in entities.values_at(row.entity, row.revision).items():
@@ -75,7 +88,7 @@ def download(
     with transaction.atomic():
         job = held(worker, job_id, token)
         if file_id not in of_run(job.run):
-            raise LookupError("This job's inputs don't hold that file.")
+            raise LookupError("This job's inputs and params don't hold that file.")
         found = File.objects.select_related("blob").get(pk=file_id)
     blob = found.blob
     return found, storage.download_url(

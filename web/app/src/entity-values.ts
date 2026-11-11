@@ -5,7 +5,7 @@
  * answers sooner, in plain words.
  */
 
-import type { Entity, EntityType, FieldDef } from "./entities";
+import { inSentence, type Entity, type EntityType, type FieldDef } from "./entities";
 
 /** A referenced entity, as a picker shows it. */
 export interface Picked {
@@ -331,4 +331,20 @@ function canonical(value: unknown): unknown {
     );
   }
   return value;
+}
+
+/** What to say of a required field left blank: enter text, choose a value, add items. */
+export function blankMessage(field: FieldDef): string {
+  switch (field.type) {
+    case "enum":
+    case "bool":
+      return `Choose ${inSentence(field.label)}.`;
+    case "ref":
+    case "file":
+      return `Choose ${inSentence(field.label)}.`;
+    case "list":
+      return `Add at least one ${inSentence(field.label)}.`;
+    default:
+      return `Enter ${inSentence(field.label)}.`;
+  }
 }

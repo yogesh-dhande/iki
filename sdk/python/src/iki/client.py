@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         EntityTypeOut,
         LineageGraphOut,
         MeOut,
+        OriginOut,
         ProjectOut,
         RevisionOut,
         RunAttemptOut,
@@ -410,6 +411,14 @@ class Entities(_Part):
         return cast(
             "dict[str, Any]",
             self._client.request("GET", _path("/entities/{ref}/provenance", ref=ref)),
+        )
+
+    def origins(self, ref: str) -> builtins.list[OriginOut]:
+        """Where runs imported it from, newest first: a database's record (its version,
+        link and when it was fetched) or a record in a file."""
+        return cast(
+            "builtins.list[OriginOut]",
+            self._client.request("GET", _path("/entities/{ref}/origins", ref=ref)),
         )
 
     def lineage(self, ref: str, *, up: int = 1, down: int = 1) -> LineageGraphOut:

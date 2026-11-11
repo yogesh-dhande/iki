@@ -11,10 +11,11 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from iki_codegen import build as build_apps
 from iki_spec import API_VERSION, naming
+from iki_spec.model import Plugin
 from iki_spec.problems import Problem
 from iki_spec.validate import Result, check_settings_values, load_plugin
 from iki_spec.yamlsource import read_documents
@@ -201,6 +202,9 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
             [p for p, _ in plugins],
             args.output,
             migrations={p.name: d / "migrations" for p, d in plugins},
+            # Built without a deployment, settings take their defaults, as they do when a
+            # deployment leaves them out.
+            settings={p.name: _defaults(p) for p, _ in plugins},
         )
     except ValueError as error:
         sys.stderr.write(f"error: {error}.\n")
@@ -208,6 +212,12 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
     for package in packages:
         out.write(f"Built {package}\n")
     return 0
+
+
+def _defaults(plugin: Plugin) -> dict[str, Any]:
+    return {
+        name: setting.default for name, setting in plugin.settings.items() if setting.has_default
+    }
 
 
 def _missing_dependencies(directories: Sequence[Path]) -> list[str]:

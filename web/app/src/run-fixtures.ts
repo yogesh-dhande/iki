@@ -23,6 +23,8 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     tier: "backend",
     environment: "sequence-tools",
     params: { ph: 7.4 },
+    settings: {},
+    files: {},
     inputs: [
       {
         name: "protein",

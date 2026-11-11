@@ -264,14 +264,20 @@ impl Host for Job {
 }
 
 /// Reads what the command prints, line by line, for its host.
-fn read_lines(host: &impl Host, stream: impl Read) {
+fn read_lines(host: &impl Host, stream: impl Read, said: &Mutex<Option<String>>) {
     let mut reader = BufReader::new(stream);
     let mut line = Vec::new();
     loop {
         line.clear();
         match reader.by_ref().take(MAX_LINE).read_until(b'\n', &mut line) {
             Ok(0) | Err(_) => return,
-            Ok(_) => host.line(&String::from_utf8_lossy(&line)),
+            Ok(_) => {
+                let text = String::from_utf8_lossy(&line);
+                if let Some(why) = logs::error(&text) {
+                    *said.lock().unwrap_or_else(PoisonError::into_inner) = Some(why);
+                }
+                host.line(&text);
+            }
         }
     }
 }
@@ -539,6 +545,17 @@ fn stop(child: &mut Child) -> Option<ExitStatus> {
     child.wait().ok()
 }
 
+/// How the command exited, briefly: `exit status 3`, or `signal 9`.
+fn exit(status: ExitStatus) -> String {
+    #[cfg(unix)]
+    if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(&status) {
+        return format!("signal {signal}");
+    }
+    status
+        .code()
+        .map_or_else(|| "no exit status".to_owned(), |code| format!("exit status {code}"))
+}
+
 fn describe(status: ExitStatus) -> String {
     #[cfg(unix)]
     if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(&status) {
@@ -777,6 +794,8 @@ pub fn execute<H: Host>(
         Err(message) => return Some(Report::Fail(FailInReason::Failed, message)),
     };
     let (done, readers_done) = mpsc::channel::<()>();
+    // The last `::error` line the command printed: why it failed, if it fails.
+    let said: Arc<Mutex<Option<String>>> = Arc::default();
     for stream in [
         child
             .stdout
@@ -790,9 +809,9 @@ pub fn execute<H: Host>(
     .into_iter()
     .flatten()
     {
-        let (host, done) = (Arc::clone(host), done.clone());
+        let (host, done, said) = (Arc::clone(host), done.clone(), Arc::clone(&said));
         thread::spawn(move || {
-            read_lines(host.as_ref(), stream);
+            read_lines(host.as_ref(), stream, &said);
             let _ = done.send(());
         });
     }
@@ -807,7 +826,8 @@ pub fn execute<H: Host>(
         .is_ok()
     {}
 
-    outcome(host.as_ref(), dirs, status, stopped, timeout)
+    let why = said.lock().unwrap_or_else(PoisonError::into_inner).take();
+    outcome(host.as_ref(), dirs, status, stopped, timeout, why)
 }
 
 /// What to report, once the command has ended. `None` if the lease was lost.
@@ -817,6 +837,7 @@ fn outcome(
     status: Option<ExitStatus>,
     stopped: Option<Stop>,
     timeout: Duration,
+    why: Option<String>,
 ) -> Option<Report> {
     Some(match stopped {
         Some(Stop::Lost) => return None,
@@ -853,7 +874,11 @@ fn outcome(
                     Err(message) => Report::Fail(FailInReason::Failed, message),
                 }
             }
-            Some(status) => Report::Fail(FailInReason::Failed, describe(status)),
+            Some(status) => Report::Fail(
+                FailInReason::Failed,
+                // What the command said, if it said why; otherwise how it exited.
+                why.map_or_else(|| describe(status), |why| format!("{why} ({})", exit(status))),
+            ),
             None => Report::Fail(FailInReason::Failed, "Lost track of the command.".into()),
         },
     })

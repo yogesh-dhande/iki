@@ -20,6 +20,7 @@ PLUGINS = ROOT / "spec" / "tests" / "plugins"
 #: What the build depends on: change any of it and the plugins are rebuilt.
 INPUTS = (
     PLUGINS,
+    ROOT / "cli" / "src" / "iki_cli" / "plugin.py",
     ROOT / "codegen" / "src",
     ROOT / "spec" / "src" / "iki_spec",
     ROOT / "server" / "src" / "iki_server" / "plugins",
@@ -31,7 +32,7 @@ ORDER = (("dna",), ("protein", "dna"), ("structure_prediction", "protein", "dna"
 def _key() -> str:
     digest = hashlib.sha256()
     for root in INPUTS:
-        for file in sorted(root.rglob("*")):
+        for file in sorted(root.rglob("*")) if root.is_dir() else [root]:
             if file.is_file() and "__pycache__" not in file.parts:
                 digest.update(str(file.relative_to(ROOT)).encode() + b"\0" + file.read_bytes())
     return digest.hexdigest()[:20]

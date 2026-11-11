@@ -22,12 +22,17 @@ proteins and other plugins' sequences.
 
 ## Actions
 
-Both run on backend workers, in the `sequence-tools` environment (Python's
-standard library only), and on many entities at once.
+They run on backend workers, in the `sequence-tools` environment (Python's
+standard library only).
 
-- **`compute_composition`**: a DNA sequence's length and GC content.
+- **`compute_composition`**: a DNA sequence's length and GC content, for
+  many at once.
 - **`primer_properties`**: a primer's length, GC content and melting
-  temperature.
+  temperature, for many at once.
+- **`import_sequences`**: registers each record of a FASTA or GenBank file
+  (up to 10,000, and 1 GiB) as a DNA sequence. A sequence already in Iki is
+  reused. Each records the file and record it came from, with the record's
+  SHA-256.
 
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
@@ -35,8 +40,23 @@ temperature uses SantaLucia's unified nearest-neighbour parameters (1998) with
 his salt correction, at 50 mM Na⁺ and 50 nM primer, as Primer3 does by
 default. It's computed only for primers of A, C, G and T alone.
 
-Importing FASTA and GenBank files, fetching from NCBI, reverse complements,
-restriction digests, primer design and GenBank export come later.
+GenBank records give the name (LOCUS), description (DEFINITION), accession
+with its version (VERSION), organism, topology and features. Each feature
+keeps its type, first and last base, strand, name (its `/label`, `/gene`,
+`/locus_tag` or `/product`) and qualifiers. A location with several parts
+(`join(…)`), fuzzy ends (`<1`, `>99`) or between two bases (`5^6`) keeps
+GenBank's own text in a `location` qualifier too. Features on other
+records are left out, and the run says so. FASTA records give a name (the
+header's first word) and a description (the rest), and an accession where
+the header has one (`L09137.2`, or NCBI's `gb|L09137.2|`). FASTA doesn't say
+whether a sequence is circular, so the `topology` param does.
+
+A record that can't be read (RNA, gaps, letters that aren't IUPAC bases, a
+file cut short) fails the whole import, and the run says which record and
+why, so nothing is half imported.
+
+Fetching from NCBI, reverse complements, restriction digests, primer design
+and GenBank export come later.
 
 ## Developing it
 

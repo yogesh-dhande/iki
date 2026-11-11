@@ -34,7 +34,7 @@ from iki_server.entities.values import Invalid, shape, subtypes, to_json
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
-from iki_server.runs.models import Lineage, RunEffect
+from iki_server.runs.models import ExternalOrigin, Lineage, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
 from iki_spec.model import EntityType
@@ -840,6 +840,72 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
     made = _runs_of(me, entity, list(found.values()))
     return {name: _revision(revision, made) for name, revision in found.items()}
+
+
+class OriginFileOut(Schema):
+    id: UUID
+    name: str
+
+
+class OriginOut(Schema):
+    source: str = Field(description="The database or format, such as NCBI Nucleotide.")
+    id: str = Field(description="Its identifier there: an accession, or a record's name.")
+    version: str = Field(description="The record's version or the database's release.")
+    url: str = Field(description="Where people can see the record (https), if the run said.")
+    retrieved_at: datetime | None = Field(description="When the run fetched it.")
+    sha256: str = Field(description="The SHA-256 of the record as the run read it.")
+    file: OriginFileOut | None = Field(description="The file it was read from, if you can read it.")
+    run: RunRefOut | None = Field(description="The run that imported it, if you can read it.")
+    revision: int | None = Field(
+        description="The revision the run made; none if the entity was already there."
+    )
+    recorded_at: datetime
+
+
+@router.get(
+    "/entities/{ref}/origins",
+    response=list[OriginOut],
+    summary="Where it was imported from",
+)
+def get_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+    """The records runs imported it from, newest first: a public database's, or one in a
+    file. An entity found again by a later import lists each."""
+    me = caller(request)
+    entity = _find(me, ref)
+    rows = list(
+        ExternalOrigin.objects.filter(entity=entity).select_related("run", "file").order_by("-id")
+    )
+    runs = set(
+        visible_runs(me).filter(pk__in={r.run_id for r in rows}).values_list("pk", flat=True)
+    )
+    files = set(
+        access.readable_files(me)
+        .filter(pk__in={r.file_id for r in rows if r.file_id})
+        .values_list("pk", flat=True)
+    )
+    return [
+        {
+            "source": row.source,
+            "id": row.identifier,
+            "version": row.version,
+            "url": row.url,
+            "retrieved_at": row.retrieved_at,
+            "sha256": row.sha256,
+            "file": (
+                {"id": row.file.pk, "name": row.file.name}
+                if row.file is not None and row.file.pk in files
+                else None
+            ),
+            "run": (
+                {"id": row.run.pk, "hrid": row.run.hrid, "action": row.run.action}
+                if row.run_id in runs
+                else None
+            ),
+            "revision": row.revision,
+            "recorded_at": row.created_at,
+        }
+        for row in rows
+    ]
 
 
 # --- Lineage -------------------------------------------------------------------------------------

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: import_sequences
+label: Import DNA sequences from a file
+description: >-
+  Reads a FASTA or GenBank file and registers each record as a DNA sequence,
+  with its name, description, accession, organism and features where the file
+  gives them. A sequence already in Iki (the same bases and topology) is reused.
+  Each records which file and record it came from.
+params:
+  file:
+    type: file
+    label: FASTA or GenBank file
+    required: true
+    media_types: [chemical/seq-na-fasta, chemical/seq-na-genbank, text/plain]
+    max_size: 1GiB
+  topology:
+    type: enum
+    values: [linear, circular]
+    default: linear
+    description: For FASTA records, which don't say. GenBank records do.
+effects:
+  creates: [{ type: DNASequence, cardinality: many }]
+runs_on: { tier: backend, environment: sequence-tools }
+command: [python, ./scripts/imports.py]
+deterministic: true
+timeout: 30m

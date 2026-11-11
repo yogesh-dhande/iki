@@ -27,6 +27,7 @@ import {
 } from "../entities";
 import { FieldInput } from "../entity-inputs";
 import {
+  blankMessage,
   encode,
   formFields,
   initialDraft,
@@ -46,21 +47,6 @@ function draftsOf(type: EntityType, entity: Entity): Drafts {
   return Object.fromEntries(
     formFields(type).map((f) => [f.name, toDraft(f, entity.values[f.name], entity)]),
   );
-}
-
-function blankMessage(field: FieldDef): string {
-  switch (field.type) {
-    case "enum":
-    case "bool":
-      return `Choose ${inSentence(field.label)}.`;
-    case "ref":
-    case "file":
-      return `Choose ${inSentence(field.label)}.`;
-    case "list":
-      return `Add at least one ${inSentence(field.label)}.`;
-    default:
-      return `Enter ${inSentence(field.label)}.`;
-  }
 }
 
 /** Each field's value to send, or the checks' messages, by `values/<name>` as the API points. */

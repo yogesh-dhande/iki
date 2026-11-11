@@ -183,7 +183,19 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typed",
       "properties": {
         "type": {
-          "enum": ["string", "text", "int", "float", "bool", "enum", "date", "quantity", "list"]
+          "description": "`file`: a file the person uploads or chooses, such as one to import. The command finds it in input.json's `files`, by the ID in `params`.",
+          "enum": [
+            "string",
+            "text",
+            "int",
+            "float",
+            "bool",
+            "enum",
+            "date",
+            "quantity",
+            "file",
+            "list"
+          ]
         },
         "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
         "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },

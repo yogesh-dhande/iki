@@ -138,6 +138,47 @@ describe("a run's page", () => {
     );
   });
 
+  it("names an import's file, and the plugin settings it ran with", async () => {
+    const FILE = "00000000-0000-7000-8000-00000000f001";
+    const HIDDEN = "00000000-0000-7000-8000-00000000f002";
+    const [ph] = ACTION.params as [Schemas["ParamOut"]];
+    const IMPORT = {
+      ...ACTION,
+      name: "protein.import_proteins",
+      inputs: [],
+      params: [
+        { ...ph, name: "file", label: "FASTA file", type: "file" as const },
+        { ...ph, name: "extra", label: "Extra file", type: "file" as const },
+      ],
+    };
+    withTypes();
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/actions", [IMPORT]);
+    const imported = run({
+      action: IMPORT.name,
+      inputs: [],
+      params: { file: FILE, extra: HIDDEN },
+      files: { [FILE]: { name: "kinases.fasta", media_type: "chemical/seq-aa-fasta", size: 2048 } },
+      settings: { default_model: "colabfold", allowed_presets: ["monomer"] },
+    });
+    answer("GET /api/v1/runs/RUN-000001", imported);
+    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    await renderApp("/runs/RUN-000001/");
+    const inputs = screen.getByRole("region", { name: "Inputs" });
+    expect(await within(inputs).findByRole("link", { name: "kinases.fasta" })).toHaveAttribute(
+      "href",
+      `/api/v1/files/${FILE}/content`,
+    );
+    expect(within(inputs).getByText("2.0 KiB · chemical/seq-aa-fasta")).toBeInTheDocument();
+    expect(within(inputs).getByText("Extra file").nextSibling).toHaveTextContent(
+      "A file you can’t read",
+    );
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(within(details).getByText("Plugin settings").nextSibling).toHaveTextContent(
+      'default_model: colabfold; allowed_presets: ["monomer"]',
+    );
+  });
+
   it("follows the log as it grows, and the run until it ends", async () => {
     let log = "hello\n";
     let current = run();
