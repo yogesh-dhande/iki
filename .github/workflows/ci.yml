@@ -110,9 +110,11 @@ jobs:
           pnpm --filter @ikisci/app build
       - name: Install browsers (Chromium, Firefox, WebKit)
         if: matrix.browsers
-        # A stuck package mirror fails in minutes, not at the job's limit.
-        timeout-minutes: 10
-        run: uv run --no-sync playwright install --with-deps chromium firefox webkit
+        # Each try is bounded, so a stuck package mirror moves on rather than wait.
+        timeout-minutes: 25
+        env:
+          UV_NO_SYNC: "1"
+        run: scripts/ci/install-browsers.sh chromium firefox webkit
       - name: Install the pinned Rust toolchain (for the worker end-to-end tests)
         if: matrix.rust
         working-directory: worker
@@ -331,8 +333,8 @@ jobs:
           enable-cache: false
       # The checks sign in through Keycloak in Chromium.
       - name: Install Chromium
-        timeout-minutes: 10
-        run: uv run playwright install --with-deps chromium
+        timeout-minutes: 25
+        run: scripts/ci/install-browsers.sh chromium
       - name: Bring up the dev cluster and run end-to-end checks
         run: make dev-ci
       - name: Diagnostics on failure
