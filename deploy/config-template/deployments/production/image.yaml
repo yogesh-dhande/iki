@@ -1,5 +1,9 @@
-# Written by CI (.github/workflows/build.yml) when it builds production's image.
-# Merge its pull request to deploy that image.
+# Written by CI (.github/workflows/build.yml) when it builds production's images.
+# Merge its pull request to deploy them.
 image:
   repository: ghcr.io/acme/iki-production
   digest: ""
+backendWorkers:
+  image:
+    repository: ghcr.io/acme/iki-production-worker
+    digest: ""

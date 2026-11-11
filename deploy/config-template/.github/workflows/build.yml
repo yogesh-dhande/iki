@@ -2,9 +2,10 @@ name: Build
 
 # For each deployment (deployments/<name>):
 # - on every pull request, builds and checks its plugins with `iki deploy build`;
-# - on main, also builds its image (Iki's server image plus the plugins),
-#   signs it, attests its provenance, and opens a pull request that points
-#   the deployment's image.yaml at it. Merging that pull request deploys it.
+# - on main, also builds its images (Iki's server image plus the plugins,
+#   and Iki's worker image plus the plugins and their environments), signs
+#   them, attests their provenance, and opens a pull request that points the
+#   deployment's image.yaml at them. Merging that pull request deploys them.
 #
 # Secrets:
 # - PLUGIN_REPOS_TOKEN: read-only access to the plugin repositories the
@@ -32,10 +33,11 @@ jobs:
         deployment: [staging, production]
     permissions:
       contents: read
-      packages: write # push the image (main only)
+      packages: write # push the images (main only)
       id-token: write # sign it without keys (main only)
       attestations: write # store its provenance (main only)
     env:
+      NAME: ${{ matrix.deployment }}
       DEPLOYMENT: deployments/${{ matrix.deployment }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,29 +47,40 @@ jobs:
       - name: Read the Iki release
         id: iki
         run: |
-          echo "version=$(yq -r .version "$DEPLOYMENT/iki.yaml")" >> "$GITHUB_OUTPUT"
-          echo "server=$(yq -r .serverImage "$DEPLOYMENT/iki.yaml")" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$(yq -r .version "$DEPLOYMENT/iki.yaml")"
+            echo "server=$(yq -r .serverImage "$DEPLOYMENT/iki.yaml")"
+            echo "worker=$(yq -r .workerImage "$DEPLOYMENT/iki.yaml")"
+          } >> "$GITHUB_OUTPUT"
       - name: Let git read the plugin repositories
         env:
-          TOKEN: ${{ secrets.PLUGIN_REPOS_TOKEN }}
+          # Every pull request's build needs it; it only reads the plugins.
+          TOKEN: ${{ secrets.PLUGIN_REPOS_TOKEN }} # zizmor: ignore[secrets-outside-env]
         run: |
+          # git runs the helper, so $TOKEN expands then, not here.
+          # shellcheck disable=SC2016
           git config --global credential.helper \
             '!f() { echo username=x-access-token; echo "password=$TOKEN"; }; f'
       - name: Build and check the plugins
         env:
           VERSION: ${{ steps.iki.outputs.version }}
-        run: uvx --from "iki-cli==$VERSION" iki deploy build "$DEPLOYMENT" --output build/plugins
+        run: |
+          uvx --from "iki-cli==$VERSION" iki deploy build "$DEPLOYMENT" \
+            --output build/server/plugins --workers build/worker
 
       - if: github.ref == 'refs/heads/main'
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-      - name: Check Iki's signature on the server image
+      - name: Check Iki's signatures on the server and worker images
         if: github.ref == 'refs/heads/main'
         env:
           SERVER: ${{ steps.iki.outputs.server }}
+          WORKER: ${{ steps.iki.outputs.worker }}
         run: |
-          cosign verify "$SERVER" \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity-regexp '^https://github.com/ikisci/iki/\.github/workflows/publish\.yml@refs/tags/v'
+          for image in "$SERVER" "$WORKER"; do
+            cosign verify "$image" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp '^https://github.com/ikisci/iki/\.github/workflows/publish\.yml@refs/tags/v'
+          done
       - if: github.ref == 'refs/heads/main'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - if: github.ref == 'refs/heads/main'
@@ -78,18 +91,22 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Name the image
+      - name: Name the images
         if: github.ref == 'refs/heads/main'
         id: name
         env:
           OWNER: ${{ github.repository_owner }}
-        run: echo "image=ghcr.io/${OWNER,,}/iki-${{ matrix.deployment }}" >> "$GITHUB_OUTPUT"
-      - name: Build and push the image
+        run: |
+          {
+            echo "image=ghcr.io/${OWNER,,}/iki-$NAME"
+            echo "worker=ghcr.io/${OWNER,,}/iki-$NAME-worker"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build and push the server image
         if: github.ref == 'refs/heads/main'
         id: image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: build
+          context: build/server
           file: plugins.Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: IKI_SERVER_IMAGE=${{ steps.iki.outputs.server }}
@@ -100,30 +117,62 @@ jobs:
           push: true
           provenance: false
           sbom: false
-      - name: Sign the image
+      # The worker image's environments are built here, from the packages the
+      # lockfiles pin by hash. For a package mirror, add a UV_INDEX_URL secret
+      # and pass it with `secrets: uv_index=...`: never as a build argument.
+      - name: Build and push the worker image
+        if: github.ref == 'refs/heads/main'
+        id: worker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: build/worker
+          file: worker.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: IKI_WORKER_IMAGE=${{ steps.iki.outputs.worker }}
+          tags: ${{ steps.name.outputs.worker }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          push: true
+          provenance: false
+          sbom: false
+      - name: Sign the images
         if: github.ref == 'refs/heads/main'
         env:
-          REF: ${{ steps.name.outputs.image }}@${{ steps.image.outputs.digest }}
-        run: cosign sign --yes "$REF"
+          SERVER: ${{ steps.name.outputs.image }}@${{ steps.image.outputs.digest }}
+          WORKER: ${{ steps.name.outputs.worker }}@${{ steps.worker.outputs.digest }}
+        run: cosign sign --yes "$SERVER" "$WORKER"
       - if: github.ref == 'refs/heads/main'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.name.outputs.image }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
-      - name: Keep the image's details for the pull request
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.name.outputs.worker }}
+          subject-digest: ${{ steps.worker.outputs.digest }}
+          push-to-registry: true
+      - name: Keep the images' details for the pull request
         if: github.ref == 'refs/heads/main'
         env:
           IMAGE: ${{ steps.name.outputs.image }}
           DIGEST: ${{ steps.image.outputs.digest }}
+          WORKER: ${{ steps.name.outputs.worker }}
+          WORKER_DIGEST: ${{ steps.worker.outputs.digest }}
         run: |
           mkdir -p out
           printf '%s\n' \
-            "# Written by CI (.github/workflows/build.yml) when it builds ${{ matrix.deployment }}'s image." \
-            "# Merge its pull request to deploy that image." \
+            "# Written by CI (.github/workflows/build.yml) when it builds $NAME's images." \
+            "# Merge its pull request to deploy them." \
             "image:" \
             "  repository: $IMAGE" \
-            "  digest: \"$DIGEST\"" > out/image.yaml
+            "  digest: \"$DIGEST\"" \
+            "backendWorkers:" \
+            "  image:" \
+            "    repository: $WORKER" \
+            "    digest: \"$WORKER_DIGEST\"" > out/image.yaml
       - if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -140,9 +189,10 @@ jobs:
         deployment: [staging, production]
     permissions:
       contents: write # push the pull request's branch
-      pull-requests: write
+      pull-requests: write # open it
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Keeps its credentials to push the branch; this job uploads nothing.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked]
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: image-${{ matrix.deployment }}
@@ -158,8 +208,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -C "$branch"
-          git commit -qam "Deploy $DEPLOYMENT's image built from ${GITHUB_SHA::12}"
+          git commit -qam "Deploy $DEPLOYMENT's images built from ${GITHUB_SHA::12}"
           git push --force origin "$branch"
           gh pr create --head "$branch" --title "Deploy $DEPLOYMENT" \
-            --body "Points $DEPLOYMENT at the image built from $GITHUB_SHA, signed and attested." \
-            || gh pr edit "$branch" --body "Points $DEPLOYMENT at the image built from $GITHUB_SHA, signed and attested."
+            --body "Points $DEPLOYMENT at the images built from $GITHUB_SHA, signed and attested." \
+            || gh pr edit "$branch" --body "Points $DEPLOYMENT at the images built from $GITHUB_SHA, signed and attested."

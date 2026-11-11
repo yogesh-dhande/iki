@@ -25,6 +25,9 @@ pub struct Config {
     pub capacity: Capacity,
     /// Keep job directories after their jobs end, to debug a command.
     pub keep_job_dirs: bool,
+    /// `IKI_ALLOW_HTTP`: plain http:// to any host, for a development cluster
+    /// whose server has no TLS. The worker warns when it starts with it.
+    pub allow_http: bool,
 }
 
 /// What `IKI_URL` must look like, in words for whoever set it.
@@ -32,8 +35,9 @@ const URL_RULE: &str = "IKI_URL must be the server's https:// address, such as \
     https://iki.example.com (plain http:// is allowed only for localhost).";
 
 /// The server's base URL, or why it's not acceptable. Plain HTTP would send the worker's
-/// token and every result in the clear, so it's allowed only on this machine.
-pub fn server_url(raw: &str) -> Result<String, String> {
+/// token and every result in the clear, so it's allowed only on this machine, unless
+/// `allow_http` (a development cluster) says otherwise.
+pub fn server_url(raw: &str, allow_http: bool) -> Result<String, String> {
     let url = raw.trim().trim_end_matches('/');
     let (scheme, rest) = url.split_once("://").ok_or(URL_RULE)?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
@@ -47,7 +51,9 @@ pub fn server_url(raw: &str) -> Result<String, String> {
     };
     match scheme.to_ascii_lowercase().as_str() {
         "https" => Ok(url.to_owned()),
-        "http" if matches!(host, "localhost" | "127.0.0.1" | "::1") => Ok(url.to_owned()),
+        "http" if allow_http || matches!(host, "localhost" | "127.0.0.1" | "::1") => {
+            Ok(url.to_owned())
+        }
         _ => Err(URL_RULE.to_owned()),
     }
 }
@@ -106,7 +112,9 @@ impl Config {
                 .map(|v| v.trim().to_owned())
                 .filter(|v| !v.is_empty())
         };
-        let url = server_url(&get("IKI_URL").ok_or(URL_RULE)?)?;
+        let flag = |name: &str| get(name).is_some_and(|v| v == "1" || v == "true");
+        let allow_http = flag("IKI_ALLOW_HTTP");
+        let url = server_url(&get("IKI_URL").ok_or(URL_RULE)?, allow_http)?;
         let registration_token = get("IKI_REGISTRATION_TOKEN");
         let state_file = get("IKI_WORKER_STATE").map(PathBuf::from);
         if registration_token.is_none() && state_file.is_none() {
@@ -169,7 +177,8 @@ impl Config {
                 gpu_memory: optional_bytes("IKI_WORKER_GPU_MEMORY")?,
                 scratch_disk: optional_bytes("IKI_WORKER_SCRATCH_DISK")?,
             },
-            keep_job_dirs: get("IKI_KEEP_JOB_DIRS").is_some_and(|v| v == "1" || v == "true"),
+            keep_job_dirs: flag("IKI_KEEP_JOB_DIRS"),
+            allow_http,
         })
     }
 }
@@ -229,18 +238,41 @@ mod tests {
 
     #[test]
     fn plain_http_only_for_localhost() {
+        let strict = |url: &str| server_url(url, false);
         assert_eq!(
-            server_url("http://localhost:8000/").unwrap(),
+            strict("http://localhost:8000/").unwrap(),
             "http://localhost:8000"
         );
-        assert!(server_url("http://127.0.0.1:8000").is_ok());
-        assert!(server_url("http://[::1]:8000").is_ok());
-        assert!(server_url("https://iki.example.com").is_ok());
-        assert!(server_url("http://iki.example.com").is_err());
-        assert!(server_url("http://localhost.evil.com").is_err());
-        assert!(server_url("http://localhost@evil.com").is_err());
-        assert!(server_url("iki.example.com").is_err());
-        assert!(server_url("ftp://localhost").is_err());
+        assert!(strict("http://127.0.0.1:8000").is_ok());
+        assert!(strict("http://[::1]:8000").is_ok());
+        assert!(strict("https://iki.example.com").is_ok());
+        assert!(strict("http://iki.example.com").is_err());
+        assert!(strict("http://localhost.evil.com").is_err());
+        assert!(strict("http://localhost@evil.com").is_err());
+        assert!(strict("iki.example.com").is_err());
+        assert!(strict("ftp://localhost").is_err());
+    }
+
+    #[test]
+    fn plain_http_anywhere_only_when_allowed() {
+        let mut dev: Vec<(&str, &str)> = BASE
+            .iter()
+            .copied()
+            .filter(|(k, _)| *k != "IKI_URL")
+            .collect();
+        dev.push(("IKI_URL", "http://iki-web.iki.svc:8000"));
+        assert!(
+            Config::from_env(&env(&dev))
+                .unwrap_err()
+                .contains("https://")
+        );
+        dev.push(("IKI_ALLOW_HTTP", "1"));
+        let config = Config::from_env(&env(&dev)).unwrap();
+        assert_eq!(config.url, "http://iki-web.iki.svc:8000");
+        assert!(config.allow_http);
+        assert!(server_url("ftp://iki-web", true).is_err());
+        assert!(server_url("http://user@iki-web", true).is_err());
+        assert!(!Config::from_env(&env(BASE)).unwrap().allow_http);
     }
 
     #[test]

@@ -10,14 +10,15 @@ signed image. See [ADR 0034](../../docs/adr/0034-deployment-lockfile-and-plugin-
 ```text
 deployments/
   staging/
-    iki.yaml            # the Iki release: version, server image, chart
+    iki.yaml            # the Iki release: version, server and worker images, chart
     plugins.lock.yaml   # the plugins, each pinned to a commit
     compute.yaml        # the machines actions run on (once a plugin has such actions)
     settings/dna.yaml   # this deployment's values for each plugin's settings
     values.yaml         # Helm values
-    image.yaml          # the image CI built (written by CI)
+    image.yaml          # the images CI built (written by CI)
   production/           # the same, for production
 plugins.Dockerfile      # Iki's server image plus the built plugins
+worker.Dockerfile       # Iki's worker image plus the plugins and their environments
 .github/workflows/build.yml
 ```
 
@@ -28,13 +29,17 @@ plugins.Dockerfile      # Iki's server image plus the built plugins
    which fetches every plugin at its commit and checks them together: their
    manifests, this deployment's settings for them, and that their migrations
    are complete. A failure is reported on the pull request.
-2. **Merge it.** CI builds the deployment's image from Iki's server image
-   (whose signature it checks first) and the plugins. It signs the image and
-   attests its provenance. Then it opens a pull request that points
-   `image.yaml` at the new image, by digest.
+2. **Merge it.** CI builds the deployment's two images, after checking
+   Iki's signatures on the images they start from: the server image with
+   the plugins, and the worker image with the plugins and the environments
+   their actions run in, built from the packages their lockfiles pin. It
+   signs both and attests their provenance. Then it opens a pull request
+   that points `image.yaml` at the new images, by digest.
 3. **Merge that pull request to deploy.** Argo CD or Flux applies the Iki
    chart with `values.yaml` and `image.yaml`. The chart's migrate Job runs
-   the plugins' migrations before any new pod starts.
+   the plugins' migrations before any new pod starts. Workers lease only
+   runs launched with the plugin code they have, so old and new workers
+   never run each other's runs during a rollout.
 
 **Promote** a change from staging to production by copying the lockfile
 lines, or the `iki.yaml` change for an Iki upgrade, in a pull request.
@@ -85,9 +90,18 @@ and your compute admins to review changes, with `CODEOWNERS` if you use it.
   (for example with Sigstore's policy-controller or Kyverno), and Iki's.
 - Point Argo CD or Flux at each deployment: the Iki chart at the version in
   `iki.yaml`, with `values.yaml` and `image.yaml` as value files.
+- Once Iki is up, a Compute admin makes a backend-tier registration token
+  in Compute settings. Store it in the `iki-worker-registration` Secret
+  (key `token`, ideally through your secrets manager) and turn on
+  `backendWorkers` in `values.yaml`. The worker pods hold only that token:
+  no database credentials, no cloud role, and a network policy that lets
+  them reach just the server and object storage. Allow more destinations
+  that actions need in `networkPolicy.egress.workers`.
+- If your package index is a mirror, pass it to the worker image's build as
+  a secret (see `worker.Dockerfile`).
 
 ## Upgrading Iki
 
-Change `version`, `serverImage` (by digest) and `chart` in `iki.yaml`
-together, in staging first. The plugins are rebuilt by that version's
+Change `version`, `serverImage` and `workerImage` (by digest) and `chart`
+in `iki.yaml` together, in staging first. The plugins are rebuilt by that version's
 `iki`. The server refuses plugins any other version built.

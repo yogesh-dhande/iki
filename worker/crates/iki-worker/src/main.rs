@@ -104,7 +104,8 @@ Set in the environment:
   IKI_WORKER_CPU, IKI_WORKER_MEMORY, IKI_WORKER_GPUS, IKI_WORKER_GPU_MEMORY,
   IKI_WORKER_SCRATCH_DISK  What one job may use (CPU and memory are detected on Linux)
   HTTPS_PROXY, NO_PROXY    A proxy to reach the server through
-  SSL_CERT_FILE            Extra CA certificates, if the system's don't cover the server";
+  SSL_CERT_FILE            Extra CA certificates, if the system's don't cover the server
+  IKI_ALLOW_HTTP           1 allows a plain http:// IKI_URL anywhere: development clusters only";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

@@ -36,12 +36,15 @@ def test_names_this_iki_release(deployment: str) -> None:
         rf"ghcr\.io/ikisci/iki-server:{re.escape(release)}@sha256:[0-9a-f]{{64}}",
         iki["serverImage"],
     )
+    assert re.fullmatch(
+        rf"ghcr\.io/ikisci/iki-worker:{re.escape(release)}@sha256:[0-9a-f]{{64}}",
+        iki["workerImage"],
+    )
 
 
-def test_uses_ikis_own_dockerfile() -> None:
-    assert (TEMPLATE / "plugins.Dockerfile").read_text() == (
-        ROOT / "deploy" / "plugins.Dockerfile"
-    ).read_text()
+@pytest.mark.parametrize("dockerfile", ["plugins.Dockerfile", "worker.Dockerfile"])
+def test_uses_ikis_own_dockerfiles(dockerfile: str) -> None:
+    assert (TEMPLATE / dockerfile).read_text() == (ROOT / "deploy" / dockerfile).read_text()
 
 
 def test_actions_are_pinned_by_commit() -> None:

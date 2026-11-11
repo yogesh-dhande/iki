@@ -147,6 +147,13 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
             .map_err(|error| format!("Couldn't watch for signals: {error}"))?;
     }
     let have = plugins::discover(&config.plugins_dir)?;
+    if config.allow_http && config.url.starts_with("http://") {
+        say::warn(
+            "IKI_ALLOW_HTTP is set: this worker's token and every result travel unencrypted. \
+             Only for a development cluster.",
+            &[("server", &config.url)],
+        );
+    }
     if have.code.is_empty() {
         say::warn(
             "IKI_PLUGINS_DIR holds no plugins, so this worker can run nothing.",

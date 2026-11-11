@@ -1,5 +1,9 @@
-# Written by CI (.github/workflows/build.yml) when it builds staging's image.
-# Merge its pull request to deploy that image.
+# Written by CI (.github/workflows/build.yml) when it builds staging's images.
+# Merge its pull request to deploy them.
 image:
   repository: ghcr.io/acme/iki-staging
   digest: ""
+backendWorkers:
+  image:
+    repository: ghcr.io/acme/iki-staging-worker
+    digest: ""

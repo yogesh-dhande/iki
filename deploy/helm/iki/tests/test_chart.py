@@ -2,6 +2,7 @@
 the security properties every Iki workload must have.
 """
 
+import re
 import shutil
 import subprocess
 from collections.abc import Iterator
@@ -186,23 +187,27 @@ def test_local_plugins_are_refused_unless_allowed() -> None:
 
 
 @pytest.mark.parametrize("deployment", ["staging", "production"])
-def test_the_config_templates_values_render(deployment: str) -> None:
+@pytest.mark.parametrize("workers", [False, True])
+def test_the_config_templates_values_render(deployment: str, workers: bool) -> None:
     directory = CHART.parents[1] / "config-template" / "deployments" / deployment
-    values: dict[str, Any] = {}
-    for name in ("values.yaml", "image.yaml"):
-        values.update(yaml.safe_load((directory / name).read_text()))
+    values = (directory / "values.yaml").read_text()
+    if workers:
+        # The block its values.yaml says to uncomment once there's a registration token.
+        values = re.sub(r"(?m)^# (backendWorkers:|  )", r"\1", values)
     helm = shutil.which("helm")
     assert helm
+    image = str(directory / "image.yaml")
     result = subprocess.run(  # noqa: S603 - fixed argv
-        [helm, "template", "iki", str(CHART), "--namespace", "iki", "-f", "-"],
-        input=yaml.safe_dump(values),
+        [helm, "template", "iki", str(CHART), "--namespace", "iki", "-f", "-", "-f", image],
+        input=values,
         capture_output=True,
         text=True,
         check=False,
         timeout=60,
     )
     assert result.returncode == 0, result.stderr
-    assert f"ghcr.io/acme/iki-{deployment}" in result.stdout
+    assert f"image: ghcr.io/acme/iki-{deployment}:" in result.stdout
+    assert (f"image: ghcr.io/acme/iki-{deployment}-worker:" in result.stdout) is workers
 
 
 def test_an_analyst_role_reads_the_views() -> None:
@@ -567,7 +572,7 @@ def test_storage_keys_come_only_from_a_secret() -> None:
         ), name
 
 
-def test_only_web_task_and_maintenance_pods_reach_object_storage() -> None:
+def test_only_web_task_maintenance_and_worker_pods_reach_object_storage() -> None:
     def policy(docs: list[Manifest]) -> list[Manifest]:
         return [
             p
@@ -578,7 +583,7 @@ def test_only_web_task_and_maintenance_pods_reach_object_storage() -> None:
     assert not policy(manifests())
     (on,) = policy(manifests(FILES))
     selector = {e["key"]: e["values"] for e in on["spec"]["podSelector"]["matchExpressions"]}
-    assert selector["app.kubernetes.io/component"] == ["web", "tasks", "maintenance"]
+    assert selector["app.kubernetes.io/component"] == ["web", "tasks", "maintenance", "worker"]
     (rule,) = on["spec"]["egress"]
     assert rule["ports"] == [{"protocol": "TCP", "port": 443}]
     v4, _ = (peer["ipBlock"] for peer in rule["to"])
@@ -600,3 +605,183 @@ def test_register_locations_reach_every_container_and_are_checked() -> None:
         assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "", name
     error = render({"files": {"bucket": "iki", "registerLocations": ["lab-data/runs"]}}, ok=False)
     assert "registerLocations" in str(error)
+
+
+WORKER_IMAGE = "ghcr.io/acme/iki-prod-worker"
+WORKERS: dict[str, Any] = {
+    "backendWorkers": {
+        "enabled": True,
+        "image": {"repository": WORKER_IMAGE, "digest": "sha256:" + "b" * 64},
+        "registrationToken": {"existingSecret": "iki-worker-registration"},
+    }
+}
+
+
+def with_workers(**overrides: Any) -> dict[str, Any]:
+    return {"backendWorkers": {**WORKERS["backendWorkers"], **overrides}}
+
+
+def worker_pod(docs: list[Manifest]) -> Manifest:
+    spec: Manifest = named(docs, "Deployment", "iki-worker")["spec"]["template"]["spec"]
+    return spec
+
+
+def worker_env(docs: list[Manifest]) -> dict[str, Manifest]:
+    return {e["name"]: e for e in worker_pod(docs)["containers"][0]["env"]}
+
+
+def test_backend_workers_are_off_unless_turned_on() -> None:
+    names = {f"{d['kind']}/{d['metadata']['name']}" for d in manifests(WORKERS)}
+    assert names - {f"{d['kind']}/{d['metadata']['name']}" for d in manifests()} == {
+        "Deployment/iki-worker",
+        "ServiceAccount/iki-worker",
+        "NetworkPolicy/iki-worker-egress",
+    }
+
+
+def test_workers_hold_only_their_registration_token() -> None:
+    docs = manifests({**WORKERS, **FILES, **EMAIL})
+    pod = worker_pod(docs)
+    assert pod["serviceAccountName"] == "iki-worker"
+    assert pod["automountServiceAccountToken"] is False
+    assert named(docs, "ServiceAccount", "iki-worker")["automountServiceAccountToken"] is False
+    (container,) = pod["containers"]
+    secrets = [
+        e["valueFrom"]["secretKeyRef"]["name"]
+        for e in container["env"]
+        if "secretKeyRef" in e.get("valueFrom", {})
+    ]
+    assert secrets == ["iki-worker-registration"]
+    assert "envFrom" not in container
+    env = worker_env(docs)
+    assert not {"IKI_DATABASE_URL", "IKI_SECRET_KEY", "IKI_ENCRYPTION_KEYS"} & env.keys()
+    assert not any(name.startswith("AWS_") for name in env)
+
+
+def test_workers_meet_pod_security_restricted_and_write_only_scratch() -> None:
+    docs = manifests(WORKERS)
+    pod = worker_pod(docs)
+    assert pod["securityContext"]["runAsNonRoot"] is True
+    assert pod["securityContext"]["runAsUser"] == 10001
+    assert pod["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault"
+    assert pod["enableServiceLinks"] is False
+    (container,) = pod["containers"]
+    csc = container["securityContext"]
+    assert csc["readOnlyRootFilesystem"] is True
+    assert csc["allowPrivilegeEscalation"] is False
+    assert csc["capabilities"]["drop"] == ["ALL"]
+    assert container["resources"]["limits"]["memory"]
+    assert container["volumeMounts"] == [{"name": "scratch", "mountPath": "/tmp"}]  # noqa: S108 - an emptyDir
+    (scratch,) = pod["volumes"]
+    assert scratch["emptyDir"]["sizeLimit"] == "20Gi"
+    assert pod["terminationGracePeriodSeconds"] >= 60
+
+
+def test_workers_report_what_one_job_may_use() -> None:
+    resources = {"requests": {"cpu": "1500m", "memory": "4Gi"}, "limits": {"memory": "4Gi"}}
+    env = worker_env(manifests(with_workers(resources=resources, scratch={"sizeLimit": "50Gi"})))
+    assert env["IKI_WORKER_CPU"]["value"] == "1.5"
+    assert env["IKI_WORKER_MEMORY"]["valueFrom"]["resourceFieldRef"]["resource"] == "limits.memory"
+    assert env["IKI_WORKER_SCRATCH_DISK"]["value"] == "50Gi"
+    assert env["IKI_WORKER_NAME"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
+    assert "IKI_WORKER_STATE" not in env
+    resources["limits"]["cpu"] = "2"
+    env = worker_env(manifests(with_workers(resources=resources)))
+    assert env["IKI_WORKER_CPU"]["value"] == "2"
+
+
+def test_workers_run_the_deployments_image_by_digest() -> None:
+    docs = manifests(WORKERS)
+    image = worker_pod(docs)["containers"][0]["image"]
+    assert image == f"{WORKER_IMAGE}@sha256:{'b' * 64}"
+    error = render(with_workers(image={"repository": ""}), ok=False)
+    assert "backendWorkers.image.repository" in str(error)
+    error = render(with_workers(registrationToken={"existingSecret": ""}), ok=False)
+    assert "backendWorkers.registrationToken.existingSecret" in str(error)
+
+
+def test_workers_reach_the_server_only_over_https() -> None:
+    assert worker_env(manifests(WORKERS))["IKI_URL"]["value"] == "https://iki.example.com"
+    env = worker_env(manifests(with_workers(serverUrl="https://iki.internal.example.com")))
+    assert env["IKI_URL"]["value"] == "https://iki.internal.example.com"
+    assert "serverUrl" in str(render(with_workers(serverUrl="http://iki-web:8000"), ok=False))
+    assert "https://" in str(render({**WORKERS, "publicUrl": "http://iki.example.com"}, ok=False))
+    assert "IKI_ALLOW_HTTP" not in worker_env(manifests(WORKERS))
+
+
+def test_plain_http_to_the_server_only_for_development() -> None:
+    dev = with_workers(serverUrl="http://iki-web:8000", allowHttp=True)
+    assert "allowHttp" in str(render(dev, ok=False))
+    env = worker_env(manifests({**dev, "https": False}))
+    assert env["IKI_URL"]["value"] == "http://iki-web:8000"
+    assert env["IKI_ALLOW_HTTP"]["value"] == "1"
+    env = worker_env(manifests({**with_workers(), "https": False}))
+    assert "IKI_ALLOW_HTTP" not in env
+
+
+def test_an_internal_ca_for_the_server_is_mounted_for_workers() -> None:
+    docs = manifests(with_workers(caSecret={"name": "corp-ca", "key": "bundle.pem"}))
+    env = worker_env(docs)
+    assert env["SSL_CERT_FILE"]["value"] == "/etc/iki/server-ca/bundle.pem"
+    pod = worker_pod(docs)
+    assert {"name": "server-ca", "mountPath": "/etc/iki/server-ca", "readOnly": True} in pod[
+        "containers"
+    ][0]["volumeMounts"]
+    assert "SSL_CERT_FILE" not in worker_env(manifests(WORKERS))
+
+
+def test_workers_never_reach_the_database_and_reach_only_dns_and_the_server() -> None:
+    ingress = [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "nginx"}}}]
+    docs = manifests(
+        {
+            **WORKERS,
+            "networkPolicy": {
+                "ingressFrom": ingress,
+                "egress": {"database": {"to": [{"ipBlock": {"cidr": "10.0.0.0/24"}}]}},
+            },
+        }
+    )
+    policies = {p["metadata"]["name"]: p["spec"] for p in by_kind(docs, "NetworkPolicy")}
+    selector = {
+        e["key"]: (e["operator"], e["values"])
+        for e in policies["iki-egress"]["podSelector"]["matchExpressions"]
+    }
+    assert selector["app.kubernetes.io/component"] == ("NotIn", ["worker"])
+    worker = policies["iki-worker-egress"]
+    assert worker["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "worker"
+    assert worker["policyTypes"] == ["Egress"]
+    dns, server = worker["egress"]
+    assert [p["port"] for p in dns["ports"]] == [53, 53]
+    assert server["ports"] == [{"protocol": "TCP", "port": 443}]
+    assert server["to"][0] == ingress[0]
+    v4 = server["to"][1]["ipBlock"]
+    assert v4["cidr"] == "0.0.0.0/0"
+    assert {"10.0.0.0/8", "169.254.0.0/16"} <= set(v4["except"])
+    # Every policy that selects workers: the default deny, theirs, object storage.
+    for name, spec in policies.items():
+        if "matchLabels" in spec["podSelector"]:
+            labels = spec["podSelector"]["matchLabels"]
+            if labels.get("app.kubernetes.io/component") not in (None, "worker"):
+                continue
+            assert name in ("iki-default-deny", "iki-worker-egress"), name
+        else:
+            components = {e["key"]: e for e in spec["podSelector"]["matchExpressions"]}[
+                "app.kubernetes.io/component"
+            ]
+            if components["operator"] == "In" and "worker" in components["values"]:
+                assert name == "iki-object-storage", name
+
+
+def test_workers_get_extra_egress_only_when_listed() -> None:
+    rule = {"to": [{"ipBlock": {"cidr": "10.20.0.5/32"}}], "ports": [{"port": 27000}]}
+    docs = manifests({**WORKERS, "networkPolicy": {"egress": {"workers": [rule]}}})
+    (policy,) = [
+        p for p in by_kind(docs, "NetworkPolicy") if p["metadata"]["name"] == "iki-worker-egress"
+    ]
+    assert policy["spec"]["egress"][-1] == rule
+    (policy,) = [
+        p
+        for p in by_kind(manifests(WORKERS), "NetworkPolicy")
+        if p["metadata"]["name"] == "iki-worker-egress"
+    ]
+    assert len(policy["spec"]["egress"]) == 2

@@ -37,6 +37,7 @@ iki-worker start
 | `HTTPS_PROXY`, `NO_PROXY`                  | A proxy to reach the server through.                                            |
 | `SSL_CERT_FILE`                            | CA certificates, if the operating system's don't cover the server or the proxy. |
 | `IKI_KEEP_JOB_DIRS`                        | `1` keeps each job's directory after it ends, to debug a command.               |
+| `IKI_ALLOW_HTTP`                           | `1` allows a plain `http://` `IKI_URL` to any host. Development clusters only.  |
 
 The worker leases only runs launched with the plugin code it has
 ([ADR 0047](../docs/adr/0047-workers-run-only-the-code-a-run-was-launched-with.md)).
@@ -64,6 +65,11 @@ docker build -f deploy/worker.Dockerfile \
 
 `scripts/ci/worker-image.sh` builds both from the test plugins and checks
 the result.
+
+On Kubernetes, the Iki chart runs a pool of them (`backendWorkers` in
+[its values](../deploy/helm/iki/values.yaml)): non-root, with a read-only
+root filesystem, no Kubernetes or cloud credentials, a scratch volume for
+jobs, and egress only to the server and object storage.
 
 ### Stopping
 

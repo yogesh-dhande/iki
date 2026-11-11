@@ -382,6 +382,76 @@
           "minLength": 9
         }
       }
+    },
+    "backendWorkers": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": "string"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[a-f0-9]{64})?$"
+            },
+            "pullPolicy": {
+              "enum": ["IfNotPresent", "Always", "Never"]
+            }
+          }
+        },
+        "registrationToken": {
+          "type": "object",
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "serverUrl": {
+          "type": "string",
+          "pattern": "^(https?://.+)?$"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scratch": {
+          "type": "object",
+          "properties": {
+            "sizeLimit": {
+              "type": "string",
+              "pattern": "^[0-9]+(Ki|Mi|Gi|Ti)$"
+            }
+          }
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"]
+          }
+        },
+        "allowHttp": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "allOf": [

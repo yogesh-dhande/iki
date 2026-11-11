@@ -1,0 +1,157 @@
+{{- if .Values.backendWorkers.enabled }}
+{{- $w := .Values.backendWorkers }}
+{{- $repository := required "backendWorkers.image.repository is required: the deployment's worker image" $w.image.repository }}
+{{- $token := required "backendWorkers.registrationToken.existingSecret is required: a Secret holding a backend-tier registration token" $w.registrationToken.existingSecret }}
+{{- $url := $w.serverUrl | default .Values.publicUrl }}
+{{- $plain := and $w.allowHttp (not .Values.https) (hasPrefix "http://" $url) }}
+{{- if not (or (hasPrefix "https://" $url) $plain) }}
+{{- fail "backendWorkers.serverUrl (or publicUrl) must be an https:// address: workers send their token to it (http:// needs backendWorkers.allowHttp and https: false, for development only)" }}
+{{- end }}
+{{- $cpu := toString ($w.resources.limits.cpu | default $w.resources.requests.cpu | default "") }}
+# Backend-tier workers (ADR 0043): each leases one job at a time from the
+# server over HTTPS and runs its command. Without a state file, a worker
+# registers when it starts and deregisters when it stops, so a pod is a
+# worker for exactly as long as it lives.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "iki.fullname" . }}-worker
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ $w.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "iki.labels" . | nindent 8 }}
+        {{- include "iki.selectorLabels" (dict "ctx" . "component" "worker") | nindent 8 }}
+      {{- with $w.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # Its own service account, which no IAM role or binding should ever be
+      # given: actions' commands run here.
+      serviceAccountName: {{ include "iki.fullname" . }}-worker
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- include "iki.podSecurityContext" . | nindent 8 }}
+      terminationGracePeriodSeconds: {{ $w.terminationGracePeriodSeconds }}
+      containers:
+        - name: worker
+          {{- if $w.image.digest }}
+          image: {{ printf "%s@%s" $repository $w.image.digest }}
+          {{- else }}
+          image: {{ printf "%s:%s" $repository ($w.image.tag | default .Chart.AppVersion) }}
+          {{- end }}
+          imagePullPolicy: {{ $w.image.pullPolicy }}
+          args: ["start"]
+          env:
+            - name: IKI_URL
+              value: {{ $url | quote }}
+            - name: IKI_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $token }}
+                  key: {{ $w.registrationToken.key }}
+            - name: IKI_WORKER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if $plain }}
+            - name: IKI_ALLOW_HTTP
+              value: "1"
+            {{- end }}
+            - name: IKI_WORK_DIR
+              value: /tmp/iki-worker
+            {{- if $cpu }}
+            - name: IKI_WORKER_CPU
+              {{- if hasSuffix "m" $cpu }}
+              value: {{ divf (trimSuffix "m" $cpu | float64) 1000 | toString | quote }}
+              {{- else }}
+              value: {{ $cpu | quote }}
+              {{- end }}
+            {{- end }}
+            - name: IKI_WORKER_MEMORY
+              valueFrom:
+                resourceFieldRef:
+                  containerName: worker
+                  resource: limits.memory
+            - name: IKI_WORKER_SCRATCH_DISK
+              value: {{ $w.scratch.sizeLimit | quote }}
+            {{- if $w.caSecret.name }}
+            - name: SSL_CERT_FILE
+              value: /etc/iki/server-ca/{{ $w.caSecret.key }}
+            {{- end }}
+            {{- with $w.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+          securityContext:
+            {{- include "iki.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            # Jobs' own directories, and nothing else writable.
+            - name: scratch
+              mountPath: /tmp
+            {{- if $w.caSecret.name }}
+            - name: server-ca
+              mountPath: /etc/iki/server-ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: {{ $w.scratch.sizeLimit }}
+        {{- if $w.caSecret.name }}
+        - name: server-ca
+          secret:
+            secretName: {{ $w.caSecret.name }}
+            items:
+              - key: {{ $w.caSecret.key }}
+                path: {{ $w.caSecret.key }}
+        {{- end }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "iki.selectorLabels" (dict "ctx" . "component" "worker") | nindent 14 }}
+      {{- with $w.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $w.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $w.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "iki.fullname" . }}-worker
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+# Workers never talk to the Kubernetes API.
+automountServiceAccountToken: false
+{{- end }}

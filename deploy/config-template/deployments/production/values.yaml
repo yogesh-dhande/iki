@@ -13,3 +13,10 @@ database:
     existingSecret: iki-db-owner
 web:
   replicas: 3
+# Backend workers run plugins' actions. Turn them on once a Compute admin has
+# made a backend-tier registration token (Compute settings) and you've stored
+# it in this Secret, under the key "token". Their image is in image.yaml.
+# backendWorkers:
+#   enabled: true
+#   registrationToken:
+#     existingSecret: iki-worker-registration

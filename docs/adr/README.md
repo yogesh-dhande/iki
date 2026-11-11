@@ -77,3 +77,4 @@ supersedes the old one, and update the old one's status.
 | [0045](0045-run-quotas.md)                                        | Compute admins set run quotas per organization, team or project                                 | Accepted |
 | [0046](0046-how-iki-worker-runs-a-command.md)                     | How iki-worker runs a command                                                                   | Accepted |
 | [0047](0047-workers-run-only-the-code-a-run-was-launched-with.md) | Workers run only the plugin code a run was launched with                                        | Accepted |
+| [0048](0048-backend-workers-run-in-baked-isolated-pods.md)        | Backend workers run in baked, isolated pods                                                     | Accepted |
