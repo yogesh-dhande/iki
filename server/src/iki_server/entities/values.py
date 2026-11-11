@@ -127,9 +127,16 @@ class Refs:
     def __init__(self, readable: Any, files: Any = None) -> None:  # noqa: ANN401 - QuerySets
         self.readable = readable
         self.files = files
+        #: Types already looked up; None for an entity the caller can't read.
+        self._types: dict[uuid.UUID, str | None] = {}
 
     def types(self, ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
-        return dict(self.readable.filter(pk__in=list(ids)).values_list("pk", "type"))
+        wanted = set(ids)
+        unknown = [i for i in wanted if i not in self._types]
+        if unknown:
+            found = dict(self.readable.filter(pk__in=unknown).values_list("pk", "type"))
+            self._types.update({i: found.get(i) for i in unknown})
+        return {i: t for i in wanted if (t := self._types[i]) is not None}
 
     def file(self, file_id: uuid.UUID) -> tuple[str, int] | None:
         """A readable file's media type and size."""
@@ -148,6 +155,9 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
         problems = value_problems(f, value) if isinstance(value, list) else ["must be a list."]
         if not isinstance(value, list):
             raise ValueError(" ".join(problems))
+        if f.items.type == "ref":
+            # One query for a whole list of references, not one per item.
+            refs.types(_uuids(value))
         out = []
         for index, item in enumerate(value):
             if item is None:
@@ -224,6 +234,16 @@ def _datetime(value: Any) -> dt.datetime:  # noqa: ANN401 - JSON
     if parsed.tzinfo is None:
         raise ValueError("needs a time zone, such as Z or +01:00.")
     return parsed
+
+
+def _uuids(values: Iterable[Any]) -> list[uuid.UUID]:
+    out = []
+    for value in values:
+        try:
+            out.append(uuid.UUID(str(value)))
+        except ValueError:
+            continue
+    return out
 
 
 def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON

@@ -26,9 +26,19 @@ so nothing compiled it.
 `description`. It has either `members`, a list of up to 10,000 references to
 entities of any types (a static collection), or a `search`, as
 `POST /entities/search` takes it without paging (a dynamic collection). It
-can't have both. Freezing a dynamic collection is an edit that sets its
-members to what the search finds now and clears its search, so its revisions
-record both.
+can't have both.
+
+**Fixed lists are made on the server.** `POST /collections` makes a
+collection from a search. It keeps either the search (dynamic) or the
+members the search finds now, in its order (static). `POST
+/collections/{ref}/freeze` turns a dynamic collection into a fixed list.
+It's one revision that sets the members and clears the search, so the
+history keeps both. A search that finds more than 10,000 entities is
+refused (409 `too_many`) rather than cut short. Both run the search as the
+caller, so a fixed list only holds what they could read. Running it on the
+server keeps it one atomic step, with no half-made collection, and spares
+the browser paging through the IDs. Lists of references are checked in one
+query, however long.
 
 **A collection never shows anyone an entity they can't read.**
 

@@ -4,6 +4,48 @@
  */
 
 export interface paths {
+    "/api/v1/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a collection from a search
+         * @description Keep the search (a dynamic collection), or the members it finds for you now, in its
+         *     order (a fixed list). Either way it's checked as you.
+         */
+        post: operations["iki_server_api_collections_create_collection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/{ref}/freeze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Freeze a dynamic collection
+         * @description Replace its search with the members it finds for you now, in its order, as one
+         *     revision: a fixed list a run or a paper can cite. Send its ETag as If-Match.
+         */
+        post: operations["iki_server_api_collections_freeze_collection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities": {
         parameters: {
             query?: never;
@@ -1193,6 +1235,66 @@ export interface components {
             /** Before */
             before?: unknown;
         };
+        /** CollectionIn */
+        CollectionIn: {
+            /** Description */
+            description?: string | null;
+            /**
+             * Keep
+             * @description `search`: a dynamic collection, holding whatever its search finds when it's read. `members`: a fixed list of what it finds for you now (at most 10,000).
+             * @default search
+             * @enum {string}
+             */
+            keep: "search" | "members";
+            /** Name */
+            name: string;
+            /**
+             * Project
+             * Format: uuid
+             * @description The project it belongs to. It needs you as an Editor.
+             */
+            project: string;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+            search: components["schemas"]["CollectionSearch"];
+        };
+        /**
+         * CollectionSearch
+         * @description A search, as ``POST /entities/search`` takes it, without paging.
+         */
+        CollectionSearch: {
+            /** Archived */
+            archived?: boolean | null;
+            /**
+             * Descending
+             * @default false
+             */
+            descending: boolean;
+            /**
+             * Exact Type
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Project
+             * @description Only entities in this project.
+             */
+            project?: string | null;
+            /** Q */
+            q?: string | null;
+            /**
+             * Sort
+             * @description The field it's in order of.
+             */
+            sort?: string | null;
+            /** Type */
+            type?: string | null;
+            where?: components["schemas"]["Condition"] | null;
+        };
         /**
          * Condition
          * @description A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and
@@ -1780,6 +1882,15 @@ export interface components {
              * @description Bytes.
              */
             size: number;
+        };
+        /** FreezeIn */
+        FreezeIn: {
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
         };
         /** InboxFilters */
         InboxFilters: {
@@ -3161,6 +3272,58 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    iki_server_api_collections_create_collection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_collections_freeze_collection: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FreezeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_list_entities: {
         parameters: {
             query?: {

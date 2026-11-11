@@ -49,6 +49,146 @@
         "title": "ChangeOut",
         "type": "object"
       },
+      "CollectionIn": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "keep": {
+            "default": "search",
+            "description": "`search`: a dynamic collection, holding whatever its search finds when it's read. `members`: a fixed list of what it finds for you now (at most 10,000).",
+            "enum": [
+              "search",
+              "members"
+            ],
+            "title": "Keep",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "description": "The project it belongs to. It needs you as an Editor.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "search": {
+            "$ref": "#/components/schemas/CollectionSearch"
+          }
+        },
+        "required": [
+          "project",
+          "name",
+          "search"
+        ],
+        "title": "CollectionIn",
+        "type": "object"
+      },
+      "CollectionSearch": {
+        "description": "A search, as ``POST /entities/search`` takes it, without paging.",
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "descending": {
+            "default": false,
+            "title": "Descending",
+            "type": "boolean"
+          },
+          "exact_type": {
+            "default": false,
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only entities in this project.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The field it's in order of.",
+            "title": "Sort"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "CollectionSearch",
+        "type": "object"
+      },
       "Condition": {
         "additionalProperties": false,
         "description": "A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and\n``value``), ``all``, ``any`` or ``not``.",
@@ -1332,6 +1472,19 @@
           "size"
         ],
         "title": "FileRef",
+        "type": "object"
+      },
+      "FreezeIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "FreezeIn",
         "type": "object"
       },
       "InboxFilters": {
@@ -4509,6 +4662,114 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/collections": {
+      "post": {
+        "description": "Keep the search (a dynamic collection), or the members it finds for you now, in its\norder (a fixed list). Either way it's checked as you.",
+        "operationId": "iki_server_api_collections_create_collection",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Make a collection from a search",
+        "tags": [
+          "collections"
+        ]
+      }
+    },
+    "/api/v1/collections/{ref}/freeze": {
+      "post": {
+        "description": "Replace its search with the members it finds for you now, in its order, as one\nrevision: a fixed list a run or a paper can cite. Send its ETag as If-Match.",
+        "operationId": "iki_server_api_collections_freeze_collection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FreezeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Freeze a dynamic collection",
+        "tags": [
+          "collections"
+        ]
+      }
+    },
     "/api/v1/entities": {
       "get": {
         "description": "Oldest first. Filter by type to get one type and its subtypes. For conditions on\nfields, and sorting, use ``POST /entities/search``.",

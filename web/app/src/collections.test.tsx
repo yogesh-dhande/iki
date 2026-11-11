@@ -66,7 +66,7 @@ describe("collections", () => {
   it("saves the grid's search as a dynamic collection", async () => {
     onProject();
     answer("POST /api/v1/entities/search", page([entity()]));
-    answer("POST /api/v1/entities", respond(201, collection({ search: SEARCH })));
+    answer("POST /api/v1/collections", respond(201, collection({ search: SEARCH })));
     onCollection({ search: SEARCH });
     const filters = encodeURIComponent(
       JSON.stringify([{ field: "name", op: "contains", value: "abl" }]),
@@ -81,30 +81,33 @@ describe("collections", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save collection" }));
     await screen.findByText("Saved the collection COL-000001.");
     expect(router.state.location.pathname).toBe("/entities/COL-000001/");
-    expect(nth(calls("POST", "/api/v1/entities"), 0).body).toEqual({
-      type: "core.Collection",
+    expect(nth(calls("POST", "/api/v1/collections"), 0).body).toEqual({
       project: KINASE.id,
-      values: { name: "Kinase picks", search: SEARCH },
+      name: "Kinase picks",
+      search: SEARCH,
+      keep: "search",
       reason: "",
-      allow_duplicate: false,
     });
   });
 
-  it("can save one that looks in every project", async () => {
+  it("can save a fixed list, from every project", async () => {
     onProject();
     answer("POST /api/v1/entities/search", page([entity()]));
-    answer("POST /api/v1/entities", respond(201, collection({ search: {} })));
-    onCollection({ search: {} });
+    answer("POST /api/v1/collections", respond(201, collection({ members: [PROTEIN_ID] })));
+    onCollection({ members: [PROTEIN_ID] });
     const { user } = await renderApp("/projects/kinase-atlas/entities/?show=all");
     await screen.findByRole("table");
     await user.click(screen.getByRole("button", { name: "Save as collection" }));
     const dialog = screen.getByRole("alertdialog", { name: "Save as a collection" });
     await user.type(within(dialog).getByLabelText("Name"), "Everything");
+    await user.click(within(dialog).getByLabelText(/These entities/));
     await user.click(within(dialog).getByLabelText(/Only entities in Kinase Atlas/));
     await user.click(within(dialog).getByRole("button", { name: "Save collection" }));
     await screen.findByText("Saved the collection COL-000001.");
-    expect(nth(calls("POST", "/api/v1/entities"), 0).body).toMatchObject({
-      values: { name: "Everything", search: {} },
+    expect(nth(calls("POST", "/api/v1/collections"), 0).body).toMatchObject({
+      name: "Everything",
+      search: {},
+      keep: "members",
     });
   });
 
@@ -129,6 +132,27 @@ describe("collections", () => {
     // Its search isn't shown again as a raw value.
     const values = screen.getByRole("region", { name: "Values" });
     expect(within(values).queryByText("Search")).not.toBeInTheDocument();
+  });
+
+  it("freezes a dynamic collection into a fixed list", async () => {
+    onCollection({ search: SEARCH });
+    answer(
+      "POST /api/v1/collections/00000000-0000-7000-8000-00000000c001/freeze",
+      collection({ members: [PROTEIN_ID], search: null }),
+    );
+    const { user } = await renderApp("/entities/COL-000001/");
+    await user.click(await screen.findByRole("button", { name: "Freeze as a fixed list" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Freeze Kinase picks?" });
+    await user.type(within(dialog).getByLabelText(/Reason/), "For the paper");
+    await user.click(within(dialog).getByRole("button", { name: "Freeze" }));
+    await screen.findByText("Froze COL-000001: it lists 1 entity.");
+    const call = nth(
+      calls("POST", "/api/v1/collections/00000000-0000-7000-8000-00000000c001/freeze"),
+      0,
+    );
+    expect(call.body).toEqual({ reason: "For the paper" });
+    expect(call.headers.get("If-Match")).toBe('"2"');
+    expect(await screen.findByText("It lists 1 entity. You see those you can read.")).toBeVisible();
   });
 
   it("says how many entities a static collection lists", async () => {

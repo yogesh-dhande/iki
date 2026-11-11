@@ -427,6 +427,38 @@ def test_saving_a_search_as_a_collection(open_as: Any, world: World) -> None:
     assert_clean(page)
 
 
+def test_freezing_a_collection(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+
+    for name, sequence in (("ABL1", "MKVL"), ("ABL2", "MKVI")):
+        entities.create(
+            world.users["admin"],
+            "protein.Protein",
+            world.project,
+            {"sequence": sequence, "name": name},
+        )
+    from iki_server.entities.models import Entity
+
+    made = Entity.objects.get(
+        pk=entities.create(
+            world.users["admin"],
+            "core.Collection",
+            world.project,
+            {"name": "ABL kinases", "search": {"type": "protein.Protein", "q": "abl"}},
+        ).entity.pk
+    )
+    page = open_as("editor", f"/entities/{made.hrid}/")
+    page.get_by_role("button", name="Freeze as a fixed list").click()
+    dialog = page.get_by_role("alertdialog", name="Freeze ABL kinases?")
+    dialog.get_by_label(re.compile("Reason")).fill("For the paper")
+    assert_clean(page)
+    dialog.get_by_role("button", name="Freeze").click()
+    page.get_by_text(f"Froze {made.hrid}: it lists 2 entities.").wait_for()
+    page.get_by_text("It lists 2 entities. You see those you can read.").wait_for()
+    assert page.get_by_role("button", name="Freeze as a fixed list").count() == 0
+    assert_clean(page)
+
+
 def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity

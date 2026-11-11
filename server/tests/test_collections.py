@@ -189,3 +189,112 @@ def test_a_search_that_stopped_working_says_so(world: World) -> None:
         headers={"If-Match": f'"{made["revision"]}"'},
     )
     assert renamed.status_code == 200, renamed.content
+
+
+def make(api: Api, world: World, search: dict[str, Any], keep: str, **kw: Any) -> Any:
+    body = {"project": str(world.project.pk), "name": "Picks", "search": search, "keep": keep}
+    return api.post("/collections", {**body, **kw})
+
+
+def test_making_a_fixed_list_from_a_search(world: World, secret: Project) -> None:
+    admin = api_as(world, "admin")
+    protein(admin, world.project, "abl1", "Homo sapiens")
+    protein(admin, world.project, "egfr", "Homo sapiens")
+    protein(admin, world.project, "lacz", "Escherichia coli")
+    protein(admin, secret, "hidden", "Homo sapiens")
+    editor = api_as(world)
+    made = make(editor, world, {**HUMAN, "sort": "name", "descending": True}, "members")
+    assert made.status_code == 201, made.content
+    body = made.json()
+    assert body["values"]["search"] is None
+    # What the editor could read, in the search's order; Secret's protein isn't among them.
+    assert [body["refs"][m]["title"] for m in body["values"]["members"]] == ["egfr", "abl1"]
+    revisions = editor.get(f"/entities/{body['hrid']}/revisions").json()["items"]
+    assert revisions[0]["reason"] == "Frozen: the 2 entities its search found."
+    # Later matches don't join a fixed list.
+    protein(admin, world.project, "src", "Homo sapiens")
+    assert len(members(editor, body["hrid"])) == 2
+
+    dynamic = make(editor, world, HUMAN, "search").json()
+    assert dynamic["values"]["search"] == HUMAN
+    assert len(members(editor, dynamic["hrid"])) == 3
+
+
+def test_freezing_a_dynamic_collection(world: World) -> None:
+    editor = api_as(world)
+    protein(editor, world.project, "abl1", "Homo sapiens")
+    made = make(editor, world, HUMAN, "search").json()
+    url = f"/collections/{made['hrid']}/freeze"
+    problem(editor.post(url, {}), 428, "precondition_required")
+    problem(api_as(world, "viewer").post(url, {}, headers={"If-Match": '"1"'}), 403, "forbidden")
+    protein(editor, world.project, "egfr", "Homo sapiens")
+    frozen = editor.post(url, {"reason": "For the paper"}, headers={"If-Match": '"1"'})
+    assert frozen.status_code == 200, frozen.content
+    assert frozen.json()["values"]["search"] is None
+    assert len(frozen.json()["values"]["members"]) == 2
+    assert frozen.json()["revision"] == 2
+    # It's a fixed list now, and a stale ETag is refused either way.
+    again = problem(editor.post(url, {}, headers={"If-Match": '"2"'}), 409, "conflict")
+    assert again["detail"] == "It lists its members already: it has no search to freeze."
+    problem(editor.post(url, {}, headers={"If-Match": '"1"'}), 409, "conflict")
+    abl = protein(editor, world.project, "abl2", "Homo sapiens")
+    problem(
+        editor.post(f"/collections/{abl['hrid']}/freeze", {}, headers={"If-Match": '"1"'}),
+        409,
+        "conflict",
+    )
+
+
+def test_a_stale_freeze_is_refused(world: World) -> None:
+    editor = api_as(world)
+    made = make(editor, world, HUMAN, "search").json()
+    renamed = editor.patch(
+        f"/entities/{made['id']}", {"values": {"name": "Humans"}}, headers={"If-Match": '"1"'}
+    )
+    assert renamed.status_code == 200
+    stale = editor.post(f"/collections/{made['hrid']}/freeze", {}, headers={"If-Match": '"1"'})
+    assert problem(stale, 412, "stale")["detail"].startswith("Someone changed it since")
+
+
+def test_a_fixed_list_has_a_limit(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    from iki_server.entities import collections
+
+    monkeypatch.setattr(collections, "max_members", lambda: 1)
+    editor = api_as(world)
+    protein(editor, world.project, "abl1", "Homo sapiens")
+    protein(editor, world.project, "egfr", "Homo sapiens")
+    body = problem(make(editor, world, HUMAN, "members"), 409, "too_many")
+    assert body["detail"].startswith("Its search finds more than 1 entities")
+
+
+def test_making_one_checks_its_search(world: World) -> None:
+    editor = api_as(world)
+    wrong = {"type": "protein.Protein", "where": {"field": "colour", "op": "eq", "value": 1}}
+    for keep in ("search", "members"):
+        body = problem(make(editor, world, wrong, keep), 422, "validation_failed")
+        assert body["errors"] == [
+            {
+                "pointer": "#/search",
+                "detail": "`where.field`: protein.Protein has no field `colour`.",
+            }
+        ]
+    problem(make(api_as(world, "viewer"), world, HUMAN, "search"), 403, "forbidden")
+
+
+def test_a_long_list_is_checked_in_one_query(
+    world: World, django_assert_max_num_queries: Any
+) -> None:
+    from iki_server.entities import services
+
+    editor = world.users["editor"]
+    ids = [
+        str(
+            services.create(
+                editor, "dna.DNASequence", world.project, {"bases": "ACGT" + "A" * i}
+            ).entity.pk
+        )
+        for i in range(60)
+    ]
+    # However many members, their references are looked up together.
+    with django_assert_max_num_queries(40):
+        services.create(editor, "core.Collection", world.project, {"name": "Many", "members": ids})

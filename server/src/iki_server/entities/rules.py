@@ -38,6 +38,12 @@ def _collection(user: User, values: Mapping[str, Any]) -> Errors:
         return {}
     if values.get("members"):
         return {"search": ["A collection lists its members or has a search, not both."]}
+    errors = search_errors(user, data)
+    return {"search": errors} if errors else {}
+
+
+def search_errors(user: User, data: Mapping[str, Any]) -> list[str]:
+    """What's wrong with a collection's search, run as ``user``: nothing if it works."""
     try:
         found = search.stored(data)
         if found.project is not None:
@@ -46,8 +52,8 @@ def _collection(user: User, values: Mapping[str, Any]) -> Errors:
                 raise search.SearchError([("#/project", "No such project, or you can’t see it.")])
         search.queryset(user, found)
     except search.SearchError as error:
-        return {"search": [_pointed(p, d) for p, d in error.errors]}
-    return {}
+        return [_pointed(p, d) for p, d in error.errors]
+    return []
 
 
 def _pointed(pointer: str, detail: str) -> str:

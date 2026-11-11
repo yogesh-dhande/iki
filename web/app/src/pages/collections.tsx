@@ -2,14 +2,16 @@
  * Collections (core.Collection, ADR 0038): named sets of entities. A static
  * one lists its members; a dynamic one is a search, run as whoever reads it.
  *
- * - The grid saves its search as a dynamic collection.
- * - A collection's page says what it holds and links to its members.
+ * - The grid saves its search as a collection: kept up to date (the search),
+ *   or a fixed list of what it finds now. The server runs it, as the caller.
+ * - A collection's page says what it holds, links to its members, and
+ *   freezes a dynamic one into a fixed list.
  * - The grid shows a collection's members (?collection=COL-000001), from
  *   every project the reader can read, with the same filters and sorting.
  */
 
-import { unwrap } from "@ikisci/sdk";
-import { useQuery } from "@tanstack/react-query";
+import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
@@ -23,7 +25,9 @@ import {
   type EntitySearch,
   type EntityType,
 } from "../entities";
-import { Button, ConfirmDialog, TextField, useMessages } from "../ui";
+import { Button, ConfirmDialog, RadioField, TextField, useMessages } from "../ui";
+
+type Keep = "search" | "members";
 
 export const COLLECTION = "core.Collection";
 
@@ -87,29 +91,30 @@ export function membersAddress(entity: Entity): EntitySearch {
   };
 }
 
-/** The grid's button: save what it shows as a dynamic collection, in this project. */
+/** The grid's button: save what it shows as a collection in this project. */
 export function SaveAsCollection({ project, search }: { project: Project; search: EntitySearch }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [here, setHere] = useState(true);
+  const [keep, setKeep] = useState<Keep>("search");
   const hereId = useId();
   const navigate = useNavigate();
   const { say } = useMessages();
   const create = useApiMutation(
     async () =>
       unwrap(
-        await iki.POST("/api/v1/entities", {
+        await iki.POST("/api/v1/collections", {
           body: {
-            type: COLLECTION,
             project: project.id,
-            values: {
-              name: name.trim(),
-              ...(description.trim() ? { description: description.trim() } : {}),
-              search: toStoredSearch(search, here ? project.id : undefined),
-            },
+            name: name.trim(),
+            ...(description.trim() ? { description: description.trim() } : {}),
+            search: toStoredSearch(
+              search,
+              here ? project.id : undefined,
+            ) as Schemas["CollectionSearch"],
+            keep,
             reason: "",
-            allow_duplicate: false,
           },
         }),
       ),
@@ -120,6 +125,7 @@ export function SaveAsCollection({ project, search }: { project: Project; search
     setName("");
     setDescription("");
     setHere(true);
+    setKeep("search");
     create.reset();
   };
   return (
@@ -151,11 +157,27 @@ export function SaveAsCollection({ project, search }: { project: Project; search
         }}
       >
         <p>
-          A collection is an entity of its own, which people can find, link and use. It holds
-          everything this search finds whenever it’s opened, and each person sees only what they can
-          read.
+          A collection is an entity of its own, which people can find, link and use. Each person
+          sees only the members they can read.
         </p>
         <TextField label="Name" value={name} onChange={setName} maxLength={200} />
+        <RadioField<Keep>
+          label="Keep"
+          value={keep}
+          onChange={setKeep}
+          options={[
+            {
+              value: "search",
+              label: "The search",
+              description: "it stays up to date, with new matches as they’re registered",
+            },
+            {
+              value: "members",
+              label: "These entities",
+              description: "a fixed list of what it finds now, to cite or run on (up to 10,000)",
+            },
+          ]}
+        />
         <TextField
           label="Description"
           value={description}
@@ -176,7 +198,9 @@ export function SaveAsCollection({ project, search }: { project: Project; search
           <span className="choice-text">
             Only entities in {project.name}
             <span className="choice-help">
-              Otherwise it finds matches in every project its readers can read.
+              {keep === "search"
+                ? "Otherwise it finds matches in every project its readers can read."
+                : "Otherwise it takes matches from every project you can read."}
             </span>
           </span>
         </label>
@@ -268,7 +292,90 @@ export function CollectionMembers({ entity, types }: { entity: Entity; types: En
           </Link>
         </p>
       ) : null}
+      {stored && entity.can.edit && !entity.archived ? <Freeze entity={entity} /> : null}
     </section>
+  );
+}
+
+/** Replaces a dynamic collection's search with what it finds now, on the server. */
+function Freeze({ entity }: { entity: Entity }) {
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
+  const client = useQueryClient();
+  const { say } = useMessages();
+  const freeze = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.POST("/api/v1/collections/{ref}/freeze", {
+          params: {
+            path: { ref: entity.id },
+            header: { "If-Match": `"${String(entity.revision)}"` },
+          },
+          body: { reason: reason.trim() },
+        }),
+      ),
+    [ENTITIES],
+  );
+  const close = () => {
+    setAsking(false);
+    setReason("");
+    freeze.reset();
+  };
+  const stale = freeze.error instanceof ApiError && freeze.error.problem.code === "stale";
+  return (
+    <>
+      <Button
+        onClick={() => {
+          setAsking(true);
+        }}
+      >
+        Freeze as a fixed list
+      </Button>
+      <ConfirmDialog
+        isOpen={asking}
+        title={`Freeze ${entity.title}?`}
+        confirmLabel="Freeze"
+        confirmVariant="primary"
+        busy={freeze.isPending}
+        problem={
+          stale && freeze.error
+            ? {
+                ...freeze.error.problem,
+                detail:
+                  "Someone changed it while this was open. The page now shows their change: check it, then try again.",
+              }
+            : freeze.error
+              ? problemOf(freeze.error)
+              : undefined
+        }
+        onCancel={close}
+        onConfirm={() => {
+          freeze.mutate(undefined, {
+            onSuccess: (saved) => {
+              client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+              close();
+              const count = Array.isArray(saved.values["members"])
+                ? saved.values["members"].length
+                : 0;
+              say(
+                `Froze ${saved.hrid}: it lists ${count === 1 ? "1 entity" : `${String(count)} entities`}.`,
+              );
+            },
+            onError: (error) => {
+              if (error.problem.code === "stale") {
+                void client.invalidateQueries({ queryKey: ENTITIES });
+              }
+            },
+          });
+        }}
+      >
+        <p>
+          Its search is replaced by the entities it finds for you now, in its order, so it stops
+          changing. A run or a paper can then cite exactly those. Its history keeps the search.
+        </p>
+        <TextField label="Reason" value={reason} onChange={setReason} maxLength={2000} optional />
+      </ConfirmDialog>
+    </>
   );
 }
 

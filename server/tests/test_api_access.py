@@ -115,6 +115,17 @@ def entity(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Bui
     return build
 
 
+def dynamic_collection(w: World) -> tuple[Any, ...]:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    made = entities.create(
+        w.users["editor"], "core.Collection", w.project, {"name": "Kin", "search": {"q": "kin"}}
+    )
+    found = Entity.objects.get(pk=made.entity.pk)
+    return f"/collections/{found.pk}/freeze", {}, {"If-Match": f'"{found.revision}"'}
+
+
 def linked_into_archived(w: World) -> tuple[str, Any]:
     """An entity of the project, also in the archived project (whose Editors can't change it)."""
     from iki_server.entities.models import ProjectLink
@@ -383,6 +394,22 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         linked_into_archived,
         editors(204),
     ),
+    # Collections from searches: made and frozen by the owner project's Editors.
+    (
+        "POST",
+        "/collections",
+        lambda w: (
+            "/collections",
+            {
+                "project": str(w.project.pk),
+                "name": "Kin",
+                "search": {"q": "kin"},
+                "keep": "members",
+            },
+        ),
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
+    ),
+    ("POST", "/collections/{ref}/freeze", dynamic_collection, editors(200)),
     # Uploads are their maker's; files are read through the project they were added to.
     (
         "POST",
