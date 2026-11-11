@@ -108,12 +108,21 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter @ikisci/app build
+      # The browsers' system packages, kept between runs: Ubuntu's mirrors are
+      # sometimes too slow from the runners to download them in time.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: matrix.browsers
+        with:
+          path: ~/.cache/ci-apt
+          key: apt-${{ runner.os }}-${{ runner.arch }}-all-${{ hashFiles('uv.lock') }}
+          restore-keys: apt-${{ runner.os }}-${{ runner.arch }}-all-
       - name: Install browsers (Chromium, Firefox, WebKit)
         if: matrix.browsers
         # Each try is bounded, so a stuck package mirror moves on rather than wait.
-        timeout-minutes: 25
+        timeout-minutes: 30
         env:
           UV_NO_SYNC: "1"
+          CI_APT_CACHE: ~/.cache/ci-apt
         run: scripts/ci/install-browsers.sh chromium firefox webkit
       - name: Install the pinned Rust toolchain (for the worker end-to-end tests)
         if: matrix.rust
@@ -332,8 +341,15 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
       # The checks sign in through Keycloak in Chromium.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ci-apt
+          key: apt-${{ runner.os }}-${{ runner.arch }}-chromium-${{ hashFiles('uv.lock') }}
+          restore-keys: apt-${{ runner.os }}-${{ runner.arch }}-chromium-
       - name: Install Chromium
-        timeout-minutes: 25
+        timeout-minutes: 30
+        env:
+          CI_APT_CACHE: ~/.cache/ci-apt
         run: scripts/ci/install-browsers.sh chromium
       - name: Bring up the dev cluster and run end-to-end checks
         run: make dev-ci
