@@ -19,6 +19,7 @@ pytestmark = pytest.mark.django_db
 
 COMPUTE = "protein.compute_properties"
 PREDICT = "structure_prediction.predict_structure"
+RELAX = "protein.relax_structure"
 
 TEMPLATE: dict[str, Any] = {
     "label": "",
@@ -72,8 +73,8 @@ def launch(
 
 def test_lists_installed_actions_and_where_they_run(world: World) -> None:
     actions = api_as(world, "viewer").get("/actions").json()
-    assert [a["name"] for a in actions] == [COMPUTE, PREDICT]
-    compute, predict = actions
+    assert [a["name"] for a in actions] == [COMPUTE, RELAX, PREDICT]
+    compute, _, predict = actions
     assert compute["tier"] == "backend"
     assert compute["available"] is True
     assert compute["needs"] == "Editor"

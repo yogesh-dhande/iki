@@ -13,6 +13,8 @@ homepage = "https://ikisci.org"
 
 [workspace.dependencies]
 iki-protocol = { path = "crates/iki-protocol", version = "=0.1.0-dev.0" }
+# SHA-256 of files staged and uploaded, as the server checks them.
+sha2 = "0.11.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 # Signals sent to a whole process group, without unsafe code.

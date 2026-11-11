@@ -91,9 +91,29 @@
         "type": "array",
         "items": { "$ref": "#/$defs/entity" }
       }
+    },
+    "files": {
+      "type": "object",
+      "description": "Every file the inputs' values hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.",
+      "additionalProperties": { "$ref": "#/$defs/file" }
     }
   },
   "$defs": {
+    "file": {
+      "type": "object",
+      "required": ["name", "media_type", "size", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Its file name, such as model_1.pdb." },
+        "media_type": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0, "description": "Bytes." },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "path": {
+          "type": "string",
+          "description": "Where iki-worker put it, for the command to read. The server leaves it out."
+        }
+      }
+    },
     "entity": {
       "type": "object",
       "required": ["id", "hrid", "type", "schema_version", "revision", "values"],

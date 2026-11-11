@@ -181,12 +181,18 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
 
 def payload(job: Job, run: ActionRun) -> dict[str, Any]:
     """The run's input, as ``spec/…/run-input/v1`` describes it: what the command reads."""
+    from iki_server.runs import input_files
+
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in run.spec["inputs"]}
+    files: set[uuid.UUID] = set()
     rows = RunInput.objects.filter(run=run).select_related("entity").order_by("name", "position")
     for row in rows:
         entity = row.entity
         values = services.values_at(entity, row.revision)
         fields = shape(entity.type).fields()
+        for name, value in values.items():
+            if name in fields:
+                files |= input_files.file_ids(fields[name], value)
         inputs.setdefault(row.name, []).append(
             {
                 "id": str(entity.pk),
@@ -225,6 +231,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "environment": f"{run.action.split('.')[0]}.{run.environment}",
         "params": run.params,
         "inputs": inputs,
+        "files": input_files.describe(files),
     }
 
 

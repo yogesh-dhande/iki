@@ -4,6 +4,19 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputFile {
+    /// Its file name, such as model_1.pdb.
+    pub name: String,
+    pub media_type: String,
+    /// Bytes.
+    pub size: i64,
+    pub sha256: String,
+    /// Where iki-worker put it, for the command to read. The server leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputEntity {
     pub id: String,
     pub hrid: String,
@@ -33,6 +46,9 @@ pub struct RunInput {
     pub params: serde_json::Map<String, serde_json::Value>,
     /// Every input, by name: a list of entities (one item for inputs that take one; none for an optional input left out).
     pub inputs: std::collections::BTreeMap<String, Vec<RunInputEntity>>,
+    /// Every file the inputs' values hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<std::collections::BTreeMap<String, RunInputFile>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -192,6 +208,18 @@ pub struct CompleteOut {
     pub message: Option<String>,
     /// `succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run.
     pub run_status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DownloadOut {
+    pub media_type: String,
+    pub name: String,
+    /// Of its bytes, as hex: check them against it.
+    pub sha256: String,
+    /// Bytes.
+    pub size: i64,
+    /// GET the file's bytes here. It works for five minutes.
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -414,6 +442,8 @@ pub mod paths {
     pub const JOBS_COMPLETE: &str = "/worker/v1/jobs/{job_id}/complete";
     /// `/worker/v1/jobs/{job_id}/fail`
     pub const JOBS_FAIL: &str = "/worker/v1/jobs/{job_id}/fail";
+    /// `/worker/v1/jobs/{job_id}/files/{file_id}`
+    pub const JOBS_FILES: &str = "/worker/v1/jobs/{job_id}/files/{file_id}";
     /// `/worker/v1/jobs/{job_id}/heartbeat`
     pub const JOBS_HEARTBEAT: &str = "/worker/v1/jobs/{job_id}/heartbeat";
     /// `/worker/v1/jobs/{job_id}/logs`

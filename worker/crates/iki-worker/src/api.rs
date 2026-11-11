@@ -59,7 +59,9 @@ pub struct Api {
     token: String,
 }
 
-fn agent() -> Agent {
+/// HTTPS as the worker makes it: rustls with the OS's certificates, `HTTPS_PROXY`, no
+/// redirects, and every status answered rather than raised.
+pub fn agent_config() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
     let tls = TlsConfig::builder()
         .provider(TlsProvider::Rustls)
         .root_certs(RootCerts::PlatformVerifier)
@@ -72,6 +74,10 @@ fn agent() -> Agent {
         .max_redirects(0)
         .user_agent(concat!("iki-worker/", env!("CARGO_PKG_VERSION")))
         .timeout_connect(Some(Duration::from_secs(15)))
+}
+
+fn agent() -> Agent {
+    agent_config()
         // The lease waits up to 30 seconds for work; anything slower than this is stuck.
         .timeout_global(Some(Duration::from_secs(60)))
         .build()

@@ -1,7 +1,7 @@
 # 0046. How iki-worker runs a command
 
 - Status: Accepted
-- Date: 2026-11-11
+- Date: 2026-11-10
 - Refines: [0010](0010-single-rust-worker.md), [0043](0043-workers-lease-jobs.md)
 
 ## Context
@@ -30,8 +30,8 @@ reuses it across restarts. Without it, the token lives as long as the
 process, and the worker deregisters when it stops.
 
 **Each job gets a private directory** (mode 0700), removed when the job
-ends: `input.json` as the server sent it, `output.json` for the command to
-write, `out/` for files, and its own `TMPDIR` and `HOME`. The command runs
+ends: `input.json`, `inputs/` with the input files, `output.json` for the
+command to write, `out/` for files, and its own `TMPDIR` and `HOME`. The command runs
 from its plugin's directory with an environment that holds only `PATH`,
 locale and certificate settings, those directories (`IKI_INPUT`,
 `IKI_OUTPUT`, `IKI_OUT_DIR`), and the run's ID and attempt. Nothing of the
@@ -58,8 +58,17 @@ past that is dropped with a note in the log. A line like
 `::progress 0.4 Folding chain A` reports progress, as GitHub Actions'
 `::` commands do.
 
+**Files** go through object storage, never the API: the server hands out
+a short-lived link per file. Before the command starts, the worker
+downloads each file the inputs hold into `inputs/`, under a name made safe
+for the file system, and checks its size and SHA-256; a mismatch fails the
+attempt. Afterwards, each `{"$file": "…"}` in `output.json` is uploaded
+the way the web app uploads, in parts, and replaced with the new file's
+ID. Its path must resolve, symlinks and all, to a file inside `out/`, so a
+command can't upload what it shouldn't, such as the worker's state.
+
 **Ending:** if the command exits 0, the worker reads `output.json` (a JSON
-object of at most 2.5 MB) and reports it. Otherwise, or if `output.json`
+object of at most 2.5 MB), uploads its files and reports it. Otherwise, or if `output.json`
 is missing or unreadable, the attempt fails with a message that says why,
 such as "The command exited with status 3." Reports are retried with
 backoff for five minutes, while heartbeats keep the lease.

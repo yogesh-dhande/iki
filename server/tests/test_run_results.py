@@ -11,9 +11,9 @@ import pytest
 import requests
 from api_client import problem
 from org_world import World, build_world
-from test_api_entities import api_as
+from test_api_entities import api_as, create
 from test_files import run_tasks
-from test_runs import TEMPLATE, _capacity, protein
+from test_runs import TEMPLATE, _capacity, launch, protein
 from test_workers import WorkerClient, keep_connection, queued, registration, worker
 
 from iki_server.entities.models import Entity, Revision
@@ -30,6 +30,7 @@ pytestmark = pytest.mark.django_db
 __all__ = ["keep_connection"]  # the fixture, used here too
 
 PREDICT = "structure_prediction.predict_structure"
+RELAX = "protein.relax_structure"
 
 
 @pytest.fixture
@@ -462,3 +463,58 @@ def test_uploads_belong_to_the_job_holding_the_lease(world: World, s3: Any) -> N
     problem(gpu.report(stale, f"uploads/{upload['id']}/complete"), 409, "stale_lease")
     bad = gpu.report(job, "uploads", name="x", media_type="text/plain", size=1, sha256="z" * 64)
     assert problem(bad, 422, "validation_failed")["errors"][0]["pointer"] == "#/sha256"
+
+
+# --- Input files -------------------------------------------------------------------------------
+
+
+def _stored(world: World, name: str) -> str:
+    """A file in the project (empty, so it's ready at once)."""
+    upload = files.start(
+        world.users["editor"],
+        world.project,
+        name=name,
+        media_type="chemical/x-pdb",
+        size=0,
+        sha256=EMPTY_SHA256,
+    )
+    upload.refresh_from_db()
+    return str(upload.file_id)
+
+
+def test_jobs_download_the_files_their_inputs_hold(world: World, s3: Any) -> None:
+    editor = api_as(world, "editor")
+    abl = protein(editor, world.project)
+    file_id = _stored(world, "abl.pdb")
+    values = {"structure": file_id, "method": "xray", "chains": [abl["id"]]}
+    made = create(editor, world.project, values, "protein.ProteinStructure")
+    assert made.status_code == 201, made.content
+    assert launch(editor, world.project, {"structure": made.json()["id"]}, RELAX).status_code == 201
+    pod = worker(world)
+    job = pod.lease().json()
+    assert not list(schemas.check("run-input", job))
+    assert job["files"] == {
+        file_id: {
+            "name": "abl.pdb",
+            "media_type": "chemical/x-pdb",
+            "size": 0,
+            "sha256": EMPTY_SHA256,
+        }
+    }
+    got = pod.report(job, f"files/{file_id}")
+    assert got.status_code == 200, got.content
+    body = got.json()
+    assert (body["name"], body["size"], body["sha256"]) == ("abl.pdb", 0, EMPTY_SHA256)
+    fetched = requests.get(body["url"], timeout=30)
+    assert fetched.status_code == 200
+    assert fetched.content == b""
+    # Only files its inputs hold, and only while it holds the lease.
+    elsewhere = _stored(world, "other.pdb")
+    problem(pod.report(job, f"files/{elsewhere}"), 404, "not_found")
+    stale = {**job, "job": {**job["job"], "lease_token": "00000000-0000-0000-0000-000000000000"}}
+    problem(pod.report(stale, f"files/{file_id}"), 409, "stale_lease")
+
+
+def test_a_job_without_input_files_lists_none(world: World) -> None:
+    queued(world)
+    assert worker(world).lease().json()["files"] == {}

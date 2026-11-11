@@ -447,6 +447,15 @@ When a worker leases a job, it gets the run input and writes it to
       }
     ]
   },
+  "files": {
+    "…": {
+      "name": "abl.pdb",
+      "media_type": "chemical/x-pdb",
+      "size": 81234,
+      "sha256": "…",
+      "path": "/…/inputs/…/abl.pdb"
+    }
+  },
   "command": ["python", "scripts/properties.py"],
   "environment": "protein.protein-tools",
   "job": { "…": "the lease, for iki-worker" }
@@ -455,7 +464,9 @@ When a worker leases a job, it gets the run input and writes it to
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
-with references and files given as IDs.
+with references and files given as IDs. `files` describes every file the
+inputs hold, by ID. The worker downloads each one before the command
+starts, checks its size and SHA-256, and adds its `path`.
 
 The command runs from its plugin's directory, and finds its files through
 the environment ([ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md)):
@@ -500,8 +511,17 @@ change what its action declares:
 `updates` are keyed by input name and may set only the declared fields of
 entities given there. `creates` may make only the declared types. Leave out
 `derived_from` when the inputs the type is derived from hold one entity.
-File fields take files the worker uploaded for this run, or files the
-inputs already had. Iki writes all of it in one transaction, or none.
+A file field takes a file the inputs already had, by ID, or one the
+command made:
+
+```json
+{ "structure": { "$file": "relaxed.pdb", "media_type": "chemical/x-pdb" } }
+```
+
+`$file` is a path inside `IKI_OUT_DIR`; `name` defaults to its last part,
+and `media_type` to a guess from its extension. The worker uploads it for
+this run and puts the new file's ID in its place, so only files this run
+uploaded can be attached. Iki writes all of it in one transaction, or none.
 
 ## YAML
 

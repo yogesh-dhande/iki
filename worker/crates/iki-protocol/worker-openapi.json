@@ -109,6 +109,42 @@
         "title": "CompleteOut",
         "type": "object"
       },
+      "DownloadOut": {
+        "properties": {
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Of its bytes, as hex: check them against it.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "GET the file's bytes here. It works for five minutes.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "name",
+          "media_type",
+          "size",
+          "sha256"
+        ],
+        "title": "DownloadOut",
+        "type": "object"
+      },
       "FailIn": {
         "properties": {
           "lease_token": {
@@ -727,6 +763,62 @@
           }
         ],
         "summary": "End an attempt without results"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/files/{file_id}": {
+      "post": {
+        "description": "For a file the job's inputs hold (the run input's ``files``). Ask again for a new\nURL if it runs out.",
+        "operationId": "iki_server_api_worker_download",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Download an input file"
       }
     },
     "/worker/v1/jobs/{job_id}/heartbeat": {

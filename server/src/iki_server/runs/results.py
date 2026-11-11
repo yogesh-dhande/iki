@@ -33,6 +33,7 @@ from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, shape
 from iki_server.org import permissions
 from iki_server.org.services import Refused
+from iki_server.runs import input_files
 from iki_server.runs.models import (
     ActionRun,
     EffectKind,
@@ -43,7 +44,7 @@ from iki_server.runs.models import (
 )
 from iki_server.runs.services import TIER_PERMISSIONS, is_a
 from iki_spec import schemas
-from iki_spec.model import Action, Creates, Field, action_from_dict
+from iki_spec.model import Action, Creates, action_from_dict
 
 __all__ = ["InvalidOutput", "Rejected", "commit"]
 
@@ -102,27 +103,8 @@ class _Check:
             fields = shape(entity.type).fields()
             for name, value in entities.values_at(entity, read[entity.pk]).items():
                 if name in fields:
-                    self._files |= _file_ids(fields[name], value)
+                    self._files |= input_files.file_ids(fields[name], value)
         return file_id in self._files
-
-
-def _file_ids(f: Field, value: Any) -> set[UUID]:  # noqa: ANN401 - a field's value
-    """The file IDs in a value of field `f`; unreadable ones are left for its own check."""
-    if value is None:
-        return set()
-    if f.type == "list" and f.items is not None and f.items.type == "file":
-        items = value if isinstance(value, list) else []
-    elif f.type == "file":
-        items = [value]
-    else:
-        return set()
-    out: set[UUID] = set()
-    for item in items:
-        try:
-            out.add(item if isinstance(item, UUID) else UUID(str(item)))
-        except ValueError:
-            continue
-    return out
 
 
 def _check_files(check: _Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
@@ -133,7 +115,7 @@ def _check_files(check: _Check, at: str, type_name: str, values: Mapping[str, An
         f = fields.get(name)
         if f is None:
             continue
-        if any(not check.may_attach(file_id) for file_id in _file_ids(f, value)):
+        if any(not check.may_attach(file_id) for file_id in input_files.file_ids(f, value)):
             check.error(
                 f"{at}/values/{name}",
                 "Attach only files this run uploaded (once they're ready) or its inputs' files.",

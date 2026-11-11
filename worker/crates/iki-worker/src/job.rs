@@ -29,6 +29,7 @@ use rustix::process::{Pid, Signal, kill_process_group};
 
 use crate::api::{self, Api, Error};
 use crate::config::Config;
+use crate::files;
 use crate::logs::{self, Log};
 use crate::say;
 
@@ -286,6 +287,8 @@ struct Dirs {
     out: PathBuf,
     tmp: PathBuf,
     home: PathBuf,
+    /// Input files, each in a directory named for its ID.
+    inputs: PathBuf,
 }
 
 impl Dirs {
@@ -297,18 +300,19 @@ impl Dirs {
             out: root.join("out"),
             tmp: root.join("tmp"),
             home: root.join("home"),
+            inputs: root.join("inputs"),
             root,
         }
     }
 
-    fn create(&self, input: &[u8]) -> std::io::Result<()> {
+    fn create(&self) -> std::io::Result<()> {
         if self.root.exists() {
             std::fs::remove_dir_all(&self.root)?;
         }
-        for dir in [&self.root, &self.out, &self.tmp, &self.home] {
+        for dir in [&self.root, &self.out, &self.tmp, &self.home, &self.inputs] {
             create_private_dir(dir)?;
         }
-        std::fs::write(&self.input, input)
+        Ok(())
     }
 }
 
@@ -532,6 +536,55 @@ fn supervise(
     }
 }
 
+/// Downloads the input files, then writes input.json, saying where they are.
+fn stage_input(
+    job: &Job,
+    input: &RunInput,
+    dirs: &Dirs,
+    raw: &serde_json::Value,
+) -> Result<(), files::Failed> {
+    let mut written = raw.clone();
+    if let Some(wanted) = input.files.as_ref().filter(|f| !f.is_empty()) {
+        let lease = files::Lease {
+            api: &job.api,
+            job: &job.id,
+            token: &job.lease_token,
+        };
+        let staged = files::stage(&lease, &files::storage_agent(), wanted, &dirs.inputs)?;
+        say::info(
+            "Staged the input files.",
+            &[("job", &job.id), ("files", &staged.len())],
+        );
+        written["files"] = serde_json::to_value(staged)
+            .map_err(|e| files::Failed::Job(format!("Couldn't write input.json: {e}")))?;
+    }
+    let bytes = serde_json::to_vec_pretty(&written)
+        .map_err(|e| files::Failed::Job(format!("Couldn't write input.json: {e}")))?;
+    std::fs::write(&dirs.input, bytes)
+        .map_err(|e| files::Failed::Job(format!("Couldn't write input.json: {e}.")))
+}
+
+/// Uploads the files output.json names with `$file`, putting their IDs in its place.
+fn upload_results(
+    job: &Job,
+    dirs: &Dirs,
+    output: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), files::Failed> {
+    let lease = files::Lease {
+        api: &job.api,
+        job: &job.id,
+        token: &job.lease_token,
+    };
+    let count = files::upload_results(&lease, &files::storage_agent(), &dirs.out, output)?;
+    if count > 0 {
+        say::info(
+            "Uploaded the result files.",
+            &[("job", &job.id), ("files", &count)],
+        );
+    }
+    Ok(())
+}
+
 /// Stages the job and runs its command. `None` if the lease was lost.
 fn execute(
     job: &Arc<Job>,
@@ -552,14 +605,19 @@ fn execute(
             ),
         ));
     }
-    let staged = serde_json::to_vec_pretty(raw)
-        .map_err(std::io::Error::other)
-        .and_then(|bytes| dirs.create(&bytes));
-    if let Err(error) = staged {
-        return Some(Report::Fail(
-            FailInReason::Failed,
-            format!("Couldn't stage the job: {error}."),
-        ));
+    if let Err(error) = dirs.create() {
+        let message = format!("Couldn't stage the job: {error}.");
+        return Some(Report::Fail(FailInReason::Failed, message));
+    }
+    match stage_input(job, input, dirs, raw) {
+        Ok(()) => {}
+        Err(files::Failed::Lost(error)) => {
+            job.note(&error);
+            return None;
+        }
+        Err(files::Failed::Job(message)) => {
+            return Some(Report::Fail(FailInReason::Failed, message));
+        }
     }
     job.set_state(HeartbeatInState::Running);
     let mut child = match spawn(input, &plugin_dir, dirs) {
@@ -604,6 +662,17 @@ fn execute(
     job.signals.output_read.store(true, Ordering::SeqCst);
     let _ = sending.join();
 
+    outcome(job, dirs, status, stopped, timeout)
+}
+
+/// What to report, once the command has ended. `None` if the lease was lost.
+fn outcome(
+    job: &Job,
+    dirs: &Dirs,
+    status: Option<ExitStatus>,
+    stopped: Option<Stop>,
+    timeout: Duration,
+) -> Option<Report> {
     Some(match stopped {
         Some(Stop::Lost) => return None,
         Some(Stop::Cancelled) => Report::Fail(
@@ -626,7 +695,16 @@ fn execute(
             Some(status) if status.success() => {
                 job.set_state(HeartbeatInState::Uploading);
                 match read_output(&dirs.output) {
-                    Ok(output) => Report::Complete(output),
+                    Ok(mut output) => match upload_results(job, dirs, &mut output) {
+                        Ok(()) => Report::Complete(output),
+                        Err(files::Failed::Lost(error)) => {
+                            job.note(&error);
+                            return None;
+                        }
+                        Err(files::Failed::Job(message)) => {
+                            Report::Fail(FailInReason::Failed, message)
+                        }
+                    },
                     Err(message) => Report::Fail(FailInReason::Failed, message),
                 }
             }

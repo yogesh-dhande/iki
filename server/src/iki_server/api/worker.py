@@ -32,7 +32,7 @@ from iki_server.files import storage
 from iki_server.files.models import Upload, UploadState
 from iki_server.org.services import Refused
 from iki_server.realtime.views import db
-from iki_server.runs import queue, uploads, wakeup, workers
+from iki_server.runs import input_files, queue, uploads, wakeup, workers
 from iki_server.runs.models import RegistrationToken, Worker
 from iki_server.web.ratelimit import RateLimiter, client_key
 
@@ -431,6 +431,29 @@ def complete_upload(
     changes nothing."""
     _storage()
     return _upload_out(uploads.complete(_worker(request), job_id, payload.lease_token, upload_id))
+
+
+class DownloadOut(Schema):
+    url: str = Field(description="GET the file's bytes here. It works for five minutes.")
+    name: str
+    media_type: str
+    size: int = Field(description="Bytes.")
+    sha256: str = Field(description="Of its bytes, as hex: check them against it.")
+
+
+@api.post("/jobs/{job_id}/files/{file_id}", response=DownloadOut, summary="Download an input file")
+def download(request: HttpRequest, job_id: UUID, file_id: UUID, payload: LeaseIn) -> dict[str, Any]:
+    """For a file the job's inputs hold (the run input's ``files``). Ask again for a new
+    URL if it runs out."""
+    _storage()
+    found, url = input_files.download(_worker(request), job_id, payload.lease_token, file_id)
+    return {
+        "url": url,
+        "name": found.name,
+        "media_type": found.media_type,
+        "size": found.blob.size,
+        "sha256": found.blob.sha256,
+    }
 
 
 # --- Leasing (an async view, outside django-ninja) ---------------------------------------------
