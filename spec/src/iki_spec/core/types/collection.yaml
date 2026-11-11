@@ -1,0 +1,41 @@
+# A named set of entities, of any types. Either it lists its members
+# (`members`, a static collection) or it's everything a search finds when
+# it's read (`search`, a dynamic collection), never both. The server checks
+# the search as the person saving it, and runs it as the person reading it,
+# so a collection never shows anyone an entity they can't read.
+apiVersion: iki/v1
+kind: EntityType
+name: Collection
+label: Collection
+label_plural: Collections
+schema_version: 1
+description: A named set of entities, listed one by one or found by a search.
+hrid: { prefix: COL }
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  description: { type: text, max_length: 10000 }
+  members:
+    type: list
+    label: Members
+    description: The entities in a static collection, in order.
+    items: { type: ref, to: core.Entity }
+    max_items: 10000
+  search:
+    type: json
+    label: Search
+    description: >-
+      What a dynamic collection holds: a search, as POST /entities/search takes
+      it, without paging. It runs as whoever reads the collection.
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        project: { type: string, format: uuid }
+        type: { type: string }
+        exact_type: { type: boolean }
+        archived: { type: [boolean, "null"] }
+        q: { type: string, maxLength: 200 }
+        where: { type: object }
+        sort: { type: string }
+        descending: { type: boolean }
+display: { title: "{{ name }}" }

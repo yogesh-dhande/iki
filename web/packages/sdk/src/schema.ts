@@ -44,8 +44,9 @@ export interface paths {
         /**
          * Search entities
          * @description Entities you can read that match every filter given: a type (with its subtypes), a
-         *     project, archived or not, text in their HRID or title (``q``), and ``where``, conditions
-         *     on the type's fields. Sorted by ``sort`` (then by ID), oldest first without one.
+         *     project, archived or not, text in their HRID or title (``q``), membership of a
+         *     ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``
+         *     (then by ID), oldest first without one.
          *
          *     Each kind of field takes its own operators, and every field takes ``is_set``:
          *
@@ -1428,6 +1429,11 @@ export interface components {
             /** Archived */
             archived?: boolean | null;
             /**
+             * Collection
+             * @description Members of this collection (its ID or HRID): those it lists, or those its search finds, as you can see them.
+             */
+            collection?: string | null;
+            /**
              * Cursor
              * @description From the previous page's next_cursor.
              */
@@ -2622,6 +2628,11 @@ export interface components {
             /** Archived */
             archived?: boolean | null;
             /**
+             * Collection
+             * @description Members of this collection (its ID or HRID): those it lists, or those its search finds, as you can see them.
+             */
+            collection?: string | null;
+            /**
              * Cursor
              * @description From the previous page's next_cursor.
              */
@@ -3166,6 +3177,8 @@ export interface operations {
                 archived?: boolean | null;
                 /** @description Entities whose HRID, or a text field in their title, contains this. */
                 q?: string | null;
+                /** @description Members of this collection (its ID or HRID): those it lists, or those its search finds, as you can see them. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;

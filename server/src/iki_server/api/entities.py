@@ -211,6 +211,12 @@ class EntityFilters(PageParams):
         max_length=200,
         description="Entities whose HRID, or a text field in their title, contains this.",
     )
+    collection: str | None = Field(
+        None,
+        max_length=100,
+        description="Members of this collection (its ID or HRID): those it lists, or those its "
+        "search finds, as you can see them.",
+    )
 
 
 OPERATOR = Literal[
@@ -255,6 +261,12 @@ class SearchIn(Schema):
     archived: bool | None = None
     q: str | None = Field(
         None, max_length=200, description="Text in their HRID, or a text field in their title."
+    )
+    collection: str | None = Field(
+        None,
+        max_length=100,
+        description="Members of this collection (its ID or HRID): those it lists, or those its "
+        "search finds, as you can see them.",
     )
     where: Condition | None = None
     sort: SortIn | None = None
@@ -497,6 +509,7 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
         project=filters.project,
         archived=filters.archived,
         q=filters.q,
+        collection=filters.collection,
     )
     with _searching(parameters=True):
         result = page(search.queryset(me, wanted), filters)
@@ -507,8 +520,9 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
 @router.post("/entities/search", response=Page[EntityOut], summary="Search entities")
 def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
     """Entities you can read that match every filter given: a type (with its subtypes), a
-    project, archived or not, text in their HRID or title (``q``), and ``where``, conditions
-    on the type's fields. Sorted by ``sort`` (then by ID), oldest first without one.
+    project, archived or not, text in their HRID or title (``q``), membership of a
+    ``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``
+    (then by ID), oldest first without one.
 
     Each kind of field takes its own operators, and every field takes ``is_set``:
 
@@ -532,6 +546,7 @@ def search_entities(request: HttpRequest, payload: SearchIn) -> dict[str, Any]:
         project=payload.project,
         archived=payload.archived,
         q=payload.q,
+        collection=payload.collection,
         where=payload.where.model_dump(by_alias=True, exclude_unset=True)
         if payload.where
         else None,

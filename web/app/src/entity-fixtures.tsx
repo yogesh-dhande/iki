@@ -107,6 +107,31 @@ export const STRUCTURE: Schemas["EntityTypeOut"] = {
   ],
 };
 
+export const COLLECTION_TYPE: Schemas["EntityTypeOut"] = {
+  ...PROTEIN,
+  name: "core.Collection",
+  plugin: "core",
+  label: "Collection",
+  label_plural: "Collections",
+  description: "A named set of entities, listed one by one or found by a search.",
+  hrid_prefix: "COL",
+  identity: [],
+  on_duplicate: null,
+  fields: [
+    field({ name: "name", label: "Name", type: "string", required: true, plugin: "core" }),
+    field({ name: "description", label: "Description", type: "text", plugin: "core" }),
+    field({
+      name: "members",
+      label: "Members",
+      type: "list",
+      items: "ref",
+      to: "core.Entity",
+      plugin: "core",
+    }),
+    field({ name: "search", label: "Search", type: "json", plugin: "core" }),
+  ],
+};
+
 export const KINASE = project();
 export const ALICE = {
   id: ME.id,
@@ -160,5 +185,5 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
 
 export function withTypes(): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+  answer("GET /api/v1/entity-types", [COLLECTION_TYPE, PROTEIN, STRUCTURE]);
 }

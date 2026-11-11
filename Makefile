@@ -50,6 +50,11 @@ check-python: ## Ruff, mypy (strict) and pytest
 	uv run mypy
 	uv run pytest
 
+.PHONY: core
+core: ## Regenerate the core plugin's app in the server, and make its migrations
+	uv run python scripts/build_core.py
+	cd server && uv run python -m iki_server.plugins.makemigrations core
+
 .PHONY: client
 client: ## Regenerate the TypeScript API client from the server's OpenAPI document
 	scripts/openapi.sh > web/packages/sdk/openapi.json

@@ -42,7 +42,7 @@ from django.db.models.functions import Now
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import current_via
-from iki_server.entities import access, identity, registry
+from iki_server.entities import access, identity, registry, rules
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Part, Refs, Shape, read_value, shape, to_db
 from iki_server.entities.values import is_list_table as _is_list
@@ -139,6 +139,8 @@ def create(
             given[name] = to_db(f, f.default, refs)
         if f.required and given.get(name) is None and name not in errors:
             errors[name] = ["is required."]
+    if not errors:
+        errors = rules.check(user, entity_type, given.get)
     if errors:
         raise Invalid(errors)
 
@@ -248,6 +250,15 @@ def update(
                 errors[name] = ["is required."]
             else:
                 new[name] = converted
+        if not errors and new:
+            errors = rules.check(
+                user,
+                form.entity_type,
+                lambda n: (
+                    new[n] if n in new else _current(form.part_of(n), fields[n], instance, rows)
+                ),
+                changed=new,
+            )
         if errors:
             raise Invalid(errors)
         if not new:

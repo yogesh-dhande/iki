@@ -65,7 +65,7 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
         {
             t.extends.split(".")[0]
             for t in plugin.types.values()
-            if t.extends and t.extends.split(".")[0] not in (plugin.name, "core")
+            if t.extends and t.extends != "core.Entity" and t.extends.split(".")[0] != plugin.name
         }
     )
     if imports:
@@ -78,7 +78,10 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
 
 
 def _in_order(plugin: Plugin) -> list[EntityType]:
-    """Parents before subtypes (Python needs the class first), else by name."""
+    """Parents before subtypes (Python needs the class first), else by name.
+
+    ``core.Entity`` is the server's own model (``iki_server.entities``), not a generated one.
+    """
     done: dict[str, EntityType] = {}
 
     def visit(t: EntityType) -> None:
@@ -89,7 +92,8 @@ def _in_order(plugin: Plugin) -> list[EntityType]:
         done[t.qualified_name] = t
 
     for name in sorted(plugin.types):
-        visit(plugin.types[name])
+        if name != "core.Entity":
+            visit(plugin.types[name])
     return list(done.values())
 
 

@@ -48,7 +48,9 @@ console.
   in words, typed into the same inputs as forms, and kept in the page's
   address so a filtered, sorted grid can be bookmarked and shared.
   `src/pages/saved-searches.tsx` keeps a grid's search under a name, for
-  oneself or shared with the project.
+  oneself or shared with the project. `src/pages/collections.tsx` saves it
+  as a collection (ADR 0038), an entity of its own, and shows a collection's
+  members in the grid.
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
   addresses. Pages other than the frame, home and a project's overview load
   when they're first opened (`lazyRouteComponent`), so the first page stays

@@ -1,0 +1,229 @@
+{
+  "apiVersion": "iki/v1",
+  "plugin": {
+    "dependencies": {},
+    "description": "The types every Iki deployment has.",
+    "extensions": [],
+    "homepage": "https://ikisci.org",
+    "license": "Apache-2.0",
+    "name": "core",
+    "settings": {},
+    "title": "Core",
+    "types": {
+      "core.Collection": {
+        "abstract": false,
+        "description": "A named set of entities, listed one by one or found by a search.",
+        "display_title": "{{ name }}",
+        "extends": null,
+        "fields": {
+          "description": {
+            "computed": false,
+            "default": null,
+            "description": null,
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": false,
+            "items": null,
+            "label": "Description",
+            "max": null,
+            "max_items": null,
+            "max_length": 10000,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "description",
+            "pattern": null,
+            "removed": false,
+            "required": false,
+            "schema": null,
+            "to": null,
+            "type": "text",
+            "unit": null,
+            "values": []
+          },
+          "members": {
+            "computed": false,
+            "default": null,
+            "description": "The entities in a static collection, in order.",
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": false,
+            "items": {
+              "computed": false,
+              "default": null,
+              "description": null,
+              "display_unit": null,
+              "format": null,
+              "has_default": false,
+              "immutable": false,
+              "indexed": false,
+              "items": null,
+              "label": "Members",
+              "max": null,
+              "max_items": null,
+              "max_length": null,
+              "max_size": null,
+              "media_types": [],
+              "min": null,
+              "min_items": null,
+              "min_length": null,
+              "name": "members",
+              "pattern": null,
+              "removed": false,
+              "required": false,
+              "schema": null,
+              "to": "core.Entity",
+              "type": "ref",
+              "unit": null,
+              "values": []
+            },
+            "label": "Members",
+            "max": null,
+            "max_items": 10000,
+            "max_length": null,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "members",
+            "pattern": null,
+            "removed": false,
+            "required": false,
+            "schema": null,
+            "to": null,
+            "type": "list",
+            "unit": null,
+            "values": []
+          },
+          "name": {
+            "computed": false,
+            "default": null,
+            "description": null,
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": true,
+            "items": null,
+            "label": "Name",
+            "max": null,
+            "max_items": null,
+            "max_length": 200,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "name",
+            "pattern": null,
+            "removed": false,
+            "required": true,
+            "schema": null,
+            "to": null,
+            "type": "string",
+            "unit": null,
+            "values": []
+          },
+          "search": {
+            "computed": false,
+            "default": null,
+            "description": "What a dynamic collection holds: a search, as POST /entities/search takes it, without paging. It runs as whoever reads the collection.",
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": false,
+            "items": null,
+            "label": "Search",
+            "max": null,
+            "max_items": null,
+            "max_length": null,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "search",
+            "pattern": null,
+            "removed": false,
+            "required": false,
+            "schema": {
+              "additionalProperties": false,
+              "properties": {
+                "archived": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "descending": {
+                  "type": "boolean"
+                },
+                "exact_type": {
+                  "type": "boolean"
+                },
+                "project": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "q": {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                "sort": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "where": {
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "to": null,
+            "type": "json",
+            "unit": null,
+            "values": []
+          }
+        },
+        "file": "types/collection.yaml",
+        "hrid_digits": 6,
+        "hrid_prefix": "COL",
+        "identity": [],
+        "label": "Collection",
+        "label_plural": "Collections",
+        "name": "Collection",
+        "on_duplicate": null,
+        "plugin": "core",
+        "schema_version": 1
+      },
+      "core.Entity": {
+        "abstract": true,
+        "description": "Any entity, of any type.",
+        "display_title": null,
+        "extends": null,
+        "fields": {},
+        "file": "types/entity.yaml",
+        "hrid_digits": 6,
+        "hrid_prefix": null,
+        "identity": [],
+        "label": "Entity",
+        "label_plural": "Entities",
+        "name": "Entity",
+        "on_duplicate": null,
+        "plugin": "core",
+        "schema_version": 1
+      }
+    },
+    "version": "0.1.0"
+  }
+}

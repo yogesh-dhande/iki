@@ -230,14 +230,22 @@ aren't secret, so names that look like secrets (`api_key`, `password`,
 A plugin lists the plugins whose types it uses, with the schema versions it
 works with. To check those references, pass the dependencies' directories
 with `--with`. Without them, the validator says it can't check them rather
-than guessing. `core.Entity` needs no dependency.
+than guessing. Core types (`core.Entity`, `core.Collection`) need no dependency.
 
 ## The core plugin
 
 Every deployment has the core plugin, released with Iki. Its manifests are
-in [`iki_spec/core`](src/iki_spec/core). Other plugins use its types, such as
-`core.Entity`, without declaring a dependency, and no other plugin can be
-named `core`.
+in [`iki_spec/core`](src/iki_spec/core). Other plugins use its types without
+declaring a dependency, and no other plugin can be named `core`:
+
+- `core.Entity`: any entity. It's the server's own model, so it isn't generated.
+- `core.Collection`: a named set of entities. A static collection lists its
+  `members`; a dynamic one has a `search`, run as whoever reads it
+  ([ADR 0038](../docs/adr/0038-core-plugin-app-and-collections.md)).
+
+The server ships the core plugin's app, generated like any plugin's. After
+changing these manifests, run `make core` to regenerate it and make its
+migrations.
 
 ## A deployment's lockfile
 

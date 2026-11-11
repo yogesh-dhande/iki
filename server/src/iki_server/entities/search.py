@@ -21,6 +21,9 @@ Each kind of field takes the operators that make sense for it, and values
 as it stores them: a quantity in any unit of its kind, a reference by ID or
 HRID. Mistakes are reported with a JSON pointer to the condition.
 
+A search can be limited to the members of a collection (``core.Collection``):
+those it lists, or those its own search finds, run as the same caller.
+
 Results come in pages, sorted by one field, then by ID. Pages are keyset
 pages, so they stay fast and stable however deep they go. Searches run with
 a time limit, so one search can't hold the database for long.
@@ -34,7 +37,7 @@ import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from django.contrib.postgres.search import SearchQuery, SearchVector, SearchVectorExact
 from django.core import signing
@@ -131,6 +134,51 @@ class Search:
     where: Mapping[str, Any] | None = None
     sort: str | None = None
     descending: bool = False
+    #: Only members of this collection: its ID or HRID.
+    collection: str | None = None
+
+
+#: What a dynamic collection keeps as its ``search``: a search without paging,
+#: or a collection of its own (collections don't nest).
+STORED_KEYS = ("project", "type", "exact_type", "archived", "q", "where", "sort", "descending")
+
+
+def stored(data: Mapping[str, Any]) -> Search:
+    """The search a dynamic collection keeps, as JSON. Raises :class:`SearchError`."""
+    unknown = sorted(set(data) - set(STORED_KEYS))
+    if unknown:
+        raise SearchError([(f"#/{k}", "isn't part of a search.") for k in unknown])
+    values = dict(data)
+    if values.get("project") is not None:
+        try:
+            values["project"] = uuid.UUID(str(values["project"]))
+        except ValueError:
+            raise SearchError([("#/project", "must be a project's ID.")]) from None
+    return Search(**values)
+
+
+def _in_collection(user: Any, reference: str) -> Q:  # noqa: ANN401 - User
+    """Entities in the collection, as ``user`` may see them. Raises :class:`SearchError`."""
+    model = cast("type[Entity]", registry.model("core.Collection"))
+    try:
+        lookup = Q(pk=uuid.UUID(reference))
+    except ValueError:
+        lookup = Q(hrid=reference)
+    collection = access.visible_of(user, model).filter(lookup).first()
+    if collection is None:
+        raise SearchError([("#/collection", "No such collection, or you can’t see it.")])
+    data = collection.search  # type: ignore[attr-defined]
+    if data is None:
+        items = shape("core.Collection").part_of("members").list_model("members")
+        return Q(pk__in=items._default_manager.filter(entity_id=collection.pk).values("item_id"))
+    try:
+        inner = queryset(user, stored(data))
+    except SearchError as error:
+        details = " ".join(d for _, d in error.errors)
+        raise SearchError(
+            [("#/collection", f"{collection.hrid}'s search no longer works: {details}")]
+        ) from error
+    return Q(pk__in=inner.values("pk"))
 
 
 class _Compiler:
@@ -450,6 +498,8 @@ def queryset(user: Any, search: Search) -> QuerySet[Entity]:  # noqa: ANN401 - U
         found = found.filter(links__project_id=search.project)
     if search.archived is not None:
         found = found.filter(archived_at__isnull=not search.archived)
+    if search.collection is not None:
+        found = found.filter(_in_collection(user, search.collection))
     if search.q and search.q.strip():
         names = (
             ({search.type} if search.exact_type else subtypes(search.type))

@@ -12,12 +12,14 @@ def test_the_core_plugin_is_valid_and_strict() -> None:
 
 
 def test_its_types_are_the_builtin_ones() -> None:
-    assert list(BUILTIN_TYPES) == ["core.Entity"]
+    assert sorted(BUILTIN_TYPES) == ["core.Collection", "core.Entity"]
     entity = BUILTIN_TYPES["core.Entity"]
     assert entity.abstract
     assert entity.fields == {}
-    assert "core.Entity" in BUILTIN_TYPES
-    assert len(BUILTIN_TYPES) == 1
+    collection = BUILTIN_TYPES["core.Collection"]
+    assert not collection.abstract
+    assert set(collection.fields) == {"name", "description", "members", "search"}
+    assert collection.hrid_prefix == "COL"
 
 
 def test_its_version_is_ikis() -> None:
@@ -29,3 +31,4 @@ def test_its_version_is_ikis() -> None:
 def test_the_package_ships_its_manifests() -> None:
     assert (CORE_DIRECTORY / "plugin.yaml").is_file()
     assert (CORE_DIRECTORY / "types" / "entity.yaml").is_file()
+    assert (CORE_DIRECTORY / "types" / "collection.yaml").is_file()

@@ -1176,6 +1176,24 @@ input[type="date"] {
 }
 
 /* Saved searches above a grid: links, each with what it is and a way to remove it. */
+/* The grid showing a collection's members (?collection=COL-000001). */
+.alert-info {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.collection-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+
+.collection-banner > p {
+  margin: 0;
+}
+
 .saved-searches {
   display: flex;
   flex-wrap: wrap;

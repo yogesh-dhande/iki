@@ -27,6 +27,7 @@ import { usePageTitle } from "../layout";
 import { buttonClass, Loading, ProblemAlert, RelativeTime, SelectField } from "../ui";
 import { FilterPanel, SearchBox, SortHeading, type Direction } from "./entity-filters";
 import { useProject } from "./project-overview";
+import { CollectionBanner, SaveAsCollection } from "./collections";
 import { SavedSearches } from "./saved-searches";
 
 const ROW_HEIGHT = 44;
@@ -118,6 +119,7 @@ export function ProjectEntities() {
       filters,
       sort,
       descending: sort ? search.desc : undefined,
+      collection: search.collection,
     }),
   );
   const applyFilters = (next: Filter[]) => {
@@ -189,6 +191,7 @@ export function ProjectEntities() {
                 type: value || undefined,
                 show: prev.show,
                 q: prev.q,
+                collection: prev.collection,
               }),
             });
           }}
@@ -233,6 +236,9 @@ export function ProjectEntities() {
             </Link>
           </p>
         ) : null}
+        {project.can.edit && !project.archived && !search.collection ? (
+          <SaveAsCollection project={project} search={search} />
+        ) : null}
         {project.can.edit && !project.archived ? (
           <Link
             to="/projects/$slug/entities/new/"
@@ -244,7 +250,11 @@ export function ProjectEntities() {
           </Link>
         ) : null}
       </div>
-      <SavedSearches project={project} search={search} />
+      {search.collection ? (
+        <CollectionBanner reference={search.collection} project={project} />
+      ) : (
+        <SavedSearches project={project} search={search} />
+      )}
       {filtersOpen ? (
         <FilterPanel
           key={type?.name ?? ""}
@@ -261,11 +271,13 @@ export function ProjectEntities() {
       {list.isPending ? <Loading label="Loading entities…" /> : null}
       {list.isSuccess && rows.length === 0 ? (
         <p className="empty">
-          {narrowed
-            ? `No ${type ? inSentence(type.label_plural) : "entities"} in this project match.`
-            : type
-              ? `No ${inSentence(type.label_plural)} in this project${show === "current" ? "" : " match"}.`
-              : "No entities in this project yet."}
+          {search.collection
+            ? `No members you can read${narrowed || type ? " match" : ""}.`
+            : narrowed
+              ? `No ${type ? inSentence(type.label_plural) : "entities"} in this project match.`
+              : type
+                ? `No ${inSentence(type.label_plural)} in this project${show === "current" ? "" : " match"}.`
+                : "No entities in this project yet."}
         </p>
       ) : null}
       {rows.length ? (

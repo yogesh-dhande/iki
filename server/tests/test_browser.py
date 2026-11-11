@@ -391,6 +391,42 @@ def test_saving_and_sharing_a_search(open_as: Any, world: World) -> None:
     assert_clean(other)
 
 
+def test_saving_a_search_as_a_collection(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+
+    for name, sequence in (("ABL1", "MKVL"), ("ABL2", "MKVI"), ("SRC", "MSTL")):
+        entities.create(
+            world.users["admin"],
+            "protein.Protein",
+            world.project,
+            {"sequence": sequence, "name": name},
+        )
+    page = open_as("editor", "/projects/kinase-atlas/entities/?type=protein.Protein&q=abl")
+    page.get_by_role("table", name="2 proteins match").wait_for()
+    page.get_by_role("button", name="Save as collection").click()
+    dialog = page.get_by_role("alertdialog", name="Save as a collection")
+    dialog.get_by_label("Name").fill("ABL kinases")
+    assert_clean(page)
+    dialog.get_by_role("button", name="Save collection").click()
+    page.get_by_text(re.compile(r"Saved the collection COL-\d+\.")).wait_for()
+    # By its heading: in Firefox, asking for a region by name before axe runs crashes the page.
+    members = page.locator("section", has=page.get_by_role("heading", name="Members"))
+    members.get_by_text("Everything this search finds").wait_for()
+    assert_clean(page)
+
+    # New matches join it, for everyone who can read it.
+    entities.create(
+        world.users["admin"],
+        "protein.Protein",
+        world.project,
+        {"sequence": "MKVA", "name": "ABL3"},
+    )
+    members.get_by_role("link", name="Show its members").click()
+    page.get_by_role("table", name="3 proteins").wait_for()
+    page.get_by_text(re.compile("Members of ABL kinases")).wait_for()
+    assert_clean(page)
+
+
 def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity

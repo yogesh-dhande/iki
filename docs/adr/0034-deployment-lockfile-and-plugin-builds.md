@@ -27,7 +27,8 @@ to the lockfile is reviewing what changes in production. `state` is
 **The core plugin isn't listed.** Its manifests ship inside `iki-spec`
 (`iki_spec/core`), are written and checked like any plugin's, and are
 released at Iki's version. Other plugins use its types without declaring a
-dependency. It holds `core.Entity` now; `core.View` and `core.App` follow.
+dependency. It holds `core.Entity` and `core.Collection` (ADR 0038); `core.View` and
+`core.App` follow.
 Since it can't be released apart from Iki, it isn't one of the first-party
 plugins under `plugins/`.
 

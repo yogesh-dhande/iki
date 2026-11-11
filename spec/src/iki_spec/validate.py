@@ -576,7 +576,8 @@ class _Semantics:
                 continue
             other = self.others.get(dependency)
             if other is None or other.plugin is None:
-                if dependency == "core" and set(constraints) <= {"Entity"}:
+                core_names = {t.name for t in BUILTIN_TYPES.values()}
+                if dependency == "core" and set(constraints) <= core_names:
                     continue
                 self.unavailable.add(dependency)
                 self.add(
@@ -671,7 +672,9 @@ class _Semantics:
         if plugin == "core" and "core" not in self.others:
             self.add(
                 "unknown-type",
-                f"`{ref}` isn't a core type. In this version, core provides `core.Entity`.",
+                f"`{ref}` isn't a core type. In this version, core provides "
+                + ", ".join(f"`{t}`" for t in sorted(BUILTIN_TYPES))
+                + ".",
                 source,
                 path,
             )

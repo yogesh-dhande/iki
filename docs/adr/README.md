@@ -67,3 +67,4 @@ supersedes the old one, and update the old one's status.
 | [0035](0035-entity-revisions-provenance-and-edit-rules.md)       | Every change is an append-only revision; edits name their revision; duplicates are reused       | Accepted |
 | [0036](0036-files-content-addressed-uploads.md)                  | Files upload straight to object storage, are checked against their SHA-256, and are stored once | Accepted |
 | [0037](0037-entity-search.md)                                    | Entity search: typed JSON conditions, compiled to indexed SQL                                   | Accepted |
+| [0038](0038-core-plugin-app-and-collections.md)                  | The core plugin ships as an app in the server, starting with collections                        | Accepted |

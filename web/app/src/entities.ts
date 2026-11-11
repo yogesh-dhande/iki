@@ -55,6 +55,8 @@ export interface EntityFilter {
   filters?: Filter[] | undefined;
   sort?: string | undefined;
   descending?: boolean | undefined;
+  /** Only a collection's members (its HRID), from every project the reader can read. */
+  collection?: string | undefined;
 }
 
 /** A page at a time, in the order asked for; the grid asks for more as it scrolls. */
@@ -68,7 +70,11 @@ export function entitiesQuery(filter: EntityFilter) {
           body: {
             limit: 100,
             exact_type: false,
-            ...(filter.project ? { project: filter.project } : {}),
+            ...(filter.collection
+              ? { collection: filter.collection }
+              : filter.project
+                ? { project: filter.project }
+                : {}),
             ...(filter.type ? { type: filter.type } : {}),
             ...(filter.archived === undefined ? {} : { archived: filter.archived }),
             ...(filter.q?.trim() ? { q: filter.q.trim() } : {}),
@@ -209,6 +215,8 @@ export interface EntitySearch {
   filters?: Filter[] | undefined;
   sort?: string | undefined;
   desc?: boolean | undefined;
+  /** A collection's members, by its HRID. */
+  collection?: string | undefined;
 }
 
 export function validateEntitySearch(search: Record<string, unknown>): EntitySearch {
@@ -220,6 +228,9 @@ export function validateEntitySearch(search: Record<string, unknown>): EntitySea
   if (filters) out.filters = filters;
   if (typeof search["sort"] === "string" && search["sort"]) out.sort = search["sort"];
   if (search["desc"] === true) out.desc = true;
+  if (typeof search["collection"] === "string" && search["collection"]) {
+    out.collection = search["collection"].slice(0, 100);
+  }
   return out;
 }
 

@@ -32,6 +32,7 @@ import {
   type Revision,
 } from "../entities";
 import { usePageTitle } from "../layout";
+import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
 import {
   Badge,
   Button,
@@ -302,11 +303,13 @@ function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undef
 }
 
 export function EntityOverview() {
-  const { entity, type } = useEntity();
+  const { entity, type, types } = useEntity();
   usePageTitle(`${entity.title} (${entity.hrid})`);
   const provenance = useQuery(provenanceQuery(entity.hrid)).data;
   const projects = useQuery(entityProjectsQuery(entity.hrid)).data;
-  const fields = type?.fields ?? [];
+  const collection = isCollection(type, types);
+  // A collection's members and search have a section of their own.
+  const fields = (type?.fields ?? []).filter((f) => !collection || !COLLECTION_FIELDS.has(f.name));
   const set = fields.filter((f) => entity.values[f.name] != null);
   const unset = fields.filter((f) => entity.values[f.name] == null);
   return (
@@ -348,6 +351,7 @@ export function EntityOverview() {
           <p className="muted">Not set: {unset.map((f) => f.label).join(", ")}.</p>
         ) : null}
       </section>
+      {collection ? <CollectionMembers entity={entity} types={types} /> : null}
       <section className="card" aria-labelledby="details-title">
         <h2 className="section-title" id="details-title">
           Details
