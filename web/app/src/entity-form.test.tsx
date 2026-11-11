@@ -5,10 +5,20 @@
 
 import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { entity, field, KINASE, PROTEIN, PROTEIN_ID, renderApp } from "./entity-fixtures";
+import {
+  entity,
+  field,
+  KINASE,
+  PROTEIN,
+  PROTEIN_ID,
+  renderApp,
+  STRUCTURE,
+} from "./entity-fixtures";
 import { answer, calls, page, problem, respond, signedIn } from "./test-server";
+import { timing } from "./uploads";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000a001";
 
@@ -337,5 +347,156 @@ describe("archiving and restoring", () => {
     expect(sent?.headers.get("If-Match")).toBe('"2"');
     expect(screen.getByRole("button", { name: "Restore" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+  });
+});
+
+describe("file fields", () => {
+  const UPLOAD = "00000000-0000-7000-8000-0000000b0002";
+  const MADE = "00000000-0000-7000-8000-0000000f0002";
+
+  /** Storage accepts every part. */
+  class Storage {
+    static sent = 0;
+    upload = { onprogress: null as ((event: { loaded: number }) => void) | null };
+    onload: (() => void) | null = null;
+    onloadend: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    status = 200;
+    open(): void {
+      /* the signed URL */
+    }
+    abort(): void {
+      /* nothing in flight */
+    }
+    send(body: Blob): void {
+      Storage.sent += body.size;
+      setTimeout(() => {
+        this.upload.onprogress?.({ loaded: body.size });
+        this.onload?.();
+        this.onloadend?.();
+      }, 0);
+    }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uploads a file from this computer, and creates the entity with it", async () => {
+    vi.stubGlobal("XMLHttpRequest", Storage);
+    Object.assign(timing, { retry: 1, poll: 1, maxPoll: 1 });
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities", page([]));
+    answer("GET /api/v1/files", page([]));
+    const upload = {
+      id: UPLOAD,
+      project: KINASE.id,
+      name: "1abc.pdb",
+      media_type: "chemical/x-pdb",
+      size: 12,
+      sha256: "x".repeat(64),
+      part_size: 64,
+      part_count: 1,
+      error: "",
+      created_at: "2026-03-14T09:00:00Z",
+      expires_at: "2026-03-15T09:00:00Z",
+    };
+    const made = {
+      id: MADE,
+      name: "1abc.pdb",
+      media_type: "chemical/x-pdb",
+      size: 12,
+      sha256: "x".repeat(64),
+      project: null,
+      created_by: null,
+      created_at: "2026-03-14T09:00:00Z",
+      external: false,
+    };
+    answer(
+      "POST /api/v1/uploads",
+      respond(201, {
+        ...upload,
+        state: "pending",
+        file: null,
+        parts: [{ number: 1, size: 12, url: "https://storage.example/1" }],
+      }),
+    );
+    answer(
+      "POST /api/v1/uploads/" + UPLOAD + "/complete",
+      respond(202, { ...upload, state: "checking", file: null }),
+    );
+    answer("GET /api/v1/uploads/" + UPLOAD, { ...upload, state: "ready", file: made });
+    answer(
+      "POST /api/v1/entities",
+      respond(201, {
+        ...entity({ hrid: "PST-000001", type: "protein.ProteinStructure", values: {} }),
+        reused: false,
+        linked: false,
+      }),
+    );
+    answer(
+      "GET /api/v1/entities/PST-000001",
+      entity({ hrid: "PST-000001", type: "protein.ProteinStructure", values: {} }),
+    );
+    answer("GET /api/v1/entities/PST-000001/provenance", {});
+    answer("GET /api/v1/entities/PST-000001/projects", []);
+    const { user } = await renderApp(
+      "/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure",
+    );
+    const structure = screen.getByRole("group", { name: "Structure" });
+    await user.upload(
+      within(structure).getByLabelText("Upload a file"),
+      // As browsers give it: they don't know the type.
+      new File(["ATOM 1 N ALA"], "1abc.pdb"),
+    );
+    await waitFor(() => {
+      expect(
+        within(structure).getByRole("combobox", { name: /already in the project/ }),
+      ).toHaveValue(MADE);
+    });
+    expect(Storage.sent).toBe(12);
+    expect(calls("POST", "/api/v1/uploads")[0]?.body).toMatchObject({
+      name: "1abc.pdb",
+      media_type: "chemical/x-pdb",
+    });
+    await user.click(screen.getByRole("button", { name: "Create protein structure" }));
+    await screen.findByText("Created PST-000001.");
+    expect(calls("POST", "/api/v1/entities")[0]?.body).toMatchObject({
+      values: { structure: MADE },
+    });
+  });
+
+  it("refuses a file its field doesn't take, before uploading it", async () => {
+    signedIn();
+    const strict: typeof STRUCTURE = {
+      ...STRUCTURE,
+      values_schema: {
+        properties: {
+          structure: {
+            type: "string",
+            "x-iki-media-types": ["chemical/x-pdb"],
+            "x-iki-max-size": 1024,
+          },
+        },
+      },
+    };
+    answer("GET /api/v1/entity-types", [PROTEIN, strict]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities", page([]));
+    answer("GET /api/v1/files", page([]));
+    await renderApp("/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure");
+    // As if the browser's file chooser let it through: some do, for "All files".
+    const user = userEvent.setup({ applyAccept: false });
+    const structure = screen.getByRole("group", { name: "Structure" });
+    expect(structure).toHaveAccessibleDescription("It takes chemical/x-pdb files, up to 1.0 KiB.");
+    const input = within(structure).getByLabelText("Upload a file");
+    expect(input).toHaveAttribute("accept", "chemical/x-pdb,.pdb,.ent");
+    await user.upload(input, new File(["x"], "notes.txt", { type: "text/plain" }));
+    expect(
+      await within(structure).findByText("notes.txt is text/plain: choose chemical/x-pdb."),
+    ).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/uploads")).toEqual([]);
   });
 });

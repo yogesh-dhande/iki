@@ -3,12 +3,15 @@
 The policy (``SECURE_CSP`` in settings) allows nothing by default and only
 same-origin scripts, styles, images and connections, with no inline code.
 
-One directive depends on configuration: ``form-action``. Sign-in forms post
-to Iki, which answers with a redirect to the identity provider, and browsers
-apply ``form-action`` to that redirect too. So HTML responses also allow the
-enabled provider's authorization origin, plus the one being set up when the
-session holds a setup grant, and on the OAuth consent page the client's
-redirect origin.
+Two directives depend on configuration:
+
+- ``form-action``. Sign-in forms post to Iki, which answers with a redirect
+  to the identity provider, and browsers apply ``form-action`` to that
+  redirect too. So HTML responses also allow the enabled provider's
+  authorization origin, plus the one being set up when the session holds a
+  setup grant, and on the OAuth consent page the client's redirect origin.
+- ``connect-src``. Browsers upload files' parts straight to object storage,
+  so pages also allow the one origin part URLs are signed for.
 """
 
 import time
@@ -57,9 +60,15 @@ class ContentSecurityPolicyMiddleware(DjangoCSPMiddleware):
     def process_response(self, request: HttpRequest, response: HttpResponse) -> HttpResponse:
         is_html = response.get("Content-Type", "").startswith("text/html")
         if is_html and not hasattr(response, "_csp_config"):
+            from iki_server.files import storage
+
             origins = form_action_origins(request)
-            if origins:
+            uploads = storage.upload_origin()
+            if origins or uploads:
                 config = dict(settings.SECURE_CSP)
-                config["form-action"] = [CSP.SELF, *origins]
+                if origins:
+                    config["form-action"] = [CSP.SELF, *origins]
+                if uploads:
+                    config["connect-src"] = [CSP.SELF, uploads]
                 response._csp_config = config  # type: ignore[attr-defined]
         return super().process_response(request, response)

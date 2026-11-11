@@ -83,6 +83,8 @@ def manage(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
 class Server:
     url: str
     process: "subprocess.Popen[str]"
+    #: The environment it runs with.
+    env: dict[str, str] = field(default_factory=dict)
     #: Everything the server printed, read as it goes so the pipe never fills.
     output: list[str] = field(default_factory=list)
 
@@ -96,14 +98,33 @@ def serve(env: dict[str, str]) -> Iterator[Server]:
     """Runs ``iki-server serve`` until the block ends, then stops it with SIGTERM
     and waits for it to exit."""
     url = f"http://127.0.0.1:{env['IKI_PORT']}"
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "iki_server.manage", "serve"],
+    with _running(["serve"], env, f"{url}/healthz/live", url) as server:
+        yield server
+
+
+@contextmanager
+def run_tasks(env: dict[str, str]) -> Iterator[Server]:
+    """Runs ``iki-server tasks`` beside a server, until the block ends."""
+    port = str(free_port())
+    with _running(
+        ["tasks", "--health-port", port, "--grace", "5"],
+        env,
+        f"http://127.0.0.1:{port}/healthz/live",
+        f"http://127.0.0.1:{port}",
+    ) as runner:
+        yield runner
+
+
+@contextmanager
+def _running(args: list[str], env: dict[str, str], health: str, url: str) -> Iterator[Server]:
+    proc = subprocess.Popen(  # noqa: S603 - fixed argv
+        [sys.executable, "-m", "iki_server.manage", *args],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
-    server = Server(url, proc)
+    server = Server(url, proc, env)
     stdout = proc.stdout
     assert stdout is not None
     reader = threading.Thread(target=lambda: server.output.extend(stdout), daemon=True)
@@ -112,11 +133,11 @@ def serve(env: dict[str, str]) -> Iterator[Server]:
         deadline = time.monotonic() + 30
         while True:
             try:
-                with urllib.request.urlopen(f"{url}/healthz/live", timeout=2):  # noqa: S310
+                with urllib.request.urlopen(health, timeout=2):  # noqa: S310 - our own
                     break
             except (urllib.error.URLError, ConnectionError):
                 if time.monotonic() > deadline or proc.poll() is not None:
-                    raise RuntimeError(f"server did not start\n{server.text}") from None
+                    raise RuntimeError(f"{args[0]} did not start\n{server.text}") from None
                 time.sleep(0.2)
         yield server
     finally:

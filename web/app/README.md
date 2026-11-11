@@ -38,6 +38,11 @@ console.
   per kind of field, built from each type's fields and its JSON Schema. The
   browser checks what it can (required, numbers, ranges, lengths, patterns)
   and sends JSON as the API takes it; the API checks everything again.
+- `src/uploads.ts`: uploading a file as the files API takes it (ADR 0036):
+  its SHA-256 a slice at a time on the page (the CSP allows no worker
+  scripts), then its parts straight to storage, retried and re-signed as
+  needed. `src/media.ts` names lab formats browsers don't know (`.pdb`,
+  `.cif`, `.fcs`) by extension.
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
   addresses. Pages other than the frame, home and a project's overview load
   when they're first opened (`lazyRouteComponent`), so the first page stays

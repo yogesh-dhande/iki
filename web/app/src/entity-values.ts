@@ -12,6 +12,8 @@ export interface Picked {
   id: string;
   hrid: string;
   title: string;
+  /** A file still uploading: the form waits for it. */
+  uploading?: boolean;
 }
 
 export interface QuantityDraft {
@@ -288,8 +290,11 @@ function encodeWith(field: FieldDef, draft: Draft, schema: PropertySchema): Enco
       return ok(date.toISOString());
     }
     case "ref":
-    case "file":
       return ok((draft as Picked).id);
+    case "file": {
+      const file = draft as Picked;
+      return file.uploading ? fail(`Wait for ${file.title} to finish uploading.`) : ok(file.id);
+    }
     case "json":
       try {
         return ok(JSON.parse(draft as string));

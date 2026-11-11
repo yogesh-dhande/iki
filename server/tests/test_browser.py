@@ -10,17 +10,19 @@ locally and fail in CI.
 
 import os
 import re
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import S3_ACCESS_KEY, S3_SECRET_KEY
 from django.conf import settings
 from django.test import Client
 from iki_test_plugins import ensure_built
 from org_world import World, build_world
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
-from real_server import Server, app_role, manage, serve, server_env
+from real_server import Server, app_role, manage, run_tasks, serve, server_env
 
 from iki_server.accounts.models import User
 from iki_server.notifications import kinds
@@ -82,7 +84,10 @@ def _orm_beside_playwright() -> Iterator[None]:
 
 @pytest.fixture(scope="module")
 def server(
-    django_db_setup: None, django_db_blocker: Any, tmp_path_factory: pytest.TempPathFactory
+    django_db_setup: None,
+    django_db_blocker: Any,
+    tmp_path_factory: pytest.TempPathFactory,
+    _s3_endpoint: str,
 ) -> Iterator[Server]:
     _require(frontend._manifest_path() is not None, "Build the web app first: make web")
     _require(AXE.is_file(), "Install the web dependencies first: pnpm install")
@@ -97,9 +102,17 @@ def server(
             tmp_path_factory.mktemp("static"),
             IKI_SECRET_KEY=settings.SECRET_KEY,
             PYTHONPATH=plugins,
+            # Browsers upload straight to this store, as they would to S3.
+            IKI_FILES_BUCKET="iki",
+            IKI_FILES_PREFIX=f"browser-{uuid.uuid4().hex}",
+            IKI_FILES_ENDPOINT_URL=_s3_endpoint,
+            AWS_ACCESS_KEY_ID=S3_ACCESS_KEY,
+            AWS_SECRET_ACCESS_KEY=S3_SECRET_KEY,
         )
-        collected = manage("collectstatic", "--noinput", env=env)
-        assert collected.returncode == 0, collected.stdout + collected.stderr
+        env["IKI_PUBLIC_URL"] = f"http://127.0.0.1:{env['IKI_PORT']}"
+        for command in (["collectstatic", "--noinput"], ["setup_storage"]):
+            done = manage(*command, env=env)
+            assert done.returncode == 0, done.stdout + done.stderr
         with serve(env) as running:
             yield running
 
@@ -340,6 +353,51 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     dialog.get_by_role("button", name="Archive").click()
     page.get_by_text(f"Archived {made.hrid}.").wait_for()
     assert Entity.objects.get(pk=made.pk).archived_at is not None
+
+
+@pytest.fixture
+def tasks(server: Server) -> Iterator[Server]:
+    """A task runner beside the server, for work done after the request (checking uploads)."""
+    with run_tasks(server.env) as runner:
+        yield runner
+
+
+def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: Server) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.files.models import File
+
+    protein = entities.create(
+        world.users["admin"], "protein.Protein", world.project, {"sequence": "MKVL", "name": "abl1"}
+    ).entity
+    page = open_as("admin", "/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure")
+    page.get_by_role("heading", level=2, name="New protein structure").wait_for()
+    structure = page.get_by_role("group", name="Structure")
+    # Big enough to go in several parts, and typeless, as browsers give .pdb files.
+    data = b"ATOM      1  N   ALA A   1\n" * 400_000
+    structure.get_by_label("Upload a file").set_input_files(
+        {"name": "1abc.pdb", "mimeType": "", "buffer": data}
+    )
+    existing = structure.get_by_role("combobox", name="Or one already in the project")
+    page.wait_for_function("(el) => el.value !== ''", arg=existing.element_handle(), timeout=60_000)
+    stored = File.objects.get(pk=existing.input_value())
+    assert (stored.name, stored.media_type, stored.size) == (
+        "1abc.pdb",
+        "chemical/x-pdb",
+        len(data),
+    )
+    assert_clean(page)
+
+    page.get_by_role("button", name="Add Chains").click()
+    page.get_by_role("combobox", name="Chains, item 1").fill("abl")
+    page.get_by_role("option", name=re.compile("abl1")).click()
+    page.get_by_role("button", name="Create protein structure").click()
+    page.wait_for_url(re.compile(r"/entities/PST-\d+/$"))
+    made = Entity.objects.get(type="protein.ProteinStructure")
+    values = entities.current_values_of([made])[made.pk]
+    assert values["structure"] == stored.pk and values["chains"] == [protein.pk]
+    page.get_by_role("link", name="1abc.pdb").wait_for()
+    assert_clean(page)
 
 
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:

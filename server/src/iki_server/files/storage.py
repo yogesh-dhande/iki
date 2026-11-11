@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 from functools import cache
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import boto3
 from botocore.config import Config
@@ -125,7 +125,7 @@ def signer_for(bucket_name: str) -> S3Client:
 
 def reset() -> None:
     """Forgets the clients, after settings change (tests)."""
-    for cached in (client, signer, region_of, _regional):
+    for cached in (client, signer, region_of, _regional, upload_origin):
         cached.cache_clear()
 
 
@@ -145,6 +145,22 @@ def part_count(size: int, part_size: int) -> int:
 
 def start_multipart(key: str) -> str:
     return client().create_multipart_upload(Bucket=bucket(), Key=key)["UploadId"]
+
+
+@cache
+def upload_origin() -> str | None:
+    """Where browsers send upload parts (the origin part URLs are signed for), for the CSP.
+
+    None until storage is configured."""
+    if not configured():
+        return None
+    url = signer().generate_presigned_url(
+        "upload_part",
+        Params={"Bucket": bucket(), "Key": "origin", "UploadId": "origin", "PartNumber": 1},
+        ExpiresIn=60,
+    )
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
 
 
 def part_url(key: str, multipart_id: str, number: int) -> str:

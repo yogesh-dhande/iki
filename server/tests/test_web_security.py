@@ -1,5 +1,7 @@
 """Security headers, CSP, cookies and CSRF on server-rendered pages."""
 
+from typing import Any
+
 import pytest
 from browser import Browser, complete_setup, sign_in
 from django.utils.csp import CSP
@@ -193,3 +195,33 @@ def test_local_account_pages_do_not_exist(client: Browser, path: str) -> None:
 )
 def test_allauth_and_admin_pages_are_not_mounted(client: Browser, path: str) -> None:
     assert client.get(path).status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("public_endpoint", "origin"),
+    [
+        ("", "https://lab-files.s3.eu-west-2.amazonaws.com"),
+        ("https://files.example.org:8443/", "https://files.example.org:8443"),
+    ],
+)
+def test_pages_may_upload_only_to_the_storage_origin(
+    client: Browser,
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    public_endpoint: str,
+    origin: str,
+) -> None:
+    from iki_server.files import storage
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
+    settings.IKI_FILES_BUCKET = "lab-files"
+    settings.IKI_FILES_REGION = "eu-west-2"
+    settings.IKI_FILES_ENDPOINT_URL = public_endpoint
+    settings.IKI_FILES_PUBLIC_ENDPOINT_URL = public_endpoint
+    storage.reset()
+    try:
+        csp = csp_directives(client.get("/setup/")[CSP.HEADER_ENFORCE])
+    finally:
+        storage.reset()
+    assert csp["connect-src"] == ["'self'", origin]

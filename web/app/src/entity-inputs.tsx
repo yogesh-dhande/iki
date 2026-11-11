@@ -7,9 +7,10 @@
  * searches as people type.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useDeferredValue,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -45,6 +46,7 @@ import {
   type QuantityDraft,
 } from "./entity-values";
 import { media } from "./media";
+import { upload, uploadError, type Progress } from "./uploads";
 import { Button } from "./ui";
 
 export interface InputProps {
@@ -558,7 +560,7 @@ function inSentenceLabel(label: string): string {
   return `${article} ${lowered}`;
 }
 
-/** A file already in the project. Uploading from the form is the other way to fill one. */
+/** A file: one uploaded from this computer, or one already in the project. */
 function FileInput({
   field,
   type,
@@ -574,8 +576,12 @@ function FileInput({
   const picked = draft as Picked | null;
   const schema = propertySchema(type, field.name);
   const files = useQuery(projectFilesQuery(projectId));
+  const client = useQueryClient();
   const allowed = schema["x-iki-media-types"] ?? [];
   const maxSize = schema["x-iki-max-size"];
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const transfer = useRef<AbortController | null>(null);
   const fits = (files.data ?? []).filter(
     (f) => media.allowed(f.media_type, allowed) && (maxSize == null || f.size <= maxSize),
   );
@@ -586,38 +592,156 @@ function FileInput({
     .filter(Boolean)
     .join(", ");
   const help = helpText(field, [note, rules ? `It takes ${rules}.` : ""].filter(Boolean).join(" "));
+  const shownError = problem ?? error;
+  const label = itemLabel ?? field.label;
+
+  async function send(file: File) {
+    setProblem(null);
+    if (allowed.length && !media.allowed(media.of(file), allowed)) {
+      setProblem(`${file.name} is ${media.of(file)}: choose ${media.either(allowed)}.`);
+      return;
+    }
+    if (maxSize != null && file.size > maxSize) {
+      setProblem(
+        `${file.name} is ${formatSize(file.size)}: choose one up to ${formatSize(maxSize)}.`,
+      );
+      return;
+    }
+    const controller = new AbortController();
+    transfer.current = controller;
+    onChange({ id: "", hrid: "", title: file.name, uploading: true });
+    try {
+      const made = await upload(file, projectId, setProgress, controller.signal);
+      onChange({ id: made.id, hrid: "", title: made.name });
+      void client.invalidateQueries({ queryKey: projectFilesQuery(projectId).queryKey });
+    } catch (failure) {
+      onChange(emptyDraft(field));
+      if (!controller.signal.aborted) setProblem(uploadError(failure));
+    } finally {
+      transfer.current = null;
+      setProgress(null);
+    }
+  }
+
+  // Leaving the form stops what's still sending.
+  useEffect(
+    () => () => {
+      transfer.current?.abort();
+    },
+    [],
+  );
+
   return (
-    <Shell
-      id={id}
-      label={itemLabel ?? field.label}
-      optional={!field.required}
-      error={error}
-      help={help}
-      hiddenLabel={itemLabel !== undefined}
+    <fieldset
+      className={shownError ? "field field-invalid" : "field"}
+      aria-describedby={describedBy(shownError && `${id}-error`, help && `${id}-help`)}
+      disabled={disabled}
     >
-      <select
-        id={id}
-        value={picked?.id ?? ""}
-        disabled={disabled}
-        aria-invalid={error ? "true" : undefined}
-        aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
-        aria-required={field.required || undefined}
-        onChange={(event) => {
-          const chosen = fits.find((f) => f.id === event.target.value);
-          onChange(chosen ? { id: chosen.id, hrid: "", title: chosen.name } : emptyDraft(field));
-        }}
-      >
-        <option value="">{files.isPending ? "Loading files…" : "No file"}</option>
-        {picked && !fits.some((f) => f.id === picked.id) ? (
-          <option value={picked.id}>{picked.title}</option>
-        ) : null}
-        {fits.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.name} ({formatSize(f.size)})
-          </option>
-        ))}
-      </select>
-    </Shell>
+      <legend className={itemLabel !== undefined ? "visually-hidden" : undefined}>
+        {label}
+        {field.required || itemLabel !== undefined ? null : (
+          <span className="optional"> (optional)</span>
+        )}
+      </legend>
+      {shownError ? (
+        <p className="field-error" id={`${id}-error`}>
+          {shownError}
+        </p>
+      ) : null}
+      {help ? (
+        <p className="field-help" id={`${id}-help`}>
+          {help}
+        </p>
+      ) : null}
+      {picked?.uploading && progress ? (
+        <div className="upload">
+          {/* Screen readers hear each step, not every percent. */}
+          <p className="visually-hidden" role="status">
+            {progress.phase === "hashing"
+              ? `Reading ${picked.title}`
+              : progress.phase === "sending"
+                ? `Uploading ${picked.title}`
+                : `Checking ${picked.title}`}
+          </p>
+          <p aria-hidden="true">
+            <UploadStatus name={picked.title} progress={progress} />
+          </p>
+          {progress.phase === "checking" ? (
+            <progress aria-label={`Checking ${picked.title}`} />
+          ) : (
+            <progress
+              aria-label={`${progress.phase === "hashing" ? "Reading" : "Uploading"} ${picked.title}`}
+              max={progress.total || 1}
+              value={progress.done}
+            />
+          )}
+          {progress.phase !== "checking" ? (
+            <Button
+              variant="quiet"
+              label={`Cancel uploading ${picked.title}`}
+              onClick={() => {
+                transfer.current?.abort();
+              }}
+            >
+              Cancel
+            </Button>
+          ) : null}
+        </div>
+      ) : (
+        <div className="file-choice">
+          <div className="field-sub">
+            <label htmlFor={`${id}-upload`}>Upload a file</label>
+            <input
+              id={`${id}-upload`}
+              type="file"
+              accept={media.accept(allowed)}
+              aria-invalid={shownError ? "true" : undefined}
+              aria-describedby={describedBy(shownError && `${id}-error`)}
+              onChange={(event) => {
+                const chosen = event.target.files?.[0];
+                event.target.value = "";
+                if (chosen) void send(chosen);
+              }}
+            />
+          </div>
+          <div className="field-sub">
+            <label htmlFor={`${id}-existing`}>Or one already in the project</label>
+            <select
+              id={`${id}-existing`}
+              value={picked && !picked.uploading ? picked.id : ""}
+              onChange={(event) => {
+                setProblem(null);
+                const chosen = fits.find((f) => f.id === event.target.value);
+                onChange(
+                  chosen ? { id: chosen.id, hrid: "", title: chosen.name } : emptyDraft(field),
+                );
+              }}
+            >
+              <option value="">{files.isPending ? "Loading files…" : "No file"}</option>
+              {picked && !picked.uploading && !fits.some((f) => f.id === picked.id) ? (
+                <option value={picked.id}>{picked.title}</option>
+              ) : null}
+              {fits.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name} ({formatSize(f.size)})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+function UploadStatus({ name, progress }: { name: string; progress: Progress }) {
+  if (progress.phase === "checking") return <>Iki is checking {name}’s bytes…</>;
+  const percent = progress.total ? Math.floor((progress.done / progress.total) * 100) : 100;
+  return (
+    <>
+      {progress.phase === "hashing" ? "Reading" : "Uploading"} {name}: {percent}% (
+      {formatSize(progress.done)} of {formatSize(progress.total)})
+    </>
   );
 }
 
