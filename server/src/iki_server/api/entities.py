@@ -907,6 +907,139 @@ def get_lineage(request: HttpRequest, ref: str) -> dict[str, Any]:
     }
 
 
+#: How many generations a lineage graph goes each way, at most.
+MAX_GENERATIONS = 10
+#: How big a lineage graph gets before it stops and says it's cut short.
+MAX_GRAPH_ENTITIES = 200
+MAX_GRAPH_LINKS = 500
+
+
+class LineageGraphParams(Schema):
+    up: int = Field(3, ge=0, le=MAX_GENERATIONS, description="How many generations back.")
+    down: int = Field(3, ge=0, le=MAX_GENERATIONS, description="How many generations on.")
+
+
+class LineageNodeOut(RefOut):
+    id: UUID
+
+
+class LineageRunOut(Schema):
+    key: str = Field(description="How links refer to it: its HRID, or a key for this response.")
+    run: RunRefOut | None = Field(description="The run, if you can read its project.")
+
+
+class LineageGraphLinkOut(Schema):
+    parent: UUID = Field(description="The entity it was made from.")
+    entity: UUID = Field(description="The entity the run made.")
+    run: str = Field(description="The run's key, in runs.")
+    input: str = Field(description="The run's input the parent was given as.")
+    revision: int = Field(description="The parent's revision the run read.")
+
+
+class LineageGraphOut(Schema):
+    root: UUID = Field(description="The entity it's the lineage of.")
+    entities: list[LineageNodeOut] = Field(description="The entities in it that you can read.")
+    runs: list[LineageRunOut]
+    links: list[LineageGraphLinkOut]
+    earlier: bool = Field(description="There are more generations back than were asked for.")
+    later: bool = Field(description="There are more generations on than were asked for.")
+    capped: bool = Field(
+        description=f"It stopped at {MAX_GRAPH_ENTITIES} entities or {MAX_GRAPH_LINKS} links, "
+        "so some within the generations asked for are left out."
+    )
+
+
+@router.get(
+    "/entities/{ref}/lineage/graph",
+    response=LineageGraphOut,
+    summary="Its ancestors and descendants",
+)
+def get_lineage_graph(
+    request: HttpRequest, ref: str, params: Query[LineageGraphParams]
+) -> dict[str, Any]:
+    """What it was made from, what that was made from and so on, ``up`` generations back;
+    and what was made from it, ``down`` generations on. Only entities you can read are in
+    it, and only runs whose project you can read are named."""
+    me = caller(request)
+    root = _find(me, ref)
+    readable = access.visible(me).values("pk")
+    seen: set[Any] = {root.pk}
+    rows: dict[int, Lineage] = {}
+    capped = False
+    more = {True: False, False: False}
+    for back, generations in ((True, params.up), (False, params.down)):
+        near, far = ("entity", "parent") if back else ("parent", "entity")
+        frontier: set[Any] = {root.pk}
+        for _ in range(generations):
+            room = MAX_GRAPH_LINKS - len(rows)
+            found = list(
+                Lineage.objects.filter(**{f"{near}__in": frontier, f"{far}__in": readable})
+                .exclude(pk__in=rows.keys())
+                .select_related("run")
+                .order_by("id")[: room + 1]
+            )
+            frontier = set()
+            for row in found[:room]:
+                other = getattr(row, f"{far}_id")
+                if other not in seen and len(seen) >= MAX_GRAPH_ENTITIES:
+                    capped = True
+                    continue
+                if other not in seen:
+                    seen.add(other)
+                    frontier.add(other)
+                rows[row.pk] = row
+            capped = capped or len(found) > room
+            if capped or not frontier:
+                break
+        else:
+            more[back] = bool(frontier) and (
+                Lineage.objects.filter(**{f"{near}__in": frontier, f"{far}__in": readable})
+                .exclude(pk__in=rows.keys())
+                .exists()
+            )
+    refs, _ = _lookup(me, {"ref": seen, "file": set()})
+    links = sorted(rows.values(), key=lambda r: r.pk)
+    named = set(
+        visible_runs(me).filter(pk__in={r.run_id for r in links}).values_list("pk", flat=True)
+    )
+    keys: dict[Any, str] = {}
+    runs: list[dict[str, Any]] = []
+    for row in links:
+        if row.run_id in keys:
+            continue
+        if row.run_id in named:
+            keys[row.run_id] = row.run.hrid
+            runs.append(
+                {
+                    "key": row.run.hrid,
+                    "run": {"id": row.run.pk, "hrid": row.run.hrid, "action": row.run.action},
+                }
+            )
+        else:
+            keys[row.run_id] = f"hidden-{sum(r['run'] is None for r in runs) + 1}"
+            runs.append({"key": keys[row.run_id], "run": None})
+    return {
+        "root": root.pk,
+        "entities": sorted(
+            ({"id": pk, **refs[pk]} for pk in seen if pk in refs), key=lambda e: e["hrid"]
+        ),
+        "runs": runs,
+        "links": [
+            {
+                "parent": r.parent_id,
+                "entity": r.entity_id,
+                "run": keys[r.run_id],
+                "input": r.input,
+                "revision": r.parent_revision,
+            }
+            for r in links
+        ],
+        "earlier": more[True],
+        "later": more[False],
+        "capped": capped,
+    }
+
+
 # --- Projects ------------------------------------------------------------------------------------
 
 

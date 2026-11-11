@@ -2033,6 +2033,126 @@
         "title": "LineageEntityOut",
         "type": "object"
       },
+      "LineageGraphLinkOut": {
+        "properties": {
+          "entity": {
+            "description": "The entity the run made.",
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "input": {
+            "description": "The run's input the parent was given as.",
+            "title": "Input",
+            "type": "string"
+          },
+          "parent": {
+            "description": "The entity it was made from.",
+            "format": "uuid",
+            "title": "Parent",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The parent's revision the run read.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "run": {
+            "description": "The run's key, in runs.",
+            "title": "Run",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parent",
+          "entity",
+          "run",
+          "input",
+          "revision"
+        ],
+        "title": "LineageGraphLinkOut",
+        "type": "object"
+      },
+      "LineageGraphOut": {
+        "properties": {
+          "capped": {
+            "description": "It stopped at 200 entities or 500 links, so some within the generations asked for are left out.",
+            "title": "Capped",
+            "type": "boolean"
+          },
+          "earlier": {
+            "description": "There are more generations back than were asked for.",
+            "title": "Earlier",
+            "type": "boolean"
+          },
+          "entities": {
+            "description": "The entities in it that you can read.",
+            "items": {
+              "$ref": "#/components/schemas/LineageNodeOut"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "later": {
+            "description": "There are more generations on than were asked for.",
+            "title": "Later",
+            "type": "boolean"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/LineageGraphLinkOut"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "root": {
+            "description": "The entity it's the lineage of.",
+            "format": "uuid",
+            "title": "Root",
+            "type": "string"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/LineageRunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "root",
+          "entities",
+          "runs",
+          "links",
+          "earlier",
+          "later",
+          "capped"
+        ],
+        "title": "LineageGraphOut",
+        "type": "object"
+      },
+      "LineageGraphParams": {
+        "properties": {
+          "down": {
+            "default": 3,
+            "description": "How many generations on.",
+            "maximum": 10,
+            "minimum": 0,
+            "title": "Down",
+            "type": "integer"
+          },
+          "up": {
+            "default": 3,
+            "description": "How many generations back.",
+            "maximum": 10,
+            "minimum": 0,
+            "title": "Up",
+            "type": "integer"
+          }
+        },
+        "title": "LineageGraphParams",
+        "type": "object"
+      },
       "LineageLinkOut": {
         "properties": {
           "entity": {
@@ -2069,6 +2189,41 @@
         "title": "LineageLinkOut",
         "type": "object"
       },
+      "LineageNodeOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "id"
+        ],
+        "title": "LineageNodeOut",
+        "type": "object"
+      },
       "LineageOut": {
         "properties": {
           "made_from": {
@@ -2099,6 +2254,32 @@
           "more"
         ],
         "title": "LineageOut",
+        "type": "object"
+      },
+      "LineageRunOut": {
+        "properties": {
+          "key": {
+            "description": "How links refer to it: its HRID, or a key for this response.",
+            "title": "Key",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run, if you can read its project."
+          }
+        },
+        "required": [
+          "key",
+          "run"
+        ],
+        "title": "LineageRunOut",
         "type": "object"
       },
       "LocationsOut": {
@@ -7991,6 +8172,75 @@
           }
         ],
         "summary": "What it was made from",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/lineage/graph": {
+      "get": {
+        "description": "What it was made from, what that was made from and so on, ``up`` generations back;\nand what was made from it, ``down`` generations on. Only entities you can read are in\nit, and only runs whose project you can read are named.",
+        "operationId": "iki_server_api_entities_get_lineage_graph",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many generations back.",
+            "in": "query",
+            "name": "up",
+            "required": false,
+            "schema": {
+              "default": 3,
+              "description": "How many generations back.",
+              "maximum": 10,
+              "minimum": 0,
+              "title": "Up",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many generations on.",
+            "in": "query",
+            "name": "down",
+            "required": false,
+            "schema": {
+              "default": 3,
+              "description": "How many generations on.",
+              "maximum": 10,
+              "minimum": 0,
+              "title": "Down",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineageGraphOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Its ancestors and descendants",
         "tags": [
           "entities"
         ]

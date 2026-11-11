@@ -8,6 +8,7 @@ and browsers (``uv run playwright install``); without them these tests skip
 locally and fail in CI.
 """
 
+import itertools
 import os
 import re
 import uuid
@@ -643,6 +644,49 @@ def test_picking_rows_and_running_an_action_on_each(open_as: Any, world: World) 
     page.get_by_text("Started 2 runs of Compute properties.").wait_for()
     assert ActionRun.objects.count() == 2
     assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_following_lineage_from_entity_to_entity(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.runs import catalog, services
+    from iki_server.runs.models import Lineage
+
+    admin = world.users["admin"]
+    action = catalog.action("protein.compute_properties")
+    assert action is not None
+    made = []
+    for name, sequence in [("ABL1 precursor", "MKV"), ("ABL1", "MKVL"), ("ABL1 fragment", "KVL")]:
+        created = entities.create(
+            admin, "protein.Protein", world.project, {"sequence": sequence, "name": name}
+        )
+        made.append(Entity.objects.get(pk=created.entity.pk))
+    for parent, child in itertools.pairwise(made):
+        run = services.launch(admin, action, world.project, {"protein": [parent.pk]}, {})
+        Lineage.objects.create(
+            entity=child, parent=parent, parent_revision=1, run=run, input="protein"
+        )
+
+    middle = made[1]
+    page = open_as("admin", f"/entities/{middle.hrid}/", color_scheme)
+    page.get_by_role("link", name="Lineage").click()
+    graph = page.get_by_role("group", name=re.compile("^3 entities and 2 runs"))
+    graph.wait_for()
+    assert_clean(page)
+    graph.get_by_role("link", name=re.compile("^ABL1 precursor")).hover()
+    assert_clean(page)
+
+    page.get_by_role("link", name="List").click()
+    page.get_by_role("heading", level=2, name=re.compile("· Compute properties$")).first.wait_for()
+    assert_clean(page)
+
+    page.get_by_role("link", name=re.compile("^ABL1 fragment")).click()
+    page.get_by_role("heading", level=1, name="ABL1 fragment").wait_for()
+    page.get_by_role("heading", level=2, name=re.compile("· Compute properties$")).first.wait_for()
+    assert page.get_by_role("heading", level=2).count() == 2
 
 
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:

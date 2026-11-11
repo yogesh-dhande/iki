@@ -79,7 +79,7 @@ const KIND: Record<string, string> = {
 };
 
 /** The entity the page is about, from the `$ref` in its address. */
-function useEntity(): { entity: Entity; type: EntityType | undefined; types: EntityType[] } {
+export function useEntity(): { entity: Entity; type: EntityType | undefined; types: EntityType[] } {
   const { ref } = useParams({ from: "/entities/$ref" });
   const entity = useSuspenseQuery(entityQuery(ref)).data;
   const types = useSuspenseQuery(typesQuery).data;
@@ -286,7 +286,7 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
   );
 }
 
-function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
+export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const tab = { "aria-current": "page" } as const;
   return (
     <>
@@ -322,6 +322,9 @@ function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undef
           activeProps={tab}
         >
           Overview
+        </Link>
+        <Link to="/entities/$ref/lineage/" params={{ ref: entity.hrid }} activeProps={tab}>
+          Lineage
         </Link>
         <Link to="/entities/$ref/history/" params={{ ref: entity.hrid }} activeProps={tab}>
           History

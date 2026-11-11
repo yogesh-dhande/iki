@@ -19,6 +19,7 @@ import { Layout } from "./layout";
 import { ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
 import { entityQuery, typesQuery, validateEntitySearch, validateNewEntitySearch } from "./entities";
+import { validateLineageSearch } from "./lineage";
 import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
@@ -48,6 +49,7 @@ const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
 const EntityHistory = lazyRouteComponent(entityPages, "EntityHistory");
+const EntityLineage = lazyRouteComponent(() => import("./pages/lineage"), "EntityLineage");
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
@@ -222,6 +224,13 @@ const entityHistoryRoute = createRoute({
   component: EntityHistory,
 });
 
+const entityLineageRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "lineage",
+  validateSearch: validateLineageSearch,
+  component: EntityLineage,
+});
+
 const runRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "runs/$ref",
@@ -267,7 +276,12 @@ const routeTree = rootRoute.addChildren([
     ]),
   ]),
   typesRoute.addChildren([typeListRoute, typeRoute]),
-  entityRoute.addChildren([entityOverviewRoute, entityEditRoute, entityHistoryRoute]),
+  entityRoute.addChildren([
+    entityOverviewRoute,
+    entityEditRoute,
+    entityHistoryRoute,
+    entityLineageRoute,
+  ]),
   runRoute,
   settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);

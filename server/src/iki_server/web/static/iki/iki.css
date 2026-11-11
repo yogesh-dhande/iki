@@ -1348,6 +1348,176 @@ input[type="date"] {
   font-weight: 600;
 }
 
+/* An entity's lineage: entities and runs in columns, earliest on the left, with lines
+   from each to what came of it. Sizes are in rem, so it grows with the text. */
+.lineage {
+  margin: 0;
+}
+
+.lineage figcaption {
+  margin: 0 0 0.5rem;
+}
+
+.lineage-scroll {
+  overflow: auto;
+  max-height: min(75vh, 50rem);
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.lineage-scroll:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.lineage-canvas {
+  position: relative;
+  margin: 0 auto;
+}
+
+.lineage-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.lineage-line {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5px;
+  transition: opacity 0.15s;
+}
+
+.lineage-line.is-lit {
+  stroke: var(--accent);
+  stroke-width: 2.5px;
+}
+
+.lineage-arrow {
+  fill: var(--muted);
+}
+
+.lineage-place {
+  position: absolute;
+}
+
+.lineage-node {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+a.lineage-node:hover {
+  border-color: var(--accent);
+}
+
+a.lineage-node:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.lineage-run {
+  border-style: dashed;
+  border-radius: 999px;
+  text-align: center;
+}
+
+.lineage-node.is-root {
+  border: 2px solid var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.lineage-node.is-hidden {
+  color: var(--muted);
+}
+
+.lineage-node.is-lit {
+  border-color: var(--accent);
+}
+
+/* Dimmed, but still readable: the text keeps its contrast. */
+.lineage-line.is-dim {
+  opacity: 0.25;
+}
+
+.lineage-node.is-dim {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.lineage-title,
+.lineage-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lineage-title {
+  font-weight: 600;
+}
+
+.lineage-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.lineage-more {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lineage-more .button {
+  margin-bottom: 1.25rem;
+}
+
+.lineage-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lineage-step {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+}
+
+.lineage-step dt {
+  font-weight: 600;
+}
+
+.lineage-step dd {
+  margin: 0;
+}
+
+.lineage-step ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lineage-line,
+  .lineage-node {
+    transition: none;
+  }
+}
+
 /* An entity's values, each with who set it, how and when. */
 .values {
   grid-template-columns: minmax(8rem, max-content) 1fr;

@@ -366,6 +366,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/lineage/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Its ancestors and descendants
+         * @description What it was made from, what that was made from and so on, ``up`` generations back;
+         *     and what was made from it, ``down`` generations on. Only entities you can read are in
+         *     it, and only runs whose project you can read are named.
+         */
+        get: operations["iki_server_api_entities_get_lineage_graph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/projects": {
         parameters: {
             query?: never;
@@ -2499,6 +2521,84 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** LineageGraphLinkOut */
+        LineageGraphLinkOut: {
+            /**
+             * Entity
+             * Format: uuid
+             * @description The entity the run made.
+             */
+            entity: string;
+            /**
+             * Input
+             * @description The run's input the parent was given as.
+             */
+            input: string;
+            /**
+             * Parent
+             * Format: uuid
+             * @description The entity it was made from.
+             */
+            parent: string;
+            /**
+             * Revision
+             * @description The parent's revision the run read.
+             */
+            revision: number;
+            /**
+             * Run
+             * @description The run's key, in runs.
+             */
+            run: string;
+        };
+        /** LineageGraphOut */
+        LineageGraphOut: {
+            /**
+             * Capped
+             * @description It stopped at 200 entities or 500 links, so some within the generations asked for are left out.
+             */
+            capped: boolean;
+            /**
+             * Earlier
+             * @description There are more generations back than were asked for.
+             */
+            earlier: boolean;
+            /**
+             * Entities
+             * @description The entities in it that you can read.
+             */
+            entities: components["schemas"]["LineageNodeOut"][];
+            /**
+             * Later
+             * @description There are more generations on than were asked for.
+             */
+            later: boolean;
+            /** Links */
+            links: components["schemas"]["LineageGraphLinkOut"][];
+            /**
+             * Root
+             * Format: uuid
+             * @description The entity it's the lineage of.
+             */
+            root: string;
+            /** Runs */
+            runs: components["schemas"]["LineageRunOut"][];
+        };
+        /** LineageGraphParams */
+        LineageGraphParams: {
+            /**
+             * Down
+             * @description How many generations on.
+             * @default 3
+             */
+            down: number;
+            /**
+             * Up
+             * @description How many generations back.
+             * @default 3
+             */
+            up: number;
+        };
         /** LineageLinkOut */
         LineageLinkOut: {
             entity: components["schemas"]["LineageEntityOut"];
@@ -2514,6 +2614,25 @@ export interface components {
             revision: number;
             /** @description The run, if you can read its project. */
             run: components["schemas"]["RunRefOut"] | null;
+        };
+        /** LineageNodeOut */
+        LineageNodeOut: {
+            /** Archived */
+            archived: boolean;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
         };
         /** LineageOut */
         LineageOut: {
@@ -2532,6 +2651,16 @@ export interface components {
              * @description What runs made from it: the newest 100.
              */
             used_to_make: components["schemas"]["LineageLinkOut"][];
+        };
+        /** LineageRunOut */
+        LineageRunOut: {
+            /**
+             * Key
+             * @description How links refer to it: its HRID, or a key for this response.
+             */
+            key: string;
+            /** @description The run, if you can read its project. */
+            run: components["schemas"]["RunRefOut"] | null;
         };
         /** LocationsOut */
         LocationsOut: {
@@ -5075,6 +5204,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineageOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_get_lineage_graph: {
+        parameters: {
+            query?: {
+                /** @description How many generations back. */
+                up?: number;
+                /** @description How many generations on. */
+                down?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineageGraphOut"];
                 };
             };
         };
