@@ -18,6 +18,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useCallback } from "react";
 
 export type Me = Schemas["MeOut"];
 export type Project = Schemas["ProjectOut"];
@@ -396,13 +397,26 @@ export function fieldErrors(problem: Problem | undefined): Record<string, string
   return errors;
 }
 
-/** A mutation that refreshes the given queries when it succeeds. */
+/** What to do once a mutation ends: after the queries it refreshes have refetched. */
+export interface MutateCallbacks<TResult, TVariables> {
+  onSuccess?: (result: TResult, variables: TVariables) => void;
+  onError?: (error: ApiError, variables: TVariables) => void;
+}
+
+/**
+ * A mutation that refreshes the given queries when it succeeds.
+ *
+ * Its `mutate` calls back even if the component that called it has gone, as it
+ * often has: the refreshed data can replace it (an approved run's banner, a
+ * deleted row). TanStack Query's own `mutate` drops callbacks then, so a
+ * "Saved" message would sometimes never show.
+ */
 export function useApiMutation<TVariables, TResult>(
   mutationFn: (variables: TVariables) => Promise<TResult>,
   invalidate: readonly (readonly unknown[])[],
 ) {
   const client = useQueryClient();
-  return useMutation<TResult, ApiError, TVariables>({
+  const mutation = useMutation<TResult, ApiError, TVariables>({
     mutationFn,
     onSuccess: async () => {
       await Promise.all(invalidate.map((queryKey) => client.invalidateQueries({ queryKey })));
@@ -413,4 +427,18 @@ export function useApiMutation<TVariables, TResult>(
       }
     },
   });
+  const { mutateAsync } = mutation;
+  const mutate = useCallback(
+    (variables: TVariables, callbacks?: MutateCallbacks<TResult, TVariables>) => {
+      mutateAsync(variables).then(
+        (result) => callbacks?.onSuccess?.(result, variables),
+        (error: unknown) => {
+          // The mutation's state holds it too, for the component to show.
+          if (error instanceof ApiError) callbacks?.onError?.(error, variables);
+        },
+      );
+    },
+    [mutateAsync],
+  );
+  return { ...mutation, mutate };
 }
