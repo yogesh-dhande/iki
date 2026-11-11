@@ -9,6 +9,13 @@ license = "Apache-2.0"
 [tool.uv]
 package = false
 required-version = ">=0.13.7"
+# Resolve without releases less than 3 days old, as pnpm does (ADR 0019).
+exclude-newer = "3 days"
+# Exceptions, each for one release, which scripts/supply-chain/release-age.py also lists:
+# remove each once it's 3 days old (the check says when).
+# - playwright 1.65.0 (test tool, never shipped): 1.64's WebKit reports spurious
+#   style-src-attr CSP violations against the document, which the browser tests catch.
+exclude-newer-package = { playwright = "2026-11-10T00:00:00Z" }
 
 [tool.uv.workspace]
 members = ["server", "cli", "spec", "codegen"]
@@ -38,7 +45,7 @@ dev = [
   "types-pyyaml>=6.0.12",
   "playwright>=1.65",
   "types-jsonschema>=4.25.1",
-  "types-boto3[s3]>=1.43.127",
+  "types-boto3[s3]>=1.43",
 ]
 
 [tool.ruff]

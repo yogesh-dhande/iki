@@ -31,9 +31,12 @@ All code lives in one repo, `ikisci/iki`, with one workspace per language.
   - Dependabot updates dependencies for every ecosystem, including the
     pinned actions, after a 7-day cooldown.
 - **Dependencies**: all lockfiles are committed and CI installs from them
-  exactly. pnpm refuses package versions less than 3 days old
-  (`minimumReleaseAge`) and runs no dependency install scripts unless they
-  are explicitly allowed, which blunts typosquatting and hijacked releases.
+  exactly. Nothing released less than 3 days ago is locked, which blunts
+  hijacked releases (usually caught and pulled within days): pnpm refuses
+  such versions (`minimumReleaseAge`), uv resolves without them
+  (`exclude-newer`), and CI checks every lockfile, including cargo's, which
+  has no such setting. pnpm runs no dependency install scripts unless they
+  are explicitly allowed, which blunts typosquatting.
 - **Entry point**: `make check` runs exactly what CI runs, and one
   aggregate job ("CI passed") is the only required status check.
 

@@ -54,8 +54,12 @@ Python code supports 3.12 and later. Servers run 3.14, and CI tests both.
 
 - Lockfiles (`uv.lock`, `pnpm-lock.yaml`, `worker/Cargo.lock`) are committed and
   CI installs from them exactly.
-- pnpm refuses package versions less than 3 days old and never runs dependency
-  install scripts unless they are explicitly allowed in `pnpm-workspace.yaml`.
+- Nothing released less than 3 days ago is locked. pnpm and uv won't resolve
+  such versions; for cargo, pin an older one with
+  `cargo update -p NAME --precise VERSION`. `make check-deps` checks every
+  lockfile.
+- pnpm never runs dependency install scripts unless they are explicitly allowed
+  in `pnpm-workspace.yaml`.
 - GitHub Actions are pinned by full commit SHA, with the version in a comment.
   Dependabot proposes updates after a 7-day cooldown.
 - Before adding a dependency, check its license is compatible with Apache-2.0

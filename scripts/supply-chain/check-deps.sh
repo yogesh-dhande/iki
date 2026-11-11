@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Scans every lockfile for known vulnerabilities (OSV database) and for
-# licenses outside the allowlist. Used by `make check-deps` and CI.
+# Scans every lockfile for known vulnerabilities (OSV database), for licenses
+# outside the allowlist, and for releases less than 3 days old. Used by
+# `make check-deps` and CI.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
@@ -15,3 +16,6 @@ osv-scanner scan source --config osv-scanner.toml --licenses="$licenses" "${lock
 
 echo "==> Rust: advisories, licenses, banned crates and sources (cargo-deny)"
 (cd worker && cargo deny --locked check)
+
+echo "==> Releases at least 3 days old (uv.lock, Cargo.lock; pnpm refuses them itself)"
+uv run --no-project --quiet python scripts/supply-chain/release-age.py
