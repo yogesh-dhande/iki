@@ -43,6 +43,7 @@ import {
   propertySchema,
   type Draft,
   type Picked,
+  type Schemaed,
   type QuantityDraft,
 } from "./entity-values";
 import { media } from "./media";
@@ -51,7 +52,8 @@ import { Button } from "./ui";
 
 export interface InputProps {
   field: FieldDef;
-  type: EntityType;
+  /** What the field's value is checked against. */
+  type: Schemaed;
   types: EntityType[];
   draft: Draft;
   onChange: (draft: Draft) => void;

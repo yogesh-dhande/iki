@@ -28,6 +28,11 @@ export type Draft = string | QuantityDraft | Picked | null | Draft[];
 export const OTHER_UNIT = "__other";
 
 /** The fields people fill in: actions set computed ones. */
+/** What a form's fields are checked against: an entity type's values, or an action's params. */
+export interface Schemaed {
+  values_schema: EntityType["values_schema"];
+}
+
 export function formFields(type: EntityType): FieldDef[] {
   return type.fields.filter((f) => !f.computed);
 }
@@ -62,7 +67,7 @@ export function emptyDraft(field: FieldDef): Draft {
 }
 
 /** A field's draft from its default, for a new entity. */
-export function initialDraft(field: FieldDef, type: EntityType): Draft {
+export function initialDraft(field: FieldDef, type: Schemaed): Draft {
   const schema = propertySchema(type, field.name);
   if (schema.default === undefined || schema.default === null) return emptyDraft(field);
   return toDraft(field, schema.default, { refs: {}, files: {} });
@@ -129,7 +134,7 @@ interface PropertySchema {
 }
 
 /** The field's JSON Schema, without the `null` its optional fields allow. */
-export function propertySchema(type: EntityType, name: string): PropertySchema {
+export function propertySchema(type: Schemaed, name: string): PropertySchema {
   const properties = (type.values_schema["properties"] ?? {}) as Record<string, PropertySchema>;
   const found = properties[name] ?? {};
   const value = found.anyOf?.find((s) => (s as { type?: string }).type !== "null");
@@ -214,7 +219,7 @@ export function isBlank(field: FieldDef, draft: Draft): boolean {
  * The JSON the API takes for a draft, or what's wrong with it. Blank is null:
  * whether a field can be blank is the caller's check.
  */
-export function encode(field: FieldDef, draft: Draft, type: EntityType): Encoded {
+export function encode(field: FieldDef, draft: Draft, type: Schemaed): Encoded {
   return encodeWith(field, draft, propertySchema(type, field.name));
 }
 

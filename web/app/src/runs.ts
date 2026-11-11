@@ -71,6 +71,37 @@ export const actionsQuery = queryOptions({
   staleTime: 5 * 60_000,
 });
 
+/** The actions with an input that takes entities of every one of `types`. */
+export function actionsTakingQuery(types: string[]) {
+  const sorted = [...types].sort();
+  return queryOptions({
+    queryKey: ["actions", "taking", ...sorted],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/actions", { params: { query: { takes: sorted } } })),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The most entities one launch takes: the server's batch limit. */
+export const MAX_BATCH = 100;
+
+/** Entities by HRID, as a new run's address names them. */
+export function entitiesByHridQuery(hrids: string[]) {
+  return queryOptions({
+    queryKey: ["entities", "by-hrid", ...hrids],
+    queryFn: async () =>
+      unwrap(
+        await iki.POST("/api/v1/entities/search", {
+          body: {
+            where: { field: "hrid", op: "in", value: hrids },
+            exact_type: false,
+            limit: MAX_BATCH,
+          },
+        }),
+      ).items,
+  });
+}
+
 /** A label for an action's qualified name, or the name while they load (or if it's gone). */
 export function actionLabel(actions: Action[] | undefined, name: string): string {
   return actions?.find((a) => a.name === name)?.label ?? name;

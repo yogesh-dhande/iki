@@ -23,6 +23,7 @@ import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
+import { validateNewRunSearch } from "./pages/new-run-search";
 import { actionsQuery, runQuery, STATUS, type RunStatus } from "./runs";
 
 // Pages fetched when they're first opened, so the first page loads quickly.
@@ -42,6 +43,7 @@ const entityFormPages = () => import("./pages/entity-form");
 const runPages = () => import("./pages/runs");
 const ProjectRuns = lazyRouteComponent(runPages, "ProjectRuns");
 const RunPage = lazyRouteComponent(runPages, "RunPage");
+const NewRun = lazyRouteComponent(() => import("./pages/new-run"), "NewRun");
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
@@ -142,6 +144,15 @@ const projectRunsRoute = createRoute({
       ? { status: search["status"] as RunStatus }
       : {},
   component: ProjectRuns,
+});
+
+const projectRunNewRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "runs/new",
+  // ?entities=PRT-000001,PRT-000002: what it runs on; ?action=protein.compute_properties.
+  validateSearch: validateNewRunSearch,
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: NewRun,
 });
 
 const projectSettingsRoute = createRoute({
@@ -250,6 +261,7 @@ const routeTree = rootRoute.addChildren([
       projectEntitiesRoute,
       projectEntityNewRoute,
       projectRunsRoute,
+      projectRunNewRoute,
       projectSettingsRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),

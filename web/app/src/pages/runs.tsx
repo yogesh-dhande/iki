@@ -39,6 +39,7 @@ import {
 import {
   Badge,
   Button,
+  buttonClass,
   ConfirmDialog,
   Loading,
   PageHeader,
@@ -109,6 +110,15 @@ export function ProjectRuns() {
             });
           }}
         />
+        {project.can.run.length ? (
+          <Link
+            to="/projects/$slug/runs/new/"
+            params={{ slug: project.slug }}
+            className={`${buttonClass("primary")} toolbar-end`}
+          >
+            New run
+          </Link>
+        ) : null}
       </div>
       {runs.isPending ? <Loading label="Loading runs…" /> : null}
       {runs.error ? <ProblemAlert problem={problemOf(runs.error)} /> : null}
@@ -319,10 +329,13 @@ function AttemptLog({ runRef, attempt, size }: { runRef: string; attempt: Attemp
       ) : null}
       {text ? (
         <pre
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- it scrolls
           tabIndex={0}
           ref={box}
-          role="region"
+          // A log, which screen readers don't read out line by line as it grows. (Not a
+          // region: Playwright 1.65's Firefox crashed checking one added as it loads.)
+          role="log"
+          aria-live="off"
           className="log-text"
           aria-label={`Log of attempt ${String(attempt.attempt)}`}
           onScroll={(event) => {
@@ -400,7 +413,7 @@ function AttemptRow({
       <div className="row-actions">
         <Button
           variant="quiet"
-          label={`${open ? "Hide" : "Show"} the log of attempt ${String(attempt.attempt)}`}
+          label={`${open ? "Hide" : "Show"} log of attempt ${String(attempt.attempt)}`}
           onClick={() => {
             setOpen(!open);
           }}

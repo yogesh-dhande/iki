@@ -244,6 +244,7 @@ describe("a project", () => {
         manage: false,
         manage_members: true,
         manage_webhooks: false,
+        run: [],
       },
     });
     answer(`GET ${MEMBERS}`, page([]));
@@ -307,6 +308,7 @@ describe("members", () => {
         manage: false,
         manage_members: false,
         manage_webhooks: false,
+        run: [],
       },
     });
     answer(`GET ${MEMBERS}`, page(people));
@@ -416,6 +418,7 @@ describe("settings", () => {
         manage: false,
         manage_members: false,
         manage_webhooks: false,
+        run: [],
       },
     });
     await renderApp("/projects/kinase-atlas/settings/");
@@ -648,6 +651,7 @@ describe("webhooks", () => {
         manage: false,
         manage_members: false,
         manage_webhooks: false,
+        run: [],
       },
     });
     await renderApp("/projects/kinase-atlas/webhooks/");

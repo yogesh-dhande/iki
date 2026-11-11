@@ -1636,3 +1636,13 @@ input[type="file"]::file-selector-button {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.run-facts {
+  margin: 0 0 1.25rem;
+  padding-left: 1.25rem;
+  color: var(--muted);
+}
+
+.run-facts li + li {
+  margin-top: 0.25rem;
+}

@@ -106,6 +106,8 @@ def server(
             IKI_FILES_BUCKET="iki",
             IKI_FILES_PREFIX=f"browser-{uuid.uuid4().hex}",
             IKI_FILES_ENDPOINT_URL=_s3_endpoint,
+            # The tests' deployment, so backend actions can run.
+            IKI_COMPUTE_FILE=os.environ["IKI_COMPUTE_FILE"],
             AWS_ACCESS_KEY_ID=S3_ACCESS_KEY,
             AWS_SECRET_ACCESS_KEY=S3_SECRET_KEY,
         )
@@ -559,6 +561,61 @@ def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: S
     values = entities.current_values_of([made])[made.pk]
     assert values["structure"] == stored.pk and values["chains"] == [protein.pk]
     page.get_by_role("link", name="1abc.pdb").wait_for()
+    assert_clean(page)
+
+
+def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> None:
+    from test_workers import LOCAL, ROOMY
+
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.runs import queue, workers
+    from iki_server.runs.models import ActionRun
+
+    made = entities.create(
+        world.users["admin"], "protein.Protein", world.project, {"sequence": "MKV", "name": "ABL1"}
+    )
+    protein = Entity.objects.get(pk=made.entity.pk)
+    page = open_as("admin", f"/entities/{protein.hrid}/")
+    page.get_by_role("link", name="Run action").click()
+    page.get_by_role("heading", level=2, name="Run an action").wait_for()
+    page.get_by_role("combobox", name="Action").select_option(label="Compute properties")
+    page.get_by_text("It runs on one of Iki’s backend workers").wait_for()
+    assert_clean(page)
+    page.get_by_role("textbox", name="Reason (optional)").fill("Fill in weights")
+    page.get_by_role("button", name="Start run").click()
+    page.wait_for_url(re.compile(r"/runs/RUN-\d+/$"))
+    run = ActionRun.objects.get()
+    page.get_by_text(f"Started {run.hrid}.").wait_for()
+    page.get_by_text("Not picked up yet").wait_for()
+    assert_clean(page)
+
+    # A worker takes it, prints and reports progress: the page follows, live.
+    registration, _ = workers.create_registration(
+        label="Pods", tier="backend", by=world.users["admin"]
+    )
+    pod, _ = workers.register(
+        registration, name="pod-1", version="0.1.0", capacity=ROOMY, plugins=LOCAL
+    )
+    leased = queue.lease(pod)
+    assert leased is not None
+    job = leased[0]
+    assert job.lease_token is not None
+    page.get_by_text("On pod-1").wait_for()
+    queue.append_log(pod, job.pk, job.lease_token, 0, "Weighing ABL1\n")
+    log = page.get_by_role("log", name="Log of attempt 1")
+    log.get_by_text("Weighing ABL1").wait_for()
+    queue.progress(pod, job.pk, job.lease_token, 0.5, "Halfway")
+    page.get_by_text("50% · Halfway").wait_for()
+    assert_clean(page)
+    queue.fail(pod, job.pk, job.lease_token, "failed", "ValueError: no weights")
+    page.get_by_role("alert").get_by_text("ValueError: no weights").wait_for()
+    assert page.get_by_role("button", name="Cancel run").count() == 0
+    assert_clean(page)
+
+    page.get_by_role("link", name="Kinase Atlas").click()
+    row = page.get_by_role("listitem").filter(has_text=run.hrid)
+    row.get_by_text("Failed", exact=True).wait_for()
     assert_clean(page)
 
 

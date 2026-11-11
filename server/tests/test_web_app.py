@@ -31,6 +31,7 @@ APP_PAGES = [
     "/entities/DNA-000001/edit/",
     "/entities/DNA-000001/history/",
     "/projects/a-b/runs/",
+    "/projects/a-b/runs/new/",
     "/runs/RUN-000001/",
 ]
 

@@ -124,6 +124,10 @@ class ProjectCan(Schema):
     manage: bool = Field(description="Rename, describe, archive or restore it.")
     manage_members: bool = Field(description="Give and remove access.")
     manage_webhooks: bool = Field(description="Add and change the project's webhooks.")
+    run: list[Literal["client", "backend", "container", "vm"]] = Field(
+        description="The tiers whose actions you may run here, and whose runs you may cancel. "
+        "None while it's archived."
+    )
 
 
 class ProjectOut(Schema):
@@ -144,9 +148,10 @@ class ProjectOut(Schema):
         return role_name(getattr(project, "my_role", None))
 
     @staticmethod
-    def resolve_can(project: Project, context: dict[str, Any]) -> dict[str, bool]:
+    def resolve_can(project: Project, context: dict[str, Any]) -> dict[str, Any]:
         from iki_server.org import permissions
         from iki_server.org.permissions import Action
+        from iki_server.runs.services import TIER_PERMISSIONS
 
         user = context["request"].auth
         return {
@@ -155,6 +160,9 @@ class ProjectOut(Schema):
             "manage": permissions.can(user, Action.PROJECT_MANAGE, project),
             "manage_members": permissions.can(user, Action.PROJECT_MEMBERS_MANAGE, project),
             "manage_webhooks": permissions.can(user, Action.PROJECT_WEBHOOKS_MANAGE, project),
+            "run": []
+            if project.is_archived
+            else [t for t, a in TIER_PERMISSIONS.items() if permissions.can(user, a, project)],
         }
 
 

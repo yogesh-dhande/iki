@@ -3399,6 +3399,20 @@
             "description": "Read the project's data.",
             "title": "Read",
             "type": "boolean"
+          },
+          "run": {
+            "description": "The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.",
+            "items": {
+              "enum": [
+                "client",
+                "backend",
+                "container",
+                "vm"
+              ],
+              "type": "string"
+            },
+            "title": "Run",
+            "type": "array"
           }
         },
         "required": [
@@ -3406,7 +3420,8 @@
           "edit",
           "manage",
           "manage_members",
-          "manage_webhooks"
+          "manage_webhooks",
+          "run"
         ],
         "title": "ProjectCan",
         "type": "object"

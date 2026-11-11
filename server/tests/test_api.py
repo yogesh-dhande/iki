@@ -318,6 +318,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage": False,
         "manage_members": False,
         "manage_webhooks": False,
+        "run": [],
     }
     assert can("editor") == {
         "read": True,
@@ -325,6 +326,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage": False,
         "manage_members": False,
         "manage_webhooks": False,
+        "run": ["client", "backend"],
     }
     assert can("admin") == {
         "read": True,
@@ -332,6 +334,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage": True,
         "manage_members": True,
         "manage_webhooks": True,
+        "run": ["client", "backend", "container", "vm"],
     }
     # Org Admins see the project exists and can add themselves, but not read it.
     assert can("org_admin") == {
@@ -340,6 +343,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage": False,
         "manage_members": True,
         "manage_webhooks": False,
+        "run": [],
     }
 
 

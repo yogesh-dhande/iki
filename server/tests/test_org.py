@@ -146,6 +146,7 @@ def test_members_see_the_member_list_read_only(world: World) -> None:
         "manage": False,
         "manage_members": False,
         "manage_webhooks": False,
+        "run": [],
     }
     outsider = world.users["outsider"]
     path = f"/projects/{project_id(world)}/members/users/{outsider.pk}"
@@ -194,6 +195,7 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
         "manage": False,
         "manage_members": True,
         "manage_webhooks": False,
+        "run": [],
     }
 
     me = world.users["org_admin"]
@@ -207,6 +209,7 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
         "manage": True,
         "manage_members": True,
         "manage_webhooks": True,
+        "run": ["client", "backend", "container", "vm"],
     }
 
 

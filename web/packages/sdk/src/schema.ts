@@ -3061,6 +3061,11 @@ export interface components {
              * @description Read the project's data.
              */
             read: boolean;
+            /**
+             * Run
+             * @description The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.
+             */
+            run: ("client" | "backend" | "container" | "vm")[];
         };
         /** ProjectFilters */
         ProjectFilters: {

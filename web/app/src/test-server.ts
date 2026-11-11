@@ -107,7 +107,14 @@ export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas
     archived: false,
     created_at: "2026-03-14T09:00:00Z",
     my_role: "admin",
-    can: { read: true, edit: true, manage: true, manage_members: true, manage_webhooks: true },
+    can: {
+      read: true,
+      edit: true,
+      manage: true,
+      manage_members: true,
+      manage_webhooks: true,
+      run: ["client", "backend", "container", "vm"],
+    },
     ...overrides,
   };
 }

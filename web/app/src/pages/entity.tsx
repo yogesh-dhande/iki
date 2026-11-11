@@ -195,7 +195,18 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
       ),
     [ENTITIES],
   );
-  if (!entity.can.edit || !type) return null;
+  const running =
+    !entity.archived && entity.owner_project ? (
+      <Link
+        to="/projects/$slug/runs/new/"
+        params={{ slug: entity.owner_project.slug }}
+        search={{ entities: entity.hrid }}
+        className={buttonClass()}
+      >
+        Run action
+      </Link>
+    ) : null;
+  if (!entity.can.edit || !type) return running ? <div className="actions">{running}</div> : null;
   const close = () => {
     setAsking(false);
     setReason("");
@@ -213,6 +224,7 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
           Edit
         </Link>
       )}
+      {running}
       <Button
         {...(archiving ? { variant: "danger" as const } : {})}
         onClick={() => {

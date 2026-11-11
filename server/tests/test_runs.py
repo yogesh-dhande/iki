@@ -204,6 +204,19 @@ def test_the_backend_tier_takes_editor(world: World, principal: str, status: int
     assert made.status_code == status, made.content
 
 
+def test_projects_say_which_tiers_you_may_run(world: World) -> None:
+    def tiers(principal: str, project: Project) -> list[str]:
+        found: list[str] = (
+            api_as(world, principal).get(f"/projects/{project.pk}").json()["can"]["run"]
+        )
+        return found
+
+    assert tiers("viewer", world.project) == []
+    assert tiers("editor", world.project) == ["client", "backend"]
+    assert tiers("runner", world.project) == ["client", "backend", "container", "vm"]
+    assert tiers("editor", world.archived) == []
+
+
 def test_actions_this_deployment_cant_run_are_refused(world: World) -> None:
     runner = api_as(world, "runner")
     abl = protein(runner, world.project)

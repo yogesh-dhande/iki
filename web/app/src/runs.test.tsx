@@ -7,107 +7,11 @@ import type { Schemas } from "@ikisci/sdk";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { entity, field, KINASE, nth, renderApp, revision, withTypes } from "./entity-fixtures";
-import { answer, calls, FakeEventSource, ME, page } from "./test-server";
+import { entity, KINASE, nth, renderApp, revision, withTypes } from "./entity-fixtures";
+import { ACTION, attempt, run, RUN_ID } from "./run-fixtures";
+import { answer, calls, FakeEventSource, page } from "./test-server";
 
-const RUN_ID = "00000000-0000-7000-8000-0000000000r1";
 const EVENTS = "/api/v1/runs/RUN-000001/events";
-
-function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut"] {
-  return {
-    id: RUN_ID,
-    hrid: "RUN-000001",
-    action: "protein.compute_properties",
-    plugin_version: "1.2.0",
-    plugin_sha: "",
-    project: KINASE.id,
-    requested_by: { id: ME.id, name: ME.name },
-    via: "web",
-    reason: "",
-    tier: "backend",
-    environment: "sequence-tools",
-    params: { ph: 7.4 },
-    inputs: [
-      {
-        name: "protein",
-        entity: "00000000-0000-7000-8000-00000000e001",
-        hrid: "PRT-000001",
-        revision: 2,
-      },
-    ],
-    status: "running",
-    attempts: 1,
-    created_at: "2026-03-14T09:00:00Z",
-    started_at: "2026-03-14T09:00:05Z",
-    finished_at: null,
-    cancel_requested_at: null,
-    error: null,
-    effects: [],
-    metrics: {},
-    messages: [],
-    waiting: null,
-    can: { cancel: true },
-    ...overrides,
-  };
-}
-
-function attempt(overrides: Partial<Schemas["RunAttemptOut"]> = {}): Schemas["RunAttemptOut"] {
-  return {
-    attempt: 1,
-    state: "running",
-    worker: "pod-7",
-    environment_build: "sha256:4f2a9c1e7b3d5a6f8e9d0c1b2a3f4e5d",
-    queued_at: "2026-03-14T09:00:00Z",
-    started_at: "2026-03-14T09:00:05Z",
-    finished_at: null,
-    progress: 0.25,
-    progress_message: "Weighing",
-    log_size: 6,
-    error: null,
-    ...overrides,
-  };
-}
-
-const ACTION = {
-  name: "protein.compute_properties",
-  plugin: "protein",
-  label: "Compute properties",
-  description: null,
-  tier: "backend",
-  environment: "sequence-tools",
-  inputs: [
-    {
-      name: "protein",
-      label: "Protein",
-      description: null,
-      type: "protein.Protein",
-      cardinality: "one",
-      max: null,
-      optional: false,
-    },
-  ],
-  params: [
-    {
-      ...field({ name: "ph", label: "pH", type: "number" }),
-      default: 7,
-      min: 0,
-      max: 14,
-      min_length: null,
-      max_length: null,
-      pattern: null,
-    },
-  ],
-  params_schema: { type: "object", properties: {}, additionalProperties: false },
-  creates: [],
-  updates: [],
-  deterministic: true,
-  network: [],
-  secrets: [],
-  timeout: 600,
-  available: true,
-  unavailable_reason: null,
-  needs: "editor",
-} satisfies Schemas["ActionOut"];
 
 /** The log, as the server keeps it: answers from any offset. */
 function withLog(text: () => string, ended: () => boolean = () => false): void {
@@ -220,9 +124,7 @@ describe("a run's page", () => {
       0.25,
     );
     expect(within(attempts).getByText("25% · Weighing")).toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: "Log of attempt 1" })).toHaveTextContent(
-      "hello",
-    );
+    expect(await screen.findByRole("log", { name: "Log of attempt 1" })).toHaveTextContent("hello");
     expect(screen.getByRole("link", { name: "Download log" })).toHaveAttribute(
       "href",
       "/api/v1/runs/RUN-000001/attempts/1/log.txt",
@@ -246,7 +148,7 @@ describe("a run's page", () => {
     );
     withLog(() => log);
     await renderApp("/runs/RUN-000001/");
-    const box = await screen.findByRole("region", { name: "Log of attempt 1" });
+    const box = await screen.findByRole("log", { name: "Log of attempt 1" });
     expect(box).toHaveTextContent(/^hello$/);
     const stream = runStream();
     expect(stream.init).toEqual({ withCredentials: true });
@@ -303,7 +205,7 @@ describe("a run's page", () => {
     onRun(run, () => [attempt()]);
     withLog(() => "hello\n");
     await renderApp("/runs/RUN-000001/");
-    await screen.findByRole("region", { name: "Log of attempt 1" });
+    await screen.findByRole("log", { name: "Log of attempt 1" });
     const stream = runStream();
     const before = calls("GET", "/api/v1/runs/RUN-000001").length;
     act(() => {
