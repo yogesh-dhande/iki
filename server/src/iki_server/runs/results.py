@@ -48,7 +48,7 @@ from iki_server.runs.services import TIER_PERMISSIONS, is_a
 from iki_spec import schemas
 from iki_spec.model import Action, Creates, action_from_dict
 
-__all__ = ["InvalidOutput", "Rejected", "commit"]
+__all__ = ["Failed", "InvalidOutput", "Rejected", "commit"]
 
 #: The most problems one output reports; past this, the rest are summed up.
 MAX_ERRORS = 100
@@ -64,6 +64,15 @@ class InvalidOutput(Exception):  # noqa: N818 - reads as "the output is invalid"
                 {"pointer": "#", "detail": f"…and {len(errors) - MAX_ERRORS} more problems."}
             )
         super().__init__(f"The output has {len(errors)} problem(s).")
+
+
+class Failed(Exception):  # noqa: N818 - reads as "the run failed"
+    """The command said, with an ``error`` message about the run's entity, that it failed
+    on it (ADR 0055). Nothing is written."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
 
 
 class Rejected(Exception):  # noqa: N818 - reads as "the results were rejected"
@@ -127,7 +136,8 @@ def _check_files(check: _Check, at: str, type_name: str, values: Mapping[str, An
 def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
     """Writes the run's results, or nothing. Call inside a transaction holding the run.
 
-    Raises :class:`InvalidOutput` or :class:`Rejected`; either way, nothing is written.
+    Raises :class:`InvalidOutput`, :class:`Rejected` or :class:`Failed`; whichever,
+    nothing is written.
     """
     issues = schemas.check("run-output", document)
     if issues:
@@ -145,8 +155,12 @@ def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
     check = _Check(run, action_from_dict(run.spec), inputs)
     updates = _updates(check, document.get("updates") or {})
     creates = _creates(check, document.get("creates") or [])
+    _messages(check, document.get("messages") or [])
     if check.errors:
         raise InvalidOutput(check.errors)
+    for message in document.get("messages") or []:
+        if message["level"] == "error" and "entity" in message:
+            raise Failed(message["text"])
     with transaction.atomic():
         _write_updates(check, updates)
         _write_creates(check, creates)
@@ -200,6 +214,13 @@ def _updates(check: _Check, given: Mapping[str, Any]) -> list[_Update]:
             _check_files(check, _pointer(*at), entity_type, item["values"])
             out.append(_Update(_pointer(*at), entity, item["values"]))
     return out
+
+
+def _messages(check: _Check, given: list[Mapping[str, Any]]) -> None:
+    read = {entity for entities in check.inputs.values() for entity in entities}
+    for index, item in enumerate(given):
+        if "entity" in item and UUID(item["entity"]) not in read:
+            check.error(_pointer("messages", index, "entity"), "It isn't one of the run's inputs.")
 
 
 @dataclass(frozen=True)

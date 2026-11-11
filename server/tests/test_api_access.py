@@ -170,6 +170,21 @@ def run(suffix: str = "", body: Any = None) -> Build:
     return lambda w: (f"/runs/{_run(w).pk}{suffix}", body)
 
 
+def batch(suffix: str = "", body: Any = None) -> Build:
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.runs import catalog
+        from iki_server.runs import services as runs
+
+        action = catalog.action("protein.compute_properties")
+        assert action is not None
+        (made,) = runs.launch_each(
+            w.users["editor"], action, w.project, "protein", [_protein(w).pk], {}, {}
+        )
+        return f"/batches/{made.batch_id}{suffix}", body
+
+    return build
+
+
 def approval(suffix: str = "", body: Any = None) -> Build:
     """A request the runner's agent made: theirs alone to decide."""
 
@@ -520,6 +535,9 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/runs/{ref}", run(), readers(200)),
     ("POST", "/runs/{ref}/cancel", run("/cancel", {}), editors(200)),
     ("GET", "/runs/{ref}/attempts", run("/attempts"), readers(200)),
+    ("GET", "/batches", fixed("/batches"), row(200)),
+    ("GET", "/batches/{ref}", batch(), readers(200)),
+    ("POST", "/batches/{ref}/cancel", batch("/cancel", {}), editors(200)),
     # Only the person an agent asked for decides (and never with a token: test_run_approvals).
     ("GET", "/run-approvals/{approval_id}", approval(), readers(200)),
     (

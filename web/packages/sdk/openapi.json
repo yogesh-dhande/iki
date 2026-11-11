@@ -22,6 +22,11 @@
             "title": "Available",
             "type": "boolean"
           },
+          "batchable": {
+            "description": "Up to how many runs of a batch one job runs at once (ADR 0055); 1 for one.",
+            "title": "Batchable",
+            "type": "integer"
+          },
           "creates": {
             "items": {
               "$ref": "#/components/schemas/CreatesOut"
@@ -152,6 +157,7 @@
           "network",
           "secrets",
           "timeout",
+          "batchable",
           "available",
           "unavailable_reason",
           "needs"
@@ -307,6 +313,207 @@
           "duration_ms"
         ],
         "title": "AttemptOut",
+        "type": "object"
+      },
+      "AttemptPackOut": {
+        "properties": {
+          "reported_as": {
+            "description": "The run its worker held the job as (its HRID). The job's log, progress and network use are every one of its runs'.",
+            "title": "Reported As",
+            "type": "string"
+          },
+          "runs": {
+            "description": "How many runs of its batch its job ran at once, this one too.",
+            "title": "Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runs",
+          "reported_as"
+        ],
+        "title": "AttemptPackOut",
+        "type": "object"
+      },
+      "BatchCan": {
+        "properties": {
+          "cancel": {
+            "description": "Some of its runs haven't finished, and you may cancel them.",
+            "title": "Cancel",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cancel"
+        ],
+        "title": "BatchCan",
+        "type": "object"
+      },
+      "BatchFilters": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only batches of this action.",
+            "title": "Action"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only batches in this project.",
+            "title": "Project"
+          }
+        },
+        "title": "BatchFilters",
+        "type": "object"
+      },
+      "BatchOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "can": {
+            "$ref": "#/components/schemas/BatchCan"
+          },
+          "client": {
+            "description": "The OAuth app it was asked for through, if any.",
+            "title": "Client",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "each": {
+            "description": "The input each run took one entity for.",
+            "title": "Each",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its last run finished, once all have.",
+            "title": "Finished At"
+          },
+          "hrid": {
+            "description": "Such as BAT-000123.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "size": {
+            "description": "How many runs it launched.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "How many of its runs are in each status, for the statuses any are in.",
+            "title": "Statuses",
+            "type": "object"
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "action",
+          "project",
+          "requested_by",
+          "via",
+          "client",
+          "reason",
+          "each",
+          "size",
+          "statuses",
+          "created_at",
+          "finished_at",
+          "can"
+        ],
+        "title": "BatchOut",
+        "type": "object"
+      },
+      "BatchRefOut": {
+        "properties": {
+          "hrid": {
+            "description": "Such as BAT-000123.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid"
+        ],
+        "title": "BatchRefOut",
         "type": "object"
       },
       "CancelIn": {
@@ -2581,6 +2788,19 @@
       },
       "MessageOut": {
         "properties": {
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The input entity it's about, if any.",
+            "title": "Entity"
+          },
           "level": {
             "enum": [
               "info",
@@ -2922,6 +3142,35 @@
           }
         },
         "title": "PageParams",
+        "type": "object"
+      },
+      "Page_BatchOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[BatchOut]",
         "type": "object"
       },
       "Page_DeliverySummary_": {
@@ -5000,6 +5249,17 @@
             "title": "Network",
             "type": "array"
           },
+          "pack": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttemptPackOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it ran in one job with other runs of its batch (ADR 0055)."
+          },
           "progress": {
             "anyOf": [
               {
@@ -5070,7 +5330,8 @@
           "log_size",
           "error",
           "network",
-          "secrets"
+          "secrets",
+          "pack"
         ],
         "title": "RunAttemptOut",
         "type": "object"
@@ -5083,12 +5344,12 @@
             "type": "string"
           },
           "entities": {
-            "description": "One run for each, in this order: at most 100.",
+            "description": "One run for each, in this order: at most 1000.",
             "items": {
               "format": "uuid",
               "type": "string"
             },
-            "maxItems": 100,
+            "maxItems": 1000,
             "minItems": 1,
             "title": "Entities",
             "type": "array"
@@ -5143,6 +5404,9 @@
       },
       "RunBatchOut": {
         "properties": {
+          "batch": {
+            "$ref": "#/components/schemas/BatchOut"
+          },
           "runs": {
             "items": {
               "$ref": "#/components/schemas/RunOut"
@@ -5152,6 +5416,7 @@
           }
         },
         "required": [
+          "batch",
           "runs"
         ],
         "title": "RunBatchOut",
@@ -5206,6 +5471,18 @@
             ],
             "description": "Only runs of this action.",
             "title": "Action"
+          },
+          "batch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only runs of this batch (its ID or HRID), in the order it launched them.",
+            "title": "Batch"
           },
           "cursor": {
             "anyOf": [
@@ -5351,6 +5628,17 @@
           "attempts": {
             "title": "Attempts",
             "type": "integer"
+          },
+          "batch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The batch it was launched in, if any."
           },
           "can": {
             "$ref": "#/components/schemas/RunCan"
@@ -5555,6 +5843,7 @@
           "client",
           "approval",
           "reason",
+          "batch",
           "tier",
           "environment",
           "params",
@@ -7637,6 +7926,199 @@
           }
         ],
         "summary": "Run an action on each of several entities",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/batches": {
+      "get": {
+        "description": "Newest first. A batch is the runs of one action launched together, one for each of\nseveral entities; `GET /runs?batch=` lists them.",
+        "operationId": "iki_server_api_runs_list_batches",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only batches in this project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only batches in this project.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "Only batches of this action.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only batches of this action.",
+              "title": "Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_BatchOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Batches you can read",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/batches/{ref}": {
+      "get": {
+        "description": "By its ID or HRID (BAT-000123).",
+        "operationId": "iki_server_api_runs_get_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A batch",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/batches/{ref}/cancel": {
+      "post": {
+        "description": "Cancels each of its runs that hasn't finished, as `POST /runs/{ref}/cancel` would.",
+        "operationId": "iki_server_api_runs_cancel_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Cancel a batch",
         "tags": [
           "runs"
         ]
@@ -10774,6 +11256,24 @@
               ],
               "description": "Only runs in this project.",
               "title": "Project"
+            }
+          },
+          {
+            "description": "Only runs of this batch (its ID or HRID), in the order it launched them.",
+            "in": "query",
+            "name": "batch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs of this batch (its ID or HRID), in the order it launched them.",
+              "title": "Batch"
             }
           },
           {

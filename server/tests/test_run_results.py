@@ -115,7 +115,9 @@ def test_a_run_writes_its_results_with_provenance(world: World) -> None:
         }
     ]
     assert body["metrics"] == {"residues": 412}
-    assert body["messages"] == [{"level": "info", "text": "Used average isotopic masses."}]
+    assert body["messages"] == [
+        {"level": "info", "text": "Used average isotopic masses.", "entity": None}
+    ]
     assert Job.objects.get(pk=job["job"]["id"]).state == JobState.SUCCEEDED
 
     revision = Revision.objects.get(entity_id=entity_id, number=2)

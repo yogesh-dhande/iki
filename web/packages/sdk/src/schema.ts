@@ -84,6 +84,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Batches you can read
+         * @description Newest first. A batch is the runs of one action launched together, one for each of
+         *     several entities; `GET /runs?batch=` lists them.
+         */
+        get: operations["iki_server_api_runs_list_batches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/batches/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A batch
+         * @description By its ID or HRID (BAT-000123).
+         */
+        get: operations["iki_server_api_runs_get_batch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/batches/{ref}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a batch
+         * @description Cancels each of its runs that hasn't finished, as `POST /runs/{ref}/cancel` would.
+         */
+        post: operations["iki_server_api_runs_cancel_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collections": {
         parameters: {
             query?: never;
@@ -1686,6 +1747,11 @@ export interface components {
              * @description Whether it can run on this deployment.
              */
             available: boolean;
+            /**
+             * Batchable
+             * @description Up to how many runs of a batch one job runs at once (ADR 0055); 1 for one.
+             */
+            batchable: number;
             /** Creates */
             creates: components["schemas"]["CreatesOut"][];
             /** Description */
@@ -1833,6 +1899,122 @@ export interface components {
             error: string;
             /** Status Code */
             status_code: number | null;
+        };
+        /** AttemptPackOut */
+        AttemptPackOut: {
+            /**
+             * Reported As
+             * @description The run its worker held the job as (its HRID). The job's log, progress and network use are every one of its runs'.
+             */
+            reported_as: string;
+            /**
+             * Runs
+             * @description How many runs of its batch its job ran at once, this one too.
+             */
+            runs: number;
+        };
+        /** BatchCan */
+        BatchCan: {
+            /**
+             * Cancel
+             * @description Some of its runs haven't finished, and you may cancel them.
+             */
+            cancel: boolean;
+        };
+        /** BatchFilters */
+        BatchFilters: {
+            /**
+             * Action
+             * @description Only batches of this action.
+             */
+            action?: string | null;
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Only batches in this project.
+             */
+            project?: string | null;
+        };
+        /** BatchOut */
+        BatchOut: {
+            /** Action */
+            action: string;
+            can: components["schemas"]["BatchCan"];
+            /**
+             * Client
+             * @description The OAuth app it was asked for through, if any.
+             */
+            client: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Each
+             * @description The input each run took one entity for.
+             */
+            each: string;
+            /**
+             * Finished At
+             * @description When its last run finished, once all have.
+             */
+            finished_at: string | null;
+            /**
+             * Hrid
+             * @description Such as BAT-000123.
+             */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Reason */
+            reason: string;
+            requested_by: components["schemas"]["PersonRef"];
+            /**
+             * Size
+             * @description How many runs it launched.
+             */
+            size: number;
+            /**
+             * Statuses
+             * @description How many of its runs are in each status, for the statuses any are in.
+             */
+            statuses: {
+                [key: string]: number;
+            };
+            /** Via */
+            via: string;
+        };
+        /** BatchRefOut */
+        BatchRefOut: {
+            /**
+             * Hrid
+             * @description Such as BAT-000123.
+             */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /** CancelIn */
         CancelIn: {
@@ -2907,6 +3089,11 @@ export interface components {
         /** MessageOut */
         MessageOut: {
             /**
+             * Entity
+             * @description The input entity it's about, if any.
+             */
+            entity?: string | null;
+            /**
              * Level
              * @enum {string}
              */
@@ -3058,6 +3245,16 @@ export interface components {
              * @default 50
              */
             limit: number;
+        };
+        /** Page[BatchOut] */
+        Page_BatchOut_: {
+            /** Items */
+            items: components["schemas"]["BatchOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
         };
         /** Page[DeliverySummary] */
         Page_DeliverySummary_: {
@@ -3916,6 +4113,8 @@ export interface components {
              * @description The hosts it reached through the egress proxy, or tried to (ADR 0053).
              */
             network: components["schemas"]["EgressOut"][];
+            /** @description When it ran in one job with other runs of its batch (ADR 0055). */
+            pack: components["schemas"]["AttemptPackOut"] | null;
             /**
              * Progress
              * @description From 0 to 1, as its command reports it.
@@ -3951,7 +4150,7 @@ export interface components {
             each: string;
             /**
              * Entities
-             * @description One run for each, in this order: at most 100.
+             * @description One run for each, in this order: at most 1000.
              */
             entities: string[];
             /**
@@ -3983,6 +4182,7 @@ export interface components {
         };
         /** RunBatchOut */
         RunBatchOut: {
+            batch: components["schemas"]["BatchOut"];
             /** Runs */
             runs: components["schemas"]["RunOut"][];
         };
@@ -4007,6 +4207,11 @@ export interface components {
              * @description Only runs of this action.
              */
             action?: string | null;
+            /**
+             * Batch
+             * @description Only runs of this batch (its ID or HRID), in the order it launched them.
+             */
+            batch?: string | null;
             /**
              * Cursor
              * @description From the previous page's next_cursor.
@@ -4076,6 +4281,8 @@ export interface components {
             approval: components["schemas"]["RunApprovalOut"] | null;
             /** Attempts */
             attempts: number;
+            /** @description The batch it was launched in, if any. */
+            batch: components["schemas"]["BatchRefOut"] | null;
             can: components["schemas"]["RunCan"];
             /** Cancel Requested At */
             cancel_requested_at: string | null;
@@ -5084,6 +5291,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunBatchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_list_batches: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only batches in this project. */
+                project?: string | null;
+                /** @description Only batches of this action. */
+                action?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_BatchOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_get_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_cancel_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchOut"];
                 };
             };
         };
@@ -6509,6 +6793,8 @@ export interface operations {
                 limit?: number;
                 /** @description Only runs in this project. */
                 project?: string | null;
+                /** @description Only runs of this batch (its ID or HRID), in the order it launched them. */
+                batch?: string | null;
                 /** @description Only runs of this action. */
                 action?: string | null;
                 status?: components["schemas"]["RunStatus"] | null;

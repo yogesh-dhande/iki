@@ -1,6 +1,7 @@
 /**
  * Action runs, as the app reads them: a project's runs, one run, its
- * attempts and their logs, and live updates about a run while it's going.
+ * attempts and their logs, batches of runs, and live updates about a run or
+ * a batch while it's going.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
@@ -15,6 +16,7 @@ export type RunStatus = Run["status"];
 export type Attempt = Schemas["RunAttemptOut"];
 export type AttemptState = Attempt["state"];
 export type Action = Schemas["ActionOut"];
+export type Batch = Schemas["BatchOut"];
 
 export const RUNS = ["runs"] as const;
 
@@ -86,23 +88,35 @@ export function actionsTakingQuery(types: string[]) {
   });
 }
 
-/** The most entities one launch takes: the server's batch limit. */
-export const MAX_BATCH = 100;
+/**
+ * The most entities one launch here takes. The API takes up to 1000 in a batch, but the
+ * app names them in the new run's address, which proxies may refuse past about 8 KB.
+ */
+export const MAX_BATCH = 200;
 
 /** Entities by HRID, as a new run's address names them. */
 export function entitiesByHridQuery(hrids: string[]) {
   return queryOptions({
     queryKey: ["entities", "by-hrid", ...hrids],
-    queryFn: async () =>
-      unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: {
-            where: { field: "hrid", op: "in", value: hrids },
-            exact_type: false,
-            limit: MAX_BATCH,
-          },
-        }),
-      ).items,
+    queryFn: async () => {
+      const found: Schemas["EntityOut"][] = [];
+      let cursor: string | undefined;
+      do {
+        const page = unwrap(
+          await iki.POST("/api/v1/entities/search", {
+            body: {
+              where: { field: "hrid", op: "in", value: hrids },
+              exact_type: false,
+              limit: 100,
+              ...(cursor ? { cursor } : {}),
+            },
+          }),
+        );
+        found.push(...page.items);
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor);
+      return found;
+    },
   });
 }
 
@@ -141,6 +155,37 @@ export function runQuery(ref: string) {
   });
 }
 
+/** A batch, by ID or HRID (BAT-000123). */
+export function batchQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...RUNS, "batch", ref.toUpperCase()],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/batches/{ref}", { params: { path: { ref } } })),
+  });
+}
+
+/** A batch's runs, in the order it launched them, a page at a time. */
+export function batchRunsQuery(ref: string, status?: RunStatus) {
+  return infiniteQueryOptions({
+    queryKey: [...RUNS, "list", "batch", ref.toUpperCase(), status ?? "all"],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await iki.GET("/api/v1/runs", {
+          params: {
+            query: {
+              batch: ref,
+              limit: 100,
+              ...(status ? { status } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
 export function attemptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "attempts", ref.toUpperCase()],
@@ -168,6 +213,10 @@ export function runEventsUrl(ref: string): string {
   return `/api/v1/runs/${encodeURIComponent(ref)}/events`;
 }
 
+export function batchEventsUrl(ref: string): string {
+  return `/api/v1/batches/${encodeURIComponent(ref)}/events`;
+}
+
 function parse(event: MessageEvent<string>): Record<string, unknown> {
   try {
     const data: unknown = JSON.parse(event.data);
@@ -184,10 +233,6 @@ function parse(event: MessageEvent<string>): Record<string, unknown> {
  * - `run` (its status, an attempt or progress changed) reads the run and its
  *   attempts again.
  * - `log` says how big an attempt's log is now; `onLog` fetches what's new.
- * - Every `ready` after the first means something may have been missed while
- *   it was reconnecting, so everything is read again.
- * - Like the app's own stream, a tab hidden for a while closes it, and one the
- *   server refused tries again later.
  */
 export function useRunUpdates(
   ref: string,
@@ -199,18 +244,79 @@ export function useRunUpdates(
   useEffect(() => {
     logged.current = onLog;
   });
+  useStream(
+    runEventsUrl(ref),
+    enabled,
+    () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: runQuery(ref).queryKey }),
+        client.invalidateQueries({ queryKey: attemptsQuery(ref).queryKey }),
+      ]),
+    (event, data) => {
+      const attempt = data["attempt"];
+      const size = data["size"];
+      if (event === "log" && typeof attempt === "number" && typeof size === "number") {
+        logged.current(attempt, size);
+      }
+    },
+  );
+}
+
+/**
+ * Keeps a batch's page current while its runs are going: each `run` event (one of its
+ * runs started or ended) reads the batch and its runs again, at most every half second.
+ */
+export function useBatchUpdates(ref: string, enabled: boolean): void {
+  const client = useQueryClient();
+  const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(pending.current);
+    },
+    [],
+  );
+  useStream(batchEventsUrl(ref), enabled, () => {
+    // A pack's runs start and end together: one read for them all.
+    pending.current ??= setTimeout(() => {
+      pending.current = undefined;
+      void Promise.all([
+        client.invalidateQueries({ queryKey: batchQuery(ref).queryKey }),
+        client.invalidateQueries({ queryKey: [...RUNS, "list", "batch", ref.toUpperCase()] }),
+      ]);
+    }, BATCH_REFRESH_MS);
+    return Promise.resolve();
+  });
+}
+
+/** How long a batch's page gathers news of its runs before reading them again. */
+export const BATCH_REFRESH_MS = 500;
+
+/**
+ * One EventSource on `url` while `enabled`, signed in with the browser session.
+ *
+ * - `run` and `resync` call `refresh`; other events go to `onEvent`.
+ * - Every `ready` after the first means something may have been missed while
+ *   it was reconnecting, so `refresh` is called.
+ * - Like the app's own stream, a tab hidden for a while closes it, and one the
+ *   server refused tries again later.
+ */
+function useStream(
+  url: string,
+  enabled: boolean,
+  refresh: () => Promise<unknown>,
+  onEvent?: (event: string, data: Record<string, unknown>) => void,
+): void {
+  const handlers = useRef({ refresh, onEvent });
+  useEffect(() => {
+    handlers.current = { refresh, onEvent };
+  });
   useEffect(() => {
     if (!enabled || typeof EventSource === "undefined") return;
     let source: EventSource | undefined;
     let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let readyBefore = false;
-
-    const refresh = () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: runQuery(ref).queryKey }),
-        client.invalidateQueries({ queryKey: attemptsQuery(ref).queryKey }),
-      ]);
+    const reread = () => void handlers.current.refresh();
 
     const close = () => {
       source?.close();
@@ -219,21 +325,16 @@ export function useRunUpdates(
 
     const open = () => {
       if (source || isSignedOut()) return;
-      const stream = new EventSource(runEventsUrl(ref), { withCredentials: true });
+      const stream = new EventSource(url, { withCredentials: true });
       source = stream;
       stream.addEventListener("ready", () => {
-        if (readyBefore) void refresh();
+        if (readyBefore) reread();
         readyBefore = true;
       });
-      stream.addEventListener("run", () => void refresh());
-      stream.addEventListener("resync", () => void refresh());
+      stream.addEventListener("run", reread);
+      stream.addEventListener("resync", reread);
       stream.addEventListener("log", (event: MessageEvent<string>) => {
-        const data = parse(event);
-        const attempt = data["attempt"];
-        const size = data["size"];
-        if (typeof attempt === "number" && typeof size === "number") {
-          logged.current(attempt, size);
-        }
+        handlers.current.onEvent?.("log", parse(event));
       });
       stream.addEventListener("signed_out", () => {
         close();
@@ -267,5 +368,5 @@ export function useRunUpdates(
       clearTimeout(retryTimer);
       close();
     };
-  }, [client, ref, enabled]);
+  }, [url, enabled]);
 }

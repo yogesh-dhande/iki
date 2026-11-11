@@ -33,6 +33,7 @@ APP_PAGES = [
     "/projects/a-b/runs/",
     "/projects/a-b/runs/new/",
     "/runs/RUN-000001/",
+    "/batches/BAT-000001/",
 ]
 
 

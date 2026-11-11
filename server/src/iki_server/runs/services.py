@@ -34,19 +34,31 @@ from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
 from iki_server.runs import approvals, catalog, live, queue, quotas
 from iki_server.runs.models import (
+    BATCH_HRID_PREFIX,
+    BATCH_HRID_SEQUENCE,
+    FINISHED,
     HRID_PREFIX,
     HRID_SEQUENCE,
     ActionRun,
     Job,
     JobState,
     RunApproval,
+    RunBatch,
     RunInput,
     RunStatus,
 )
 from iki_spec.model import Action
 from iki_spec.validate import value_problems
 
-__all__ = ["TIER_PERMISSIONS", "cancel", "launch", "visible_runs"]
+__all__ = [
+    "TIER_PERMISSIONS",
+    "cancel",
+    "cancel_batch",
+    "launch",
+    "launch_each",
+    "visible_batches",
+    "visible_runs",
+]
 
 #: The project permission each tier needs (Editor for client and backend, Runner above).
 TIER_PERMISSIONS = {
@@ -60,6 +72,11 @@ TIER_PERMISSIONS = {
 def visible_runs(user: Any) -> QuerySet[ActionRun]:  # noqa: ANN401 - User or AnonymousUser
     """Runs in projects whose data the user can read."""
     return ActionRun.objects.filter(project__in=access.readable_projects(user).values("pk"))
+
+
+def visible_batches(user: Any) -> QuerySet[RunBatch]:  # noqa: ANN401 - User or AnonymousUser
+    """Batches in projects whose data the user can read."""
+    return RunBatch.objects.filter(project__in=access.readable_projects(user).values("pk"))
 
 
 def launch(
@@ -86,7 +103,9 @@ def launch(
         approval = approvals.ask(user, action, project)
         run = _queue(user, action, project, entities, values, reason, approval)
         if approval is not None:
-            approvals.announce(approval, run, 1, action.label or action.qualified_name)
+            approvals.announce(
+                approval, 1, action.label or action.qualified_name, path=f"/runs/{run.hrid}/"
+            )
         return run
 
 
@@ -127,12 +146,44 @@ def launch_each(
     with transaction.atomic():
         # One request, one approval: a batch is approved or declined together.
         approval = approvals.ask(user, action, project, runs=len(chosen))
+        batch = RunBatch.objects.create(
+            hrid=_next_hrid(BATCH_HRID_PREFIX, BATCH_HRID_SEQUENCE),
+            action=action.qualified_name,
+            project=project,
+            requested_by=user,
+            via=audit.current_via(),
+            client=audit.current_oauth_client(),
+            reason=reason,
+            each=each,
+            size=len(chosen),
+        )
         runs = [
-            _queue(user, action, project, {**entities, each: [entity]}, values, reason, approval)
+            _queue(
+                user,
+                action,
+                project,
+                {**entities, each: [entity]},
+                values,
+                reason,
+                approval,
+                batch=batch,
+            )
             for entity in chosen
         ]
+        audit.record(
+            "run.batch_launched",
+            actor=user,
+            target=batch,
+            project=project,
+            data={"action": action.qualified_name, "tier": action.tier, "runs": len(runs)},
+        )
         if approval is not None and runs:
-            approvals.announce(approval, runs[0], len(runs), action.label or action.qualified_name)
+            approvals.announce(
+                approval,
+                len(runs),
+                action.label or action.qualified_name,
+                path=f"/batches/{batch.hrid}/",
+            )
         return runs
 
 
@@ -174,6 +225,8 @@ def _queue(
     values: dict[str, Any],
     reason: str,
     approval: RunApproval | None = None,
+    *,
+    batch: RunBatch | None = None,
 ) -> ActionRun:
     """Queues the run, or holds it for `approval`. Call inside a transaction, with its
     inputs and params checked."""
@@ -185,6 +238,7 @@ def _queue(
         approval=approval,
         client=audit.current_oauth_client(),
         hrid=_next_hrid(),
+        batch=batch,
         action=action.qualified_name,
         plugin_version=registry.plugins()[action.plugin].version,
         plugin_sha=plugin_sha(action.plugin),
@@ -227,6 +281,7 @@ def _queue(
             "tier": action.tier,
             "inputs": sum(len(e) for e in entities.values()),
             **({"approval": str(approval.pk)} if approval else {}),
+            **({"batch": batch.hrid} if batch else {}),
         },
     )
     return run
@@ -324,11 +379,11 @@ def _params(
     return values
 
 
-def _next_hrid() -> str:
+def _next_hrid(prefix: str = HRID_PREFIX, sequence: str = HRID_SEQUENCE) -> str:
     with connection.cursor() as cursor:
-        cursor.execute("SELECT nextval(%s::regclass)", [HRID_SEQUENCE])
+        cursor.execute("SELECT nextval(%s::regclass)", [sequence])
         (number,) = cursor.fetchone()
-    return hrids.format_hrid(HRID_PREFIX, 6, number)
+    return hrids.format_hrid(prefix, 6, number)
 
 
 def plugin_sha(plugin: str) -> str:
@@ -337,6 +392,39 @@ def plugin_sha(plugin: str) -> str:
         if entry.get("name") == plugin:
             return str(entry.get("sha") or "")
     return ""
+
+
+def cancel_batch(user: User, batch: RunBatch, *, reason: str = "") -> int:
+    """Cancel every run of the batch that hasn't finished, as :func:`cancel` would each.
+    Returns how many it cancelled or asked to stop."""
+    if not permissions.can(user, TIER_PERMISSIONS[_batch_tier(batch)], batch.project):
+        raise PermissionDenied
+    count = 0
+    with transaction.atomic():
+        unfinished = (
+            ActionRun.objects.filter(batch=batch, cancel_requested_at__isnull=True)
+            .exclude(status__in=sorted(s.value for s in FINISHED))
+            .order_by("id")
+        )
+        for run in unfinished:
+            try:
+                cancel(user, run, reason=reason)
+            except Refused:
+                continue  # it finished meanwhile
+            count += 1
+        audit.record(
+            "run.batch_cancelled",
+            actor=user,
+            target=batch,
+            project=batch.project,
+            data={"runs": count, **({"reason": reason} if reason else {})},
+        )
+    return count
+
+
+def _batch_tier(batch: RunBatch) -> str:
+    tier = ActionRun.objects.filter(batch=batch).values_list("tier", flat=True).first()
+    return tier or "backend"
 
 
 def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
@@ -385,7 +473,8 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             audit.record(
                 "run.cancel_requested", actor=user, target=run, project=run.project, data=data
             )
-            # Its worker is watching for this: the command stops within a second.
-            queue.notify_job(job.pk)
-        live.changed(run.pk)
+            # Its worker is watching for this: the command stops within a second. In a
+            # packed job, it stops once every run in it is cancelled (ADR 0055).
+            queue.notify_job(job.packed_into_id or job.pk)
+        live.changed(run.pk, run.batch_id)
     return run

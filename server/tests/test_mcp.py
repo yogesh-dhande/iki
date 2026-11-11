@@ -161,6 +161,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "get_run_log",
         "run_action",
         "run_batch",
+        "get_batch",
         "cancel_run",
     ]
     writes = {
@@ -453,10 +454,16 @@ async def test_agents_run_actions_and_costly_runs_wait_for_the_person(
             reason="The rest of them",
         )
     )
-    assert [(r["inputs"][0]["hrid"], r["status"]) for r in batch["runs"]] == [
-        (src["hrid"], "queued"),
-        (lck["hrid"], "queued"),
+    assert [(r["entities"], r["status"]) for r in batch["runs"]] == [
+        ([src["hrid"]], "queued"),
+        ([lck["hrid"]], "queued"),
     ]
+    assert batch["batch"]["statuses"] == {"queued": 2}
+    followed = data(await tool(token, "get_batch", ref=batch["batch"]["hrid"]))
+    assert followed["batch"]["hrid"] == batch["batch"]["hrid"]
+    assert [r["hrid"] for r in followed["runs"]] == [r["hrid"] for r in batch["runs"]]
+    none = data(await tool(token, "get_batch", ref=batch["batch"]["hrid"], status="failed"))
+    assert none["runs"] == []
 
     # The vm tier waits for the person, and the agent is told where they approve it.
     predicted = await tool(

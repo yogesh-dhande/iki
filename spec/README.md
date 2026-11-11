@@ -250,7 +250,7 @@ runs_on: { tier: vm, environment: alphafold-gpu, lifecycle: ephemeral, resources
 command: [python, /app/run.py] # a list of arguments, no shell; ./path is a file in the plugin
 deterministic: true # the same inputs give the same results, so runs can be reused
 checkpointable: true # saves progress in $IKI_CHECKPOINT_DIR and resumes
-batchable: 1 # more than 1 runs one job on several entities (one input only)
+batchable: 1 # more than 1 packs up to that many runs of a batch into one job (one input only)
 artifacts: { keep: ["msas/**", ranking_debug.json], retention: 365d }
 network: [] # hosts a run may reach; none by default
 secrets: [] # e.g. [LIMS_TOKEN, { name: NCBI_API_KEY, required: false, description: ... }]
@@ -564,6 +564,30 @@ command made:
 and `media_type` to a guess from its extension. The worker uploads it for
 this run and puts the new file's ID in its place, so only files this run
 uploaded can be attached. Iki writes all of it in one transaction, or none.
+A message can name the input `entity` it's about. One at level `error`
+fails that entity's run, which then writes nothing.
+
+### Batches and packing
+
+Launching an action on several entities at once makes a batch
+(`BAT-000123`) of runs, one for each
+([ADR 0055](../docs/adr/0055-batches-and-packing.md)). An action that's
+`batchable: N` runs up to N of a batch's runs in one job: its one input
+lists all their entities, and `pack` says which is whose:
+
+```json
+"pack": [
+  { "run": "…", "hrid": "RUN-000123", "entity": "…" },
+  { "run": "…", "hrid": "RUN-000124", "entity": "…" }
+]
+```
+
+Iki splits the output back into each run's own: updates by their `entity`,
+new entities by their `derived_from` (which a packed job must give), and
+messages by their `entity` (one without goes to every run). Metrics go to
+every run. Each run's part is then checked and written on its own, so one
+entity's bad result fails only its run. To fail one entity and go on with
+the rest, report an `error` message about it.
 
 ## YAML
 

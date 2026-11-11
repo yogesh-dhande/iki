@@ -240,6 +240,29 @@ def test_a_worker_runs_a_job_and_its_results_are_written(
     assert Worker.objects.get(name="e2e-worker").revoked_at is not None
 
 
+def test_a_worker_runs_a_batchs_runs_in_one_job(
+    world: World, start: Callable[..., Running]
+) -> None:
+    from test_run_batches import batch
+
+    launched = batch(world)
+    code, said = start(registration(world), "--once").wait()
+    assert code == 0, said
+    weigh = runpy.run_path(str(PLUGINS / "protein/scripts/properties.py"))["weight"]
+    for run in launched["runs"]:
+        body = api_as(world).get(f"/runs/{run['id']}").json()
+        assert body["status"] == "succeeded", log_of(launched["runs"][0])
+        protein = api_as(world).get(f"/entities/{run['inputs'][0]['entity']}").json()
+        assert protein["values"]["molecular_weight"] == pytest.approx(
+            weigh(protein["values"]["sequence"])
+        )
+    held = Job.objects.get(run_id=launched["runs"][0]["id"])
+    assert Job.objects.filter(packed_into=held).count() == 2
+    assert (held.progress, held.progress_message) == (1.0, "Weighed 3 of 3")
+    log = log_of(launched["runs"][0])
+    assert all(run["inputs"][0]["hrid"] in log for run in launched["runs"])
+
+
 def test_a_command_that_fails_fails_the_run_with_its_log(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:

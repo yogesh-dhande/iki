@@ -641,8 +641,19 @@ def test_picking_rows_and_running_an_action_on_each(open_as: Any, world: World) 
     page.get_by_text("One run for each of these 2").wait_for()
     assert_clean(page)
     page.get_by_role("button", name="Start 2 runs").click()
-    page.get_by_text("Started 2 runs of Compute properties.").wait_for()
+    # The batch's page follows them.
+    page.get_by_text(re.compile(r"^Started 2 runs of Compute properties, as BAT-")).wait_for()
+    page.get_by_role("region", name="2 runs, one for each Protein").wait_for()
+    runs = page.get_by_role("link", name=re.compile(r"^On PRT-"))
+    runs.first.wait_for()
+    assert runs.count() == 2
     assert ActionRun.objects.count() == 2
+    assert page.evaluate("window.__cspViolations") == [] and PAGE_ERRORS[page] == []
+    if page.context.browser and page.context.browser.browser_type.name == "firefox":
+        # Firefox's content process crashes when axe's aria-allowed-attr check runs on
+        # this page straight after the app navigates to it; loaded, it's checked in full.
+        page.reload()
+        runs.first.wait_for()
     assert_clean(page)
 
 

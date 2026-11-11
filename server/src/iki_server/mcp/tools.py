@@ -90,8 +90,9 @@ def answer(data: Any, *, note: str = "") -> CallToolResult:  # noqa: ANN401 - JS
     )
 
 
-def waiting(runs: list[dict[str, Any]]) -> str:
-    """What to tell the agent when runs it started wait for the person's approval."""
+def waiting(runs: list[dict[str, Any]], *, page: str = "") -> str:
+    """What to tell the agent when runs it started wait for the person's approval, on
+    `page` (the first run's, by default)."""
     held = [run for run in runs if run.get("status") == RunStatus.AWAITING_APPROVAL]
     if not held:
         return ""
@@ -105,7 +106,7 @@ def waiting(runs: list[dict[str, Any]]) -> str:
     return (
         f"{what} for the person's approval: {verb} on the {first.get('tier')} tier, which "
         "an agent can't start alone. Ask them to approve or decline in Iki at "
-        f"{web_url(f'/runs/{first["hrid"]}/')}"
+        f"{web_url(page or f'/runs/{first["hrid"]}/')}"
         + (f" before {expires}" if expires else "")
         + f". You can't approve {them} yourself; get_run shows when it's decided."
     )
@@ -445,8 +446,37 @@ def build() -> MCPServer:
             "params": params or {},
             "reason": reason,
         }
-        batch = await call("POST", path("/actions/{name}/runs/batch", name=name), body=body)
-        return answer(batch, note=waiting(batch["runs"]))
+        made = await call("POST", path("/actions/{name}/runs/batch", name=name), body=body)
+        batch = made["batch"]
+        return answer(
+            {"batch": batch, "runs": [_brief(run) for run in made["runs"]]},
+            note=waiting(made["runs"], page=f"/batches/{batch['hrid']}/"),
+        )
+
+    @server.tool(annotations=READ, title="Get a batch")
+    async def get_batch(
+        ref: Annotated[str, Field(description="The batch's ID or HRID, such as BAT-000123.")],
+        status: Annotated[
+            RunStatus | None, Field(description="Only its runs with this status.")
+        ] = None,
+    ) -> CallToolResult:
+        """A batch launched with run_batch: how many of its runs are in each status, and
+        each run (its HRID, status and entity), in launch order. get_run tells more."""
+        found = await call("GET", path("/batches/{ref}", ref=ref))
+        runs: list[dict[str, Any]] = []
+        cursor = None
+        while True:
+            query: dict[str, Any] = {"batch": found["id"], "limit": 100}
+            if status is not None:
+                query["status"] = status
+            if cursor:
+                query["cursor"] = cursor
+            listed = await call("GET", "/runs", query=query)
+            runs += [_brief(run) for run in listed["items"]]
+            cursor = listed.get("next_cursor")
+            if not cursor:
+                break
+        return answer({"batch": found, "runs": runs})
 
     @server.tool(annotations=CHANGE, title="Cancel a run")
     async def cancel_run(ref: Ref, reason: RunReason) -> CallToolResult:
@@ -457,6 +487,17 @@ def build() -> MCPServer:
         )
 
     return server
+
+
+def _brief(run: dict[str, Any]) -> dict[str, Any]:
+    """A run in a batch, in a few words: a batch has up to 1000."""
+    return {
+        "id": run["id"],
+        "hrid": run["hrid"],
+        "status": run["status"],
+        "entities": [i["hrid"] for i in run["inputs"]],
+        **({"error": run["error"]["message"]} if run.get("error") else {}),
+    }
 
 
 def _ids(inputs: dict[str, UUID | list[UUID]] | None) -> dict[str, str | list[str]]:

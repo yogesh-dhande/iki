@@ -31,6 +31,9 @@ TIERS = ("client", "backend", "container", "vm")
 #: The HRID sequence runs are numbered from (RUN-000001).
 HRID_PREFIX = "RUN"
 HRID_SEQUENCE = "iki_hrid_run"
+#: And batches (BAT-000001).
+BATCH_HRID_PREFIX = "BAT"
+BATCH_HRID_SEQUENCE = "iki_hrid_batch"
 
 
 class RunStatus(models.TextChoices):
@@ -141,6 +144,43 @@ class RunApproval(models.Model):
         return f"approval {self.pk} ({self.state})"
 
 
+class RunBatch(models.Model):
+    """Runs of one action launched together, one for each of several entities (ADR 0055).
+
+    Each run keeps its own inputs, provenance, retries and results; the batch is what they
+    were asked for as, and where people follow them together.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    hrid = models.CharField(max_length=32, unique=True, db_comment="Such as BAT-000123.")
+    action = models.CharField(max_length=200)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    via = models.CharField(max_length=16)
+    client = models.CharField(max_length=255, blank=True, default="")
+    reason = models.TextField(blank=True, default="")
+    #: The input each run took one entity for.
+    each = models.CharField(max_length=63)
+    #: How many runs it launched.
+    size = models.PositiveIntegerField()
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_run_batch"
+        db_table_comment = "Runs of one action launched together, one for each of several entities."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["project", "id"], name="iki_run_batch_project"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(size__gte=1), name="iki_run_batch_size"),
+        ]
+
+    def __str__(self) -> str:
+        return self.hrid
+
+
 class ActionRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     hrid = models.CharField(max_length=32, unique=True, db_comment="Such as RUN-000123.")
@@ -164,6 +204,10 @@ class ActionRun(models.Model):
         RunApproval, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
     )
     reason = models.TextField(blank=True, default="")
+    #: The batch it was launched in, if any.
+    batch = models.ForeignKey(
+        RunBatch, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
+    )
     tier = models.CharField(max_length=16)
     environment = models.CharField(max_length=63)
     #: Every param's value, defaults filled in.
@@ -199,6 +243,11 @@ class ActionRun(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["project", "id"], name="iki_action_run_project"),
             models.Index(fields=["action", "id"], name="iki_action_run_action"),
+            models.Index(
+                fields=["batch", "id"],
+                name="iki_action_run_batch",
+                condition=Q(batch__isnull=False),
+            ),
             models.Index(
                 fields=["status", "id"],
                 name="iki_action_run_unfinished",
@@ -377,6 +426,11 @@ class Job(models.Model):
     error = models.JSONField(null=True, blank=True)
     #: The names of the secrets its worker was given, never their values (ADR 0054).
     secrets = models.JSONField(default=list)
+    #: For an action that's ``batchable``: the job this attempt ran in, with other runs of
+    #: its batch (ADR 0055). Its worker holds and reports on that one; this one follows it.
+    packed_into = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.RESTRICT, related_name="packed"
+    )
 
     class Meta:
         db_table = "iki_job"
@@ -389,6 +443,11 @@ class Job(models.Model):
                 "queued_at",
                 name="iki_job_queued",
                 condition=Q(state=JobState.QUEUED),
+            ),
+            models.Index(
+                fields=["packed_into"],
+                name="iki_job_packed",
+                condition=Q(packed_into__isnull=False),
             ),
             # Leases a worker stopped renewing.
             models.Index(
@@ -405,6 +464,11 @@ class Job(models.Model):
             models.CheckConstraint(
                 condition=Q(tier="client", owner__isnull=False) | ~Q(tier="client"),
                 name="iki_job_client_owner",
+            ),
+            # Only the job a worker holds has a lease.
+            models.CheckConstraint(
+                condition=Q(packed_into__isnull=True) | Q(lease_token__isnull=True),
+                name="iki_job_packed_unleased",
             ),
         ]
 

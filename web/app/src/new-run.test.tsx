@@ -7,7 +7,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { entity, field, KINASE, PROTEIN_ID, renderApp, withTypes } from "./entity-fixtures";
-import { ACTION, run } from "./run-fixtures";
+import { ACTION, batch, run } from "./run-fixtures";
 import { answer, calls, page, problem, project } from "./test-server";
 import type { Schemas } from "@ikisci/sdk";
 
@@ -144,12 +144,18 @@ describe("starting a run", () => {
     });
 
     answer(`POST /api/v1/actions/${ACTION.name}/runs/batch`, () => ({
+      batch: batch({ size: 2, statuses: { queued: 2 } }),
       runs: [run(), run({ hrid: "RUN-000002" })],
     }));
+    answer("GET /api/v1/batches/BAT-000001", batch({ size: 2, statuses: { queued: 2 } }));
     answer("GET /api/v1/runs", page([]));
     await user.click(screen.getByRole("button", { name: "Start 2 runs" }));
-    expect(await screen.findByText("Started 2 runs of Compute properties.")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Runs" })).toHaveAttribute("aria-current", "page");
+    expect(
+      await screen.findByText("Started 2 runs of Compute properties, as BAT-000001."),
+    ).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Compute properties BAT-000001",
+    );
   });
 
   it("imports from a file in the project, with no entities to choose", async () => {

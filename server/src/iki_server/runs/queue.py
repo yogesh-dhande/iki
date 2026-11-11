@@ -14,6 +14,14 @@ replaced it: a fencing token.
 An attempt that ends badly is retried as a new job when the action's
 ``retries.on`` lists the reason and attempts remain, after a short backoff.
 Otherwise the run ends. A cancelled run ends cancelled, whatever happened.
+
+An action that's ``batchable`` runs several runs of a batch in one job
+(ADR 0055). The worker leases one of them; up to ``batchable - 1`` more
+queued runs of the same batch are *packed into* it, and its command gets
+all their entities. Those attempts follow the one the worker holds: its
+state, progress and log are theirs, and it counts once against quotas.
+Its results are split back into each run's own, and each run ends, or is
+retried, on its own.
 """
 
 from __future__ import annotations
@@ -163,7 +171,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
     """Leases the best job this worker can run, with what it needs to run it; None if none."""
     now = timezone.now()
     active = (
-        Job.objects.filter(project=OuterRef("project"), state__in=HELD)
+        Job.objects.filter(project=OuterRef("project"), state__in=HELD, packed_into__isnull=True)
         .values("project")
         .annotate(n=Count("pk"))
         .values("n")
@@ -193,12 +201,15 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         )
         if job is None:
             return None
+        run = ActionRun.objects.select_for_update().get(pk=job.run_id)
+        members = _pack(job, run)
+        build = _build(worker, job.environment)
         job.state = JobState.LEASED
         job.worker = worker
         job.lease_token = uuid.uuid4()
         job.lease_expires_at = now + LEASE_TTL
         job.started_at = now
-        job.environment_build = _build(worker, job.environment)
+        job.environment_build = build
         job.save(
             update_fields=[
                 "state",
@@ -209,12 +220,54 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
                 "environment_build",
             ]
         )
-        run = ActionRun.objects.select_for_update().get(pk=job.run_id)
-        run.status = RunStatus.RUNNING
-        run.started_at = run.started_at or now
-        run.save(update_fields=["status", "started_at"])
-        live.changed(run.pk)
+        Job.objects.filter(pk__in=[m.pk for m in members]).update(
+            state=JobState.LEASED,
+            worker=worker,
+            started_at=now,
+            environment_build=build,
+            packed_into=job,
+        )
+        runs = [
+            run,
+            *ActionRun.objects.select_for_update()
+            .filter(pk__in=[m.run_id for m in members])
+            .order_by("id"),
+        ]
+        for each in runs:
+            each.status = RunStatus.RUNNING
+            each.started_at = each.started_at or now
+            each.save(update_fields=["status", "started_at"])
+            live.changed(each.pk, each.batch_id)
         return job, payload(job, run)
+
+
+def _pack(job: Job, run: ActionRun) -> list[Job]:
+    """For a ``batchable`` action: more queued jobs of the run's batch, locked, that the
+    same command can run at once with `job` (ADR 0055)."""
+    size = int(run.spec.get("batchable") or 1)
+    if size <= 1 or run.batch_id is None:
+        return []
+    return list(
+        Job.objects.filter(
+            state=JobState.QUEUED,
+            run__batch_id=run.batch_id,
+            run__plugin_version=run.plugin_version,
+            run__plugin_sha=run.plugin_sha,
+            tier=job.tier,
+            environment=job.environment,
+            owner=job.owner_id,
+            queued_at__lte=Now(),
+        )
+        .exclude(pk=job.pk)
+        .order_by("queued_at", "id")
+        .select_for_update(skip_locked=True, of=("self",))[: size - 1]
+    )
+
+
+def packed(job: Job) -> list[Job]:
+    """The attempts packed into `job`, with their runs, in the order their entities are
+    given to the command."""
+    return list(Job.objects.filter(packed_into=job).select_related("run").order_by("run_id"))
 
 
 def payload(job: Job, run: ActionRun) -> dict[str, Any]:
@@ -223,7 +276,18 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
 
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in run.spec["inputs"]}
     files: set[uuid.UUID] = input_files.of_params(run)
-    rows = RunInput.objects.filter(run=run).select_related("entity").order_by("name", "position")
+    members = packed(job)
+    runs = [run, *(m.run for m in members)]
+    order = {r.pk: n for n, r in enumerate(runs)}
+    rows = sorted(
+        RunInput.objects.filter(run__in=[r.pk for r in runs]).select_related("entity"),
+        key=lambda row: (row.name, order[row.run_id], row.position),
+    )
+    hrids = {r.pk: r.hrid for r in runs}
+    pack = [
+        {"run": str(row.run_id), "hrid": hrids[row.run_id], "entity": str(row.entity_id)}
+        for row in rows
+    ]
     for row in rows:
         entity = row.entity
         values = services.values_at(entity, row.revision)
@@ -246,6 +310,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
     if sorted(given) != job.secrets:
         job.secrets = sorted(given)
         job.save(update_fields=["secrets"])
+        Job.objects.filter(packed_into=job).update(secrets=job.secrets)
     return {
         "apiVersion": "iki/v1",
         "kind": "RunInput",
@@ -277,6 +342,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "settings": run.plugin_settings,
         "inputs": inputs,
         "files": input_files.describe(files),
+        **({"pack": pack} if members else {}),
     }
 
 
@@ -308,8 +374,15 @@ def held(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> Job:
 def cancel_requested(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> bool:
     """Whether the job's run was cancelled, if this worker holds its lease. Reads only:
     it doesn't renew the lease, as heartbeats do."""
-    job = _holds(Job.objects.filter(pk=job_id, worker=worker).first(), token)
-    return ActionRun.objects.filter(pk=job.run_id, cancel_requested_at__isnull=False).exists()
+    return _cancelled(_holds(Job.objects.filter(pk=job_id, worker=worker).first(), token))
+
+
+def _cancelled(job: Job) -> bool:
+    """Whether the command should stop: its run was cancelled, or, for a packed job, every
+    one of its runs was. Runs cancelled in a pack that goes on end cancelled when it ends,
+    with nothing written."""
+    runs = ActionRun.objects.filter(Q(pk=job.run_id) | Q(jobs__packed_into=job))
+    return not runs.filter(cancel_requested_at__isnull=True).exists()
 
 
 def heartbeat(
@@ -328,12 +401,13 @@ def heartbeat(
             job.state = state
             fields.append("state")
             live.changed(job.run_id)
+            for member in packed(job):
+                member.state = state
+                member.save(update_fields=["state"])
+                live.changed(member.run_id)
         job.lease_expires_at = timezone.now() + LEASE_TTL
         job.save(update_fields=fields)
-        cancelled = ActionRun.objects.filter(
-            pk=job.run_id, cancel_requested_at__isnull=False
-        ).exists()
-        return job.lease_expires_at, cancelled
+        return job.lease_expires_at, _cancelled(job)
 
 
 def progress(
@@ -345,6 +419,10 @@ def progress(
         job.progress_message = message[:500]
         job.save(update_fields=["progress", "progress_message"])
         live.changed(job.run_id)
+        for member in packed(job):
+            member.progress, member.progress_message = job.progress, job.progress_message
+            member.save(update_fields=["progress", "progress_message"])
+            live.changed(member.run_id)
 
 
 def append_log(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, offset: int, text: str) -> int:
@@ -364,6 +442,8 @@ def append_log(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, offset: int,
         job.log_size = end + size
         job.save(update_fields=["log_size"])
         live.logged(job.run_id, job.attempt, job.log_size)
+        for member in Job.objects.filter(packed_into=job).only("run_id", "attempt"):
+            live.logged(member.run_id, member.attempt, job.log_size)
         if end >= MAX_LOG_BYTES:
             return job.log_size  # past the limit: counted, not kept
         if end + size > MAX_LOG_BYTES:
@@ -389,7 +469,7 @@ def fail(
             "interrupted": JobState.INTERRUPTED,
             "cancelled": JobState.CANCELLED,
         }[reason]
-        return _end_attempt(job, state, reason, message[:2000])
+        return _end_pack(job, state, reason, message[:2000])
 
 
 def complete(
@@ -403,54 +483,93 @@ def complete(
     (an entity archived meanwhile, or the launcher's access gone). A run cancelled meanwhile
     writes nothing. None of these is retried: another attempt would end the same way.
     """
-    from iki_server.runs import results
+    from iki_server.runs import packs
 
     with transaction.atomic():
         job = held(worker, job_id, token)
-        run = (
-            ActionRun.objects.select_for_update()
+        members = list(Job.objects.select_for_update().filter(packed_into=job).order_by("run_id"))
+        runs = {
+            r.pk: r
+            for r in ActionRun.objects.select_for_update()
             .select_related("project__team", "requested_by")
-            .get(pk=job.run_id)
-        )
-        RunOutput.objects.create(run=run, job=job, document=document)
-        if run.cancel_requested_at is not None:
-            return _end_attempt(job, JobState.CANCELLED, "cancelled", "Cancelled before it ended.")
-        error: dict[str, Any] | None = None
-        try:
-            results.commit(run, document)
-        except results.InvalidOutput as invalid:
-            changed = _plugin_changed(run)
+            .filter(pk__in=[job.run_id, *(m.run_id for m in members)])
+        }
+        if not members:
+            return _commit(job, runs[job.run_id], document)
+        attempts = [(job, runs[job.run_id]), *((m, runs[m.run_id]) for m in members)]
+        parts = packs.split(document, [r for _, r in attempts])
+        if isinstance(parts, packs.Unsplittable):
             error = {
-                "code": "schema_changed" if changed else "invalid_output",
-                "message": (
-                    f"The {run.action.split('.')[0]} plugin changed while the run ran, and its "
-                    "results no longer fit. They're kept with the run."
-                    if changed
-                    else "The results don't fit what the action declares."
-                ),
-                "errors": invalid.errors,
+                "code": "invalid_output",
+                "message": "The results don't say which of the job's runs each is for.",
+                "errors": parts.errors,
             }
-            final = (
-                (JobState.REJECTED, RunStatus.REJECTED)
+            for attempt, run in attempts:
+                RunOutput.objects.create(run=run, job=attempt, document=document)
+                if run.cancel_requested_at is not None:
+                    _end_attempt(
+                        attempt, JobState.CANCELLED, "cancelled", "Cancelled before it ended."
+                    )
+                else:
+                    _finish(attempt, run, JobState.FAILED, RunStatus.FAILED, error)
+            return runs[job.run_id]
+        for (attempt, run), part in zip(attempts, parts, strict=True):
+            _commit(attempt, run, part)
+        return runs[job.run_id]
+
+
+def _commit(job: Job, run: ActionRun, document: dict[str, Any]) -> ActionRun:
+    """Keeps one run's output, writes its results or not, and ends it."""
+    from iki_server.runs import results
+
+    RunOutput.objects.create(run=run, job=job, document=document)
+    if run.cancel_requested_at is not None:
+        return _end_attempt(job, JobState.CANCELLED, "cancelled", "Cancelled before it ended.")
+    error: dict[str, Any] | None = None
+    try:
+        results.commit(run, document)
+    except results.InvalidOutput as invalid:
+        changed = _plugin_changed(run)
+        error = {
+            "code": "schema_changed" if changed else "invalid_output",
+            "message": (
+                f"The {run.action.split('.')[0]} plugin changed while the run ran, and its "
+                "results no longer fit. They're kept with the run."
                 if changed
-                else (
-                    JobState.FAILED,
-                    RunStatus.FAILED,
-                )
+                else "The results don't fit what the action declares."
+            ),
+            "errors": invalid.errors,
+        }
+        final = (
+            (JobState.REJECTED, RunStatus.REJECTED)
+            if changed
+            else (
+                JobState.FAILED,
+                RunStatus.FAILED,
             )
-        except results.Rejected as rejected:
-            error = {"code": rejected.code, "message": rejected.message}
-            final = (JobState.REJECTED, RunStatus.REJECTED)
-        else:
-            final = (JobState.SUCCEEDED, RunStatus.SUCCEEDED)
-        now = timezone.now()
-        job.state, job.finished_at, job.error = final[0], now, error
-        job.lease_token = job.lease_expires_at = None
-        job.save(update_fields=["state", "finished_at", "error", "lease_token", "lease_expires_at"])
-        run.status, run.finished_at, run.error = final[1], now, error
-        run.save(update_fields=["status", "finished_at", "error"])
-        live.changed(run.pk)
-        return run
+        )
+    except results.Rejected as rejected:
+        error = {"code": rejected.code, "message": rejected.message}
+        final = (JobState.REJECTED, RunStatus.REJECTED)
+    except results.Failed as failed:
+        error = {"code": "failed", "message": failed.message}
+        final = (JobState.FAILED, RunStatus.FAILED)
+    else:
+        final = (JobState.SUCCEEDED, RunStatus.SUCCEEDED)
+    return _finish(job, run, final[0], final[1], error)
+
+
+def _finish(
+    job: Job, run: ActionRun, state: str, status: str, error: dict[str, Any] | None
+) -> ActionRun:
+    now = timezone.now()
+    job.state, job.finished_at, job.error = state, now, error
+    job.lease_token = job.lease_expires_at = None
+    job.save(update_fields=["state", "finished_at", "error", "lease_token", "lease_expires_at"])
+    run.status, run.finished_at, run.error = status, now, error
+    run.save(update_fields=["status", "finished_at", "error"])
+    live.changed(run.pk, run.batch_id)
+    return run
 
 
 def _plugin_changed(run: ActionRun) -> bool:
@@ -466,8 +585,10 @@ def _plugin_changed(run: ActionRun) -> bool:
 def interrupt_worker(worker: Worker, *, code: str) -> int:
     """Ends every attempt the worker holds as interrupted (it was revoked or went away)."""
     count = 0
-    for job in Job.objects.select_for_update().filter(worker=worker, state__in=HELD):
-        _end_attempt(
+    for job in Job.objects.select_for_update().filter(
+        worker=worker, state__in=HELD, packed_into__isnull=True
+    ):
+        _end_pack(
             job,
             JobState.INTERRUPTED,
             "worker_lost",
@@ -488,7 +609,7 @@ def recover_expired() -> int:
             .filter(state__in=HELD, lease_expires_at__lt=now)
             .order_by("lease_expires_at")[:500]
         ):
-            _end_attempt(
+            _end_pack(
                 job,
                 JobState.INTERRUPTED,
                 "worker_lost",
@@ -497,13 +618,13 @@ def recover_expired() -> int:
             ended += 1
         overdue = (
             Job.objects.select_for_update(skip_locked=True)
-            .filter(state__in=HELD, started_at__lt=now - TIMEOUT_GRACE)
+            .filter(state__in=HELD, started_at__lt=now - TIMEOUT_GRACE, packed_into__isnull=True)
             .select_related("run")[:500]
         )
         for job in overdue:
             assert job.started_at is not None  # noqa: S101 - held jobs have started
             if job.started_at + timedelta(seconds=job.run.timeout) + TIMEOUT_GRACE < now:
-                _end_attempt(
+                _end_pack(
                     job,
                     JobState.TIMED_OUT,
                     "timed_out",
@@ -513,9 +634,18 @@ def recover_expired() -> int:
     return ended
 
 
+def _end_pack(job: Job, state: str, reason: str, message: str) -> ActionRun:
+    """Ends the attempt a worker held and those packed into it, each run retried or ended
+    under its own policy. Returns the held attempt's run. Call inside a transaction."""
+    members = list(Job.objects.select_for_update().filter(packed_into=job).order_by("run_id"))
+    run = _end_attempt(job, state, reason, message)
+    for member in members:
+        _end_attempt(member, state, reason, message)
+    return run
+
+
 def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
     """Ends this attempt, then retries the run or ends it. Call inside a transaction."""
-    live.changed(job.run_id)
     now = timezone.now()
     job.state = state
     job.finished_at = now
@@ -524,6 +654,7 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
     job.lease_expires_at = None
     job.save(update_fields=["state", "finished_at", "error", "lease_token", "lease_expires_at"])
     run = ActionRun.objects.select_for_update().get(pk=job.run_id)
+    live.changed(run.pk, run.batch_id)
     if run.cancel_requested_at is not None or reason == "cancelled":
         run.status = RunStatus.CANCELLED
         run.finished_at = now

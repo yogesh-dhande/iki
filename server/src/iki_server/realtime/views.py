@@ -205,6 +205,49 @@ async def run_events(request: HttpRequest, ref: str) -> HttpResponseBase:
     )
 
 
+def _readable_batch(user: User, ref: str) -> str:
+    """The batch's ID, if `user` can read it."""
+    found = runs.visible_batches(user)
+    try:
+        batch = found.filter(pk=UUID(ref)).values_list("pk", flat=True).first()
+    except ValueError:
+        batch = found.filter(hrid=ref.upper()).values_list("pk", flat=True).first()
+    if batch is None:
+        raise Problem(404, "No such batch, or you can't read its project.")
+    return str(batch)
+
+
+def _can_read_batch(user: User, batch_id: str) -> bool:
+    return runs.visible_batches(user).filter(pk=batch_id).exists()
+
+
+async def batch_events(request: HttpRequest, ref: str) -> HttpResponseBase:
+    """``GET /api/v1/batches/{ref}/events``: live updates about a batch, for its page.
+
+    Starts with ``ready``, then sends ``run`` (with the run's ID) when one of its runs
+    starts or ends, and ``resync``. Each is checked against the caller's access to it.
+    """
+    try:
+        user, still_valid, streams = await _open(request)
+        batch_id = await db(_readable_batch, user, ref)
+    except Problem as problem:
+        return response(problem)
+    stream = streams.subscribe(user.pk, live.batch_topic(UUID(batch_id)))
+    ready = sse("ready", {"id": batch_id})
+    return _streaming(
+        _run(streams, stream, user, still_valid, ready, partial(_prepare_batch, batch_id))
+    )
+
+
+async def _prepare_batch(batch_id: str, user: User, item: dict[str, Any]) -> bytes | None:
+    event, data = item["event"], item.get("data", {})
+    if event == "resync":
+        return sse(event, {})
+    if event == "run" and await db(_can_read_batch, user, batch_id):
+        return sse(event, data)
+    return None
+
+
 async def _prepare_run(run_id: str, user: User, item: dict[str, Any]) -> bytes | None:
     event, data = item["event"], item.get("data", {})
     if event == "resync":

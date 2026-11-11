@@ -49,6 +49,9 @@ pub struct RunInput {
     pub settings: Option<serde_json::Map<String, serde_json::Value>>,
     /// Every input, by name: a list of entities (one item for inputs that take one; none for an optional input left out).
     pub inputs: std::collections::BTreeMap<String, Vec<RunInputEntity>>,
+    /// When the job runs several runs of a batch at once (a `batchable` action): each run, and the entity its input holds, in the order the input lists them. `run` is the first. Each update, new entity (by `derived_from`) and message (by `entity`) is kept with its entity's run, so a new entity must say which it was derived from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack: Option<Vec<RunInputPackItem>>,
     /// Every file the inputs' values and the file params hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub files: Option<std::collections::BTreeMap<String, RunInputFile>>,
@@ -120,6 +123,14 @@ pub struct RunInputJobResources {
     pub scratch_disk: Option<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputPackItem {
+    pub run: String,
+    /// Such as RUN-000123.
+    pub hrid: String,
+    pub entity: String,
+}
+
 /// Where an imported entity came from: a public database, or a file the run was given. Iki keeps it with the entity, for anyone who reads it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputOrigin {
@@ -187,7 +198,7 @@ pub struct RunOutputUpdatesValueItem {
 pub struct RunOutputCreatesItem {
     pub r#type: String,
     pub values: serde_json::Map<String, serde_json::Value>,
-    /// The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity.
+    /// The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derived_from: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,6 +209,9 @@ pub struct RunOutputCreatesItem {
 pub struct RunOutputMessagesItem {
     pub level: RunOutputMessagesItemLevel,
     pub text: String,
+    /// The input entity it's about, from input.json. A job that runs several runs of a batch at once gives each run the messages about its entity, and those about none. An `error` about an entity fails its run, which then writes nothing: a command can fail one entity and go on with the rest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

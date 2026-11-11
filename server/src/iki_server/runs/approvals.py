@@ -70,7 +70,7 @@ def ask(user: User, action: Action, project: Project, *, runs: int = 1) -> RunAp
     return approval
 
 
-def announce(approval: RunApproval, first: ActionRun, runs: int, label: str) -> None:
+def announce(approval: RunApproval, runs: int, label: str, *, path: str) -> None:
     """Tells the person their agent is asking, with a link to decide."""
     what = f"{runs} runs of {label}" if runs > 1 else f"a run of {label}"
     notify(
@@ -79,7 +79,7 @@ def announce(approval: RunApproval, first: ActionRun, runs: int, label: str) -> 
         title=f"{approval.client or 'An app'} asks to start {what} in {approval.project.name}",
         body="It runs on a tier that needs your approval. Approve or decline it in Iki; "
         f"it expires in {EXPIRES_AFTER.days} days.",
-        path=f"/runs/{first.hrid}/",
+        path=path,
         project=approval.project,
     )
 
@@ -160,7 +160,7 @@ def approve(user: User, approval: RunApproval) -> list[ActionRun]:
     for tier in {r.tier for r in runs}:
         queue.notify(tier)
     for run in runs:
-        live.changed(run.pk)
+        live.changed(run.pk, run.batch_id)
     return runs
 
 
@@ -202,7 +202,7 @@ def _end(
         data=data,
     )
     for run in runs:
-        transaction.on_commit(partial(live.changed, run.pk))
+        transaction.on_commit(partial(live.changed, run.pk, run.batch_id))
     return runs
 
 

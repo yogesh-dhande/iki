@@ -319,7 +319,7 @@ function RunForm({
             },
           }),
         );
-        return made.runs;
+        return { runs: made.runs, batch: made.batch };
       }
       const inputs = each
         ? {
@@ -328,14 +328,17 @@ function RunForm({
               each.cardinality === "many" ? entities.map((e) => e.id) : (entities[0]?.id ?? ""),
           }
         : body.inputs;
-      return [
-        unwrap(
-          await iki.POST("/api/v1/actions/{name}/runs", {
-            params: { path: { name: action.name } },
-            body: { ...common, inputs },
-          }),
-        ),
-      ];
+      return {
+        runs: [
+          unwrap(
+            await iki.POST("/api/v1/actions/{name}/runs", {
+              params: { path: { name: action.name } },
+              body: { ...common, inputs },
+            }),
+          ),
+        ],
+        batch: undefined,
+      };
     },
     [RUNS],
   );
@@ -374,18 +377,18 @@ function RunForm({
     launch.mutate(
       { inputs, params: values },
       {
-        onSuccess: (runs) => {
+        onSuccess: ({ runs, batch: made }) => {
           const first = runs[0];
-          if (runs.length === 1 && first) {
+          if (made) {
+            void navigate({ to: "/batches/$ref/", params: { ref: made.hrid } }).then(() => {
+              say(
+                `Started ${String(runs.length)} runs of ${action.label || action.name}, as ${made.hrid}.`,
+              );
+            });
+          } else if (first) {
             void navigate({ to: "/runs/$ref/", params: { ref: first.hrid } }).then(() => {
               say(`Started ${first.hrid}.`);
             });
-          } else {
-            void navigate({ to: "/projects/$slug/runs/", params: { slug: project.slug } }).then(
-              () => {
-                say(`Started ${String(runs.length)} runs of ${action.label || action.name}.`);
-              },
-            );
           }
         },
       },

@@ -23,6 +23,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # Before the API's own routes: an async streaming view, outside django-ninja.
     path("api/v1/events", realtime.events, name="events"),
     path("api/v1/runs/<str:ref>/events", realtime.run_events, name="run-events"),
+    path("api/v1/batches/<str:ref>/events", realtime.batch_events, name="batch-events"),
     path("api/v1/", api_v1.urls),
     # AI agents' (ADR 0013): MCP over Streamable HTTP.
     path("mcp", mcp.endpoint, name="mcp"),
@@ -46,5 +47,6 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/history/", web.app, name="entity_history"),
     # Runs (a project's runs are in org.urls).
     path("runs/<str:ref>/", web.app, name="run"),
+    path("batches/<str:ref>/", web.app, name="batch"),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

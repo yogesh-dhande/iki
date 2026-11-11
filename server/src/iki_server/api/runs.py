@@ -12,7 +12,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema, Status
 
@@ -27,12 +27,14 @@ from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.runs import approvals, catalog, input_files, quotas, secrets, services
 from iki_server.runs.models import (
+    FINISHED,
     ActionRun,
     ApprovalState,
     Job,
     JobLog,
     JobState,
     RunApproval,
+    RunBatch,
     RunEffect,
     RunInput,
     RunOutput,
@@ -107,6 +109,9 @@ class ActionOut(Schema):
     network: list[str] = Field(description="The hosts its runs may reach.")
     secrets: list[ActionSecretOut] = Field(description="The secrets its runs get, by name.")
     timeout: int = Field(description="Seconds each attempt may run.")
+    batchable: int = Field(
+        description="Up to how many runs of a batch one job runs at once (ADR 0055); 1 for one."
+    )
     available: bool = Field(description="Whether it can run on this deployment.")
     unavailable_reason: str | None
     needs: str = Field(
@@ -167,6 +172,7 @@ def _action_out(action: Action) -> dict[str, Any]:
             for s in action.secrets
         ],
         "timeout": action.timeout,
+        "batchable": action.batchable,
         "available": available.available,
         "unavailable_reason": available.reason,
         "needs": "Editor" if action.tier in ("client", "backend") else "Runner",
@@ -259,6 +265,7 @@ class EffectOut(Schema):
 class MessageOut(Schema):
     level: Literal["info", "warning", "error"]
     text: str
+    entity: UUID | None = Field(None, description="The input entity it's about, if any.")
 
 
 class RunCan(Schema):
@@ -291,6 +298,11 @@ class RunApprovalOut(Schema):
     can: ApprovalCan
 
 
+class BatchRefOut(Schema):
+    id: UUID
+    hrid: str = Field(description="Such as BAT-000123.")
+
+
 class RunOut(Schema):
     id: UUID
     hrid: str
@@ -305,6 +317,7 @@ class RunOut(Schema):
         description="When an agent asked for it on a tier that needs approval: the request."
     )
     reason: str
+    batch: BatchRefOut | None = Field(description="The batch it was launched in, if any.")
     tier: Tier
     environment: str
     params: dict[str, Any]
@@ -388,6 +401,12 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         for tier in {r.tier for r in runs if r.status == RunStatus.QUEUED}
     }
     held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})
+    batches = {
+        b["id"]: b
+        for b in RunBatch.objects.filter(
+            pk__in={r.batch_id for r in runs if r.batch_id is not None}
+        ).values("id", "hrid")
+    }
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
         for pid, tier in {(r.project_id, r.tier) for r in runs}
@@ -398,6 +417,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "project_id": run.project_id,
             "requested_by": run.requested_by,
             "approval": held.get(run.approval_id) if run.approval_id else None,
+            "batch": batches.get(run.batch_id) if run.batch_id else None,
             "network": run.spec.get("network") or [],
             "inputs": inputs.get(run.pk, []),
             "files": {
@@ -488,7 +508,7 @@ def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpRe
 
 
 #: The most runs one batch launches.
-MAX_BATCH = 100
+MAX_BATCH = 1000
 
 
 class RunBatchIn(Schema):
@@ -506,8 +526,66 @@ class RunBatchIn(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
 
 
+class BatchCan(Schema):
+    cancel: bool = Field(description="Some of its runs haven't finished, and you may cancel them.")
+
+
+class BatchOut(Schema):
+    id: UUID
+    hrid: str = Field(description="Such as BAT-000123.")
+    action: str
+    project: UUID = Field(alias="project_id")
+    requested_by: PersonRef
+    via: str
+    client: str = Field(description="The OAuth app it was asked for through, if any.")
+    reason: str
+    each: str = Field(description="The input each run took one entity for.")
+    size: int = Field(description="How many runs it launched.")
+    statuses: dict[str, int] = Field(
+        description="How many of its runs are in each status, for the statuses any are in."
+    )
+    created_at: datetime
+    finished_at: datetime | None = Field(description="When its last run finished, once all have.")
+    can: BatchCan
+
+
 class RunBatchOut(Schema):
+    batch: BatchOut
     runs: list[RunOut]
+
+
+def _batches_out(me: User, batches: list[RunBatch]) -> list[dict[str, Any]]:
+    runs = ActionRun.objects.filter(batch__in=batches)
+    statuses: dict[Any, dict[str, int]] = {}
+    for row in runs.values("batch", "status").annotate(count=Count("id")):
+        statuses.setdefault(row["batch"], {})[row["status"]] = row["count"]
+    # A batch's runs are of one action, so on one tier.
+    tiers = dict(runs.values_list("batch", "tier").distinct())
+    last = dict(runs.values("batch").annotate(last=Max("finished_at")).values_list("batch", "last"))
+    out = []
+    for batch in batches:
+        counts = statuses.get(batch.pk, {})
+        unfinished = sum(n for status, n in counts.items() if status not in _FINISHED)
+        out.append(
+            {
+                **{f: getattr(batch, f) for f in _BATCH_FIELDS},
+                "project_id": batch.project_id,
+                "requested_by": batch.requested_by,
+                "statuses": counts,
+                "finished_at": last.get(batch.pk) if not unfinished else None,
+                "can": {
+                    "cancel": bool(unfinished)
+                    and permissions.can(
+                        me, TIER_PERMISSIONS[tiers.get(batch.pk, "backend")], batch.project
+                    )
+                },
+            }
+        )
+    return out
+
+
+_BATCH_FIELDS = ("id", "hrid", "action", "via", "client", "reason", "each", "size", "created_at")
+_FINISHED = frozenset(s.value for s in FINISHED)
 
 
 @router.post(
@@ -543,11 +621,67 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
         .select_related("project__team", "requested_by")
     }
     runs = [found[r.pk] for r in launched]
-    return Status(201, {"runs": _runs_out(me, runs)})
+    batch = _find_batch(me, str(launched[0].batch_id))
+    return Status(201, {"batch": _batches_out(me, [batch])[0], "runs": _runs_out(me, runs)})
+
+
+def _find_batch(me: User, ref: str) -> RunBatch:
+    batches = services.visible_batches(me).select_related("project__team", "requested_by")
+    try:
+        found = batches.filter(pk=UUID(ref)).first()
+    except ValueError:
+        found = batches.filter(hrid=ref.upper()).first()
+    if found is None:
+        raise Problem(404, "No such batch, or you can't read its project.")
+    return found
+
+
+class BatchFilters(PageParams):
+    project: UUID | None = Field(None, description="Only batches in this project.")
+    action: str | None = Field(None, description="Only batches of this action.")
+
+
+@router.get("/batches", response=Page[BatchOut], summary="Batches you can read")
+def list_batches(request: HttpRequest, filters: Query[BatchFilters]) -> dict[str, Any]:
+    """Newest first. A batch is the runs of one action launched together, one for each of
+    several entities; `GET /runs?batch=` lists them."""
+    me = caller(request)
+    batches = services.visible_batches(me).select_related("project__team", "requested_by")
+    if filters.project is not None:
+        batches = batches.filter(
+            project=project(me, filters.project, permissions.Action.PROJECT_READ)
+        )
+    if filters.action is not None:
+        batches = batches.filter(action=filters.action)
+    result = page(batches, filters, newest_first=True)
+    result["items"] = _batches_out(me, result["items"])
+    return result
+
+
+@router.get("/batches/{ref}", response=BatchOut, summary="A batch")
+def get_batch(request: HttpRequest, ref: str) -> dict[str, Any]:
+    """By its ID or HRID (BAT-000123)."""
+    me = caller(request)
+    return _batches_out(me, [_find_batch(me, ref)])[0]
+
+
+@router.post("/batches/{ref}/cancel", response=BatchOut, summary="Cancel a batch")
+def cancel_batch(request: HttpRequest, ref: str, payload: CancelIn) -> dict[str, Any]:
+    """Cancels each of its runs that hasn't finished, as `POST /runs/{ref}/cancel` would."""
+    me = caller(request)
+    batch = _find_batch(me, ref)
+    try:
+        services.cancel_batch(me, batch, reason=payload.reason)
+    except PermissionDenied:
+        raise Problem(403) from None
+    return _batches_out(me, [_find_batch(me, ref)])[0]
 
 
 class RunFilters(PageParams):
     project: UUID | None = Field(None, description="Only runs in this project.")
+    batch: str | None = Field(
+        None, description="Only runs of this batch (its ID or HRID), in the order it launched them."
+    )
     action: str | None = Field(None, description="Only runs of this action.")
     status: RunStatus | None = None
 
@@ -563,7 +697,9 @@ def list_runs(request: HttpRequest, filters: Query[RunFilters]) -> dict[str, Any
         runs = runs.filter(action=filters.action)
     if filters.status is not None:
         runs = runs.filter(status=filters.status)
-    result = page(runs, filters, newest_first=True)
+    if filters.batch is not None:
+        runs = runs.filter(batch=_find_batch(me, filters.batch))
+    result = page(runs, filters, newest_first=filters.batch is None)
     result["items"] = _runs_out(me, result["items"])
     return result
 
@@ -708,6 +844,14 @@ class EgressOut(Schema):
     last_at: datetime
 
 
+class AttemptPackOut(Schema):
+    runs: int = Field(description="How many runs of its batch its job ran at once, this one too.")
+    reported_as: str = Field(
+        description="The run its worker held the job as (its HRID). The job's log, progress "
+        "and network use are every one of its runs'."
+    )
+
+
 class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
@@ -726,49 +870,72 @@ class RunAttemptOut(Schema):
         description="The hosts it reached through the egress proxy, or tried to (ADR 0053)."
     )
     secrets: list[str] = Field(description="The secrets its worker was given, by name (ADR 0054).")
+    pack: AttemptPackOut | None = Field(
+        description="When it ran in one job with other runs of its batch (ADR 0055)."
+    )
 
 
 @router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
 def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
     """Oldest first. A run is attempted again when its machine goes away."""
     run = _find(caller(request), ref)
-    return [
-        {
-            "attempt": job.attempt,
-            "state": job.state,
-            "worker": job.worker.name if job.worker else None,
-            "environment_build": job.environment_build,
-            "queued_at": job.queued_at,
-            "started_at": job.started_at,
-            "finished_at": job.finished_at,
-            "progress": job.progress,
-            "progress_message": job.progress_message,
-            "log_size": job.log_size,
-            "error": job.error,
-            "secrets": job.secrets,
-            "network": [
-                {
-                    "host": e.host,
-                    "port": e.port,
-                    "refused": e.refused or None,
-                    "connections": e.connections,
-                    "bytes_sent": e.bytes_sent,
-                    "bytes_received": e.bytes_received,
-                    "first_at": e.first_at,
-                    "last_at": e.last_at,
-                }
-                for e in sorted(job.egress.all(), key=lambda e: (bool(e.refused), e.first_at))
-            ],
-        }
-        for job in Job.objects.filter(run=run)
-        .select_related("worker")
-        .prefetch_related("egress")
+    jobs = list(
+        Job.objects.filter(run=run)
+        .select_related("worker", "packed_into__worker", "packed_into__run")
+        .prefetch_related("egress", "packed_into__egress")
         .order_by("attempt")
-    ]
+    )
+    carriers = {job.packed_into_id or job.pk for job in jobs}
+    packed = dict(
+        Job.objects.filter(packed_into__in=carriers)
+        .values("packed_into")
+        .annotate(n=Count("id"))
+        .values_list("packed_into", "n")
+    )
+    out = []
+    for job in jobs:
+        held = job.packed_into or job
+        size = packed.get(held.pk, 0)
+        out.append(
+            {
+                "attempt": job.attempt,
+                "state": job.state,
+                "worker": held.worker.name if held.worker else None,
+                "environment_build": job.environment_build,
+                "queued_at": job.queued_at,
+                "started_at": job.started_at,
+                "finished_at": job.finished_at,
+                "progress": job.progress,
+                "progress_message": job.progress_message,
+                "log_size": held.log_size,
+                "error": job.error,
+                "secrets": held.secrets,
+                "network": [
+                    {
+                        "host": e.host,
+                        "port": e.port,
+                        "refused": e.refused or None,
+                        "connections": e.connections,
+                        "bytes_sent": e.bytes_sent,
+                        "bytes_received": e.bytes_received,
+                        "first_at": e.first_at,
+                        "last_at": e.last_at,
+                    }
+                    for e in sorted(held.egress.all(), key=lambda e: (bool(e.refused), e.first_at))
+                ],
+                "pack": {
+                    "runs": size + 1,
+                    "reported_as": held.run.hrid if held is not job else run.hrid,
+                }
+                if size
+                else None,
+            }
+        )
+    return out
 
 
 def _attempt(run: ActionRun, attempt: int) -> Job:
-    job = Job.objects.filter(run=run, attempt=attempt).first()
+    job = Job.objects.filter(run=run, attempt=attempt).select_related("packed_into").first()
     if job is None:
         raise Problem(404, f"{run.hrid} has no attempt {attempt}.")
     return job
@@ -803,7 +970,9 @@ def attempt_log(
     the run's live updates (`GET /runs/{ref}/events`): each `log` event says it grew."""
     run = _find(caller(request), ref)
     job = _attempt(run, attempt)
-    chunks = JobLog.objects.filter(job=job).order_by("offset")
+    # An attempt packed into another's job has that job's log.
+    held = job.packed_into or job
+    chunks = JobLog.objects.filter(job=held).order_by("offset")
     first = chunks.filter(offset__lte=params.offset).order_by("-offset").first()
     start = first.offset if first is not None else 0
     parts: list[bytes] = []
@@ -823,7 +992,7 @@ def attempt_log(
         "text": b"".join(parts).decode(errors="replace"),
         "next_offset": end,
         "more": more,
-        "size": job.log_size,
+        "size": held.log_size,
         "ended": job.finished_at is not None,
     }
 
@@ -837,7 +1006,10 @@ def download_attempt_log(request: HttpRequest, ref: str, attempt: int) -> HttpRe
     """All of it that's kept, as a text file, such as for a record."""
     run = _find(caller(request), ref)
     job = _attempt(run, attempt)
-    text = "".join(JobLog.objects.filter(job=job).order_by("offset").values_list("text", flat=True))
+    held = job.packed_into or job
+    text = "".join(
+        JobLog.objects.filter(job=held).order_by("offset").values_list("text", flat=True)
+    )
     response = HttpResponse(text.encode(), content_type="text/plain; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{run.hrid}-attempt-{attempt}.log"'
     response["Cache-Control"] = "no-store"

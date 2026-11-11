@@ -107,6 +107,21 @@
         "items": { "$ref": "#/$defs/entity" }
       }
     },
+    "pack": {
+      "type": "array",
+      "description": "When the job runs several runs of a batch at once (a `batchable` action): each run, and the entity its input holds, in the order the input lists them. `run` is the first. Each update, new entity (by `derived_from`) and message (by `entity`) is kept with its entity's run, so a new entity must say which it was derived from.",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["run", "hrid", "entity"],
+        "additionalProperties": false,
+        "properties": {
+          "run": { "type": "string", "format": "uuid" },
+          "hrid": { "type": "string", "description": "Such as RUN-000123." },
+          "entity": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
     "files": {
       "type": "object",
       "description": "Every file the inputs' values and the file params hold, by ID. iki-worker downloads each before the command starts, checks its size and SHA-256, and adds where it put it.",

@@ -17,6 +17,7 @@ import {
   revision,
   withTypes,
 } from "./entity-fixtures";
+import { MAX_BATCH } from "./runs";
 import { answer, calls, ME, page, problem, project, respond } from "./test-server";
 
 const SECOND_ID = "00000000-0000-7000-8000-00000000e002";
@@ -166,7 +167,7 @@ describe("a project's entities", () => {
 
   it("says when more are picked than an action runs on at once", async () => {
     onProject();
-    const many = Array.from({ length: 101 }, (_, i) =>
+    const many = Array.from({ length: MAX_BATCH + 1 }, (_, i) =>
       entity({
         id: `00000000-0000-7000-8000-0000000${String(i).padStart(5, "0")}`,
         hrid: `PRT-${String(i + 1).padStart(6, "0")}`,
@@ -174,10 +175,10 @@ describe("a project's entities", () => {
     );
     answer("POST /api/v1/entities/search", { items: many, next_cursor: null });
     const { user } = await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
-    await screen.findByRole("table", { name: "101 proteins" });
-    await user.click(screen.getByRole("checkbox", { name: "Select all 101 shown" }));
+    await screen.findByRole("table", { name: "201 proteins" });
+    await user.click(screen.getByRole("checkbox", { name: "Select all 201 shown" }));
     expect(
-      screen.getByText("101 selected: an action runs on at most 100 at once"),
+      screen.getByText("201 selected: an action runs on at most 200 at once"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Run action" })).not.toBeInTheDocument();
   });

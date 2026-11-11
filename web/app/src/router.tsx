@@ -25,7 +25,7 @@ import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
 import { validateNewRunSearch } from "./pages/new-run-search";
-import { actionsQuery, runQuery, STATUS, type RunStatus } from "./runs";
+import { actionsQuery, batchQuery, runQuery, STATUS, type RunStatus } from "./runs";
 
 // Pages fetched when they're first opened, so the first page loads quickly.
 const entityPages = () => import("./pages/entity");
@@ -45,6 +45,7 @@ const runPages = () => import("./pages/runs");
 const ProjectRuns = lazyRouteComponent(runPages, "ProjectRuns");
 const RunPage = lazyRouteComponent(runPages, "RunPage");
 const NewRun = lazyRouteComponent(() => import("./pages/new-run"), "NewRun");
+const BatchPage = lazyRouteComponent(() => import("./pages/batches"), "BatchPage");
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
@@ -242,6 +243,22 @@ const runRoute = createRoute({
   component: RunPage,
 });
 
+const batchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "batches/$ref",
+  // ?status=failed: only its runs with that status.
+  validateSearch: (search: Record<string, unknown>): { status?: RunStatus } =>
+    typeof search["status"] === "string" && search["status"] in STATUS
+      ? { status: search["status"] as RunStatus }
+      : {},
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.query(batchQuery(params.ref)),
+      context.queryClient.query(actionsQuery),
+    ]),
+  component: BatchPage,
+});
+
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "settings" });
 
 const orgWebhooksRoute = createRoute({ getParentRoute: () => settingsRoute, path: "webhooks" });
@@ -283,6 +300,7 @@ const routeTree = rootRoute.addChildren([
     entityLineageRoute,
   ]),
   runRoute,
+  batchRoute,
   settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);
 

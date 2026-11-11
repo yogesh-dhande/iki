@@ -24,6 +24,8 @@ class ActionFilters(TypedDict):
 class ActionOut(TypedDict):
     #: Whether it can run on this deployment.
     available: bool
+    #: Up to how many runs of a batch one job runs at once (ADR 0055); 1 for one.
+    batchable: int
     creates: list[CreatesOut]
     description: str | None
     deterministic: bool
@@ -91,6 +93,58 @@ class AttemptOut(TypedDict):
     duration_ms: int
     error: str
     status_code: int | None
+
+
+class AttemptPackOut(TypedDict):
+    #: The run its worker held the job as (its HRID). The job's log, progress and network use are every one of its runs'.
+    reported_as: str
+    #: How many runs of its batch its job ran at once, this one too.
+    runs: int
+
+
+class BatchCan(TypedDict):
+    #: Some of its runs haven't finished, and you may cancel them.
+    cancel: bool
+
+
+class BatchFilters(TypedDict):
+    #: Only batches of this action.
+    action: NotRequired[str | None]
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+    #: Only batches in this project.
+    project: NotRequired[str | None]
+
+
+class BatchOut(TypedDict):
+    action: str
+    can: BatchCan
+    #: The OAuth app it was asked for through, if any.
+    client: str
+    created_at: str
+    #: The input each run took one entity for.
+    each: str
+    #: When its last run finished, once all have.
+    finished_at: str | None
+    #: Such as BAT-000123.
+    hrid: str
+    id: str
+    project: str
+    reason: str
+    requested_by: PersonRef
+    #: How many runs it launched.
+    size: int
+    #: How many of its runs are in each status, for the statuses any are in.
+    statuses: dict[str, int]
+    via: str
+
+
+class BatchRefOut(TypedDict):
+    #: Such as BAT-000123.
+    hrid: str
+    id: str
 
 
 class CancelIn(TypedDict):
@@ -595,6 +649,8 @@ class MeOut(TypedDict):
 
 
 class MessageOut(TypedDict):
+    #: The input entity it's about, if any.
+    entity: NotRequired[str | None]
     level: Literal['info', 'warning', 'error']
     text: str
 
@@ -664,6 +720,12 @@ class OutputErrorOut(TypedDict):
     detail: str
     #: Where in the run's output, as a JSON pointer.
     pointer: str
+
+
+class PageBatchOut(TypedDict):
+    items: list[BatchOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
 
 
 class PageDeliverySummary(TypedDict):
@@ -1095,6 +1157,8 @@ class RunAttemptOut(TypedDict):
     log_size: int
     #: The hosts it reached through the egress proxy, or tried to (ADR 0053).
     network: list[EgressOut]
+    #: When it ran in one job with other runs of its batch (ADR 0055).
+    pack: AttemptPackOut | None
     #: From 0 to 1, as its command reports it.
     progress: float | None
     progress_message: str
@@ -1110,7 +1174,7 @@ class RunAttemptOut(TypedDict):
 class RunBatchIn(TypedDict):
     #: The input each run takes one of `entities` for.
     each: str
-    #: One run for each, in this order: at most 100.
+    #: One run for each, in this order: at most 1000.
     entities: list[str]
     #: Every run's other inputs, as for one run.
     inputs: NotRequired[dict[str, str | list[str]]]
@@ -1123,6 +1187,7 @@ class RunBatchIn(TypedDict):
 
 
 class RunBatchOut(TypedDict):
+    batch: BatchOut
     runs: list[RunOut]
 
 
@@ -1139,6 +1204,8 @@ class RunFileOut(TypedDict):
 class RunFilters(TypedDict):
     #: Only runs of this action.
     action: NotRequired[str | None]
+    #: Only runs of this batch (its ID or HRID), in the order it launched them.
+    batch: NotRequired[str | None]
     #: From the previous page's next_cursor.
     cursor: NotRequired[str | None]
     #: Items per page.
@@ -1171,6 +1238,8 @@ class RunOut(TypedDict):
     #: When an agent asked for it on a tier that needs approval: the request.
     approval: RunApprovalOut | None
     attempts: int
+    #: The batch it was launched in, if any.
+    batch: BatchRefOut | None
     can: RunCan
     cancel_requested_at: str | None
     #: The OAuth app it was asked for through, if any.
@@ -1578,4 +1647,4 @@ class WorkerRegistrationOut(TypedDict):
     workers: int
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptLogOut', 'AttemptOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageDeliverySummary', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']

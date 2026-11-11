@@ -1,4 +1,5 @@
-"""Live updates about a run, for the pages following it (``GET /api/v1/runs/{ref}/events``).
+"""Live updates about a run, for the pages following it (``GET /api/v1/runs/{ref}/events``)
+and its batch's.
 
 As with every live update, they say *that* something changed, never what: the page reads
 the run, its attempts and its log through the API. Postgres delivers each one when its
@@ -14,9 +15,16 @@ def topic(run_id: uuid.UUID) -> str:
     return f"run:{run_id}"
 
 
-def changed(run_id: uuid.UUID) -> None:
-    """Its status, an attempt's, or progress."""
+def batch_topic(batch_id: uuid.UUID) -> str:
+    return f"batch:{batch_id}"
+
+
+def changed(run_id: uuid.UUID, batch_id: uuid.UUID | None = None) -> None:
+    """Its status, an attempt's, or progress. With `batch_id` (when its status changed),
+    the batch's page hears too (``GET /api/v1/batches/{ref}/events``)."""
     events.publish_to(topic(run_id), "run", {"id": str(run_id)})
+    if batch_id is not None:
+        events.publish_to(batch_topic(batch_id), "run", {"id": str(run_id)})
 
 
 def logged(run_id: uuid.UUID, attempt: int, size: int) -> None:

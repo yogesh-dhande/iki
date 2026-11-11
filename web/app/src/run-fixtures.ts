@@ -20,6 +20,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     client: "",
     approval: null,
     reason: "",
+    batch: null,
     tier: "backend",
     environment: "sequence-tools",
     params: { ph: 7.4 },
@@ -87,6 +88,30 @@ export function attempt(
     error: null,
     network: [],
     secrets: [],
+    pack: null,
+    ...overrides,
+  };
+}
+
+export const BATCH_ID = "00000000-0000-7000-8000-0000000000b1";
+
+/** BAT-000001: protein.compute_properties on three proteins, one done, one going. */
+export function batch(overrides: Partial<Schemas["BatchOut"]> = {}): Schemas["BatchOut"] {
+  return {
+    id: BATCH_ID,
+    hrid: "BAT-000001",
+    action: "protein.compute_properties",
+    project: KINASE.id,
+    requested_by: { id: ME.id, name: ME.name },
+    via: "web",
+    client: "",
+    reason: "Weights for the kinase panel",
+    each: "protein",
+    size: 3,
+    statuses: { succeeded: 1, running: 2 },
+    created_at: "2026-03-14T09:00:00Z",
+    finished_at: null,
+    can: { cancel: true },
     ...overrides,
   };
 }
@@ -138,6 +163,7 @@ export const ACTION = {
   network: [],
   secrets: [],
   timeout: 600,
+  batchable: 1,
   available: true,
   unavailable_reason: null,
   needs: "editor",

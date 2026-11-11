@@ -96,7 +96,7 @@
             "type": "array",
             "items": { "type": "string", "format": "uuid" },
             "uniqueItems": true,
-            "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity."
+            "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json)."
           },
           "origin": { "$ref": "#/$defs/origin" }
         }
@@ -119,7 +119,12 @@
         "additionalProperties": false,
         "properties": {
           "level": { "enum": ["info", "warning", "error"] },
-          "text": { "type": "string", "maxLength": 2000 }
+          "text": { "type": "string", "maxLength": 2000 },
+          "entity": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The input entity it's about, from input.json. A job that runs several runs of a batch at once gives each run the messages about its entity, and those about none. An `error` about an entity fails its run, which then writes nothing: a command can fail one entity and go on with the rest."
+          }
         }
       }
     }

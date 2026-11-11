@@ -73,7 +73,8 @@ def blocked(tier: str, *, lock: bool = False) -> Blocked:
     if lock:
         _lock(f"iki_quota_running:{tier}")
     for quota in quotas:
-        held = Job.objects.filter(state__in=_HELD)
+        # A packed job counts once: it's one command on one worker (ADR 0055).
+        held = Job.objects.filter(state__in=_HELD, packed_into__isnull=True)
         if quota.tier:
             held = held.filter(tier=quota.tier)
         if quota.project_id is not None:

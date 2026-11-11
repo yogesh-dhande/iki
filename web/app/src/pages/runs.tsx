@@ -139,7 +139,16 @@ export function ProjectRuns() {
                   {actionLabel(actions, run.action)}
                 </Link>
                 <span className="row-meta">
-                  {run.hrid} · {run.requested_by.name} · <RelativeTime value={run.created_at} />
+                  {run.hrid}
+                  {run.batch ? (
+                    <>
+                      {" in "}
+                      <Link to="/batches/$ref/" params={{ ref: run.batch.hrid }}>
+                        {run.batch.hrid}
+                      </Link>
+                    </>
+                  ) : null}{" "}
+                  · {run.requested_by.name} · <RelativeTime value={run.created_at} />
                   {run.reason ? ` · “${run.reason}”` : ""}
                 </span>
               </div>
@@ -524,6 +533,10 @@ function AttemptLog({ runRef, attempt, size }: { runRef: string; attempt: Attemp
   );
 }
 
+function others(runs: number): string {
+  return runs === 2 ? "1 other run" : `${String(runs - 1)} other runs`;
+}
+
 function AttemptRow({
   runRef,
   attempt,
@@ -581,6 +594,20 @@ function AttemptRow({
         ) : null}
         {attempt.error && !(latest && runError) ? (
           <p className="row-reason">{attempt.error.message}</p>
+        ) : null}
+        {attempt.pack ? (
+          <p className="row-meta">
+            Ran in one job with {others(attempt.pack.runs)} of its batch
+            {attempt.pack.reported_as === runRef ? null : (
+              <>
+                , led by{" "}
+                <Link to="/runs/$ref/" params={{ ref: attempt.pack.reported_as }}>
+                  {attempt.pack.reported_as}
+                </Link>
+              </>
+            )}
+            . They share its log, progress and network use.
+          </p>
         ) : null}
         {attempt.secrets.length ? (
           <p className="row-meta">
@@ -763,6 +790,11 @@ export function RunPage() {
                 <span className="run-message-level">
                   {m.level === "info" ? "Info" : m.level === "warning" ? "Warning" : "Error"}
                 </span>{" "}
+                {m.entity ? (
+                  <span className="muted">
+                    {run.inputs.find((i) => i.entity === m.entity)?.hrid ?? "An input"}:{" "}
+                  </span>
+                ) : null}
                 <span className="preserve-lines">{m.text}</span>
               </li>
             ))}
@@ -847,6 +879,17 @@ export function RunPage() {
             <>
               <dt>Reason</dt>
               <dd className="preserve-lines">{run.reason}</dd>
+            </>
+          ) : null}
+          {run.batch ? (
+            <>
+              <dt>Batch</dt>
+              <dd>
+                Launched with others in{" "}
+                <Link to="/batches/$ref/" params={{ ref: run.batch.hrid }}>
+                  {run.batch.hrid}
+                </Link>
+              </dd>
             </>
           ) : null}
           {run.started_at ? (
