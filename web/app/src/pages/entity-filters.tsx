@@ -104,13 +104,21 @@ export function FilterPanel({
 }) {
   const [rows, setRows] = useState<FilterDraft[]>(() => toDrafts(applied, fields));
   const sent = useRef<Filter[]>(applied);
-  // The address changed by other means (back, a link): show what it holds.
+  const address = JSON.stringify(applied);
+  const seen = useRef(address);
+  // The address changed by other means (back, a link): show what it holds. Only a change
+  // counts: until the address catches up with what was just applied, it still holds the
+  // old filters, and resetting to them would drop what's being edited.
   useEffect(() => {
+    if (address === seen.current) return;
+    seen.current = address;
     if (!same(applied, sent.current)) {
       sent.current = applied;
       setRows(toDrafts(applied, fields));
     }
-  }, [applied, fields]);
+    // Keyed by type, so the fields only change with the address.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
 
   const results = rows.map((row) => toFilter(row, fields));
   const ready = results.flatMap((r) => (r && "filter" in r ? [r.filter] : []));
