@@ -455,6 +455,7 @@ export function ConfirmDialog({
   title,
   children,
   confirmLabel,
+  cancelLabel = "Cancel",
   confirmVariant = "danger",
   busy,
   problem,
@@ -465,6 +466,8 @@ export function ConfirmDialog({
   title: string;
   children: ReactNode;
   confirmLabel: string;
+  /** For when "Cancel" would be ambiguous, such as when cancelling a run. */
+  cancelLabel?: string;
   /** Danger for what's hard to undo; primary for what isn't, such as restoring. */
   confirmVariant?: Variant;
   busy: boolean;
@@ -491,7 +494,7 @@ export function ConfirmDialog({
               {confirmLabel}
             </Button>
             <Button variant="quiet" onClick={onCancel} disabled={busy}>
-              Cancel
+              {cancelLabel}
             </Button>
           </div>
         </Dialog>

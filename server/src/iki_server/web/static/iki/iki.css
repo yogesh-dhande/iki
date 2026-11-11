@@ -1547,3 +1547,92 @@ input[type="file"]::file-selector-button {
   height: 0.6rem;
   accent-color: var(--accent);
 }
+
+/* --- Runs ------------------------------------------------------------------ */
+
+.badge-good {
+  color: var(--success);
+  background: var(--success-bg);
+  border-color: var(--success);
+}
+
+.badge-bad {
+  color: var(--error);
+  background: var(--error-bg);
+  border-color: var(--error);
+}
+
+.badge-busy {
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: var(--warning);
+}
+
+.badge-quiet {
+  color: var(--muted);
+}
+
+.run-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-progress progress {
+  flex: 1 1 12rem;
+  height: 0.6rem;
+  accent-color: var(--accent);
+}
+
+.run-messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.run-message + .run-message {
+  margin-top: 0.5rem;
+}
+
+.run-message-level {
+  font-weight: 600;
+}
+
+.run-message-warning .run-message-level {
+  color: var(--warning);
+}
+
+.run-message-error .run-message-level {
+  color: var(--error);
+}
+
+.log {
+  margin-top: 0.75rem;
+  min-width: 0;
+}
+
+.log-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.log-text {
+  margin: 0;
+  max-height: 32rem;
+  overflow: auto;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

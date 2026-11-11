@@ -996,6 +996,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{ref}/attempts/{attempt}/log.txt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an attempt's log
+         * @description All of it that's kept, as a text file, such as for a record.
+         */
+        get: operations["iki_server_api_runs_download_attempt_log"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{ref}/cancel": {
         parameters: {
             query?: never;
@@ -1583,6 +1603,36 @@ export interface components {
             unavailable_reason: string | null;
             /** Updates */
             updates: components["schemas"]["UpdatesOut"][];
+        };
+        /** AttemptLogOut */
+        AttemptLogOut: {
+            /**
+             * Ended
+             * @description The attempt has ended, so nothing more will come.
+             */
+            ended: boolean;
+            /**
+             * More
+             * @description More is kept already: ask again from `next_offset` now.
+             */
+            more: boolean;
+            /**
+             * Next Offset
+             * @description Where to ask from next.
+             */
+            next_offset: number;
+            /**
+             * Offset
+             * @description Where `text` starts, in bytes of UTF-8.
+             */
+            offset: number;
+            /**
+             * Size
+             * @description Bytes the command has written. Past 16 MiB they're counted, not kept.
+             */
+            size: number;
+            /** Text */
+            text: string;
         };
         /** AttemptOut */
         AttemptOut: {
@@ -2455,36 +2505,6 @@ export interface components {
              */
             locations: string[];
         };
-        /** LogOut */
-        LogOut: {
-            /**
-             * Ended
-             * @description The attempt has ended, so nothing more will come.
-             */
-            ended: boolean;
-            /**
-             * More
-             * @description More is kept already: ask again from `next_offset` now.
-             */
-            more: boolean;
-            /**
-             * Next Offset
-             * @description Where to ask from next.
-             */
-            next_offset: number;
-            /**
-             * Offset
-             * @description Where `text` starts, in bytes of UTF-8.
-             */
-            offset: number;
-            /**
-             * Size
-             * @description Bytes the command has written. Past 16 MiB they're counted, not kept.
-             */
-            size: number;
-            /** Text */
-            text: string;
-        };
         /** LogParams */
         LogParams: {
             /**
@@ -2832,6 +2852,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[WorkerRegistrationOut] */
+        Page_WorkerRegistrationOut_: {
+            /** Items */
+            items: components["schemas"]["WorkerRegistrationOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** ParamOut */
         ParamOut: {
             /** Default */
@@ -2881,17 +2911,10 @@ export interface components {
              */
             numbers?: number[] | null;
         };
-        /** PersonOut */
-        PersonOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-        };
-        /** PersonRef */
+        /**
+         * PersonRef
+         * @description Someone, by name, or by email address when they have none.
+         */
         PersonRef: {
             /**
              * Id
@@ -3120,7 +3143,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            created_by: components["schemas"]["PersonOut"];
+            created_by: components["schemas"]["PersonRef"];
             /**
              * Id
              * Format: uuid
@@ -3184,46 +3207,6 @@ export interface components {
             title: string;
             /** Type */
             type: string;
-        };
-        /** RegistrationCreatedOut */
-        RegistrationCreatedOut: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** @description Null when an operator made it with `iki-server create_registration_token`. */
-            created_by: components["schemas"]["PersonOut"] | null;
-            /** Expires At */
-            expires_at: string | null;
-            /**
-             * Hint
-             * @description The token's last four characters, to tell it by.
-             */
-            hint: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Label */
-            label: string;
-            /** Last Used At */
-            last_used_at: string | null;
-            /** Revoked At */
-            revoked_at: string | null;
-            /** Tier */
-            tier: string;
-            /**
-             * Token
-             * @description Shown once. Give it to the tier's workers as a secret.
-             */
-            token: string;
-            /**
-             * Workers
-             * @description Workers registered with it and not revoked.
-             */
-            workers: number;
         };
         /** RegistrationIn */
         RegistrationIn: {
@@ -3401,6 +3384,47 @@ export interface components {
              */
             role: "viewer" | "editor" | "runner" | "admin";
         };
+        /** RunAttemptOut */
+        RunAttemptOut: {
+            /**
+             * Attempt
+             * @description 1 for the first, then 2, 3, ...
+             */
+            attempt: number;
+            /**
+             * Environment Build
+             * @description The digest of the environment it ran in; empty for the host's own software.
+             */
+            environment_build: string;
+            error: components["schemas"]["ErrorOut"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Log Size
+             * @description Bytes its command has written so far.
+             */
+            log_size: number;
+            /**
+             * Progress
+             * @description From 0 to 1, as its command reports it.
+             */
+            progress: number | null;
+            /** Progress Message */
+            progress_message: string;
+            /**
+             * Queued At
+             * Format: date-time
+             */
+            queued_at: string;
+            /** Started At */
+            started_at: string | null;
+            state: components["schemas"]["JobState"];
+            /**
+             * Worker
+             * @description The name of the worker that ran it.
+             */
+            worker: string | null;
+        };
         /** RunCan */
         RunCan: {
             /** Cancel */
@@ -3531,7 +3555,7 @@ export interface components {
             project: string;
             /** Reason */
             reason: string;
-            requested_by: components["schemas"]["PersonOut"];
+            requested_by: components["schemas"]["PersonRef"];
             /** Started At */
             started_at: string | null;
             /**
@@ -4242,7 +4266,7 @@ export interface components {
             /** Name */
             name: string;
             /** @description For the client tier: whose machine it is. */
-            owner: components["schemas"]["PersonOut"] | null;
+            owner: components["schemas"]["PersonRef"] | null;
             /**
              * Plugins
              * @description The plugin code it has, which is all it leases: each one's `name`, `sha` (null for a local directory) and `environments` it has built, with each build's digest (null when it runs them with its host's own software).
@@ -4268,6 +4292,99 @@ export interface components {
             tier: string;
             /** Version */
             version: string;
+        };
+        /** WorkerRegistrationCreatedOut */
+        WorkerRegistrationCreatedOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** @description Null when an operator made it with `iki-server create_registration_token`. */
+            created_by: components["schemas"]["PersonRef"] | null;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Hint
+             * @description The token's last four characters, to tell it by.
+             */
+            hint: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Tier */
+            tier: string;
+            /**
+             * Token
+             * @description Shown once. Give it to the tier's workers as a secret.
+             */
+            token: string;
+            /**
+             * Workers
+             * @description Workers registered with it and not revoked.
+             */
+            workers: number;
+        };
+        /** WorkerRegistrationIn */
+        WorkerRegistrationIn: {
+            /**
+             * Expires At
+             * @description When it stops working. Workers already registered keep working.
+             */
+            expires_at?: string | null;
+            /**
+             * Label
+             * @description What it's for, such as `GPU pool (us-east-1)`.
+             */
+            label: string;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "backend" | "container" | "vm";
+        };
+        /** WorkerRegistrationOut */
+        WorkerRegistrationOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** @description Null when an operator made it with `iki-server create_registration_token`. */
+            created_by: components["schemas"]["PersonRef"] | null;
+            /** Expires At */
+            expires_at: string | null;
+            /**
+             * Hint
+             * @description The token's last four characters, to tell it by.
+             */
+            hint: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Tier */
+            tier: string;
+            /**
+             * Workers
+             * @description Workers registered with it and not revoked.
+             */
+            workers: number;
         };
     };
     responses: never;
@@ -4508,7 +4625,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_RegistrationOut_"];
+                    "application/json": components["schemas"]["Page_WorkerRegistrationOut_"];
                 };
             };
         };
@@ -4522,7 +4639,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RegistrationIn"];
+                "application/json": components["schemas"]["WorkerRegistrationIn"];
             };
         };
         responses: {
@@ -4532,7 +4649,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrationCreatedOut"];
+                    "application/json": components["schemas"]["WorkerRegistrationCreatedOut"];
                 };
             };
         };
@@ -4558,7 +4675,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrationOut"];
+                    "application/json": components["schemas"]["WorkerRegistrationOut"];
                 };
             };
         };
@@ -5708,7 +5825,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AttemptOut"][];
+                    "application/json": components["schemas"]["RunAttemptOut"][];
                 };
             };
         };
@@ -5734,7 +5851,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LogOut"];
+                    "application/json": components["schemas"]["AttemptLogOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_download_attempt_log: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                attempt: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The log */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": unknown;
                 };
             };
         };

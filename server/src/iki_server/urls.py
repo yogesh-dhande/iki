@@ -41,5 +41,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/", web.app, name="entity"),
     path("entities/<str:ref>/edit/", web.app, name="entity_edit"),
     path("entities/<str:ref>/history/", web.app, name="entity_history"),
+    # Runs (a project's runs are in org.urls).
+    path("runs/<str:ref>/", web.app, name="run"),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

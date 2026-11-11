@@ -54,6 +54,23 @@ const VIA: Record<string, string> = {
   system: "by Iki",
 };
 
+/** How a revision was made; a run's links to the run. */
+function Via({ revision }: { revision: Revision }) {
+  if (revision.via === "run") {
+    return revision.run ? (
+      <>
+        by{" "}
+        <Link to="/runs/$ref/" params={{ ref: revision.run.hrid }}>
+          {revision.run.hrid}
+        </Link>
+      </>
+    ) : (
+      <>by a run in a project you can’t see</>
+    );
+  }
+  return <>{VIA[revision.via] ?? revision.via}</>;
+}
+
 const KIND: Record<string, string> = {
   created: "Created",
   edited: "Edited",
@@ -152,7 +169,7 @@ function Provenance({ revision }: { revision: Revision | undefined }) {
   return (
     <span className="cell-meta">
       {revision.kind === "created" ? "Set" : "Changed"} by {who}{" "}
-      <RelativeTime value={revision.created_at} /> {VIA[revision.via] ?? revision.via}
+      <RelativeTime value={revision.created_at} /> <Via revision={revision} />
       {revision.reason ? <>: “{revision.reason}”</> : null} (revision {revision.number})
     </span>
   );
@@ -463,7 +480,7 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
           Revision {revision.number}: {KIND[revision.kind] ?? revision.kind} by {who}
         </span>
         <span className="row-meta">
-          <RelativeTime value={revision.created_at} /> {VIA[revision.via] ?? revision.via}
+          <RelativeTime value={revision.created_at} /> <Via revision={revision} />
           {changed.length ? ` · ${changed.join(", ")}` : ""}
         </span>
         {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}

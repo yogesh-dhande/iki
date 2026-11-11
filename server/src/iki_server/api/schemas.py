@@ -61,6 +61,23 @@ class UserPatch(Schema):
     active: bool | None = None
 
 
+class PersonRef(Schema):
+    """Someone, by name, or by email address when they have none."""
+
+    id: UUID
+    name: str
+
+    @staticmethod
+    def resolve_name(person: User) -> str:
+        return person.get_full_name()
+
+
+class ProjectRef(Schema):
+    id: UUID
+    name: str
+    slug: str
+
+
 class TeamRef(Schema):
     id: UUID
     name: str

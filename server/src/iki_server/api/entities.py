@@ -27,7 +27,7 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page, UserOut
+from iki_server.api.schemas import Page, ProjectRef, UserOut
 from iki_server.entities import access, registry, schema, search, services
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid, shape, subtypes, to_json
@@ -96,12 +96,6 @@ class EntityTypeOut(Schema):
     values_schema: dict[str, Any] = Field(
         description="A JSON Schema (2020-12) of the entity's values."
     )
-
-
-class ProjectRef(Schema):
-    id: UUID
-    name: str
-    slug: str
 
 
 class EntityCan(Schema):

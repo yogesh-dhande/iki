@@ -861,15 +861,55 @@ def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
     ok("audit events reach the log stream for a SIEM; no OAuth codes in the logs")
 
 
-def finished(session: requests.Session, run: dict[str, Any]) -> dict[str, Any]:
-    """The run, once it has ended, within two minutes."""
+def followed(session: requests.Session, run: dict[str, Any]) -> dict[str, Any]:
+    """The run, once it has ended, followed as its page does: its live updates through the
+    ingress, then its attempts and log."""
+    seen: list[str] = []
+    found = run
     deadline = time.monotonic() + 120
-    while time.monotonic() < deadline:
-        found: dict[str, Any] = api_call(session, "GET", f"/runs/{run['id']}").json()
-        if found["status"] in ("succeeded", "failed", "cancelled"):
-            return found
-        time.sleep(1)
-    fail(f"{run['hrid']} didn't finish in two minutes: {found['status']} ({found.get('waiting')})")
+    # Read timeout past the stream's 20-second heartbeat.
+    with session.get(
+        f"{IKI}/api/v1/runs/{run['id']}/events",
+        headers={"Origin": IKI},
+        stream=True,
+        timeout=(5, 30),
+    ) as stream:
+        if stream.headers.get("Content-Type", "").split(";")[0] != "text/event-stream":
+            fail(f"{run['hrid']}'s live updates: HTTP {stream.status_code} {stream.text[:200]}")
+        for raw in stream.iter_lines():
+            if time.monotonic() > deadline:
+                fail(f"{run['hrid']} didn't finish in two minutes: {found['status']}")
+            line = raw.decode()
+            if not line.startswith("event: "):
+                continue
+            event = line.removeprefix("event: ")
+            seen.append(event)
+            if event in ("ready", "run"):
+                found = api_call(session, "GET", f"/runs/{run['id']}").json()
+                if found["status"] in ("succeeded", "failed", "cancelled"):
+                    break
+    if seen[:1] != ["ready"]:
+        fail(f"{run['hrid']}'s live updates didn't start with ready: {seen}")
+    attempts = api_call(session, "GET", f"/runs/{run['id']}/attempts").json()
+    last = attempts[-1]
+    if not last["worker"] or last["finished_at"] is None:
+        fail(f"{run['hrid']}'s attempts don't say which worker ran it: {attempts}")
+    log = api_call(session, "GET", f"/runs/{run['id']}/attempts/{last['attempt']}/log").json()
+    if not log["ended"] or log["size"] != last["log_size"]:
+        fail(f"{run['hrid']}'s log doesn't match its attempt: {log} vs {last}")
+    whole = session.get(
+        f"{IKI}/api/v1/runs/{run['id']}/attempts/{last['attempt']}/log.txt",
+        headers={"Origin": IKI},
+        timeout=10,
+    )
+    if whole.status_code != 200 or whole.text != log["text"]:
+        fail(f"{run['hrid']}'s log download answered HTTP {whole.status_code}")
+    live = ", ".join(e for e in seen if e != "ready") or "none (it had already ended)"
+    ok(
+        f"{run['hrid']}'s page followed it live (events: {live}); attempt {last['attempt']} "
+        f"ran on {last['worker']} and its {log['size']}-byte log downloads"
+    )
+    return found
 
 
 def actions() -> None:
@@ -906,7 +946,7 @@ def actions() -> None:
         )
         if launched.status_code != 201:
             fail(f"launching {action} answered HTTP {launched.status_code}: {launched.text[:300]}")
-        run = finished(alice, launched.json())
+        run = followed(alice, launched.json())
         if run["status"] != "succeeded":
             fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
         got = api_call(alice, "GET", f"/entities/{entity['id']}").json()["values"]

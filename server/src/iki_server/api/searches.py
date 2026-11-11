@@ -14,6 +14,7 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require_scope
 from iki_server.api.entities import Condition, SortIn
 from iki_server.api.problems import Problem
+from iki_server.api.schemas import PersonRef
 from iki_server.org.permissions import Action
 from iki_server.searches import services
 from iki_server.searches.models import SavedSearch
@@ -43,11 +44,6 @@ class SavedSearchPatch(Schema):
     name: str | None = Field(None, max_length=100)
     query: QueryIn | None = None
     shared: bool | None = None
-
-
-class PersonRef(Schema):
-    id: UUID
-    name: str
 
 
 class SavedSearchCan(Schema):
@@ -93,7 +89,7 @@ def _out(user: User, saved: SavedSearch) -> dict[str, Any]:
         "name": saved.name,
         "query": query,
         "shared": saved.shared,
-        "created_by": {"id": saved.created_by.pk, "name": saved.created_by.get_full_name()},
+        "created_by": saved.created_by,
         "created_at": saved.created_at,
         "updated_at": saved.updated_at,
         "can": {

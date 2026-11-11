@@ -20,7 +20,7 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page
+from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
@@ -191,11 +191,6 @@ class CancelIn(Schema):
     reason: str = Field("", max_length=2000, description="Why, for the record.")
 
 
-class PersonOut(Schema):
-    id: UUID
-    name: str
-
-
 class RunInputOut(Schema):
     name: str
     entity: UUID = Field(alias="entity_id")
@@ -240,7 +235,7 @@ class RunOut(Schema):
     plugin_version: str
     plugin_sha: str = Field(description="The plugin's commit, when built from a lockfile.")
     project: UUID = Field(alias="project_id")
-    requested_by: PersonOut
+    requested_by: PersonRef
     via: str
     reason: str
     tier: Tier
@@ -308,7 +303,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         {
             **{f: getattr(run, f) for f in _RUN_FIELDS},
             "project_id": run.project_id,
-            "requested_by": {"id": run.requested_by.pk, "name": run.requested_by.name},
+            "requested_by": run.requested_by,
             "inputs": inputs.get(run.pk, []),
             "attempts": attempts.get(run.pk, 0),
             "effects": effects.get(run.pk, []),
@@ -433,7 +428,7 @@ def cancel_run(request: HttpRequest, ref: str, payload: CancelIn) -> dict[str, A
 # --- Attempts and their logs ---------------------------------------------------------------------
 
 
-class AttemptOut(Schema):
+class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
     worker: str | None = Field(description="The name of the worker that ran it.")
@@ -449,7 +444,7 @@ class AttemptOut(Schema):
     error: ErrorOut | None
 
 
-@router.get("/runs/{ref}/attempts", response=list[AttemptOut], summary="A run's attempts")
+@router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
 def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
     """Oldest first. A run is attempted again when its machine goes away."""
     run = _find(caller(request), ref)
@@ -471,11 +466,18 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
     ]
 
 
+def _attempt(run: ActionRun, attempt: int) -> Job:
+    job = Job.objects.filter(run=run, attempt=attempt).first()
+    if job is None:
+        raise Problem(404, f"{run.hrid} has no attempt {attempt}.")
+    return job
+
+
 #: The most of a log one answer holds; ask again from ``next_offset`` for more.
 LOG_PAGE_BYTES = 1024**2
 
 
-class LogOut(Schema):
+class AttemptLogOut(Schema):
     offset: int = Field(description="Where `text` starts, in bytes of UTF-8.")
     text: str
     next_offset: int = Field(description="Where to ask from next.")
@@ -490,16 +492,16 @@ class LogParams(Schema):
     offset: int = Field(0, ge=0, description="Bytes of UTF-8 to skip, such as a `next_offset`.")
 
 
-@router.get("/runs/{ref}/attempts/{attempt}/log", response=LogOut, summary="An attempt's log")
+@router.get(
+    "/runs/{ref}/attempts/{attempt}/log", response=AttemptLogOut, summary="An attempt's log"
+)
 def attempt_log(
     request: HttpRequest, ref: str, attempt: int, params: Query[LogParams]
 ) -> dict[str, Any]:
     """What the attempt's command printed, from `offset` on. Follow a running attempt with
     the run's live updates (`GET /runs/{ref}/events`): each `log` event says it grew."""
     run = _find(caller(request), ref)
-    job = Job.objects.filter(run=run, attempt=attempt).first()
-    if job is None:
-        raise Problem(404, f"{run.hrid} has no attempt {attempt}.")
+    job = _attempt(run, attempt)
     chunks = JobLog.objects.filter(job=job).order_by("offset")
     first = chunks.filter(offset__lte=params.offset).order_by("-offset").first()
     start = first.offset if first is not None else 0
@@ -523,3 +525,19 @@ def attempt_log(
         "size": job.log_size,
         "ended": job.finished_at is not None,
     }
+
+
+@router.get(
+    "/runs/{ref}/attempts/{attempt}/log.txt",
+    summary="Download an attempt's log",
+    openapi_extra={"responses": {200: {"description": "The log", "content": {"text/plain": {}}}}},
+)
+def download_attempt_log(request: HttpRequest, ref: str, attempt: int) -> HttpResponse:
+    """All of it that's kept, as a text file, such as for a record."""
+    run = _find(caller(request), ref)
+    job = _attempt(run, attempt)
+    text = "".join(JobLog.objects.filter(job=job).order_by("offset").values_list("text", flat=True))
+    response = HttpResponse(text.encode(), content_type="text/plain; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{run.hrid}-attempt-{attempt}.log"'
+    response["Cache-Control"] = "no-store"
+    return response

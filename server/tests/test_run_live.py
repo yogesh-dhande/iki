@@ -127,3 +127,23 @@ async def test_only_people_who_can_read_a_run_follow_it() -> None:
     assert response.status_code == 401
     response = await outsider.post(f"/api/v1/runs/{run['id']}/events", secure=True)
     assert response.status_code == 405
+
+
+@pytest.mark.django_db
+def test_an_attempts_whole_log_downloads_as_a_text_file(world: World) -> None:
+    run = queued(world)
+    pod = worker(world)
+    job = pod.lease().json()
+    pod.report(job, "logs", offset=0, text="héllo\n")
+    pod.report(job, "logs", offset=7, text="world\n")
+    viewer = api_as(world, "viewer")
+    reply = viewer.get(f"/runs/{run['hrid']}/attempts/1/log.txt")
+    assert reply.status_code == 200
+    assert reply.content == "héllo\nworld\n".encode()
+    assert reply["Content-Type"] == "text/plain; charset=utf-8"
+    assert reply["Content-Disposition"] == f'attachment; filename="{run["hrid"]}-attempt-1.log"'
+    assert reply["Cache-Control"] == "no-store"
+    problem(viewer.get(f"/runs/{run['hrid']}/attempts/2/log.txt"), 404, "not_found")
+    problem(
+        api_as(world, "outsider").get(f"/runs/{run['id']}/attempts/1/log.txt"), 404, "not_found"
+    )

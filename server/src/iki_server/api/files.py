@@ -25,10 +25,9 @@ from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project
-from iki_server.api.entities import ProjectRef
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page, UserOut
+from iki_server.api.schemas import Page, ProjectRef, UserOut
 from iki_server.files import services, storage
 from iki_server.files.models import File, Registration, RegistrationState, Upload, UploadState
 from iki_server.org import permissions

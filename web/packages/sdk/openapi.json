@@ -138,6 +138,49 @@
         "title": "ActionOut",
         "type": "object"
       },
+      "AttemptLogOut": {
+        "properties": {
+          "ended": {
+            "description": "The attempt has ended, so nothing more will come.",
+            "title": "Ended",
+            "type": "boolean"
+          },
+          "more": {
+            "description": "More is kept already: ask again from `next_offset` now.",
+            "title": "More",
+            "type": "boolean"
+          },
+          "next_offset": {
+            "description": "Where to ask from next.",
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "Where `text` starts, in bytes of UTF-8.",
+            "title": "Offset",
+            "type": "integer"
+          },
+          "size": {
+            "description": "Bytes the command has written. Past 16 MiB they're counted, not kept.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "text",
+          "next_offset",
+          "more",
+          "size",
+          "ended"
+        ],
+        "title": "AttemptLogOut",
+        "type": "object"
+      },
       "AttemptOut": {
         "properties": {
           "at": {
@@ -2054,49 +2097,6 @@
         "title": "LocationsOut",
         "type": "object"
       },
-      "LogOut": {
-        "properties": {
-          "ended": {
-            "description": "The attempt has ended, so nothing more will come.",
-            "title": "Ended",
-            "type": "boolean"
-          },
-          "more": {
-            "description": "More is kept already: ask again from `next_offset` now.",
-            "title": "More",
-            "type": "boolean"
-          },
-          "next_offset": {
-            "description": "Where to ask from next.",
-            "title": "Next Offset",
-            "type": "integer"
-          },
-          "offset": {
-            "description": "Where `text` starts, in bytes of UTF-8.",
-            "title": "Offset",
-            "type": "integer"
-          },
-          "size": {
-            "description": "Bytes the command has written. Past 16 MiB they're counted, not kept.",
-            "title": "Size",
-            "type": "integer"
-          },
-          "text": {
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "offset",
-          "text",
-          "next_offset",
-          "more",
-          "size",
-          "ended"
-        ],
-        "title": "LogOut",
-        "type": "object"
-      },
       "LogParams": {
         "properties": {
           "offset": {
@@ -2987,6 +2987,35 @@
         "title": "Page[WorkerOut]",
         "type": "object"
       },
+      "Page_WorkerRegistrationOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerRegistrationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[WorkerRegistrationOut]",
+        "type": "object"
+      },
       "ParamOut": {
         "properties": {
           "default": {
@@ -3122,26 +3151,8 @@
         "title": "PartsIn",
         "type": "object"
       },
-      "PersonOut": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ],
-        "title": "PersonOut",
-        "type": "object"
-      },
       "PersonRef": {
+        "description": "Someone, by name, or by email address when they have none.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -3704,7 +3715,7 @@
             "type": "string"
           },
           "created_by": {
-            "$ref": "#/components/schemas/PersonOut"
+            "$ref": "#/components/schemas/PersonRef"
           },
           "id": {
             "format": "uuid",
@@ -3877,105 +3888,6 @@
           "archived"
         ],
         "title": "RefOut",
-        "type": "object"
-      },
-      "RegistrationCreatedOut": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "created_by": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PersonOut"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Null when an operator made it with `iki-server create_registration_token`."
-          },
-          "expires_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expires At"
-          },
-          "hint": {
-            "description": "The token's last four characters, to tell it by.",
-            "title": "Hint",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "last_used_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Used At"
-          },
-          "revoked_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Revoked At"
-          },
-          "tier": {
-            "title": "Tier",
-            "type": "string"
-          },
-          "token": {
-            "description": "Shown once. Give it to the tier's workers as a secret.",
-            "title": "Token",
-            "type": "string"
-          },
-          "workers": {
-            "description": "Workers registered with it and not revoked.",
-            "title": "Workers",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "label",
-          "tier",
-          "hint",
-          "created_by",
-          "created_at",
-          "expires_at",
-          "last_used_at",
-          "revoked_at",
-          "workers",
-          "token"
-        ],
-        "title": "RegistrationCreatedOut",
         "type": "object"
       },
       "RegistrationIn": {
@@ -4310,6 +4222,110 @@
         "title": "RoleIn",
         "type": "object"
       },
+      "RunAttemptOut": {
+        "properties": {
+          "attempt": {
+            "description": "1 for the first, then 2, 3, ...",
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "environment_build": {
+            "description": "The digest of the environment it ran in; empty for the host's own software.",
+            "title": "Environment Build",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "log_size": {
+            "description": "Bytes its command has written so far.",
+            "title": "Log Size",
+            "type": "integer"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From 0 to 1, as its command reports it.",
+            "title": "Progress"
+          },
+          "progress_message": {
+            "title": "Progress Message",
+            "type": "string"
+          },
+          "queued_at": {
+            "format": "date-time",
+            "title": "Queued At",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState"
+          },
+          "worker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name of the worker that ran it.",
+            "title": "Worker"
+          }
+        },
+        "required": [
+          "attempt",
+          "state",
+          "worker",
+          "environment_build",
+          "queued_at",
+          "started_at",
+          "finished_at",
+          "progress",
+          "progress_message",
+          "log_size",
+          "error"
+        ],
+        "title": "RunAttemptOut",
+        "type": "object"
+      },
       "RunCan": {
         "properties": {
           "cancel": {
@@ -4579,7 +4595,7 @@
             "type": "string"
           },
           "requested_by": {
-            "$ref": "#/components/schemas/PersonOut"
+            "$ref": "#/components/schemas/PersonRef"
           },
           "started_at": {
             "anyOf": [
@@ -6199,7 +6215,7 @@
           "owner": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/PersonOut"
+                "$ref": "#/components/schemas/PersonRef"
               },
               {
                 "type": "null"
@@ -6280,6 +6296,237 @@
           "jobs"
         ],
         "title": "WorkerOut",
+        "type": "object"
+      },
+      "WorkerRegistrationCreatedOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when an operator made it with `iki-server create_registration_token`."
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "hint": {
+            "description": "The token's last four characters, to tell it by.",
+            "title": "Hint",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "token": {
+            "description": "Shown once. Give it to the tier's workers as a secret.",
+            "title": "Token",
+            "type": "string"
+          },
+          "workers": {
+            "description": "Workers registered with it and not revoked.",
+            "title": "Workers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "tier",
+          "hint",
+          "created_by",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at",
+          "workers",
+          "token"
+        ],
+        "title": "WorkerRegistrationCreatedOut",
+        "type": "object"
+      },
+      "WorkerRegistrationIn": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it stops working. Workers already registered keep working.",
+            "title": "Expires At"
+          },
+          "label": {
+            "description": "What it's for, such as `GPU pool (us-east-1)`.",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "backend",
+              "container",
+              "vm"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "tier"
+        ],
+        "title": "WorkerRegistrationIn",
+        "type": "object"
+      },
+      "WorkerRegistrationOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when an operator made it with `iki-server create_registration_token`."
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "hint": {
+            "description": "The token's last four characters, to tell it by.",
+            "title": "Hint",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "workers": {
+            "description": "Workers registered with it and not revoked.",
+            "title": "Workers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "tier",
+          "hint",
+          "created_by",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "revoked_at",
+          "workers"
+        ],
+        "title": "WorkerRegistrationOut",
         "type": "object"
       }
     },
@@ -6737,7 +6984,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Page_RegistrationOut_"
+                  "$ref": "#/components/schemas/Page_WorkerRegistrationOut_"
                 }
               }
             },
@@ -6764,7 +7011,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RegistrationIn"
+                "$ref": "#/components/schemas/WorkerRegistrationIn"
               }
             }
           },
@@ -6775,7 +7022,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegistrationCreatedOut"
+                  "$ref": "#/components/schemas/WorkerRegistrationCreatedOut"
                 }
               }
             },
@@ -6827,7 +7074,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegistrationOut"
+                  "$ref": "#/components/schemas/WorkerRegistrationOut"
                 }
               }
             },
@@ -9434,7 +9681,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/AttemptOut"
+                    "$ref": "#/components/schemas/RunAttemptOut"
                   },
                   "title": "Response",
                   "type": "array"
@@ -9500,7 +9747,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LogOut"
+                  "$ref": "#/components/schemas/AttemptLogOut"
                 }
               }
             },
@@ -9516,6 +9763,52 @@
           }
         ],
         "summary": "An attempt's log",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/attempts/{attempt}/log.txt": {
+      "get": {
+        "description": "All of it that's kept, as a text file, such as for a record.",
+        "operationId": "iki_server_api_runs_download_attempt_log",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "attempt",
+            "required": true,
+            "schema": {
+              "title": "Attempt",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {}
+            },
+            "description": "The log"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download an attempt's log",
         "tags": [
           "runs"
         ]

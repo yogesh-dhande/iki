@@ -17,7 +17,7 @@ from ninja import Field, Query, Router, Schema, Status
 from iki_server.api.common import caller, project, require, require_scope
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page
+from iki_server.api.schemas import Page, PersonRef, ProjectRef
 from iki_server.org.permissions import Action
 from iki_server.webhooks import events, services
 from iki_server.webhooks.models import Delivery, Webhook
@@ -30,21 +30,6 @@ Scope = Literal["project", "org"]
 class EventTypeOut(Schema):
     type: str
     description: str
-
-
-class ProjectRef(Schema):
-    id: UUID
-    name: str
-    slug: str
-
-
-class PersonRef(Schema):
-    id: UUID
-    name: str
-
-    @staticmethod
-    def resolve_name(user: Any) -> str:  # noqa: ANN401
-        return str(user.get_full_name())
 
 
 class LastDelivery(Schema):

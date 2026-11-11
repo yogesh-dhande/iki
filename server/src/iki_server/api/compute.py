@@ -18,7 +18,7 @@ from ninja import Field, Query, Router, Schema, Status
 from iki_server.api.common import caller, require
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page
+from iki_server.api.schemas import Page, PersonRef
 from iki_server.audit import log as audit
 from iki_server.org.models import Project, Team
 from iki_server.org.permissions import Action
@@ -41,12 +41,7 @@ router = Router(tags=["compute"])
 OFFLINE_AFTER = timedelta(minutes=2)
 
 
-class PersonOut(Schema):
-    id: UUID
-    name: str
-
-
-class RegistrationIn(Schema):
+class WorkerRegistrationIn(Schema):
     label: str = Field(
         min_length=1, max_length=100, description="What it's for, such as `GPU pool (us-east-1)`."
     )
@@ -56,12 +51,12 @@ class RegistrationIn(Schema):
     )
 
 
-class RegistrationOut(Schema):
+class WorkerRegistrationOut(Schema):
     id: UUID
     label: str
     tier: str
     hint: str = Field(description="The token's last four characters, to tell it by.")
-    created_by: PersonOut | None = Field(
+    created_by: PersonRef | None = Field(
         description="Null when an operator made it with `iki-server create_registration_token`."
     )
     created_at: datetime
@@ -71,7 +66,7 @@ class RegistrationOut(Schema):
     workers: int = Field(description="Workers registered with it and not revoked.")
 
 
-class RegistrationCreatedOut(RegistrationOut):
+class WorkerRegistrationCreatedOut(WorkerRegistrationOut):
     token: str = Field(description="Shown once. Give it to the tier's workers as a secret.")
 
 
@@ -81,9 +76,7 @@ def _registration_out(token: RegistrationToken) -> dict[str, Any]:
         "label": token.label,
         "tier": token.tier,
         "hint": token.hint,
-        "created_by": (
-            {"id": token.created_by.pk, "name": token.created_by.name} if token.created_by else None
-        ),
+        "created_by": token.created_by,
         "created_at": token.created_at,
         "expires_at": token.expires_at,
         "last_used_at": token.last_used_at,
@@ -100,7 +93,7 @@ def _registrations() -> QuerySet[RegistrationToken]:
 
 @router.get(
     "/compute/registration-tokens",
-    response=Page[RegistrationOut],
+    response=Page[WorkerRegistrationOut],
     summary="Worker registration tokens",
 )
 def list_registrations(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
@@ -113,11 +106,11 @@ def list_registrations(request: HttpRequest, params: Query[PageParams]) -> dict[
 
 @router.post(
     "/compute/registration-tokens",
-    response={201: RegistrationCreatedOut},
+    response={201: WorkerRegistrationCreatedOut},
     summary="Make a worker registration token",
 )
 def create_registration(
-    request: HttpRequest, payload: RegistrationIn, response: HttpResponse
+    request: HttpRequest, payload: WorkerRegistrationIn, response: HttpResponse
 ) -> Any:  # noqa: ANN401
     me = caller(request)
     require(me, Action.COMPUTE_MANAGE)
@@ -149,7 +142,7 @@ def _registration(token_id: UUID) -> RegistrationToken:
 
 @router.post(
     "/compute/registration-tokens/{token_id}/revoke",
-    response=RegistrationOut,
+    response=WorkerRegistrationOut,
     summary="Revoke a worker registration token",
 )
 def revoke_registration(request: HttpRequest, token_id: UUID, payload: RevokeIn) -> dict[str, Any]:
@@ -178,7 +171,7 @@ class WorkerOut(Schema):
         "build's digest (null when it runs them with its host's own software)."
     )
     registration: UUID | None = Field(alias="registration_id")
-    owner: PersonOut | None = Field(description="For the client tier: whose machine it is.")
+    owner: PersonRef | None = Field(description="For the client tier: whose machine it is.")
     registered_at: datetime
     last_seen_at: datetime
     revoked_at: datetime | None
@@ -210,9 +203,7 @@ def _worker_out(worker: Worker) -> dict[str, Any]:
                 "revoked_at",
             )
         },
-        "owner": (
-            {"id": worker.owner.pk, "name": worker.owner.name} if worker.owner is not None else None
-        ),
+        "owner": worker.owner,
         "status": status,
         "jobs": getattr(worker, "held_jobs", 0),
     }
@@ -279,7 +270,7 @@ class QuotaOut(Schema):
     max_queued: int | None = Field(description="Runs waiting to start.")
     running: int = Field(description="Jobs running in its scope now.")
     queued: int = Field(description="Runs waiting in its scope now.")
-    created_by: PersonOut
+    created_by: PersonRef
     created_at: datetime
     updated_at: datetime
 
@@ -325,7 +316,7 @@ def _quota_out(quota: RunQuota) -> dict[str, Any]:
         "max_queued": quota.max_queued,
         "running": held.count(),
         "queued": waiting.count(),
-        "created_by": {"id": quota.created_by.pk, "name": quota.created_by.name},
+        "created_by": quota.created_by,
         "created_at": quota.created_at,
         "updated_at": quota.updated_at,
     }

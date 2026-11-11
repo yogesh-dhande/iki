@@ -123,6 +123,7 @@ CASES: list[Case] = [
     ("project_members", "GET", project_url("members/"), row(OK)),
     ("project_entities", "GET", project_url("entities/"), row(OK)),
     ("project_entity_new", "GET", project_url("entities/new/"), row(OK)),
+    ("project_runs", "GET", project_url("runs/"), row(OK)),
     ("project_settings", "GET", project_url("settings/"), row(OK)),
     ("project_webhooks", "GET", project_url("webhooks/"), row(OK)),
     (

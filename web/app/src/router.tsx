@@ -23,6 +23,7 @@ import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
+import { actionsQuery, runQuery, STATUS, type RunStatus } from "./runs";
 
 // Pages fetched when they're first opened, so the first page loads quickly.
 const entityPages = () => import("./pages/entity");
@@ -38,6 +39,9 @@ const ProjectEntities = lazyRouteComponent(
   "ProjectEntities",
 );
 const entityFormPages = () => import("./pages/entity-form");
+const runPages = () => import("./pages/runs");
+const ProjectRuns = lazyRouteComponent(runPages, "ProjectRuns");
+const RunPage = lazyRouteComponent(runPages, "RunPage");
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
@@ -129,6 +133,17 @@ const projectEntityNewRoute = createRoute({
   component: NewEntity,
 });
 
+const projectRunsRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "runs",
+  // ?status=failed: only runs with that status.
+  validateSearch: (search: Record<string, unknown>): { status?: RunStatus } =>
+    typeof search["status"] === "string" && search["status"] in STATUS
+      ? { status: search["status"] as RunStatus }
+      : {},
+  component: ProjectRuns,
+});
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
@@ -196,6 +211,17 @@ const entityHistoryRoute = createRoute({
   component: EntityHistory,
 });
 
+const runRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "runs/$ref",
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.query(runQuery(params.ref)),
+      context.queryClient.query(actionsQuery),
+    ]),
+  component: RunPage,
+});
+
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "settings" });
 
 const orgWebhooksRoute = createRoute({ getParentRoute: () => settingsRoute, path: "webhooks" });
@@ -223,12 +249,14 @@ const routeTree = rootRoute.addChildren([
       projectMembersRoute,
       projectEntitiesRoute,
       projectEntityNewRoute,
+      projectRunsRoute,
       projectSettingsRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),
   ]),
   typesRoute.addChildren([typeListRoute, typeRoute]),
   entityRoute.addChildren([entityOverviewRoute, entityEditRoute, entityHistoryRoute]),
+  runRoute,
   settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);
 

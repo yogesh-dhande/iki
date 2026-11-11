@@ -6,15 +6,19 @@ document isn't listed here, so no endpoint ships without its row.
 """
 
 import contextlib
+import typing
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 from api_client import Api
+from ninja import NinjaAPI
 from org_world import PRINCIPALS, World, build_world
+from pydantic import BaseModel
 
 from iki_server.accounts import service_accounts
 from iki_server.api.v1 import api
+from iki_server.api.worker import api as worker_api
 
 pytestmark = pytest.mark.django_db
 
@@ -483,6 +487,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("POST", "/runs/{ref}/cancel", run("/cancel", {}), editors(200)),
     ("GET", "/runs/{ref}/attempts", run("/attempts"), readers(200)),
     ("GET", "/runs/{ref}/attempts/{attempt}/log", run("/attempts/1/log"), readers(200)),
+    ("GET", "/runs/{ref}/attempts/{attempt}/log.txt", run("/attempts/1/log.txt"), readers(200)),
     # Workers and the tokens they register with are the Compute admin's.
     ("GET", "/compute/registration-tokens", fixed("/compute/registration-tokens"), COMPUTE_ONLY),
     (
@@ -649,6 +654,43 @@ def test_every_operation_is_in_the_matrix() -> None:
         for method in methods
     }
     assert operations == {(case[0], case[1]) for case in CASES}
+
+
+def _schemas_by_name(ninja: NinjaAPI) -> dict[str, set[type[BaseModel]]]:
+    found: dict[str, set[type[BaseModel]]] = {}
+    seen: set[Any] = set()
+
+    def walk(annotation: Any) -> None:
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            if annotation in seen:
+                return
+            seen.add(annotation)
+            # Ninja wraps bodies, params and responses in classes of its own, never named.
+            if annotation.__module__.startswith("iki_"):
+                found.setdefault(annotation.__name__, set()).add(annotation)
+            for field in annotation.model_fields.values():
+                walk(field.annotation)
+        for argument in typing.get_args(annotation):
+            walk(argument)
+
+    for _, router in ninja._routers:
+        for view in router.path_operations.values():
+            for operation in view.operations:
+                for model in [*(operation.response_models or {}).values(), *operation.models]:
+                    walk(model)
+    return found
+
+
+@pytest.mark.parametrize("ninja", [api, worker_api], ids=["api", "worker"])
+def test_no_two_schemas_share_a_name(ninja: NinjaAPI) -> None:
+    """The OpenAPI document names schemas by class name and keeps one of each: two
+    classes with the same name would give clients the wrong shape for one of them."""
+    shared = {
+        name: sorted(f"{c.__module__}.{c.__qualname__}" for c in classes)
+        for name, classes in _schemas_by_name(ninja).items()
+        if len(classes) > 1
+    }
+    assert shared == {}
 
 
 def test_every_operation_documents_its_summary() -> None:
