@@ -3,34 +3,21 @@
  * fake API.
  */
 
-import type { Schemas } from "@ikisci/sdk";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { queryClient } from "./api";
-import { createAppRouter } from "./router";
-import { answer, calls, ME, page, problem, project, signedIn } from "./test-server";
-
-/** The item at `index`, which the test expects to be there. */
-function nth<T>(items: readonly T[], index: number): T {
-  const found = items[index];
-  if (found === undefined) throw new Error(`No item ${String(index)} of ${String(items.length)}`);
-  return found;
-}
-
-async function renderApp(path: string) {
-  const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
-  render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-  await screen.findByRole("heading", { level: 1 });
-  return { router, user: userEvent.setup() };
-}
+import {
+  ALICE,
+  entity,
+  FILE_ID,
+  KINASE,
+  nth,
+  PROTEIN_ID,
+  renderApp,
+  revision,
+  withTypes,
+} from "./entity-fixtures";
+import { answer, calls, page, problem } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -46,124 +33,6 @@ afterAll(() => {
     if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
   }
 });
-
-type Field = Schemas["FieldOut"];
-
-function field(overrides: Partial<Field> & Pick<Field, "name" | "label" | "type">): Field {
-  return {
-    description: null,
-    plugin: "protein",
-    required: false,
-    immutable: false,
-    computed: false,
-    unit: null,
-    unit_symbol: null,
-    display_unit: null,
-    display_unit_symbol: null,
-    display_scale: null,
-    display_offset: null,
-    to: null,
-    values: [],
-    items: null,
-    ...overrides,
-  };
-}
-
-const PROTEIN: Schemas["EntityTypeOut"] = {
-  name: "protein.Protein",
-  plugin: "protein",
-  label: "Protein",
-  label_plural: "Proteins",
-  description: "A protein sequence.",
-  extends: null,
-  abstract: false,
-  subtypes: [],
-  hrid_prefix: "PRT",
-  identity: ["sequence"],
-  on_duplicate: "reuse",
-  values_schema: {},
-  fields: [
-    field({ name: "name", label: "Name", type: "string" }),
-    field({ name: "sequence", label: "Sequence", type: "string", required: true, immutable: true }),
-    field({
-      name: "molecular_weight",
-      label: "Molecular weight",
-      type: "quantity",
-      computed: true,
-      unit: "u",
-      unit_symbol: "u",
-      display_unit: "ku",
-      display_unit_symbol: "ku",
-      display_scale: 0.001,
-      display_offset: 0,
-    }),
-  ],
-};
-
-const STRUCTURE: Schemas["EntityTypeOut"] = {
-  ...PROTEIN,
-  name: "protein.ProteinStructure",
-  label: "Protein structure",
-  label_plural: "Protein structures",
-  description: null,
-  hrid_prefix: "PST",
-  identity: [],
-  on_duplicate: null,
-  fields: [
-    field({ name: "structure", label: "Structure", type: "file", required: true }),
-    field({
-      name: "resolution",
-      label: "Resolution",
-      type: "quantity",
-      unit: "Ao",
-      unit_symbol: "Å",
-    }),
-    field({ name: "chains", label: "Chains", type: "list", items: "ref", to: "protein.Protein" }),
-  ],
-};
-
-const KINASE = project();
-const ALICE = { id: ME.id, email: ME.email, name: ME.name, active: true, kind: "person" as const };
-const PROTEIN_ID = "00000000-0000-7000-8000-00000000e001";
-const FILE_ID = "00000000-0000-7000-8000-00000000f001";
-
-function entity(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"] {
-  return {
-    id: PROTEIN_ID,
-    hrid: "PRT-000001",
-    type: "protein.Protein",
-    revision: 2,
-    owner_project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
-    created_by: ALICE,
-    created_at: "2026-03-14T09:00:00Z",
-    updated_at: "2026-03-15T09:00:00Z",
-    archived: false,
-    archived_at: null,
-    values: { name: "ABL1 kinase", sequence: "MLEICLKLVG", molecular_weight: 52341.5 },
-    refs: {},
-    files: {},
-    can: { edit: true },
-    ...overrides,
-  };
-}
-
-function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schemas["RevisionOut"] {
-  return {
-    number: 1,
-    kind: "created",
-    changed_fields: ["name", "sequence"],
-    reason: "",
-    via: "web",
-    user: ALICE,
-    created_at: "2026-03-14T09:00:00Z",
-    ...overrides,
-  };
-}
-
-function withTypes(): void {
-  signedIn();
-  answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
-}
 
 describe("the type browser", () => {
   it("lists the types by plugin, and shows a type's fields and rules", async () => {
@@ -294,7 +163,14 @@ describe("an entity's page", () => {
         hrid: "PST-000001",
         type: "protein.ProteinStructure",
         values: { structure: FILE_ID, resolution: 2.1, chains: [PROTEIN_ID, "gone"] },
-        refs: { [PROTEIN_ID]: { hrid: "PRT-000001", type: "protein.Protein", archived: false } },
+        refs: {
+          [PROTEIN_ID]: {
+            hrid: "PRT-000001",
+            title: "ABL1 kinase",
+            type: "protein.Protein",
+            archived: false,
+          },
+        },
         files: { [FILE_ID]: { name: "1abc.pdb", media_type: "chemical/x-pdb", size: 52_428_800 } },
       }),
     );
@@ -327,7 +203,7 @@ describe("an entity's page", () => {
     expect(file).toHaveAttribute("href", `/api/v1/files/${FILE_ID}/content`);
     expect(within(values).getByText("50 MiB · chemical/x-pdb")).toBeInTheDocument();
     expect(within(values).getByText("2.1 Å")).toBeInTheDocument();
-    expect(within(values).getByRole("link", { name: "PRT-000001" })).toHaveAttribute(
+    expect(within(values).getByRole("link", { name: "ABL1 kinase" })).toHaveAttribute(
       "href",
       "/entities/PRT-000001/",
     );

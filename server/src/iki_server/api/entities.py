@@ -17,6 +17,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 
@@ -31,7 +32,7 @@ from iki_server.entities.values import Invalid, shape, subtypes, to_json
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
-from iki_spec import units
+from iki_spec import titles, units
 from iki_spec.model import EntityType
 
 router = Router(tags=["entities"])
@@ -40,6 +41,11 @@ DuplicatePolicy = Literal["reuse", "warn", "allow"]
 
 
 # --- Schemas -------------------------------------------------------------------------------------
+
+
+class UnitOption(Schema):
+    code: str = Field(description="UCUM, as the API takes it.")
+    symbol: str = Field(description="As people write it.")
 
 
 class FieldOut(Schema):
@@ -59,6 +65,10 @@ class FieldOut(Schema):
         description="With a display unit: shown as value * display_scale + display_offset."
     )
     display_offset: float | None
+    input_units: list[UnitOption] = Field(
+        description="Quantities: common units values can be given in. Any convertible UCUM "
+        "unit works."
+    )
     to: str | None = Field(description="References: the type they refer to.")
     values: list[str] = Field(description="Enums: the allowed values.")
     items: str | None = Field(description="Lists: the type of each item.")
@@ -96,6 +106,7 @@ class EntityCan(Schema):
 
 class RefOut(Schema):
     hrid: str
+    title: str = Field(description="What it's called: its type's display title, or its HRID.")
     type: str
     archived: bool
 
@@ -109,6 +120,7 @@ class FileRef(Schema):
 class EntityOut(Schema):
     id: UUID
     hrid: str
+    title: str = Field(description="What it's called: its type's display title, or its HRID.")
     type: str
     revision: int = Field(description="Its latest revision. Send it back as If-Match to change it.")
     owner_project: ProjectRef | None = Field(
@@ -172,6 +184,12 @@ class ChangeOut(Schema):
 class RevisionDetailOut(RevisionOut):
     values: dict[str, Any] = Field(description="Every field's value as it was at this revision.")
     changes: dict[str, ChangeOut] = Field(description="What this revision changed.")
+    refs: dict[str, RefOut] = Field(
+        description="The entities its values and changes refer to that you can read, by ID."
+    )
+    files: dict[str, FileRef] = Field(
+        description="The files its values and changes refer to that you can read, by ID."
+    )
 
 
 class EntityProjectOut(Schema):
@@ -186,6 +204,11 @@ class EntityFilters(PageParams):
     exact_type: bool = Field(False, description="Only the type itself, not its subtypes.")
     project: UUID | None = Field(None, description="Entities that belong to this project.")
     archived: bool | None = None
+    q: str | None = Field(
+        None,
+        max_length=200,
+        description="Entities whose HRID, or a text field in their title, contains this.",
+    )
 
 
 # --- Entity types --------------------------------------------------------------------------------
@@ -218,6 +241,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
                     "display_unit": f.display_unit,
                     "display_unit_symbol": units.symbol(f.display_unit) if f.display_unit else None,
                     **_display(f.unit, f.display_unit),
+                    "input_units": _input_units(f.unit, f.display_unit),
                     "to": f.to,
                     "values": list(f.values),
                     "items": f.items.type if f.items is not None else None,
@@ -239,6 +263,16 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "fields": fields,
         "values_schema": schema.for_type(name),
     }
+
+
+def _input_units(unit: str | None, display_unit: str | None) -> list[dict[str, str]]:
+    if unit is None:
+        return []
+    """The display unit first (what people read values in), then the field's own."""
+    codes = list(units.common_alternatives(unit))
+    if display_unit:
+        codes = [display_unit, *(c for c in codes if c != display_unit)]
+    return [{"code": c, "symbol": units.symbol(c)} for c in codes]
 
 
 def _display(unit: str | None, display_unit: str | None) -> dict[str, float | None]:
@@ -305,10 +339,12 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     for entity in entities:
         fields = shape(entity.type).fields()
         mine = _ids_in(fields, values[entity.pk])
+        shown = {name: to_json(fields[name], value) for name, value in values[entity.pk].items()}
         out.append(
             {
                 "id": entity.pk,
                 "hrid": entity.hrid,
+                "title": _title(entity, shown),
                 "type": entity.type,
                 "revision": entity.revision,
                 "owner_project": projects.get(entity.owner_project_id),
@@ -317,9 +353,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "updated_at": entity.updated_at,
                 "archived": entity.archived_at is not None,
                 "archived_at": entity.archived_at,
-                "values": {
-                    name: to_json(fields[name], value) for name, value in values[entity.pk].items()
-                },
+                "values": shown,
                 "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
                 "can": {"edit": entity.owner_project_id in editable},
@@ -342,21 +376,31 @@ def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any
 def _referenced(
     user: User, entities: list[Entity], values: dict[Any, dict[str, Any]]
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
-    """What a page of entities refers to that the user can read, in two queries."""
+    """What a page of entities refers to that the user can read, in a few queries."""
     wanted: dict[str, set[Any]] = {"ref": set(), "file": set()}
     for entity in entities:
         for kind, ids in _ids_in(shape(entity.type).fields(), values[entity.pk]).items():
             wanted[kind] |= ids
-    refs = (
-        {
-            pk: {"hrid": hrid, "type": kind, "archived": archived is not None}
-            for pk, hrid, kind, archived in access.visible(user)
-            .filter(pk__in=wanted["ref"])
-            .values_list("pk", "hrid", "type", "archived_at")
+    return _lookup(user, wanted)
+
+
+def _lookup(
+    user: User, wanted: dict[str, set[Any]]
+) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
+    """The entities and files with these IDs that the user can read, as ``refs`` and ``files``."""
+    found = list(access.visible(user).filter(pk__in=wanted["ref"])) if wanted["ref"] else []
+    titled = [e for e in found if _template(e.type) is not None]
+    titled_values = services.current_values_of(titled) if titled else {}
+    refs = {}
+    for e in found:
+        fields = shape(e.type).fields()
+        shown = {n: to_json(fields[n], v) for n, v in titled_values.get(e.pk, {}).items()}
+        refs[e.pk] = {
+            "hrid": e.hrid,
+            "title": _title(e, shown),
+            "type": e.type,
+            "archived": e.archived_at is not None,
         }
-        if wanted["ref"]
-        else {}
-    )
     files = (
         {
             pk: {"name": name, "media_type": media_type, "size": size}
@@ -368,6 +412,42 @@ def _referenced(
         else {}
     )
     return refs, files
+
+
+def _template(type_name: str) -> str | None:
+    entity_type = registry.types().get(type_name)
+    return registry.display_title(entity_type) if entity_type is not None else None
+
+
+def _title(entity: Entity, values: dict[str, Any]) -> str:
+    """Its display title, from its values as JSON."""
+    return titles.render(_template(entity.type), values, entity.hrid, shape(entity.type).fields())
+
+
+def _title_text_fields(type_name: str) -> list[str]:
+    """The text fields a type's title shows, which ``q`` searches."""
+    template = _template(type_name)
+    if template is None:
+        return []
+    fields = shape(type_name).fields()
+    words = {m.group("word") for m in titles.TOKEN.finditer(template) if m.group("word")}
+    return sorted(w for w in words if w in fields and fields[w].type in ("string", "text"))
+
+
+def _matching(q: str, type_names: set[str]) -> Q:
+    """Entities whose HRID contains ``q``, or whose title's text fields do."""
+    found = Q(hrid__icontains=q)
+    for name in sorted(type_names):
+        # Titles name the type's own fields; an extension's are in other tables.
+        form = shape(name)
+        fields = [f for f in _title_text_fields(name) if not form.part_of(f).extension]
+        if not fields or registry.types()[name].abstract:
+            continue
+        text = Q()
+        for f in fields:
+            text |= Q(**{f"{f}__icontains": q})
+        found |= Q(pk__in=form.model._default_manager.filter(text).values("pk"))
+    return found
 
 
 def _etag(entity: Entity) -> str:
@@ -397,6 +477,13 @@ def list_entities(request: HttpRequest, filters: Query[EntityFilters]) -> dict[s
         entities = entities.filter(links__project_id=project(me, filters.project).pk)
     if filters.archived is not None:
         entities = entities.filter(archived_at__isnull=not filters.archived)
+    if filters.q and filters.q.strip():
+        names = (
+            ({filters.type} if filters.exact_type else subtypes(filters.type))
+            if filters.type
+            else set(_types())
+        )
+        entities = entities.filter(_matching(filters.q.strip(), names))
     result = page(entities, filters)
     result["items"] = _out(me, result["items"])
     return result
@@ -569,20 +656,30 @@ def list_revisions(request: HttpRequest, ref: str, params: Query[PageParams]) ->
     summary="An entity as it was at a revision",
 )
 def get_revision(request: HttpRequest, ref: str, number: int) -> dict[str, Any]:
-    entity = _find(caller(request), ref)
+    me = caller(request)
+    entity = _find(me, ref)
     revision = Revision.objects.filter(entity=entity, number=number).select_related("user").first()
     if revision is None:
         raise Problem(404, f"{entity.hrid} has no revision {number}.")
     fields = shape(entity.type).fields()
-    values = services.values_at(entity, number)
+    values = {n: v for n, v in services.values_at(entity, number).items() if n in fields}
+    changes = {n: c for n, c in services.changes(entity, revision).items() if n in fields}
+    wanted = _ids_in(fields, values)
+    for name, (before, after) in changes.items():
+        for kind, ids in _ids_in(fields, {name: before}).items():
+            wanted[kind] |= ids
+        for kind, ids in _ids_in(fields, {name: after}).items():
+            wanted[kind] |= ids
+    refs, files = _lookup(me, wanted)
     return {
         **_revision(revision),
-        "values": {n: to_json(fields[n], v) for n, v in values.items() if n in fields},
+        "values": {n: to_json(fields[n], v) for n, v in values.items()},
         "changes": {
             name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
-            for name, (before, after) in services.changes(entity, revision).items()
-            if name in fields
+            for name, (before, after) in changes.items()
         },
+        "refs": {str(i): r for i, r in refs.items()},
+        "files": {str(i): f for i, f in files.items()},
     }
 
 

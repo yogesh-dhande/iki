@@ -24,9 +24,11 @@ APP_PAGES = [
     "/projects/a-b/",
     "/projects/a-b/members/",
     "/projects/a-b/entities/",
+    "/projects/a-b/entities/new/",
     "/types/",
     "/types/dna.DNASequence/",
     "/entities/DNA-000001/",
+    "/entities/DNA-000001/edit/",
     "/entities/DNA-000001/history/",
 ]
 

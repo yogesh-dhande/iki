@@ -263,3 +263,24 @@ def test_downloads_redirect_to_a_short_lived_link_under_the_files_name(
 def test_without_storage_the_files_api_says_so(world: World) -> None:
     body = problem(start(api_as(world), world, PDB), 503, "storage_not_configured")
     assert "IKI_FILES_BUCKET" in body["detail"]
+
+
+def test_files_can_be_listed_newest_first(world: World) -> None:
+    from iki_server.files.models import Blob, File
+
+    blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
+    made = [
+        str(
+            File.objects.create(
+                blob=blob, name=f"{n}.txt", media_type="text/plain", project=world.project
+            ).pk
+        )
+        for n in range(3)
+    ]
+    viewer = api_as(world, "viewer")
+    query = {"project": str(world.project.pk), "limit": 2}
+    first = viewer.get("/files", newest_first="true", **query).json()
+    assert [f["id"] for f in first["items"]] == made[:0:-1]
+    rest = viewer.get("/files", newest_first="true", cursor=first["next_cursor"], **query).json()
+    assert [f["id"] for f in rest["items"]] == made[:1]
+    assert [f["id"] for f in viewer.get("/files", **query).json()["items"]] == made[:2]

@@ -284,6 +284,64 @@ def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> 
     assert_clean(page)
 
 
+def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    gene = Entity.objects.get(
+        pk=entities.create(
+            world.users["admin"], "dna.DNASequence", world.project, {"bases": "ATG", "name": "abl1"}
+        ).entity.pk
+    )
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    page.get_by_role("link", name="New protein").click()
+    page.get_by_role("heading", level=2, name="New protein").wait_for()
+    assert_clean(page)
+
+    page.get_by_role("button", name="Create protein").click()
+    sequence = page.get_by_role("textbox", name="Sequence")
+    assert sequence.get_attribute("aria-invalid") == "true"
+    assert page.evaluate("document.activeElement.id") == sequence.get_attribute("id")
+    assert_clean(page)
+
+    sequence.fill("MKVL")
+    page.get_by_role("textbox", name="Name (optional)").fill("Kinase X")
+    page.get_by_role("textbox", name="Temperature optimum (optional)").fill("98.6")
+    page.get_by_role("combobox", name="Unit for Temperature optimum").select_option("[degF]")
+    picker = page.get_by_role("combobox", name="Encoded by (optional)")
+    picker.fill("abl")
+    page.get_by_role("option", name=re.compile("abl1")).click()
+    assert picker.input_value() == f"abl1 ({gene.hrid})"
+    page.get_by_role("button", name="Add Uniprot ids").click()
+    page.get_by_role("textbox", name="Uniprot ids, item 1").fill("P00519")
+    assert_clean(page)
+    page.get_by_role("button", name="Create protein").click()
+    page.wait_for_url(re.compile(r"/entities/PRT-\d+/$"))
+    made = Entity.objects.get(type="protein.Protein")
+    page.get_by_text(f"Created {made.hrid}.").wait_for()
+    values = entities.current_values_of([made])[made.pk]
+    assert values["temperature_optimum"] == pytest.approx(37.0)
+    assert values["encoded_by"] == gene.pk and values["uniprot_ids"] == ["P00519"]
+    assert_clean(page)
+
+    page.get_by_role("link", name="Edit").click()
+    page.get_by_role("heading", level=1, name="Edit Kinase X").wait_for()
+    assert page.get_by_role("textbox", name="Sequence").is_disabled()
+    page.get_by_role("textbox", name="Name (optional)").fill("Kinase Y")
+    page.get_by_role("textbox", name="Reason (optional)").fill("Renamed")
+    assert_clean(page)
+    page.get_by_role("button", name="Save changes").click()
+    page.get_by_text(f"Saved revision 2 of {made.hrid}.").wait_for()
+
+    page.get_by_role("button", name="Archive").click()
+    dialog = page.get_by_role("alertdialog", name=f"Archive {made.hrid}?")
+    dialog.get_by_role("textbox", name="Reason (optional)").fill("Duplicate of another")
+    assert_clean(page)
+    dialog.get_by_role("button", name="Archive").click()
+    page.get_by_text(f"Archived {made.hrid}.").wait_for()
+    assert Entity.objects.get(pk=made.pk).archived_at is not None
+
+
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     page = open_as("org_admin", "/projects/kinase-atlas/")
     page.get_by_text("You’re not a member of this project").wait_for()
@@ -342,10 +400,13 @@ def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: Wor
 def test_the_apps_files_are_cached_for_ever(open_as: Any) -> None:
     page = open_as("admin", "/projects/")
     script = page.locator("script[type=module]").first.get_attribute("src")
-    stylesheet = page.locator("link[rel=stylesheet]").get_attribute("href")
+    stylesheet, react_aria = (
+        link.get_attribute("href") for link in page.locator("link[rel=stylesheet]").all()
+    )
     assert script and re.fullmatch(r"/static/app/assets/main-[\w-]+\.js", script)
     assert stylesheet and re.fullmatch(r"/static/iki/iki\.[0-9a-f]{12}\.css", stylesheet)
-    for url in (script, stylesheet):
+    assert react_aria and re.fullmatch(r"/static/iki/react-aria\.[0-9a-f]{12}\.css", react_aria)
+    for url in (script, stylesheet, react_aria):
         response = page.request.get(url)
         assert response.ok, url
         assert "immutable" in response.headers["cache-control"], url

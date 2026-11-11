@@ -238,7 +238,13 @@ describe("a project", () => {
     });
     onProjectPage({
       my_role: null,
-      can: { read: false, manage: false, manage_members: true, manage_webhooks: false },
+      can: {
+        read: false,
+        edit: false,
+        manage: false,
+        manage_members: true,
+        manage_webhooks: false,
+      },
     });
     answer(`GET ${MEMBERS}`, page([]));
     answer(`PUT ${MEMBERS}/users/${ME.id}`, {});
@@ -295,7 +301,13 @@ describe("members", () => {
     signedIn();
     onProjectPage({
       my_role: "viewer",
-      can: { read: true, manage: false, manage_members: false, manage_webhooks: false },
+      can: {
+        read: true,
+        edit: false,
+        manage: false,
+        manage_members: false,
+        manage_webhooks: false,
+      },
     });
     answer(`GET ${MEMBERS}`, page(people));
     await renderApp("/projects/kinase-atlas/members/");
@@ -398,7 +410,13 @@ describe("settings", () => {
     signedIn();
     onProjectPage({
       my_role: "editor",
-      can: { read: true, manage: false, manage_members: false, manage_webhooks: false },
+      can: {
+        read: true,
+        edit: false,
+        manage: false,
+        manage_members: false,
+        manage_webhooks: false,
+      },
     });
     await renderApp("/projects/kinase-atlas/settings/");
     expect(screen.getByText("Only the project’s Admins can change its settings.")).toBeVisible();
@@ -624,7 +642,13 @@ describe("webhooks", () => {
     queryClient.clear();
     onProjectPage({
       my_role: "editor",
-      can: { read: true, manage: false, manage_members: false, manage_webhooks: false },
+      can: {
+        read: true,
+        edit: false,
+        manage: false,
+        manage_members: false,
+        manage_webhooks: false,
+      },
     });
     await renderApp("/projects/kinase-atlas/webhooks/");
     expect(

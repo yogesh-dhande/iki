@@ -129,6 +129,7 @@ class LocationsOut(Schema):
 
 class FileFilters(PageParams):
     project: UUID | None = None
+    newest_first: bool = Field(False, description="Newest first, rather than oldest.")
 
 
 # --- Helpers -------------------------------------------------------------------------------------
@@ -368,12 +369,13 @@ def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, A
 
 @router.get("/files", response=Page[FileOut], summary="Files you can read")
 def list_files(request: HttpRequest, filters: Query[FileFilters]) -> dict[str, Any]:
-    """Oldest first. Files are read through the projects they were added to."""
+    """Oldest first, unless ``newest_first``. Files are read through the projects they
+    were added to."""
     me = caller(request)
     files = services.readable(me).select_related("blob", "created_by")
     if filters.project:
         files = files.filter(project=project(me, filters.project))
-    result = page(files, filters)
+    result = page(files, filters, newest_first=filters.newest_first)
     result["items"] = _file_out(me, result["items"])
     return result
 

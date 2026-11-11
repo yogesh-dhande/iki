@@ -4,12 +4,13 @@ The schema describes the ``values`` object the API returns and accepts:
 
 - ``required`` lists what a new entity needs. An edit sends only the fields
   it changes.
-- ``readOnly`` marks fields people can't set: computed fields (actions set
-  them) and files (attached through the files API).
+- ``readOnly`` marks computed fields: only actions set them.
 - ``x-iki-immutable`` marks fields that can be set once.
 - Quantities are numbers in ``x-iki-unit`` (UCUM). An input may instead be
   ``{"value": …, "unit": …}`` in any convertible unit.
 - References are entity IDs, of ``x-iki-ref`` or one of its subtypes.
+- Files are file IDs (upload or register the file first), of
+  ``x-iki-media-types`` and at most ``x-iki-max-size`` bytes.
 
 The server checks every value itself, so the schema helps clients but
 doesn't have to be complete.

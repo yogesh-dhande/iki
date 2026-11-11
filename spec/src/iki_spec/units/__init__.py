@@ -30,9 +30,11 @@ from importlib.resources import files
 
 __all__ = [
     "BASE_UNITS",
+    "COMMON_UNITS",
     "UCUM_VERSION",
     "Unit",
     "UnitError",
+    "common_alternatives",
     "convert",
     "parse",
 ]
@@ -233,8 +235,9 @@ class Unit:
 
 
 _SUPERSCRIPTS = str.maketrans("+-0123456789", "⁺⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
-#: Where UCUM's print symbol isn't how labs write it (its [IU] prints as German "i.U.").
-_SYMBOLS = {"[IU]": "IU", "[iU]": "IU"}
+#: Where UCUM's print symbol isn't how labs write it: its [IU] prints as German "i.U.", and
+#: its unified atomic mass unit (u) is the dalton, which biochemists write Da and kDa.
+_SYMBOLS = {"[IU]": "IU", "[iU]": "IU", "u": "Da"}
 _TERM = re.compile(r"(?P<unit>.*?)(?P<exponent>[+-]?\d+)?(?P<note>\{[^}]*\})?")
 
 
@@ -281,7 +284,9 @@ def _atom_symbol(code: str, table: _Table) -> str | None:
     for prefix in sorted(table.prefixes, key=len, reverse=True):
         rest = code[len(prefix) :]
         if code.startswith(prefix) and rest in table.atoms and table.atoms[rest].metric:
-            return table.prefix_symbols[prefix] + (table.atoms[rest].symbol or rest)
+            return table.prefix_symbols[prefix] + (
+                _SYMBOLS.get(rest) or table.atoms[rest].symbol or rest
+            )
     return None
 
 
@@ -299,6 +304,50 @@ def convert(value: float, source: str | Unit, target: str | Unit) -> float:
 
 
 _ONE = Unit("1", Fraction(1), (0,) * len(BASE_UNITS))
+
+#: Units labs type values in, by the kind of thing they measure, for forms to offer. Kinds
+#: are listed apart because UCUM can't tell some of them apart: a mole is a plain number
+#: (6.022e23), so moles convert to percent, and g/mol to grams.
+COMMON_UNITS: tuple[tuple[str, ...], ...] = (
+    ("kg", "g", "mg", "ug", "ng", "pg"),
+    ("g/mol", "kg/mol", "ku", "u"),
+    ("mol", "mmol", "umol", "nmol", "pmol"),
+    ("L", "mL", "uL", "nL"),
+    ("m", "cm", "mm", "um", "nm", "Ao"),
+    ("mol/L", "mmol/L", "umol/L", "nmol/L", "pmol/L"),
+    ("g/L", "mg/mL", "ug/mL", "ng/mL", "ng/uL", "mg/L", "ug/L"),
+    ("d", "h", "min", "s", "ms", "us", "ns"),
+    ("Hz", "kHz", "MHz"),
+    ("Cel", "K", "[degF]"),
+    ("bar", "mbar", "kPa", "Pa", "mm[Hg]"),
+    ("kJ/mol", "kcal/mol"),
+    ("kJ", "J", "kcal", "cal"),
+    ("m2", "cm2", "mm2"),
+    ("mL/min", "uL/min"),
+    ("%", "[ppm]", "[ppb]"),
+)
+
+
+@cache
+def common_alternatives(code: str) -> tuple[str, ...]:
+    """``code``, then the common units of its kind, for a form's unit list.
+
+    A code that isn't listed takes the first kind its values convert to. Annotated
+    units such as ``{bp}``, and plain numbers, are offered alone: UCUM can't tell
+    what they count.
+    """
+    if "{" in code:
+        return (code,)
+    try:
+        unit = parse(code)
+    except UnitError:
+        return (code,)
+    kind = next((k for k in COMMON_UNITS if code in k), None)
+    if kind is None and not unit.is_dimensionless:
+        kind = next((k for k in COMMON_UNITS if parse(k[0]).is_commensurable(unit)), None)
+    if kind is None:
+        return (code,)
+    return (code, *(c for c in kind if c != code and parse(c).is_commensurable(unit)))
 
 
 def parse(code: str) -> Unit:

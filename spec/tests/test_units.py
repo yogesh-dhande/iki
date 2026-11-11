@@ -183,3 +183,30 @@ def test_parsed_units_are_cached_and_equal() -> None:
 )
 def test_units_print_as_people_write_them(code: str, printed: str) -> None:
     assert units.symbol(code) == printed
+
+
+@pytest.mark.parametrize(
+    ("code", "offered"),
+    [
+        ("mg", ("mg", "kg", "g", "ug", "ng", "pg")),
+        ("%", ("%", "[ppm]", "[ppb]")),
+        ("g/mol", ("g/mol", "kg/mol", "ku", "u")),
+        ("dg", ("dg", "kg", "g", "mg", "ug", "ng", "pg")),
+        ("{bp}", ("{bp}",)),
+        ("{cells}/uL", ("{cells}/uL",)),
+        ("1", ("1",)),
+        ("[IU]", ("[IU]",)),
+    ],
+)
+def test_common_alternatives_stay_within_a_kind(code: str, offered: tuple[str, ...]) -> None:
+    assert units.common_alternatives(code) == offered
+
+
+def test_common_units_convert_within_their_kind() -> None:
+    for kind in units.COMMON_UNITS:
+        for code in kind:
+            assert units.parse(code).is_commensurable(units.parse(kind[0])), code
+
+
+def test_daltons_read_as_labs_write_them() -> None:
+    assert (units.symbol("u"), units.symbol("ku")) == ("Da", "kDa")

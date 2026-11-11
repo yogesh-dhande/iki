@@ -1,0 +1,8 @@
+/* What React Aria's usePress would add as an inline <style> (see web/app.html): pressable
+   elements scroll and zoom but skip the double-tap-to-zoom delay. It's touch-action:
+   manipulation, spelled out, because in Safari that stops pointercancel firing on scroll. */
+@layer {
+  [data-react-aria-pressable] {
+    touch-action: pan-x pan-y pinch-zoom;
+  }
+}

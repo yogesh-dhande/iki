@@ -33,7 +33,11 @@ console.
 - `src/ui.tsx`: the design system, as components over the stylesheet's classes.
 - `src/forms.tsx`: form state, checks in the browser, and focus on errors.
 - `src/entities.ts`: entity and type queries, and how each kind of value
-  reads (quantities in their display unit, references by HRID, files by name).
+  reads (quantities in their display unit, references by title, files by name).
+- `src/entity-values.ts` and `src/entity-inputs.tsx`: entity forms, one input
+  per kind of field, built from each type's fields and its JSON Schema. The
+  browser checks what it can (required, numbers, ranges, lengths, patterns)
+  and sends JSON as the API takes it; the API checks everything again.
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
   addresses. Pages other than the frame, home and a project's overview load
   when they're first opened (`lazyRouteComponent`), so the first page stays

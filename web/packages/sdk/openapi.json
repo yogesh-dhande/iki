@@ -136,6 +136,11 @@
             "title": "Revision",
             "type": "integer"
           },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -155,6 +160,7 @@
         "required": [
           "id",
           "hrid",
+          "title",
           "type",
           "revision",
           "owner_project",
@@ -512,6 +518,19 @@
             "description": "Entities that belong to this project.",
             "title": "Project"
           },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities whose HRID, or a text field in their title, contains this.",
+            "title": "Q"
+          },
           "type": {
             "anyOf": [
               {
@@ -644,6 +663,11 @@
             "title": "Revision",
             "type": "integer"
           },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -663,6 +687,7 @@
         "required": [
           "id",
           "hrid",
+          "title",
           "type",
           "revision",
           "owner_project",
@@ -959,6 +984,14 @@
             "title": "Immutable",
             "type": "boolean"
           },
+          "input_units": {
+            "description": "Quantities: common units values can be given in. Any convertible UCUM unit works.",
+            "items": {
+              "$ref": "#/components/schemas/UnitOption"
+            },
+            "title": "Input Units",
+            "type": "array"
+          },
           "items": {
             "anyOf": [
               {
@@ -1052,6 +1085,7 @@
           "display_unit_symbol",
           "display_scale",
           "display_offset",
+          "input_units",
           "to",
           "values",
           "items"
@@ -1080,6 +1114,12 @@
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
+          },
+          "newest_first": {
+            "default": false,
+            "description": "Newest first, rather than oldest.",
+            "title": "Newest First",
+            "type": "boolean"
           },
           "project": {
             "anyOf": [
@@ -2201,6 +2241,11 @@
       },
       "ProjectCan": {
         "properties": {
+          "edit": {
+            "description": "Add entities and files, and change its entities.",
+            "title": "Edit",
+            "type": "boolean"
+          },
           "manage": {
             "description": "Rename, describe, archive or restore it.",
             "title": "Manage",
@@ -2224,6 +2269,7 @@
         },
         "required": [
           "read",
+          "edit",
           "manage",
           "manage_members",
           "manage_webhooks"
@@ -2583,6 +2629,11 @@
             "title": "Hrid",
             "type": "string"
           },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -2590,6 +2641,7 @@
         },
         "required": [
           "hrid",
+          "title",
           "type",
           "archived"
         ],
@@ -2741,6 +2793,14 @@
             "title": "Created At",
             "type": "string"
           },
+          "files": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileRef"
+            },
+            "description": "The files its values and changes refer to that you can read, by ID.",
+            "title": "Files",
+            "type": "object"
+          },
           "kind": {
             "enum": [
               "created",
@@ -2758,6 +2818,14 @@
           "reason": {
             "title": "Reason",
             "type": "string"
+          },
+          "refs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "description": "The entities its values and changes refer to that you can read, by ID.",
+            "title": "Refs",
+            "type": "object"
           },
           "user": {
             "anyOf": [
@@ -2790,7 +2858,9 @@
           "reason",
           "created_at",
           "values",
-          "changes"
+          "changes",
+          "refs",
+          "files"
         ],
         "title": "RevisionDetailOut",
         "type": "object"
@@ -3348,6 +3418,26 @@
           "slug"
         ],
         "title": "TeamRef",
+        "type": "object"
+      },
+      "UnitOption": {
+        "properties": {
+          "code": {
+            "description": "UCUM, as the API takes it.",
+            "title": "Code",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "As people write it.",
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "symbol"
+        ],
+        "title": "UnitOption",
         "type": "object"
       },
       "UploadIn": {
@@ -4060,6 +4150,25 @@
               ],
               "title": "Archived"
             }
+          },
+          {
+            "description": "Entities whose HRID, or a text field in their title, contains this.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Entities whose HRID, or a text field in their title, contains this.",
+              "title": "Q"
+            }
           }
         ],
         "responses": {
@@ -4654,7 +4763,7 @@
     },
     "/api/v1/files": {
       "get": {
-        "description": "Oldest first. Files are read through the projects they were added to.",
+        "description": "Oldest first, unless ``newest_first``. Files are read through the projects they\nwere added to.",
         "operationId": "iki_server_api_files_list_files",
         "parameters": [
           {
@@ -4704,6 +4813,18 @@
                 }
               ],
               "title": "Project"
+            }
+          },
+          {
+            "description": "Newest first, rather than oldest.",
+            "in": "query",
+            "name": "newest_first",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Newest first, rather than oldest.",
+              "title": "Newest First",
+              "type": "boolean"
             }
           }
         ],

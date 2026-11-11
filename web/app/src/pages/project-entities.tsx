@@ -22,7 +22,7 @@ import {
 } from "../entities";
 import type { Showing } from "../entities";
 import { usePageTitle } from "../layout";
-import { Loading, RelativeTime, SelectField } from "../ui";
+import { buttonClass, Loading, RelativeTime, SelectField } from "../ui";
 import { useProject } from "./project-overview";
 
 const ROW_HEIGHT = 44;
@@ -57,9 +57,9 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
   };
   if (!type) {
     const name: Column = {
-      key: "name",
-      label: "Name",
-      cell: (e) => (typeof e.values["name"] === "string" ? e.values["name"] : ""),
+      key: "title",
+      label: "Title",
+      cell: (e) => (e.title === e.hrid ? "" : e.title),
     };
     return [id, kind, name, updated];
   }
@@ -172,6 +172,16 @@ export function ProjectEntities() {
               About {type.label_plural}
             </Link>
           </p>
+        ) : null}
+        {project.can.edit && !project.archived ? (
+          <Link
+            to="/projects/$slug/entities/new/"
+            params={{ slug: project.slug }}
+            search={type && !type.abstract ? { type: type.name } : {}}
+            className={`${buttonClass("primary")} toolbar-end`}
+          >
+            New {type && !type.abstract ? inSentence(type.label) : "entity"}
+          </Link>
         ) : null}
       </div>
       {list.isPending ? <Loading label="Loading entities…" /> : null}

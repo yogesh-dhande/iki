@@ -20,7 +20,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from iki_spec import API_VERSION, naming, schemas, units
+from iki_spec import API_VERSION, naming, schemas, titles, units
 from iki_spec.model import (
     BUILTIN_TYPES,
     EntityType,
@@ -1345,9 +1345,7 @@ def _suggest_prefix(name: str) -> str:
     return letters[:8] if len(letters) >= 2 else (name.upper() + "X")[:3]
 
 
-_TOKEN = re.compile(
-    r"\s*(?:(?P<string>\"[^\"]*\"|'[^']*')|(?P<word>[A-Za-z_][A-Za-z0-9_]*)|(?P<other>\S))"
-)
+_TOKEN = titles.TOKEN
 
 
 def _title_problems(template: str, fields: dict[str, Field]) -> Iterable[tuple[str, str | None]]:

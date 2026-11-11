@@ -462,10 +462,77 @@ def test_entities_name_what_their_values_refer_to(world: World, other: Project) 
     # The viewer can read this project, but not the other one.
     seen = api_as(world, "viewer").get(f"/entities/{made.json()['id']}").json()
     assert seen["refs"] == {
-        protein["id"]: {"hrid": protein["hrid"], "type": "protein.Protein", "archived": False}
+        protein["id"]: {
+            "hrid": protein["hrid"],
+            "title": protein["hrid"],
+            "type": "protein.Protein",
+            "archived": False,
+        }
     }
     assert seen["files"] == {
         str(pdb.pk): {"name": "1abc.pdb", "media_type": "chemical/x-pdb", "size": 10}
     }
     listed = api_as(world, "viewer").get("/entities", type="protein.ProteinStructure").json()
     assert listed["items"][0]["refs"] == seen["refs"]
+
+
+def test_entities_have_their_types_display_title(world: World) -> None:
+    api = api_as(world)
+    named = create(api, world.project, {"sequence": "MKV", "name": "Lysozyme"}, "protein.Protein")
+    unnamed = create(api, world.project, {"sequence": "MKW"}, "protein.Protein").json()
+    assert named.json()["title"] == "Lysozyme"
+    assert unnamed["title"] == unnamed["hrid"]
+    # References carry their target's title too.
+    values = {"sequence": "MKY", "source": named.json()["id"]}
+    variant = create(api, world.project, values, "protein.Protein").json()
+    assert variant["refs"][named.json()["id"]]["title"] == "Lysozyme"
+
+
+def test_q_finds_entities_by_hrid_or_the_text_in_their_title(world: World) -> None:
+    api = api_as(world)
+    lysozyme = create(
+        api, world.project, {"sequence": "MKV", "name": "Lysozyme C"}, "protein.Protein"
+    ).json()
+    other = create(api, world.project, {"sequence": "MKW", "name": "Insulin"}, "protein.Protein")
+    dna = create(api, world.project, {"bases": "ACGT", "name": "lysozyme gene"}).json()
+
+    def found(**query: Any) -> list[str]:
+        return [e["hrid"] for e in api.get("/entities", **query).json()["items"]]
+
+    assert found(q="lysoZ", type="protein.Protein") == [lysozyme["hrid"]]
+    assert found(q="lysoz") == [lysozyme["hrid"], dna["hrid"]]
+    assert found(q=other.json()["hrid"].lower()) == [other.json()["hrid"]]
+    # Subtypes are searched through their parent: a Sequence can be either.
+    assert found(q="lysozyme", type="dna.Sequence") == [lysozyme["hrid"], dna["hrid"]]
+    assert found(q="  ", type="protein.Protein") == [lysozyme["hrid"], other.json()["hrid"]]
+
+
+def test_quantity_fields_offer_the_common_units_of_their_kind(world: World) -> None:
+    body = api_as(world, "viewer").get("/entity-types/protein.Protein").json()
+    fields = {f["name"]: f for f in body["fields"]}
+    assert [u["symbol"] for u in fields["molecular_weight"]["input_units"]] == [
+        "kDa",
+        "Da",
+        "g/mol",
+        "kg/mol",
+    ]
+    assert fields["temperature_optimum"]["input_units"] == [
+        {"code": "Cel", "symbol": "°C"},
+        {"code": "K", "symbol": "K"},
+        {"code": "[degF]", "symbol": "°F"},
+    ]
+    assert fields["sequence"]["input_units"] == []
+
+
+def test_revisions_name_what_their_changes_referred_to(world: World) -> None:
+    api = api_as(world)
+    first = create(api, world.project, {"sequence": "MKV", "name": "Lysozyme"}, "protein.Protein")
+    second = create(api, world.project, {"sequence": "MKW"}, "protein.Protein").json()
+    made = create(
+        api, world.project, {"sequence": "MKY", "source": first.json()["id"]}, "protein.Protein"
+    ).json()
+    patch(api, made["id"], {"values": {"source": second["id"]}}, '"1"')
+    changed = api.get(f"/entities/{made['id']}/revisions/2").json()
+    # The entity it no longer refers to is named too, so its history reads.
+    assert {r["hrid"] for r in changed["refs"].values()} == {first.json()["hrid"], second["hrid"]}
+    assert changed["refs"][first.json()["id"]]["title"] == "Lysozyme"

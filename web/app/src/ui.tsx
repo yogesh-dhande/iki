@@ -455,6 +455,7 @@ export function ConfirmDialog({
   title,
   children,
   confirmLabel,
+  confirmVariant = "danger",
   busy,
   problem,
 }: {
@@ -464,6 +465,8 @@ export function ConfirmDialog({
   title: string;
   children: ReactNode;
   confirmLabel: string;
+  /** Danger for what's hard to undo; primary for what isn't, such as restoring. */
+  confirmVariant?: Variant;
   busy: boolean;
   problem?: Problem | undefined;
 }) {
@@ -484,7 +487,7 @@ export function ConfirmDialog({
           <ProblemAlert problem={problem} />
           {children}
           <div className="actions">
-            <Button variant="danger" busy={busy} busyText="Working…" onClick={onConfirm}>
+            <Button variant={confirmVariant} busy={busy} busyText="Working…" onClick={onConfirm}>
               {confirmLabel}
             </Button>
             <Button variant="quiet" onClick={onCancel} disabled={busy}>

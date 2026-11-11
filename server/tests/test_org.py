@@ -142,6 +142,7 @@ def test_members_see_the_member_list_read_only(world: World) -> None:
     project = viewer.get(f"/projects/{project_id(world)}").json()
     assert project["can"] == {
         "read": True,
+        "edit": False,
         "manage": False,
         "manage_members": False,
         "manage_webhooks": False,
@@ -189,6 +190,7 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
     assert project["my_role"] is None
     assert project["can"] == {
         "read": False,
+        "edit": False,
         "manage": False,
         "manage_members": True,
         "manage_webhooks": False,
@@ -201,6 +203,7 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
     project = admin.get(f"/projects/{project_id(world)}").json()
     assert project["can"] == {
         "read": True,
+        "edit": True,
         "manage": True,
         "manage_members": True,
         "manage_webhooks": True,

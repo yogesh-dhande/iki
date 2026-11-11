@@ -18,7 +18,7 @@ import { meQuery, projectQuery, queryClient, rolesQuery } from "./api";
 import { Layout } from "./layout";
 import { ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
-import { entityQuery, typesQuery, validateEntitySearch } from "./entities";
+import { entityQuery, typesQuery, validateEntitySearch, validateNewEntitySearch } from "./entities";
 import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
@@ -37,7 +37,10 @@ const ProjectEntities = lazyRouteComponent(
   () => import("./pages/project-entities"),
   "ProjectEntities",
 );
+const entityFormPages = () => import("./pages/entity-form");
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
+const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
+const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
 const EntityHistory = lazyRouteComponent(entityPages, "EntityHistory");
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
@@ -117,6 +120,15 @@ const projectEntitiesRoute = createRoute({
   component: ProjectEntities,
 });
 
+const projectEntityNewRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "entities/new",
+  // ?type=dna.DNASequence: its form; without one, a choice of types first.
+  validateSearch: validateNewEntitySearch,
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: NewEntity,
+});
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
@@ -172,6 +184,12 @@ const entityOverviewRoute = createRoute({
   component: EntityOverview,
 });
 
+const entityEditRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "edit",
+  component: EditEntity,
+});
+
 const entityHistoryRoute = createRoute({
   getParentRoute: () => entityRoute,
   path: "history",
@@ -204,12 +222,13 @@ const routeTree = rootRoute.addChildren([
       projectOverviewRoute,
       projectMembersRoute,
       projectEntitiesRoute,
+      projectEntityNewRoute,
       projectSettingsRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),
   ]),
   typesRoute.addChildren([typeListRoute, typeRoute]),
-  entityRoute.addChildren([entityOverviewRoute, entityHistoryRoute]),
+  entityRoute.addChildren([entityOverviewRoute, entityEditRoute, entityHistoryRoute]),
   settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);
 

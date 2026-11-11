@@ -3,11 +3,19 @@
  * projects it's in; and its history, revision by revision.
  */
 
-import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { ApiError, unwrap } from "@ikisci/sdk";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { iki, problemOf, useApiMutation } from "../api";
 import {
+  ENTITIES,
   entityProjectsQuery,
   entityQuery,
   formatSize,
@@ -24,7 +32,17 @@ import {
   type Revision,
 } from "../entities";
 import { usePageTitle } from "../layout";
-import { Badge, Button, Loading, PageHeader, RelativeTime } from "../ui";
+import {
+  Badge,
+  Button,
+  buttonClass,
+  ConfirmDialog,
+  Loading,
+  PageHeader,
+  RelativeTime,
+  TextField,
+  useMessages,
+} from "../ui";
 
 const VIA: Record<string, string> = {
   web: "in the web app",
@@ -48,12 +66,6 @@ function useEntity(): { entity: Entity; type: EntityType | undefined; types: Ent
   const entity = useSuspenseQuery(entityQuery(ref)).data;
   const types = useSuspenseQuery(typesQuery).data;
   return { entity, type: types.find((t) => t.name === entity.type), types };
-}
-
-/** What people call it: its name, if its type has one, else its HRID. */
-function titleOf(entity: Entity): string {
-  const name = entity.values["name"];
-  return typeof name === "string" && name ? name : entity.hrid;
 }
 
 /** One value as it reads on the page: references link, files download, units show. */
@@ -88,10 +100,13 @@ export function Value({
       const found = entity.refs[value as string];
       if (!found) return <span className="muted">An entity you can’t read</span>;
       return (
-        <Link to="/entities/$ref/" params={{ ref: found.hrid }}>
-          {found.hrid}
-          {found.archived ? " (archived)" : ""}
-        </Link>
+        <span>
+          <Link to="/entities/$ref/" params={{ ref: found.hrid }}>
+            {found.title}
+          </Link>
+          {found.title !== found.hrid ? <span className="muted"> {found.hrid}</span> : null}
+          {found.archived ? <span className="muted"> (archived)</span> : null}
+        </span>
       );
     }
     case "file": {
@@ -142,6 +157,105 @@ function Provenance({ revision }: { revision: Revision | undefined }) {
   );
 }
 
+/** Edit, archive and restore, for Editors in its owner project. */
+function EntityActions({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
+  const { say } = useMessages();
+  const client = useQueryClient();
+  const archiving = !entity.archived;
+  const change = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.PATCH("/api/v1/entities/{ref}", {
+          params: {
+            path: { ref: entity.id },
+            header: { "If-Match": `"${String(entity.revision)}"` },
+          },
+          body: { archived: archiving, reason: reason.trim() },
+        }),
+      ),
+    [ENTITIES],
+  );
+  if (!entity.can.edit || !type) return null;
+  const close = () => {
+    setAsking(false);
+    setReason("");
+    change.reset();
+  };
+  const stale = change.error instanceof ApiError && change.error.problem.code === "stale";
+  return (
+    <div className="actions">
+      {entity.archived ? null : (
+        <Link
+          to="/entities/$ref/edit/"
+          params={{ ref: entity.hrid }}
+          className={buttonClass("primary")}
+        >
+          Edit
+        </Link>
+      )}
+      <Button
+        {...(archiving ? { variant: "danger" as const } : {})}
+        onClick={() => {
+          setAsking(true);
+        }}
+      >
+        {archiving ? "Archive" : "Restore"}
+      </Button>
+      <ConfirmDialog
+        isOpen={asking}
+        title={`${archiving ? "Archive" : "Restore"} ${entity.hrid}?`}
+        confirmLabel={archiving ? "Archive" : "Restore"}
+        confirmVariant={archiving ? "danger" : "primary"}
+        busy={change.isPending}
+        problem={
+          stale && change.error
+            ? {
+                ...change.error.problem,
+                detail:
+                  "Someone changed it while this was open. The page now shows their change: check it, then try again.",
+              }
+            : change.error
+              ? problemOf(change.error)
+              : undefined
+        }
+        onCancel={close}
+        onConfirm={() => {
+          change.mutate(undefined, {
+            onSuccess: (saved) => {
+              client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+              close();
+              say(archiving ? `Archived ${saved.hrid}.` : `Restored ${saved.hrid}.`);
+            },
+            onError: (error) => {
+              // Read it again, so trying again sends the revision it's at now.
+              if (error.problem.code === "stale") {
+                void client.invalidateQueries({ queryKey: ENTITIES });
+              }
+            },
+          });
+        }}
+      >
+        <p>
+          {archiving
+            ? "It stays in every project it’s in, with its values and history, but it can’t change and lists hide it. You can restore it later."
+            : "It can change again, and lists show it again."}
+        </p>
+        <TextField
+          label="Reason"
+          value={reason}
+          onChange={setReason}
+          maxLength={2000}
+          optional
+          multiline
+          help="Why, for the record. It’s kept in its history."
+        />
+      </ConfirmDialog>
+    </div>
+  );
+}
+
 function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const tab = { "aria-current": "page" } as const;
   return (
@@ -156,10 +270,11 @@ function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undef
             entity.type
           )
         }
-        title={titleOf(entity)}
+        title={entity.title}
+        actions={<EntityActions entity={entity} type={type} />}
         badge={
           <>
-            {titleOf(entity) !== entity.hrid ? <Badge>{entity.hrid}</Badge> : null}
+            {entity.title !== entity.hrid ? <Badge>{entity.hrid}</Badge> : null}
             {entity.archived ? (
               <>
                 {" "}
@@ -188,7 +303,7 @@ function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undef
 
 export function EntityOverview() {
   const { entity, type } = useEntity();
-  usePageTitle(`${titleOf(entity)} (${entity.hrid})`);
+  usePageTitle(`${entity.title} (${entity.hrid})`);
   const provenance = useQuery(provenanceQuery(entity.hrid)).data;
   const projects = useQuery(entityProjectsQuery(entity.hrid)).data;
   const fields = type?.fields ?? [];
@@ -287,6 +402,7 @@ export function EntityOverview() {
 function Changes({ number, type }: { number: number; type: EntityType | undefined }) {
   const { ref } = useParams({ from: "/entities/$ref" });
   const entity = useSuspenseQuery(entityQuery(ref)).data;
+  // Its own refs and files: a value it removed may not be in the entity's any more.
   const detail = useQuery(revisionQuery(entity.hrid, number));
   if (!detail.data) return <Loading label="Loading the changes…" />;
   const fields = new Map((type?.fields ?? []).map((f) => [f.name, f]));
@@ -310,14 +426,14 @@ function Changes({ number, type }: { number: number; type: EntityType | undefine
                 <th scope="row">{field?.label ?? name}</th>
                 <td>
                   {field ? (
-                    <Value field={field} value={change.before} entity={entity} />
+                    <Value field={field} value={change.before} entity={detail.data} />
                   ) : (
                     JSON.stringify(change.before)
                   )}
                 </td>
                 <td>
                   {field ? (
-                    <Value field={field} value={change.after} entity={entity} />
+                    <Value field={field} value={change.after} entity={detail.data} />
                   ) : (
                     JSON.stringify(change.after)
                   )}
@@ -368,7 +484,7 @@ function RevisionRow({ revision, type }: { revision: Revision; type: EntityType 
 
 export function EntityHistory() {
   const { entity, type } = useEntity();
-  usePageTitle(`History of ${titleOf(entity)} (${entity.hrid})`);
+  usePageTitle(`History of ${entity.title} (${entity.hrid})`);
   const revisions = useInfiniteQuery(revisionsQuery(entity.hrid));
   const items = revisions.data?.pages.flatMap((p) => p.items) ?? [];
   return (

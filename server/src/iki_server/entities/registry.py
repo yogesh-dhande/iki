@@ -58,6 +58,13 @@ def identity_owner(entity_type: EntityType) -> EntityType | None:
     return next((t for t in [entity_type, *ancestors(entity_type)] if t.identity), None)
 
 
+def display_title(entity_type: EntityType) -> str | None:
+    """The title template for ``entity_type``'s entities: its own or the nearest parent's."""
+    return next(
+        (t.display_title for t in [entity_type, *ancestors(entity_type)] if t.display_title), None
+    )
+
+
 def duplicate_policy(entity_type: EntityType) -> str | None:
     """What creating a duplicate does: ``reuse``, ``warn`` or ``allow`` (None without an identity).
 

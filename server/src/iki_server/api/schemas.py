@@ -103,6 +103,7 @@ class TeamMemberOut(Schema):
 
 class ProjectCan(Schema):
     read: bool = Field(description="Read the project's data.")
+    edit: bool = Field(description="Add entities and files, and change its entities.")
     manage: bool = Field(description="Rename, describe, archive or restore it.")
     manage_members: bool = Field(description="Give and remove access.")
     manage_webhooks: bool = Field(description="Add and change the project's webhooks.")
@@ -133,6 +134,7 @@ class ProjectOut(Schema):
         user = context["request"].auth
         return {
             "read": permissions.can(user, Action.PROJECT_READ, project),
+            "edit": permissions.can(user, Action.PROJECT_EDIT, project),
             "manage": permissions.can(user, Action.PROJECT_MANAGE, project),
             "manage_members": permissions.can(user, Action.PROJECT_MEMBERS_MANAGE, project),
             "manage_webhooks": permissions.can(user, Action.PROJECT_WEBHOOKS_MANAGE, project),

@@ -205,7 +205,8 @@ export interface paths {
         };
         /**
          * Files you can read
-         * @description Oldest first. Files are read through the projects they were added to.
+         * @description Oldest first, unless ``newest_first``. Files are read through the projects they
+         *     were added to.
          */
         get: operations["iki_server_api_files_list_files"];
         put?: never;
@@ -1157,6 +1158,11 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
             /** Type */
             type: string;
             /**
@@ -1328,6 +1334,11 @@ export interface components {
              */
             project?: string | null;
             /**
+             * Q
+             * @description Entities whose HRID, or a text field in their title, contains this.
+             */
+            q?: string | null;
+            /**
              * Type
              * @description This type and its subtypes.
              */
@@ -1404,6 +1415,11 @@ export interface components {
              * @description Its latest revision. Send it back as If-Match to change it.
              */
             revision: number;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
             /** Type */
             type: string;
             /**
@@ -1534,6 +1550,11 @@ export interface components {
              */
             immutable: boolean;
             /**
+             * Input Units
+             * @description Quantities: common units values can be given in. Any convertible UCUM unit works.
+             */
+            input_units: components["schemas"]["UnitOption"][];
+            /**
              * Items
              * @description Lists: the type of each item.
              */
@@ -1585,6 +1606,12 @@ export interface components {
              * @default 50
              */
             limit: number;
+            /**
+             * Newest First
+             * @description Newest first, rather than oldest.
+             * @default false
+             */
+            newest_first: boolean;
             /** Project */
             project?: string | null;
         };
@@ -2044,6 +2071,11 @@ export interface components {
         /** ProjectCan */
         ProjectCan: {
             /**
+             * Edit
+             * @description Add entities and files, and change its entities.
+             */
+            edit: boolean;
+            /**
              * Manage
              * @description Rename, describe, archive or restore it.
              */
@@ -2205,6 +2237,11 @@ export interface components {
             archived: boolean;
             /** Hrid */
             hrid: string;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
             /** Type */
             type: string;
         };
@@ -2300,6 +2337,13 @@ export interface components {
              */
             created_at: string;
             /**
+             * Files
+             * @description The files its values and changes refer to that you can read, by ID.
+             */
+            files: {
+                [key: string]: components["schemas"]["FileRef"];
+            };
+            /**
              * Kind
              * @enum {string}
              */
@@ -2308,6 +2352,13 @@ export interface components {
             number: number;
             /** Reason */
             reason: string;
+            /**
+             * Refs
+             * @description The entities its values and changes refer to that you can read, by ID.
+             */
+            refs: {
+                [key: string]: components["schemas"]["RefOut"];
+            };
             user: components["schemas"]["UserOut"] | null;
             /**
              * Values
@@ -2561,6 +2612,19 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** UnitOption */
+        UnitOption: {
+            /**
+             * Code
+             * @description UCUM, as the API takes it.
+             */
+            code: string;
+            /**
+             * Symbol
+             * @description As people write it.
+             */
+            symbol: string;
         };
         /** UploadIn */
         UploadIn: {
@@ -2837,6 +2901,8 @@ export interface operations {
                 /** @description Entities that belong to this project. */
                 project?: string | null;
                 archived?: boolean | null;
+                /** @description Entities whose HRID, or a text field in their title, contains this. */
+                q?: string | null;
             };
             header?: never;
             path?: never;
@@ -3146,6 +3212,8 @@ export interface operations {
                 /** @description Items per page. */
                 limit?: number;
                 project?: string | null;
+                /** @description Newest first, rather than oldest. */
+                newest_first?: boolean;
             };
             header?: never;
             path?: never;

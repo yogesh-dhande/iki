@@ -73,6 +73,40 @@ export function entitiesQuery(filter: EntityFilter) {
   });
 }
 
+/** Entities a reference can point at, for a picker: by HRID or the text in their title. */
+export function pickerQuery(type: string | undefined, q: string) {
+  return queryOptions({
+    queryKey: [...ENTITIES, "picker", type ?? "", q.trim()],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/entities", {
+          params: {
+            query: {
+              limit: 20,
+              archived: false,
+              ...(type && type !== "core.Entity" ? { type } : {}),
+              ...(q.trim() ? { q: q.trim() } : {}),
+            },
+          },
+        }),
+      ).items,
+    placeholderData: (previous) => previous,
+  });
+}
+
+/** A project's files, newest first, for choosing one already there. */
+export function projectFilesQuery(projectId: string) {
+  return queryOptions({
+    queryKey: ["files", "project", projectId],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/files", {
+          params: { query: { project: projectId, limit: 100, newest_first: true } },
+        }),
+      ).items,
+  });
+}
+
 /** By ID or HRID, as in the page's address. */
 export function entityQuery(ref: string) {
   return queryOptions({
@@ -143,6 +177,15 @@ export function validateEntitySearch(search: Record<string, unknown>): EntitySea
   if (typeof search["type"] === "string" && search["type"]) out.type = search["type"];
   if (search["show"] === "archived" || search["show"] === "all") out.show = search["show"];
   return out;
+}
+
+/** A new entity's form: ?type=dna.DNASequence. */
+export interface NewEntitySearch {
+  type?: string | undefined;
+}
+
+export function validateNewEntitySearch(search: Record<string, unknown>): NewEntitySearch {
+  return typeof search["type"] === "string" && search["type"] ? { type: search["type"] } : {};
 }
 
 // --- Reading values ---------------------------------------------------------------

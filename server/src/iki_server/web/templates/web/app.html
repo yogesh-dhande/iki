@@ -10,6 +10,9 @@
   <title>Iki{% if organization_name %} · {{ organization_name }}{% endif %}</title>
   <link rel="icon" href="{% static 'iki/favicon.svg' %}" type="image/svg+xml">
   <link rel="stylesheet" href="{% static 'iki/iki.css' %}">
+  {# React Aria adds this rule as an inline style element, which the CSP refuses, unless one #}
+  {# with its id is already there: this is it, holding the same rule as a file. #}
+  <link rel="stylesheet" id="react-aria-pressable-style" href="{% static 'iki/react-aria.css' %}">
   {% for src in assets.preloads %}<link rel="modulepreload" href="{{ src }}">
   {% endfor %}{% for src in assets.scripts %}<script type="module" src="{{ src }}"></script>
   {% endfor %}

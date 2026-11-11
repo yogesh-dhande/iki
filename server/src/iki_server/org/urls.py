@@ -12,6 +12,7 @@ urlpatterns: list[URLPattern] = [
     path("projects/<slug:slug>/", app, name="project_detail"),
     path("projects/<slug:slug>/members/", app, name="project_members"),
     path("projects/<slug:slug>/entities/", app, name="project_entities"),
+    path("projects/<slug:slug>/entities/new/", app, name="project_entity_new"),
     path("projects/<slug:slug>/settings/", app, name="project_settings"),
     path("projects/<slug:slug>/webhooks/", app, name="project_webhooks"),
     path("projects/<slug:slug>/webhooks/<uuid:webhook_id>/", app, name="project_webhook"),

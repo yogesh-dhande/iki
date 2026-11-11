@@ -32,6 +32,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("types/", web.app, name="entity_types"),
     path("types/<str:name>/", web.app, name="entity_type"),
     path("entities/<str:ref>/", web.app, name="entity"),
+    path("entities/<str:ref>/edit/", web.app, name="entity_edit"),
     path("entities/<str:ref>/history/", web.app, name="entity_history"),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]
