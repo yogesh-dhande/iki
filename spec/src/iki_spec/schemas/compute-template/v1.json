@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/compute-template/v1",
+  "title": "Iki compute template (iki/v1)",
+  "description": "A kind of machine a deployment runs actions on: how it starts, its size, where it runs and what it costs. Compute admins keep templates in the deployment's config repository, in compute.yaml.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "provisioner", "capacity"],
+  "properties": {
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "ComputeTemplate"
+    },
+    "name": {
+      "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name"
+    },
+    "label": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
+    "provisioner": {
+      "description": "How machines start. `backend_pool`: Iki's backend worker pods (backend tier). `k8s_job`: a Kubernetes Job for each run, and `k8s_deployment`: a warm pool of pods (container tier). `aws_ec2`: EC2 instances (vm tier).",
+      "enum": ["backend_pool", "k8s_job", "k8s_deployment", "aws_ec2"]
+    },
+    "lifecycle": {
+      "description": "For `aws_ec2`: a machine for each run (`ephemeral`, the default), or warm machines that shut down when idle (`persistent`).",
+      "enum": ["ephemeral", "persistent"]
+    },
+    "capacity": {
+      "description": "What each machine gives a run. A job runs here only if it fits.",
+      "type": "object",
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1024
+        },
+        "memory": {
+          "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
+        },
+        "gpu": {
+          "type": "object",
+          "required": ["count", "memory"],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
+            "memory": {
+              "description": "Each GPU's memory.",
+              "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
+            },
+            "model": {
+              "description": "For people choosing, such as `A100`.",
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "additionalProperties": false
+        },
+        "scratch_disk": {
+          "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
+        }
+      },
+      "additionalProperties": false
+    },
+    "kubernetes": {
+      "description": "For the Kubernetes provisioners: where pods are scheduled.",
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+        },
+        "node_selector": {
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": {
+            "maxLength": 316,
+            "pattern": "^([a-z0-9.-]+/)?[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 63
+          }
+        },
+        "tolerations": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": ["key"],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 316
+              },
+              "operator": {
+                "enum": ["Equal", "Exists"]
+              },
+              "value": {
+                "type": "string",
+                "maxLength": 63
+              },
+              "effect": {
+                "enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "runtime_class": {
+          "description": "A RuntimeClass for stronger isolation, such as `gvisor` or `kata`.",
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "aws": {
+      "description": "For `aws_ec2`: the instances and where they start.",
+      "type": "object",
+      "required": ["instance_type", "region", "subnets", "instance_profile"],
+      "properties": {
+        "instance_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.[a-z0-9]+$"
+        },
+        "spot": {
+          "description": "Use spot instances, which cost less but can be taken back with two minutes' notice.",
+          "type": "boolean"
+        },
+        "fallback": {
+          "description": "With `spot`: start an on-demand instance when no spot capacity is free (`on_demand`), or wait (`none`, the default).",
+          "enum": ["on_demand", "none"]
+        },
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]$"
+        },
+        "subnets": {
+          "description": "Private subnets, one or more for each zone runs may use.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^subnet-[0-9a-f]{8,17}$"
+          }
+        },
+        "security_groups": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^sg-[0-9a-f]{8,17}$"
+          }
+        },
+        "instance_profile": {
+          "description": "The IAM instance profile workers start with. It needs no permissions beyond reaching Iki.",
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9+=,.@_-]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "volumes": {
+      "description": "How machines get each environment volume, by the volume's name.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["strategy"],
+        "properties": {
+          "strategy": {
+            "description": "`clone_from_snapshot`: a new disk from the volume's snapshot for each machine. `attach_exclusive`: one disk, attached to one machine at a time. `shared_filesystem`: a network file system many machines mount. `object_mount`: the data in object storage, mounted read-only.",
+            "enum": ["clone_from_snapshot", "attach_exclusive", "shared_filesystem", "object_mount"]
+          },
+          "fast_snapshot_restore": {
+            "description": "With `clone_from_snapshot` on AWS: disks start at full speed, at extra cost.",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "max_concurrent": {
+          "description": "The most machines (or pods) running at once.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "min_warm": {
+          "description": "For persistent machines: how many to keep running when idle.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "idle_shutdown": {
+          "description": "For persistent machines: how long one waits for work before it stops.",
+          "$ref": "https://ikisci.org/schemas/action/v1#/$defs/duration"
+        }
+      },
+      "additionalProperties": false
+    },
+    "price": {
+      "description": "What a machine costs while it runs, for cost records and budgets.",
+      "type": "object",
+      "required": ["per_hour", "currency"],
+      "properties": {
+        "per_hour": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "currency": {
+          "description": "An ISO 4217 code, such as `USD` or `EUR`.",
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "provisioner": {
+            "const": "aws_ec2"
+          }
+        },
+        "required": ["provisioner"]
+      },
+      "then": {
+        "required": ["aws"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

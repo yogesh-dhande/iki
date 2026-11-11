@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/environment-binding/v1",
+  "title": "Iki environment binding (iki/v1)",
+  "description": "The compute templates a plugin's environment runs on in this deployment. For each job, Iki picks the template with the lowest priority number it fits, then the smallest of those.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "environment", "templates"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "EnvironmentBinding" },
+    "environment": {
+      "description": "The plugin and its environment, such as `structure_prediction.alphafold-gpu`.",
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+    },
+    "templates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["template"],
+        "properties": {
+          "template": { "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name" },
+          "priority": {
+            "description": "Lower numbers are tried first, such as spot (0) before on-demand (1). Defaults to 0.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

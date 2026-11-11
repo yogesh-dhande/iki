@@ -35,6 +35,9 @@ NAMES = (
     "plugin-lock",
     "action",
     "environment",
+    "compute",
+    "compute-template",
+    "environment-binding",
 )
 
 BASE_URL = "https://ikisci.org/schemas"

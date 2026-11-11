@@ -89,14 +89,23 @@ def test_builds_the_pinned_commits(
     _, sha = upstream
     out = tmp_path / "plugins"
     assert main(["deploy", "build", str(deployment(tmp_path, sha)), "-o", str(out)]) == 0
-    printed = capsys.readouterr().out
+    captured = capsys.readouterr()
+    printed = captured.out
     assert f"Fetched dna at {sha[:12]} from {URL}" in printed
     assert printed.endswith(f"Built {out}: dna 1.2.0, protein 3.0.0.\n")
     assert sorted(p.name for p in out.iterdir()) == [
+        "compute.json",
         "iki_installed_plugins",
         "iki_plugin_dna",
         "iki_plugin_protein",
     ]
+    # Without a compute.yaml, the deployment runs only client-tier actions, and says so.
+    assert "warning: `protein.protein-tools` has no template for the backend tier" in captured.err
+    assert json.loads((out / "compute.json").read_text()) == {
+        "apiVersion": "iki/v1",
+        "bindings": {},
+        "templates": {},
+    }
     assert json.loads((out / "iki_plugin_dna" / "settings.json").read_text()) == {
         "max_sequence_length": 10_000_000,
         "ncbi_email": "a@b.org",
@@ -150,6 +159,42 @@ def test_commits_that_arent_there(tmp_path: Path, capsys: pytest.CaptureFixture[
     )
     assert code == 1
     assert "error: dna: couldn't fetch commit 000000000000" in capsys.readouterr().err
+
+
+COMPUTE = """\
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: backend-small
+provisioner: backend_pool
+capacity: { cpu: 1, memory: 2Gi }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: protein.protein-tools
+templates: [{ template: backend-small }]
+"""
+
+
+@pytest.mark.usefixtures("allow_file")
+def test_compute_is_checked_against_the_plugins(
+    tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = deployment(tmp_path, upstream[1])
+    out = tmp_path / "o"
+    (directory / "compute.yaml").write_text(COMPUTE)
+    assert main(["deploy", "build", str(directory), "-o", str(out)]) == 0
+    assert capsys.readouterr().err == ""
+    compute = json.loads((out / "compute.json").read_text())
+    assert compute["bindings"]["protein.protein-tools"]["templates"] == [["backend-small", 0]]
+    assert compute["templates"]["backend-small"]["capacity"]["memory"] == 2 * 1024**3
+
+    (directory / "compute.yaml").write_text(COMPUTE.replace("memory: 2Gi", "memory: 256Mi"))
+    assert main(["deploy", "build", str(directory), "-o", str(out)]) == 1
+    err = capsys.readouterr().err
+    assert (
+        "/compute.yaml:10:25: error: `backend-small` is smaller than `protein.protein-tools`" in err
+    )
+    assert "512Mi of memory (it has 256Mi)" in err
 
 
 @pytest.mark.usefixtures("allow_file")

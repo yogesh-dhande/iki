@@ -362,6 +362,60 @@ tag's commit. In development, `local: ../path/to/plugin` takes a directory
 instead. `iki deploy build` builds the image's plugins from the lockfile
 (see [`cli/`](../cli/README.md) and ADR 0034).
 
+## A deployment's compute
+
+Beside its lockfile, a deployment's directory can hold `compute.yaml`: the
+machines it runs actions on (compute templates) and which environments run
+on which (bindings). Compute admins own it; changes go through pull requests
+like the lockfile's. Point editors at
+[`compute/v1`](src/iki_spec/schemas/compute/v1.json).
+
+```yaml
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: a100-spot
+provisioner: aws_ec2 # backend_pool, k8s_job, k8s_deployment or aws_ec2
+lifecycle: ephemeral # aws_ec2 only; k8s_job is ephemeral, k8s_deployment persistent
+capacity:
+  { cpu: 96, memory: 1152Gi, gpu: { count: 8, memory: 40Gi, model: A100 }, scratch_disk: 8Ti }
+aws:
+  instance_type: p4d.24xlarge
+  spot: true
+  fallback: on_demand
+  region: us-east-1
+  subnets: [subnet-0a1b2c3d4e5f60718]
+  instance_profile: iki-vm-worker
+volumes: { af-db: { strategy: clone_from_snapshot, fast_snapshot_restore: true } }
+limits: { max_concurrent: 10 } # persistent machines also take min_warm and idle_shutdown
+price: { per_hour: 32.77, currency: USD }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: structure_prediction.alphafold-gpu # plugin.environment
+templates:
+  - { template: a100-spot } # priority 0 is tried first
+  - { template: a100-on-demand, priority: 1 }
+```
+
+For each job, Iki picks among the bound templates on the action's tier that
+it fits: the lowest priority number first, then the smallest. Kubernetes
+templates take `kubernetes`, with `namespace`, `node_selector`,
+`tolerations` and `runtime_class` (such as `gvisor`). `iki deploy build`
+checks that:
+
+- every binding names an environment of an installed plugin, and templates
+  in this file on that environment's tiers
+- every bound template is at least the environment's minimum, and every
+  action fits at least one template on its tier
+- each environment volume has a strategy on every template it's bound to
+  (`clone_from_snapshot`, `attach_exclusive`, `shared_filesystem` or
+  `object_mount`), and volumes written by one run at a time are attached
+  exclusively
+
+Actions whose environments aren't bound on their tier can't run on that
+deployment; the build warns about each. Client-tier actions need no
+template.
+
 ## YAML
 
 Manifests are read as YAML 1.2: only `true` and `false` are booleans, so
@@ -373,29 +427,31 @@ refused, so what is reviewed is what Iki reads.
 
 Every problem has a stable `code`, shown in brackets and in `--format json`:
 
-| Code                                                                                                                                                                                                                                    | What's wrong                    |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                                                                             | The YAML itself                 |
-| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                             | The file                        |
-| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                 | Where manifests are             |
-| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                        | A manifest's header             |
-| `schema`                                                                                                                                                                                                                                | Anything the JSON Schemas catch |
-| `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                  | Names                           |
-| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                               | Types                           |
-| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                             | HRIDs                           |
-| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                             | Identities                      |
-| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                     | Field options                   |
-| `unsupported-index`, `index-needs-max-length`                                                                                                                                                                                           | Indexes                         |
-| `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                 | Units                           |
-| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                | Files, JSON fields and titles   |
-| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                               | Extensions                      |
-| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                                              | Dependencies                    |
-| `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                     | Settings                        |
-| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                            | Lockfiles                       |
-| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `timeout-too-long`                                                                         | Actions                         |
-| `creates-abstract`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                    | What actions write              |
-| `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file` | Where actions run               |
-| `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                | Reuse and retries               |
-| `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                 | Environments                    |
-| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                 | Pinned packages                 |
-| `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                       | Volumes and setup               |
+| Code                                                                                                                                                                                                                                            | What's wrong                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `yaml-syntax`, `yaml-duplicate-key`, `yaml-alias`, `yaml-merge-key`, `yaml-tag`, `yaml-key`                                                                                                                                                     | The YAML itself                 |
+| `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                                     | The file                        |
+| `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                         | Where manifests are             |
+| `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                | A manifest's header             |
+| `schema`                                                                                                                                                                                                                                        | Anything the JSON Schemas catch |
+| `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                          | Names                           |
+| `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                       | Types                           |
+| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                     | HRIDs                           |
+| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                                     | Identities                      |
+| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                             | Field options                   |
+| `unsupported-index`, `index-needs-max-length`                                                                                                                                                                                                   | Indexes                         |
+| `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                         | Units                           |
+| `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                        | Files, JSON fields and titles   |
+| `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                       | Extensions                      |
+| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                                                      | Dependencies                    |
+| `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                             | Settings                        |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                    | Lockfiles                       |
+| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `timeout-too-long`                                                                                 | Actions                         |
+| `creates-abstract`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                            | What actions write              |
+| `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`         | Where actions run               |
+| `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                        | Reuse and retries               |
+| `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                         | Environments                    |
+| `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                         | Pinned packages                 |
+| `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                               | Volumes and setup               |
+| `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`                               | Compute templates               |
+| `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings) | Bindings                        |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -18,10 +19,14 @@ from iki_cli.fetch import FetchError, fetch
 from iki_cli.plugin import _missing_dependencies, write_problems
 from iki_codegen import REGISTRY
 from iki_codegen import build as build_apps
+from iki_spec import compute as compute_spec
 from iki_spec.lockfile import FILENAME, Lock, LockedPlugin, load_lock, lock_to_dict
 from iki_spec.model import Plugin
 from iki_spec.validate import load_plugin, read_settings
 from iki_spec.yamlsource import read_documents
+
+#: The deployment's compute, as the server reads it.
+COMPUTE_JSON = "compute.json"
 
 
 def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -37,8 +42,9 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         description=(
             f"Read a deployment's {FILENAME}, fetch each plugin at its commit, and check them "
             "together: their manifests, the deployment's settings for them, and that their "
-            "migrations are complete. Then compile them for the server image. The same "
-            "lockfile always gives the same output."
+            f"migrations are complete. Check its {compute_spec.FILENAME} against them, if it has "
+            "one. Then compile them for the server image. The same lockfile always gives the "
+            "same output."
         ),
     )
     build.add_argument(
@@ -115,6 +121,9 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         settings = _settings(lock, fetched, err)
         if settings is None:
             return 1
+        compute = _compute(lock, fetched, err)
+        if compute is None:
+            return 1
         staging = workspace / "build"
         try:
             build_apps(
@@ -130,6 +139,10 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
             return 1
         if fetched and not _migrations_complete(fetched, staging, err):
             return 1
+        (staging / COMPUTE_JSON).write_text(
+            json.dumps(compute_spec.compute_to_dict(compute), indent=2, sort_keys=True) + "\n",
+            "utf-8",
+        )
         if not _replace(staging, args.output, err):
             return 1
     summary = ", ".join(f"{f.entry.name} {f.plugin.version}" for f in fetched if f.plugin)
@@ -214,6 +227,16 @@ def _settings(lock: Lock, fetched: list[_Fetched], err: TextIO) -> dict[str, dic
     return out if ok else None
 
 
+def _compute(lock: Lock, fetched: list[_Fetched], err: TextIO) -> compute_spec.Compute | None:
+    """The deployment's compute templates and bindings, checked against its plugins."""
+    file = lock.directory / compute_spec.FILENAME
+    plugins = [f.plugin for f in fetched if f.plugin is not None]
+    result = compute_spec.load_compute(file, plugins, str(file))
+    if result.problems:
+        write_problems(err, result.problems, lock.directory, {str(file): file})
+    return result.compute if result.ok else None
+
+
 def _record(lock: Lock, fetched: list[_Fetched]) -> dict[str, Any]:
     """Where each plugin came from, for the server's plugins page and for audits."""
     plugins = []
@@ -262,7 +285,7 @@ def _replace(staging: Path, output: Path, err: TextIO) -> bool:
         unexpected = [
             p.name
             for p in output.iterdir()
-            if p.name != REGISTRY and not p.name.startswith("iki_plugin_")
+            if p.name not in (REGISTRY, COMPUTE_JSON) and not p.name.startswith("iki_plugin_")
         ]
         if unexpected:
             err.write(

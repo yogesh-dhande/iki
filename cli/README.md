@@ -1,15 +1,16 @@
 # iki-cli
 
-The `iki` command-line tool for plugin authors and deployments: `iki plugin
-validate`, `build` and `makemigrations`, and `iki deploy build`. `test`,
-`upgrade` and `run` follow as the plugin system grows.
+The `iki` command-line tool for plugin authors and deployments: the
+`iki plugin` commands `validate`, `build` and `makemigrations`, and
+`iki deploy build`. `test`, `upgrade` and `run` follow as the plugin system
+grows.
 
 ## `iki plugin validate`
 
 Checks every manifest in a plugin against the `iki/v1` spec (see
 [`spec/`](../spec/README.md)): the JSON Schemas, UCUM units, references
-between types and plugins, and the rules for tables, indexes, identities and
-settings.
+between types and plugins, the rules for tables, indexes, identities and
+settings, and what its actions read, write and run in.
 
 ```console
 $ iki plugin validate plugins/protein --with plugins/dna
@@ -106,7 +107,10 @@ $ docker build -f plugins.Dockerfile \
 
 It fetches each plugin at its commit and checks them together, along with
 the deployment's settings for each and that their migrations are complete.
-It writes the same bytes for the same lockfile. Git may only use https and
+If the deployment has a `compute.yaml`, it checks its templates and bindings
+against the plugins' environments and actions
+([spec](../spec/README.md#a-deployments-compute)), and writes them as
+`compute.json` for the server. It writes the same bytes for the same lockfile. Git may only use https and
 ssh, and never prompts; credentials come from git's helpers, as CI sets
 them up. See [ADR 0034](../docs/adr/0034-deployment-lockfile-and-plugin-builds.md).
 Use the server image of the same Iki version: the server refuses plugins

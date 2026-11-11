@@ -12,6 +12,7 @@ deployments/
   staging/
     iki.yaml            # the Iki release: version, server image, chart
     plugins.lock.yaml   # the plugins, each pinned to a commit
+    compute.yaml        # the machines actions run on (once a plugin has such actions)
     settings/dna.yaml   # this deployment's values for each plugin's settings
     values.yaml         # Helm values
     image.yaml          # the image CI built (written by CI)
@@ -42,6 +43,36 @@ lines, or the `iki.yaml` change for an Iki upgrade, in a pull request.
 migrate Job reverses the plugin migrations the older image doesn't have.
 If reversing could lose data entered since, it refuses and changes nothing,
 and you restore the database from its backup instead.
+
+## Compute
+
+Plugins' actions say what they need; `compute.yaml` says what this
+deployment has. Each compute template is a kind of machine: Iki's backend
+worker pods, Kubernetes Jobs or pools, or EC2 instances, with their size,
+placement and price. Each binding says which templates a plugin's
+environment runs on, cheapest first:
+
+```yaml
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: backend-small
+provisioner: backend_pool
+capacity: { cpu: 1, memory: 2Gi }
+kubernetes: { runtime_class: gvisor }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: protein.protein-tools
+templates: [{ template: backend-small }]
+```
+
+`iki deploy build` checks every binding against the plugins the lockfile
+pins: each template is big enough for the environment, each action fits one
+of them, and each data volume has a way to reach the machines. It warns
+about actions this deployment can't run. Without `compute.yaml`, only
+client-tier actions run. The full format is in the
+[spec](../../spec/README.md#a-deployments-compute). Ask the plugin's owners
+and your compute admins to review changes, with `CODEOWNERS` if you use it.
 
 ## Setting it up
 

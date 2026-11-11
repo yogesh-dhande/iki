@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/compute/v1",
+  "title": "Iki deployment compute (iki/v1)",
+  "description": "Any document in a deployment's compute.yaml, chosen by its `kind`. Point your editor at this schema for that file.",
+  "type": "object",
+  "required": ["apiVersion", "kind"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "enum": ["ComputeTemplate", "EnvironmentBinding"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "ComputeTemplate" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/compute-template/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "EnvironmentBinding" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/environment-binding/v1" }
+    }
+  ]
+}
