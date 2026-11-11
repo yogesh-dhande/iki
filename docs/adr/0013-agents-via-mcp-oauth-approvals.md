@@ -26,7 +26,7 @@ spend a lot of money quickly.
 - Agents may read and run cheap actions on their own. A run on the
   container or VM tier, or above the user's cost threshold, creates a
   pending `Approval`. The user approves it in the UI or through a
-  notification link.
+  notification link. ADR 0050 says how.
 - User-authored text in tool responses is labelled as untrusted content.
 - Every call is audited with `via=mcp` and the client name.
 - Tools cover entities, runs, batches, workflows, lineage, the queue, views

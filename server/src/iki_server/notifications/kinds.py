@@ -90,6 +90,15 @@ APP_AWAITING_APPROVAL = register(
         audience=Audience.ORG_ADMINS,
     )
 )
+RUN_APPROVAL_REQUESTED = register(
+    Kind(
+        "run.approval_requested",
+        "An AI agent asks to run something",
+        "An app acting for you, such as an AI agent, asks to start runs that need your "
+        "approval: on the container or VM tier.",
+        group="Runs",
+    )
+)
 WEBHOOK_DISABLED = register(
     Kind(
         "webhook.disabled",

@@ -66,7 +66,8 @@ const EFFECT: Record<Run["effects"][number]["kind"], string> = {
 };
 
 export function StatusBadge({ status }: { status: RunStatus | Attempt["state"] }) {
-  const label = status in STATUS ? STATUS[status as RunStatus] : ATTEMPT_STATE[status];
+  const label =
+    status in STATUS ? STATUS[status as RunStatus] : ATTEMPT_STATE[status as Attempt["state"]];
   return <span className={`badge badge-${tone(status)}`}>{label}</span>;
 }
 
@@ -243,6 +244,160 @@ function CancelRun({ run }: { run: Run }) {
       </ConfirmDialog>
     </div>
   );
+}
+
+type Approval = NonNullable<Run["approval"]>;
+
+/** Whoever asked: the app, for whom. */
+function asker(approval: Approval): string {
+  return approval.client || "An app";
+}
+
+/** A run an agent asked for that waits for the person's approval: theirs to decide. */
+function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
+  const [declining, setDeclining] = useState(false);
+  const [note, setNote] = useState("");
+  const { say } = useMessages();
+  const others = approval.runs.length - 1;
+  const approve = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.POST("/api/v1/run-approvals/{approval_id}/approve", {
+          params: { path: { approval_id: approval.id } },
+        }),
+      ),
+    [RUNS],
+  );
+  const decline = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.POST("/api/v1/run-approvals/{approval_id}/decline", {
+          params: { path: { approval_id: approval.id } },
+          body: { note: note.trim() },
+        }),
+      ),
+    [RUNS],
+  );
+  const closeDecline = () => {
+    setDeclining(false);
+    setNote("");
+    decline.reset();
+  };
+  const count = approval.runs.length;
+  const these = count > 1 ? `these ${String(count)} runs` : "this run";
+  return (
+    <section className="alert alert-warning" aria-labelledby="approval-title">
+      <h2 className="alert-title" id="approval-title">
+        {approval.can.decide ? "Waiting for your approval" : "Waiting for approval"}
+      </h2>
+      <p>
+        {asker(approval)} asked to start {these} for {approval.requested_by.name}{" "}
+        <RelativeTime value={approval.created_at} />. {count > 1 ? "They run" : "It runs"} on the{" "}
+        {run.tier} tier, which an AI agent can’t start by itself, so{" "}
+        {approval.can.decide
+          ? `${count > 1 ? "they wait" : "it waits"} for you.`
+          : `${count > 1 ? "they wait" : "it waits"} for ${approval.requested_by.name} to approve ${count > 1 ? "them" : "it"} in Iki.`}{" "}
+        If nobody decides, the request expires <RelativeTime value={approval.expires_at} />.
+      </p>
+      {others > 0 ? (
+        <p>
+          It’s one of {count} runs asked for together, and they’re decided together:{" "}
+          {approval.runs
+            .filter((r) => r.id !== run.id)
+            .slice(0, 5)
+            .map((r, i) => (
+              <span key={r.id}>
+                {i ? ", " : ""}
+                <Link to="/runs/$ref/" params={{ ref: r.hrid }}>
+                  {r.hrid}
+                </Link>
+              </span>
+            ))}
+          {others > 5 ? ` and ${String(others - 5)} more` : ""}.
+        </p>
+      ) : null}
+      {approve.error ? <ProblemAlert problem={problemOf(approve.error)} /> : null}
+      {approval.can.decide ? (
+        <div className="actions">
+          <Button
+            variant="primary"
+            busy={approve.isPending}
+            onClick={() => {
+              approve.mutate(undefined, {
+                onSuccess: () => {
+                  say(count > 1 ? `Approved ${String(count)} runs.` : `Approved ${run.hrid}.`);
+                },
+              });
+            }}
+          >
+            {count > 1 ? `Approve ${String(count)} runs` : "Approve"}
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              approve.reset();
+              setDeclining(true);
+            }}
+          >
+            Decline
+          </Button>
+        </div>
+      ) : null}
+      <ConfirmDialog
+        isOpen={declining}
+        title={count > 1 ? `Decline ${String(count)} runs?` : `Decline ${run.hrid}?`}
+        confirmLabel="Decline"
+        cancelLabel="Keep waiting"
+        confirmVariant="danger"
+        busy={decline.isPending}
+        problem={decline.error ? problemOf(decline.error) : undefined}
+        onCancel={closeDecline}
+        onConfirm={() => {
+          decline.mutate(undefined, {
+            onSuccess: () => {
+              closeDecline();
+              say(count > 1 ? `Declined ${String(count)} runs.` : `Declined ${run.hrid}.`);
+            },
+          });
+        }}
+      >
+        <p>
+          {count > 1 ? "They end" : "It ends"} without running, and {asker(approval)} is told they
+          were declined. To run {count > 1 ? "them" : "it"} later, start {count > 1 ? "them" : "it"}{" "}
+          again.
+        </p>
+        <TextField
+          label="Note"
+          value={note}
+          onChange={setNote}
+          maxLength={2000}
+          optional
+          multiline
+          help="Why, for the record. The app that asked can read it."
+        />
+      </ConfirmDialog>
+    </section>
+  );
+}
+
+/** How a request was decided, for the run's details. */
+function approvalText(approval: Approval) {
+  switch (approval.state) {
+    case "approved":
+    case "declined":
+      return (
+        <>
+          {approval.state === "approved" ? "Approved" : "Declined"}
+          {approval.decided_by ? ` by ${approval.decided_by.name}` : ""}{" "}
+          {approval.decided_at ? <RelativeTime value={approval.decided_at} /> : null}
+          {approval.note ? <span className="preserve-lines">: {approval.note}</span> : null}
+        </>
+      );
+    case "expired":
+      return <>Expired: nobody approved it in time</>;
+    default:
+      return <>Waiting</>;
+  }
 }
 
 function duration(from: string, to: string): string {
@@ -488,6 +643,9 @@ export function RunPage() {
           </p>
         </div>
       ) : null}
+      {run.approval?.state === "pending" ? (
+        <ApprovalRequest run={run} approval={run.approval} />
+      ) : null}
       {run.waiting ? (
         <div className="alert alert-info" role="status">
           <p>Waiting to start: {run.waiting}</p>
@@ -627,7 +785,14 @@ export function RunPage() {
           <dd>
             By {run.requested_by.name} <RelativeTime value={run.created_at} />{" "}
             {VIA[run.via] ?? run.via}
+            {run.client ? `, through ${run.client}` : ""}
           </dd>
+          {run.approval && run.approval.state !== "pending" ? (
+            <>
+              <dt>Approval</dt>
+              <dd>{approvalText(run.approval)}</dd>
+            </>
+          ) : null}
           {run.reason ? (
             <>
               <dt>Reason</dt>

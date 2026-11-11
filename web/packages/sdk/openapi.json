@@ -159,6 +159,39 @@
         "title": "ActionOut",
         "type": "object"
       },
+      "ApprovalCan": {
+        "properties": {
+          "decide": {
+            "description": "You may approve or decline it: you asked for it, it's waiting, and you're in the web app (tokens can't, so no agent can approve its own request).",
+            "title": "Decide",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "decide"
+        ],
+        "title": "ApprovalCan",
+        "type": "object"
+      },
+      "ApprovalRunOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid"
+        ],
+        "title": "ApprovalRunOut",
+        "type": "object"
+      },
       "AttemptLogOut": {
         "properties": {
           "ended": {
@@ -651,6 +684,19 @@
           "derived_from"
         ],
         "title": "CreatesOut",
+        "type": "object"
+      },
+      "DeclineIn": {
+        "properties": {
+          "note": {
+            "default": "",
+            "description": "Why, for the record and for the agent.",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "title": "DeclineIn",
         "type": "object"
       },
       "DeliveryFilters": {
@@ -1964,6 +2010,7 @@
       },
       "JobState": {
         "enum": [
+          "awaiting_approval",
           "queued",
           "leased",
           "staging",
@@ -4605,6 +4652,97 @@
         "title": "RoleIn",
         "type": "object"
       },
+      "RunApprovalOut": {
+        "properties": {
+          "can": {
+            "$ref": "#/components/schemas/ApprovalCan"
+          },
+          "client": {
+            "description": "The app that asked, such as an AI agent's MCP client.",
+            "title": "Client",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "description": "Why it was declined, if they said.",
+            "title": "Note",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef",
+            "description": "Who the app acted for: who decides."
+          },
+          "runs": {
+            "description": "The runs it holds, all decided together.",
+            "items": {
+              "$ref": "#/components/schemas/ApprovalRunOut"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "declined",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "client",
+          "requested_by",
+          "created_at",
+          "expires_at",
+          "decided_by",
+          "decided_at",
+          "note",
+          "runs",
+          "can"
+        ],
+        "title": "RunApprovalOut",
+        "type": "object"
+      },
       "RunAttemptOut": {
         "properties": {
           "attempt": {
@@ -4948,6 +5086,17 @@
             "title": "Action",
             "type": "string"
           },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunApprovalOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When an agent asked for it on a tier that needs approval: the request."
+          },
           "attempts": {
             "title": "Attempts",
             "type": "integer"
@@ -4966,6 +5115,11 @@
               }
             ],
             "title": "Cancel Requested At"
+          },
+          "client": {
+            "description": "The OAuth app it was asked for through, if any.",
+            "title": "Client",
+            "type": "string"
           },
           "created_at": {
             "format": "date-time",
@@ -5076,13 +5230,15 @@
           },
           "status": {
             "enum": [
+              "awaiting_approval",
               "queued",
               "running",
               "succeeded",
               "failed",
               "cancelled",
               "timed_out",
-              "rejected"
+              "rejected",
+              "declined"
             ],
             "title": "Status",
             "type": "string"
@@ -5123,6 +5279,8 @@
           "project",
           "requested_by",
           "via",
+          "client",
+          "approval",
           "reason",
           "tier",
           "environment",
@@ -5170,13 +5328,15 @@
       },
       "RunStatus": {
         "enum": [
+          "awaiting_approval",
           "queued",
           "running",
           "succeeded",
           "failed",
           "cancelled",
           "timed_out",
-          "rejected"
+          "rejected",
+          "declined"
         ],
         "title": "RunStatus",
         "type": "string"
@@ -10100,6 +10260,142 @@
         "summary": "One of your registrations",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/v1/run-approvals/{approval_id}": {
+      "get": {
+        "description": "A request an app made, acting for someone, for runs that need their approval.",
+        "operationId": "iki_server_api_runs_get_run_approval",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunApprovalOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Runs waiting for approval",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/run-approvals/{approval_id}/approve": {
+      "post": {
+        "description": "Queues every run the request holds. Only its person may, in the web app, and only\nwhile they may still run its tier in the project.",
+        "operationId": "iki_server_api_runs_approve_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunApprovalOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Approve runs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/run-approvals/{approval_id}/decline": {
+      "post": {
+        "description": "Ends every run the request holds, unstarted. Only its person may, in the web app.",
+        "operationId": "iki_server_api_runs_decline_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunApprovalOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Decline runs",
+        "tags": [
+          "runs"
         ]
       }
     },

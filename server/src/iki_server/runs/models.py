@@ -34,6 +34,8 @@ HRID_SEQUENCE = "iki_hrid_run"
 
 
 class RunStatus(models.TextChoices):
+    #: An agent asked for it on a tier that needs the person's approval first (ADR 0013).
+    AWAITING_APPROVAL = "awaiting_approval", "Awaiting approval"
     QUEUED = "queued", "Queued"
     RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
@@ -42,6 +44,8 @@ class RunStatus(models.TextChoices):
     TIMED_OUT = "timed_out", "Timed out"
     #: Its results no longer fit the entities' schema, so they weren't written.
     REJECTED = "rejected", "Rejected"
+    #: The person didn't approve it, or not in time.
+    DECLINED = "declined", "Declined"
 
 
 #: Statuses a run ends in.
@@ -52,6 +56,7 @@ FINISHED = frozenset(
         RunStatus.CANCELLED,
         RunStatus.TIMED_OUT,
         RunStatus.REJECTED,
+        RunStatus.DECLINED,
     }
 )
 
@@ -61,6 +66,8 @@ _FINISHED_VALUES = sorted(s.value for s in FINISHED)
 
 
 class JobState(models.TextChoices):
+    #: Waiting for its run to be approved: no worker leases it until then.
+    AWAITING_APPROVAL = "awaiting_approval", "Awaiting approval"
     QUEUED = "queued", "Queued"
     LEASED = "leased", "Leased"
     STAGING = "staging", "Staging inputs"
@@ -74,6 +81,64 @@ class JobState(models.TextChoices):
     REJECTED = "rejected", "Rejected"
     #: The worker went away or was stopped (spot interruption); the run may be retried.
     INTERRUPTED = "interrupted", "Interrupted"
+
+
+class ApprovalState(models.TextChoices):
+    PENDING = "pending", "Waiting for a decision"
+    APPROVED = "approved", "Approved"
+    DECLINED = "declined", "Declined"
+    #: Nobody decided within ``RunApproval.expires_at``.
+    EXPIRED = "expired", "Expired"
+
+
+class RunApproval(models.Model):
+    """Runs an agent asked for, through MCP, that wait for the person it acts for to
+    approve them in the web app (ADR 0013). One request, one decision: a batch is approved
+    or declined together."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    #: The person the agent acts for, who alone may decide.
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    #: The OAuth app that asked, as the audit log names it.
+    client = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+    expires_at = models.DateTimeField()
+    state = models.CharField(
+        max_length=16, choices=ApprovalState.choices, default=ApprovalState.PENDING
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    #: Why it was declined, if the person said.
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "iki_run_approval"
+        db_table_comment = "Runs agents asked for that wait for their person's approval."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["expires_at"],
+                name="iki_run_approval_pending",
+                condition=Q(state="pending"),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(state__in=ApprovalState.values), name="iki_run_approval_state"
+            ),
+            models.CheckConstraint(
+                condition=Q(state="pending", decided_at__isnull=True)
+                | ~Q(state="pending") & Q(decided_at__isnull=False),
+                name="iki_run_approval_decided",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"approval {self.pk} ({self.state})"
 
 
 class ActionRun(models.Model):
@@ -92,12 +157,18 @@ class ActionRun(models.Model):
     )
     #: How it was asked for: web, api, mcp, cli, trigger or system (as in the audit log).
     via = models.CharField(max_length=16)
+    #: The OAuth app it was asked for through, if any, as the audit log names it.
+    client = models.CharField(max_length=255, blank=True, default="")
+    #: The approval it waits for, or waited for, if an agent asked for it (ADR 0013).
+    approval = models.ForeignKey(
+        RunApproval, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
+    )
     reason = models.TextField(blank=True, default="")
     tier = models.CharField(max_length=16)
     environment = models.CharField(max_length=63)
     #: Every param's value, defaults filled in.
     params = models.JSONField(default=dict)
-    status = models.CharField(max_length=16, choices=RunStatus.choices, default=RunStatus.QUEUED)
+    status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.QUEUED)
     created_at = models.DateTimeField(db_default=Now())
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -129,7 +200,9 @@ class ActionRun(models.Model):
             models.Index(
                 fields=["status", "id"],
                 name="iki_action_run_unfinished",
-                condition=Q(status__in=[RunStatus.QUEUED, RunStatus.RUNNING]),
+                condition=Q(
+                    status__in=[RunStatus.AWAITING_APPROVAL, RunStatus.QUEUED, RunStatus.RUNNING]
+                ),
             ),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
@@ -269,7 +342,7 @@ class Job(models.Model):
     run = models.ForeignKey(ActionRun, on_delete=models.CASCADE, related_name="jobs")
     #: 1 for the first attempt, then 2, 3, ...
     attempt = models.PositiveSmallIntegerField(default=1)
-    state = models.CharField(max_length=16, choices=JobState.choices, default=JobState.QUEUED)
+    state = models.CharField(max_length=32, choices=JobState.choices, default=JobState.QUEUED)
     #: Higher first.
     priority = models.SmallIntegerField(default=0)
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")

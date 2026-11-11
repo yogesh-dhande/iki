@@ -13,6 +13,7 @@ from functools import cache
 from typing import Any
 from urllib.parse import quote, urlencode, urlsplit
 
+from django.conf import settings
 from django.core.handlers.asgi import ASGIHandler
 from mcp.server.mcpserver.exceptions import ToolError
 from oauth2_provider.oauth2_validators import validate_resource_as_url_prefix
@@ -50,6 +51,17 @@ def acting_for(scope: Mapping[str, Any]) -> Iterator[None]:
 @cache
 def _django() -> ASGIHandler:
     return ASGIHandler()
+
+
+def web_url(web_path: str) -> str:
+    """The web app's address for `web_path`, as the person reaches Iki: its public URL
+    if set, else the host and scheme the agent's request came by."""
+    if settings.IKI_PUBLIC_URL:
+        return settings.IKI_PUBLIC_URL.rstrip("/") + web_path
+    outer = _agent.get().scope
+    # The server trusts X-Forwarded-Proto only from its proxies, and sets the scheme.
+    host = dict(outer.get("headers", [])).get(b"host", b"localhost").decode("latin-1")
+    return f"{outer.get('scheme', 'http')}://{host}{web_path}"
 
 
 def path(template: str, **parts: str | int) -> str:

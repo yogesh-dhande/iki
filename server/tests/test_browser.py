@@ -647,6 +647,55 @@ def test_picking_rows_and_running_an_action_on_each(open_as: Any, world: World) 
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_approving_a_run_an_ai_agent_asked_for(
+    open_as: Any, world: World, color_scheme: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iki_server.audit import log as audit
+    from iki_server.audit.models import Via
+    from iki_server.entities import services as entities
+    from iki_server.runs import approvals, catalog, services
+    from iki_server.runs.models import ActionRun, RunStatus
+
+    admin = world.users["admin"]
+    action = catalog.action("protein.compute_properties")
+    assert action is not None
+    made = [
+        entities.create(admin, "protein.Protein", world.project, {"sequence": s, "name": n})
+        for n, s in [("ABL1", "MKV"), ("SRC", "MGS")]
+    ]
+    # The test deployment has backend workers only: hold that tier, as Iki holds the
+    # container and VM tiers, for an agent acting for the admin.
+    monkeypatch.setattr(approvals, "APPROVAL_TIERS", approvals.APPROVAL_TIERS | {"backend"})
+    with audit.using(audit.Context(via=Via.MCP, oauth_client="Claude")):
+        first, second = services.launch_each(
+            admin, action, world.project, "protein", [m.entity.pk for m in made], {}, {}
+        )
+
+    page = open_as("admin", f"/runs/{first.hrid}/", color_scheme)
+    # By its heading: in Firefox, Playwright finding a region by name and then axe
+    # running crashes the page (Playwright's role engine, not the app).
+    heading = page.get_by_role("heading", name="Waiting for your approval")
+    request = page.locator("section", has=heading)
+    request.get_by_text("Claude asked to start these 2 runs").wait_for()
+    assert request.get_by_role("link", name=second.hrid).is_visible()
+    assert_clean(page)
+
+    request.get_by_role("button", name="Decline").click()
+    dialog = page.get_by_role("alertdialog", name="Decline 2 runs?")
+    dialog.get_by_text("They end without running").wait_for()
+    assert_clean(page)
+    dialog.get_by_role("button", name="Keep waiting").click()
+
+    request.get_by_role("button", name="Approve 2 runs").click()
+    page.get_by_text("Approved 2 runs.").wait_for()
+    page.get_by_text("Not picked up yet").wait_for()
+    assert heading.count() == 0
+    page.get_by_text(re.compile("^Approved by ")).wait_for()
+    assert set(ActionRun.objects.values_list("status", flat=True)) == {RunStatus.QUEUED}
+    assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_following_lineage_from_entity_to_entity(
     open_as: Any, world: World, color_scheme: str
 ) -> None:

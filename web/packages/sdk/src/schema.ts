@@ -958,6 +958,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/run-approvals/{approval_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runs waiting for approval
+         * @description A request an app made, acting for someone, for runs that need their approval.
+         */
+        get: operations["iki_server_api_runs_get_run_approval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/run-approvals/{approval_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve runs
+         * @description Queues every run the request holds. Only its person may, in the web app, and only
+         *     while they may still run its tier in the project.
+         */
+        post: operations["iki_server_api_runs_approve_runs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/run-approvals/{approval_id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline runs
+         * @description Ends every run the request holds, unstarted. Only its person may, in the web app.
+         */
+        post: operations["iki_server_api_runs_decline_runs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs": {
         parameters: {
             query?: never;
@@ -1662,6 +1723,24 @@ export interface components {
             /** Updates */
             updates: components["schemas"]["UpdatesOut"][];
         };
+        /** ApprovalCan */
+        ApprovalCan: {
+            /**
+             * Decide
+             * @description You may approve or decline it: you asked for it, it's waiting, and you're in the web app (tokens can't, so no agent can approve its own request).
+             */
+            decide: boolean;
+        };
+        /** ApprovalRunOut */
+        ApprovalRunOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+        };
         /** AttemptLogOut */
         AttemptLogOut: {
             /**
@@ -1895,6 +1974,15 @@ export interface components {
             derived_from: string[];
             /** Type */
             type: string;
+        };
+        /** DeclineIn */
+        DeclineIn: {
+            /**
+             * Note
+             * @description Why, for the record and for the agent.
+             * @default
+             */
+            note: string;
         };
         /** DeliveryFilters */
         DeliveryFilters: {
@@ -2494,7 +2582,7 @@ export interface components {
          * JobState
          * @enum {string}
          */
-        JobState: "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted";
+        JobState: "awaiting_approval" | "queued" | "leased" | "staging" | "running" | "uploading" | "committing" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "interrupted";
         /** LastDelivery */
         LastDelivery: {
             /**
@@ -3625,6 +3713,50 @@ export interface components {
              */
             role: "viewer" | "editor" | "runner" | "admin";
         };
+        /** RunApprovalOut */
+        RunApprovalOut: {
+            can: components["schemas"]["ApprovalCan"];
+            /**
+             * Client
+             * @description The app that asked, such as an AI agent's MCP client.
+             */
+            client: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            decided_by: components["schemas"]["PersonRef"] | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Note
+             * @description Why it was declined, if they said.
+             */
+            note: string;
+            /** @description Who the app acted for: who decides. */
+            requested_by: components["schemas"]["PersonRef"];
+            /**
+             * Runs
+             * @description The runs it holds, all decided together.
+             */
+            runs: components["schemas"]["ApprovalRunOut"][];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "approved" | "declined" | "expired";
+        };
         /** RunAttemptOut */
         RunAttemptOut: {
             /**
@@ -3787,11 +3919,18 @@ export interface components {
         RunOut: {
             /** Action */
             action: string;
+            /** @description When an agent asked for it on a tier that needs approval: the request. */
+            approval: components["schemas"]["RunApprovalOut"] | null;
             /** Attempts */
             attempts: number;
             can: components["schemas"]["RunCan"];
             /** Cancel Requested At */
             cancel_requested_at: string | null;
+            /**
+             * Client
+             * @description The OAuth app it was asked for through, if any.
+             */
+            client: string;
             /**
              * Created At
              * Format: date-time
@@ -3847,7 +3986,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected";
+            status: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
             /**
              * Tier
              * @enum {string}
@@ -3877,7 +4016,7 @@ export interface components {
          * RunStatus
          * @enum {string}
          */
-        RunStatus: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected";
+        RunStatus: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
         /** SavedSearchCan */
         SavedSearchCan: {
             /** Change */
@@ -6093,6 +6232,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegistrationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_get_run_approval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunApprovalOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_approve_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunApprovalOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_decline_runs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclineIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunApprovalOut"];
                 };
             };
         };

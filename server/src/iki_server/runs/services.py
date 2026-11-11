@@ -6,6 +6,9 @@ tier in the project, the action can run on this deployment, every input is
 an entity they can read, of the right type and not archived, the entities it
 updates are ones they can edit, and every param fits. It records the
 revision of each input, so the run's provenance says what it read.
+
+A run an agent asks for through MCP, on a tier that needs approval, waits for
+the person it acts for to approve it (:mod:`iki_server.runs.approvals`).
 """
 
 from __future__ import annotations
@@ -29,13 +32,14 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
-from iki_server.runs import catalog, live, queue, quotas
+from iki_server.runs import approvals, catalog, live, queue, quotas
 from iki_server.runs.models import (
     HRID_PREFIX,
     HRID_SEQUENCE,
     ActionRun,
     Job,
     JobState,
+    RunApproval,
     RunInput,
     RunStatus,
 )
@@ -79,7 +83,11 @@ def launch(
     if errors:
         raise Invalid(errors)
     with transaction.atomic():
-        return _queue(user, action, project, entities, values, reason)
+        approval = approvals.ask(user, action, project)
+        run = _queue(user, action, project, entities, values, reason, approval)
+        if approval is not None:
+            approvals.announce(approval, run, 1, action.label or action.qualified_name)
+        return run
 
 
 def launch_each(
@@ -117,10 +125,15 @@ def launch_each(
         raise Invalid(errors)
     chosen = entities.pop(each)
     with transaction.atomic():
-        return [
-            _queue(user, action, project, {**entities, each: [entity]}, values, reason)
+        # One request, one approval: a batch is approved or declined together.
+        approval = approvals.ask(user, action, project, runs=len(chosen))
+        runs = [
+            _queue(user, action, project, {**entities, each: [entity]}, values, reason, approval)
             for entity in chosen
         ]
+        if approval is not None and runs:
+            approvals.announce(approval, runs[0], len(runs), action.label or action.qualified_name)
+        return runs
 
 
 def input_taking(action: Action, types: Sequence[str]) -> str | None:
@@ -148,11 +161,17 @@ def _queue(
     entities: Mapping[str, Sequence[Entity]],
     values: dict[str, Any],
     reason: str,
+    approval: RunApproval | None = None,
 ) -> ActionRun:
-    """Queues the run. Call inside a transaction, with its inputs and params checked."""
+    """Queues the run, or holds it for `approval`. Call inside a transaction, with its
+    inputs and params checked."""
     environment = catalog.environment(action)
-    quotas.check_queued(project, action.tier)
+    if approval is None:
+        quotas.check_queued(project, action.tier)
     run = ActionRun.objects.create(
+        status=RunStatus.AWAITING_APPROVAL if approval else RunStatus.QUEUED,
+        approval=approval,
+        client=audit.current_oauth_client(),
         hrid=_next_hrid(),
         action=action.qualified_name,
         plugin_version=registry.plugins()[action.plugin].version,
@@ -181,8 +200,10 @@ def _queue(
         environment=f"{action.plugin}.{action.environment}",
         resources=asdict(environment.resources.at_least(action.resources)),
         owner=user if action.tier == "client" else None,
+        state=JobState.AWAITING_APPROVAL if approval else JobState.QUEUED,
     )
-    queue.notify(action.tier)
+    if approval is None:
+        queue.notify(action.tier)
     audit.record(
         "run.launched",
         actor=user,
@@ -192,6 +213,7 @@ def _queue(
             "action": action.qualified_name,
             "tier": action.tier,
             "inputs": sum(len(e) for e in entities.values()),
+            **({"approval": str(approval.pk)} if approval else {}),
         },
     )
     return run
@@ -312,7 +334,7 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             return run
         now = timezone.now()
         data = {"reason": reason} if reason else {}
-        if job is None or job.state == JobState.QUEUED:
+        if job is None or job.state in (JobState.QUEUED, JobState.AWAITING_APPROVAL):
             if job is not None:
                 job.state = JobState.CANCELLED
                 job.finished_at = now
@@ -330,6 +352,10 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
                 ]
             )
             audit.record("run.cancelled", actor=user, target=run, project=run.project, data=data)
+            if run.approval_id is not None:
+                approvals.settle(
+                    RunApproval.objects.select_for_update().get(pk=run.approval_id), user
+                )
         else:
             run.cancel_requested_at = now
             run.cancel_requested_by = user

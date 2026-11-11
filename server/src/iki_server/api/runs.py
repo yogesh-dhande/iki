@@ -25,12 +25,14 @@ from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
-from iki_server.runs import catalog, quotas, services
+from iki_server.runs import approvals, catalog, quotas, services
 from iki_server.runs.models import (
     ActionRun,
+    ApprovalState,
     Job,
     JobLog,
     JobState,
+    RunApproval,
     RunEffect,
     RunInput,
     RunOutput,
@@ -240,6 +242,32 @@ class RunCan(Schema):
     cancel: bool
 
 
+class ApprovalRunOut(Schema):
+    id: UUID
+    hrid: str
+
+
+class ApprovalCan(Schema):
+    decide: bool = Field(
+        description="You may approve or decline it: you asked for it, it's waiting, and you're "
+        "in the web app (tokens can't, so no agent can approve its own request)."
+    )
+
+
+class RunApprovalOut(Schema):
+    id: UUID
+    state: Literal["pending", "approved", "declined", "expired"]
+    client: str = Field(description="The app that asked, such as an AI agent's MCP client.")
+    requested_by: PersonRef = Field(description="Who the app acted for: who decides.")
+    created_at: datetime
+    expires_at: datetime
+    decided_by: PersonRef | None
+    decided_at: datetime | None
+    note: str = Field(description="Why it was declined, if they said.")
+    runs: list[ApprovalRunOut] = Field(description="The runs it holds, all decided together.")
+    can: ApprovalCan
+
+
 class RunOut(Schema):
     id: UUID
     hrid: str
@@ -249,13 +277,25 @@ class RunOut(Schema):
     project: UUID = Field(alias="project_id")
     requested_by: PersonRef
     via: str
+    client: str = Field(description="The OAuth app it was asked for through, if any.")
+    approval: RunApprovalOut | None = Field(
+        description="When an agent asked for it on a tier that needs approval: the request."
+    )
     reason: str
     tier: Tier
     environment: str
     params: dict[str, Any]
     inputs: list[RunInputOut]
     status: Literal[
-        "queued", "running", "succeeded", "failed", "cancelled", "timed_out", "rejected"
+        "awaiting_approval",
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "timed_out",
+        "rejected",
+        "declined",
     ]
     attempts: int
     created_at: datetime
@@ -307,6 +347,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         tier: quotas.blocked(tier)
         for tier in {r.tier for r in runs if r.status == RunStatus.QUEUED}
     }
+    held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
         for pid, tier in {(r.project_id, r.tier) for r in runs}
@@ -316,6 +357,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             **{f: getattr(run, f) for f in _RUN_FIELDS},
             "project_id": run.project_id,
             "requested_by": run.requested_by,
+            "approval": held.get(run.approval_id) if run.approval_id else None,
             "inputs": inputs.get(run.pk, []),
             "attempts": attempts.get(run.pk, 0),
             "effects": effects.get(run.pk, []),
@@ -341,6 +383,7 @@ _RUN_FIELDS = (
     "plugin_version",
     "plugin_sha",
     "via",
+    "client",
     "reason",
     "tier",
     "environment",
@@ -494,6 +537,109 @@ def cancel_run(request: HttpRequest, ref: str, payload: CancelIn) -> dict[str, A
     except PermissionDenied:
         raise Problem(403) from None
     return _runs_out(me, [_find(me, ref)])[0]
+
+
+# --- Approvals -----------------------------------------------------------------------------------
+
+
+def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
+    if not ids:
+        return {}
+    found = RunApproval.objects.filter(pk__in=ids).select_related("requested_by", "decided_by")
+    held: dict[Any, list[dict[str, Any]]] = {}
+    for run_id, hrid, approval_id in (
+        ActionRun.objects.filter(approval__in=ids)
+        .order_by("id")
+        .values_list("pk", "hrid", "approval")
+    ):
+        held.setdefault(approval_id, []).append({"id": run_id, "hrid": hrid})
+    web = permissions.token_limits(me) is None
+    return {
+        a.pk: {
+            "id": a.pk,
+            "state": a.state,
+            "client": a.client,
+            "requested_by": a.requested_by,
+            "created_at": a.created_at,
+            "expires_at": a.expires_at,
+            "decided_by": a.decided_by,
+            "decided_at": a.decided_at,
+            "note": a.note,
+            "runs": held.get(a.pk, []),
+            "can": {
+                "decide": web and a.requested_by_id == me.pk and a.state == ApprovalState.PENDING
+            },
+        }
+        for a in found
+    }
+
+
+def _approval(me: User, approval_id: UUID) -> RunApproval:
+    found = (
+        RunApproval.objects.filter(project__in=access.readable_projects(me).values("pk"))
+        .filter(pk=approval_id)
+        .first()
+    )
+    if found is None:
+        raise Problem(404, "No such request, or you can’t see it.")
+    return found
+
+
+def _decide(me: User, approval: RunApproval) -> None:
+    if permissions.token_limits(me) is not None:
+        raise Problem(
+            403,
+            "Approve or decline runs in Iki’s web app. Tokens can’t, so no agent can approve "
+            "its own request.",
+            code="web_only",
+        )
+    if approval.requested_by_id != me.pk:
+        raise Problem(403, "Only the person the app asked for can decide.")
+
+
+class DeclineIn(Schema):
+    note: str = Field("", max_length=2000, description="Why, for the record and for the agent.")
+
+
+@router.get(
+    "/run-approvals/{approval_id}", response=RunApprovalOut, summary="Runs waiting for approval"
+)
+def get_run_approval(request: HttpRequest, approval_id: UUID) -> dict[str, Any]:
+    """A request an app made, acting for someone, for runs that need their approval."""
+    me = caller(request)
+    found = _approval(me, approval_id)
+    return _approvals_out(me, {found.pk})[found.pk]
+
+
+@router.post(
+    "/run-approvals/{approval_id}/approve", response=RunApprovalOut, summary="Approve runs"
+)
+def approve_runs(request: HttpRequest, approval_id: UUID) -> dict[str, Any]:
+    """Queues every run the request holds. Only its person may, in the web app, and only
+    while they may still run its tier in the project."""
+    me = caller(request)
+    found = _approval(me, approval_id)
+    _decide(me, found)
+    try:
+        approvals.approve(me, found)
+    except PermissionDenied:
+        raise Problem(403, "You can’t run this tier in its project any more.") from None
+    return _approvals_out(me, {found.pk})[found.pk]
+
+
+@router.post(
+    "/run-approvals/{approval_id}/decline", response=RunApprovalOut, summary="Decline runs"
+)
+def decline_runs(request: HttpRequest, approval_id: UUID, payload: DeclineIn) -> dict[str, Any]:
+    """Ends every run the request holds, unstarted. Only its person may, in the web app."""
+    me = caller(request)
+    found = _approval(me, approval_id)
+    _decide(me, found)
+    try:
+        approvals.decline(me, found, note=payload.note)
+    except PermissionDenied:
+        raise Problem(403) from None
+    return _approvals_out(me, {found.pk})[found.pk]
 
 
 # --- Attempts and their logs ---------------------------------------------------------------------

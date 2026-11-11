@@ -8,7 +8,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { entity, KINASE, nth, renderApp, revision, withTypes } from "./entity-fixtures";
-import { ACTION, attempt, run, RUN_ID } from "./run-fixtures";
+import { ACTION, approval, attempt, run, RUN_ID } from "./run-fixtures";
 import { answer, calls, FakeEventSource, page } from "./test-server";
 
 const EVENTS = "/api/v1/runs/RUN-000001/events";
@@ -284,6 +284,143 @@ describe("a run's page", () => {
     expect(calls("POST").at(-1)?.body).toEqual({ reason: "Wrong pH" });
     expect(screen.getByText(/^Cancelling: asked to stop/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+  });
+
+  describe("that an AI agent asked for, on a tier that needs approval", () => {
+    const APPROVAL = "/api/v1/run-approvals/00000000-0000-7000-8000-0000000000a1";
+    const waiting = {
+      status: "awaiting_approval" as const,
+      tier: "container" as const,
+      via: "mcp",
+      client: "Claude",
+      started_at: null,
+    };
+    const unstarted = () => [
+      attempt({
+        state: "awaiting_approval",
+        worker: null,
+        started_at: null,
+        progress: null,
+        log_size: 0,
+      }),
+    ];
+
+    it("waits for the person's approval, and starts when they give it", async () => {
+      let current = run({ ...waiting, approval: approval() });
+      onRun(() => current, unstarted);
+      withLog(() => "");
+      answer(`POST ${APPROVAL}/approve`, () => {
+        const approved = approval({
+          state: "approved",
+          decided_by: current.requested_by,
+          decided_at: "2026-03-14T09:05:00Z",
+          can: { decide: false },
+        });
+        current = run({ ...waiting, status: "queued", approval: approved });
+        return approved;
+      });
+      const { user } = await renderApp("/runs/RUN-000001/");
+      expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
+      const request = screen.getByRole("region", { name: "Waiting for your approval" });
+      expect(request).toHaveTextContent(
+        /Claude asked to start this run for Rosalind Franklin .* on the container tier, which an AI agent can’t start by itself, so it waits for you\./,
+      );
+      expect(request).toHaveTextContent(/If nobody decides, the request expires/);
+      expect(screen.getByText(/by an AI assistant \(MCP\), through Claude/)).toBeInTheDocument();
+
+      await user.click(within(request).getByRole("button", { name: "Approve" }));
+      expect(await screen.findByText("Approved RUN-000001.")).toBeVisible();
+      await waitFor(() => {
+        expect(screen.queryByRole("region", { name: /approval/ })).not.toBeInTheDocument();
+      });
+      expect(screen.getByText("Queued")).toBeInTheDocument();
+      expect(screen.getByText(/^Approved by Rosalind Franklin/)).toBeInTheDocument();
+    });
+
+    it("declines, with a note for the record", async () => {
+      let current = run({ ...waiting, approval: approval() });
+      onRun(() => current, unstarted);
+      withLog(() => "");
+      answer(`POST ${APPROVAL}/decline`, () => {
+        const declined = approval({
+          state: "declined",
+          decided_by: current.requested_by,
+          decided_at: "2026-03-14T09:05:00Z",
+          note: "Not on the big machines",
+          can: { decide: false },
+        });
+        current = run({ ...waiting, status: "declined", approval: declined });
+        return declined;
+      });
+      const { user } = await renderApp("/runs/RUN-000001/");
+      await user.click(screen.getByRole("button", { name: "Decline" }));
+      const dialog = screen.getByRole("alertdialog", { name: "Decline RUN-000001?" });
+      expect(dialog).toHaveTextContent(/It ends without running/);
+      await user.type(
+        within(dialog).getByRole("textbox", { name: /Note/ }),
+        "Not on the big machines",
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Decline" }));
+      expect(await screen.findByText("Declined RUN-000001.")).toBeVisible();
+      expect(calls("POST").at(-1)?.body).toEqual({ note: "Not on the big machines" });
+      expect(await screen.findByText(/^Declined by Rosalind Franklin/)).toHaveTextContent(
+        /: Not on the big machines$/,
+      );
+      expect(screen.getAllByText("Declined").length).toBeGreaterThan(0);
+    });
+
+    it("decides a batch together", async () => {
+      const runs = Array.from({ length: 8 }, (_, i) => ({
+        id: i ? `00000000-0000-7000-8000-00000000000${String(i)}` : RUN_ID,
+        hrid: `RUN-00000${String(i + 1)}`,
+      }));
+      onRun(() => run({ ...waiting, approval: approval({ runs }) }), unstarted);
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      const request = screen.getByRole("region", { name: "Waiting for your approval" });
+      expect(request).toHaveTextContent(
+        /start these 8 runs .* They run on the container tier, which an AI agent can’t start by itself, so they wait for you\./,
+      );
+      expect(request).toHaveTextContent(
+        /one of 8 runs asked for together, and they’re decided together: RUN-000002, RUN-000003, RUN-000004, RUN-000005, RUN-000006 and 2 more\./,
+      );
+      expect(within(request).getByRole("link", { name: "RUN-000002" })).toHaveAttribute(
+        "href",
+        "/runs/RUN-000002/",
+      );
+      expect(within(request).getByRole("button", { name: "Approve 8 runs" })).toBeVisible();
+    });
+
+    it("says who decides when it isn't the reader", async () => {
+      onRun(
+        () =>
+          run({
+            ...waiting,
+            requested_by: { id: "someone", name: "Ada Lovelace" },
+            approval: approval({
+              requested_by: { id: "someone", name: "Ada Lovelace" },
+              can: { decide: false },
+            }),
+          }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      const request = screen.getByRole("region", { name: "Waiting for approval" });
+      expect(request).toHaveTextContent(/so it waits for Ada Lovelace to approve it in Iki\./);
+      expect(within(request).queryByRole("button")).not.toBeInTheDocument();
+    });
+
+    it("says when nobody approved it in time", async () => {
+      onRun(
+        () => run({ ...waiting, status: "declined", approval: approval({ state: "expired" }) }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      expect(screen.getByText("Expired: nobody approved it in time")).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: /approval/ })).not.toBeInTheDocument();
+    });
   });
 
   it("says when there's no such run", async () => {

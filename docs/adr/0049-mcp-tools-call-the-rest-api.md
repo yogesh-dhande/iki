@@ -59,8 +59,9 @@ everything else, has no lifespan hook.
   - Changing, marked destructive so clients ask first: `update_entity` and
     `set_entity_archived`. They name the revision they were decided on
     (`If-Match`), and need a reason for the entity's history.
-  - Tools that start runs follow, with approvals for runs on the container
-    and VM tiers (ADR 0013).
+  - Starting runs: `run_action` and `run_batch`. Runs on the container and
+    VM tiers wait for the person's approval (ADR 0050), and the answer says
+    where they give it. `cancel_run` is marked destructive.
 - **Revisions name the app.** Each revision records the OAuth app it came
   through, as the audit log names it. An agent's change reads as made by
   the person it acted for, through MCP, through that app.

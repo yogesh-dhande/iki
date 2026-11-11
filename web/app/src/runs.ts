@@ -19,6 +19,7 @@ export type Action = Schemas["ActionOut"];
 export const RUNS = ["runs"] as const;
 
 export const STATUS: Record<RunStatus, string> = {
+  awaiting_approval: "Awaiting approval",
   queued: "Queued",
   running: "Running",
   succeeded: "Succeeded",
@@ -26,9 +27,11 @@ export const STATUS: Record<RunStatus, string> = {
   cancelled: "Cancelled",
   timed_out: "Timed out",
   rejected: "Rejected",
+  declined: "Declined",
 };
 
 export const ATTEMPT_STATE: Record<AttemptState, string> = {
+  awaiting_approval: "Awaiting approval",
   queued: "Queued",
   leased: "Starting",
   staging: "Staging inputs",
@@ -53,6 +56,7 @@ export function tone(status: RunStatus | AttemptState): "good" | "bad" | "busy" 
     case "rejected":
       return "bad";
     case "cancelled":
+    case "declined":
     case "interrupted":
       return "quiet";
     default:
@@ -61,7 +65,7 @@ export function tone(status: RunStatus | AttemptState): "good" | "bad" | "busy" 
 }
 
 export function finished(status: RunStatus): boolean {
-  return !(status === "queued" || status === "running");
+  return !(status === "awaiting_approval" || status === "queued" || status === "running");
 }
 
 /** The actions installed here, for their labels. */

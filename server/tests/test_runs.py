@@ -294,10 +294,8 @@ def test_entities_an_action_updates_must_be_editable(world: World) -> None:
     }
 
 
-def test_params_are_checked_and_defaulted(
-    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    # Bind the vm tier, so predict_structure runs.
+def bind_vm(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Binds the vm tier, so predict_structure runs."""
     compute = json.loads(Path(catalog._compute_file()).read_text())  # type: ignore[arg-type]
     compute["templates"]["a100"] = {
         **TEMPLATE,
@@ -315,6 +313,11 @@ def test_params_are_checked_and_defaulted(
     monkeypatch.setenv("IKI_COMPUTE_FILE", str(file))
     catalog.compute.cache_clear()
 
+
+def test_params_are_checked_and_defaulted(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    bind_vm(monkeypatch, tmp_path)
     runner = api_as(world, "runner")
     abl = protein(runner, world.project)
     bad = launch(

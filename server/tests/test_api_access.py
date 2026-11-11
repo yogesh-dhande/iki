@@ -170,6 +170,27 @@ def run(suffix: str = "", body: Any = None) -> Build:
     return lambda w: (f"/runs/{_run(w).pk}{suffix}", body)
 
 
+def approval(suffix: str = "", body: Any = None) -> Build:
+    """A request the runner's agent made: theirs alone to decide."""
+
+    def build(w: World) -> tuple[str, Any]:
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from iki_server.runs.models import RunApproval
+
+        found = RunApproval.objects.create(
+            project=w.project,
+            requested_by=w.users["runner"],
+            client="Notebook",
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        return f"/run-approvals/{found.pk}{suffix}", body
+
+    return build
+
+
 def _registration(w: World) -> Any:
     from iki_server.runs import workers
 
@@ -498,6 +519,20 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/runs/{ref}", run(), readers(200)),
     ("POST", "/runs/{ref}/cancel", run("/cancel", {}), editors(200)),
     ("GET", "/runs/{ref}/attempts", run("/attempts"), readers(200)),
+    # Only the person an agent asked for decides (and never with a token: test_run_approvals).
+    ("GET", "/run-approvals/{approval_id}", approval(), readers(200)),
+    (
+        "POST",
+        "/run-approvals/{approval_id}/approve",
+        approval("/approve"),
+        readers(403, runner=200),
+    ),
+    (
+        "POST",
+        "/run-approvals/{approval_id}/decline",
+        approval("/decline", {}),
+        readers(403, runner=200),
+    ),
     ("GET", "/runs/{ref}/attempts/{attempt}/log", run("/attempts/1/log"), readers(200)),
     ("GET", "/runs/{ref}/attempts/{attempt}/log.txt", run("/attempts/1/log.txt"), readers(200)),
     # Workers and the tokens they register with are the Compute admin's.

@@ -17,6 +17,8 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     project: KINASE.id,
     requested_by: { id: ME.id, name: ME.name },
     via: "web",
+    client: "",
+    approval: null,
     reason: "",
     tier: "backend",
     environment: "sequence-tools",
@@ -41,6 +43,26 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     messages: [],
     waiting: null,
     can: { cancel: true },
+    ...overrides,
+  };
+}
+
+/** A request an agent made for `run`, waiting for the person who signed it in. */
+export function approval(
+  overrides: Partial<Schemas["RunApprovalOut"]> = {},
+): Schemas["RunApprovalOut"] {
+  return {
+    id: "00000000-0000-7000-8000-0000000000a1",
+    state: "pending",
+    client: "Claude",
+    requested_by: { id: ME.id, name: ME.name },
+    created_at: "2026-03-14T09:00:00Z",
+    expires_at: "2026-03-21T09:00:00Z",
+    decided_by: null,
+    decided_at: null,
+    note: "",
+    runs: [{ id: RUN_ID, hrid: "RUN-000001" }],
+    can: { decide: true },
     ...overrides,
   };
 }

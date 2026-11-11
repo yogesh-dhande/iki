@@ -91,9 +91,14 @@ claude mcp add --transport http iki https://iki.example.com/mcp
 
 Its tools search and read entities with their provenance, history and
 lineage, and actions and runs with their logs. They also create, change,
-archive and restore entities, giving a reason for each change. Everything an
-agent does is recorded as done through MCP, through its app, for the person
-it acts for.
+archive and restore entities, giving a reason for each change, and start and
+cancel runs. Everything an agent does is recorded as done through MCP,
+through its app, for the person it acts for.
+
+An agent's runs on the container and VM tiers wait for the person to approve
+them on the run's page, where a notification takes them (ADR 0050). No token
+can approve them, so no agent can approve its own. Requests nobody decides
+expire after 7 days, when `maintain` runs.
 
 ### Database roles
 
