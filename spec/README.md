@@ -457,6 +457,23 @@ Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
 with references and files given as IDs.
 
+The command runs from its plugin's directory, and finds its files through
+the environment ([ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md)):
+
+| Variable                        | What it is                          |
+| ------------------------------- | ----------------------------------- |
+| `IKI_INPUT`                     | `input.json`                        |
+| `IKI_OUTPUT`                    | where to write `output.json`        |
+| `IKI_OUT_DIR`                   | a directory for files it makes      |
+| `TMPDIR`, `HOME`                | the job's own, removed when it ends |
+| `IKI_RUN_ID`, `IKI_RUN_ATTEMPT` | the run, and which attempt this is  |
+
+What it prints goes to the run's log. A line like
+`::progress 0.4 Folding chain A` reports progress (a fraction, or `40%`).
+It should exit 0 once it has written `output.json`; any other exit fails
+the attempt. On SIGTERM (a cancel, its timeout, or the machine stopping)
+it has 10 seconds to stop.
+
 The command writes `output.json`
 ([`run-output/v1`](src/iki_spec/schemas/run-output/v1.json)). It can only
 change what its action declares:

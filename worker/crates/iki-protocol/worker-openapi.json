@@ -776,7 +776,7 @@
     },
     "/worker/v1/jobs/{job_id}/logs": {
       "post": {
-        "description": "Chunks go in order. Sending one again (after a timeout, say) is harmless; skipping\nahead answers 409 ``log_gap`` with where the log continues.",
+        "description": "Chunks go in order. Sending one again (after a timeout, say) is harmless; skipping\nahead answers 409 ``log_gap`` with where the log continues, in ``next_offset``.",
         "operationId": "iki_server_api_worker_logs",
         "parameters": [
           {

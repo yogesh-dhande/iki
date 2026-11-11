@@ -49,7 +49,7 @@ jobs:
     name: Python ${{ matrix.python }}
     runs-on: ubuntu-24.04
     # A guard against hangs, with room for the suite to grow: it takes about 14 minutes
-    # on 3.14, which also runs the browser tests.
+    # on 3.14, which also runs the browser and worker end-to-end tests.
     timeout-minutes: 30
     permissions:
       contents: read
@@ -59,11 +59,13 @@ jobs:
         # 3.12 is the oldest supported version; 3.14 is what servers run.
         # The browser tests don't depend on Python's version: they run once,
         # on the version servers run.
+        # So do the iki-worker end-to-end tests, which need Rust to build it.
         include:
           - python: "3.12"
-            markers: not built_web_app
+            markers: not built_web_app and not worker_e2e
           - python: "3.14"
             browsers: true
+            rust: true
             markers: ""
     services:
       postgres:
@@ -111,6 +113,18 @@ jobs:
         # A stuck package mirror fails in minutes, not at the job's limit.
         timeout-minutes: 10
         run: uv run --no-sync playwright install --with-deps chromium firefox webkit
+      - name: Install the pinned Rust toolchain (for the worker end-to-end tests)
+        if: matrix.rust
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: matrix.rust
+        with:
+          workspaces: worker
+      - name: Build iki-worker
+        if: matrix.rust
+        working-directory: worker
+        run: cargo build --locked -p iki-worker
       - name: Ruff lint
         run: uv run --no-sync ruff check --output-format=github
       - name: Ruff format

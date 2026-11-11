@@ -61,12 +61,15 @@ class Problem(Exception):  # noqa: N818 - it is the problem, not an error about 
         code: str | None = None,
         errors: list[dict[str, Any]] | None = None,
         headers: dict[str, str] | None = None,
+        extensions: dict[str, Any] | None = None,
     ) -> None:
         self.status = status
         self.code = code or DEFAULT_CODES.get(status, "error")
         self.detail = detail or DEFAULT_DETAILS.get(status, HTTPStatus(status).phrase)
         self.errors = errors
         self.headers = headers or {}
+        #: More members for the body (RFC 9457 extensions), for clients to act on.
+        self.extensions = extensions or {}
         super().__init__(self.detail)
 
 
@@ -80,6 +83,7 @@ def body(problem: Problem) -> dict[str, Any]:
     }
     if problem.errors:
         content["errors"] = problem.errors
+    content.update({k: v for k, v in problem.extensions.items() if k not in content})
     request_id = structlog.contextvars.get_contextvars().get("request_id")
     if request_id:
         content["request_id"] = str(request_id)

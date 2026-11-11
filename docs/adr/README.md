@@ -75,3 +75,4 @@ supersedes the old one, and update the old one's status.
 | [0043](0043-workers-lease-jobs.md)                               | Workers pull jobs over HTTPS, with fenced leases                                                | Accepted |
 | [0044](0044-run-results-are-written-all-or-nothing.md)           | A run's results are checked, then written all or nothing                                        | Accepted |
 | [0045](0045-run-quotas.md)                                       | Compute admins set run quotas per organization, team or project                                 | Accepted |
+| [0046](0046-how-iki-worker-runs-a-command.md)                    | How iki-worker runs a command                                                                   | Accepted |

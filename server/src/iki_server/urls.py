@@ -22,8 +22,10 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # Before the API's own routes: an async streaming view, outside django-ninja.
     path("api/v1/events", realtime.events, name="events"),
     path("api/v1/", api_v1.urls),
-    # Workers' (ADR 0043). Leasing waits for a job, so it's an async view outside django-ninja.
+    # Workers' (ADR 0043). Leasing waits for a job, and watching one waits for it to be
+    # cancelled, so they're async views outside django-ninja.
     path("worker/v1/lease", worker.lease, name="worker_lease"),
+    path("worker/v1/jobs/<uuid:job_id>/watch", worker.watch, name="worker_watch"),
     path("worker/v1/", worker.api.urls),
     path("", include("iki_server.oauth.urls")),
     path("", include("iki_server.oauth.page_urls")),

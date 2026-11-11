@@ -107,6 +107,18 @@ def notify(tier: str) -> None:
     transaction.on_commit(send)
 
 
+def watch_key(job_id: uuid.UUID) -> str:
+    """What a worker watching a job waits on (``POST …/jobs/{id}/watch``). Tiers are plain
+    names, so the two never meet."""
+    return f"job:{job_id}"
+
+
+def notify_job(job_id: uuid.UUID) -> None:
+    """Wakes the worker watching `job_id`, once the transaction commits: its run was
+    cancelled."""
+    notify(watch_key(job_id))
+
+
 # --- Leasing -----------------------------------------------------------------------------------
 
 
@@ -219,14 +231,24 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
 # --- Reports from the worker -------------------------------------------------------------------
 
 
-def held(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> Job:
-    """The job, locked, if this worker holds its current lease."""
-    job = Job.objects.select_for_update().filter(pk=job_id, worker=worker).first()
+def _holds(job: Job | None, token: uuid.UUID) -> Job:
     if job is None or job.state not in HELD or job.lease_token != token:
         raise Stale
     if job.lease_expires_at is None or job.lease_expires_at <= timezone.now():
         raise Stale
     return job
+
+
+def held(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> Job:
+    """The job, locked, if this worker holds its current lease."""
+    return _holds(Job.objects.select_for_update().filter(pk=job_id, worker=worker).first(), token)
+
+
+def cancel_requested(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> bool:
+    """Whether the job's run was cancelled, if this worker holds its lease. Reads only:
+    it doesn't renew the lease, as heartbeats do."""
+    job = _holds(Job.objects.filter(pk=job_id, worker=worker).first(), token)
+    return ActionRun.objects.filter(pk=job.run_id, cancel_requested_at__isnull=False).exists()
 
 
 def heartbeat(

@@ -268,4 +268,6 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             audit.record(
                 "run.cancel_requested", actor=user, target=run, project=run.project, data=data
             )
+            # Its worker is watching for this: the command stops within a second.
+            queue.notify_job(job.pk)
     return run

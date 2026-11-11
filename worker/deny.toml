@@ -2,6 +2,14 @@
 
 [graph]
 all-features = true
+# The platforms iki-worker is built for. Dependencies only other targets use (such as
+# wasm32's bundled root certificates) aren't shipped, so they aren't judged.
+targets = [
+  "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin", "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc",
+]
 
 [advisories]
 # Fail on any RustSec advisory: vulnerabilities, unmaintained or yanked crates.

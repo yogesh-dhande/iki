@@ -145,3 +145,13 @@ license.ignore = true
 name = "mdn-data"
 ecosystem = "npm"
 license.ignore = true
+
+# webpki-root-certs (CDLA-Permissive-2.0, Mozilla's root certificates as data) is
+# locked only because rustls-platform-verifier uses it on wasm32, which iki-worker is
+# never built for. Nothing under this license ships: on every platform Iki builds for,
+# the worker trusts the operating system's certificates (worker/deny.toml's targets).
+
+[[PackageOverrides]]
+name = "webpki-root-certs"
+ecosystem = "crates.io"
+license.ignore = true

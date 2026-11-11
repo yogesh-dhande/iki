@@ -51,7 +51,10 @@ seconds renew it. Every lease has a new token, and every report names it.
 A report with a token that isn't current answers 409 `stale_lease`, so a
 worker that was cut off can't overwrite the attempt that replaced it.
 Heartbeats move the job through staging, running and uploading, never
-backwards. They also say when the run has been cancelled.
+backwards. They also say when the run has been cancelled, but a cancel
+shouldn't wait 20 seconds: while a job runs, its worker also holds
+`POST /worker/v1/jobs/{id}/watch`, which waits like the lease and answers
+the moment someone cancels the run, through the same `NOTIFY`.
 
 **When an attempt ends badly**, the run is retried as a new job if the
 action's `retries.on` lists the reason and attempts remain. Retries wait 10

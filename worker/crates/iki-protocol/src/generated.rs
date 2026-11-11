@@ -426,6 +426,8 @@ pub mod paths {
     pub const JOBS_UPLOADS_COMPLETE: &str = "/worker/v1/jobs/{job_id}/uploads/{upload_id}/complete";
     /// `/worker/v1/jobs/{job_id}/uploads/{upload_id}/parts`
     pub const JOBS_UPLOADS_PARTS: &str = "/worker/v1/jobs/{job_id}/uploads/{upload_id}/parts";
+    /// `/worker/v1/jobs/{job_id}/watch`
+    pub const JOBS_WATCH: &str = "/worker/v1/jobs/{job_id}/watch";
     /// `/worker/v1/lease`
     pub const LEASE: &str = "/worker/v1/lease";
     /// `/worker/v1/me`

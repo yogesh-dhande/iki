@@ -5,7 +5,10 @@ Not for people or the SDK: a worker registers with a registration token
 report on them. ``POST /worker/v1/lease`` waits up to 30 seconds for a job
 it can run, so idle workers make two requests a minute, not hundreds. Every
 report names the lease token it got with the job; one that isn't current
-answers 409 ``stale_lease``, and the worker should stop that job.
+answers 409 ``stale_lease``, and the worker should stop that job. While a job
+runs, ``POST /worker/v1/jobs/{id}/watch`` waits the same way for its run to
+be cancelled, so a cancel reaches the command at once, not at the next
+heartbeat.
 
 Its OpenAPI document is at ``/worker/v1/openapi.json``.
 """
@@ -267,7 +270,7 @@ class LogOut(Schema):
 @api.post("/jobs/{job_id}/logs", response=LogOut, summary="Send log output")
 def logs(request: HttpRequest, job_id: UUID, payload: LogIn) -> dict[str, int]:
     """Chunks go in order. Sending one again (after a timeout, say) is harmless; skipping
-    ahead answers 409 ``log_gap`` with where the log continues."""
+    ahead answers 409 ``log_gap`` with where the log continues, in ``next_offset``."""
     try:
         end = queue.append_log(
             _worker(request), job_id, payload.lease_token, payload.offset, payload.text
@@ -278,6 +281,7 @@ def logs(request: HttpRequest, job_id: UUID, payload: LogIn) -> dict[str, int]:
             str(gap),
             code="log_gap",
             errors=[{"pointer": "#/offset", "detail": f"Send from byte {gap.expected}."}],
+            extensions={"next_offset": gap.expected},
         ) from None
     return {"next_offset": end}
 
@@ -467,6 +471,59 @@ def _wait(request: HttpRequest) -> float:
 
 #: While waiting, how often to look again anyway (a retry's backoff ends without a notice).
 RECHECK = 10.0
+
+
+def _no_store(reply: HttpResponseBase) -> HttpResponseBase:
+    reply["Cache-Control"] = "no-store"
+    return reply
+
+
+def _lease_token(request: HttpRequest) -> UUID:
+    try:
+        body = json.loads(request.body or b"{}")
+    except ValueError:
+        raise Problem(400, "The request body isn’t valid JSON.", code="invalid_json") from None
+    try:
+        return UUID(str(body["lease_token"]))
+    except (KeyError, TypeError, ValueError):
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            errors=[{"pointer": "#/lease_token", "detail": "The job’s lease token."}],
+        ) from None
+
+
+@csrf_exempt
+async def watch(request: HttpRequest, job_id: UUID) -> HttpResponseBase:
+    """``POST /worker/v1/jobs/{id}/watch?wait=30`` with ``{"lease_token": …}``: answers
+    ``{"cancel_requested": true}`` the moment someone cancels the run, or ``false`` after
+    ``wait`` seconds, and the worker asks again. 409 ``stale_lease`` once the worker
+    doesn't hold the job. It doesn't renew the lease: heartbeats do that.
+    """
+    if request.method != "POST":
+        return response(Problem(405, headers={"Allow": "POST"}))
+    try:
+        wait = _wait(request)
+        worker = await db(_authenticate, request)
+        token = _lease_token(request)
+    except Problem as problem:
+        return response(problem)
+    waker = wakeup.waker()
+    loop_time = asyncio.get_running_loop().time
+    deadline = loop_time() + wait
+    while True:
+        try:
+            cancelled = await db(queue.cancel_requested, worker, job_id, token)
+        except queue.Stale as stale:
+            return _stale(request, stale)
+        left = deadline - loop_time()
+        if cancelled or left <= 0 or waker.closing.is_set():
+            return _no_store(
+                HttpResponse(
+                    json.dumps({"cancel_requested": cancelled}), content_type="application/json"
+                )
+            )
+        await waker.wait(queue.watch_key(job_id), min(left, RECHECK))
 
 
 @csrf_exempt

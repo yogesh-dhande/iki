@@ -1,4 +1,5 @@
-"""Wakes workers waiting in ``POST /worker/v1/lease`` when a job is queued on their tier.
+"""Wakes workers waiting in ``POST /worker/v1/lease`` when a job is queued on their tier,
+and in ``POST /worker/v1/jobs/{id}/watch`` when their job's run is cancelled.
 
 Like the realtime hub, each web process holds one dedicated LISTEN
 connection however many workers are waiting, and none while nobody is.
@@ -24,7 +25,8 @@ logger = structlog.get_logger("iki.runs")
 
 @dataclass(eq=False)
 class Waker:
-    #: tier → the event its waiters wait on; replaced each time it's set.
+    #: tier (or a job's watch key) → the event its waiters wait on; replaced each time
+    #: it's set.
     events: dict[str, asyncio.Event] = field(default_factory=dict)
     waiting: int = 0
     #: Set while LISTEN is active (tests wait for it).
@@ -33,7 +35,8 @@ class Waker:
     _listener: asyncio.Task[None] | None = None
 
     async def wait(self, tier: str, timeout: float) -> bool:
-        """Waits up to `timeout` seconds for a job on `tier`. True if one was queued."""
+        """Waits up to `timeout` seconds for a job on `tier` (or news of a job, for its
+        ``queue.watch_key``). True if it came."""
         if self._listener is None or self._listener.done():
             self._listener = asyncio.get_running_loop().create_task(self._listen())
         event = self.events.setdefault(tier, asyncio.Event())

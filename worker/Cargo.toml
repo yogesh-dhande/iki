@@ -15,6 +15,14 @@ homepage = "https://ikisci.org"
 iki-protocol = { path = "crates/iki-protocol", version = "=0.1.0-dev.0" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+# Signals sent to a whole process group, without unsafe code.
+rustix = { version = "1.1.6", features = ["process", "system"] }
+signal-hook = "0.4.6"
+# HTTPS with rustls (ring for its cryptography). Certificates are checked against the
+# OS's trust store only, so a corporate proxy's CA works once IT has installed it, as it
+# does for browsers, and no bundled root list goes stale.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+ureq = { version = "3.5.1", default-features = false, features = ["rustls-no-provider", "platform-verifier", "json"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

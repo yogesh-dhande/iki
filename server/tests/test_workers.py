@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import uuid
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
@@ -380,6 +381,7 @@ def test_logs_arrive_in_order(world: World, monkeypatch: pytest.MonkeyPatch) -> 
     assert pod.report(job, "logs", offset=0, text="héllo\n").json() == {"next_offset": 7}
     gap = problem(pod.report(job, "logs", offset=10, text="x"), 409, "log_gap")
     assert gap["errors"] == [{"pointer": "#/offset", "detail": "Send from byte 7."}]
+    assert gap["next_offset"] == 7
     monkeypatch.setattr(queue, "MAX_LOG_BYTES", 10)
     assert pod.report(job, "logs", offset=7, text="world\n").json() == {"next_offset": 13}
     assert pod.report(job, "logs", offset=13, text="more\x00").json() == {"next_offset": 18}
@@ -431,6 +433,48 @@ def test_a_cancelled_run_ends_cancelled(world: World) -> None:
     # Whatever the worker says next, the run was cancelled, and isn't retried.
     assert pod.report(job, "fail", reason="interrupted").json() == {"run_status": "cancelled"}
     assert Job.objects.filter(run_id=run["id"]).count() == 1
+
+
+def test_watching_a_job_answers_once_its_run_is_cancelled(
+    world: World, django_capture_on_commit_callbacks: Any
+) -> None:
+    pod = worker(world)
+    run = queued(world)
+    job = pod.lease().json()
+    path = f"/jobs/{job['job']['id']}/watch?wait=0"
+    token = {"lease_token": job["job"]["lease_token"]}
+    quiet = pod.post(path, token)
+    assert quiet.status_code == 200, quiet.content
+    assert quiet.json() == {"cancel_requested": False}
+    assert quiet["Cache-Control"] == "no-store"
+    with django_capture_on_commit_callbacks() as callbacks:
+        api_as(world).post(f"/runs/{run['id']}/cancel", {})
+    assert callbacks, "cancelling should NOTIFY the worker watching the job"
+    assert pod.post(path, token).json() == {"cancel_requested": True}
+    # Only the worker holding the lease may watch, and only while it does.
+    problem(pod.post(path, {"lease_token": str(uuid.uuid4())}), 409, "stale_lease")
+    problem(worker(world, name="pod-2").post(path, token), 409, "stale_lease")
+    problem(pod.post(path, {}), 422, "validation_failed")
+    assert pod.call("GET", path).status_code == 405
+    problem(WorkerClient("iki_wkr_wrong").post(path, token), 401, "not_authenticated")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_watch_is_woken_when_its_job_is_cancelled() -> None:
+    wakes = waker()
+    job_id = uuid.uuid4()
+    watching = asyncio.ensure_future(wakes.wait(queue.watch_key(job_id), 5))
+    other = asyncio.ensure_future(wakes.wait(queue.watch_key(uuid.uuid4()), 0.5))
+    await asyncio.wait_for(wakes.listening.wait(), 5)
+
+    def send() -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_notify(%s, %s)", [queue.CHANNEL, queue.watch_key(job_id)])
+
+    await sync_to_async(send)()
+    assert await asyncio.wait_for(watching, 5) is True
+    assert await other is False
+    await wakes.close()
 
 
 # --- Recovery ----------------------------------------------------------------------------------
