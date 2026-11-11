@@ -9,14 +9,19 @@ The policy is set in [ADR 0017](adr/0017-supply-chain-security.md).
 | Artifact                    | Where                                            | Built by      |
 | --------------------------- | ------------------------------------------------ | ------------- |
 | Server image (amd64, arm64) | `ghcr.io/<owner>/iki-server`                     | `publish.yml` |
+| Worker image (amd64, arm64) | `ghcr.io/<owner>/iki-worker`                     | `publish.yml` |
 | Helm chart                  | `oci://ghcr.io/<owner>/charts/iki`               | `release.yml` |
 | `iki-worker` binaries       | GitHub release assets (Linux musl static, macOS) | `release.yml` |
 
 `<owner>` is the GitHub account that hosts the repository (currently
 `yogesh-dhande`, later the `ikisci` organization).
 
-The `main` branch publishes the image as `:main` and `:sha-<commit>`. A
-version tag `vX.Y.Z` publishes the image as `:X.Y.Z` and `:X.Y`, the chart
+The worker image holds the worker and micromamba but no plugins; each
+deployment builds its own worker image on top of it with its plugins' code and
+environments (`deploy/worker.Dockerfile`).
+
+The `main` branch publishes each image as `:main` and `:sha-<commit>`. A
+version tag `vX.Y.Z` publishes the images as `:X.Y.Z` and `:X.Y`, the chart
 `X.Y.Z`, and a GitHub release.
 
 Every artifact comes with:
@@ -40,8 +45,9 @@ before it finishes.
 You need [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
 3.x and the [GitHub CLI](https://cli.github.com/).
 
-### Server image
+### Server and worker images
 
+The worker image verifies the same way: set `IMAGE=ghcr.io/$OWNER/iki-worker`.
 Always deploy images by digest. Resolve a tag once, verify it, then pin the
 digest in your Helm values (`image.digest`).
 

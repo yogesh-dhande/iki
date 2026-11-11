@@ -138,6 +138,7 @@ def write(
                 "prefix": prefix,
             }
             script.append(f"echo {shlex.quote(f'Building {name}.{env_name}')}")
+            script.append(f"mkdir -p {shlex.quote(f'{env_root}/{name}')}")
             script.extend(_build_lines(item, env, prefix))
         listed.append(
             {

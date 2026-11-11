@@ -29,5 +29,11 @@ web/**/dist/
 server/src/iki_server/web/static/app/
 server/tests/
 spec/tests/
+# The worker, built by worker/Dockerfile, without its build output.
+!worker/Cargo.toml
+!worker/Cargo.lock
+!worker/rust-toolchain.toml
+!worker/crates/
+worker/target/
 **/__pycache__/
 **/*.pyc

@@ -489,7 +489,7 @@ fn command_line(plan: &Plan) -> Result<(PathBuf, Vec<String>), String> {
                 "run".to_owned(),
                 "--prefix".to_owned(),
                 built.prefix.to_string_lossy().into_owned(),
-                "--".to_owned(),
+                // micromamba 2 takes no `--`: options after the program are the program's.
                 program.to_string_lossy().into_owned(),
             ];
             wrapped.extend(args.iter().cloned());
@@ -1048,7 +1048,6 @@ mod tests {
                 "run",
                 "--prefix",
                 "/opt/iki/envs/dna/tools",
-                "--",
                 "python",
                 "gc.py"
             ]

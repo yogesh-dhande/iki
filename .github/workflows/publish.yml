@@ -1,7 +1,7 @@
 name: Publish images
 
-# Builds the server image for amd64 and arm64 on native runners, scans each
-# platform image, then publishes a multi-arch image that is:
+# Builds the server and worker images for amd64 and arm64 on native runners,
+# scans each platform image, then publishes each as a multi-arch image that is:
 #   - signed with cosign (keyless: the signature is bound to this workflow's
 #     GitHub OIDC identity, so there is no signing key to leak);
 #   - attested with SLSA build provenance and a CycloneDX SBOM per platform
@@ -24,25 +24,28 @@ concurrency:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build ${{ matrix.image }} ${{ matrix.platform }}
     strategy:
       fail-fast: true
       matrix:
+        image: [iki-server, iki-worker]
+        arch: [amd64, arm64]
         include:
-          - platform: linux/amd64
+          - arch: amd64
+            platform: linux/amd64
             runner: ubuntu-24.04
-            arch: amd64
-          - platform: linux/arm64
+          - arch: arm64
+            platform: linux/arm64
             runner: ubuntu-24.04-arm
-            arch: arm64
+          - image: iki-server
+            file: server/Dockerfile
+          - image: iki-worker
+            file: worker/Dockerfile
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write # push the platform image by digest
-    outputs:
-      digest-amd64: ${{ steps.out.outputs.digest-amd64 }}
-      digest-arm64: ${{ steps.out.outputs.digest-arm64 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,7 +54,8 @@ jobs:
         id: name
         env:
           OWNER: ${{ github.repository_owner }}
-        run: echo "image=ghcr.io/${OWNER,,}/iki-server" >> "$GITHUB_OUTPUT"
+          IMAGE: ${{ matrix.image }}
+        run: echo "image=ghcr.io/${OWNER,,}/$IMAGE" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -63,7 +67,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: server/Dockerfile
+          file: ${{ matrix.file }}
           platforms: ${{ matrix.platform }}
           # Untagged until the scan below passes and the merge job tags it.
           outputs: type=image,name=${{ steps.name.outputs.image }},push-by-digest=true,name-canonical=true,push=true
@@ -84,21 +88,27 @@ jobs:
           REF: ${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}
           ARCH: ${{ matrix.arch }}
         run: syft "registry:$REF" -o "cyclonedx-json=sbom-$ARCH.cdx.json"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: sbom-${{ matrix.arch }}
-          path: sbom-${{ matrix.arch }}.cdx.json
-          retention-days: 7
       - name: Export digest
-        id: out
         env:
           ARCH: ${{ matrix.arch }}
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: echo "digest-$ARCH=$DIGEST" >> "$GITHUB_OUTPUT"
+        run: printf '%s' "$DIGEST" > "digest-$ARCH"
+      # Matrix jobs can't each set an output, so the publish job reads these.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: built-${{ matrix.image }}-${{ matrix.arch }}
+          path: |
+            sbom-${{ matrix.arch }}.cdx.json
+            digest-${{ matrix.arch }}
+          retention-days: 7
 
   publish:
-    name: Tag, sign, attest and verify
+    name: Tag, sign, attest and verify ${{ matrix.image }}
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [iki-server, iki-worker]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -114,7 +124,17 @@ jobs:
         id: name
         env:
           OWNER: ${{ github.repository_owner }}
-        run: echo "image=ghcr.io/${OWNER,,}/iki-server" >> "$GITHUB_OUTPUT"
+          IMAGE: ${{ matrix.image }}
+        run: echo "image=ghcr.io/${OWNER,,}/$IMAGE" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-${{ matrix.image }}-*
+          merge-multiple: true
+      - name: Digests
+        id: built
+        run: |
+          echo "amd64=$(cat digest-amd64)" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(cat digest-arm64)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -135,8 +155,8 @@ jobs:
         id: index
         env:
           IMAGE: ${{ steps.name.outputs.image }}
-          AMD64: ${{ needs.build.outputs.digest-amd64 }}
-          ARM64: ${{ needs.build.outputs.digest-arm64 }}
+          AMD64: ${{ steps.built.outputs.amd64 }}
+          ARM64: ${{ steps.built.outputs.arm64 }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           args=()
@@ -157,22 +177,18 @@ jobs:
           subject-name: ${{ steps.name.outputs.image }}
           subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: sbom-*
-          merge-multiple: true
       - name: Attest SBOM (amd64)
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ steps.name.outputs.image }}
-          subject-digest: ${{ needs.build.outputs.digest-amd64 }}
+          subject-digest: ${{ steps.built.outputs.amd64 }}
           sbom-path: sbom-amd64.cdx.json
           push-to-registry: true
       - name: Attest SBOM (arm64)
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ steps.name.outputs.image }}
-          subject-digest: ${{ needs.build.outputs.digest-arm64 }}
+          subject-digest: ${{ steps.built.outputs.arm64 }}
           sbom-path: sbom-arm64.cdx.json
           push-to-registry: true
       - name: Verify signature and attestations
@@ -180,7 +196,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.name.outputs.image }}
           DIGEST: ${{ steps.index.outputs.digest }}
-          AMD64: ${{ needs.build.outputs.digest-amd64 }}
+          AMD64: ${{ steps.built.outputs.amd64 }}
           IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
           REPO: ${{ github.repository }}
         run: |

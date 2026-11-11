@@ -47,6 +47,26 @@ script that builds its environments into the image. Without
 plugin: it runs what a development server launches, with the host's own
 software.
 
+### In a container
+
+`ghcr.io/<owner>/iki-worker` ([`Dockerfile`](Dockerfile)) is the worker
+with micromamba and no plugins, running as uid 10001. A deployment builds
+its own image on top of it from the `--workers` output
+([`deploy/worker.Dockerfile`](../deploy/worker.Dockerfile)), so its
+plugins' code and environments are baked in, read-only, and a worker
+installs nothing when it starts:
+
+```sh
+iki deploy build deployments/prod --output build/plugins --workers build/worker
+docker build -f deploy/worker.Dockerfile \
+  --build-arg IKI_WORKER_IMAGE=ghcr.io/<owner>/iki-worker@sha256:… build/worker
+```
+
+`scripts/ci/worker-image.sh` builds both from the test plugins and checks
+the result.
+
+### Stopping
+
 `iki-worker start --once` runs one job and exits. SIGTERM or SIGINT stops
 the current job's command (SIGTERM, then SIGKILL after 10 seconds), reports
 it `interrupted` so it can be retried elsewhere, and exits. Give pods a
