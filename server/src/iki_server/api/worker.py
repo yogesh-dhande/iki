@@ -24,8 +24,12 @@ from ninja.security import HttpBearer
 
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import ANONYMOUS_LIMIT, _limit
+from iki_server.files import services as files
+from iki_server.files import storage
+from iki_server.files.models import Upload, UploadState
+from iki_server.org.services import Refused
 from iki_server.realtime.views import db
-from iki_server.runs import queue, wakeup, workers
+from iki_server.runs import queue, uploads, wakeup, workers
 from iki_server.runs.models import RegistrationToken, Worker
 from iki_server.web.ratelimit import RateLimiter, client_key
 
@@ -92,6 +96,24 @@ def _http_error(request: HttpRequest, exc: HttpError) -> HttpResponse:
     if exc.status_code == 400:
         return response(Problem(400, "The request body isn’t valid JSON.", code="invalid_json"))
     return response(Problem(exc.status_code, str(exc) or None))
+
+
+@api.exception_handler(Refused)
+def _refused(request: HttpRequest, exc: Refused) -> HttpResponse:
+    if exc.field is not None:
+        return response(
+            Problem(
+                422,
+                "Some fields are invalid.",
+                errors=[{"pointer": f"#/{exc.field}", "detail": str(exc)}],
+            )
+        )
+    return response(Problem(409, str(exc), code="refused"))
+
+
+@api.exception_handler(LookupError)
+def _missing(request: HttpRequest, exc: LookupError) -> HttpResponse:
+    return response(Problem(404, str(exc)))
 
 
 @api.exception_handler(queue.Stale)
@@ -312,6 +334,99 @@ def complete(request: HttpRequest, job_id: UUID, payload: CompleteIn) -> dict[st
         "message": error.get("message"),
         "errors": error.get("errors", []),
     }
+
+
+# --- Uploading result files --------------------------------------------------------------------
+
+
+class UploadIn(LeaseIn):
+    name: str = Field(max_length=1000, description="Its file name, such as model_1.pdb.")
+    media_type: str = Field(max_length=255, description="Such as chemical/x-pdb.")
+    size: int = Field(ge=0, description="Bytes.")
+    sha256: str = Field(min_length=64, max_length=64, description="Of its bytes, as hex.")
+
+
+class PartsIn(LeaseIn):
+    numbers: list[int] | None = Field(
+        None, max_length=1000, description="The parts to sign again; all of them if left out."
+    )
+
+
+class PartOut(Schema):
+    number: int
+    size: int = Field(description="Bytes this part must hold.")
+    url: str = Field(description="PUT the part's bytes here. It works for an hour.")
+
+
+class UploadOut(Schema):
+    id: UUID
+    state: Literal["pending", "checking", "ready", "failed", "cancelled", "expired"]
+    file: UUID | None = Field(
+        alias="file_id", description="Once ready: the file's ID, for output.json."
+    )
+    error: str = Field(description="Why it failed.")
+
+
+class StartedOut(UploadOut):
+    parts: list[PartOut]
+
+
+def _storage() -> None:
+    if not storage.configured():
+        raise Problem(503, str(storage.NotConfigured()), code="storage_not_configured")
+
+
+@api.post("/jobs/{job_id}/uploads", response={201: StartedOut}, summary="Upload a result file")
+def start_upload(request: HttpRequest, job_id: UUID, payload: UploadIn) -> Any:  # noqa: ANN401
+    """Answers with the parts to PUT. Then finish it, and finish it again until it's `ready`
+    (Iki checks the bytes), and attach its file to entities in output.json."""
+    _storage()
+    upload = uploads.start(
+        _worker(request),
+        job_id,
+        payload.lease_token,
+        name=payload.name,
+        media_type=payload.media_type,
+        size=payload.size,
+        sha256=payload.sha256,
+    )
+    parts = files.parts(upload) if upload.state == UploadState.PENDING else []
+    return Status(201, {**_upload_out(upload), "parts": parts})
+
+
+def _upload_out(upload: Upload) -> dict[str, Any]:
+    return {
+        "id": upload.pk,
+        "state": upload.state,
+        "file_id": upload.file_id,
+        "error": upload.error,
+    }
+
+
+@api.post(
+    "/jobs/{job_id}/uploads/{upload_id}/parts",
+    response=list[PartOut],
+    summary="Sign a result file's parts again",
+)
+def sign_parts(
+    request: HttpRequest, job_id: UUID, upload_id: UUID, payload: PartsIn
+) -> list[dict[str, Any]]:
+    _storage()
+    return uploads.parts(_worker(request), job_id, payload.lease_token, upload_id, payload.numbers)
+
+
+@api.post(
+    "/jobs/{job_id}/uploads/{upload_id}/complete",
+    response=UploadOut,
+    summary="Finish a result file",
+)
+def complete_upload(
+    request: HttpRequest, job_id: UUID, upload_id: UUID, payload: LeaseIn
+) -> dict[str, Any]:
+    """Once every part is in. Ask again until it's `ready` (or `failed`): finishing it again
+    changes nothing."""
+    _storage()
+    return _upload_out(uploads.complete(_worker(request), job_id, payload.lease_token, upload_id))
 
 
 # --- Leasing (an async view, outside django-ninja) ---------------------------------------------

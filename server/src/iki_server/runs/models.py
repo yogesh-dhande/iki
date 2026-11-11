@@ -23,6 +23,7 @@ from django.db.models.functions import Now
 
 from iki_server.core.ids import uuid7
 from iki_server.entities.models import Entity
+from iki_server.files.models import Upload
 from iki_server.org.models import Project
 
 TIERS = ("client", "backend", "container", "vm")
@@ -432,3 +433,22 @@ class Lineage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.parent_id} -> {self.entity_id} ({self.run_id})"
+
+
+class RunUpload(models.Model):
+    """A file a run's worker uploaded, for its results (ADR 0044). A run's output may attach
+    only these, and files its inputs already had."""
+
+    upload = models.OneToOneField(
+        Upload, primary_key=True, on_delete=models.PROTECT, related_name="run_upload"
+    )
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="uploads")
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_run_upload"
+        db_table_comment = "Files each run's worker uploaded for its results."
+
+    def __str__(self) -> str:
+        return f"{self.run_id} {self.upload_id}"

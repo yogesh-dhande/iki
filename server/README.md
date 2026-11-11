@@ -251,7 +251,11 @@ Nothing connects to a worker. A Compute admin manages them under
    that isn't renewed within 60 seconds is ended, and the job retried.
 4. It sends `progress`, and `logs` in ordered chunks with byte offsets; each
    job keeps up to 16 MiB of log.
-5. `fail` ends an attempt with no results. Attempts lost to `worker_lost` or
+5. `POST /jobs/{id}/uploads` starts uploading a result file, for the run's
+   launcher in the run's project. The worker PUTs its parts, then calls
+   `complete` until the upload is `ready`, and cites its file ID in
+   `output.json`.
+6. `fail` ends an attempt with no results. Attempts lost to `worker_lost` or
    `interrupted` are retried by default; failures in the command itself are
    not.
 

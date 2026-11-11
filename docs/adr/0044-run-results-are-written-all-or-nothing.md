@@ -63,5 +63,8 @@ rejected run's work isn't lost.
   compromised worker.
 - Entity values that changed after the run read its inputs are still
   written over. Provenance shows which input revisions the run read.
-- Files in results arrive with the worker's file uploads (next).
-  References in results point at entities the launcher can read.
+- Result files are uploaded by the worker before it completes, as ordinary
+  checked uploads for the launcher. A run may attach only its own uploads
+  and files its inputs already had. Attaching any file the launcher can
+  read would let a worker share it into the run's project.
+- References in results point at entities the launcher can read.

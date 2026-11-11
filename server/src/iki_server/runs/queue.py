@@ -49,6 +49,7 @@ __all__ = [
     "complete",
     "fail",
     "heartbeat",
+    "held",
     "interrupt_worker",
     "lease",
     "notify",
@@ -210,7 +211,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
 # --- Reports from the worker -------------------------------------------------------------------
 
 
-def _held(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> Job:
+def held(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> Job:
     """The job, locked, if this worker holds its current lease."""
     job = Job.objects.select_for_update().filter(pk=job_id, worker=worker).first()
     if job is None or job.state not in HELD or job.lease_token != token:
@@ -226,7 +227,7 @@ def heartbeat(
     """Renews the lease, and moves the job on to `state`. Returns the new expiry, and whether
     the run's been cancelled (the worker should stop its command and report ``cancelled``)."""
     with transaction.atomic():
-        job = _held(worker, job_id, token)
+        job = held(worker, job_id, token)
         fields = ["lease_expires_at"]
         if state is not None and state != job.state:
             if state not in PHASES or PHASES.index(JobState(state)) < PHASES.index(
@@ -247,7 +248,7 @@ def progress(
     worker: Worker, job_id: uuid.UUID, token: uuid.UUID, fraction: float, message: str
 ) -> None:
     with transaction.atomic():
-        job = _held(worker, job_id, token)
+        job = held(worker, job_id, token)
         job.progress = max(0.0, min(1.0, fraction))
         job.progress_message = message[:500]
         job.save(update_fields=["progress", "progress_message"])
@@ -261,7 +262,7 @@ def append_log(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, offset: int,
     """
     size = len(text.encode())
     with transaction.atomic():
-        job = _held(worker, job_id, token)
+        job = held(worker, job_id, token)
         end = job.log_size
         if offset < end and offset + size <= end:
             return end  # already received: the worker retried
@@ -287,7 +288,7 @@ def fail(
     """The attempt ended without results: ``failed`` (the command's own error),
     ``timed_out``, ``interrupted`` (the machine was stopped) or ``cancelled``."""
     with transaction.atomic():
-        job = _held(worker, job_id, token)
+        job = held(worker, job_id, token)
         state = {
             "failed": JobState.FAILED,
             "timed_out": JobState.TIMED_OUT,
@@ -311,7 +312,7 @@ def complete(
     from iki_server.runs import results
 
     with transaction.atomic():
-        job = _held(worker, job_id, token)
+        job = held(worker, job_id, token)
         run = (
             ActionRun.objects.select_for_update()
             .select_related("project__team", "requested_by")
@@ -442,7 +443,8 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
             environment=job.environment,
             resources=job.resources,
             owner_id=job.owner_id,
-            queued_at=now + RETRY_BACKOFF * job.attempt,
+            # The database's clock, as leasing compares with: app servers' clocks may drift.
+            queued_at=Now() + RETRY_BACKOFF * job.attempt,
         )
         run.status = RunStatus.QUEUED
         run.save(update_fields=["status"])

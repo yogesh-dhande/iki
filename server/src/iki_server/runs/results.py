@@ -27,16 +27,23 @@ from uuid import UUID
 
 from django.db import transaction
 
-from iki_server.entities import access
+from iki_server.entities import access, registry
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
-from iki_server.entities.values import Invalid
+from iki_server.entities.values import Invalid, shape
 from iki_server.org import permissions
 from iki_server.org.services import Refused
-from iki_server.runs.models import ActionRun, EffectKind, Lineage, RunEffect, RunInput
+from iki_server.runs.models import (
+    ActionRun,
+    EffectKind,
+    Lineage,
+    RunEffect,
+    RunInput,
+    RunUpload,
+)
 from iki_server.runs.services import TIER_PERMISSIONS, is_a
 from iki_spec import schemas
-from iki_spec.model import Action, Creates, action_from_dict
+from iki_spec.model import Action, Creates, Field, action_from_dict
 
 __all__ = ["InvalidOutput", "Rejected", "commit"]
 
@@ -72,9 +79,65 @@ class _Check:
     #: input name → entity ID → the revision the run read
     inputs: dict[str, dict[UUID, int]]
     errors: list[dict[str, str]] = field(default_factory=list)
+    _files: set[UUID] | None = None
+    _inputs_read: bool = False
 
     def error(self, pointer: str, detail: str) -> None:
         self.errors.append({"pointer": pointer, "detail": detail})
+
+    def may_attach(self, file_id: UUID) -> bool:
+        """Results may attach the run's own uploads, and files its inputs already had: not
+        any file the launcher can read, which would share it into the run's project."""
+        if self._files is None:
+            self._files = set(
+                RunUpload.objects.filter(run=self.run, upload__file__isnull=False).values_list(
+                    "upload__file_id", flat=True
+                )
+            )
+        if file_id in self._files or self._inputs_read:
+            return file_id in self._files
+        self._inputs_read = True
+        read = {e: r for given in self.inputs.values() for e, r in given.items()}
+        for entity in Entity.objects.filter(pk__in=read):
+            fields = shape(entity.type).fields()
+            for name, value in entities.values_at(entity, read[entity.pk]).items():
+                if name in fields:
+                    self._files |= _file_ids(fields[name], value)
+        return file_id in self._files
+
+
+def _file_ids(f: Field, value: Any) -> set[UUID]:  # noqa: ANN401 - a field's value
+    """The file IDs in a value of field `f`; unreadable ones are left for its own check."""
+    if value is None:
+        return set()
+    if f.type == "list" and f.items is not None and f.items.type == "file":
+        items = value if isinstance(value, list) else []
+    elif f.type == "file":
+        items = [value]
+    else:
+        return set()
+    out: set[UUID] = set()
+    for item in items:
+        try:
+            out.add(item if isinstance(item, UUID) else UUID(str(item)))
+        except ValueError:
+            continue
+    return out
+
+
+def _check_files(check: _Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
+    if type_name not in registry.types():
+        return  # reported when it's written
+    fields = shape(type_name).fields()
+    for name, value in values.items():
+        f = fields.get(name)
+        if f is None:
+            continue
+        if any(not check.may_attach(file_id) for file_id in _file_ids(f, value)):
+            check.error(
+                f"{at}/values/{name}",
+                "Attach only files this run uploaded (once they're ready) or its inputs' files.",
+            )
 
 
 def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
@@ -149,6 +212,8 @@ def _updates(check: _Check, given: Mapping[str, Any]) -> list[_Update]:
                         _pointer(*at, "values", field_name),
                         f"The action doesn't declare that it sets `{field_name}`.",
                     )
+            entity_type = Entity.objects.values_list("type", flat=True).get(pk=entity)
+            _check_files(check, _pointer(*at), entity_type, item["values"])
             out.append(_Update(_pointer(*at), entity, item["values"]))
     return out
 
@@ -184,6 +249,7 @@ def _creates(check: _Check, given: list[Mapping[str, Any]]) -> list[_Create]:
         if effect.cardinality == "one" and counts[number] > 1:
             check.error(_pointer(*at), f"The action creates at most one {effect.type} per run.")
             continue
+        _check_files(check, _pointer(*at), item["type"], item["values"])
         parents = _parents(check, effect, item.get("derived_from"), at)
         if parents is not None:
             out.append(_Create(_pointer(*at), item["type"], item["values"], parents))

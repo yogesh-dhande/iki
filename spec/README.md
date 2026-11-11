@@ -483,7 +483,8 @@ change what its action declares:
 `updates` are keyed by input name and may set only the declared fields of
 entities given there. `creates` may make only the declared types. Leave out
 `derived_from` when the inputs the type is derived from hold one entity.
-Iki writes all of it in one transaction, or none.
+File fields take files the worker uploaded for this run, or files the
+inputs already had. Iki writes all of it in one transaction, or none.
 
 ## YAML
 

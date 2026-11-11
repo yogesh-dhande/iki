@@ -1,20 +1,24 @@
 """A run's results: checked against what its action declared, then written all or nothing,
 with provenance and lineage (ADR 0044)."""
 
+import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
+import requests
 from api_client import problem
 from org_world import World, build_world
 from test_api_entities import api_as
+from test_files import run_tasks
 from test_runs import TEMPLATE, _capacity, protein
 from test_workers import WorkerClient, keep_connection, queued, registration, worker
 
 from iki_server.entities.models import Entity, Revision
 from iki_server.files import services as files
+from iki_server.files.models import UploadState
 from iki_server.files.services import EMPTY_SHA256
 from iki_server.org.models import ProjectMembership
 from iki_server.runs import catalog, queue
@@ -267,24 +271,38 @@ def _predicting(world: World) -> tuple[WorkerClient, dict[str, Any], dict[str, A
     return gpu, made.json(), job
 
 
-def _structure_file(world: World) -> str:
-    upload = files.start(
-        world.users["runner"],
-        world.project,
+def _upload(gpu: WorkerClient, job: dict[str, Any], data: bytes = b"") -> dict[str, Any]:
+    """Uploads a result file as iki-worker does: start, PUT the parts, finish."""
+    started = gpu.report(
+        job,
+        "uploads",
         name="model_1.pdb",
         media_type="chemical/x-pdb",
-        size=0,
-        sha256=EMPTY_SHA256,
+        size=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
     )
-    upload.refresh_from_db()
-    return str(upload.file_id)
+    assert started.status_code == 201, started.content
+    upload: dict[str, Any] = started.json()
+    for part in upload["parts"]:
+        requests.put(part["url"], data=data, timeout=30).raise_for_status()
+    if upload["parts"]:
+        upload = gpu.report(job, f"uploads/{upload['id']}/complete").json()
+    return upload
 
 
-def _structure(world: World, run: dict[str, Any], **extra: Any) -> dict[str, Any]:
+def _structure_file(gpu: WorkerClient, job: dict[str, Any]) -> str:
+    upload = _upload(gpu, job)
+    assert upload["state"] == "ready"
+    return str(upload["file"])
+
+
+def _structure(
+    gpu: WorkerClient, job: dict[str, Any], run: dict[str, Any], **extra: Any
+) -> dict[str, Any]:
     return {
         "type": "protein.ProteinStructure",
         "values": {
-            "structure": _structure_file(world),
+            "structure": _structure_file(gpu, job),
             "method": "predicted",
             "chains": [run["inputs"][0]["entity"]],
         },
@@ -300,8 +318,8 @@ def test_new_entities_record_what_they_were_made_from(world: World, s3: Any) -> 
         job,
         output(
             creates=[
-                _structure(world, run),  # derived from the one input, as declared
-                _structure(world, run, derived_from=[parent]),
+                _structure(gpu, job, run),  # derived from the one input, as declared
+                _structure(gpu, job, run, derived_from=[parent]),
             ]
         ),
     )
@@ -346,7 +364,7 @@ def test_new_entities_must_say_where_they_came_from(world: World, s3: Any) -> No
         job,
         output(
             creates=[
-                _structure(world, run, derived_from=[stranger["id"]]),
+                _structure(gpu, job, run, derived_from=[stranger["id"]]),
                 {"type": "protein.Protein", "values": {"sequence": "MKVW"}},
             ]
         ),
@@ -367,7 +385,8 @@ def test_one_means_at_most_one(world: World, s3: Any) -> None:
     stored = ActionRun.objects.get(pk=run["id"])
     stored.spec["creates"][0]["cardinality"] = "one"
     ActionRun.objects.filter(pk=stored.pk).update(spec=stored.spec)
-    errors = _failed(gpu, job, output(creates=[_structure(world, run), _structure(world, run)]))
+    two = [_structure(gpu, job, run), _structure(gpu, job, run)]
+    errors = _failed(gpu, job, output(creates=two))
     assert errors == {
         "#/creates/1": "The action creates at most one protein.ProteinStructure per run."
     }
@@ -376,9 +395,70 @@ def test_one_means_at_most_one(world: World, s3: Any) -> None:
 def test_a_failed_write_writes_nothing(world: World, s3: Any) -> None:
     gpu, run, job = _predicting(world)
     # The first structure is fine; the second's value isn't. Neither is kept.
-    bad = _structure(world, run)
+    bad = _structure(gpu, job, run)
     bad["values"]["method"] = "guessed"
-    errors = _failed(gpu, job, output(creates=[_structure(world, run), bad]))
+    errors = _failed(gpu, job, output(creates=[_structure(gpu, job, run), bad]))
     assert list(errors) == ["#/creates/1/values/method"]
     assert not Entity.objects.filter(type="protein.ProteinStructure").exists()
     assert not Lineage.objects.exists()
+
+
+# --- Result files ------------------------------------------------------------------------------
+
+
+def test_workers_upload_result_files_for_their_run(world: World, s3: Any) -> None:
+    gpu, run, job = _predicting(world)
+    pdb = b"ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00  9.67           N\n"
+    upload = _upload(gpu, job, pdb)
+    assert upload["state"] == "checking"  # Iki reads the bytes back, in a task
+    run_tasks()
+    upload = gpu.report(job, f"uploads/{upload['id']}/complete").json()
+    assert upload["state"] == "ready", upload
+    structure = {
+        "type": "protein.ProteinStructure",
+        "values": {
+            "structure": upload["file"],
+            "method": "predicted",
+            "chains": [run["inputs"][0]["entity"]],
+        },
+    }
+    assert done(gpu, job, output(creates=[structure]))["run_status"] == "succeeded"
+    made = api_as(world, "runner").get(f"/runs/{run['id']}").json()["effects"][0]
+    entity = api_as(world, "runner").get(f"/entities/{made['entity']}").json()
+    assert entity["values"]["structure"] == upload["file"]
+    # Made for the launcher, in the run's project.
+    file = api_as(world, "runner").get(f"/files/{upload['file']}").json()
+    assert file["project"]["id"] == str(world.project.pk)
+
+
+def test_results_attach_only_their_own_files(world: World, s3: Any) -> None:
+    gpu, run, job = _predicting(world)
+    # A file the launcher can read, but this run didn't upload.
+    theirs = files.start(
+        world.users["runner"],
+        world.project,
+        name="old.pdb",
+        media_type="chemical/x-pdb",
+        size=0,
+        sha256=EMPTY_SHA256,
+    )
+    theirs.refresh_from_db()
+    assert theirs.state == UploadState.READY
+    structure = _structure(gpu, job, run)
+    structure["values"]["structure"] = str(theirs.file_id)
+    errors = _failed(gpu, job, output(creates=[structure]))
+    assert errors == {
+        "#/creates/0/values/structure": "Attach only files this run uploaded (once they're "
+        "ready) or its inputs' files."
+    }
+
+
+def test_uploads_belong_to_the_job_holding_the_lease(world: World, s3: Any) -> None:
+    gpu, _, job = _predicting(world)
+    upload = _upload(gpu, job)
+    pod, _, other = leased(world)
+    problem(pod.report(other, f"uploads/{upload['id']}/complete"), 404, "not_found")
+    stale = {**job, "job": {**job["job"], "lease_token": "00000000-0000-0000-0000-000000000000"}}
+    problem(gpu.report(stale, f"uploads/{upload['id']}/complete"), 409, "stale_lease")
+    bad = gpu.report(job, "uploads", name="x", media_type="text/plain", size=1, sha256="z" * 64)
+    assert problem(bad, 422, "validation_failed")["errors"][0]["pointer"] == "#/sha256"

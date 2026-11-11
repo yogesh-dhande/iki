@@ -10,6 +10,7 @@ import pytest
 from api_client import problem
 from asgiref.sync import sync_to_async
 from django.db import connection
+from django.db.models.functions import Now
 from django.test import Client
 from django.utils import timezone
 from org_world import World, build_world
@@ -406,7 +407,7 @@ def test_interrupted_attempts_are_retried_then_give_up(world: World) -> None:
     run = queued(world)
     # compute_properties keeps the default: two retries, on worker_lost and interrupted.
     for attempt in (1, 2, 3):
-        Job.objects.filter(run_id=run["id"]).update(queued_at=timezone.now())
+        Job.objects.filter(run_id=run["id"]).update(queued_at=Now())
         job = pod.lease().json()
         assert job["run"]["attempt"] == attempt
         status = pod.report(job, "fail", reason="interrupted").json()["run_status"]
