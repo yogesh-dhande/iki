@@ -30,7 +30,7 @@ def uuid7() -> uuid.UUID:
     native = getattr(uuid, "uuid7", None)
     if native is not None:
         return native()  # type: ignore[no-any-return]
-    global _last_ms, _counter  # noqa: PLW0603 - the generator's state, as CPython keeps it
+    global _last_ms, _counter
     with _lock:
         unix_ms = time.time_ns() // 1_000_000
         if unix_ms > _last_ms:
