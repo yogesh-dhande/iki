@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: fetch_proteins
+label: Fetch proteins from UniProt
+description: >-
+  Fetches UniProtKB entries by accession and registers each as a protein, with
+  its entry name, protein name, accession, organism and gene. A protein already
+  in Iki (the same sequence) is reused. Each records which entry and UniProt
+  release it came from, and when it was fetched.
+params:
+  accessions:
+    type: text
+    label: Accessions
+    required: true
+    max_length: 20000
+    description: >-
+      Separated by spaces, commas or new lines, such as P69905 P68871, or
+      P69905-2 for an isoform. Up to 1,000.
+effects:
+  creates: [{ type: Protein, cardinality: many }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/uniprot.py]
+network: [rest.uniprot.org]
+timeout: 30m

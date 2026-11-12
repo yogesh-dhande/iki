@@ -153,13 +153,26 @@ license.ignore = true
 
 # numpy is BSD-3-Clause, with vendored parts under 0BSD, MIT and Zlib (all allowed)
 # and two small random-number routines dedicated to the public domain under CC0-1.0:
-# Highway's random-inl.h and SplitMix64. It's installed only with the SDK's optional
-# `pandas` extra, which no Iki image includes, and used unmodified. CC0 is a
-# public-domain dedication: nothing it covers asks anything of Iki. This exception
-# covers numpy alone, not CC0-1.0 in general.
+# Highway's random-inl.h and SplitMix64. It's installed with the SDK's optional
+# `pandas` extra and in the protein plugin's environment (for Biopython), unmodified.
+# CC0 is a public-domain dedication: nothing it covers asks anything of Iki. This
+# exception covers numpy alone, not CC0-1.0 in general.
 
 [[PackageOverrides]]
 name = "numpy"
+ecosystem = "PyPI"
+license.ignore = true
+
+# Biopython is under the Biopython License Agreement, which has no SPDX identifier:
+# a permissive license, like the historical permission notice (HPND), that allows use,
+# copying, changing and distribution for any purpose, asking only that its copyright
+# and permission notices be kept and that its authors' names not be used to promote
+# what's made with it. Some of its files are also offered under BSD-3-Clause. The
+# protein plugin's environment installs it unmodified from PyPI, with its LICENSE.rst.
+# This exception covers biopython alone.
+
+[[PackageOverrides]]
+name = "biopython"
 ecosystem = "PyPI"
 license.ignore = true
 

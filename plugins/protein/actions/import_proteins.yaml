@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: import_proteins
+label: Import proteins from a FASTA file
+description: >-
+  Reads a FASTA file and registers each record as a protein, with its name,
+  description, and, from UniProt's headers, its accession, organism and gene. A
+  protein already in Iki (the same sequence) is reused. Each records which file
+  and record it came from.
+params:
+  file:
+    type: file
+    label: FASTA file
+    required: true
+    media_types: [chemical/seq-aa-fasta, text/plain]
+    max_size: 1GiB
+effects:
+  creates: [{ type: Protein, cardinality: many }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/imports.py]
+deterministic: true
+timeout: 30m

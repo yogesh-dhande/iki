@@ -1,0 +1,9 @@
+# The protein tools' packages. Compile the pinned, hashed requirements.txt from it
+# (from this directory) with:
+#
+#   uv pip compile requirements.in --python-version 3.12 --universal --generate-hashes \
+#     --exclude-newer "$(date -u -v-3d +%Y-%m-%dT%H:%M:%SZ)" -o requirements.txt
+#
+# and keep the same release in the repository's dev dependencies (pyproject.toml),
+# where its tests run: `make check-deps` checks they match.
+biopython==1.88

@@ -1,0 +1,89 @@
+# protein
+
+Iki's protein plugin: proteins, translated from DNA, imported or fetched from
+UniProt, with the properties of their sequences.
+
+- **`protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
+  - Its identity is its sequence, so registering the same protein again
+    reuses it.
+  - It keeps its UniProt accession and gene where it has them, and the DNA
+    sequence it was translated from (`encoded_by`).
+  - Its length, molecular weight, isoelectric point, extinction coefficients,
+    GRAVY and instability index are computed by the plugin's actions.
+
+It extends `core.Sequence`, so a search for sequences finds proteins alongside
+DNA. It depends on the [dna plugin](../dna) for `encoded_by`.
+
+## Actions
+
+They run on backend workers, in the `protein-tools` environment (Python 3.12
+with Biopython).
+
+- **`compute_properties`**: a protein's properties, as ExPASy's ProtParam
+  computes them, for many at once.
+- **`translate`**: translates a DNA sequence in the strand, frame and NCBI
+  genetic code chosen, stopping at the first stop codon or keeping each as
+  `*`, and registers the protein, linked to the DNA. Many at once.
+- **`import_proteins`**: registers each record of a FASTA file (up to 10
+  million, and 1 GiB) as a protein. A protein already in Iki is reused. Each
+  records the file and record it came from, with the record's SHA-256.
+- **`fetch_proteins`**: fetches UniProtKB entries by accession (up to 1,000,
+  such as `P69905`, or `P69905-2` for an isoform) and registers each as a
+  protein. Each records the entry, the UniProt release and sequence version,
+  its link, when it was fetched and its SHA-256. It reaches only
+  `rest.uniprot.org`, through the deployment's egress proxy.
+
+Properties are Biopython's ProtParam, which follows ExPASy's:
+
+- **Molecular weight**: average isotopic masses of the residues, plus one
+  water.
+- **Isoelectric point**: Bjellqvist's pK values, with the terminal residues'
+  own.
+- **Extinction coefficients**: at 280 nm in water, from Pace's values for W,
+  Y and cystine (1995). One assumes every pair of cysteines forms a cystine;
+  the other, that none does.
+- **GRAVY**: the mean Kyte–Doolittle hydropathy.
+- **Instability index**: Guruprasad's. Above 40, a protein is probably
+  unstable in a test tube.
+
+They need a sequence of the 20 standard amino acids alone, and a final stop is
+left out. For a sequence with U, O, B, Z, J, X or an inner stop, the run warns
+which residue stopped it and sets the length alone.
+
+Translation uses NCBI's genetic codes (1, the standard code, by default). A
+codon with ambiguous bases becomes the amino acid every reading of it gives,
+or B, Z, J or X. Bases past the last whole codon are left out. A DNA
+sequence that gives no residues (one that starts with a stop codon, say)
+fails its own run and the rest go on.
+
+FASTA headers give a name (the first word) and a description (the rest).
+UniProt's (`>sp|P69905|HBA_HUMAN Hemoglobin subunit alpha OS=Homo sapiens
+OX=9606 GN=HBA1 PE=1 SV=2`) give the entry name, the protein's name, its
+accession, organism and gene. NCBI's (`>NP_000549.1 hemoglobin subunit alpha
+[Homo sapiens]`) give the organism in brackets. A record with a stop inside
+it, a gap, or a letter that isn't an amino acid's code fails the whole import,
+and the run says which record and why, so nothing is half imported.
+
+An accession UniProt has no entry for (merged into another, or made obsolete)
+fails the fetch, which names it. When UniProt says to slow down or fails on
+its side, it waits and asks again.
+
+Structures, from the PDB and from structure prediction, come next.
+
+## Developing it
+
+From the repository root:
+
+```sh
+uv run iki plugin validate plugins/protein --with plugins/dna
+cd plugins && uv run iki plugin makemigrations protein --with dna   # after changing a manifest
+```
+
+Its environment's packages are pinned, with their hashes, in
+`requirements.txt`, compiled from `requirements.in` as it says. Pin the same
+releases in the repository's dev dependencies, where
+`server/tests/test_protein_actions.py` runs the actions: `make check-deps`
+checks they match, and that each is at least 3 days old.
+
+`server/tests/test_first_party_plugins.py` checks that it's valid, that its
+migrations match its manifests, and that it migrates forwards and back.

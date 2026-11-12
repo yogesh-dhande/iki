@@ -345,9 +345,9 @@ def write_problems(
             where = _display_path(directory, problem.file, sources)
         if problem.location:
             where += f":{problem.location.line}:{problem.location.column}"
-        label = style("error", "1;31") if problem.is_error else style("warning", "1;33")
+        level = style("error", "1;31") if problem.is_error else style("warning", "1;33")
         out.write(
-            f"{style(where, '1')}: {label}: {problem.message} {style(f'[{problem.code}]', '2')}\n"
+            f"{style(where, '1')}: {level}: {problem.message} {style(f'[{problem.code}]', '2')}\n"
         )
         if problem.file and problem.location:
             source = _source_line(

@@ -68,6 +68,8 @@ custom_build(
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
+        # Which machines run each environment, which the build checks and bakes in.
+        'deploy/dev/compute.yaml',
         # First-party plugins the dev lockfile installs from their directories.
         'plugins', 'plugin-template',
     ],

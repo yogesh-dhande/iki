@@ -8,6 +8,8 @@ which has no such setting.
 
 - ``uv.lock``: when each package's files were uploaded, as the lockfile records.
 - ``worker/Cargo.lock``: each crate's publish time, from the crates.io index.
+- ``plugins/*/requirements.txt``: each pin must be the release uv.lock has, so the
+  plugin's tests run what its environment installs, and its age is checked there.
 
 Usage: ``scripts/supply-chain/release-age.py`` from anywhere. Needs network for cargo.
 """
@@ -15,6 +17,7 @@ Usage: ``scripts/supply-chain/release-age.py`` from anywhere. Needs network for 
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tomllib
 import urllib.request
@@ -87,6 +90,30 @@ def crate_releases(lock: Path) -> list[tuple[str, str, datetime]]:
     return found
 
 
+def _normalized(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def plugin_pins(root: Path) -> list[tuple[Path, str, str]]:
+    """(file, name, version) for each ``name==version`` in a first-party plugin's
+    requirements."""
+    found = []
+    for file in sorted(root.glob("plugins/*/requirements.txt")):
+        for line in file.read_text(encoding="utf-8").splitlines():
+            pinned = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)", line)
+            if pinned:
+                found.append((file, _normalized(pinned[1]), pinned[2]))
+    return found
+
+
+def unlocked_pins(
+    pins: list[tuple[Path, str, str]], locked: list[tuple[str, str, datetime]]
+) -> list[tuple[Path, str, str]]:
+    """The plugin pins uv.lock doesn't have at the same version."""
+    have = {(_normalized(name), version) for name, version, _ in locked}
+    return [pin for pin in pins if pin[1:] not in have]
+
+
 def too_new(
     releases: list[tuple[str, str, datetime]], now: datetime
 ) -> list[tuple[str, str, datetime]]:
@@ -115,6 +142,14 @@ def main() -> int:
         sys.stdout.write(
             f"{label}: {len(releases) - len(new)} of {len(releases)} at least 3 days old.\n"
         )
+    pins = plugin_pins(ROOT)
+    for file, name, version in unlocked_pins(pins, python_releases(ROOT / "uv.lock")):
+        failed = True
+        sys.stdout.write(
+            f"  {file.relative_to(ROOT)} pins {name} {version}, which uv.lock doesn't: pin "
+            "the same release in pyproject.toml's dev dependencies, or recompile it.\n"
+        )
+    sys.stdout.write(f"First-party plugins: {len(pins)} pins, checked against uv.lock.\n")
     for name, version in sorted(EXCEPTIONS):
         if (name, version) not in locked:
             failed = True

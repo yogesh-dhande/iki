@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Protein
+label: Protein
+label_plural: Proteins
+extends: core.Sequence
+schema_version: 1
+description: >-
+  A protein, by its amino acid sequence. Two with the same sequence are the same
+  protein, so registering one again reuses it.
+hrid: { prefix: PRT }
+identity: [sequence]
+on_duplicate: reuse
+fields:
+  sequence:
+    type: string
+    format: protein_sequence
+    required: true
+    immutable: true
+    description: >-
+      Its residues, N- to C-terminus, in one-letter codes: the 20 standard amino
+      acids, U (selenocysteine), O (pyrrolysine), and B, Z, J or X where a residue
+      is ambiguous or unknown.
+  length: { type: quantity, unit: "{aa}", computed: true, indexed: true }
+  molecular_weight:
+    type: quantity
+    unit: u
+    display_unit: ku
+    computed: true
+    indexed: true
+    min: 0
+    description: Its average mass, from the average isotopic masses of its residues and water.
+  isoelectric_point:
+    type: float
+    computed: true
+    indexed: true
+    min: 0
+    max: 14
+    description: The pH at which it carries no net charge, from Bjellqvist's pK values.
+  extinction_coefficient_oxidized:
+    type: quantity
+    unit: L/(mol.cm)
+    computed: true
+    min: 0
+    description: >-
+      Its molar absorbance at 280 nm in water, if every pair of cysteines forms a
+      cystine (Pace et al., 1995).
+  extinction_coefficient_reduced:
+    type: quantity
+    unit: L/(mol.cm)
+    computed: true
+    min: 0
+    description: >-
+      Its molar absorbance at 280 nm in water, with every cysteine reduced (Pace
+      et al., 1995).
+  gravy:
+    type: float
+    label: GRAVY
+    computed: true
+    description: >-
+      Its grand average of hydropathy: the mean of its residues' Kyte–Doolittle
+      values. Above zero, it's hydrophobic on the whole.
+  instability_index:
+    type: float
+    computed: true
+    description: >-
+      Guruprasad's estimate of its stability in a test tube: above 40, it's
+      probably unstable.
+  uniprot_accession:
+    type: string
+    label: UniProt accession
+    max_length: 20
+    indexed: true
+    pattern: "^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})(-[0-9]+)?$"
+    description: Its UniProtKB accession, such as P69905, or P69905-2 for an isoform.
+  gene:
+    type: string
+    max_length: 100
+    indexed: true
+    description: The gene that encodes it, such as HBA1.
+  encoded_by:
+    type: ref
+    to: dna.DNASequence
+    description: The DNA sequence it was translated from.
+display:
+  title: "{{ name or uniprot_accession or hrid }}"

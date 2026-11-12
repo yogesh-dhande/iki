@@ -128,19 +128,31 @@ COSIGN_REPOSITORY=ghcr.io/acme/iki-production-approvals cosign verify $IMAGE \
 
 ## Dependency policy (CI)
 
-| Check                   | Tool                                                       | Fails on                                                      |
-| ----------------------- | ---------------------------------------------------------- | ------------------------------------------------------------- |
-| Known vulnerabilities   | OSV-Scanner over `uv.lock`, `pnpm-lock.yaml`, `Cargo.lock` | any advisory without a documented, time-limited exception     |
-| Licenses                | OSV-Scanner + cargo-deny                                   | a license outside `scripts/supply-chain/allowed-licenses.txt` |
-| Rust crate sources      | cargo-deny                                                 | git dependencies or registries other than crates.io           |
-| New dependencies in PRs | GitHub dependency review                                   | moderate+ advisories or disallowed licenses                   |
-| Container image         | Grype (`.grype.yaml`)                                      | high/critical vulnerabilities with a fix available            |
+| Check                   | Tool                                                                                     | Fails on                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Known vulnerabilities   | OSV-Scanner over `uv.lock`, `pnpm-lock.yaml`, `Cargo.lock`, `plugins/*/requirements.txt` | any advisory without a documented, time-limited exception                    |
+| Licenses                | OSV-Scanner + cargo-deny                                                                 | a license outside `scripts/supply-chain/allowed-licenses.txt`                |
+| Release age             | uv, pnpm, `scripts/supply-chain/release-age.py`                                          | a release less than 3 days old, or a plugin pin that `uv.lock` doesn't match |
+| Rust crate sources      | cargo-deny                                                                               | git dependencies or registries other than crates.io                          |
+| New dependencies in PRs | GitHub dependency review                                                                 | moderate+ advisories or disallowed licenses                                  |
+| Container image         | Grype (`.grype.yaml`)                                                                    | high/critical vulnerabilities with a fix available                           |
+
+First-party plugins' environments install only what their pinned, hashed
+`requirements.txt` lists. Each pin must be the release the repository's own
+lockfile has, so the plugin's tests run exactly what its environment installs.
 
 Exceptions live in `osv-scanner.toml` (vulnerabilities expire on a set date)
-and must explain why they are safe. Today there are two:
+and `worker/deny.toml`. Each covers one package and explains why it is safe:
 
-- psycopg, the PostgreSQL driver, is LGPL-3.0. There is no non-LGPL driver
-  for Django, and Iki uses it unmodified as a dynamically imported library.
+- psycopg, the PostgreSQL driver, and jwcrypto, which django-oauth-toolkit
+  requires, are LGPL-3.0. Iki uses both unmodified as dynamically imported
+  libraries.
+- Biopython, in the protein plugin's environment, is under its own permissive
+  license, which has no SPDX identifier.
+- numpy's vendored random-number routines are dedicated to the public domain
+  (CC0-1.0).
+- Data that only development tools read (caniuse-lite, language-subtag-registry,
+  mdn-data), and a crate locked only for a platform Iki never builds for.
 - A denial-of-service advisory in minimatch, reachable only through ESLint's
   handling of our own lint config. Expires 2027-01-15.
 

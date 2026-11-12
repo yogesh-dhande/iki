@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = ROOT / "plugins"
 TEMPLATE = ROOT / "plugin-template"
 #: Each plugin (a directory) and the plugins it depends on.
-FIRST_PARTY = {PLUGINS / "dna": (), TEMPLATE: (PLUGINS / "dna",)}
+FIRST_PARTY = {
+    PLUGINS / "dna": (),
+    PLUGINS / "protein": (PLUGINS / "dna",),
+    TEMPLATE: (PLUGINS / "dna",),
+}
 
 __all__ = ["database"]
 
@@ -37,7 +41,9 @@ def test_it_is_valid_and_its_migrations_are_current(plugin: Path) -> None:
 
 def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, database: str) -> None:
     out = tmp_path / "build"
-    built = iki("plugin", "build", PLUGINS / "dna", TEMPLATE, "--output", out, cwd=ROOT)
+    built = iki(
+        "plugin", "build", PLUGINS / "dna", PLUGINS / "protein", TEMPLATE, "--output", out, cwd=ROOT
+    )
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
@@ -47,6 +53,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         """
         from iki_plugin_dna.models import DNASequence, Primer
         from iki_plugin_example.models import Ext_dna_DNASequence, Sample
+        from iki_plugin_protein.models import Protein
 
         puc = DNASequence.objects.create(
             owner_project=project, bases="ACGT", topology="circular", name="pUC19",
@@ -55,17 +62,21 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         primer = Primer.objects.create(owner_project=project, bases="ACG", target=puc)
         Ext_dna_DNASequence.objects.create(entity_id=puc.pk, construct_id="PUC-19")
         sample = Sample.objects.create(owner_project=project, name="S1", kind="dna", construct=puc)
-        result = {"types": [puc.type, primer.type, sample.type],
-                  "hrids": [puc.hrid, primer.hrid, sample.hrid]}
+        bla = Protein.objects.create(
+            owner_project=project, sequence="MSIQHFRVAL", name="bla (+1)", encoded_by=puc,
+            uniprot_accession="P62593",
+        )
+        result = {"types": [puc.type, primer.type, sample.type, bla.type],
+                  "hrids": [puc.hrid, primer.hrid, sample.hrid, bla.hrid]}
         """,
     )
-    assert result["types"] == ["dna.DNASequence", "dna.Primer", "example.Sample"]
-    assert [h.split("-")[0] for h in result["hrids"]] == ["DNA", "PRM", "SMP"]
-    for app in ("example", "dna"):
+    assert result["types"] == ["dna.DNASequence", "dna.Primer", "example.Sample", "protein.Protein"]
+    assert [h.split("-")[0] for h in result["hrids"]] == ["DNA", "PRM", "SMP", "PRT"]
+    for app in ("example", "protein", "dna"):
         migrate(out, database, app, "zero")
     left = query(
         database,
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
-        "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%')",
+        "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%')",
     )
     assert left == [(0,)]

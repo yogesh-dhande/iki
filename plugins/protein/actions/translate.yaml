@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: translate
+label: Translate DNA into protein
+description: >-
+  Translates a DNA sequence, in the frame and with the genetic code chosen, and
+  registers the protein it encodes, linked to the DNA. A protein already in Iki
+  (the same sequence) is reused.
+inputs:
+  sequence: { type: dna.DNASequence, schema: ">=1" }
+params:
+  strand:
+    type: enum
+    values: [forward, reverse]
+    default: forward
+    description: Reverse translates the reverse complement.
+  frame:
+    type: int
+    min: 1
+    max: 3
+    default: 1
+    description: The base it starts at, on the strand chosen.
+  table:
+    type: int
+    label: Genetic code
+    min: 1
+    max: 33
+    default: 1
+    description: >-
+      NCBI's translation table: 1 is the standard code, 2 vertebrate
+      mitochondrial, 4 mold and mycoplasma, 11 bacterial, archaeal and plastid.
+  to_stop:
+    type: bool
+    label: Stop at the first stop codon
+    default: true
+    description: Otherwise each stop codon is kept, as *.
+effects:
+  creates: [{ type: Protein, cardinality: one, derived_from: [sequence] }]
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/proteins.py, translate]
+deterministic: true
+batchable: 100
+timeout: 5m

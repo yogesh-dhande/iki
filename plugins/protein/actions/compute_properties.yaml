@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_properties
+label: Compute protein properties
+description: >-
+  A protein's length, molecular weight, isoelectric point, extinction
+  coefficients, GRAVY and instability index, as ExPASy's ProtParam computes
+  them. All but its length need a sequence of the 20 standard amino acids
+  alone; for others the run says which residue stopped it.
+inputs:
+  protein: { type: Protein, schema: ">=1" }
+effects:
+  updates:
+    - input: protein
+      fields:
+        - length
+        - molecular_weight
+        - isoelectric_point
+        - extinction_coefficient_oxidized
+        - extinction_coefficient_reduced
+        - gravy
+        - instability_index
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/proteins.py, properties]
+deterministic: true
+batchable: 100
+timeout: 5m

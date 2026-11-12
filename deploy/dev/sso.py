@@ -1001,6 +1001,66 @@ def actions() -> None:
         ):
             fail(f"{run['hrid']} wrote no melting temperature: {got}")
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
+    proteins(alice, project)
+
+
+#: Codons for amino acids alone (no stops), to make DNA that translates whole.
+SENSE = [a + b + c for a in "ACGT" for b in "ACGT" for c in "ACGT"]
+SENSE = [codon for codon in SENSE if codon not in ("TAA", "TAG", "TGA")]
+
+
+def launch(
+    alice: requests.Session, project: dict[str, Any], action: str, inputs: dict[str, str]
+) -> dict[str, Any]:
+    launched = api_call(
+        alice, "POST", f"/actions/{action}/runs", {"project": project["id"], "inputs": inputs}
+    )
+    if launched.status_code != 201:
+        fail(f"launching {action} answered HTTP {launched.status_code}: {launched.text[:300]}")
+    run = followed(alice, launched.json())
+    if run["status"] != "succeeded":
+        fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
+    return run
+
+
+def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
+    """The protein plugin's actions, in its environment with Biopython: DNA translated into
+    a protein linked to it, then the protein's properties."""
+    # New bases each time, so each check registers a new protein.
+    bases = "ATG" + "".join(secrets.choice(SENSE) for _ in range(29)) + "TAA"
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {"type": "dna.DNASequence", "project": project["id"], "values": {"bases": bases}},
+    )
+    if made.status_code not in (200, 201):
+        fail(f"registering a DNA sequence answered HTTP {made.status_code}: {made.text[:300]}")
+    dna = made.json()
+    run = launch(alice, project, "protein.translate", {"sequence": dna["id"]})
+    created = [e for e in run["effects"] if e["kind"] in ("created", "reused")]
+    if [e["type"] for e in created] != ["protein.Protein"]:
+        fail(f"{run['hrid']} (protein.translate) made {run['effects']}, not one protein")
+    protein = api_call(alice, "GET", f"/entities/{created[0]['entity']}").json()
+    values = protein["values"]
+    if len(values.get("sequence", "")) != 30 or values.get("encoded_by") != dna["id"]:
+        fail(f"{run['hrid']} made {values}, not 30 residues encoded by {dna['hrid']}")
+    ok(f"protein.translate made {protein['hrid']} from {dna['hrid']} ({run['hrid']})")
+    run = launch(alice, project, "protein.compute_properties", {"protein": protein["id"]})
+    got = api_call(alice, "GET", f"/entities/{protein['id']}").json()["values"]
+    weight = got.get("molecular_weight")
+    point = got.get("isoelectric_point")
+    if (
+        got.get("length") != 30
+        or not isinstance(weight, (int, float))
+        or not isinstance(point, (int, float))
+        or not 0 < point < 14
+    ):
+        fail(f"{run['hrid']} wrote {got}, not a length, molecular weight and pI")
+    ok(
+        f"protein.compute_properties ran in Biopython's environment ({run['hrid']}): "
+        f"{weight} Da, pI {point}"
+    )
 
 
 #: The plugin template's image (plugin-template/environments/tools.yaml): Python on Alpine,

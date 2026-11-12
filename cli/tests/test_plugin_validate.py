@@ -62,6 +62,21 @@ def test_problems_show_where_and_how_to_fix_them(
     ]
 
 
+def test_each_problem_names_its_own_file(
+    broken: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for script in ("fetch.py", "imports.py"):
+        (broken / "scripts" / script).unlink()
+    monkeypatch.chdir(broken.parent)
+    assert main(["plugin", "validate", "protein", "--with", str(PLUGINS / "dna")]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert sorted(line.split(":")[0] for line in lines if ": error: " in line) == [
+        "protein/actions/fetch_proteins.yaml",
+        "protein/actions/import_proteins.yaml",
+        "protein/types/protein.yaml",
+    ]
+
+
 def test_warnings_pass_unless_strict(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     plugin = tmp_path / "acme"
     plugin.mkdir()
