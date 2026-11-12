@@ -107,6 +107,9 @@ ACTIONS: dict[str, str] = {
     "oauth.device_approved": "Signed in a device",
     "oauth.credential_created": "Created service-account credentials",
     "oauth.credential_revoked": "Revoked service-account credentials",
+    "oauth.credential_updated": "Changed service-account credentials",
+    "oauth.delegation_granted": "Let an agent act for them",
+    "oauth.delegation_revoked": "Stopped an agent acting for them",
     "saved_search.shared": "Shared a search with a project",
     "saved_search.updated": "Changed a shared search",
     "saved_search.unshared": "Stopped sharing a search",
@@ -202,6 +205,11 @@ def note_agent(agent: AgentInfo) -> None:
             _context.get(_SYSTEM), oauth_client=agent.label(), agent=agent, stored={}
         )
     )
+
+
+def current_agent_info() -> AgentInfo | None:
+    """The agent the current request comes through, if any, without storing it."""
+    return _context.get(_SYSTEM).agent
 
 
 _LABEL = re.compile(r"(?P<name>.*) \((?P<client_id>[^()\s]+)\)")

@@ -95,11 +95,6 @@ class MeCan(Schema):
     manage_compute: bool = Field(description="Workers, quotas and budgets.")
 
 
-class MeOut(UserOut):
-    org_roles: list[OrgRoleName]
-    can: MeCan
-
-
 class OrgRolesIn(Schema):
     roles: list[OrgRoleName]
 
@@ -121,6 +116,25 @@ class PersonRef(Schema):
     @staticmethod
     def resolve_name(person: User) -> str:
         return person.get_full_name()
+
+
+class MeDelegationOut(Schema):
+    """A person's delegation a token acts under (ADR 0073)."""
+
+    service_account: PersonRef = Field(description="The service account whose agent acts.")
+    expires_at: datetime = Field(description="When the delegation, and its tokens, stop.")
+
+
+class MeOut(UserOut):
+    org_roles: list[OrgRoleName]
+    can: MeCan
+    agent: AgentOut | None = Field(
+        description="The agent this token acts through (ADR 0072), if any. Null in the web app."
+    )
+    delegation: MeDelegationOut | None = Field(
+        description="For a token an agent got by acting for you (ADR 0073), your delegation "
+        "to it. Null otherwise."
+    )
 
 
 class ProjectRef(Schema):

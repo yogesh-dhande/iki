@@ -126,6 +126,9 @@ class TokenLimits:
     scopes: frozenset[str]
     #: The projects the token may touch; None means every project.
     projects: frozenset[UUID] | None = None
+    #: For a token an agent got by acting for its user (ADR 0073), the agent's own
+    #: service account, whose roles must allow each action too.
+    alongside: Any = None
 
     def allows(self, action: Action, target: "Team | Project | None") -> bool:
         if ACTION_SCOPES[action] not in self.scopes:
@@ -241,6 +244,12 @@ def can(user: Any, action: Action, target: Team | Project | None = None) -> bool
     limits = token_limits(user)
     if limits is not None and not limits.allows(action, target):
         return False
+    if (
+        limits is not None
+        and limits.alongside is not None
+        and not _roles_allow(limits.alongside, action, target)
+    ):
+        return False
     return _roles_allow(user, action, target)
 
 
@@ -312,9 +321,13 @@ def visible_teams(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     limits = token_limits(user)
     if limits is not None and "read" not in limits.scopes:
         return Team.objects.none()
-    if OrgRole.ORG_ADMIN in org_roles(user):
-        return Team.objects.all()
-    return Team.objects.filter(memberships__user=user)
+    teams = Team.objects.all()
+    if OrgRole.ORG_ADMIN not in org_roles(user):
+        teams = teams.filter(memberships__user=user)
+    if limits is not None and limits.alongside is not None:
+        # Only teams the agent's own service account can see too (ADR 0073).
+        teams = teams.filter(pk__in=visible_teams(limits.alongside).values("pk"))
+    return teams
 
 
 def teams_for_new_project(user: Any) -> QuerySet[Team]:  # noqa: ANN401
@@ -324,4 +337,7 @@ def teams_for_new_project(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     limits = token_limits(user)
     if limits is not None and not limits.allows(Action.PROJECT_CREATE, None):
         return Team.objects.none()
-    return Team.objects.filter(memberships__user=user, archived_at__isnull=True)
+    teams = Team.objects.filter(memberships__user=user, archived_at__isnull=True)
+    if limits is not None and limits.alongside is not None:
+        teams = teams.filter(memberships__user=limits.alongside)
+    return teams

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Let an agent act for you{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Let an agent act for you</h1></div>
+<p class="muted">An agent that runs on its own, such as a nightly triage bot or a LIMS sync, can act for you: what it changes is recorded as yours, done through it. It can do only what you allow, only what you and its service account both may, and only until a day you choose.</p>
+{% if credentials %}
+<ul class="rows">
+  {% for credential, chosen in credentials %}
+  <li class="row">
+    <div class="row-main">
+      <span class="row-title">{{ credential.display_name }}</span>
+      <span class="row-meta">Service account {{ credential.service_account.name }} · may get {{ credential.allowed_scopes }}{% if chosen %} · already acts for you{% endif %}</span>
+    </div>
+    <div class="row-actions">
+      <a class="button" href="{% url 'oauth:delegate' credential.pk %}">{% if chosen %}Change{% else %}Choose{% endif %}</a>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">No agent can act for people yet. An Org Admin allows it on a service account’s credential.</p>
+{% endif %}
+<p><a href="{% url 'oauth:my_apps' %}">Back to authorized apps</a></p>
+{% endblock %}

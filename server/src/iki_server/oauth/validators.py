@@ -8,7 +8,7 @@ from oauth2_provider.models import get_device_grant_model
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauthlib.oauth2.rfc8628.grant_types.device_code import DeviceCodeGrant
 
-from iki_server.oauth import redirects
+from iki_server.oauth import exchange, redirects
 
 #: Polling this much sooner than the interval allows for network jitter.
 POLL_TOLERANCE = timedelta(seconds=1)
@@ -73,6 +73,9 @@ class IkiValidator(OAuth2Validator):
             and getattr(client, "service_account_id", None) is None
         ):
             return False
+        # Token exchange: only credentials allowed to act for people (ADR 0073).
+        if grant_type == exchange.GRANT_TYPE:
+            return bool(getattr(client, "service_account_id", None) and client.acts_for_people)
         return bool(
             super().validate_grant_type(client_id, grant_type, client, request, *args, **kwargs)
         )

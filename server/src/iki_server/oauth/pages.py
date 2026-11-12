@@ -1,18 +1,25 @@
 """Pages for OAuth apps: the Org Admin's app list and approvals, and each person's
 authorized apps."""
 
+from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 from django.contrib import messages
 from django.db.models import Count, Q, QuerySet
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
 
+from iki_server.accounts.models import User
 from iki_server.oauth import services
+from iki_server.oauth.forms import DelegationForm
 from iki_server.oauth.models import Approval, Client, Consent
-from iki_server.oauth.scopes import SCOPES
+from iki_server.oauth.scopes import SCOPES, ordered
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
+from iki_server.org.services import Refused
 from iki_server.org.views import _user, page, refusals
 
 
@@ -94,23 +101,111 @@ def my_apps(request: HttpRequest) -> HttpResponse:
     me = _user(request)
     consents = (
         Consent.objects.filter(user=me)
-        .select_related("client")
+        .select_related("client__service_account")
         .prefetch_related("projects")
         .order_by("client__name")
     )
     if request.method == "POST" and request.POST.get("action") == "revoke":
         consent = get_object_or_404(consents, pk=request.POST.get("consent"))
         services.revoke_consent(consent, by=me)
-        messages.success(
-            request, f"Revoked {consent.client.display_name()}’s access. It’s signed out."
-        )
+        if consent.is_delegation:
+            messages.success(request, f"{consent.client.display_name()} can no longer act for you.")
+        else:
+            messages.success(
+                request, f"Revoked {consent.client.display_name()}’s access. It’s signed out."
+            )
         return redirect(request.path)
+    everything = list(consents)
     return render(
         request,
         "oauth/my_apps.html",
-        {"consents": consents, "scope_descriptions": SCOPES},
+        {
+            "consents": [c for c in everything if not c.is_delegation],
+            "delegations": [c for c in everything if c.is_delegation],
+            "can_delegate": not me.is_service_account and services.delegable().exists(),
+            "scope_descriptions": SCOPES,
+        },
     )
 
+
+def _delegable_for(me: User) -> QuerySet[Client]:
+    if me.is_service_account:
+        raise Http404
+    return services.delegable().order_by("service_account__name", "name")
+
+
+@page("GET")
+def delegable(request: HttpRequest) -> HttpResponse:
+    """The agents a person may let act for them: credentials Org Admins allowed to."""
+    me = _user(request)
+    credentials = _delegable_for(me)
+    current = set(Consent.objects.filter(user=me).values_list("client_id", flat=True))
+    return render(
+        request,
+        "oauth/delegable.html",
+        {"credentials": [(c, c.pk in current) for c in credentials]},
+    )
+
+
+@page("GET", "POST")
+def delegate(request: HttpRequest, client_id: int) -> HttpResponse:
+    """Lets a service account's credential act for the person (ADR 0073)."""
+    from iki_server.oauth.views import my_projects
+
+    me = _user(request)
+    client = get_object_or_404(_delegable_for(me), pk=client_id)
+    account = client.service_account
+    assert account is not None  # noqa: S101 - delegable credentials have one
+    offered = ordered(client.allowed_scopes.split())
+    current = services.consent_for(me, client)
+    latest = services.latest_delegation_day()
+    initial: dict[str, Any] = {
+        "granted": current.scope_list if current else [s for s in offered if s == "read"],
+        "access": "all" if current and current.all_projects else "chosen",
+        "projects": list(current.projects.all()) if current else [],
+        "until": min(latest, timezone.localdate() + timedelta(days=DEFAULT_DELEGATION_DAYS)),
+    }
+    form = DelegationForm(request.POST or None, initial=initial, latest=latest)
+    # Projects both can see: elsewhere it could do nothing for them.
+    both = my_projects(me).filter(pk__in=permissions.visible_projects(account).values("pk"))
+    form.setup_choices(offered, both)
+    if request.method == "POST" and form.is_valid():
+        try:
+            consent = services.delegate(
+                me,
+                client,
+                services.Grant(
+                    scopes=list(form.cleaned_data["granted"]),
+                    all_projects=form.cleaned_data["access"] == "all",
+                    projects=list(form.cleaned_data["projects"]),
+                ),
+                expires_at=services.end_of(form.cleaned_data["until"]),
+            )
+        except Refused as refusal:
+            form.add_error(refusal.field if refusal.field in form.fields else None, str(refusal))
+        else:
+            messages.success(
+                request,
+                f"{client.display_name()} can act for you until "
+                f"{form.cleaned_data['until']:%-d %b %Y}. Give its operator the grant ID below.",
+            )
+            return redirect(f"{reverse('oauth:my_apps')}#grant-{consent.grant}")
+    return render(
+        request,
+        "oauth/delegate.html",
+        {
+            "client": client,
+            "account": account,
+            "form": form,
+            "current": current,
+            "has_projects": both.exists(),
+            "scope_descriptions": SCOPES,
+        },
+    )
+
+
+#: How long a new delegation lasts unless the person chooses otherwise.
+DEFAULT_DELEGATION_DAYS = 30
 
 #: Events a page of a grant's activity shows.
 GRANT_PAGE = 50

@@ -57,6 +57,9 @@ class Client(AbstractApplication):
     )
     #: Space-separated scopes this client may get; empty means any.
     allowed_scopes = models.CharField(max_length=200, blank=True)
+    #: A service account's credential an Org Admin allowed to act for people who delegate
+    #: to it, by token exchange (ADR 0073).
+    acts_for_people = models.BooleanField(default=False)
     last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(AbstractApplication.Meta):
@@ -66,6 +69,10 @@ class Client(AbstractApplication):
                 condition=Q(service_account__isnull=True)
                 | Q(client_type="confidential", authorization_grant_type="client-credentials"),
                 name="iki_oauth_service_credentials_shape",
+            ),
+            models.CheckConstraint(
+                condition=Q(acts_for_people=False) | Q(service_account__isnull=False),
+                name="iki_oauth_only_credentials_act_for_people",
             ),
         ]
 
@@ -150,6 +157,9 @@ class Consent(models.Model):
     #: All the projects the person can access, now and later; otherwise only ``projects``.
     all_projects = models.BooleanField(default=False)
     projects = models.ManyToManyField(Project, blank=True, related_name="+")
+    #: When a delegation to a service account's credential ends (ADR 0073). Consents to
+    #: apps the person signs in to don't expire.
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -165,3 +175,14 @@ class Consent(models.Model):
     @property
     def scope_list(self) -> list[str]:
         return self.scopes.split()
+
+    @property
+    def is_delegation(self) -> bool:
+        """A person letting a service account's credential act for them (ADR 0073)."""
+        return self.client.service_account_id is not None
+
+    @property
+    def expired(self) -> bool:
+        from django.utils import timezone
+
+        return self.expires_at is not None and self.expires_at <= timezone.now()

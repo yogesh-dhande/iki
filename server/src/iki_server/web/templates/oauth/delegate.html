@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Let {{ client.display_name }} act for you?{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Let {{ client.display_name }} act for you?</h1></div>
+<dl class="summary">
+  <dt>Agent</dt><dd><strong>{{ client.display_name }}</strong> (client <code>{{ client.client_id }}</code>)</dd>
+  <dt>Service account</dt><dd>{{ account.name }}{% if account.service_account.description %} <span class="muted">· {{ account.service_account.description }}</span>{% endif %}</dd>
+  {% if current %}<dt>Now</dt><dd>Acts for you {% if current.expired %}<strong>— expired <time datetime="{{ current.expires_at|date:'c' }}">{{ current.expires_at|date:"j M Y" }}</time></strong>{% else %}until <time datetime="{{ current.expires_at|date:'c' }}">{{ current.expires_at|date:"j M Y, H:i" }}</time>{% endif %}</dd>{% endif %}
+</dl>
+<p>Whoever runs it can then act as you, without you there: what it changes is recorded as yours, done through {{ client.display_name }}. It can do only what you allow here, and only what both you and {{ account.name }} may.</p>
+{% include "web/_errors.html" %}
+<form method="post" data-busy-form>
+  {% csrf_token %}
+  {% include "oauth/_choice.html" %}
+  {% include "web/_field.html" with field=form.until %}
+  <div class="actions">
+    <button class="button button-primary" type="submit" data-busy-text="Saving…">{% if current %}Save{% else %}Let it act for me{% endif %}</button>
+    <a class="button" href="{% url 'oauth:delegable' %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

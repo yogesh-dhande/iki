@@ -757,10 +757,70 @@ def oauth(admin: requests.Session) -> None:
     robot = bearer_call(issued.json()["access_token"], "GET", "/me").json()
     if robot.get("id") != account["id"]:
         fail(f"the credential's token isn't the service account's: {robot}")
+    ok("a service account got a token with client credentials")
+
+    # The same service account acting for alice, by her delegation (ADR 0073).
+    page = page_post(
+        admin,
+        f"{IKI}/service-accounts/{account['id']}/",
+        {
+            "action": "create_credential",
+            "name": "e2e acting",
+            "scopes": ["read"],
+            "acts_for_people": "on",
+        },
+    )
+    acting_id = re.search(r'id="client-id">([^<]+)<', page.text)
+    acting_secret = re.search(r'id="client-secret">([^<]+)<', page.text)
+    if not (acting_id and acting_secret):
+        fail("creating a credential that acts for people didn't show it once")
+    listed = alice.get(f"{IKI}/account/apps/delegate/").text
+    choose = re.search(
+        re.escape(html.escape(account["name"])) + r'.*?href="(/account/apps/delegate/\d+/)"',
+        listed,
+        re.DOTALL,
+    )
+    if not choose:
+        fail("the credential isn't offered on Account → Apps → Let an agent act for you")
+    form_url = urljoin(IKI, choose[1])
+    latest = re.search(r'type="date"[^>]*max="([0-9-]+)"', alice.get(form_url).text)
+    if not latest:
+        fail("the delegation form doesn't bound its date")
+    delegated = page_post(
+        alice,
+        form_url,
+        {"granted": ["read"], "access": "all", "until": latest[1]},
+        allow_redirects=False,
+    )
+    grant = re.search(r"#grant-([0-9a-f-]+)$", delegated.headers.get("Location", ""))
+    if delegated.status_code != 302 or not grant:
+        fail(f"delegating answered HTTP {delegated.status_code}: {delegated.text[:300]}")
+    acting = app.post(
+        f"{IKI}/oauth/token/",
+        data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "subject_token": grant[1],
+            "subject_token_type": "urn:ikisci:params:oauth:token-type:delegation",
+        },
+        auth=(acting_id[1], html.unescape(acting_secret[1])),
+    )
+    if acting.status_code != 200 or acting.json().get("act") != {"sub": acting_id[1]}:
+        fail(f"the token exchange answered HTTP {acting.status_code}: {acting.text}")
+    acting_token = acting.json()["access_token"]
+    acted = bearer_call(acting_token, "GET", "/me").json()
+    if (
+        acted.get("email") != "alice@iki.test"
+        or (acted.get("delegation") or {}).get("service_account", {}).get("id") != account["id"]
+    ):
+        fail(f"the exchanged token doesn't act for alice through the agent: {acted}")
+    ok("alice let the service account's credential act for her; it exchanged her delegation")
+
     api_call(admin, "PATCH", f"/service-accounts/{account['id']}", {"active": False})
     if bearer_call(issued.json()["access_token"], "GET", "/me").status_code != 401:
         fail("a deactivated service account's token still works")
-    ok("a service account got a token with client credentials; deactivating ended it")
+    if bearer_call(acting_token, "GET", "/me").status_code != 401:
+        fail("a deactivated service account's agent still acts for alice")
+    ok("deactivating the service account ended its tokens, and its acting for alice")
 
 
 def mcp(token: str) -> None:

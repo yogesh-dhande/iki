@@ -26,4 +26,30 @@
 {% else %}
 <p class="empty">You haven’t allowed any apps yet.</p>
 {% endif %}
+{% if delegations or can_delegate %}
+<h2 class="section-title">Agents acting for you</h2>
+<p class="muted">Agents that run on their own, which you let act for you until a day you chose. Each can do only what both you and its service account may. Whoever runs one needs its grant ID to act for you.</p>
+{% if delegations %}
+<ul class="rows">
+  {% for consent in delegations %}
+  <li class="row" id="grant-{{ consent.grant }}">
+    <div class="row-main">
+      <span class="row-title">{{ consent.client.display_name }}{% if consent.expired %} <span class="badge badge-bad">Expired</span>{% endif %}</span>
+      <span class="row-meta">Service account {{ consent.client.service_account.name }} · {% if consent.expired %}ended{% else %}until{% endif %} <time datetime="{{ consent.expires_at|date:'c' }}">{{ consent.expires_at|date:"j M Y, H:i" }}</time></span>
+      <div>{% include "oauth/_scopes.html" %}</div>
+      <div class="copy-row">Grant ID <code class="copy-value" id="grant-id-{{ consent.pk }}">{{ consent.grant }}</code><button class="button button-quiet" type="button" data-copy="grant-id-{{ consent.pk }}">Copy</button></div>
+      <a href="{% url 'oauth:my_grant' consent.grant %}">What it did for you</a>
+    </div>
+    <form class="row-actions" method="post">
+      {% csrf_token %}
+      {% if consent.client.acts_for_people and consent.client.service_account.is_active %}<a class="button button-quiet" href="{% url 'oauth:delegate' consent.client.pk %}">{% if consent.expired %}Renew{% else %}Change{% endif %}</a>{% endif %}
+      <input type="hidden" name="consent" value="{{ consent.pk }}">
+      <button class="button button-quiet button-danger" type="submit" name="action" value="revoke">Revoke</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% if can_delegate %}<p><a class="button" href="{% url 'oauth:delegable' %}">Let an agent act for you</a></p>{% endif %}
+{% endif %}
 {% endblock %}

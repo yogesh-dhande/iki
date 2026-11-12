@@ -3656,11 +3656,29 @@ export interface components {
              */
             read_costs: boolean;
         };
+        /**
+         * MeDelegationOut
+         * @description A person's delegation a token acts under (ADR 0073).
+         */
+        MeDelegationOut: {
+            /**
+             * Expires At
+             * Format: date-time
+             * @description When the delegation, and its tokens, stop.
+             */
+            expires_at: string;
+            /** @description The service account whose agent acts. */
+            service_account: components["schemas"]["PersonRef"];
+        };
         /** MeOut */
         MeOut: {
             /** Active */
             active: boolean;
+            /** @description The agent this token acts through (ADR 0072), if any. Null in the web app. */
+            agent: components["schemas"]["AgentOut"] | null;
             can: components["schemas"]["MeCan"];
+            /** @description For a token an agent got by acting for you (ADR 0073), your delegation to it. Null otherwise. */
+            delegation: components["schemas"]["MeDelegationOut"] | null;
             /**
              * Email
              * @description For service accounts, an address that receives no mail.

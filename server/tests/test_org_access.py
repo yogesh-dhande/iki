@@ -9,6 +9,7 @@ from collections.abc import Callable
 
 import pytest
 from django.urls import get_resolver
+from django.utils import timezone
 from org_world import PRINCIPALS, World, build_world, post
 
 pytestmark = pytest.mark.django_db
@@ -99,6 +100,25 @@ def my_grant_url(w: World) -> tuple[str, dict[str, str]]:
     cli = Client.objects.get(client_id="iki-cli")
     consent = services.grant(w.users["viewer"], cli, services.Grant(["read"], True, []))
     return f"/account/apps/grants/{consent.grant}/", {}
+
+
+def delegate_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
+    """A service account's credential an Org Admin let act for people (ADR 0073)."""
+
+    def build(w: World) -> tuple[str, dict[str, str]]:
+        from iki_server.accounts import service_accounts
+        from iki_server.oauth import services
+
+        account = service_accounts.create("Triage bot", "", by=w.users["org_admin"])
+        made = services.create_credential(
+            account, "Triage", ["read"], by=w.users["org_admin"], acts_for_people=True
+        )
+        today = str(timezone.localdate())
+        return f"/account/apps/delegate/{made.client.pk}/", {
+            k: today if v == "today" else v for k, v in data.items()
+        }
+
+    return build
 
 
 def device_grant_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
@@ -231,6 +251,14 @@ CASES: list[Case] = [
     ("my_apps", "GET", lambda w: ("/account/apps/", {}), row(OK)),
     ("my_apps", "POST", lambda w: ("/account/apps/", {}), row(OK)),
     ("my_grant", "GET", my_grant_url, row(HIDDEN, viewer=OK)),
+    ("delegable", "GET", lambda w: ("/account/apps/delegate/", {}), row(OK)),
+    ("delegate", "GET", delegate_url(), row(OK)),
+    (
+        "delegate",
+        "POST",
+        delegate_url(granted="read", access="all", until="today"),
+        row(DONE),
+    ),
     ("device", "GET", lambda w: ("/oauth/device/", {}), row(OK)),
     ("device", "POST", lambda w: ("/oauth/device/", {"user_code": "NOPE"}), row(OK)),
     ("device_confirm", "GET", device_grant_url(), row(HIDDEN, viewer=OK)),

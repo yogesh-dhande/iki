@@ -122,20 +122,33 @@ class BearerAuth(HttpBearer):
             )
         projects = None
         consent = None
-        if client.service_account_id is None:
+        # A person's token from a service account's credential: one it got by acting for
+        # them, under their delegation (ADR 0073).
+        account = client.service_account if oauth_request.user is not None else None
+        if client.service_account_id is None or account is not None:
             consent = (
                 Consent.objects.filter(user=user, client=client)
                 .prefetch_related("projects")
                 .first()
             )
-            if consent is None:
+            if consent is None or consent.expired:
                 raise _invalid_token(request)
             # A narrowed consent applies to tokens issued before it changed.
             scopes &= frozenset(consent.scope_list)
             if not consent.all_projects:
                 projects = frozenset(p.pk for p in consent.projects.all())
-        permissions.limit_to(user, permissions.TokenLimits(scopes=scopes, projects=projects))
+        if account is not None:
+            if not (client.acts_for_people and account.is_active):
+                raise _invalid_token(request)
+            # Only where the service account may go too.
+            theirs = frozenset(permissions.visible_projects(account).values_list("pk", flat=True))
+            projects = theirs if projects is None else projects & theirs
+        permissions.limit_to(
+            user,
+            permissions.TokenLimits(scopes=scopes, projects=projects, alongside=account),
+        )
         request.iki_oauth_client = client  # type: ignore[attr-defined]
+        request.iki_delegation = consent if account is not None else None  # type: ignore[attr-defined]
         audit.note_agent(agent_of(request, client, consent))
         _limit(
             request, RateLimiter(POLICY, settings.IKI_API_RATE_LIMIT_PER_MINUTE), f"user:{user.pk}"

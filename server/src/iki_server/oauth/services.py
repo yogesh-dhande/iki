@@ -8,10 +8,11 @@ so it takes effect on the next request, not when tokens expire.
 """
 
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 from oauth2_provider.models import get_access_token_model, get_refresh_token_model
 
@@ -154,8 +155,113 @@ def revoke_consent(consent: Consent, *, by: User) -> int:
 
             data["workers_revoked"] = workers.revoke_signed_in(consent.user, by=by)
         consent.delete()
-        audit.record("oauth.consent_revoked", actor=by, target=consent.client, data=data)
+        action = "oauth.delegation_revoked" if consent.is_delegation else "oauth.consent_revoked"
+        audit.record(action, actor=by, target=consent.client, data=data)
     return revoked
+
+
+# --- Delegations (ADR 0073) ------------------------------------------------------
+
+#: The longest a person may let an agent act for them, before they choose again.
+MAX_DELEGATION_DAYS = 90
+
+
+def latest_delegation_day() -> date:
+    """The last day a delegation given today may last to."""
+    return timezone.localdate() + timedelta(days=MAX_DELEGATION_DAYS)
+
+
+def end_of(day: date) -> datetime:
+    """When `day` ends, in Iki's time zone: a delegation "until" it stops then."""
+    return datetime.combine(
+        day + timedelta(days=1), time.min, tzinfo=timezone.get_current_timezone()
+    )
+
+
+def delegable() -> QuerySet[Client]:
+    """Credentials people may let act for them: an Org Admin allowed it, and their
+    service account is active."""
+    return Client.objects.filter(
+        acts_for_people=True, service_account__is_active=True
+    ).select_related("service_account")
+
+
+def delegate(user: User, client: Client, choice: Grant, expires_at: datetime) -> Consent:
+    """Lets the credential act for the person, as they chose, until `expires_at`."""
+    if client.service_account is None or not client.acts_for_people:
+        raise Refused("This credential can’t act for people. An Org Admin can allow it.")
+    if not client.service_account.is_active:
+        raise Refused(f"{client.service_account.name} is deactivated.")
+    if user.is_service_account:
+        raise Refused("Only people can let an agent act for them.")
+    scopes = ordered(choice.scopes)
+    if not scopes:
+        raise Refused("Choose at least one kind of access.")
+    if not set(scopes) <= set(client.allowed_scopes.split()):
+        raise Refused("Choose only access the credential itself has.")
+    if not choice.all_projects and not choice.projects:
+        raise Refused("Choose the projects it may act in, or all your projects.")
+    if expires_at <= timezone.now():
+        raise Refused("Choose today or a later day.", field="until")
+    if expires_at > end_of(latest_delegation_day()):
+        raise Refused(
+            f"An agent may act for you for at most {MAX_DELEGATION_DAYS} days at a time.",
+            field="until",
+        )
+    with transaction.atomic():
+        consent, created = Consent.objects.update_or_create(
+            user=user,
+            client=client,
+            defaults={
+                "scopes": " ".join(scopes),
+                "all_projects": choice.all_projects,
+                "expires_at": expires_at,
+            },
+        )
+        consent.projects.set([] if choice.all_projects else choice.projects)
+        audit.record(
+            "oauth.delegation_granted",
+            actor=user,
+            target=client,
+            data={
+                "service_account": client.service_account.email,
+                "scopes": scopes,
+                "projects": "all"
+                if choice.all_projects
+                else sorted(str(p.pk) for p in choice.projects),
+                "expires_at": expires_at.isoformat(),
+                "changed": not created,
+                "grant": str(consent.grant),
+            },
+        )
+    return consent
+
+
+def set_acts_for_people(client: Client, allowed: bool, *, by: User) -> None:
+    """Lets the credential act for people who delegate to it, or stops it: then their
+    delegations end, and the tokens it got with them."""
+    account = client.service_account
+    if account is None:
+        raise TypeError("not a service-account credential")
+    with transaction.atomic():
+        ended = 0
+        if not allowed:
+            _revoke({"application": client, "user__isnull": False})
+            delegations = Consent.objects.filter(client=client)
+            ended = delegations.count()
+            delegations.delete()
+        Client.objects.filter(pk=client.pk).update(acts_for_people=allowed)
+        client.acts_for_people = allowed
+        audit.record(
+            "oauth.credential_updated",
+            actor=by,
+            target=account,
+            data={
+                "client_id": client.client_id,
+                "acts_for_people": allowed,
+                "delegations_ended": ended,
+            },
+        )
 
 
 def consent_for(user: User, client: Client) -> Consent | None:
@@ -172,7 +278,9 @@ class NewCredential:
     secret: str
 
 
-def create_credential(account: User, name: str, scopes: list[str], *, by: User) -> NewCredential:
+def create_credential(
+    account: User, name: str, scopes: list[str], *, by: User, acts_for_people: bool = False
+) -> NewCredential:
     if not account.is_service_account:
         raise TypeError("credentials belong to service accounts")
     if not account.is_active:
@@ -197,6 +305,7 @@ def create_credential(account: User, name: str, scopes: list[str], *, by: User) 
             service_account=account,
             allowed_scopes=" ".join(chosen),
             approval=Approval.APPROVED,
+            acts_for_people=acts_for_people,
         )
         client.full_clean(exclude=["client_secret", "redirect_uris", "post_logout_redirect_uris"])
         client.save()
@@ -204,7 +313,11 @@ def create_credential(account: User, name: str, scopes: list[str], *, by: User) 
             "oauth.credential_created",
             actor=by,
             target=account,
-            data={"client_id": client.client_id, "scopes": chosen},
+            data={
+                "client_id": client.client_id,
+                "scopes": chosen,
+                "acts_for_people": acts_for_people,
+            },
         )
     return NewCredential(client=client, secret=secret)
 
@@ -226,4 +339,8 @@ def revoke_credential(client: Client, *, by: User) -> None:
 
 
 def credentials(account: User) -> QuerySet[Client]:
-    return Client.objects.filter(service_account=account).order_by("created")
+    return (
+        Client.objects.filter(service_account=account)
+        .annotate(delegations=Count("consents", filter=Q(consents__expires_at__gt=timezone.now())))
+        .order_by("created")
+    )

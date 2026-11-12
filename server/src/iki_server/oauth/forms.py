@@ -1,10 +1,13 @@
+from datetime import date
 from typing import Any, cast
 
 from django import forms
 from django.db.models import QuerySet
+from django.utils import timezone
 from oauth2_provider.forms import AllowForm
 
 from iki_server.oauth.scopes import RESERVED, SCOPES, ordered
+from iki_server.oauth.services import MAX_DELEGATION_DAYS
 from iki_server.org.models import Project
 
 ACCESS_CHOICES = [
@@ -101,3 +104,38 @@ class CredentialForm(forms.Form):
         initial=["read"],
         help_text="It can still only do what the service account’s roles allow.",
     )
+    acts_for_people = forms.BooleanField(
+        label="Let it act for people who delegate to it",
+        required=False,
+        help_text="People can then let it act for them, within their own access and the "
+        "service account’s, until a date they choose. Allow it only for a credential kept "
+        "in a secrets manager.",
+    )
+
+
+class DelegationForm(ChoiceMixin):
+    """What a person lets a service account's credential do for them, and until when."""
+
+    until = forms.DateField(
+        label="Until",
+        help_text=f"At most {MAX_DELEGATION_DAYS} days away. It stops at the end of that day.",
+    )
+
+    def __init__(self, *args: Any, latest: date, **kwargs: Any) -> None:  # noqa: ANN401
+        super().__init__(*args, **kwargs)
+        self.latest = latest
+        self.fields["until"].widget = forms.DateInput(
+            attrs={
+                "type": "date",
+                "min": timezone.localdate().isoformat(),
+                "max": latest.isoformat(),
+            }
+        )
+
+    def clean_until(self) -> date:
+        until: date = self.cleaned_data["until"]
+        if until < timezone.localdate():
+            raise forms.ValidationError("Choose today or a later day.")
+        if until > self.latest:
+            raise forms.ValidationError(f"Choose a day at most {MAX_DELEGATION_DAYS} days away.")
+        return until

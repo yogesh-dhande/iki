@@ -296,6 +296,8 @@ SILENCED_SYSTEM_CHECKS = ["oauth2_provider.E003"]
 OAUTH2_PROVIDER: dict[str, object] = {
     "SCOPES_BACKEND_CLASS": "iki_server.oauth.scopes.IkiScopes",
     "OAUTH2_VALIDATOR_CLASS": "iki_server.oauth.validators.IkiValidator",
+    # oauthlib's grants, and token exchange for delegations (ADR 0073).
+    "OAUTH2_SERVER_CLASS": "iki_server.oauth.exchange.Server",
     "SCOPES": {},  # IkiScopes supplies them
     "DEFAULT_SCOPES": [],
     # Short-lived access tokens; refresh tokens rotate, and reusing an old one
@@ -338,6 +340,7 @@ OAUTH2_PROVIDER: dict[str, object] = {
         "refresh_token",
         "client_credentials",
         "urn:ietf:params:oauth:grant-type:device_code",
+        "urn:ietf:params:oauth:grant-type:token-exchange",
     ],
     "OAUTH2_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED": ["none", "client_secret_basic"],
     "OAUTH2_PROTECTED_RESOURCE_BEARER_METHODS_SUPPORTED": ["header"],

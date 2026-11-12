@@ -311,8 +311,22 @@ def service_account(request: HttpRequest, user_id: str) -> HttpResponse:
             credential_form.cleaned_data["name"],
             list(credential_form.cleaned_data["scopes"]),
             by=me,
+            acts_for_people=credential_form.cleaned_data["acts_for_people"],
         )
         credential_form = CredentialForm()
+    if action in ("allow_acting", "stop_acting"):
+        credential = get_object_or_404(
+            oauth_services.credentials(account), pk=request.POST.get("credential")
+        )
+        oauth_services.set_acts_for_people(credential, action == "allow_acting", by=me)
+        messages.success(
+            request,
+            f"People can now let {credential.display_name()} act for them."
+            if action == "allow_acting"
+            else f"{credential.display_name()} no longer acts for anyone. Their delegations "
+            "to it ended.",
+        )
+        return redirect(request.path)
     if action == "revoke_credential":
         credential = get_object_or_404(
             oauth_services.credentials(account), pk=request.POST.get("credential")

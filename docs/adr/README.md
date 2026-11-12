@@ -102,3 +102,4 @@ supersedes the old one, and update the old one's status.
 | [0070](0070-runs-show-what-they-cost.md)                                             | Runs show what they cost                                                                            | Accepted |
 | [0071](0071-budgets-warn-and-can-stop-spending.md)                                   | Budgets warn, and can stop spending                                                                 | Accepted |
 | [0072](0072-agents-changes-name-the-person-and-the-agent.md)                         | An agent's changes name the person and the agent                                                    | Accepted |
+| [0073](0073-unattended-agents-act-for-a-person-by-delegation.md)                     | Unattended agents act for a person by delegation                                                    | Accepted |

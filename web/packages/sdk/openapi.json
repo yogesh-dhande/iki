@@ -3527,14 +3527,57 @@
         "title": "MeCan",
         "type": "object"
       },
+      "MeDelegationOut": {
+        "description": "A person's delegation a token acts under (ADR 0073).",
+        "properties": {
+          "expires_at": {
+            "description": "When the delegation, and its tokens, stop.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "service_account": {
+            "$ref": "#/components/schemas/PersonRef",
+            "description": "The service account whose agent acts."
+          }
+        },
+        "required": [
+          "service_account",
+          "expires_at"
+        ],
+        "title": "MeDelegationOut",
+        "type": "object"
+      },
       "MeOut": {
         "properties": {
           "active": {
             "title": "Active",
             "type": "boolean"
           },
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent this token acts through (ADR 0072), if any. Null in the web app."
+          },
           "can": {
             "$ref": "#/components/schemas/MeCan"
+          },
+          "delegation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeDelegationOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a token an agent got by acting for you (ADR 0073), your delegation to it. Null otherwise."
           },
           "email": {
             "description": "For service accounts, an address that receives no mail.",
@@ -3578,7 +3621,9 @@
           "kind",
           "active",
           "org_roles",
-          "can"
+          "can",
+          "agent",
+          "delegation"
         ],
         "title": "MeOut",
         "type": "object"

@@ -79,6 +79,29 @@ People choose which scopes and projects each app gets, and revoke apps
 under **Account → Apps** (the link on their name). Deactivating someone
 ends all their tokens.
 
+### Agents acting for a person
+
+An agent that runs unattended, such as a nightly triage bot, can act for a
+person instead of as its service account (ADR 0073). An Org Admin first lets
+a service account's credential act for people, on the service account's
+page. A person then lets it act for them under **Account → Apps → Let an
+agent act for you**, choosing its projects and scopes and a day it stops, at
+most 90 days away. The agent's operator configures it with the delegation's
+grant ID, and the agent exchanges it at `/oauth/token/` (RFC 8693 token
+exchange), authenticated with its credential:
+
+```sh
+curl -u "$CLIENT_ID:$CLIENT_SECRET" https://iki.example.com/oauth/token/ \
+  -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+  -d subject_token="$GRANT_ID" \
+  -d subject_token_type=urn:ikisci:params:oauth:token-type:delegation
+```
+
+The token acts for the person, and can do only what both the person and the
+service account may. What it changes is recorded as the person's, through
+the agent. It stops when the delegation expires or is revoked, or when either
+the person or the service account is deactivated, and it can't approve runs.
+
 ### AI agents (MCP)
 
 Iki's MCP server is at `/mcp`, over Streamable HTTP (ADR 0013, ADR 0049).
