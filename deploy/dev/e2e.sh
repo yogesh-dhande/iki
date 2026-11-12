@@ -40,6 +40,9 @@ web_pod=$(kc get pods -l app.kubernetes.io/component=web -o json | jq -r '
 forward "pod/$web_pod" 18000 8000
 forward svc/keycloak 18080 8080
 forward svc/seaweedfs 18333 8333
+# The address Iki signs upload URLs for (Tilt's port-forward when it's up): sso.py's
+# checks and the files checks below send parts there, as a browser does.
+if ! nc -z 127.0.0.1 8333 2>/dev/null; then forward svc/seaweedfs 8333 8333; fi
 forward svc/otel-lgtm 13200 3200
 forward svc/mailpit 18025 8025
 forward svc/webhook-receiver 18090 8080
@@ -155,7 +158,6 @@ pass "S3 rejects anonymous requests and lists bucket iki with signed ones"
 # A part URL signed by the web pod, for the address browsers use
 # (localhost:8333, Tilt's port-forward), takes bytes from this machine; the
 # pod then assembles the part and reads it back. Nothing is left behind.
-if ! nc -z 127.0.0.1 8333 2>/dev/null; then forward svc/seaweedfs 8333 8333; fi
 e2e_key="e2e/$(date +%s)-$RANDOM"
 signed=$(kc exec "pod/$web_pod" -c web -- python -m iki_server.manage shell -c "
 from iki_server.files import storage
