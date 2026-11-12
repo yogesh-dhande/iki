@@ -102,7 +102,7 @@ def test_served_over_asgi_a_download_streams_without_blocking(
     token = pod(world).token
 
     async def download() -> tuple[Any, bytes]:
-        got = await AsyncClient().get(
+        got: Any = await AsyncClient().get(
             f"/worker/v1/plugins/protein/{SHA}",
             secure=True,
             headers={"Authorization": f"Bearer {token}"},
