@@ -267,7 +267,7 @@ def test_requests_nobody_decides_expire(world: World) -> None:
     )
     out = StringIO()
     call_command("maintain", stdout=out)
-    assert "and expired 1 run approval request(s)." in out.getvalue()
+    assert "expired 1 run approval request(s)," in out.getvalue()
     assert request_of(api_as(world), fresh)["status"] == "declined"
     assert RunApproval.objects.get(pk=fresh.approval.pk).state == ApprovalState.EXPIRED
     assert AuditEvent.objects.filter(action="run.approval_expired").count() == 2

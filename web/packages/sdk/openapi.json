@@ -5457,6 +5457,93 @@
         "title": "RunApprovalOut",
         "type": "object"
       },
+      "RunArtifactOut": {
+        "properties": {
+          "attempt": {
+            "description": "The attempt whose command wrote it.",
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "expires_at": {
+            "description": "When its retention ends, and it's deleted.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its file name, the last part of its path.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Where the command wrote it, relative to its output directory.",
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Of its bytes, as hex.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "description": "`kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.",
+            "enum": [
+              "uploading",
+              "kept",
+              "failed",
+              "deleted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "attempt",
+          "path",
+          "name",
+          "media_type",
+          "size",
+          "sha256",
+          "state",
+          "created_at",
+          "expires_at",
+          "deleted_at"
+        ],
+        "title": "RunArtifactOut",
+        "type": "object"
+      },
       "RunAttemptOut": {
         "properties": {
           "attempt": {
@@ -11771,6 +11858,95 @@
           }
         ],
         "summary": "A run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/artifacts": {
+      "get": {
+        "description": "Files its command wrote besides its results, that its action keeps (ADR 0068): each\nattempt's, by attempt then path. At most 1,000 an attempt.",
+        "operationId": "iki_server_api_runs_list_artifacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunArtifactOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A run's artifacts",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/artifacts/{artifact_id}/content": {
+      "get": {
+        "description": "Redirects to a signed URL that works for five minutes, which downloads it under its\nname. Once its retention is over, it's gone (410).",
+        "operationId": "iki_server_api_runs_download_artifact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download an artifact",
         "tags": [
           "runs"
         ]

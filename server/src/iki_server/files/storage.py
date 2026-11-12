@@ -59,6 +59,12 @@ def blob_key(sha256: str) -> str:
     return _key("blobs", "sha256", sha256[:2], sha256)
 
 
+def artifact_key(upload_id: Any) -> str:  # noqa: ANN401 - a UUID
+    """Where a run's artifact is kept (ADR 0068): its own key, never shared, so deleting it
+    when its retention ends deletes nothing else."""
+    return _key("artifacts", str(upload_id))
+
+
 def uri(key: str) -> str:
     return f"s3://{bucket()}/{key}"
 
@@ -296,6 +302,23 @@ def copy(source: str, target: str) -> None:
 
 def delete(key: str) -> None:
     client().delete_object(Bucket=bucket(), Key=key)
+
+
+def delete_for_good(key: str) -> int:
+    """Deletes every version of the object, so a versioned bucket keeps none of it. Returns
+    how many it deleted."""
+    s3 = client()
+    found = s3.list_object_versions(Bucket=bucket(), Prefix=key)
+    doomed = [
+        {"Key": v["Key"], "VersionId": v["VersionId"]}
+        for v in [*found.get("Versions", []), *found.get("DeleteMarkers", [])]
+        if v["Key"] == key
+    ]
+    for item in doomed:
+        s3.delete_object(Bucket=bucket(), Key=item["Key"], VersionId=item["VersionId"])
+    if not doomed:
+        s3.delete_object(Bucket=bucket(), Key=key)
+    return len(doomed)
 
 
 def download_url(

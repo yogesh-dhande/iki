@@ -293,6 +293,7 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     got = data(await tool(token, "get_run", ref=run["hrid"]))
     assert got["run"]["id"] == run["id"]
     assert [a["attempt"] for a in got["attempts"]] == [1]
+    assert got["artifacts"] == []
     log = data(await tool(token, "get_run_log", ref=run["hrid"]))
     assert log["text"] == ""
 

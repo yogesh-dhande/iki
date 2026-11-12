@@ -3,6 +3,8 @@
 //! - **Inputs**: before the command starts, every file its inputs hold (the run input's
 //!   `files`) is downloaded into the job's directory, its size and SHA-256 checked, and
 //!   its `path` added to `input.json`.
+//! - **Artifacts**: once the command ends, each file in `IKI_OUT_DIR` one of the action's
+//!   `artifacts.keep` patterns matches is uploaded as an artifact (ADR 0068).
 //! - **Results**: where `output.json` gives a file field `{"$file": "model.pdb"}` (a path
 //!   in `IKI_OUT_DIR`, optionally with `media_type` and `name`), the file is uploaded in
 //!   parts, checked by the server, and replaced with its file ID.
@@ -21,13 +23,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use iki_protocol::{
-    DownloadOut, LeaseIn, PartOut, PartsIn, RunInputFile, StartedOut, UploadIn, UploadOut,
-    UploadOutState, fill, paths,
+    ArtifactIn, DownloadOut, LeaseIn, PartOut, PartsIn, RunInputFile, StartedOut, UploadIn,
+    UploadOut, UploadOutState, fill, paths,
 };
 use sha2::{Digest, Sha256};
 use ureq::Agent;
 
 use crate::api::{self, Api, Error};
+use crate::globs;
 
 /// How long staging or uploading may take, all told. Heartbeats keep the lease meanwhile.
 const TRANSFERS_FOR: Duration = Duration::from_secs(3600);
@@ -219,7 +222,7 @@ fn guess_media_type(path: &Path) -> &'static str {
         "csv" => "text/csv",
         "tsv" => "text/tab-separated-values",
         "json" => "application/json",
-        "txt" | "log" => "text/plain",
+        "txt" | "log" | "aln" | "a3m" | "sto" => "text/plain",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "tif" | "tiff" => "image/tiff",
@@ -459,7 +462,8 @@ pub fn copy_in(
     Ok(staged)
 }
 
-/// Uploads one file: start, PUT each part, then finish until the server has checked it.
+/// Uploads one result file: start, PUT each part, then finish until the server has
+/// checked it. Returns its file's ID.
 fn upload(
     lease: &Lease,
     storage: &Agent,
@@ -482,26 +486,30 @@ fn upload(
             .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))
     })
     .map_err(|e| failed(&what, e))?;
+    send(lease, storage, &made.path, &what, &started, deadline)?
+        .ok_or_else(|| Failed::Job(format!("{what}: the server made no file of it")))
+}
+
+/// Sends a started upload's parts, then finishes it until the server has checked it.
+/// Returns its file's ID; an artifact has none.
+fn send(
+    lease: &Lease,
+    storage: &Agent,
+    path: &Path,
+    what: &str,
+    started: &StartedOut,
+    deadline: Instant,
+) -> Result<Option<String>, Failed> {
     let mut parts = started.parts.clone();
     parts.sort_by_key(|p| p.number);
     let mut offset = 0u64;
     for part in &parts {
-        put_part(
-            lease,
-            storage,
-            &started.id,
-            &made.path,
-            offset,
-            part,
-            deadline,
-        )
-        .map_err(|e| failed(&what, e))?;
+        put_part(lease, storage, &started.id, path, offset, part, deadline)
+            .map_err(|e| failed(what, e))?;
         offset += u64::try_from(part.size).unwrap_or_default();
     }
-    if started.state == iki_protocol::StartedOutState::Ready
-        && let Some(file) = started.file
-    {
-        return Ok(file);
+    if started.state == iki_protocol::StartedOutState::Ready {
+        return Ok(started.file.clone());
     }
     let finish = fill(paths::JOBS_UPLOADS_COMPLETE, &[lease.job, &started.id]);
     let lease_body = LeaseIn {
@@ -516,12 +524,10 @@ fn upload(
                 .post::<_, UploadOut>(&finish, &lease_body)?
                 .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))
         })
-        .map_err(|e| failed(&what, e))?;
-        match (state.state, state.file) {
-            (UploadOutState::Ready, Some(file)) => return Ok(file),
-            (UploadOutState::Pending | UploadOutState::Checking | UploadOutState::Ready, _)
-                if Instant::now() < deadline =>
-            {
+        .map_err(|e| failed(what, e))?;
+        match state.state {
+            UploadOutState::Ready => return Ok(state.file),
+            UploadOutState::Pending | UploadOutState::Checking if Instant::now() < deadline => {
                 // Iki is reading the bytes back to check them.
                 thread::sleep(api::backoff(attempt.min(3)));
             }
@@ -535,6 +541,71 @@ fn upload(
             }
         }
     }
+}
+
+/// Artifacts one attempt keeps, at most, as the server allows.
+pub const MAX_ARTIFACTS: usize = 1000;
+
+/// The files in `out_dir` one of `patterns` matches, by their paths in it, sorted. Symbolic
+/// links aren't followed or kept: an artifact is a file the command wrote. Also says how
+/// many more there were than an attempt keeps.
+pub fn find_artifacts(out_dir: &Path, patterns: &[String]) -> (Vec<(String, PathBuf)>, usize) {
+    let mut found = Vec::new();
+    let mut pending = vec![(out_dir.to_path_buf(), String::new())];
+    while let Some((dir, prefix)) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue; // a name that isn't UTF-8 can't be named in a pattern
+            };
+            let relative = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if kind.is_dir() {
+                pending.push((entry.path(), relative));
+            } else if kind.is_file() && patterns.iter().any(|p| globs::matches(p, &relative)) {
+                found.push((relative, entry.path()));
+            }
+        }
+    }
+    found.sort();
+    let over = found.len().saturating_sub(MAX_ARTIFACTS);
+    found.truncate(MAX_ARTIFACTS);
+    (found, over)
+}
+
+/// Uploads one artifact: a file the command wrote that its action keeps.
+pub fn upload_artifact(
+    lease: &Lease,
+    storage: &Agent,
+    relative: &str,
+    path: &Path,
+) -> Result<(), Failed> {
+    let deadline = Instant::now() + TRANSFERS_FOR;
+    let what = format!("Couldn't keep {relative}");
+    let (size, sha256) = digest(path).map_err(|e| Failed::Job(format!("{what}: {e}")))?;
+    let body = ArtifactIn {
+        lease_token: lease.token.to_owned(),
+        path: relative.to_owned(),
+        media_type: guess_media_type(path).to_owned(),
+        size: i64::try_from(size).unwrap_or(i64::MAX),
+        sha256,
+    };
+    let started = api::retrying(deadline, || {
+        lease
+            .api
+            .post::<_, StartedOut>(&fill(paths::JOBS_ARTIFACTS, &[lease.job]), &body)?
+            .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))
+    })
+    .map_err(|e| failed(&what, e))?;
+    send(lease, storage, path, &what, &started, deadline).map(|_| ())
 }
 
 /// PUTs one part's bytes, signing its URL again if it ran out.
@@ -611,6 +682,38 @@ mod tests {
         assert_eq!(safe_name(".."), "file");
         assert_eq!(safe_name(""), "file");
         assert_eq!(safe_name("a\\b\nc"), "a_b_c");
+    }
+
+    #[test]
+    fn finds_the_artifacts_the_patterns_match_and_no_links() {
+        let dir = scratch("artifacts");
+        std::fs::create_dir_all(dir.join("msas/deep")).unwrap();
+        for name in [
+            "alignment.txt",
+            "result.json",
+            "msas/a.a3m",
+            "msas/deep/b.a3m",
+        ] {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        std::os::unix::fs::symlink("/etc/passwd", dir.join("msas/passwd")).unwrap();
+        let patterns = ["alignment.*".to_owned(), "msas/**".to_owned()];
+        let (found, over) = find_artifacts(&dir, &patterns);
+        let paths: Vec<&str> = found.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, ["alignment.txt", "msas/a.a3m", "msas/deep/b.a3m"]);
+        assert_eq!(over, 0);
+        assert_eq!(found[0].1, dir.join("alignment.txt"));
+    }
+
+    #[test]
+    fn keeps_at_most_an_attempts_share_of_artifacts() {
+        let dir = scratch("too-many");
+        for n in 0..(MAX_ARTIFACTS + 3) {
+            std::fs::write(dir.join(format!("{n:05}.log")), b"").unwrap();
+        }
+        let (found, over) = find_artifacts(&dir, &["*.log".to_owned()]);
+        assert_eq!((found.len(), over), (MAX_ARTIFACTS, 3));
+        assert_eq!(found[0].0, "00000.log");
     }
 
     #[test]

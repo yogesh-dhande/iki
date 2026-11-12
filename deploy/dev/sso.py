@@ -1066,7 +1066,71 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
         f"protein.compute_properties ran in Biopython's environment ({run['hrid']}): "
         f"{weight} Da, pI {point}"
     )
+    aligned(alice, project)
     structures(alice, project)
+
+
+#: Human haemoglobin's alpha and beta chains (UniProt P69905, P68871).
+HBA = (
+    "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAH"
+    "KLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR"
+)
+HBB = (
+    "MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLSTPDAVMGNPKVKAHGKKVLGAFSDGLAHLDNLKGTF"
+    "ATLSELHCDKLHVDPENFRLLGNVLVCVLAHHFGKEFTPPVQAAYQKVVAGVANALAHKYH"
+)
+
+
+def aligned(alice: requests.Session, project: dict[str, Any]) -> None:
+    """protein.align_pair on haemoglobin's chains: its metrics on the run, and its alignment
+    kept as artifacts (ADR 0068), downloaded from where Iki's URL sends a browser."""
+    chains = []
+    for name, sequence in (("HBA_HUMAN", HBA), ("HBB_HUMAN", HBB)):
+        made = api_call(
+            alice,
+            "POST",
+            "/entities",
+            {
+                "type": "protein.Protein",
+                "project": project["id"],
+                "values": {"name": name, "sequence": sequence},
+            },
+        )
+        if made.status_code not in (200, 201):
+            fail(f"registering {name} answered HTTP {made.status_code}: {made.text[:300]}")
+        chains.append(made.json())
+    # Not reused: this check is of a run that keeps its artifacts.
+    body = {
+        "project": project["id"],
+        "inputs": {"query": chains[0]["id"], "target": chains[1]["id"]},
+        "reuse": False,
+    }
+    launched = api_call(alice, "POST", "/actions/protein.align_pair/runs", body)
+    if launched.status_code != 201:
+        fail(f"launching protein.align_pair answered HTTP {launched.status_code}")
+    run = followed(alice, launched.json(), within=120)
+    if run["status"] != "succeeded":
+        fail(f"{run['hrid']} (protein.align_pair) {run['status']}: {run['error']}")
+    metrics = run.get("metrics") or {}
+    if metrics.get("identity_percent") != 43.6 or metrics.get("length") != 149:
+        fail(f"{run['hrid']} measured {metrics}, not 43.6% identity over 149 columns")
+    kept = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    if sorted((k["path"], k["state"]) for k in kept) != [
+        ("alignment.fasta", "kept"),
+        ("alignment.txt", "kept"),
+    ]:
+        fail(f"{run['hrid']} kept {kept}, not its alignment")
+    text = next(k for k in kept if k["path"] == "alignment.txt")
+    got = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts/{text['id']}/content")
+    if got.status_code != 200 or hashlib.sha256(got.content).hexdigest() != text["sha256"]:
+        fail(f"downloading {run['hrid']}'s alignment.txt answered HTTP {got.status_code}")
+    if b"# Identity:   65/149 (43.6%)" not in got.content:
+        fail(f"{run['hrid']}'s alignment.txt says {got.content[:400]!r}")
+    ok(
+        f"protein.align_pair aligned haemoglobin's chains ({run['hrid']}): "
+        f"{metrics['identity_percent']}% identical, kept {len(kept)} artifacts "
+        f"until {text['expires_at'][:10]}"
+    )
 
 
 #: Residues a made-up structure's chains are made of.

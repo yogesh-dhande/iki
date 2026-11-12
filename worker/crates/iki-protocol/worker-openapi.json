@@ -1,6 +1,49 @@
 {
   "components": {
     "schemas": {
+      "ArtifactIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "media_type": {
+            "description": "Such as text/plain.",
+            "maxLength": 255,
+            "title": "Media Type",
+            "type": "string"
+          },
+          "path": {
+            "description": "Where the command wrote it, relative to its output directory, such as msas/uniref90.a3m. One of the action's `artifacts.keep` patterns must match it.",
+            "maxLength": 500,
+            "title": "Path",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Of its bytes, as hex.",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lease_token",
+          "path",
+          "media_type",
+          "size",
+          "sha256"
+        ],
+        "title": "ArtifactIn",
+        "type": "object"
+      },
       "AvailableListOut": {
         "properties": {
           "plugins": {
@@ -952,6 +995,52 @@
           }
         ],
         "summary": "Stop being a worker"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/artifacts": {
+      "post": {
+        "description": "A file the command wrote that the action keeps (ADR 0068), whether the command\nsucceeded or not. Answers with the parts to PUT; then finish it like a result file,\nunder `uploads/{id}`. Its `file_id` stays null: an artifact isn't a file.",
+        "operationId": "iki_server_api_worker_start_artifact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Upload an artifact"
       }
     },
     "/worker/v1/jobs/{job_id}/complete": {

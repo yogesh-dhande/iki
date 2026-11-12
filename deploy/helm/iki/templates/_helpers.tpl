@@ -164,6 +164,10 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ .workerEndpoint | quote }}
 - name: IKI_FILES_MAX_UPLOAD_SIZE
   value: {{ .maxUploadSize | quote }}
+- name: IKI_FILES_ARTIFACT_RETENTION
+  value: {{ .artifactRetention | quote }}
+- name: IKI_FILES_ARTIFACT_MIN_RETENTION
+  value: {{ .artifactMinRetention | quote }}
 - name: IKI_FILES_REGISTER_LOCATIONS
   value: {{ join "," (.registerLocations | default list) | quote }}
 {{- if .credentials.existingSecret }}

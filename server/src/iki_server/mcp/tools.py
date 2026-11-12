@@ -379,11 +379,13 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Get a run")
     async def get_run(ref: Ref) -> CallToolResult:
-        """A run: its status, inputs, params, what it wrote, and each attempt (where it
-        ran, how it ended)."""
+        """A run: its status, inputs, params, what it wrote, each attempt (where it ran, how
+        it ended), and the artifacts it kept (files people download from its page in Iki,
+        each with when it's deleted)."""
         found = await call("GET", path("/runs/{ref}", ref=ref))
         attempts = await call("GET", path("/runs/{ref}/attempts", ref=ref))
-        return answer({"run": found, "attempts": attempts})
+        artifacts = await call("GET", path("/runs/{ref}/artifacts", ref=ref))
+        return answer({"run": found, "attempts": attempts, "artifacts": artifacts})
 
     @server.tool(annotations=READ, title="Read a run's log")
     async def get_run_log(

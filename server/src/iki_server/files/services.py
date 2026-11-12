@@ -38,6 +38,7 @@ from iki_server.files.models import (
     Registration,
     RegistrationState,
     Upload,
+    UploadKind,
     UploadState,
 )
 from iki_server.org.models import Project
@@ -82,7 +83,14 @@ def clean_media_type(media_type: str) -> str:
 
 
 def start(
-    user: User, project: Project, *, name: str, media_type: str, size: int, sha256: str
+    user: User,
+    project: Project,
+    *,
+    name: str,
+    media_type: str,
+    size: int,
+    sha256: str,
+    kind: UploadKind = UploadKind.FILE,
 ) -> Upload:
     """A new upload. Callers check the user may add files to the project."""
     name, media_type, sha256 = clean_name(name), clean_media_type(media_type), sha256.lower()
@@ -98,6 +106,7 @@ def start(
         media_type=media_type,
         size=size,
         sha256=sha256,
+        kind=kind,
         part_size=storage.part_size_for(size),
         expires_at=timezone.now() + UPLOAD_LIFETIME,
     )
@@ -211,7 +220,16 @@ def check(upload_id: str) -> str:
 
 
 def _finish(upload: Upload, sha256: str, size: int) -> None:
-    """Moves checked bytes to their content's key, and makes the upload a file."""
+    """Moves checked bytes to their content's key, and makes the upload a file; or, for an
+    artifact, to its own key."""
+    if upload.kind == UploadKind.ARTIFACT:
+        storage.copy(upload.staging_key, storage.artifact_key(upload.pk))
+        storage.delete(upload.staging_key)
+        with transaction.atomic():
+            locked = Upload.objects.select_for_update().get(pk=upload.pk)
+            if locked.state in (UploadState.PENDING, UploadState.CHECKING):
+                _end(locked, UploadState.READY)
+        return
     key = storage.blob_key(sha256)
     if not storage.exists(key):
         storage.copy(upload.staging_key, key)
@@ -256,6 +274,8 @@ def _end(upload: Upload, state: UploadState) -> None:
     upload.state = state
     upload.finished_at = timezone.now()
     upload.save(update_fields=["state", "finished_at", "error", "file"])
+    if upload.kind == UploadKind.ARTIFACT:
+        return  # a worker's, for a run: the run's page says how it went
     # Postgres delivers it when the transaction commits.
     realtime.publish(
         upload.created_by_id,

@@ -1143,6 +1143,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{ref}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A run's artifacts
+         * @description Files its command wrote besides its results, that its action keeps (ADR 0068): each
+         *     attempt's, by attempt then path. At most 1,000 an attempt.
+         */
+        get: operations["iki_server_api_runs_list_artifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{ref}/artifacts/{artifact_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an artifact
+         * @description Redirects to a signed URL that works for five minutes, which downloads it under its
+         *     name. Once its retention is over, it's gone (410).
+         */
+        get: operations["iki_server_api_runs_download_artifact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{ref}/attempts": {
         parameters: {
             query?: never;
@@ -4273,6 +4315,60 @@ export interface components {
              */
             state: "pending" | "approved" | "declined" | "expired";
         };
+        /** RunArtifactOut */
+        RunArtifactOut: {
+            /**
+             * Attempt
+             * @description The attempt whose command wrote it.
+             */
+            attempt: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deleted At */
+            deleted_at: string | null;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description When its retention ends, and it's deleted.
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /**
+             * Name
+             * @description Its file name, the last part of its path.
+             */
+            name: string;
+            /**
+             * Path
+             * @description Where the command wrote it, relative to its output directory.
+             */
+            path: string;
+            /**
+             * Sha256
+             * @description Of its bytes, as hex.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+            /**
+             * State
+             * @description `kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.
+             * @enum {string}
+             */
+            state: "uploading" | "kept" | "failed" | "deleted";
+        };
         /** RunAttemptOut */
         RunAttemptOut: {
             /**
@@ -7089,6 +7185,49 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RunOut"];
                 };
+            };
+        };
+    };
+    iki_server_api_runs_list_artifacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunArtifactOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_download_artifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Found */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

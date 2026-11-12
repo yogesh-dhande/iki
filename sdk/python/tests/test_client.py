@@ -473,6 +473,72 @@ def test_a_damaged_download_isnt_kept(fake: FakeIki, client: Client, tmp_path: P
     assert list(downloads.iterdir()) == []
 
 
+def kept_artifacts(fake: FakeIki, content: bytes) -> None:
+    sha = hashlib.sha256(content).hexdigest()
+    fake.on(
+        "GET",
+        "/api/v1/runs/RUN-000001/artifacts",
+        [
+            {
+                "id": "a1",
+                "attempt": 1,
+                "path": "alignment.txt",
+                "name": "alignment.txt",
+                "sha256": sha,
+                "state": "kept",
+            },
+            {
+                "id": "a2",
+                "attempt": 2,
+                "path": "alignment.txt",
+                "name": "alignment.txt",
+                "sha256": sha,
+                "state": "kept",
+            },
+        ],
+    )
+    for artifact in ("a1", "a2"):
+        fake.on(
+            "GET",
+            f"/api/v1/runs/RUN-000001/artifacts/{artifact}/content",
+            httpx2.Response(302, headers={"Location": f"https://files.example.com/{artifact}"}),
+        )
+        fake.on("GET", f"/{artifact}", httpx2.Response(200, content=content))
+
+
+def test_a_runs_artifacts_download_the_latest_attempts_unless_told(
+    fake: FakeIki, client: Client, tmp_path: Path
+) -> None:
+    kept_artifacts(fake, b"X-1 MKV\n")
+
+    saved = client.runs.download_artifact("RUN-000001", "alignment.txt", tmp_path)
+
+    assert Path(saved) == tmp_path / "alignment.txt"
+    assert Path(saved).read_bytes() == b"X-1 MKV\n"
+    assert fake.sent("GET", "/a2") and not fake.sent("GET", "/a1")
+    first = client.runs.download_artifact(
+        "RUN-000001", "alignment.txt", tmp_path / "1.txt", attempt=1
+    )
+    assert Path(first).read_bytes() == b"X-1 MKV\n" and fake.sent("GET", "/a1")
+    assert [a["attempt"] for a in client.runs.artifacts({"hrid": "RUN-000001"})] == [1, 2]
+    with pytest.raises(iki.IkiError, match=r"RUN-000001 kept no artifact out\.log"):
+        client.runs.download_artifact("RUN-000001", "out.log", tmp_path)
+
+
+def test_an_artifact_past_its_retention_is_gone(
+    fake: FakeIki, client: Client, tmp_path: Path
+) -> None:
+    kept_artifacts(fake, b"x")
+    folder = tmp_path / "downloads"
+    folder.mkdir()
+    gone = {"status": 410, "code": "artifact_deleted", "detail": "alignment.txt was deleted."}
+    fake.on("GET", "/api/v1/runs/RUN-000001/artifacts/a2/content", httpx2.Response(410, json=gone))
+
+    with pytest.raises(iki.ApiError, match="was deleted"):
+        client.runs.download_artifact("RUN-000001", "alignment.txt", folder)
+    assert list(folder.iterdir()) == []
+
+
 # --- The module's shortcuts --------------------------------------------------------------------
 
 

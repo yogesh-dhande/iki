@@ -278,6 +278,16 @@ on it. The validator checks that:
   Iki can't keep secrets from, or limit, a person's own machine
 - files the command names with `./` are in the plugin, and aren't symbolic links
 
+A run keeps as artifacts the files in its output directory (`$IKI_OUT_DIR`)
+that one of the `artifacts.keep` patterns matches, whether the command
+succeeded or not, for people to download from the run's page. Patterns match
+a path relative to that directory one segment at a time: `*` and `?` within
+a segment, `[...]` a set of characters, and a `**` segment any number of
+segments. Each attempt keeps at most 1,000. They're deleted once
+`retention` is over (the deployment's default if it's left out, 90 days
+unless it says otherwise, and never less than its minimum). Batchable
+actions can't keep artifacts.
+
 A run gets the secrets its action declares under `secrets` as environment
 variables, and no others. Each deployment keeps them in its own secret
 manager, for this plugin alone (`dna.NCBI_API_KEY` is the dna plugin's), so a
@@ -689,7 +699,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                                                      | Dependencies                    |
 | `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                             | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                    | Lockfiles                       |
-| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `timeout-too-long`                                                                                 | Actions                         |
+| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `timeout-too-long`                                                        | Actions                         |
 | `creates-abstract`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                            | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`         | Where actions run               |
 | `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                        | Reuse and retries               |

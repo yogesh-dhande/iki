@@ -543,6 +543,25 @@ except ValueError as _error:
     raise environ.ImproperlyConfigured(
         f"IKI_FILES_MAX_UPLOAD_SIZE must be a size such as 100GiB: {_error}"
     ) from None
+# Runs' artifacts (ADR 0068): kept as long as their action says, or
+# IKI_FILES_ARTIFACT_RETENTION if it doesn't, and never less than
+# IKI_FILES_ARTIFACT_MIN_RETENTION.
+try:
+    from iki_spec.model import parse_duration as _parse_duration
+
+    IKI_FILES_ARTIFACT_RETENTION: int = _parse_duration(
+        env.str("IKI_FILES_ARTIFACT_RETENTION", default="") or "90d"
+    )
+    IKI_FILES_ARTIFACT_MIN_RETENTION: int = (
+        _parse_duration(_minimum)
+        if (_minimum := env.str("IKI_FILES_ARTIFACT_MIN_RETENTION", default=""))
+        else 0
+    )
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_FILES_ARTIFACT_RETENTION and IKI_FILES_ARTIFACT_MIN_RETENTION must be durations "
+        f"such as 90d: {_error}"
+    ) from None
 #: Where files may be registered in place, rather than uploaded: ``s3://bucket/prefix/``
 #: entries. Each bucket must keep versions; Iki pins each file to its version.
 IKI_FILES_REGISTER_LOCATIONS: list[str] = []

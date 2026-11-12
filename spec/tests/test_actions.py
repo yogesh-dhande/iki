@@ -616,6 +616,8 @@ def test_batches_take_one_input(tmp_path: Path) -> None:
     assert make(tmp_path, action(batchable="50")).problems == []
     many = action(batchable="50", inputs="{ assay: { type: Assay, cardinality: many } }")
     assert only(make(tmp_path, many), "batch-needs-one-input")
+    keeping = action(batchable="50", artifacts='{ keep: ["*.log"] }')
+    assert only(make(tmp_path, keeping), "batch-keeps-artifacts")
 
 
 def test_deterministic_warnings(tmp_path: Path) -> None:

@@ -57,6 +57,95 @@ def script(
     return result, output
 
 
+# --- Alignment -----------------------------------------------------------------------------------
+
+#: Human haemoglobin's beta chain (UniProt P68871).
+HBB = (
+    "MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLSTPDAVMGNPKVKAHGKKVLGAFSDGLAHLDNLKGTF"
+    "ATLSELHCDKLHVDPENFRLLGNVLVCVLAHHFGKEFTPPVQAAYQKVVAGVANALAHKYH"
+)
+NEEDLE = {"mode": "global", "matrix": "BLOSUM62", "gap_open": 10, "gap_extend": 0.5}
+
+
+def aligned(
+    tmp_path: Path, query: str, target: str, **params: Any
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
+    return script(
+        tmp_path,
+        "align.py",
+        {
+            "run": {"hrid": "RUN-000007"},
+            "params": {**NEEDLE, **params},
+            "inputs": {
+                "query": [entity(1, sequence=query, name="HBA_HUMAN")],
+                "target": [entity(2, sequence=target, name="HBB_HUMAN")],
+            },
+        },
+    )
+
+
+def test_aligns_two_proteins_as_needle_and_keeps_the_alignment(tmp_path: Path) -> None:
+    result, output = aligned(tmp_path, HBA, HBB)
+
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert output["metrics"] == {
+        "score": 292.5,
+        "length": 149,
+        "identity_percent": 43.6,
+        "similarity_percent": 60.4,
+        "gaps_percent": 6.0,
+    }
+    text = (tmp_path / "out" / "alignment.txt").read_text()
+    assert "# Matrix: BLOSUM62" in text and "# Identity:   65/149 (43.6%)" in text
+    assert "X-1      1 MV-LSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHF-D     48" in text
+    assert text.rstrip().endswith(
+        "X-2     99 VDPENFRLLGNVLVCVLAHHFGKEFTPPVQAAYQKVVAGVANALAHKYH    147"
+    )
+    fasta = (tmp_path / "out" / "alignment.fasta").read_text().split(">")[1:]
+    rows = ["".join(record.splitlines()[1:]) for record in fasta]
+    assert [r.replace("-", "") for r in rows] == [HBA, HBB]
+    assert len(rows[0]) == len(rows[1]) == 149
+
+
+def test_end_gaps_are_free_globally_and_local_finds_the_best_part(tmp_path: Path) -> None:
+    part = HBA[30:80]
+    _, whole = aligned(tmp_path, HBA, part)
+    _, local = aligned(tmp_path, HBA, part, mode="local")
+
+    assert whole is not None and local is not None
+    assert whole["metrics"]["score"] == local["metrics"]["score"]
+    assert whole["metrics"]["length"] == len(HBA)
+    assert local["metrics"]["length"] == 50 and local["metrics"]["identity_percent"] == 100
+    assert "X-1     31 " in (tmp_path / "out" / "alignment.txt").read_text()
+
+
+def test_penalties_and_matrices_change_the_alignment(tmp_path: Path) -> None:
+    _, default = aligned(tmp_path, HBA, HBB)
+    _, costly = aligned(tmp_path, HBA, HBB, gap_open=50)
+    _, pam = aligned(tmp_path, HBA, HBB, matrix="PAM250")
+
+    assert default is not None and costly is not None and pam is not None
+    assert costly["metrics"]["score"] < default["metrics"]["score"]
+    assert pam["metrics"]["score"] != default["metrics"]["score"]
+
+
+@pytest.mark.parametrize(
+    ("query", "target", "why"),
+    [
+        ("*", HBB, "X-1 has no residues to align."),
+        ("A" * 20_000, "A" * 20_000, "are too long to align here: 20,000 by 20,000 residues"),
+    ],
+)
+def test_what_cant_be_aligned_fails_its_run_saying_why(
+    tmp_path: Path, query: str, target: str, why: str
+) -> None:
+    result, output = aligned(tmp_path, query, target)
+
+    assert result.returncode == 1 and output is None
+    assert why in result.stdout
+
+
 # --- Properties ----------------------------------------------------------------------------------
 
 

@@ -97,3 +97,4 @@ supersedes the old one, and update the old one's status.
 | [0065](0065-first-party-plugins-images-are-built-and-signed-like-ikis.md)            | First-party plugins' images are built and signed like Iki's                                         | Accepted |
 | [0066](0066-a-run-reads-only-whats-in-its-project.md)                                | A run reads only what's in its project                                                              | Accepted |
 | [0067](0067-a-project-can-keep-its-entities-to-itself.md)                            | A project can keep its entities to itself                                                           | Accepted |
+| [0068](0068-runs-keep-artifacts-for-a-while.md)                                      | Runs keep artifacts for a while                                                                     | Accepted |

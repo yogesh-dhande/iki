@@ -25,6 +25,8 @@ INPUTS = (
     ROOT / "spec" / "src" / "iki_spec",
     ROOT / "server" / "src" / "iki_server" / "plugins",
     ROOT / "server" / "src" / "iki_server" / "entities",
+    # Plugin migrations depend on the latest of Iki's own.
+    *sorted((ROOT / "server" / "src" / "iki_server").glob("*/migrations")),
 )
 ORDER = (("dna",), ("protein", "dna"), ("structure_prediction", "protein", "dna"))
 

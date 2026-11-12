@@ -462,6 +462,15 @@ class _Rules:
                 source,
                 ("batchable",),
             )
+        if action.batchable > 1 and action.artifacts:
+            self.add(
+                "batch-keeps-artifacts",
+                "A batchable action can't keep artifacts: one job runs it on several entities, "
+                "so its files wouldn't belong to any one run.",
+                source,
+                ("artifacts",),
+                hint="Write one file per entity into its results instead, or don't batch it.",
+            )
         self.retries(action, source)
 
     def input(self, put: Input, source: Document, path: Path) -> None:

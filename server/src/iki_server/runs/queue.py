@@ -363,6 +363,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             "resources": job.resources,
             **_proxy(job, run),
             **({"secrets": given} if given else {}),
+            **({"artifacts": run.spec["artifacts"]} if run.spec.get("artifacts") else {}),
         },
         "command": run.spec["command"],
         "environment": f"{run.action.split('.')[0]}.{run.environment}",

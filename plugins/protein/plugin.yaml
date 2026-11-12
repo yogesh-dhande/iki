@@ -2,9 +2,9 @@
 apiVersion: iki/v1
 kind: Plugin
 name: protein
-version: 0.3.0
+version: 0.4.0
 title: Protein
-description: Proteins and their structures, with the properties of their sequences and folds.
+description: Proteins and their structures, with the properties of their sequences and folds, and their alignments.
 license: Apache-2.0
 homepage: https://ikisci.org/plugins/protein
 dependencies:

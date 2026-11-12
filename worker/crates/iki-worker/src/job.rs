@@ -99,6 +99,13 @@ pub trait Host: Send + Sync + 'static {
     fn results_done(&self) -> &'static str {
         "Uploaded the result files."
     }
+    /// Keeps a file the command wrote as an artifact; `relative` is its path in the output
+    /// directory.
+    fn keep(&self, relative: &str, path: &Path) -> Result<(), files::Failed>;
+    /// What to say once `keep` has kept some artifacts.
+    fn kept(&self) -> &'static str {
+        "Kept"
+    }
     /// A line the command printed.
     fn line(&self, text: &str);
     /// Where the job has got to.
@@ -236,6 +243,10 @@ impl Host for Job {
         output: &mut serde_json::Map<String, serde_json::Value>,
     ) -> Result<usize, files::Failed> {
         files::upload_results(&self.lease(), &files::storage_agent(), out_dir, output)
+    }
+
+    fn keep(&self, relative: &str, path: &Path) -> Result<(), files::Failed> {
+        files::upload_artifact(&self.lease(), &files::storage_agent(), relative, path)
     }
 
     fn line(&self, text: &str) {
@@ -880,7 +891,51 @@ pub fn execute<H: Host>(
     {}
 
     let why = said.lock().unwrap_or_else(PoisonError::into_inner).take();
+    // Whether it succeeded, failed or ran out of time: its files help see why. Not when
+    // it was cancelled, or the worker is stopping.
+    if (stopped.is_none() && status.is_some()) || stopped == Some(Stop::TimedOut) {
+        let patterns = input.job.artifacts.as_deref().unwrap_or_default();
+        if !patterns.is_empty() {
+            host.state(HeartbeatInState::Uploading);
+            if let Err(error) = keep_artifacts(host.as_ref(), dirs, patterns) {
+                host.lost(&error);
+                return None;
+            }
+        }
+    }
     outcome(host.as_ref(), dirs, status, stopped, timeout, why)
+}
+
+/// Keeps the files in the output directory the action's `artifacts.keep` patterns match.
+/// One that can't be kept is said in the log, and doesn't fail the run. Errs if the lease
+/// was lost.
+fn keep_artifacts(host: &impl Host, dirs: &Dirs, patterns: &[String]) -> Result<(), Error> {
+    let (found, over) = files::find_artifacts(&dirs.out, patterns);
+    let mut kept = 0usize;
+    for (relative, path) in &found {
+        match host.keep(relative, path) {
+            Ok(()) => kept += 1,
+            Err(files::Failed::Lost(error)) => return Err(error),
+            Err(files::Failed::Job(message)) => {
+                host.line(&format!("iki-worker: {message}\n"));
+            }
+        }
+    }
+    if over > 0 {
+        host.line(&format!(
+            "iki-worker: Kept the first {} artifacts; {over} more weren't kept.\n",
+            files::MAX_ARTIFACTS
+        ));
+    }
+    if kept > 0 {
+        let noun = if kept == 1 { "artifact" } else { "artifacts" };
+        host.line(&format!("iki-worker: {} {kept} {noun}.\n", host.kept()));
+        say::info(
+            "Kept the artifacts.",
+            &[("job", &host.id()), ("artifacts", &kept)],
+        );
+    }
+    Ok(())
 }
 
 /// What to report, once the command has ended. `None` if the lease was lost.

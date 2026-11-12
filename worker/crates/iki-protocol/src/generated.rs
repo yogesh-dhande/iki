@@ -109,6 +109,9 @@ pub struct RunInputJob {
     /// The secrets the action declares that the deployment has set, by name. The worker gives them to the command as environment variables, leaves them out of input.json, and masks them in the log.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secrets: Option<std::collections::BTreeMap<String, String>>,
+    /// For an action that keeps artifacts: its `artifacts.keep` patterns. Once the command ends, the worker uploads each file in the output directory one matches, as an artifact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<Vec<String>>,
 }
 
 /// What the job needs. Memory and disk are in bytes.
@@ -236,6 +239,19 @@ pub enum RunOutputMessagesItemLevel {
     /// A value this version of the protocol doesn't know.
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArtifactIn {
+    pub lease_token: String,
+    /// Such as text/plain.
+    pub media_type: String,
+    /// Where the command wrote it, relative to its output directory, such as msas/uniref90.a3m. One of the action's `artifacts.keep` patterns must match it.
+    pub path: String,
+    /// Of its bytes, as hex.
+    pub sha256: String,
+    /// Bytes.
+    pub size: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -584,6 +600,8 @@ pub struct WorkerOut {
 pub mod paths {
     /// `/worker/v1/deregister`
     pub const DEREGISTER: &str = "/worker/v1/deregister";
+    /// `/worker/v1/jobs/{job_id}/artifacts`
+    pub const JOBS_ARTIFACTS: &str = "/worker/v1/jobs/{job_id}/artifacts";
     /// `/worker/v1/jobs/{job_id}/complete`
     pub const JOBS_COMPLETE: &str = "/worker/v1/jobs/{job_id}/complete";
     /// `/worker/v1/jobs/{job_id}/fail`

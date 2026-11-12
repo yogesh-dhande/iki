@@ -209,6 +209,21 @@ export function attemptsQuery(ref: string) {
   });
 }
 
+export type Artifact = Schemas["RunArtifactOut"];
+
+/** Files the run's command wrote that its action keeps (ADR 0068). */
+export function artifactsQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...RUNS, "artifacts", ref.toUpperCase()],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/runs/{ref}/artifacts", { params: { path: { ref } } })),
+  });
+}
+
+export function artifactDownloadUrl(ref: string, id: string): string {
+  return `/api/v1/runs/${encodeURIComponent(ref)}/artifacts/${encodeURIComponent(id)}/content`;
+}
+
 /** Past this, the server counts a log's bytes but doesn't keep them. */
 export const LOG_KEPT_BYTES = 16 * 1024 ** 2;
 

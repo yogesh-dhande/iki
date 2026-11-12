@@ -783,6 +783,42 @@ class Lineage(models.Model):
         return f"{self.parent_id} -> {self.entity_id} ({self.run_id})"
 
 
+class RunArtifact(models.Model):
+    """A file a run's command wrote besides its results, kept for people to download until
+    its retention ends (ADR 0068). Its record stays after its bytes are deleted."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="artifacts")
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="artifacts")
+    upload = models.OneToOneField(Upload, on_delete=models.PROTECT, related_name="run_artifact")
+    path = models.CharField(
+        max_length=500, db_comment="Where the command wrote it, relative to its output directory."
+    )
+    created_at = models.DateTimeField(db_default=Now())
+    expires_at = models.DateTimeField(db_comment="When its retention ends and it's deleted.")
+    deleted_at = models.DateTimeField(
+        null=True, blank=True, db_comment="When its bytes were deleted, its retention over."
+    )
+
+    class Meta:
+        db_table = "iki_run_artifact"
+        db_table_comment = "Files runs wrote besides their results, kept for a while."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["run", "path"], name="iki_run_artifact_by_run"),
+            models.Index(
+                fields=["expires_at"],
+                name="iki_run_artifact_to_delete",
+                condition=Q(deleted_at__isnull=True),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["job", "path"], name="iki_run_artifact_once"),
+        ]
+
+    def __str__(self) -> str:
+        return self.path
+
+
 class RunUpload(models.Model):
     """A file a run's worker uploaded, for its results (ADR 0044). A run's output may attach
     only these, and files its inputs already had."""

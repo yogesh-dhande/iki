@@ -46,7 +46,16 @@ from iki_server.files import storage
 from iki_server.files.models import Upload, UploadState
 from iki_server.org.services import Refused
 from iki_server.realtime.views import db
-from iki_server.runs import catalog, input_files, launches, queue, uploads, wakeup, workers
+from iki_server.runs import (
+    artifacts,
+    catalog,
+    input_files,
+    launches,
+    queue,
+    uploads,
+    wakeup,
+    workers,
+)
 from iki_server.runs.models import Launch, RegistrationToken, Worker
 from iki_server.web.ratelimit import RateLimiter, client_key
 
@@ -607,6 +616,17 @@ class UploadIn(LeaseIn):
     sha256: str = Field(min_length=64, max_length=64, description="Of its bytes, as hex.")
 
 
+class ArtifactIn(LeaseIn):
+    path: str = Field(
+        max_length=500,
+        description="Where the command wrote it, relative to its output directory, such as "
+        "msas/uniref90.a3m. One of the action's `artifacts.keep` patterns must match it.",
+    )
+    media_type: str = Field(max_length=255, description="Such as text/plain.")
+    size: int = Field(ge=0, description="Bytes.")
+    sha256: str = Field(min_length=64, max_length=64, description="Of its bytes, as hex.")
+
+
 class PartsIn(LeaseIn):
     numbers: list[int] | None = Field(
         None, max_length=1000, description="The parts to sign again; all of them if left out."
@@ -647,6 +667,25 @@ def start_upload(request: HttpRequest, job_id: UUID, payload: UploadIn) -> Any: 
         job_id,
         payload.lease_token,
         name=payload.name,
+        media_type=payload.media_type,
+        size=payload.size,
+        sha256=payload.sha256,
+    )
+    parts = files.parts(upload, workers=True) if upload.state == UploadState.PENDING else []
+    return Status(201, {**_upload_out(upload), "parts": parts})
+
+
+@api.post("/jobs/{job_id}/artifacts", response={201: StartedOut}, summary="Upload an artifact")
+def start_artifact(request: HttpRequest, job_id: UUID, payload: ArtifactIn) -> Any:  # noqa: ANN401
+    """A file the command wrote that the action keeps (ADR 0068), whether the command
+    succeeded or not. Answers with the parts to PUT; then finish it like a result file,
+    under `uploads/{id}`. Its `file_id` stays null: an artifact isn't a file."""
+    _storage()
+    upload = artifacts.start(
+        _worker(request),
+        job_id,
+        payload.lease_token,
+        path=payload.path,
         media_type=payload.media_type,
         size=payload.size,
         sha256=payload.sha256,

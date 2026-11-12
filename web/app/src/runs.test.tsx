@@ -35,6 +35,24 @@ function onRun(found: () => Schemas["RunOut"], attempts: () => Schemas["RunAttem
   answer("GET /api/v1/actions", [ACTION]);
   answer("GET /api/v1/runs/RUN-000001", () => found());
   answer("GET /api/v1/runs/RUN-000001/attempts", () => attempts());
+  answer("GET /api/v1/runs/RUN-000001/artifacts", []);
+}
+
+function artifact(overrides: Partial<Schemas["RunArtifactOut"]> = {}): Schemas["RunArtifactOut"] {
+  return {
+    id: "00000000-0000-7000-8000-0000000000a1",
+    attempt: 1,
+    path: "alignment.txt",
+    name: "alignment.txt",
+    media_type: "text/plain",
+    size: 2048,
+    sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    state: "kept",
+    created_at: "2026-03-14T09:01:00Z",
+    expires_at: "2026-06-12T09:01:00Z",
+    deleted_at: null,
+    ...overrides,
+  };
 }
 
 function runStream(): FakeEventSource {
@@ -418,6 +436,46 @@ describe("a run's page", () => {
     expect(alert).toHaveTextContent("/updates/0/values/pi: Not a number.");
     expect(await screen.findByText("It printed nothing.")).toBeInTheDocument();
     expect(FakeEventSource.opened.filter((s) => s.url === EVENTS)).toEqual([]);
+  });
+
+  it("lists the artifacts it kept, until when, and those deleted since", async () => {
+    onRun(
+      () => run({ status: "succeeded", finished_at: "2026-03-14T09:01:00Z" }),
+      () => [attempt({ state: "succeeded", finished_at: "2026-03-14T09:01:00Z" })],
+    );
+    withLog(
+      () => "",
+      () => true,
+    );
+    answer("GET /api/v1/runs/RUN-000001/artifacts", [
+      artifact({
+        id: "00000000-0000-7000-8000-0000000000a0",
+        path: "msas/uniref90.a3m",
+        name: "uniref90.a3m",
+        state: "deleted",
+        deleted_at: "2026-06-12T10:17:00Z",
+      }),
+      artifact(),
+    ]);
+    await renderApp("/runs/RUN-000001/");
+    const card = await screen.findByRole("region", { name: "Artifacts" });
+    const kept = within(card).getByRole("link", { name: "alignment.txt" });
+    expect(kept).toHaveAttribute(
+      "href",
+      "/api/v1/runs/RUN-000001/artifacts/00000000-0000-7000-8000-0000000000a1/content",
+    );
+    expect(kept).toHaveAttribute("download", "alignment.txt");
+    const [, deleted, rest] = within(card).getAllByRole("row");
+    if (!deleted || !rest) throw new Error("Not two artifacts");
+    const rows = [undefined, deleted, rest];
+    expect(rows[1]).toHaveTextContent("msas/uniref90.a3m");
+    expect(rows[1]).toHaveTextContent("Deleted 12 Jun 2026, its retention over");
+    expect(within(deleted).queryByRole("link")).toBeNull();
+    expect(rows[2]).toHaveTextContent("2.0 KiB");
+    expect(rows[2]).toHaveTextContent("Until 12 Jun 2026");
+    expect(rows[2]).toHaveTextContent("SHA-256 9f86d081884c…");
+    // One attempt: no column for it.
+    expect(within(card).queryByRole("columnheader", { name: "Attempt" })).toBeNull();
   });
 
   it("says why a queued run is waiting", async () => {

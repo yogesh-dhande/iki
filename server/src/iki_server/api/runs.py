@@ -24,6 +24,8 @@ from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, registry, schema
 from iki_server.entities.values import Invalid
+from iki_server.files import storage
+from iki_server.files.models import UploadState
 from iki_server.org import permissions
 from iki_server.runs import (
     approvals,
@@ -44,6 +46,7 @@ from iki_server.runs.models import (
     JobLog,
     JobState,
     RunApproval,
+    RunArtifact,
     RunBatch,
     RunEffect,
     RunImport,
@@ -1336,5 +1339,97 @@ def download_attempt_log(request: HttpRequest, ref: str, attempt: int) -> HttpRe
     )
     response = HttpResponse(text.encode(), content_type="text/plain; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{run.hrid}-attempt-{attempt}.log"'
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+# --- Artifacts ---------------------------------------------------------------------------------
+
+
+class RunArtifactOut(Schema):
+    id: UUID
+    attempt: int = Field(description="The attempt whose command wrote it.")
+    path: str = Field(description="Where the command wrote it, relative to its output directory.")
+    name: str = Field(description="Its file name, the last part of its path.")
+    media_type: str
+    size: int = Field(description="Bytes.")
+    sha256: str = Field(description="Of its bytes, as hex.")
+    state: Literal["uploading", "kept", "failed", "deleted"] = Field(
+        description="`kept` while it can be downloaded; `deleted` once its retention is over "
+        "(its record stays); `failed` if its upload didn't finish."
+    )
+    created_at: datetime
+    expires_at: datetime = Field(description="When its retention ends, and it's deleted.")
+    deleted_at: datetime | None
+
+
+def _artifact_state(artifact: RunArtifact) -> str:
+    if artifact.deleted_at is not None:
+        return "deleted"
+    upload = artifact.upload.state
+    if upload == UploadState.READY:
+        return "kept"
+    return "uploading" if upload in (UploadState.PENDING, UploadState.CHECKING) else "failed"
+
+
+def _artifact_out(artifact: RunArtifact) -> dict[str, Any]:
+    upload = artifact.upload
+    return {
+        "id": artifact.pk,
+        "attempt": artifact.job.attempt,
+        "path": artifact.path,
+        "name": upload.name,
+        "media_type": upload.media_type,
+        "size": upload.size,
+        "sha256": upload.sha256,
+        "state": _artifact_state(artifact),
+        "created_at": artifact.created_at,
+        "expires_at": artifact.expires_at,
+        "deleted_at": artifact.deleted_at,
+    }
+
+
+@router.get("/runs/{ref}/artifacts", response=list[RunArtifactOut], summary="A run's artifacts")
+def list_artifacts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+    """Files its command wrote besides its results, that its action keeps (ADR 0068): each
+    attempt's, by attempt then path. At most 1,000 an attempt."""
+    run = _find(caller(request), ref)
+    found = (
+        RunArtifact.objects.filter(run=run)
+        .select_related("upload", "job")
+        .order_by("job__attempt", "path")
+    )
+    return [_artifact_out(a) for a in found]
+
+
+@router.get(
+    "/runs/{ref}/artifacts/{artifact_id}/content",
+    response={302: None},
+    summary="Download an artifact",
+)
+def download_artifact(request: HttpRequest, ref: str, artifact_id: UUID) -> HttpResponse:
+    """Redirects to a signed URL that works for five minutes, which downloads it under its
+    name. Once its retention is over, it's gone (410)."""
+    run = _find(caller(request), ref)
+    artifact = RunArtifact.objects.select_related("upload").filter(run=run, pk=artifact_id).first()
+    if artifact is None:
+        raise Problem(404, "The run has no such artifact.")
+    if artifact.deleted_at is not None:
+        raise Problem(
+            410,
+            f"{artifact.path} was deleted on {artifact.deleted_at:%Y-%m-%d}, once its "
+            "retention was over.",
+            code="artifact_deleted",
+        )
+    if _artifact_state(artifact) != "kept":
+        raise Problem(409, f"{artifact.path} didn't finish uploading.", code="artifact_not_kept")
+    if not storage.configured():
+        raise Problem(503, str(storage.NotConfigured()), code="storage_not_configured")
+    upload = artifact.upload
+    url = storage.download_url(
+        storage.uri(storage.artifact_key(upload.pk)), "", upload.name, upload.media_type
+    )
+    response = HttpResponse(status=302)
+    response["Location"] = url
     response["Cache-Control"] = "no-store"
     return response

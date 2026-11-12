@@ -11,6 +11,7 @@ mod between;
 mod bundles;
 mod config;
 mod files;
+mod globs;
 mod job;
 mod local;
 mod login;

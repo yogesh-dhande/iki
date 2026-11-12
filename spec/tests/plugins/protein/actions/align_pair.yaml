@@ -1,0 +1,15 @@
+apiVersion: iki/v1
+kind: Action
+name: align_pair
+label: Align two proteins
+inputs:
+  query: { type: Protein, schema: ">=1" }
+  target: { type: Protein, schema: ">=1" }
+params:
+  mode: { type: enum, values: [global, local], default: global }
+effects: {}
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/align.py]
+deterministic: true
+artifacts: { keep: ["alignment.txt", "alignment.fasta"] }
+timeout: 10m

@@ -68,6 +68,7 @@ ACTIONS: dict[str, str] = {
     "run.launched": "Launched an action",
     "run.cancelled": "Cancelled a run",
     "run.cancel_requested": "Asked a running action to stop",
+    "run.artifacts_deleted": "Deleted a run's artifacts, their retention over",
     "run.batch_launched": "Launched an action on several entities",
     "run.batch_cancelled": "Cancelled a batch of runs",
     "run.approval_requested": "Asked, through an app, for runs that need approval",

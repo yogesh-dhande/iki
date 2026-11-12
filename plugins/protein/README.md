@@ -2,7 +2,8 @@
 
 Iki's protein plugin: proteins, translated from DNA, imported or fetched from
 UniProt, with the properties of their sequences, and their structures, from
-the PDB or a lab's own files, with their secondary structure.
+the PDB or a lab's own files, with their secondary structure, and alignments
+of pairs of proteins.
 
 - **`protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
   - Its identity is its sequence, so registering the same protein again
@@ -57,6 +58,15 @@ plugin's own image, which Iki's publish workflow builds from
   itself.
 - **`assign_secondary_structure`**: runs DSSP (mkdssp 4.4) on structures'
   first models, up to 20 at once, and sets their secondary structure.
+- **`align_pair`**: aligns two proteins, globally as EMBOSS needle does or
+  locally as water does, with needle's default scoring unless the run says
+  otherwise: BLOSUM62, a gap opening penalty of 10 and an extension penalty
+  of 0.5, and, globally, gaps at the ends free. It records the score, the
+  alignment's length, and its identity, similarity and gaps as percentages of
+  it, and keeps the alignment as two artifacts
+  ([ADR 0068](../../docs/adr/0068-runs-keep-artifacts-for-a-while.md)):
+  `alignment.txt` in EMBOSS's pair format, and `alignment.fasta`. Up to 100
+  million cells (10,000 residues by 10,000).
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 

@@ -538,6 +538,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("POST", "/runs/{ref}/reproduce", run("/reproduce", {}), editors(409)),
     ("GET", "/runs/{ref}/effects", run("/effects"), readers(200)),
     ("GET", "/runs/{ref}/attempts", run("/attempts"), readers(200)),
+    ("GET", "/runs/{ref}/artifacts", run("/artifacts"), readers(200)),
+    # It has none: readers learn that; others, that there's no such run.
+    (
+        "GET",
+        "/runs/{ref}/artifacts/{artifact_id}/content",
+        run("/artifacts/00000000-0000-7000-8000-000000000000/content"),
+        readers(404),
+    ),
     ("GET", "/batches", fixed("/batches"), row(200)),
     ("GET", "/batches/{ref}", batch(), readers(200)),
     ("POST", "/batches/{ref}/cancel", batch("/cancel", {}), editors(200)),

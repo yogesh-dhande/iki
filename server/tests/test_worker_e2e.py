@@ -499,6 +499,49 @@ Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
 """
 
 
+#: Writes an alignment, files the action doesn't keep and a link out, then exits as told.
+ALIGNS = """
+import json, os, sys
+from pathlib import Path
+out = Path(os.environ["IKI_OUT_DIR"])
+(out / "alignment.txt").write_text("X-1 1 MKV 3\\n")
+(out / "alignment.fasta").write_text(">X-1\\nMKV\\n")
+(out / "scratch.tmp").write_text("not kept")
+os.symlink("/etc/hosts", out / "alignment.fasta.link")
+Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(
+    {"apiVersion": "iki/v1", "kind": "RunOutput", "metrics": {"score": 15.0}}))
+sys.exit(int(os.environ.get("EXIT", "0")))
+"""
+
+
+@pytest.mark.parametrize(("code", "status"), [("0", "succeeded"), ("4", "failed")])
+def test_a_run_keeps_the_files_its_action_keeps_whether_it_succeeds_or_not(
+    world: World, start: Callable[..., Running], tmp_path: Path, code: str, status: str
+) -> None:
+    editor = api_as(world)
+    a, b = protein(editor, world.project, "abl1"), protein(editor, world.project, "src")
+    run = launch(editor, world.project, {"query": a["id"], "target": b["id"]}, "protein.align_pair")
+    assert run.status_code == 201, run.content
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGINS / "protein", plugins / "protein")
+    script = ALIGNS.replace('os.environ.get("EXIT", "0")', repr(code))
+    (plugins / "protein" / "scripts" / "align.py").write_text(script, encoding="utf-8")
+
+    exit_code, said = start(registration(world), "--once", plugins=plugins).wait()
+
+    assert exit_code == 0, said
+    body = editor.get(f"/runs/{run.json()['id']}").json()
+    assert body["status"] == status, log_of(run.json())
+    kept = editor.get(f"/runs/{body['hrid']}/artifacts").json()
+    assert [(k["path"], k["state"], k["media_type"]) for k in kept] == [
+        ("alignment.fasta", "kept", "text/x-fasta"),
+        ("alignment.txt", "kept", "text/plain"),
+    ]
+    got = editor.get(f"/runs/{body['hrid']}/artifacts/{kept[1]['id']}/content")
+    assert requests.get(got["Location"], timeout=30).content == b"X-1 1 MKV 3\n"
+    assert "iki-worker: Kept 2 artifacts." in log_of(run.json())
+
+
 def test_a_command_gives_many_creates_in_a_file_and_they_are_imported(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:

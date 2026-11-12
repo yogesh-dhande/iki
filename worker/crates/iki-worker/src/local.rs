@@ -75,6 +75,16 @@ impl Host for Local {
         "Checked the result files."
     }
 
+    fn keep(&self, relative: &str, _path: &Path) -> Result<(), files::Failed> {
+        // Nothing to upload to: they stay where the command wrote them.
+        say::info("Would keep an artifact.", &[("path", &relative)]);
+        Ok(())
+    }
+
+    fn kept(&self) -> &'static str {
+        "Would keep"
+    }
+
     fn line(&self, text: &str) {
         let mut err = std::io::stderr().lock();
         let _ = err.write_all(text.as_bytes());

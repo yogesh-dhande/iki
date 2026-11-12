@@ -574,6 +574,8 @@ def test_files_are_off_unless_a_bucket_is_set_and_then_reach_every_container() -
         assert variables["IKI_FILES_PREFIX"] == "prod", name
         assert variables["IKI_FILES_ENDPOINT_URL"] == "", name
         assert variables["IKI_FILES_MAX_UPLOAD_SIZE"] == "100GiB", name
+        assert variables["IKI_FILES_ARTIFACT_RETENTION"] == "90d", name
+        assert variables["IKI_FILES_ARTIFACT_MIN_RETENTION"] == "", name
         # No keys: on AWS, the service account's IAM role gives access.
         assert "AWS_ACCESS_KEY_ID" not in variables, name
 
@@ -631,6 +633,13 @@ def test_only_web_task_maintenance_and_worker_pods_reach_object_storage() -> Non
 def test_the_upload_size_is_checked_by_the_schema() -> None:
     error = render({"files": {"bucket": "iki", "maxUploadSize": "lots"}}, ok=False)
     assert "maxUploadSize" in str(error)
+
+
+def test_artifact_retention_is_checked_by_the_schema() -> None:
+    error = render({"files": {"bucket": "iki", "artifactRetention": "a year"}}, ok=False)
+    assert "artifactRetention" in str(error)
+    error = render({"files": {"bucket": "iki", "artifactMinRetention": "0d"}}, ok=False)
+    assert "artifactMinRetention" in str(error)
 
 
 def test_register_locations_reach_every_container_and_are_checked() -> None:

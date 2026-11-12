@@ -20,6 +20,8 @@ import { usePageTitle } from "../layout";
 import {
   actionLabel,
   actionsQuery,
+  artifactDownloadUrl,
+  artifactsQuery,
   ATTEMPT_STATE,
   attemptsQuery,
   finished,
@@ -33,6 +35,7 @@ import {
   STATUS,
   tone,
   useRunUpdates,
+  type Artifact,
   type Attempt,
   type Run,
   type RunStatus,
@@ -48,6 +51,7 @@ import {
   RelativeTime,
   SelectField,
   TextField,
+  Time,
   useMessages,
 } from "../ui";
 import { useProject } from "./project-overview";
@@ -969,6 +973,7 @@ export function RunPage() {
   usePageTitle(`${label} (${run.hrid})`);
   const project = useQuery(projectsQuery).data?.find((p) => p.id === run.project);
   const attempts = useQuery(attemptsQuery(run.hrid));
+  const artifacts = useQuery(artifactsQuery(run.hrid)).data ?? [];
   const client = useQueryClient();
   const [sizes, setSizes] = useState<Record<number, number>>({});
   const done = finished(run.status);
@@ -982,6 +987,7 @@ export function RunPage() {
     if (done && !wasDone.current) {
       void client.invalidateQueries({ queryKey: ENTITIES });
       void client.invalidateQueries({ queryKey: attemptsQuery(run.hrid).queryKey });
+      void client.invalidateQueries({ queryKey: artifactsQuery(run.hrid).queryKey });
       void client.invalidateQueries({ queryKey: [...RUNS, "list"] });
     }
     wasDone.current = done;
@@ -1098,6 +1104,8 @@ export function RunPage() {
           </ul>
         </section>
       ) : null}
+
+      {artifacts.length ? <RunArtifacts runRef={run.hrid} artifacts={artifacts} /> : null}
 
       <section aria-labelledby="attempts-title">
         <h2 className="section-title" id="attempts-title">
@@ -1258,6 +1266,75 @@ export function RunPage() {
           </dd>
         </dl>
       </section>
+    </>
+  );
+}
+
+/** Files the run's command wrote that its action keeps (ADR 0068), each attempt's, with
+ * when each is deleted. A deleted one keeps its record: its size and SHA-256. */
+function RunArtifacts({ runRef, artifacts }: { runRef: string; artifacts: Artifact[] }) {
+  const several = new Set(artifacts.map((a) => a.attempt)).size > 1;
+  return (
+    <section className="card" aria-labelledby="artifacts-title">
+      <h2 className="section-title" id="artifacts-title">
+        Artifacts
+      </h2>
+      <p className="muted">
+        Files the run wrote besides its results, which its action keeps for a while. Each is deleted
+        when its retention is over; what it was stays recorded here.
+      </p>
+      <div className="table-scroll">
+        <table className="table">
+          <thead>
+            <tr>
+              <th scope="col">File</th>
+              {several ? <th scope="col">Attempt</th> : null}
+              <th scope="col">Size</th>
+              <th scope="col">Kept</th>
+            </tr>
+          </thead>
+          <tbody>
+            {artifacts.map((artifact) => (
+              <tr key={artifact.id}>
+                <td>
+                  {artifact.state === "kept" ? (
+                    <a href={artifactDownloadUrl(runRef, artifact.id)} download={artifact.name}>
+                      {artifact.path}
+                    </a>
+                  ) : (
+                    artifact.path
+                  )}
+                  <div className="muted">
+                    SHA-256 <code title={artifact.sha256}>{artifact.sha256.slice(0, 12)}…</code>
+                  </div>
+                </td>
+                {several ? <td>{artifact.attempt}</td> : null}
+                <td>{formatSize(artifact.size)}</td>
+                <td>
+                  <ArtifactKept artifact={artifact} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ArtifactKept({ artifact }: { artifact: Artifact }) {
+  if (artifact.state === "deleted" && artifact.deleted_at) {
+    return (
+      <span className="muted">
+        Deleted <Time value={artifact.deleted_at} />, its retention over
+      </span>
+    );
+  }
+  if (artifact.state === "uploading") return <span className="muted">Uploading…</span>;
+  if (artifact.state === "failed") return <span className="muted">Didn’t finish uploading</span>;
+  return (
+    <>
+      Until <Time value={artifact.expires_at} />
     </>
   );
 }

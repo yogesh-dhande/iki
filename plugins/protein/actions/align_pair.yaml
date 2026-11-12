@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: align_pair
+label: Align two proteins
+description: >-
+  Aligns two proteins' sequences, as EMBOSS needle (global) or water (local)
+  does with its defaults: BLOSUM62, a gap opening penalty of 10 and an
+  extension penalty of 0.5, with gaps at the ends free in a global alignment.
+  The run keeps the alignment, in EMBOSS's pair format and as aligned FASTA,
+  and records its score, identity, similarity and gaps.
+inputs:
+  query: { type: Protein, schema: ">=1" }
+  target: { type: Protein, schema: ">=1" }
+params:
+  mode:
+    type: enum
+    values: [global, local]
+    default: global
+    description: Global aligns the whole of both (needle); local, their best-matching parts (water).
+  matrix:
+    type: enum
+    label: Substitution matrix
+    values: [BLOSUM62, BLOSUM45, BLOSUM50, BLOSUM80, BLOSUM90, PAM30, PAM70, PAM250]
+    default: BLOSUM62
+  gap_open:
+    type: float
+    label: Gap opening penalty
+    min: 0
+    max: 100
+    default: 10
+  gap_extend:
+    type: float
+    label: Gap extension penalty
+    min: 0
+    max: 10
+    default: 0.5
+effects: {}
+runs_on: { tier: backend, environment: protein-tools }
+command: [python, ./scripts/align.py]
+deterministic: true
+artifacts: { keep: ["alignment.txt", "alignment.fasta"] }
+timeout: 10m

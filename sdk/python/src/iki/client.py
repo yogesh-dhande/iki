@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         OriginOut,
         ProjectOut,
         RevisionOut,
+        RunArtifactOut,
         RunAttemptOut,
         RunOut,
     )
@@ -606,6 +607,41 @@ class Runs(_Part):
             self._client.request("GET", _path("/runs/{r}/attempts", r=_ref(ref))),
         )
 
+    def artifacts(self, ref: str | Mapping[str, Any]) -> builtins.list[RunArtifactOut]:
+        """Files its command wrote that its action keeps, each attempt's, by attempt then
+        path, with when each is deleted (ADR 0068). A deleted one keeps its record."""
+        return cast(
+            "builtins.list[RunArtifactOut]",
+            self._client.request("GET", _path("/runs/{r}/artifacts", r=_ref(ref))),
+        )
+
+    def download_artifact(
+        self,
+        ref: str | Mapping[str, Any],
+        path: str,
+        to: str | os.PathLike[str],
+        *,
+        attempt: int | None = None,
+    ) -> str:
+        """Saves the artifact at `path` (such as ``alignment.txt``) at `to`, and returns
+        where; the latest attempt's, unless you name one. Its checksum is checked. Once its
+        retention is over, it's gone: Iki answers 410."""
+        run = _ref(ref)
+        kept = [a for a in self.artifacts(run) if a["path"] == path]
+        if attempt is not None:
+            kept = [a for a in kept if a["attempt"] == attempt]
+        if not kept:
+            raise IkiError(f"{run} kept no artifact {path}.")
+        found = max(kept, key=lambda a: a["attempt"])
+        return _download(
+            self._client,
+            _path("/runs/{r}/artifacts/{a}/content", r=run, a=found["id"]),
+            name=found["name"],
+            sha256=found["sha256"],
+            to=to,
+            what=path,
+        )
+
     def log(self, ref: str | Mapping[str, Any], *, attempt: int | None = None) -> str:
         """What an attempt printed (the latest, unless you name one)."""
         run = _ref(ref)
@@ -673,44 +709,62 @@ class Files(_Part):
     def download(self, file_id: str, to: str | os.PathLike[str]) -> str:
         """Saves a file's content at `to` and returns where. Its checksum is checked
         against the one Iki recorded, so a damaged download is never kept."""
-        import hashlib
-        from pathlib import Path, PurePosixPath
-
         info = self._client.request("GET", _path("/files/{f}", f=file_id))
-        target = Path(to)
-        if target.is_dir():
-            # Only the name's last part, so a name can't put the file somewhere else.
-            name = PurePosixPath(str(info.get("name") or "").replace("\\", "/")).name
-            target = target / (name if name not in ("", ".", "..") else file_id)
-        partial = target.with_name(target.name + ".part")
-        digest = hashlib.sha256()
-        # It answers with a short-lived signed URL. That's fetched without Iki's token,
-        # which is for Iki alone.
-        signed = self._client._send("GET", _path("/files/{f}/content", f=file_id))
-        location = signed.headers.get("Location")
-        if signed.status_code not in (301, 302, 303, 307) or not location:
-            raise IkiError(f"{self._client.url} didn't say where to download {file_id} from.")
-        response = self._client._http.send(
-            self._client._http.build_request("GET", location), stream=True
+        return _download(
+            self._client,
+            _path("/files/{f}/content", f=file_id),
+            name=str(info.get("name") or ""),
+            sha256=str(info.get("sha256") or ""),
+            to=to,
+            what=file_id,
         )
-        try:
-            if response.status_code != 200:
-                raise IkiError(
-                    f"The file store refused the download of {file_id} "
-                    f"({response.status_code}): try again."
-                )
-            with partial.open("wb") as out:
-                for chunk in response.iter_bytes():
-                    digest.update(chunk)
-                    out.write(chunk)
-        except BaseException:
-            partial.unlink(missing_ok=True)
-            raise
-        finally:
-            response.close()
-        expected = str(info.get("sha256") or "")
-        if expected and digest.hexdigest() != expected:
-            partial.unlink(missing_ok=True)
-            raise IkiError(f"The download of {file_id} was damaged: try again.")
-        partial.replace(target)
-        return str(target)
+
+
+def _download(
+    client: Client,
+    content: str,
+    *,
+    name: str,
+    sha256: str,
+    to: str | os.PathLike[str],
+    what: str,
+) -> str:
+    """Saves what `content` redirects to at `to` (in it, under `name`, if it's a directory),
+    and returns where, once its SHA-256 is checked."""
+    import hashlib
+    from pathlib import Path, PurePosixPath
+
+    target = Path(to)
+    if target.is_dir():
+        # Only the name's last part, so a name can't put the file somewhere else.
+        base = PurePosixPath(name.replace("\\", "/")).name
+        target = target / (base if base not in ("", ".", "..") else what)
+    partial = target.with_name(target.name + ".part")
+    digest = hashlib.sha256()
+    # It answers with a short-lived signed URL. That's fetched without Iki's token,
+    # which is for Iki alone.
+    signed = client._send("GET", content)
+    location = signed.headers.get("Location")
+    if signed.status_code not in (301, 302, 303, 307) or not location:
+        raise IkiError(f"{client.url} didn't say where to download {what} from.")
+    response = client._http.send(client._http.build_request("GET", location), stream=True)
+    try:
+        if response.status_code != 200:
+            raise IkiError(
+                f"The file store refused the download of {what} ({response.status_code}): "
+                "try again."
+            )
+        with partial.open("wb") as out:
+            for chunk in response.iter_bytes():
+                digest.update(chunk)
+                out.write(chunk)
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    finally:
+        response.close()
+    if sha256 and digest.hexdigest() != sha256:
+        partial.unlink(missing_ok=True)
+        raise IkiError(f"The download of {what} was damaged: try again.")
+    partial.replace(target)
+    return str(target)
