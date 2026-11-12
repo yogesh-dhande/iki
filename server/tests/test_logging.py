@@ -30,6 +30,22 @@ def json_lines() -> Iterator[JsonLines]:
     configure_logging("INFO", "json")
 
 
+def test_python_warnings_are_logged_as_json(json_lines: JsonLines) -> None:
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("always")
+        # pytest records each test's warnings in place of where the server sends them.
+        logging.captureWarnings(False)
+        configure_logging("INFO", "json", stream=json_lines.stream)
+        warnings.warn("a library grumbles", UserWarning, stacklevel=1)
+        logging.captureWarnings(False)
+    (line,) = json_lines.read()
+    assert line["logger"] == "py.warnings"
+    assert line["level"] == "warning"
+    assert "a library grumbles" in str(line["event"])
+
+
 def test_stdlib_and_structlog_records_render_as_json(json_lines: JsonLines) -> None:
     logging.getLogger("django.db").warning("from stdlib %s", "args")
     structlog.get_logger("iki.test").info("from structlog", answer=42)

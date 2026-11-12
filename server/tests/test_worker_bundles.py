@@ -92,6 +92,30 @@ def test_workers_download_a_plugins_code(
     assert len(body) == installed["bundle"]["size"]
 
 
+@pytest.mark.django_db(transaction=True)
+def test_served_over_asgi_a_download_streams_without_blocking(
+    world: World, installed: dict[str, Any]
+) -> None:
+    from asgiref.sync import async_to_sync
+    from django.test import AsyncClient
+
+    token = pod(world).token
+
+    async def download() -> tuple[Any, bytes]:
+        got = await AsyncClient().get(
+            f"/worker/v1/plugins/protein/{SHA}",
+            secure=True,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        return got, b"".join([chunk async for chunk in got.streaming_content])
+
+    # Django warns (and pytest fails) if it had to consume a synchronous iterator.
+    got, body = async_to_sync(download)()
+    assert got.status_code == 200
+    assert int(got["Content-Length"]) == installed["bundle"]["size"] == len(body)
+    assert hashlib.sha256(body).hexdigest() == installed["bundle"]["sha256"]
+
+
 @pytest.mark.parametrize(
     "path",
     [f"/plugins/protein/{'d' * 40}", f"/plugins/dna/{SHA}", "/plugins/protein/..%2f..%2fetc"],

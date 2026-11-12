@@ -97,6 +97,8 @@ def configure_logging(
 ) -> None:
     """Configures structlog and the standard library's logging in one step."""
     logging.config.dictConfig(build_logging_config(level, fmt, stream))
+    # Python's warnings go to the log too (as py.warnings), so every line is JSON.
+    logging.captureWarnings(True)
     structlog.configure(
         processors=[
             *_shared_processors(),

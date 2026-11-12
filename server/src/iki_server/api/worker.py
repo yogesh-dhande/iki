@@ -16,12 +16,21 @@ Its OpenAPI document is at ``/worker/v1/openapi.json``.
 import asyncio
 import json
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from django.http import FileResponse, HttpRequest, HttpResponse, HttpResponseBase
+from django.core.handlers.asgi import ASGIRequest
+from django.http import (
+    FileResponse,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBase,
+    StreamingHttpResponse,
+)
 from django.views.decorators.csrf import csrf_exempt
 from ninja import Field, NinjaAPI, Schema, Status
 from ninja.errors import AuthenticationError, HttpError, ValidationError
@@ -423,9 +432,32 @@ def download_plugin(request: HttpRequest, name: str, sha: str) -> HttpResponseBa
     file = registry.bundle(name, sha) if named else None
     if file is None:
         raise HttpError(404, "This deployment has no code for that plugin at that commit.")
-    response = FileResponse(file.open("rb"), content_type="application/gzip")
+    response = _send(request, file, "application/gzip")
     # A commit's code never changes; a local directory's may with each build.
     response["Cache-Control"] = "no-store" if local else "private, max-age=31536000, immutable"
+    return response
+
+
+#: How much of a file a download reads at a time.
+CHUNK = 1 << 20
+
+
+def _send(request: HttpRequest, file: Path, content_type: str) -> HttpResponseBase:
+    """Streams `file`. Served over ASGI, as in production, it's read in a thread a chunk
+    at a time, rather than by Django consuming a synchronous iterator."""
+    if not isinstance(request, ASGIRequest):
+        return FileResponse(file.open("rb"), content_type=content_type)
+
+    async def chunks() -> AsyncIterator[bytes]:
+        handle = await asyncio.to_thread(file.open, "rb")
+        try:
+            while chunk := await asyncio.to_thread(handle.read, CHUNK):
+                yield chunk
+        finally:
+            await asyncio.to_thread(handle.close)
+
+    response = StreamingHttpResponse(chunks(), content_type=content_type)
+    response["Content-Length"] = str(file.stat().st_size)
     return response
 
 
