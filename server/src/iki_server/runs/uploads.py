@@ -14,7 +14,7 @@ from typing import Any
 from django.db import transaction
 
 from iki_server.files import services as files
-from iki_server.files.models import Upload
+from iki_server.files.models import Upload, UploadKind, UploadState
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
@@ -83,6 +83,13 @@ def complete(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, upload_id: uui
     """Finishes the upload once its parts are in; again, it says how checking it went."""
     with transaction.atomic():
         upload = _upload(worker, job_id, token, upload_id)
+        run_id = upload.run_upload.run_id
     finished = files.complete(upload)
     finished.refresh_from_db()
+    if finished.kind == UploadKind.CHECKPOINT and finished.state == UploadState.READY:
+        from iki_server.runs import checkpoints
+
+        # A newer checkpoint is in: the run's older ones go (ADR 0069).
+        with transaction.atomic():
+            checkpoints.supersede(run_id)
     return finished

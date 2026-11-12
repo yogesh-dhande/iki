@@ -520,6 +520,7 @@ the environment ([ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md)):
 | `TMPDIR`, `HOME`                | the job's own, removed when it ends          |
 | `IKI_RUN_ID`, `IKI_RUN_ATTEMPT` | the run, and which attempt this is           |
 | `IKI_SEED`                      | a seed for its random numbers (0 to 2³¹ − 1) |
+| `IKI_CHECKPOINT_DIR`            | where a checkpointable action saves progress |
 
 What it prints goes to the run's log. A line like
 `::progress 0.4 Folding chain A` reports progress (a fraction, or `40%`).
@@ -528,6 +529,24 @@ the attempt. Before failing, it can say why with a line like
 `::error Record 3 (pUC19) has no bases`: the last one is what the run's
 page shows. On SIGTERM (a cancel, its timeout, or the machine stopping)
 it has 10 seconds to stop.
+
+A `checkpointable` action saves its progress in `IKI_CHECKPOINT_DIR`
+([ADR 0069](../docs/adr/0069-checkpointable-runs-resume.md)). While the command
+runs, the worker saves the directory every 10 minutes (as the deployment sets
+it) if anything in it changed, and once more if the attempt ends in a way the
+run is retried for: interrupted, say, or the machine stopping. A later attempt
+finds the newest checkpoint in the directory before it starts, and
+`IKI_RUN_ATTEMPT` says which attempt it is. So:
+
+- on start, resume from what's in the directory, if anything is
+- write each file under a temporary name, then rename it into place, so a
+  save never holds half a file: a file that changes as it's saved is left for
+  the next save
+- on SIGTERM, save what you can within the 10 seconds, then exit
+
+Only regular files and directories are saved, not links. A checkpoint is
+deleted once a newer one is saved, and when the run ends. Batchable actions
+can't be checkpointable.
 
 The command writes `output.json`
 ([`run-output/v1`](src/iki_spec/schemas/run-output/v1.json)). It can only
@@ -699,7 +718,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                                                      | Dependencies                    |
 | `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                             | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                    | Lockfiles                       |
-| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `timeout-too-long`                                                        | Actions                         |
+| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`                                   | Actions                         |
 | `creates-abstract`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                            | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`         | Where actions run               |
 | `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                        | Reuse and retries               |

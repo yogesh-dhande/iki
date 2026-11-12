@@ -68,5 +68,5 @@ can't refer to it. A result an entity needs is a file field, as before.
   belongs in an entity's values, where it's kept for good.
 - Agents see a run's artifacts in `get_run`, but don't download them: what a
   command wrote is untrusted content.
-- Checkpoints (`checkpointable`) are next: they're kept only while a run
-  might resume, so they need their own lifetime.
+- Checkpoints (`checkpointable`) are kept only while a run might resume, so
+  they have their own lifetime ([ADR 0069](0069-checkpointable-runs-resume.md)).

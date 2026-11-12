@@ -11,10 +11,13 @@
 //! - `IKI_OUT_DIR`: a directory for files it makes
 //! - `TMPDIR` and `HOME`: directories of the job's own, removed afterwards
 //! - `IKI_SEED`: a seed for its random numbers, given again when it's reproduced
+//! - `IKI_CHECKPOINT_DIR`: for a `checkpointable` action, where it saves its progress. The
+//!   worker saves it every so often and restores it for a later attempt (`checkpoint`)
 //!
 //! Lines it prints like `::progress 0.4 Folding chain A` report progress.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -26,11 +29,13 @@ use std::time::{Duration, Instant};
 
 use iki_protocol::{
     CompleteIn, CompleteOut, FailIn, FailInReason, FailOut, HeartbeatIn, HeartbeatInState,
-    HeartbeatOut, LogIn, LogOut, ProgressIn, RunInput, RunInputFile, fill, paths,
+    HeartbeatOut, LogIn, LogOut, ProgressIn, RunInput, RunInputFile,
+    RunInputJobCheckpointSaveOnItem as SaveOn, RunInputJobCheckpointSaved, fill, paths,
 };
 use rustix::process::{Pid, Signal, kill_process_group};
 
 use crate::api::{self, Api, Error};
+use crate::checkpoint;
 use crate::config::Config;
 use crate::files;
 use crate::logs::{self, Log};
@@ -116,6 +121,22 @@ pub trait Host: Send + Sync + 'static {
     }
     /// A transfer found the lease gone.
     fn lost(&self, _error: &Error) {}
+    /// Unpacks the checkpoint an earlier attempt saved into `dir`, using `packed` for its
+    /// bytes, and records that the attempt resumed from it.
+    fn restore(
+        &self,
+        _saved: &RunInputJobCheckpointSaved,
+        _packed: &Path,
+        _dir: &Path,
+    ) -> Result<(), files::Failed> {
+        Err(files::Failed::Job(
+            "there's nowhere to restore it from".into(),
+        ))
+    }
+    /// Saves a packed checkpoint.
+    fn save(&self, _packed: &checkpoint::Packed) -> Result<(), files::Failed> {
+        Ok(())
+    }
 }
 
 struct Job {
@@ -273,6 +294,23 @@ impl Host for Job {
     fn lost(&self, error: &Error) {
         self.note(error);
     }
+
+    fn restore(
+        &self,
+        saved: &RunInputJobCheckpointSaved,
+        packed: &Path,
+        dir: &Path,
+    ) -> Result<(), files::Failed> {
+        files::download_checkpoint(&self.lease(), &files::storage_agent(), saved, packed)?;
+        let unpacked = checkpoint::unpack(packed, dir);
+        let _ = std::fs::remove_file(packed);
+        unpacked.map_err(|e| files::Failed::Job(format!("Couldn't unpack it: {e}")))?;
+        files::restored_checkpoint(&self.lease(), &saved.id)
+    }
+
+    fn save(&self, packed: &checkpoint::Packed) -> Result<(), files::Failed> {
+        files::upload_checkpoint(&self.lease(), &files::storage_agent(), packed)
+    }
 }
 
 /// Reads what the command prints, line by line, for its host.
@@ -395,6 +433,11 @@ pub struct Dirs {
     home: PathBuf,
     /// Input files, each in a directory named for its ID.
     inputs: PathBuf,
+    /// For a checkpointable action: where its command saves progress (ADR 0069). Inside
+    /// the job's directory, unless a local run names one of its own to keep.
+    pub checkpoint: PathBuf,
+    /// Where a checkpoint is packed to upload, or downloaded to unpack.
+    packed_checkpoint: PathBuf,
 }
 
 impl Dirs {
@@ -407,6 +450,8 @@ impl Dirs {
             tmp: root.join("tmp"),
             home: root.join("home"),
             inputs: root.join("inputs"),
+            checkpoint: root.join("checkpoint"),
+            packed_checkpoint: root.join("checkpoint.tar"),
             root,
         }
     }
@@ -415,7 +460,15 @@ impl Dirs {
         if self.root.exists() {
             std::fs::remove_dir_all(&self.root)?;
         }
-        for dir in [&self.root, &self.out, &self.tmp, &self.home, &self.inputs] {
+        let dirs = [
+            &self.root,
+            &self.out,
+            &self.tmp,
+            &self.home,
+            &self.inputs,
+            &self.checkpoint,
+        ];
+        for dir in dirs {
             create_private_dir(dir)?;
         }
         Ok(())
@@ -490,6 +543,9 @@ fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(Str
         // Output reaches the log as it's written, not when a buffer fills.
         ("PYTHONUNBUFFERED".into(), "1".into()),
     ]);
+    if input.job.checkpoint.is_some() {
+        env.push(("IKI_CHECKPOINT_DIR".into(), path(&dirs.checkpoint)));
+    }
     // For its random numbers: the same again when the run is reproduced (ADR 0057).
     if let Some(seed) = input.run.seed {
         env.push(("IKI_SEED".into(), seed.to_string()));
@@ -840,11 +896,24 @@ pub fn execute<H: Host>(
             return Some(Report::Fail(FailInReason::Failed, message));
         }
     }
+    let saving = input.job.checkpoint.as_ref();
+    if let Some(saved) = saving.and_then(|c| c.saved.as_ref())
+        && restore(host.as_ref(), saved, dirs).is_err()
+    {
+        return None;
+    }
+    let saver = saving.map(|_| Saver::new(host, dirs));
     host.state(HeartbeatInState::Running);
     let mut child = match spawn(plan, dirs) {
         Ok(child) => child,
         Err(message) => return Some(Report::Fail(FailInReason::Failed, message)),
     };
+    let saving_every = saver.as_ref().and_then(|saver| {
+        let every = saving?.save_every?;
+        let every = Duration::from_secs(u64::try_from(every.max(1)).unwrap_or(600));
+        let saver = Arc::clone(saver);
+        Some(thread::spawn(move || saver.every(every)))
+    });
     let (done, readers_done) = mpsc::channel::<()>();
     // The last `::error` line the command printed: why it failed, if it fails.
     let said: Arc<Mutex<Option<String>>> = Arc::default();
@@ -891,6 +960,13 @@ pub fn execute<H: Host>(
     {}
 
     let why = said.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(saver) = &saver {
+        let save_on = saving.map(|c| c.save_on.as_slice()).unwrap_or_default();
+        if let Err(error) = saver.finish(saving_every, save_on, stopped, status) {
+            host.lost(&error);
+            return None;
+        }
+    }
     // Whether it succeeded, failed or ran out of time: its files help see why. Not when
     // it was cancelled, or the worker is stopping.
     if (stopped.is_none() && status.is_some()) || stopped == Some(Stop::TimedOut) {
@@ -904,6 +980,193 @@ pub fn execute<H: Host>(
         }
     }
     outcome(host.as_ref(), dirs, status, stopped, timeout, why)
+}
+
+/// Restores the checkpoint an earlier attempt saved before the command starts. One that
+/// can't be restored is said in the log, and the command starts afresh. Errs if the lease
+/// was lost.
+fn restore(host: &impl Host, saved: &RunInputJobCheckpointSaved, dirs: &Dirs) -> Result<(), ()> {
+    let which = format!(
+        "the checkpoint attempt {} saved at {}",
+        saved.attempt, saved.saved_at
+    );
+    match host.restore(saved, &dirs.packed_checkpoint, &dirs.checkpoint) {
+        Ok(()) => {
+            host.line(&format!("iki-worker: Resumed from {which}.\n"));
+            say::info(
+                "Restored the checkpoint.",
+                &[("job", &host.id()), ("attempt", &saved.attempt)],
+            );
+            Ok(())
+        }
+        Err(files::Failed::Lost(error)) => {
+            host.lost(&error);
+            Err(())
+        }
+        Err(files::Failed::Job(message)) => {
+            let _ = std::fs::remove_file(&dirs.packed_checkpoint);
+            if let Err(error) = checkpoint::clear(&dirs.checkpoint) {
+                say::warn(
+                    "Couldn't empty the checkpoint directory.",
+                    &[("detail", &error)],
+                );
+            }
+            host.line(&format!(
+                "iki-worker: Couldn't restore {which}, so this attempt starts afresh. {message}.\n"
+            ));
+            say::warn(
+                "Couldn't restore the checkpoint.",
+                &[("job", &host.id()), ("detail", &message)],
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Saves the checkpoint directory if it changed: every so often while the command runs,
+/// and once more when the attempt ends in a way the run is retried for.
+struct Saver<H: Host> {
+    host: Arc<H>,
+    dir: PathBuf,
+    packed: PathBuf,
+    /// The directory's fingerprint when it was last saved or restored; held while saving,
+    /// so saves never overlap.
+    last: Mutex<String>,
+    stop: AtomicBool,
+}
+
+impl<H: Host> Saver<H> {
+    fn new(host: &Arc<H>, dirs: &Dirs) -> Arc<Self> {
+        // What was restored needn't be saved again.
+        let last = checkpoint::fingerprint(&dirs.checkpoint).unwrap_or_default();
+        Arc::new(Self {
+            host: Arc::clone(host),
+            dir: dirs.checkpoint.clone(),
+            packed: dirs.packed_checkpoint.clone(),
+            last: Mutex::new(last),
+            stop: AtomicBool::new(false),
+        })
+    }
+
+    /// Stops saving every so often, then saves once more if the run is retried for how
+    /// the attempt ended: a later one resumes from what it got to. Errs if the lease was
+    /// lost.
+    fn finish(
+        &self,
+        every: Option<thread::JoinHandle<()>>,
+        save_on: &[SaveOn],
+        stopped: Option<Stop>,
+        status: Option<ExitStatus>,
+    ) -> Result<(), Error> {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(every) = every {
+            let _ = every.join();
+        }
+        let ending = match (stopped, status) {
+            (Some(Stop::Interrupted), _) => Some(SaveOn::Interrupted),
+            (Some(Stop::TimedOut), _) => Some(SaveOn::TimedOut),
+            (None, Some(status)) if !status.success() => Some(SaveOn::Failed),
+            _ => None,
+        };
+        if ending.is_some_and(|e| save_on.contains(&e)) {
+            self.host.state(HeartbeatInState::Uploading);
+            self.save()?;
+        }
+        Ok(())
+    }
+
+    fn every(&self, every: Duration) {
+        let mut next = Instant::now() + every;
+        while !self.stop.load(Ordering::SeqCst) {
+            if Instant::now() >= next {
+                if let Err(error) = self.save() {
+                    self.host.lost(&error);
+                    return;
+                }
+                next = Instant::now() + every;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    /// Saves the directory, if it changed. One that can't be saved is said in the log, and
+    /// doesn't fail the run. Errs if the lease was lost.
+    fn save(&self) -> Result<(), Error> {
+        let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = match checkpoint::fingerprint(&self.dir) {
+            Ok(now) => now,
+            Err(error) => {
+                self.say(&format!(
+                    "Couldn't save a checkpoint: couldn't read it: {error}."
+                ));
+                return Ok(());
+            }
+        };
+        if now == *last {
+            return Ok(());
+        }
+        let packed = match checkpoint::pack(&self.dir, &self.packed) {
+            Ok(packed) => packed,
+            Err(error) => {
+                let _ = std::fs::remove_file(&self.packed);
+                self.say(&format!(
+                    "Couldn't save a checkpoint: {error}. The next save tries again."
+                ));
+                return Ok(());
+            }
+        };
+        let saved = self.host.save(&packed);
+        let _ = std::fs::remove_file(&packed.path);
+        match saved {
+            Ok(()) => {
+                last.clone_from(&packed.fingerprint);
+                let noun = if packed.files == 1 { "file" } else { "files" };
+                let mut said = format!(
+                    "Saved a checkpoint: {} {noun}, {}.",
+                    packed.files,
+                    human_size(packed.size)
+                );
+                if packed.left_out > 0 {
+                    let _ = write!(
+                        said,
+                        " Left out {} link(s) or other entries: only files are saved.",
+                        packed.left_out
+                    );
+                }
+                self.say(&said);
+                say::info(
+                    "Saved a checkpoint.",
+                    &[("job", &self.host.id()), ("bytes", &packed.size)],
+                );
+                Ok(())
+            }
+            Err(files::Failed::Lost(error)) => Err(error),
+            Err(files::Failed::Job(message)) => {
+                self.say(&format!("{message}."));
+                Ok(())
+            }
+        }
+    }
+
+    fn say(&self, text: &str) {
+        self.host.line(&format!("iki-worker: {text}\n"));
+    }
+}
+
+/// Bytes, for people: `512 B`, `3.4 MiB`.
+fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["KiB", "MiB", "GiB", "TiB", "PiB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let mut value = bytes as f64 / 1024.0;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", UNITS[unit])
 }
 
 /// Keeps the files in the output directory the action's `artifacts.keep` patterns match.
@@ -1141,6 +1404,116 @@ mod tests {
             "inputs": {},
         }))
         .unwrap()
+    }
+
+    /// A host that keeps what's saved and said, and can't restore.
+    #[derive(Default)]
+    struct Saving {
+        saved: Mutex<Vec<usize>>,
+        lines: Mutex<Vec<String>>,
+    }
+
+    impl Host for Saving {
+        fn id(&self) -> &'static str {
+            "j"
+        }
+
+        fn stage(
+            &self,
+            _wanted: &BTreeMap<String, RunInputFile>,
+            _dir: &Path,
+        ) -> Result<BTreeMap<String, RunInputFile>, files::Failed> {
+            Ok(BTreeMap::new())
+        }
+
+        fn results(
+            &self,
+            _out_dir: &Path,
+            _output: &mut serde_json::Map<String, serde_json::Value>,
+        ) -> Result<usize, files::Failed> {
+            Ok(0)
+        }
+
+        fn keep(&self, _relative: &str, _path: &Path) -> Result<(), files::Failed> {
+            Ok(())
+        }
+
+        fn line(&self, text: &str) {
+            self.lines.lock().unwrap().push(text.to_owned());
+        }
+
+        fn restore(
+            &self,
+            _saved: &RunInputJobCheckpointSaved,
+            _packed: &Path,
+            _dir: &Path,
+        ) -> Result<(), files::Failed> {
+            Err(files::Failed::Job("It was gone".into()))
+        }
+
+        fn save(&self, packed: &checkpoint::Packed) -> Result<(), files::Failed> {
+            self.saved.lock().unwrap().push(packed.files);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn saves_the_checkpoint_as_it_runs_and_once_more_when_it_fails() {
+        let dir = std::env::temp_dir().join(format!("iki-job-saves-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = r#"echo 1 > "$IKI_CHECKPOINT_DIR/a"; sleep 2; echo 2 > "$IKI_CHECKPOINT_DIR/b"; exit 3"#;
+        let mut raw = serde_json::to_value(input(&["sh", "-c", script])).unwrap();
+        raw["job"]["checkpoint"] = serde_json::json!({
+            "save_every": 1,
+            "save_on": ["failed"],
+            "saved": {
+                "id": "c", "attempt": 1, "saved_at": "2026-11-12T10:00:00+00:00", "size": 1,
+                "sha256": "0".repeat(64),
+            },
+        });
+        let input: RunInput = serde_json::from_value(raw.clone()).unwrap();
+        let plan = Plan {
+            input: &input,
+            plugin_dir: &dir,
+            built: None,
+            timeout: Duration::from_secs(30),
+        };
+        let dirs = Dirs::new(&dir, "j");
+        let host = Arc::new(Saving::default());
+
+        let report = execute(&host, &plan, &dirs, &raw, &AtomicBool::new(false));
+
+        assert!(matches!(
+            report,
+            Some(Report::Fail(FailInReason::Failed, _))
+        ));
+        // Once while it ran, with one file; once more as it failed, with both.
+        assert_eq!(*host.saved.lock().unwrap(), vec![1, 2]);
+        let lines = host.lines.lock().unwrap().join("");
+        assert!(
+            lines.contains(
+                "iki-worker: Couldn't restore the checkpoint attempt 1 saved at \
+                 2026-11-12T10:00:00+00:00, so this attempt starts afresh. It was gone."
+            ),
+            "{lines}"
+        );
+        assert!(
+            lines.contains("iki-worker: Saved a checkpoint: 1 file, 2.0 KiB."),
+            "{lines}"
+        );
+        assert!(
+            lines.contains("iki-worker: Saved a checkpoint: 2 files, 3.0 KiB."),
+            "{lines}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn says_sizes_for_people() {
+        assert_eq!(human_size(512), "512 B");
+        assert_eq!(human_size(2560), "2.5 KiB");
+        assert_eq!(human_size(3 << 30), "3.0 GiB");
     }
 
     #[test]

@@ -15,3 +15,11 @@ def import_creates(import_id: str) -> str:
 def clear_import(import_id: str) -> str:
     """Deletes an import's staged lines once they're done with, a batch at a time."""
     return imports.clear(import_id)
+
+
+@task(max_attempts=5)
+def delete_checkpoints(run_id: str) -> int:
+    """Safe to run twice: deleted checkpoints are left alone (ADR 0069)."""
+    from iki_server.runs import checkpoints
+
+    return checkpoints.delete_for(run_id)

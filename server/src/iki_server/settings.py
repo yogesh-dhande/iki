@@ -562,6 +562,18 @@ except ValueError as _error:
         f"IKI_FILES_ARTIFACT_RETENTION and IKI_FILES_ARTIFACT_MIN_RETENTION must be durations "
         f"such as 90d: {_error}"
     ) from None
+# Checkpoints (ADR 0069): how often a worker saves a checkpointable run's progress while
+# its command runs, if it changed. It saves once more when an attempt that's retried ends.
+try:
+    IKI_RUNS_CHECKPOINT_INTERVAL: int = _parse_duration(
+        env.str("IKI_RUNS_CHECKPOINT_INTERVAL", default="") or "10m"
+    )
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_RUNS_CHECKPOINT_INTERVAL must be a duration such as 10m: {_error}"
+    ) from None
+if IKI_RUNS_CHECKPOINT_INTERVAL < 60:
+    raise environ.ImproperlyConfigured("IKI_RUNS_CHECKPOINT_INTERVAL must be at least 1m.")
 #: Where files may be registered in place, rather than uploaded: ``s3://bucket/prefix/``
 #: entries. Each bucket must keep versions; Iki pins each file to its version.
 IKI_FILES_REGISTER_LOCATIONS: list[str] = []

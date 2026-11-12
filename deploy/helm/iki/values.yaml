@@ -69,6 +69,11 @@ api:
   # Requests one caller may make to /api/v1 per minute.
   rateLimitPerMinute: 600
 
+# Checkpointable runs (ADR 0069): how often a worker saves a run's progress while its
+# command runs, if anything in its checkpoint directory changed. At least 1m.
+checkpoints:
+  interval: 10m
+
 # iki-worker on people's computers (ADR 0060). The server tells them which release
 # to run and refuses any more than one minor release older. They download it from
 # `downloadsUrl`, laid out as GitHub's releases are (an internal mirror works), and
@@ -303,9 +308,10 @@ backendWorkers:
   scratch:
     sizeLimit: 20Gi
   # Seconds a stopping worker gets: it stops its job's command (SIGTERM, then
-  # SIGKILL after 10 seconds), reports it interrupted so it is retried
-  # elsewhere, and deregisters.
-  terminationGracePeriodSeconds: 60
+  # SIGKILL after 10 seconds), saves a checkpointable run's progress (ADR 0069),
+  # reports it interrupted so it is retried elsewhere, and deregisters. A
+  # worker with no job stops at once.
+  terminationGracePeriodSeconds: 300
   # Extra environment variables, e.g. HTTPS_PROXY and NO_PROXY.
   env: []
   nodeSelector: {}

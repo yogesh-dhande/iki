@@ -618,6 +618,8 @@ def test_batches_take_one_input(tmp_path: Path) -> None:
     assert only(make(tmp_path, many), "batch-needs-one-input")
     keeping = action(batchable="50", artifacts='{ keep: ["*.log"] }')
     assert only(make(tmp_path, keeping), "batch-keeps-artifacts")
+    saving = action(batchable="50", checkpointable="true")
+    assert only(make(tmp_path, saving), "batch-checkpoints")
 
 
 def test_deterministic_warnings(tmp_path: Path) -> None:

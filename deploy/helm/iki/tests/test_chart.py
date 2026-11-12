@@ -642,6 +642,18 @@ def test_artifact_retention_is_checked_by_the_schema() -> None:
     assert "artifactMinRetention" in str(error)
 
 
+def test_checkpoints_are_saved_as_often_as_set_and_no_more_than_once_a_minute() -> None:
+    servers = 0
+    for name, spec in pod_specs(manifests()):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0].get("env", [])}
+        if "IKI_SECRET_KEY" in variables:
+            assert variables["IKI_RUNS_CHECKPOINT_INTERVAL"] == "10m", name
+            servers += 1
+    assert servers >= 3
+    assert "interval" in str(render({"checkpoints": {"interval": "30s"}}, ok=False))
+    render({"checkpoints": {"interval": "90s"}})
+
+
 def test_register_locations_reach_every_container_and_are_checked() -> None:
     values = {"files": {"bucket": "iki", "registerLocations": ["s3://lab-data/runs/", "s3://cro"]}}
     for name, spec in pod_specs(manifests(values)):
@@ -721,7 +733,8 @@ def test_workers_meet_pod_security_restricted_and_write_only_scratch() -> None:
     assert container["volumeMounts"] == [{"name": "scratch", "mountPath": "/tmp"}]  # noqa: S108 - an emptyDir
     (scratch,) = pod["volumes"]
     assert scratch["emptyDir"]["sizeLimit"] == "20Gi"
-    assert pod["terminationGracePeriodSeconds"] >= 60
+    # Time to stop the command, save its run's checkpoint and report it interrupted.
+    assert pod["terminationGracePeriodSeconds"] >= 300
 
 
 def test_workers_report_what_one_job_may_use() -> None:

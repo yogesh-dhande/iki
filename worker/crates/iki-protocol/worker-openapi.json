@@ -161,6 +161,61 @@
         "title": "Capacity",
         "type": "object"
       },
+      "CheckpointDownloadOut": {
+        "properties": {
+          "sha256": {
+            "description": "Of its bytes, as hex: check them against it.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "GET the checkpoint's bytes here. It works for five minutes.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "size",
+          "sha256"
+        ],
+        "title": "CheckpointDownloadOut",
+        "type": "object"
+      },
+      "CheckpointIn": {
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Of its bytes, as hex.",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes of the packed checkpoint directory.",
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lease_token",
+          "size",
+          "sha256"
+        ],
+        "title": "CheckpointIn",
+        "type": "object"
+      },
       "CompleteIn": {
         "properties": {
           "lease_token": {
@@ -1041,6 +1096,157 @@
           }
         ],
         "summary": "Upload an artifact"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/checkpoints": {
+      "post": {
+        "description": "For a checkpointable action (ADR 0069): the command's checkpoint directory, packed as\nan uncompressed tar file of its regular files and directories. Answers with the parts to\nPUT; then finish it like a result file, under `uploads/{id}`, until it's `ready`. A later\nattempt resumes from the newest one that's ready.",
+        "operationId": "iki_server_api_worker_start_checkpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckpointIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Save a checkpoint"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/checkpoints/{checkpoint_id}/download": {
+      "post": {
+        "description": "The checkpoint the run input's `job.checkpoint.saved` names, which an earlier attempt\nsaved. Ask again for a new URL if it runs out.",
+        "operationId": "iki_server_api_worker_download_checkpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "checkpoint_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Checkpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckpointDownloadOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Download a checkpoint"
+      }
+    },
+    "/worker/v1/jobs/{job_id}/checkpoints/{checkpoint_id}/restored": {
+      "post": {
+        "description": "Once the checkpoint is unpacked into the command's checkpoint directory, before the\ncommand starts: the attempt records that it resumed from it. Not said for one that\ncouldn't be restored, so the attempt starts afresh.",
+        "operationId": "iki_server_api_worker_restored_checkpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "checkpoint_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Checkpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Say a checkpoint was restored"
       }
     },
     "/worker/v1/jobs/{job_id}/complete": {

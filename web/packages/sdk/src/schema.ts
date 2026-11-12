@@ -2168,6 +2168,31 @@ export interface components {
             /** Before */
             before?: unknown;
         };
+        /** CheckpointOut */
+        CheckpointOut: {
+            /**
+             * Attempt
+             * @description The attempt that saved it.
+             */
+            attempt: number;
+            /**
+             * Kept
+             * @description Whether its bytes are still kept: they're deleted once a newer one is saved, or the run ends (ADR 0069).
+             */
+            kept: boolean;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+        };
         /** CollectionIn */
         CollectionIn: {
             /** Description */
@@ -4378,6 +4403,8 @@ export interface components {
             attempt: number;
             /** @description When its command gave its creates in a file: how far importing them has got (ADR 0056). */
             bulk_import: components["schemas"]["AttemptImportOut"] | null;
+            /** @description For a checkpointable action: the newest checkpoint it saved (ADR 0069). */
+            checkpoint: components["schemas"]["CheckpointOut"] | null;
             /**
              * Environment Build
              * @description The digest of the environment it ran in; empty for the host's own software.
@@ -4410,6 +4437,8 @@ export interface components {
              * Format: date-time
              */
             queued_at: string;
+            /** @description The checkpoint an earlier attempt saved that this one resumed from. */
+            resumed_from: components["schemas"]["CheckpointOut"] | null;
             /**
              * Secrets
              * @description The secrets its worker was given, by name (ADR 0054).

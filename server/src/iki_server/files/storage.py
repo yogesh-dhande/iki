@@ -65,6 +65,16 @@ def artifact_key(upload_id: Any) -> str:  # noqa: ANN401 - a UUID
     return _key("artifacts", str(upload_id))
 
 
+def checkpoint_key(upload_id: Any) -> str:  # noqa: ANN401 - a UUID
+    """Where a run's checkpoint is kept (ADR 0069): its own key, deleted when the run ends."""
+    return _key("checkpoints", str(upload_id))
+
+
+def kept_key(kind: str, upload_id: Any) -> str:  # noqa: ANN401 - a UUID
+    """Where an upload that isn't a file keeps its bytes, by its kind."""
+    return checkpoint_key(upload_id) if kind == "checkpoint" else artifact_key(upload_id)
+
+
 def uri(key: str) -> str:
     return f"s3://{bucket()}/{key}"
 

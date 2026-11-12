@@ -9,6 +9,8 @@
   registrations still being read after a day.
 - Expires requests for runs that agents asked for and nobody approved within a week.
 - Deletes runs' artifacts whose retention is over (ADR 0068), every version of them.
+- Deletes checkpoints no attempt will resume from (ADR 0069): those of ended runs, and those
+  a newer one replaced, in case the task that deletes them didn't.
 """
 
 from typing import Any
@@ -20,7 +22,7 @@ from django.utils import timezone
 from iki_server.accounts.models import UserSession
 from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
-from iki_server.runs import approvals, artifacts
+from iki_server.runs import approvals, artifacts, checkpoints
 from iki_server.tasks import maintenance as task_maintenance
 from iki_server.web import ratelimit
 from iki_server.webhooks import maintenance as webhook_maintenance
@@ -44,6 +46,7 @@ class Command(BaseCommand):
         registrations = files.expire_registrations()
         approvals_expired = approvals.expire()
         artifacts_deleted = artifacts.delete_expired()
+        checkpoints_deleted = checkpoints.delete_stale()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -55,12 +58,14 @@ class Command(BaseCommand):
             stalled_registrations=registrations,
             expired_run_approvals=approvals_expired,
             deleted_artifacts=artifacts_deleted,
+            deleted_checkpoints=checkpoints_deleted,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
             f"{apps} abandoned app registration(s), {tasks} finished task(s) and "
             f"{deliveries} old webhook deliveries, cancelled {uploads} abandoned upload(s), "
             f"failed {registrations} stalled registration(s), expired "
-            f"{approvals_expired} run approval request(s), and deleted {artifacts_deleted} "
-            "run artifact(s) whose retention was over."
+            f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
+            f"run artifact(s) whose retention was over, and deleted {checkpoints_deleted} "
+            "run checkpoint(s) nothing will resume from."
         )

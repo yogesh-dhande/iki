@@ -112,6 +112,9 @@ pub struct RunInputJob {
     /// For an action that keeps artifacts: its `artifacts.keep` patterns. Once the command ends, the worker uploads each file in the output directory one matches, as an artifact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifacts: Option<Vec<String>>,
+    /// For a checkpointable action: the worker gives the command a checkpoint directory, `IKI_CHECKPOINT_DIR`, and saves it as this says (ADR 0069).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint: Option<RunInputJobCheckpoint>,
 }
 
 /// What the job needs. Memory and disk are in bytes.
@@ -127,6 +130,42 @@ pub struct RunInputJobResources {
     pub gpu_memory: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scratch_disk: Option<i64>,
+}
+
+/// For a checkpointable action: the worker gives the command a checkpoint directory, `IKI_CHECKPOINT_DIR`, and saves it as this says (ADR 0069).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobCheckpoint {
+    /// Seconds between saves while the command runs, each only if the directory changed. Null on the run's last attempt: nothing would resume from it.
+    pub save_every: Option<i64>,
+    /// How the attempt may end that the run is retried for: when it ends so, the worker saves the directory once more, if it changed.
+    pub save_on: Vec<RunInputJobCheckpointSaveOnItem>,
+    /// The checkpoint an earlier attempt saved, to restore into the directory before the command starts. Null if there's none.
+    pub saved: Option<RunInputJobCheckpointSaved>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RunInputJobCheckpointSaveOnItem {
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "timed_out")]
+    TimedOut,
+    #[serde(rename = "interrupted")]
+    Interrupted,
+    /// A value this version of the protocol doesn't know.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The checkpoint an earlier attempt saved, to restore into the directory before the command starts. Null if there's none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputJobCheckpointSaved {
+    pub id: String,
+    /// The attempt that saved it.
+    pub attempt: i64,
+    pub saved_at: String,
+    /// Bytes.
+    pub size: i64,
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -286,6 +325,25 @@ pub struct Capacity {
     pub memory: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scratch_disk: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckpointDownloadOut {
+    /// Of its bytes, as hex: check them against it.
+    pub sha256: String,
+    /// Bytes.
+    pub size: i64,
+    /// GET the checkpoint's bytes here. It works for five minutes.
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CheckpointIn {
+    pub lease_token: String,
+    /// Of its bytes, as hex.
+    pub sha256: String,
+    /// Bytes of the packed checkpoint directory.
+    pub size: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -602,6 +660,12 @@ pub mod paths {
     pub const DEREGISTER: &str = "/worker/v1/deregister";
     /// `/worker/v1/jobs/{job_id}/artifacts`
     pub const JOBS_ARTIFACTS: &str = "/worker/v1/jobs/{job_id}/artifacts";
+    /// `/worker/v1/jobs/{job_id}/checkpoints`
+    pub const JOBS_CHECKPOINTS: &str = "/worker/v1/jobs/{job_id}/checkpoints";
+    /// `/worker/v1/jobs/{job_id}/checkpoints/{checkpoint_id}/download`
+    pub const JOBS_CHECKPOINTS_DOWNLOAD: &str = "/worker/v1/jobs/{job_id}/checkpoints/{checkpoint_id}/download";
+    /// `/worker/v1/jobs/{job_id}/checkpoints/{checkpoint_id}/restored`
+    pub const JOBS_CHECKPOINTS_RESTORED: &str = "/worker/v1/jobs/{job_id}/checkpoints/{checkpoint_id}/restored";
     /// `/worker/v1/jobs/{job_id}/complete`
     pub const JOBS_COMPLETE: &str = "/worker/v1/jobs/{job_id}/complete";
     /// `/worker/v1/jobs/{job_id}/fail`

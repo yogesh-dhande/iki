@@ -9,6 +9,7 @@
 mod api;
 mod between;
 mod bundles;
+mod checkpoint;
 mod config;
 mod files;
 mod globs;
@@ -92,12 +93,14 @@ fn parse(args: &[String]) -> Command {
     }
 }
 
-/// `run --local <input.json> [--plugin DIR] [--timeout SECONDS]`, in any order.
+/// `run --local <input.json> [--plugin DIR] [--timeout SECONDS] [--checkpoint-dir DIR]`,
+/// in any order.
 fn parse_run(args: &[&str]) -> Command {
     let mut local = false;
     let mut input = None;
     let mut plugin_dir = None;
     let mut timeout = None;
+    let mut checkpoint_dir = None;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match *arg {
@@ -109,6 +112,10 @@ fn parse_run(args: &[&str]) -> Command {
             "--timeout" => match rest.next().and_then(|s| s.parse::<u64>().ok()) {
                 Some(seconds) if seconds > 0 => timeout = Some(seconds),
                 _ => return Command::Unknown("--timeout needs a number of seconds".into()),
+            },
+            "--checkpoint-dir" => match rest.next() {
+                Some(dir) => checkpoint_dir = Some(PathBuf::from(dir)),
+                None => return Command::Unknown("--checkpoint-dir needs a directory".into()),
             },
             flag if flag.starts_with('-') => {
                 return Command::Unknown(format!("unknown option '{flag}'"));
@@ -126,6 +133,7 @@ fn parse_run(args: &[&str]) -> Command {
             input,
             plugin_dir,
             timeout,
+            checkpoint_dir,
         }),
     }
 }
@@ -148,9 +156,13 @@ Usage: iki-worker login <server> [--no-browser]
                                    that version (offline), as updating does
        iki-worker start [--once]   Lease jobs and run them until stopped (or one job)
        iki-worker run --local <input.json> [--plugin DIR] [--timeout SECONDS]
+                              [--checkpoint-dir DIR]
                                    Run one action's command here, with no server: its
                                    output goes to stdout, what it prints to stderr.
-                                   DIR is the plugin's (the current directory unless set).
+                                   --plugin is the plugin's directory (the current one
+                                   unless set). --checkpoint-dir gives a checkpointable
+                                   action that directory as IKI_CHECKPOINT_DIR and keeps
+                                   it, so running again resumes from what it saved.
        iki-worker install <dir>    Copy this binary into <dir>, for a run's pod to run it
                                    in a plugin's image (the container tier does this)
        iki-worker --version
@@ -360,6 +372,7 @@ mod tests {
                 input: "in.json".into(),
                 plugin_dir: None,
                 timeout: None,
+                checkpoint_dir: None,
             })
         );
         assert_eq!(
@@ -370,12 +383,15 @@ mod tests {
                 "60",
                 "--local",
                 "--plugin",
-                "p"
+                "p",
+                "--checkpoint-dir",
+                "saved"
             ])),
             Command::RunLocal(local::Options {
                 input: "in.json".into(),
                 plugin_dir: Some("p".into()),
                 timeout: Some(60),
+                checkpoint_dir: Some("saved".into()),
             })
         );
         let refused = |list: &[&str]| matches!(parse(&args(list)), Command::Unknown(_));
@@ -385,6 +401,7 @@ mod tests {
         assert!(refused(&["run", "--local", "a.json", "--timeout", "0"]));
         assert!(refused(&["run", "--local", "a.json", "--timeout"]));
         assert!(refused(&["run", "--local", "a.json", "--plugin"]));
+        assert!(refused(&["run", "--local", "a.json", "--checkpoint-dir"]));
         assert!(refused(&["run", "--local", "a.json", "--twice"]));
     }
 

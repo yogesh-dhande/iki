@@ -38,7 +38,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
-from iki_server.runs import approvals, catalog, live, queue, quotas, reuse
+from iki_server.runs import approvals, catalog, checkpoints, live, queue, quotas, reuse
 from iki_server.runs.models import (
     BATCH_HRID_PREFIX,
     BATCH_HRID_SEQUENCE,
@@ -734,6 +734,8 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
                 ]
             )
             audit.record("run.cancelled", actor=user, target=run, project=run.project, data=data)
+            # Queued again after an interruption, it may have saved progress (ADR 0069).
+            checkpoints.ended(run)
             if run.approval_id is not None:
                 approvals.settle(
                     RunApproval.objects.select_for_update().get(pk=run.approval_id), user

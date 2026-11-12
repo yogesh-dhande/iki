@@ -99,6 +99,8 @@ export function attempt(
     secrets: [],
     pack: null,
     bulk_import: null,
+    checkpoint: null,
+    resumed_from: null,
     ...overrides,
   };
 }

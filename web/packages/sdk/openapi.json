@@ -614,6 +614,43 @@
         "title": "ChangeOut",
         "type": "object"
       },
+      "CheckpointOut": {
+        "properties": {
+          "attempt": {
+            "description": "The attempt that saved it.",
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "kept": {
+            "description": "Whether its bytes are still kept: they're deleted once a newer one is saved, or the run ends (ADR 0069).",
+            "title": "Kept",
+            "type": "boolean"
+          },
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attempt",
+          "saved_at",
+          "size",
+          "sha256",
+          "kept"
+        ],
+        "title": "CheckpointOut",
+        "type": "object"
+      },
       "CollectionIn": {
         "properties": {
           "description": {
@@ -5562,6 +5599,17 @@
             ],
             "description": "When its command gave its creates in a file: how far importing them has got (ADR 0056)."
           },
+          "checkpoint": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckpointOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a checkpointable action: the newest checkpoint it saved (ADR 0069)."
+          },
           "environment_build": {
             "description": "The digest of the environment it ran in; empty for the host's own software.",
             "title": "Environment Build",
@@ -5634,6 +5682,17 @@
             "title": "Queued At",
             "type": "string"
           },
+          "resumed_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckpointOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The checkpoint an earlier attempt saved that this one resumed from."
+          },
           "secrets": {
             "description": "The secrets its worker was given, by name (ADR 0054).",
             "items": {
@@ -5691,7 +5750,9 @@
           "network",
           "secrets",
           "pack",
-          "bulk_import"
+          "bulk_import",
+          "checkpoint",
+          "resumed_from"
         ],
         "title": "RunAttemptOut",
         "type": "object"

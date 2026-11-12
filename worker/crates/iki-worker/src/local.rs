@@ -11,6 +11,10 @@
 //! goes to stdout, with each `{"$file": …}` checked as a leased job's would be and
 //! described with the file's size, SHA-256 and path. The job's directory is kept, to
 //! look at.
+//!
+//! With `--checkpoint-dir`, the command gets that directory as `IKI_CHECKPOINT_DIR`
+//! (ADR 0069), and it's kept: stop the command and run it again, and it resumes from
+//! what it saved there, as a later attempt at a leased run would.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -33,6 +37,8 @@ pub struct Options {
     pub plugin_dir: Option<PathBuf>,
     /// Seconds. The input's `job.timeout`, or an hour, unless given.
     pub timeout: Option<u64>,
+    /// For a checkpointable action: its checkpoint directory, kept between runs.
+    pub checkpoint_dir: Option<PathBuf>,
 }
 
 /// How a local run ended.
@@ -154,6 +160,15 @@ pub fn run(options: &Options, work_dir: &Path) -> Result<Ran, String> {
         .map_or(0, |d| d.as_millis());
     let id = format!("local-{millis}-{}", std::process::id());
     complete(&mut raw, &base, &id, options.timeout)?;
+    if options.checkpoint_dir.is_some()
+        && let Some(job) = raw.get_mut("job").and_then(|j| j.as_object_mut())
+    {
+        // Used where it is: nothing to save it to, or restore it from.
+        job.insert(
+            "checkpoint".into(),
+            serde_json::json!({"save_every": null, "save_on": [], "saved": null}),
+        );
+    }
     let input: RunInput = serde_json::from_value(raw.clone())
         .map_err(|error| format!("{shown} isn't a run input (run-input/v1): {error}."))?;
 
@@ -170,7 +185,11 @@ pub fn run(options: &Options, work_dir: &Path) -> Result<Ran, String> {
     }
     let timeout =
         Duration::from_secs(u64::try_from(input.job.timeout.max(1)).unwrap_or(DEFAULT_TIMEOUT));
-    let dirs = Dirs::new(work_dir, &id);
+    let mut dirs = Dirs::new(work_dir, &id);
+    if let Some(dir) = &options.checkpoint_dir {
+        dirs.checkpoint = std::path::absolute(dir)
+            .map_err(|error| format!("Couldn't find {}: {error}.", dir.display()))?;
+    }
     say::info(
         "Running the command locally.",
         &[

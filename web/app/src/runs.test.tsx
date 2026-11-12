@@ -438,6 +438,28 @@ describe("a run's page", () => {
     expect(FakeEventSource.opened.filter((s) => s.url === EVENTS)).toEqual([]);
   });
 
+  it("says what each attempt saved, and what it resumed from", async () => {
+    const saved = {
+      attempt: 1,
+      saved_at: "2026-03-14T09:00:30Z",
+      size: 3 * 1024 ** 2,
+      sha256: "a".repeat(64),
+      kept: true,
+    };
+    onRun(run, () => [
+      attempt({ state: "interrupted", finished_at: "2026-03-14T09:00:40Z", checkpoint: saved }),
+      attempt({ attempt: 2, resumed_from: saved }),
+    ]);
+    await renderApp("/runs/RUN-000001/");
+    const attempts = await screen.findByRole("region", { name: "Attempts" });
+    expect(await within(attempts).findByText(/^Saved a checkpoint/)).toHaveTextContent(
+      /^Saved a checkpoint of 3\.0 MiB .+, for a later attempt to resume from$/,
+    );
+    expect(within(attempts).getByText(/^Resumed from/)).toHaveTextContent(
+      /^Resumed from the checkpoint attempt 1 saved .+/,
+    );
+  });
+
   it("lists the artifacts it kept, until when, and those deleted since", async () => {
     onRun(
       () => run({ status: "succeeded", finished_at: "2026-03-14T09:01:00Z" }),

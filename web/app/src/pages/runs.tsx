@@ -906,6 +906,19 @@ function AttemptRow({
           <p className="row-reason">{attempt.error.message}</p>
         ) : null}
         {attempt.bulk_import ? <p className="row-meta">{importNote(attempt.bulk_import)}</p> : null}
+        {attempt.resumed_from ? (
+          <p className="row-meta">
+            Resumed from the checkpoint attempt {attempt.resumed_from.attempt} saved{" "}
+            <RelativeTime value={attempt.resumed_from.saved_at} />
+          </p>
+        ) : null}
+        {attempt.checkpoint ? (
+          <p className="row-meta">
+            Saved a checkpoint of {formatSize(attempt.checkpoint.size)}{" "}
+            <RelativeTime value={attempt.checkpoint.saved_at} />
+            {attempt.checkpoint.kept ? ", for a later attempt to resume from" : ", since deleted"}
+          </p>
+        ) : null}
         {attempt.pack ? (
           <p className="row-meta">
             Ran in one job with {others(attempt.pack.runs)} of its batch

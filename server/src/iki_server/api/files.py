@@ -29,7 +29,14 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, UserOut
 from iki_server.files import services, storage
-from iki_server.files.models import File, Registration, RegistrationState, Upload, UploadState
+from iki_server.files.models import (
+    File,
+    Registration,
+    RegistrationState,
+    Upload,
+    UploadKind,
+    UploadState,
+)
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
@@ -214,8 +221,9 @@ def _invalid(error: Refused) -> Exception:
 
 
 def _upload(user: User, upload_id: UUID) -> Upload:
-    """The caller's own upload. Nobody else's is found."""
-    found = Upload.objects.filter(pk=upload_id, created_by=user).first()
+    """The caller's own upload of a file. Nobody else's is found, nor a run's artifacts and
+    checkpoints, made in its launcher's name: only the run's worker sends their parts."""
+    found = Upload.objects.filter(pk=upload_id, created_by=user, kind=UploadKind.FILE).first()
     if found is None:
         raise Problem(404, "No such upload of yours.")
     return found
@@ -257,7 +265,8 @@ def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, An
 def list_uploads(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
-    result = page(Upload.objects.filter(created_by=me), params, newest_first=True)
+    mine = Upload.objects.filter(created_by=me, kind=UploadKind.FILE)
+    result = page(mine, params, newest_first=True)
     result["items"] = [_upload_out(me, u) for u in result["items"]]
     return result
 

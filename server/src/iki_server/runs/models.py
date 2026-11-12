@@ -555,6 +555,11 @@ class Job(models.Model):
     packed_into = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.RESTRICT, related_name="packed"
     )
+    #: For an action that's ``checkpointable``: the checkpoint an earlier attempt saved that
+    #: this one resumed from, once its worker restored it (ADR 0069).
+    resumed_from = models.ForeignKey(
+        "RunCheckpoint", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
 
     class Meta:
         db_table = "iki_job"
@@ -817,6 +822,37 @@ class RunArtifact(models.Model):
 
     def __str__(self) -> str:
         return self.path
+
+
+class RunCheckpoint(models.Model):
+    """Progress an attempt at a ``checkpointable`` run saved, for a later attempt to resume
+    from (ADR 0069). Its bytes are deleted once a newer one is saved or the run ends; its
+    record stays, with what it held, for the attempt that resumed from it."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="checkpoints")
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="checkpoints")
+    upload = models.OneToOneField(Upload, on_delete=models.PROTECT, related_name="run_checkpoint")
+    created_at = models.DateTimeField(db_default=Now())
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="When its bytes were deleted: a newer one was saved, or the run ended.",
+    )
+
+    class Meta:
+        db_table = "iki_run_checkpoint"
+        db_table_comment = "Progress checkpointable runs saved, kept until they end."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["run", "created_at"],
+                name="iki_run_checkpoint_kept",
+                condition=Q(deleted_at__isnull=True),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id} checkpoint {self.pk}"
 
 
 class RunUpload(models.Model):

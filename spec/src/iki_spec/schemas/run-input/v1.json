@@ -93,6 +93,46 @@
           "items": { "type": "string" },
           "minItems": 1,
           "description": "For an action that keeps artifacts: its `artifacts.keep` patterns. Once the command ends, the worker uploads each file in the output directory one matches, as an artifact."
+        },
+        "checkpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["save_every", "save_on", "saved"],
+          "description": "For a checkpointable action: the worker gives the command a checkpoint directory, `IKI_CHECKPOINT_DIR`, and saves it as this says (ADR 0069).",
+          "properties": {
+            "save_every": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "description": "Seconds between saves while the command runs, each only if the directory changed. Null on the run's last attempt: nothing would resume from it."
+            },
+            "save_on": {
+              "type": "array",
+              "items": { "enum": ["failed", "timed_out", "interrupted"] },
+              "description": "How the attempt may end that the run is retried for: when it ends so, the worker saves the directory once more, if it changed."
+            },
+            "saved": {
+              "description": "The checkpoint an earlier attempt saved, to restore into the directory before the command starts. Null if there's none.",
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "attempt", "saved_at", "size", "sha256"],
+                  "properties": {
+                    "id": { "type": "string", "format": "uuid" },
+                    "attempt": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "The attempt that saved it."
+                    },
+                    "saved_at": { "type": "string", "format": "date-time" },
+                    "size": { "type": "integer", "minimum": 0, "description": "Bytes." },
+                    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                  }
+                }
+              ]
+            }
+          }
         }
       }
     },

@@ -48,6 +48,7 @@ from iki_server.runs.models import (
     RunApproval,
     RunArtifact,
     RunBatch,
+    RunCheckpoint,
     RunEffect,
     RunImport,
     RunInput,
@@ -1157,6 +1158,17 @@ class AttemptImportOut(Schema):
     reused: int
 
 
+class CheckpointOut(Schema):
+    attempt: int = Field(description="The attempt that saved it.")
+    saved_at: datetime
+    size: int = Field(description="Bytes.")
+    sha256: str
+    kept: bool = Field(
+        description="Whether its bytes are still kept: they're deleted once a newer one is "
+        "saved, or the run ends (ADR 0069)."
+    )
+
+
 class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
@@ -1185,6 +1197,12 @@ class RunAttemptOut(Schema):
         description="When its command gave its creates in a file: how far importing them has "
         "got (ADR 0056)."
     )
+    checkpoint: CheckpointOut | None = Field(
+        description="For a checkpointable action: the newest checkpoint it saved (ADR 0069)."
+    )
+    resumed_from: CheckpointOut | None = Field(
+        description="The checkpoint an earlier attempt saved that this one resumed from."
+    )
 
 
 @router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
@@ -1198,6 +1216,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
         .order_by("attempt")
     )
     bulk = {i.job_id: i for i in RunImport.objects.filter(job__in=jobs)}
+    saved = _checkpoints(run)
     carriers = {job.packed_into_id or job.pk for job in jobs}
     packed = dict(
         Job.objects.filter(packed_into__in=carriers)
@@ -1244,9 +1263,33 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 if size
                 else None,
                 "bulk_import": _import_out(bulk[job.pk]) if job.pk in bulk else None,
+                "checkpoint": _checkpoint_out(saved["by_job"].get(job.pk)),
+                "resumed_from": _checkpoint_out(saved["by_id"].get(job.resumed_from_id)),
             }
         )
     return out
+
+
+def _checkpoints(run: ActionRun) -> dict[str, dict[Any, RunCheckpoint]]:
+    """The run's checked checkpoints: each attempt's newest, and each by its ID."""
+    found = list(
+        RunCheckpoint.objects.filter(run=run, upload__state=UploadState.READY)
+        .select_related("job", "upload")
+        .order_by("created_at", "id")
+    )
+    return {"by_job": {c.job_id: c for c in found}, "by_id": {c.pk: c for c in found}}
+
+
+def _checkpoint_out(checkpoint: RunCheckpoint | None) -> dict[str, Any] | None:
+    if checkpoint is None:
+        return None
+    return {
+        "attempt": checkpoint.job.attempt,
+        "saved_at": checkpoint.created_at,
+        "size": checkpoint.upload.size,
+        "sha256": checkpoint.upload.sha256,
+        "kept": checkpoint.deleted_at is None,
+    }
 
 
 def _import_out(found: RunImport) -> dict[str, Any]:

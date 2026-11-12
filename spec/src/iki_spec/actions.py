@@ -471,6 +471,15 @@ class _Rules:
                 ("artifacts",),
                 hint="Write one file per entity into its results instead, or don't batch it.",
             )
+        if action.batchable > 1 and action.checkpointable:
+            self.add(
+                "batch-checkpoints",
+                "A batchable action can't be checkpointable: one job runs it on several "
+                "entities, so its progress wouldn't belong to any one run.",
+                source,
+                ("checkpointable",),
+                hint="Batch small, quick runs; checkpoint long ones.",
+            )
         self.retries(action, source)
 
     def input(self, put: Input, source: Document, path: Path) -> None:

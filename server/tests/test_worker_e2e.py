@@ -396,6 +396,82 @@ def test_stopping_the_worker_interrupts_its_job(
     assert "Deregistered." in said
 
 
+#: Saves its progress, and resumes from it: the first attempt gets to step 41, saves 42
+#: when it's stopped, and a later one finishes from there.
+CHECKPOINTS = """
+import os, runpy, signal, sys, time
+from pathlib import Path
+saved = Path(os.environ["IKI_CHECKPOINT_DIR"])
+def save(step):
+    (saved / "state").mkdir(exist_ok=True)
+    (saved / "state" / "step.tmp").write_text(str(step))
+    (saved / "state" / "step.tmp").rename(saved / "state" / "step")
+step = saved / "state" / "step"
+if step.exists():
+    print(f"resumed at step {step.read_text()} on attempt {os.environ['IKI_RUN_ATTEMPT']}")
+    runpy.run_path(str(Path(__file__).with_name("weigh.py")), run_name="__main__")
+    sys.exit(0)
+def stop(*_):
+    save(42)
+    print("stopping", flush=True)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, stop)
+save(41)
+print("started", flush=True)
+time.sleep(600)
+"""
+
+
+def test_an_interrupted_checkpointable_run_resumes_from_what_it_saved(
+    world: World, start: Callable[..., Running], tmp_path: Path
+) -> None:
+    from iki_server.files import storage
+    from iki_server.runs.models import RunCheckpoint
+
+    run = queued(world)
+    found = ActionRun.objects.get(pk=run["id"])
+    ActionRun.objects.filter(pk=found.pk).update(spec={**found.spec, "checkpointable": True})
+    plugins = with_script(tmp_path, CHECKPOINTS)
+    shutil.copy(PLUGINS / "protein/scripts/properties.py", plugins / "protein/scripts/weigh.py")
+
+    first = start(registration(world), plugins=plugins)
+    eventually(lambda: running(run))
+    first.process.send_signal(signal.SIGTERM)
+    code, said = first.wait()
+    assert code == 0, said
+    one, two = Job.objects.filter(run_id=run["id"]).order_by("attempt")
+    assert one.state == JobState.INTERRUPTED
+    log = log_of(run)
+    assert "iki-worker: Saved a checkpoint: 1 file, 2.5 KiB." in log, log
+    saved = RunCheckpoint.objects.get(run_id=run["id"])
+    assert (saved.job_id, saved.upload.size) == (one.pk, 2560)
+    # No waiting out the retry's backoff.
+    Job.objects.filter(pk=two.pk).update(queued_at=one.finished_at)
+
+    code, said = start(registration(world), "--once", plugins=plugins).wait()
+    assert code == 0, said
+    editor = api_as(world)
+    assert editor.get(f"/runs/{run['id']}").json()["status"] == "succeeded", log_of(run)
+    log = log_of(run)
+    when = saved.created_at.isoformat()
+    assert f"iki-worker: Resumed from the checkpoint attempt 1 saved at {when}." in log
+    assert "resumed at step 42 on attempt 2" in log
+    two.refresh_from_db()
+    assert two.resumed_from_id == saved.pk
+    # It's deleted once the run ends; its record stays.
+    eventually(lambda: RunCheckpoint.objects.get(pk=saved.pk).deleted_at is not None)
+    assert not storage.exists(storage.checkpoint_key(saved.upload_id))
+    attempts = editor.get(f"/runs/{run['id']}/attempts").json()
+    assert [a["checkpoint"] and a["checkpoint"]["attempt"] for a in attempts] == [1, None]
+    assert attempts[1]["resumed_from"] == {
+        "attempt": 1,
+        "saved_at": attempts[0]["checkpoint"]["saved_at"],
+        "size": 2560,
+        "sha256": saved.upload.sha256,
+        "kept": False,
+    }
+
+
 def test_a_deployment_worker_runs_in_the_environment_built_for_it(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:

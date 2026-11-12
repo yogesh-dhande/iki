@@ -23,14 +23,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use iki_protocol::{
-    ArtifactIn, DownloadOut, LeaseIn, PartOut, PartsIn, RunInputFile, StartedOut, UploadIn,
-    UploadOut, UploadOutState, fill, paths,
+    ArtifactIn, CheckpointDownloadOut, CheckpointIn, DownloadOut, LeaseIn, PartOut, PartsIn,
+    RunInputFile, RunInputJobCheckpointSaved, StartedOut, UploadIn, UploadOut, UploadOutState,
+    fill, paths,
 };
 use sha2::{Digest, Sha256};
 use ureq::Agent;
 
 use crate::api::{self, Api, Error};
-use crate::globs;
+use crate::{checkpoint, globs};
 
 /// How long staging or uploading may take, all told. Heartbeats keep the lease meanwhile.
 const TRANSFERS_FOR: Duration = Duration::from_secs(3600);
@@ -134,7 +135,7 @@ pub fn stage(
                 .api
                 .post::<_, DownloadOut>(&path, &body)?
                 .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))?;
-            fetch(storage, &signed.url, &target, file)
+            fetch(storage, &signed.url, &target, file.size, &file.sha256)
         });
         if let Err(error) = fetched {
             let _ = std::fs::remove_file(&target);
@@ -147,8 +148,14 @@ pub fn stage(
     Ok(staged)
 }
 
-/// GETs `url` into `target`, checking it's the file `expected` describes.
-fn fetch(storage: &Agent, url: &str, target: &Path, expected: &RunInputFile) -> Result<(), Error> {
+/// GETs `url` into `target`, checking it has the size and SHA-256 Iki recorded.
+fn fetch(
+    storage: &Agent,
+    url: &str,
+    target: &Path,
+    expected_size: i64,
+    expected_sha256: &str,
+) -> Result<(), Error> {
     let reply = storage
         .get(url)
         .call()
@@ -163,7 +170,7 @@ fn fetch(storage: &Agent, url: &str, target: &Path, expected: &RunInputFile) -> 
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::Transient(e.to_string()))?;
     }
-    let size = u64::try_from(expected.size).unwrap_or_default();
+    let size = u64::try_from(expected_size).unwrap_or_default();
     let mut body = reply
         .into_body()
         .into_with_config()
@@ -192,15 +199,14 @@ fn fetch(storage: &Agent, url: &str, target: &Path, expected: &RunInputFile) -> 
     out.sync_all()
         .map_err(|e| Error::Transient(e.to_string()))?;
     let sha256 = hex(&hasher.finalize());
-    if got != size || sha256 != expected.sha256 {
+    if got != size || sha256 != expected_sha256 {
         // Not worth trying again: what's stored isn't what Iki recorded.
         return Err(Error::Refused {
             status: 0,
             code: "checksum_mismatch".into(),
             detail: format!(
                 "it came to {got} bytes with SHA-256 {sha256}, not the {size} bytes and \
-                 {} Iki recorded",
-                expected.sha256
+                 {expected_sha256} Iki recorded"
             ),
             body: serde_json::Value::Null,
         });
@@ -606,6 +612,67 @@ pub fn upload_artifact(
     })
     .map_err(|e| failed(&what, e))?;
     send(lease, storage, path, &what, &started, deadline).map(|_| ())
+}
+
+/// Uploads a packed checkpoint (ADR 0069), and finishes it until the server has checked it.
+pub fn upload_checkpoint(
+    lease: &Lease,
+    storage: &Agent,
+    packed: &checkpoint::Packed,
+) -> Result<(), Failed> {
+    let deadline = Instant::now() + TRANSFERS_FOR;
+    let what = "Couldn't save a checkpoint";
+    let body = CheckpointIn {
+        lease_token: lease.token.to_owned(),
+        size: i64::try_from(packed.size).unwrap_or(i64::MAX),
+        sha256: packed.sha256.clone(),
+    };
+    let started = api::retrying(deadline, || {
+        lease
+            .api
+            .post::<_, StartedOut>(&fill(paths::JOBS_CHECKPOINTS, &[lease.job]), &body)?
+            .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))
+    })
+    .map_err(|e| failed(what, e))?;
+    send(lease, storage, &packed.path, what, &started, deadline).map(|_| ())
+}
+
+/// Downloads the checkpoint an earlier attempt saved into `target`, checked.
+pub fn download_checkpoint(
+    lease: &Lease,
+    storage: &Agent,
+    saved: &RunInputJobCheckpointSaved,
+    target: &Path,
+) -> Result<(), Failed> {
+    let deadline = Instant::now() + TRANSFERS_FOR;
+    let body = LeaseIn {
+        lease_token: lease.token.to_owned(),
+    };
+    let path = fill(paths::JOBS_CHECKPOINTS_DOWNLOAD, &[lease.job, &saved.id]);
+    api::retrying(deadline, || {
+        let signed = lease
+            .api
+            .post::<_, CheckpointDownloadOut>(&path, &body)?
+            .ok_or_else(|| Error::Transient("The server's answer was empty.".into()))?;
+        fetch(storage, &signed.url, target, signed.size, &signed.sha256)
+    })
+    .map_err(|e| failed("Couldn't download it", e))
+}
+
+/// Tells the server the attempt resumed from the checkpoint.
+pub fn restored_checkpoint(lease: &Lease, id: &str) -> Result<(), Failed> {
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let body = LeaseIn {
+        lease_token: lease.token.to_owned(),
+    };
+    let path = fill(paths::JOBS_CHECKPOINTS_RESTORED, &[lease.job, id]);
+    api::retrying(deadline, || {
+        lease
+            .api
+            .post::<_, serde_json::Value>(&path, &body)
+            .map(|_| ())
+    })
+    .map_err(|e| failed("Couldn't record it", e))
 }
 
 /// PUTs one part's bytes, signing its URL again if it ran out.

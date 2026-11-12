@@ -221,14 +221,18 @@ def check(upload_id: str) -> str:
 
 def _finish(upload: Upload, sha256: str, size: int) -> None:
     """Moves checked bytes to their content's key, and makes the upload a file; or, for an
-    artifact, to its own key."""
-    if upload.kind == UploadKind.ARTIFACT:
-        storage.copy(upload.staging_key, storage.artifact_key(upload.pk))
+    artifact or a checkpoint, to its own key."""
+    if upload.kind != UploadKind.FILE:
+        kept = storage.kept_key(upload.kind, upload.pk)
+        storage.copy(upload.staging_key, kept)
         storage.delete(upload.staging_key)
         with transaction.atomic():
             locked = Upload.objects.select_for_update().get(pk=upload.pk)
             if locked.state in (UploadState.PENDING, UploadState.CHECKING):
                 _end(locked, UploadState.READY)
+                return
+        # Cancelled while it was checked (its run's checkpoints were deleted, say): keep none.
+        storage.delete_for_good(kept)
         return
     key = storage.blob_key(sha256)
     if not storage.exists(key):
@@ -274,7 +278,7 @@ def _end(upload: Upload, state: UploadState) -> None:
     upload.state = state
     upload.finished_at = timezone.now()
     upload.save(update_fields=["state", "finished_at", "error", "file"])
-    if upload.kind == UploadKind.ARTIFACT:
+    if upload.kind != UploadKind.FILE:
         return  # a worker's, for a run: the run's page says how it went
     # Postgres delivers it when the transaction commits.
     realtime.publish(

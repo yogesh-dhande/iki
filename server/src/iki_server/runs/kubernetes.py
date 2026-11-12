@@ -185,7 +185,9 @@ def job_manifest(
         "automountServiceAccountToken": False,
         "enableServiceLinks": False,
         "securityContext": _pod_security(),
-        "terminationGracePeriodSeconds": 60,
+        # Its worker stops the command, saves a checkpointable run's progress (ADR 0069),
+        # and reports it interrupted, so it's retried and resumes.
+        "terminationGracePeriodSeconds": 300,
         "initContainers": [
             {
                 "name": "iki-worker",

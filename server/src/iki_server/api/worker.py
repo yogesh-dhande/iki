@@ -49,6 +49,7 @@ from iki_server.realtime.views import db
 from iki_server.runs import (
     artifacts,
     catalog,
+    checkpoints,
     input_files,
     launches,
     queue,
@@ -692,6 +693,61 @@ def start_artifact(request: HttpRequest, job_id: UUID, payload: ArtifactIn) -> A
     )
     parts = files.parts(upload, workers=True) if upload.state == UploadState.PENDING else []
     return Status(201, {**_upload_out(upload), "parts": parts})
+
+
+class CheckpointIn(LeaseIn):
+    size: int = Field(ge=0, description="Bytes of the packed checkpoint directory.")
+    sha256: str = Field(min_length=64, max_length=64, description="Of its bytes, as hex.")
+
+
+@api.post("/jobs/{job_id}/checkpoints", response={201: StartedOut}, summary="Save a checkpoint")
+def start_checkpoint(request: HttpRequest, job_id: UUID, payload: CheckpointIn) -> Any:  # noqa: ANN401
+    """For a checkpointable action (ADR 0069): the command's checkpoint directory, packed as
+    an uncompressed tar file of its regular files and directories. Answers with the parts to
+    PUT; then finish it like a result file, under `uploads/{id}`, until it's `ready`. A later
+    attempt resumes from the newest one that's ready."""
+    _storage()
+    upload = checkpoints.start(
+        _worker(request), job_id, payload.lease_token, size=payload.size, sha256=payload.sha256
+    )
+    parts = files.parts(upload, workers=True) if upload.state == UploadState.PENDING else []
+    return Status(201, {**_upload_out(upload), "parts": parts})
+
+
+class CheckpointDownloadOut(Schema):
+    url: str = Field(description="GET the checkpoint's bytes here. It works for five minutes.")
+    size: int = Field(description="Bytes.")
+    sha256: str = Field(description="Of its bytes, as hex: check them against it.")
+
+
+@api.post(
+    "/jobs/{job_id}/checkpoints/{checkpoint_id}/download",
+    response=CheckpointDownloadOut,
+    summary="Download a checkpoint",
+)
+def download_checkpoint(
+    request: HttpRequest, job_id: UUID, checkpoint_id: UUID, payload: LeaseIn
+) -> dict[str, Any]:
+    """The checkpoint the run input's `job.checkpoint.saved` names, which an earlier attempt
+    saved. Ask again for a new URL if it runs out."""
+    _storage()
+    found, url = checkpoints.download(_worker(request), job_id, payload.lease_token, checkpoint_id)
+    return {"url": url, "size": found.upload.size, "sha256": found.upload.sha256}
+
+
+@api.post(
+    "/jobs/{job_id}/checkpoints/{checkpoint_id}/restored",
+    response={204: None},
+    summary="Say a checkpoint was restored",
+)
+def restored_checkpoint(
+    request: HttpRequest, job_id: UUID, checkpoint_id: UUID, payload: LeaseIn
+) -> Status[None]:
+    """Once the checkpoint is unpacked into the command's checkpoint directory, before the
+    command starts: the attempt records that it resumed from it. Not said for one that
+    couldn't be restored, so the attempt starts afresh."""
+    checkpoints.restored(_worker(request), job_id, payload.lease_token, checkpoint_id)
+    return Status(204, None)
 
 
 def _upload_out(upload: Upload) -> dict[str, Any]:

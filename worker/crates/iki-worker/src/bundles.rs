@@ -238,17 +238,36 @@ fn inside(dir: &Path, name: &Path) -> Option<PathBuf> {
 /// no more than a plugin should hold.
 pub fn unpack(packed: &Path, dir: &Path) -> Result<(), String> {
     let file = File::open(packed).map_err(|e| e.to_string())?;
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let limits = Limits {
+        what: "a bundle",
+        files: MAX_FILES,
+        bytes: MAX_UNPACKED,
+    };
+    extract(flate2::read::GzDecoder::new(file), dir, &limits)
+}
+
+/// The most an archive may unpack to, and what it is, to say why it can't.
+pub struct Limits {
+    pub what: &'static str,
+    pub files: usize,
+    pub bytes: u64,
+}
+
+/// Unpacks a tar archive into `dir`: regular files and directories only, none outside it,
+/// none written over, and within `limits`.
+pub fn extract(reader: impl Read, dir: &Path, limits: &Limits) -> Result<(), String> {
+    let mut archive = tar::Archive::new(reader);
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let what = limits.what;
     let mut total = 0u64;
     let mut count = 0usize;
     for entry in archive
         .entries()
-        .map_err(|e| format!("it isn't a bundle: {e}"))?
+        .map_err(|e| format!("it isn't {what}: {e}"))?
     {
-        let mut entry = entry.map_err(|e| format!("it isn't a bundle: {e}"))?;
+        let mut entry = entry.map_err(|e| format!("it isn't {what}: {e}"))?;
         count += 1;
-        if count > MAX_FILES {
+        if count > limits.files {
             return Err("it holds too many files".to_owned());
         }
         let name = entry.path().map_err(|e| e.to_string())?.into_owned();
@@ -263,8 +282,8 @@ pub fn unpack(packed: &Path, dir: &Path) -> Result<(), String> {
             return Err(format!("it holds something other than a file: {shown}"));
         }
         total += entry.size();
-        if total > MAX_UNPACKED {
-            return Err("it unpacks to more than a plugin should hold".to_owned());
+        if total > limits.bytes {
+            return Err(format!("it unpacks to more than {what} should hold"));
         }
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
