@@ -19,7 +19,7 @@ software, your files), sign the worker in as yourself
 
 ```sh
 iki-worker login https://iki.example.com
-IKI_PLUGINS_DIR=~/iki/plugins iki-worker start
+iki-worker start
 ```
 
 `login` opens your browser to confirm a code, through your company's
@@ -29,6 +29,17 @@ goes in `~/.config/iki/worker.json`, readable only by you, so `start`
 needs no `IKI_URL` or registration token. It runs only your runs. You can
 see and revoke it under _Your workers_ in your account, and
 `iki-worker logout` signs it out.
+
+It fetches each plugin's code from the server, at the commit the deployment
+installs, and checks its SHA-256 before unpacking it
+([ADR 0059](../docs/adr/0059-workers-fetch-plugin-code-and-build-environments.md)).
+It then builds the plugin's environments with
+[uv](https://docs.astral.sh/uv/) (or micromamba, for conda ones) from the
+pinned, hashed files in the plugin, so install whichever your plugins need.
+Everything goes in `~/.cache/iki/worker` (`IKI_WORKER_CACHE`), by commit and
+digest, so the next start reuses it. When the deployment upgrades a
+plugin, an idle worker notices within ten minutes and fetches the new
+code.
 
 ## Running it on a deployment
 
@@ -55,7 +66,8 @@ iki-worker start
 | `IKI_URL`                                  | The server. `https://` only; `http://` is accepted for localhost. After `login`, the one you signed in to.                         |
 | `IKI_REGISTRATION_TOKEN`                   | Registers the worker. Not needed again once `IKI_WORKER_STATE` holds a token.                                                      |
 | `IKI_WORKER_STATE`                         | A file to keep the worker's own token in (mode 0600), so restarts reuse it. After `login`, `~/.config/iki/worker.json` unless set. |
-| `IKI_PLUGINS_DIR`                          | Each plugin's code, in a directory named for the plugin. All the worker runs.                                                      |
+| `IKI_PLUGINS_DIR`                          | Each plugin's code, in a directory named for the plugin. All the worker runs. Unless set, it fetches the server's.                 |
+| `IKI_WORKER_CACHE`                         | Where it keeps the plugins it fetched and the environments it built. `~/.cache/iki/worker` unless set.                             |
 | `IKI_WORK_DIR`                             | Where jobs run, a private directory each. A temporary directory unless set.                                                        |
 | `IKI_WORKER_NAME`                          | How people tell it apart in Compute settings. The host name unless set.                                                            |
 | `IKI_WORKER_CPU`, `IKI_WORKER_MEMORY`      | What one job may use, such as `4` and `16Gi`. Detected on Linux (cgroup-aware).                                                    |

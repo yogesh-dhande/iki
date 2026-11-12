@@ -23,7 +23,7 @@ import requests
 from conftest import S3_ACCESS_KEY, S3_SECRET_KEY
 from iki_test_plugins import ensure_built
 from org_world import World, build_world
-from real_server import Server, app_role, manage, run_tasks, serve, server_env
+from real_server import Server, app_role, free_port, manage, run_tasks, serve, server_env
 from test_api_entities import api_as, create
 from test_files import api_as as browser_api
 from test_files import send
@@ -602,3 +602,103 @@ def test_someone_signs_a_worker_in_on_their_computer_and_it_runs_their_runs(
     assert not state.exists()
     signed_in.refresh_from_db()
     assert signed_in.revoked_at is not None
+
+
+BUNDLED_SHA = "e" * 40
+
+
+def _bundled_record(out: Path) -> dict[str, Any]:
+    from iki_cli import workers as bundles
+    from iki_spec.validate import load_plugin
+
+    directory = PLUGINS / "protein"
+    loaded = load_plugin(directory, dependencies=[PLUGINS / "dna"])
+    assert loaded.plugin is not None
+    out.mkdir(parents=True, exist_ok=True)
+    protein = {
+        "name": "protein",
+        "version": loaded.plugin.version,
+        "sha": BUNDLED_SHA,
+        "state": "active",
+        "bundle": bundles.bundle(directory, out / f"protein-{BUNDLED_SHA}.tar.gz"),
+        "environments": bundles.environments(loaded.plugin, directory),
+    }
+    return {"plugins": [protein]}
+
+
+@pytest.fixture(scope="module")
+def bundled_server(server: Server, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Server]:
+    """The server again, but its build installs protein from a commit, with its bundle, as
+    ``iki deploy build`` writes it (ADR 0059)."""
+    import json
+
+    build = tmp_path_factory.mktemp("bundled") / "build"
+    shutil.copytree(ensure_built(), build)
+    installed = build / "iki_installed_plugins"
+    record = _bundled_record(installed / "bundles")
+    (installed / "lock.json").write_text(json.dumps(record), encoding="utf-8")
+    port = str(free_port())
+    rest = [p for p in server.env["PYTHONPATH"].split(os.pathsep) if p != str(ensure_built())]
+    env = {
+        **server.env,
+        "IKI_PORT": port,
+        "IKI_PUBLIC_URL": f"http://127.0.0.1:{port}",
+        "PYTHONPATH": os.pathsep.join([str(build), *rest]),
+    }
+    with serve(env) as running:
+        yield running
+
+
+def test_a_worker_with_no_plugins_dir_fetches_and_builds_what_the_server_installs(
+    world: World,
+    worker_bin: Path,
+    bundled_server: Server,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from iki_server.entities import registry
+
+    uv = shutil.which("uv")
+    _require(uv is not None, "Install uv to build environments")
+    assert uv is not None
+    record = _bundled_record(tmp_path / "bundles")
+    monkeypatch.setattr(registry, "installed", lambda: record)
+    run = queued(world)
+    assert ActionRun.objects.get(pk=run["id"]).plugin_sha == BUNDLED_SHA
+    python = Path(sys.executable).parent
+    cache = tmp_path / "cache"
+    env = {
+        "PATH": os.pathsep.join([str(python), str(Path(uv).parent), os.environ.get("PATH", "")]),
+        "HOME": str(tmp_path / "home"),
+        "IKI_URL": bundled_server.url,
+        "IKI_REGISTRATION_TOKEN": registration(world),
+        "IKI_WORKER_CACHE": str(cache),
+        "IKI_WORK_DIR": str(tmp_path / "work"),
+        "IKI_WORKER_NAME": "fetcher",
+        "IKI_WORKER_CPU": "4",
+        "IKI_WORKER_MEMORY": "8Gi",
+    }
+    for name in ("UV_CACHE_DIR", "UV_PYTHON_INSTALL_DIR", "XDG_CACHE_HOME", "XDG_DATA_HOME"):
+        if name in os.environ:
+            env[name] = os.environ[name]
+    started = subprocess.Popen(  # noqa: S603 - our own binary
+        [str(worker_bin), "start", "--once"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    code, said = Running(started).wait(300)
+    assert code == 0, said
+    assert "Fetched a plugin's code." in said
+    assert "Building an environment." in said
+    body = api_as(world).get(f"/runs/{run['id']}").json()
+    assert body["status"] == "succeeded", (body, log_of(run))
+    digest = record["plugins"][0]["environments"]["protein-tools"]["digest"]
+    job = Job.objects.get(run_id=run["id"])
+    assert job.environment_build == digest
+    assert (cache / "plugins" / "protein" / BUNDLED_SHA / "plugin.yaml").is_file()
+    worker = Worker.objects.get(name="fetcher")
+    assert worker.plugins == [
+        {"name": "protein", "sha": BUNDLED_SHA, "environments": {"protein-tools": digest}}
+    ]

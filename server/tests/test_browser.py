@@ -76,6 +76,35 @@ def _require(what: bool, message: str) -> None:
 
 
 @pytest.fixture(scope="module", autouse=True)
+def _flush_past_late_requests() -> Iterator[None]:
+    """Retries the flush after each test when it deadlocks with a request the server took
+    after the pages closed (see `quiet`). Postgres rolls back one side, so trying again
+    is safe; without it, the next test starts on this one's rows."""
+    from django.db import OperationalError
+    from django.test.testcases import TransactionTestCase
+
+    flush = vars(TransactionTestCase)["_fixture_teardown"]
+
+    def retrying(self: TransactionTestCase) -> None:
+        for attempt in range(5):
+            try:
+                flush(self)
+            except Exception as error:
+                cause = error.__cause__ or error
+                if not isinstance(cause, OperationalError) or "deadlock" not in str(cause):
+                    raise
+                if attempt == 4:
+                    raise
+                quiet()
+            else:
+                return
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(TransactionTestCase, "_fixture_teardown", retrying)
+        yield
+
+
+@pytest.fixture(scope="module", autouse=True)
 def _orm_beside_playwright() -> Iterator[None]:
     # Sync Playwright keeps an event loop in this thread, so Django assumes the
     # ORM is called from async code. Nothing runs concurrently: allow it here.

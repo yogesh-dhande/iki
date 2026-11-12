@@ -7,6 +7,7 @@
 //! `iki-worker run --local input.json` runs one action's command offline, the same way.
 
 mod api;
+mod bundles;
 mod config;
 mod files;
 mod job;
@@ -121,7 +122,10 @@ Set in the environment:
   IKI_REGISTRATION_TOKEN   From Compute settings, to register a deployment's worker with
   IKI_WORKER_STATE         A file to keep the worker's own token in across restarts
                            (after login, ~/.config/iki/worker.json unless set)
-  IKI_PLUGINS_DIR          Each plugin's code, in a directory named for it
+  IKI_PLUGINS_DIR          Each plugin's code, in a directory named for it. Unless set,
+                           the worker fetches the server's and builds their environments
+                           with uv or micromamba
+  IKI_WORKER_CACHE         Where it keeps what it fetched and built (~/.cache/iki/worker)
   IKI_WORK_DIR             Where jobs run (a temporary directory unless set)
   IKI_WORKER_NAME          How people tell it apart (the host name unless set)
   IKI_WORKER_CPU, IKI_WORKER_MEMORY, IKI_WORKER_GPUS, IKI_WORKER_GPU_MEMORY,

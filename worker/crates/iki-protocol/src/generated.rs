@@ -234,6 +234,27 @@ pub enum RunOutputMessagesItemLevel {
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AvailableListOut {
+    pub plugins: Vec<AvailableOut>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AvailableOut {
+    pub bundle: BundleOut,
+    pub environments: std::collections::BTreeMap<String, EnvironmentBuildOut>,
+    pub name: String,
+    pub sha: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BundleOut {
+    /// Of the `.tar.gz`, which the worker checks.
+    pub sha256: String,
+    pub size: i64,
+}
+
 /// What the worker can give one job. Memory and disk are in bytes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Capacity {
@@ -276,6 +297,36 @@ pub struct DownloadOut {
     pub size: i64,
     /// GET the file's bytes here. It works for five minutes.
     pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EnvironmentBuildOut {
+    /// What the worker reports once it has built it.
+    pub digest: String,
+    pub kind: EnvironmentBuildOutKind,
+    /// For `conda`: the lockfile in the bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lockfile: Option<String>,
+    /// For `python`: whether the requirements file names any packages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packages: Option<bool>,
+    /// For `python`: the version uv makes it with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python: Option<String>,
+    /// For `python`: the pinned, hashed requirements file in the bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirements: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EnvironmentBuildOutKind {
+    #[serde(rename = "python")]
+    Python,
+    #[serde(rename = "conda")]
+    Conda,
+    /// A value this version of the protocol doesn't know.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -540,6 +591,10 @@ pub mod paths {
     pub const LEASE: &str = "/worker/v1/lease";
     /// `/worker/v1/me`
     pub const ME: &str = "/worker/v1/me";
+    /// `/worker/v1/plugins`
+    pub const PLUGINS: &str = "/worker/v1/plugins";
+    /// `/worker/v1/plugins/{name}/{sha}`
+    pub const PLUGINS_NAME_SHA: &str = "/worker/v1/plugins/{name}/{sha}";
     /// `/worker/v1/register`
     pub const REGISTER: &str = "/worker/v1/register";
 }

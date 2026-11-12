@@ -63,13 +63,16 @@ pub struct Have {
     built: BTreeMap<String, Built>,
     /// Whether it came from `plugins.json`, so every environment must be built.
     from_manifest: bool,
+    /// Where each plugin's code is, when the worker fetched it (ADR 0059); otherwise in
+    /// `IKI_PLUGINS_DIR`, by name.
+    dirs: BTreeMap<String, PathBuf>,
 }
 
 /// The file `iki deploy build --workers` writes in `IKI_PLUGINS_DIR`.
 pub const MANIFEST: &str = "plugins.json";
 
 /// A plugin's name, as `spec/` allows it: `protein`, `structure_prediction`.
-fn is_plugin_name(name: &str) -> bool {
+pub fn is_plugin_name(name: &str) -> bool {
     (2..=30).contains(&name.len())
         && name.starts_with(|c: char| c.is_ascii_lowercase())
         && !name.ends_with('_')
@@ -168,6 +171,26 @@ fn from_manifest(dir: &Path, file: &Path) -> Result<Have, String> {
 }
 
 impl Have {
+    /// What a worker fetched from the server and built: every environment must be built,
+    /// as from `plugins.json`.
+    pub fn fetched(
+        code: Vec<PluginCode>,
+        built: BTreeMap<String, Built>,
+        dirs: BTreeMap<String, PathBuf>,
+    ) -> Self {
+        Self {
+            code,
+            built,
+            from_manifest: true,
+            dirs,
+        }
+    }
+
+    /// Where `name`'s code is, if the worker fetched it.
+    pub fn dir(&self, name: &str) -> Option<&Path> {
+        self.dirs.get(name).map(PathBuf::as_path)
+    }
+
     /// Why this worker can't run a run of `name` at `sha` in `environment`
     /// (`plugin.environment`), if it can't. Otherwise, the environment to run it in:
     /// `None` for the host's own software.

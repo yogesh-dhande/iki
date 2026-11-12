@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use crate::api::{self, Api, Error};
 use crate::config::Config;
 use crate::job::{self, Ended};
-use crate::plugins;
 use crate::say;
+use crate::{bundles, plugins};
 
 /// Seconds a lease request waits for work. Short enough that a stopping worker isn't
 /// held for long (give pods a termination grace period of at least a minute).
@@ -57,22 +57,22 @@ pub fn save(path: &Path, saved: &Saved) -> std::io::Result<()> {
 
 /// The worker's API client, with its own token: the saved one if it still works, or a
 /// new one from registering.
-/// Signs in with the saved token, saying what the worker runs now, or registers.
-fn sign_in(config: &Config, plugins: &[PluginCode]) -> Result<(Api, bool), String> {
+/// Signs in with the saved token, saying what the worker runs now, or registers. With no
+/// `plugins` yet (it fetches them once signed in), it says nothing of what it runs.
+fn sign_in(config: &Config, plugins: Option<&[PluginCode]>) -> Result<(Api, bool), String> {
     let anonymous = Api::new(&config.url, "");
     if let Some(path) = &config.state_file
         && let Some(saved) = load(path, &config.url)
     {
         let api = anonymous.with_token(&saved.token);
-        let body = WorkerIn {
-            capacity: config.capacity.clone(),
-            plugins: plugins.to_vec(),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-        };
-        match api::retrying(std::time::Instant::now() + Duration::from_secs(120), || {
-            api.put::<_, WorkerOut>(paths::ME, &body)
-        }) {
-            Ok(_) => {
+        match api::retrying(
+            std::time::Instant::now() + Duration::from_secs(120),
+            || match plugins {
+                Some(plugins) => tell(&api, config, plugins),
+                None => api.get::<WorkerOut>(paths::ME).map(|_| ()),
+            },
+        ) {
+            Ok(()) => {
                 say::info("Signed in with the saved token.", &[("worker", &saved.id)]);
                 return Ok((api, false));
             }
@@ -95,7 +95,7 @@ fn sign_in(config: &Config, plugins: &[PluginCode]) -> Result<(Api, bool), Strin
     let body = RegisterIn {
         capacity: config.capacity.clone(),
         name: config.name.clone(),
-        plugins: plugins.to_vec(),
+        plugins: plugins.unwrap_or_default().to_vec(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
     };
     let registering = anonymous.with_token(registration);
@@ -135,6 +135,65 @@ fn sign_in(config: &Config, plugins: &[PluginCode]) -> Result<(Api, bool), Strin
     Ok((api, true))
 }
 
+/// Says what the worker runs now (`PUT /me`).
+fn tell(api: &Api, config: &Config, plugins: &[PluginCode]) -> Result<(), Error> {
+    let body = WorkerIn {
+        capacity: config.capacity.clone(),
+        plugins: plugins.to_vec(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+    };
+    api.put::<_, WorkerOut>(paths::ME, &body).map(|_| ())
+}
+
+/// How often an idle worker that fetches its plugins asks whether they changed: an
+/// upgrade reaches it without a restart.
+const RESYNC_EVERY: Duration = Duration::from_secs(600);
+
+/// What the server installs now, fetched and built, told to the server.
+fn fetch_plugins(
+    api: &Api,
+    config: &Config,
+    listed: &[iki_protocol::AvailableOut],
+) -> Result<plugins::Have, Error> {
+    let have = bundles::sync(api, &config.cache_dir, listed);
+    if have.code.is_empty() && !listed.is_empty() {
+        say::warn("Fetched no plugin this worker can run.", &[]);
+    }
+    api::retrying(std::time::Instant::now() + Duration::from_secs(120), || {
+        tell(api, config, &have.code)
+    })?;
+    Ok(have)
+}
+
+/// Fetches the server's plugins again if they changed since `listed`.
+fn resync(
+    api: &Api,
+    config: &Config,
+    listed: &mut Vec<iki_protocol::AvailableOut>,
+    have: &mut plugins::Have,
+) {
+    match bundles::available(api) {
+        Ok(now) if now != *listed => {
+            say::info("The server's plugins changed; fetching them.", &[]);
+            match fetch_plugins(api, config, &now) {
+                Ok(fetched) => {
+                    *have = fetched;
+                    *listed = now;
+                }
+                Err(error) => say::warn(
+                    "Couldn't say what this worker runs now.",
+                    &[("detail", &error)],
+                ),
+            }
+        }
+        Ok(_) => {}
+        Err(error) => say::warn(
+            "Couldn't ask which plugins the server installs.",
+            &[("detail", &error)],
+        ),
+    }
+}
+
 /// Sleeps for `wait`, waking early if the worker is stopping.
 fn pause(wait: Duration, interrupted: &AtomicBool) {
     let end = std::time::Instant::now() + wait;
@@ -152,7 +211,11 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         signal_hook::flag::register(signal, Arc::clone(&interrupted))
             .map_err(|error| format!("Couldn't watch for signals: {error}"))?;
     }
-    let have = plugins::discover(&config.plugins_dir)?;
+    let local = config
+        .plugins_dir
+        .as_deref()
+        .map(plugins::discover)
+        .transpose()?;
     if config.allow_http && config.url.starts_with("http://") {
         say::warn(
             "IKI_ALLOW_HTTP is set: this worker's token and every result travel unencrypted. \
@@ -160,13 +223,23 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
             &[("server", &config.url)],
         );
     }
-    if have.code.is_empty() {
+    if let (Some(have), Some(dir)) = (&local, &config.plugins_dir)
+        && have.code.is_empty()
+    {
         say::warn(
             "IKI_PLUGINS_DIR holds no plugins, so this worker can run nothing.",
-            &[("path", &config.plugins_dir.display())],
+            &[("path", &dir.display())],
         );
     }
-    let (api, ephemeral) = sign_in(config, &have.code)?;
+    let (api, ephemeral) = sign_in(config, local.as_ref().map(|h| h.code.as_slice()))?;
+    let mut listed = Vec::new();
+    let mut have = if let Some(have) = local {
+        have
+    } else {
+        listed = bundles::available(&api).map_err(|e| unreachable_or_revoked(config, &e))?;
+        fetch_plugins(&api, config, &listed).map_err(|e| unreachable_or_revoked(config, &e))?
+    };
+    let mut synced = std::time::Instant::now();
     let lease = format!("{}?wait={LEASE_WAIT}", paths::LEASE);
     let mut failures = 0;
     let mut outcome = Ok(());
@@ -183,7 +256,13 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
                     break;
                 }
             }
-            Ok(None) => failures = 0,
+            Ok(None) => {
+                failures = 0;
+                if config.plugins_dir.is_none() && synced.elapsed() >= RESYNC_EVERY {
+                    synced = std::time::Instant::now();
+                    resync(&api, config, &mut listed, &mut have);
+                }
+            }
             Err(Error::Unauthorized(_)) => {
                 outcome = Err(revoked(config));
                 break;
@@ -207,6 +286,13 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
     }
     say::info("Stopped.", &[]);
     outcome
+}
+
+fn unreachable_or_revoked(config: &Config, error: &Error) -> String {
+    match error {
+        Error::Unauthorized(_) => revoked(config),
+        error => format!("Couldn't fetch plugins from {}: {error}", config.url),
+    }
 }
 
 fn revoked(config: &Config) -> String {

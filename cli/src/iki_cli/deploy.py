@@ -140,6 +140,12 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         compute = _compute(lock, fetched, err)
         if compute is None:
             return 1
+        bundles = workspace / "bundles"
+        try:
+            made = _bundles(fetched, bundles)
+        except ValueError as error:
+            err.write(f"error: {error}.\n")
+            return 1
         staging = workspace / "build"
         try:
             build_apps(
@@ -147,12 +153,14 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
                 staging,
                 migrations={f.entry.name: f.directory / "migrations" for f in fetched},
                 settings=settings,
-                lock=_record(lock, fetched),
+                lock=_record(lock, fetched, made),
                 local=lock.has_local,
             )
         except ValueError as error:
             err.write(f"error: {error}.\n")
             return 1
+        if made:
+            shutil.copytree(bundles, staging / "iki_installed_plugins" / BUNDLES)
         if fetched and not _migrations_complete(fetched, staging, err):
             return 1
         (staging / COMPUTE_JSON).write_text(
@@ -267,14 +275,43 @@ def _compute(lock: Lock, fetched: list[_Fetched], err: TextIO) -> compute_spec.C
     return result.compute if result.ok else None
 
 
-def _record(lock: Lock, fetched: list[_Fetched]) -> dict[str, Any]:
-    """Where each plugin came from, for the server's plugins page and for audits."""
+#: In ``iki_installed_plugins``: each pinned plugin's code, for workers to fetch (ADR 0059).
+BUNDLES = "bundles"
+
+
+def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]:
+    """Each pinned plugin's bundle in `output`, as ``<name>-<sha>.tar.gz``, and what the
+    server tells workers of it, by plugin."""
+    made: dict[str, dict[str, Any]] = {}
+    for item in fetched:
+        if item.entry.sha is None or item.plugin is None:
+            continue  # a local directory, for development: workers there have it
+        output.mkdir(exist_ok=True)
+        try:
+            packed = workers.bundle(
+                item.directory, output / f"{item.entry.name}-{item.entry.sha}.tar.gz"
+            )
+        except ValueError as error:
+            raise ValueError(f"{item.label}: {error}") from None
+        made[item.entry.name] = {
+            "bundle": packed,
+            "environments": workers.environments(item.plugin, item.directory),
+        }
+    return made
+
+
+def _record(
+    lock: Lock, fetched: list[_Fetched], made: dict[str, dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """Where each plugin came from, for the server's plugins page and for audits, and the
+    bundle workers fetch of each pinned one."""
     plugins = []
     for item in fetched:
         assert item.plugin is not None  # noqa: S101 - _load_all loaded every plugin
         entry = item.entry.to_dict()
         entry.pop("settings", None)
         entry["version"] = item.plugin.version
+        entry.update((made or {}).get(item.entry.name, {}))
         if item.entry.settings:
             entry["settings_sha256"] = _sha256(lock.directory / item.entry.settings)
         plugins.append(entry)

@@ -19,8 +19,11 @@ pub struct Config {
     pub name: String,
     /// A directory per job goes here, removed when the job ends.
     pub work_dir: PathBuf,
-    /// One directory per plugin, by name, holding its code.
-    pub plugins_dir: PathBuf,
+    /// One directory per plugin, by name, holding its code. Without one, the worker
+    /// fetches each plugin's code from the server and builds its environments (ADR 0059).
+    pub plugins_dir: Option<PathBuf>,
+    /// Where it keeps what it fetched and built: `IKI_WORKER_CACHE`, or the user's cache.
+    pub cache_dir: PathBuf,
     /// What it can give one job.
     pub capacity: Capacity,
     /// Keep job directories after their jobs end, to debug a command.
@@ -209,9 +212,19 @@ impl Config {
             Some(raw) => server_url(&raw, allow_http)?,
             None => server_url(&signed_in.ok_or(URL_RULE)?, allow_http)?,
         };
-        let plugins_dir = get("IKI_PLUGINS_DIR")
+        let plugins_dir = get("IKI_PLUGINS_DIR").map(PathBuf::from);
+        let cache_dir = get("IKI_WORKER_CACHE")
             .map(PathBuf::from)
-            .ok_or("Set IKI_PLUGINS_DIR to the directory holding each plugin's code, by name.")?;
+            .or_else(|| crate::bundles::default_cache(var))
+            .or_else(|| {
+                plugins_dir
+                    .is_some()
+                    .then(|| std::env::temp_dir().join("iki-worker-cache"))
+            })
+            .ok_or(
+                "Set IKI_WORKER_CACHE to where the worker may keep the plugins it fetches \
+                 (there's no home directory), or IKI_PLUGINS_DIR to their code.",
+            )?;
         let work_dir = get("IKI_WORK_DIR")
             .map_or_else(|| std::env::temp_dir().join("iki-worker"), PathBuf::from);
         Ok(Self {
@@ -221,6 +234,7 @@ impl Config {
             name: name(var),
             work_dir,
             plugins_dir,
+            cache_dir,
             capacity: capacity(var)?,
             keep_job_dirs: flag("IKI_KEEP_JOB_DIRS"),
             allow_http,

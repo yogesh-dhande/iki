@@ -15,12 +15,13 @@ Its OpenAPI document is at ``/worker/v1/openapi.json``.
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from django.http import HttpRequest, HttpResponse, HttpResponseBase
+from django.http import FileResponse, HttpRequest, HttpResponse, HttpResponseBase
 from django.views.decorators.csrf import csrf_exempt
 from ninja import Field, NinjaAPI, Schema, Status
 from ninja.errors import AuthenticationError, HttpError, ValidationError
@@ -30,6 +31,7 @@ from pydantic import field_validator
 from iki_server.accounts.models import User
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import ANONYMOUS_LIMIT, _limit
+from iki_server.entities import registry
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Upload, UploadState
@@ -285,6 +287,75 @@ def update_me(request: HttpRequest, payload: WorkerIn) -> Worker:
         capacity=payload.capacity.model_dump(),
         plugins=_plugins(payload),
     )
+
+
+class BundleOut(Schema):
+    sha256: str = Field(description="Of the `.tar.gz`, which the worker checks.")
+    size: int
+
+
+class EnvironmentBuildOut(Schema):
+    digest: BuildDigest = Field(description="What the worker reports once it has built it.")
+    kind: Literal["python", "conda"]
+    python: str | None = Field(None, description="For `python`: the version uv makes it with.")
+    requirements: str | None = Field(
+        None, description="For `python`: the pinned, hashed requirements file in the bundle."
+    )
+    packages: bool = Field(
+        False, description="For `python`: whether the requirements file names any packages."
+    )
+    lockfile: str | None = Field(None, description="For `conda`: the lockfile in the bundle.")
+
+
+class AvailableOut(Schema):
+    name: PluginName
+    version: str
+    sha: str
+    bundle: BundleOut
+    environments: dict[str, EnvironmentBuildOut]
+
+
+class AvailableListOut(Schema):
+    plugins: list[AvailableOut]
+
+
+@api.get("/plugins", response=AvailableListOut, summary="Plugin code to fetch")
+def available(request: HttpRequest) -> dict[str, Any]:
+    """The code of each plugin this deployment installs from a commit, for a worker on
+    someone's computer to fetch and build (ADR 0059): it then runs what's launched now."""
+    _worker(request)
+    plugins = [
+        {
+            "name": entry["name"],
+            "version": entry["version"],
+            "sha": entry["sha"],
+            "bundle": entry["bundle"],
+            "environments": entry.get("environments") or {},
+        }
+        for entry in (registry.installed() or {}).get("plugins", ())
+        if entry.get("bundle") and entry.get("state", "active") == "active"
+    ]
+    return {"plugins": sorted(plugins, key=lambda p: p["name"])}
+
+
+@api.get(
+    "/plugins/{name}/{sha}",
+    response={200: None},
+    summary="Download a plugin's code",
+    openapi_extra={
+        "responses": {200: {"content": {"application/gzip": {}}, "description": "The bundle"}}
+    },
+)
+def download_plugin(request: HttpRequest, name: str, sha: str) -> HttpResponseBase:
+    """A gzipped tar of the plugin's code at that commit, which ``iki deploy build`` wrote.
+    Check its SHA-256 against the list before unpacking it."""
+    _worker(request)
+    file = registry.bundle(name, sha) if re.fullmatch(r"[0-9a-f]{40}", sha) else None
+    if file is None:
+        raise HttpError(404, "This deployment has no code for that plugin at that commit.")
+    response = FileResponse(file.open("rb"), content_type="application/gzip")
+    response["Cache-Control"] = "private, max-age=31536000, immutable"
+    return response
 
 
 @api.post("/deregister", response={204: None}, summary="Stop being a worker")

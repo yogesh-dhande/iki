@@ -14,14 +14,22 @@ An environment's digest covers only what decides its contents: its Python
 version and requirements file, or its conda lockfile. So an environment
 that didn't change keeps its digest, and its layer stays cached, across
 plugin commits.
+
+Every ``iki deploy build`` also bundles each pinned plugin's code for the server
+to give workers on people's computers (ADR 0059): a gzipped tar, the same bytes
+for the same files, with what's needed to build each environment where it lands.
 """
 
 from __future__ import annotations
 
+import gzip
 import hashlib
+import io
 import json
+import os
 import shlex
 import shutil
+import tarfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -30,7 +38,15 @@ from typing import Any
 from iki_spec import API_VERSION
 from iki_spec.model import Environment, Plugin
 
-__all__ = ["ENVIRONMENTS", "SCRIPT", "WORKER_PLUGINS", "WorkerPlugin", "write"]
+__all__ = [
+    "ENVIRONMENTS",
+    "SCRIPT",
+    "WORKER_PLUGINS",
+    "WorkerPlugin",
+    "bundle",
+    "environments",
+    "write",
+]
 
 #: Where the worker image builds environments, unless told otherwise.
 ENVIRONMENTS = "/opt/iki/envs"
@@ -75,6 +91,64 @@ def _definition(env: Environment, directory: Path) -> dict[str, str]:
 def _digest(definition: dict[str, str]) -> str:
     canonical = json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
+def environments(plugin: Plugin, directory: Path) -> dict[str, dict[str, Any]]:
+    """How a worker builds each of `plugin`'s environments from its bundle: the digest it
+    reports, and the files (by path in the bundle) and Python version the build takes."""
+    found: dict[str, dict[str, Any]] = {}
+    for name, env in sorted(plugin.environments.items()):
+        if not _built(env):
+            continue
+        definition = _definition(env, directory)
+        entry: dict[str, Any] = {"digest": _digest(definition), "kind": definition["kind"]}
+        if env.conda_lockfile is not None:
+            entry["lockfile"] = str(PurePosixPath(env.conda_lockfile))
+        else:
+            assert env.python_version is not None and env.requirements is not None  # noqa: S101 - the schema
+            entry["python"] = env.python_version
+            entry["requirements"] = str(PurePosixPath(env.requirements))
+            entry["packages"] = _has_requirements(directory / env.requirements)
+        found[name] = entry
+    return found
+
+
+def _files(directory: Path) -> list[Path]:
+    ignored = {".git", "__pycache__", ".venv", "node_modules", ".DS_Store"}
+    found: list[Path] = []
+    for root, dirs, names in os.walk(directory):
+        dirs[:] = sorted(d for d in dirs if d not in ignored)
+        here = Path(root)
+        found.extend(here / name for name in names if name not in ignored)
+        found.extend(here / d for d in dirs if (here / d).is_symlink())
+    return sorted(found)
+
+
+def bundle(directory: Path, output: Path) -> dict[str, Any]:
+    """Writes `directory`'s code to `output`, a gzipped tar workers fetch, and returns its
+    ``sha256`` and ``size``. Only regular files: a symbolic link could point anywhere on
+    the computer that unpacks it, so a plugin with one is refused. Times, owners and
+    modes other than executable are left out, so the same files give the same bytes."""
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
+        for file in _files(directory):
+            relative = file.relative_to(directory).as_posix()
+            if file.is_symlink() or not file.is_file():
+                raise ValueError(
+                    f"{relative} is a symbolic link or special file; plugins hold only "
+                    "regular files"
+                )
+            info = tarfile.TarInfo(relative)
+            info.size = file.stat().st_size
+            info.mode = 0o755 if os.access(file, os.X_OK) else 0o644
+            info.mtime = 0
+            with file.open("rb") as data:
+                tar.addfile(info, data)
+    packed = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=packed, mtime=0) as zipped:
+        zipped.write(raw.getvalue())
+    output.write_bytes(packed.getvalue())
+    return {"sha256": hashlib.sha256(packed.getvalue()).hexdigest(), "size": output.stat().st_size}
 
 
 def _has_requirements(file: Path) -> bool:

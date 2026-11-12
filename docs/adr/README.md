@@ -88,3 +88,4 @@ supersedes the old one, and update the old one's status.
 | [0056](0056-bulk-imports.md)                                      | A run's creates can come from a file, checked in resumable chunks and written all at once           | Accepted |
 | [0057](0057-reuse-reproduce-exactly-and-seeds.md)                 | Identical deterministic runs reuse results; any run can be reproduced exactly                       | Accepted |
 | [0058](0058-workers-on-peoples-computers-sign-in-as-them.md)      | A worker on someone's own computer signs in as them                                                 | Accepted |
+| [0059](0059-workers-fetch-plugin-code-and-build-environments.md)  | Workers on people's computers fetch plugin code and build its environments                          | Accepted |

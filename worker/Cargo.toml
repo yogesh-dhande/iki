@@ -25,6 +25,10 @@ signal-hook = "0.4.6"
 # does for browsers, and no bundled root list goes stale.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 ureq = { version = "3.5.1", default-features = false, features = ["rustls-no-provider", "platform-verifier", "json"] }
+# Plugin bundles from the server (ADR 0059): gzipped tars, unpacked by hand so only
+# regular files land, in pure Rust.
+flate2 = { version = "1.1.11", default-features = false, features = ["rust_backend"] }
+tar = { version = "0.4.46", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

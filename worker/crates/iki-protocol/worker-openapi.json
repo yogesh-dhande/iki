@@ -1,6 +1,79 @@
 {
   "components": {
     "schemas": {
+      "AvailableListOut": {
+        "properties": {
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/AvailableOut"
+            },
+            "title": "Plugins",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plugins"
+        ],
+        "title": "AvailableListOut",
+        "type": "object"
+      },
+      "AvailableOut": {
+        "properties": {
+          "bundle": {
+            "$ref": "#/components/schemas/BundleOut"
+          },
+          "environments": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EnvironmentBuildOut"
+            },
+            "title": "Environments",
+            "type": "object"
+          },
+          "name": {
+            "maxLength": 30,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Name",
+            "type": "string"
+          },
+          "sha": {
+            "title": "Sha",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "sha",
+          "bundle",
+          "environments"
+        ],
+        "title": "AvailableOut",
+        "type": "object"
+      },
+      "BundleOut": {
+        "properties": {
+          "sha256": {
+            "description": "Of the `.tar.gz`, which the worker checks.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha256",
+          "size"
+        ],
+        "title": "BundleOut",
+        "type": "object"
+      },
       "Capacity": {
         "description": "What the worker can give one job. Memory and disk are in bytes.",
         "properties": {
@@ -143,6 +216,72 @@
           "sha256"
         ],
         "title": "DownloadOut",
+        "type": "object"
+      },
+      "EnvironmentBuildOut": {
+        "properties": {
+          "digest": {
+            "description": "What the worker reports once it has built it.",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Digest",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "python",
+              "conda"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lockfile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For `conda`: the lockfile in the bundle.",
+            "title": "Lockfile"
+          },
+          "packages": {
+            "default": false,
+            "description": "For `python`: whether the requirements file names any packages.",
+            "title": "Packages",
+            "type": "boolean"
+          },
+          "python": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For `python`: the version uv makes it with.",
+            "title": "Python"
+          },
+          "requirements": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For `python`: the pinned, hashed requirements file in the bundle.",
+            "title": "Requirements"
+          }
+        },
+        "required": [
+          "digest",
+          "kind"
+        ],
+        "title": "EnvironmentBuildOut",
         "type": "object"
       },
       "FailIn": {
@@ -1270,6 +1409,71 @@
           }
         ],
         "summary": "Say what this worker runs now"
+      }
+    },
+    "/worker/v1/plugins": {
+      "get": {
+        "description": "The code of each plugin this deployment installs from a commit, for a worker on\nsomeone's computer to fetch and build (ADR 0059): it then runs what's launched now.",
+        "operationId": "iki_server_api_worker_available",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailableListOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Plugin code to fetch"
+      }
+    },
+    "/worker/v1/plugins/{name}/{sha}": {
+      "get": {
+        "description": "A gzipped tar of the plugin's code at that commit, which ``iki deploy build`` wrote.\nCheck its SHA-256 against the list before unpacking it.",
+        "operationId": "iki_server_api_worker_download_plugin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha",
+            "required": true,
+            "schema": {
+              "title": "Sha",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/gzip": {}
+            },
+            "description": "The bundle"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Download a plugin's code"
       }
     },
     "/worker/v1/register": {

@@ -2,6 +2,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import tarfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -118,6 +119,8 @@ def test_builds_the_pinned_commits(
     assert "IKI_VERSION = '0.1.0.dev0'" in installed
     assert "LOCAL = False" in installed
     record = json.loads((out / "iki_installed_plugins" / "lock.json").read_text())
+    bundles = out / "iki_installed_plugins" / "bundles"
+    packed = (bundles / f"dna-{sha}.tar.gz").read_bytes()
     assert record["plugins"][0] == {
         "name": "dna",
         "git": URL,
@@ -126,7 +129,27 @@ def test_builds_the_pinned_commits(
         "state": "active",
         "version": "1.2.0",
         "settings_sha256": hashlib.sha256(b"ncbi_email: a@b.org\n").hexdigest(),
+        "bundle": {"sha256": hashlib.sha256(packed).hexdigest(), "size": len(packed)},
+        "environments": {},
     }
+    assert sorted(p.name for p in bundles.iterdir()) == [
+        f"dna-{sha}.tar.gz",
+        f"protein-{sha}.tar.gz",
+    ]
+    protein = record["plugins"][1]["environments"]["protein-tools"]
+    assert protein["kind"] == "python" and protein["python"] == "3.12"
+    assert protein["digest"].startswith("sha256:")
+    assert protein["requirements"] == "requirements.txt"
+    assert protein["packages"] is False  # it names none
+    # Each bundle is the plugin's code at its commit: regular files, no times or owners.
+    with tarfile.open(bundles / f"protein-{sha}.tar.gz") as tar:
+        members = tar.getmembers()
+        names = [m.name for m in members]
+        assert "plugin.yaml" in names and "scripts/relax.py" in names
+        assert all(m.isfile() and m.mtime == 0 and m.uid == 0 for m in members)
+        relax = tar.extractfile("scripts/relax.py")
+        assert relax is not None
+        assert relax.read() == (upstream[0] / "plugins/protein/scripts/relax.py").read_bytes()
 
     # The same lockfile builds the same bytes, from the cache.
     first = tree_hash(out)
@@ -389,3 +412,18 @@ def test_lockfile_problems_point_at_the_line(
     err = capsys.readouterr().err
     assert err.startswith("plugins.lock.yaml:4:")
     assert "hint: Give the full commit SHA." in err
+
+
+def test_a_plugin_with_a_symbolic_link_is_refused(tmp_path: Path) -> None:
+    from iki_cli import workers
+
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    (plugin / "plugin.yaml").write_text("x")
+    (plugin / "secrets").symlink_to("/etc/passwd")
+    with pytest.raises(ValueError, match="secrets is a symbolic link"):
+        workers.bundle(plugin, tmp_path / "out.tar.gz")
+    (plugin / "secrets").unlink()
+    first = workers.bundle(plugin, tmp_path / "a.tar.gz")
+    (plugin / "plugin.yaml").touch()  # a new time changes nothing
+    assert workers.bundle(plugin, tmp_path / "b.tar.gz") == first

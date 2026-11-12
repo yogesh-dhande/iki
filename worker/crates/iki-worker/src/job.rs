@@ -670,7 +670,17 @@ pub fn run(
         thread::spawn(move || sender(&job))
     };
     let dirs = Dirs::new(&config.work_dir, &job.id);
-    let plugin_dir = config.plugins_dir.join(&input.run.plugin.name);
+    let name = &input.run.plugin.name;
+    let plugin_dir = have.dir(name).map_or_else(
+        || {
+            config
+                .plugins_dir
+                .as_deref()
+                .unwrap_or(&config.cache_dir)
+                .join(name)
+        },
+        Path::to_path_buf,
+    );
     let wanted = have.for_run(
         &input.run.plugin.name,
         input.run.plugin.sha.as_deref(),

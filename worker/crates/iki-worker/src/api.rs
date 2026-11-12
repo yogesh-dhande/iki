@@ -118,6 +118,36 @@ impl Api {
         read(reply)
     }
 
+    /// GETs JSON from `path`, as `post` does.
+    pub fn get<R: DeserializeOwned>(&self, path: &str) -> Result<Option<R>, Error> {
+        let reply = self
+            .agent
+            .get(format!("{}{path}", self.base))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .header("Accept", "application/json")
+            .call();
+        read(reply)
+    }
+
+    /// GETs `path`'s body to read as it arrives, such as a plugin's bundle. A failure reads
+    /// as it does for `post`.
+    pub fn download(&self, path: &str) -> Result<ureq::Body, Error> {
+        let reply = self
+            .agent
+            .get(format!("{}{path}", self.base))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .call()
+            .map_err(|error| Error::Transient(error.to_string()))?;
+        if reply.status().as_u16() == 200 {
+            return Ok(reply.into_body());
+        }
+        Err(read::<serde_json::Value>(Ok(reply))
+            .err()
+            .unwrap_or_else(|| {
+                Error::Transient("The server's answer to a download was empty.".to_owned())
+            }))
+    }
+
     /// PUTs `body` as JSON to `path`, as `post` does.
     pub fn put<B: Serialize, R: DeserializeOwned>(
         &self,

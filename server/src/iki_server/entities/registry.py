@@ -93,6 +93,27 @@ def settings(plugin: str) -> dict[str, Any]:
     return values
 
 
+def bundle(name: str, sha: str) -> Path | None:
+    """The bundle of `name`'s code at `sha` that ``iki deploy build`` wrote, for workers on
+    people's computers (ADR 0059), if this build installs that plugin at that commit."""
+    directory = bundles()
+    if directory is None:
+        return None
+    for entry in (installed() or {}).get("plugins", ()):
+        if entry.get("name") == name and entry.get("sha") == sha and entry.get("bundle"):
+            found = directory / f"{name}-{sha}.tar.gz"
+            return found if found.is_file() else None
+    return None
+
+
+def bundles() -> Path | None:
+    """Where ``iki deploy build`` put the plugins' bundles."""
+    spec = find_spec("iki_installed_plugins")
+    if spec is None or not spec.submodule_search_locations:
+        return None
+    return Path(next(iter(spec.submodule_search_locations))) / "bundles"
+
+
 @cache
 def installed() -> dict[str, Any] | None:
     """Where each plugin came from: the lockfile the build read, and each plugin's commit.
