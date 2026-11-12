@@ -341,6 +341,7 @@ class _Rules:
         used: set[str] = set()
         for template, document in self.templates.values():
             self.template(template, document)
+        self.prices()
         for binding, document in self.bindings.values():
             used.update(t for t, _ in binding.templates)
             self.binding(binding, document)
@@ -376,6 +377,35 @@ class _Rules:
             name in self.templates and self.templates[name][0].tier == tier
             for name, _ in binding[0].templates
         )
+
+    def prices(self) -> None:
+        """Costs add up in one currency, for reports and budgets (ADR 0070)."""
+        priced = [(t, d) for t, d in self.templates.values() if t.currency is not None]
+        currencies = sorted({t.currency for t, _ in priced if t.currency})
+        if len(currencies) > 1:
+            first = priced[0][0].currency
+            for template, document in priced:
+                if template.currency != first:
+                    self.add(
+                        "mixed-currencies",
+                        f"`{template.name}` is priced in {template.currency}, but "
+                        f"`{priced[0][0].name}` in {first}: a deployment's costs and budgets "
+                        "are in one currency.",
+                        document,
+                        ("price", "currency"),
+                        hint="Convert its price.",
+                    )
+        for template, document in self.templates.values():
+            if template.tier in ("container", "vm") and template.price_per_hour is None:
+                self.add(
+                    "unpriced-template",
+                    f"`{template.name}` has no `price`, so runs on it cost nothing in Iki's "
+                    "records, and budgets can't hold them back.",
+                    document,
+                    ("name",),
+                    severity=Severity.WARNING,
+                    hint="Give it a `price: { per_hour: …, currency: … }`.",
+                )
 
     def template(self, template: Template, document: Document) -> None:
         if template.provisioner == "backend_pool" and template.capacity.gpu_count:

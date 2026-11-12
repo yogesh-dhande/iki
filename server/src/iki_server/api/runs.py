@@ -30,6 +30,7 @@ from iki_server.org import permissions
 from iki_server.runs import (
     approvals,
     catalog,
+    costs,
     input_files,
     provisioner,
     quotas,
@@ -106,6 +107,20 @@ class ActionSecretOut(Schema):
     set: bool = Field(description="Whether this deployment has set it. Its value is never shown.")
 
 
+class EstimateOut(Schema):
+    template: str = Field(description="The compute template a run would start on.")
+    price_per_hour: float
+    currency: str = Field(description="An ISO 4217 code, such as USD.")
+    typical: float | None = Field(
+        description="What its recent runs that succeeded cost, the median of them; null "
+        "before any has."
+    )
+    runs_seen: int = Field(description="How many recent runs `typical` is from, up to 50.")
+    timeout_cost: float = Field(
+        description="What an attempt that runs to its timeout costs. Retries cost again."
+    )
+
+
 class ActionOut(Schema):
     name: str = Field(description="The qualified name, such as `protein.compute_properties`.")
     plugin: str
@@ -132,6 +147,10 @@ class ActionOut(Schema):
     needs: str = Field(
         description="The project role that runs it: Editor (client and backend tiers) or "
         "Runner (container and vm)."
+    )
+    estimate: EstimateOut | None = Field(
+        description="On the container and VM tiers, what a run may cost (ADR 0070). Null "
+        "where runs cost nothing, or the templates have no price."
     )
 
 
@@ -191,6 +210,7 @@ def _action_out(action: Action) -> dict[str, Any]:
         "available": available.available,
         "unavailable_reason": available.reason,
         "needs": "Editor" if action.tier in ("client", "backend") else "Runner",
+        "estimate": costs.estimate(action),
     }
 
 
@@ -373,6 +393,15 @@ class BatchRefOut(Schema):
     hrid: str = Field(description="Such as BAT-000123.")
 
 
+class RunCostOut(Schema):
+    amount: float = Field(description="What it has cost so far, at its templates' prices.")
+    currency: str | None = Field(description="Null while nothing it ran on has a price.")
+    seconds: float = Field(description="Machine time it has used.")
+    final: bool = Field(
+        description="It's ended and so have its machines: nothing more will be added."
+    )
+
+
 class RunOut(Schema):
     id: UUID
     hrid: str
@@ -454,6 +483,10 @@ class RunOut(Schema):
     )
     reproduction: ReproductionOut | None = Field(
         description="Once a reproduction has its results: whether they match the original's."
+    )
+    cost: RunCostOut | None = Field(
+        description="On the container and VM tiers: what the machines it ran on cost "
+        "(ADR 0070). Null on tiers whose machines run anyway."
     )
     can: RunCan
 
@@ -633,6 +666,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "reused_from": _ref_out(refs.get(run.reused_from_id)),
             "reproduces": _ref_out(refs.get(run.reproduces_id)),
             "reproduction": run.reproduction,
+            "cost": costs.of_run(run),
             "can": {
                 "cancel": not run.finished
                 and run.cancel_requested_at is None

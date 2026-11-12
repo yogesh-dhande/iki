@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -43,7 +44,9 @@ from django.utils import timezone
 from iki_server.entities import registry
 from iki_server.runs import catalog, launches, queue, quotas
 from iki_server.runs.kubernetes import (
+    KEEP_FINISHED,
     LABEL,
+    RUN_LABELS,
     Cluster,
     KubernetesError,
     RunPods,
@@ -491,10 +494,20 @@ def reconcile(cluster: Cluster, now: datetime) -> int:
             continue
         here = [each for each in live if each.namespace == namespace]
         for launch in here:
-            ended += _reconcile_one(
-                cluster, launch, jobs.get(str(launch.pk)), pods.get(str(launch.pk)), now
-            )
+            pod = pods.get(str(launch.pk))
+            ended += _reconcile_one(cluster, launch, jobs.get(str(launch.pk)), pod, now)
+            if pod is not None:
+                _label(cluster, launch, pod)
         known = {str(each.pk) for each in here}
+        # A pod outlives its launch for a while: one that ran a short job may have ended
+        # before a tick saw it holding it. It still says whose it was.
+        gone = Launch.objects.filter(
+            pk__in=[k for k in pods if k not in known and _is_uuid(k)],
+            state=LaunchState.ENDED,
+            ended_at__gte=now - timedelta(seconds=KEEP_FINISHED),
+        )
+        for launch in gone:
+            _label(cluster, launch, pods[str(launch.pk)])
         for launch_id, job in jobs.items():
             if launch_id in known or _finished(job) is not None:
                 continue
@@ -538,6 +551,42 @@ def _reconcile_one(
     if launch.state == LaunchState.STARTING and launch.message != message:
         Launch.objects.filter(pk=launch.pk).update(message=message)
     return 0
+
+
+def whose(launch: Launch) -> dict[str, str | None]:
+    """The run, project and team a machine is working for, as its pod's labels: an ephemeral
+    one's for all its life, a persistent one's while it holds the job."""
+    jobs = Job.objects.filter(worker__launch=launch, packed_into__isnull=True)
+    if not launch.once:
+        jobs = jobs.filter(state__in=queue.HELD)
+    job = (
+        jobs.exclude(started_at=None).select_related("run__project").order_by("-started_at").first()
+    )
+    if job is None:
+        return dict.fromkeys(RUN_LABELS)
+    project = job.run.project
+    return dict(
+        zip(RUN_LABELS, (str(job.run_id), str(project.pk), str(project.team_id)), strict=True)
+    )
+
+
+def _is_uuid(text: str) -> bool:
+    try:
+        uuid.UUID(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _label(cluster: Cluster, launch: Launch, pod: dict[str, Any]) -> None:
+    have = pod.get("metadata", {}).get("labels") or {}
+    change = {k: v for k, v in whose(launch).items() if have.get(k) != v}
+    if not change:
+        return
+    try:
+        cluster.label_pod(launch.namespace, pod["metadata"]["name"], change)
+    except (KubernetesError, OSError) as error:
+        logger.warning("label_failed", launch=str(launch.pk), error=str(error))
 
 
 def _delete(cluster: Cluster, namespace: str, name: str) -> None:

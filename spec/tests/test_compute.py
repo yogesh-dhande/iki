@@ -41,6 +41,7 @@ name: gpu-t4
 provisioner: k8s_job
 capacity: { cpu: 4, memory: 16Gi, gpu: { count: 1, memory: 16Gi, model: T4 } }
 kubernetes: { node_selector: { iki.ikisci.org/pool: gpu } }
+price: { per_hour: 0.53, currency: USD }
 ---
 apiVersion: iki/v1
 kind: ComputeTemplate
@@ -48,6 +49,7 @@ name: gpu-t4-warm
 provisioner: k8s_deployment
 capacity: { cpu: 4, memory: 16Gi, gpu: { count: 1, memory: 16Gi, model: T4 } }
 limits: { min_warm: 1, idle_shutdown: 15m }
+price: { per_hour: 0.53, currency: USD }
 ---
 apiVersion: iki/v1
 kind: ComputeTemplate
@@ -275,6 +277,7 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
         "apiVersion: iki/v1\nkind: ComputeTemplate\nname: pool\nprovisioner: k8s_deployment\n"
         "capacity: { cpu: 8, memory: 64Gi }\n"
         "volumes: { af-db: { strategy: clone_from_snapshot, fast_snapshot_restore: true } }\n"
+        "price: { per_hour: 0.4, currency: USD }\n"
     )
     result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, deployment)
     assert sorted(codes(result)) == [
@@ -282,6 +285,24 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
         "unused-template",
         "volume-strategy-unsupported",
     ]
+
+
+def test_costs_are_in_one_currency(tmp_path: Path, plugins: list[Plugin]) -> None:
+    euros = A100.replace("per_hour: 32.77, currency: USD", "per_hour: 30.10, currency: EUR")
+    message = only(load(tmp_path, plugins, BACKEND, euros, BINDINGS), "mixed-currencies")
+    assert message == (
+        "`a100-spot` is priced in EUR, but `gpu-t4` in USD: a deployment's costs and budgets "
+        "are in one currency."
+    )
+
+
+def test_container_and_vm_templates_should_have_a_price(
+    tmp_path: Path, plugins: list[Plugin]
+) -> None:
+    free = A100.replace("price: { per_hour: 32.77, currency: USD }\n", "")
+    result = load(tmp_path, plugins, BACKEND, free, BINDINGS)
+    assert only(result, "unpriced-template").startswith("`a100-spot` has no `price`")
+    assert result.ok
 
 
 def test_unused_templates_are_mentioned(tmp_path: Path, plugins: list[Plugin]) -> None:

@@ -52,6 +52,8 @@ class Action(StrEnum):
     TEAM_CREATE = "team.create"
     COMPUTE_MANAGE = "compute.manage"
     AUDIT_READ = "audit.read"
+    COSTS_READ = "costs.read"
+    """What runs cost across the organization, by project, team, template and action."""
     ORG_WEBHOOKS_MANAGE = "org.webhooks.manage"
     """The organization's webhooks, and turning off any project's."""
 
@@ -85,6 +87,7 @@ ORG_ACTIONS = frozenset(
         Action.TEAM_CREATE,
         Action.COMPUTE_MANAGE,
         Action.AUDIT_READ,
+        Action.COSTS_READ,
         Action.ORG_WEBHOOKS_MANAGE,
     }
 )
@@ -109,6 +112,7 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.TEAM_CREATE: "admin",
     Action.TEAM_MANAGE: "admin",
     Action.COMPUTE_MANAGE: "admin",
+    Action.COSTS_READ: "read",
     # Webhooks send data out of Iki: a scope of their own, as GitHub's admin:*_hook.
     Action.ORG_WEBHOOKS_MANAGE: "webhooks",
     Action.PROJECT_WEBHOOKS_MANAGE: "webhooks",
@@ -143,13 +147,15 @@ def token_limits(user: Any) -> TokenLimits | None:  # noqa: ANN401
     return getattr(user, "_iki_token_limits", None)
 
 
-#: The org role each organization-wide action needs.
-_ORG_ACTION_ROLE = {
-    Action.ORG_MANAGE: OrgRole.ORG_ADMIN,
-    Action.TEAM_CREATE: OrgRole.ORG_ADMIN,
-    Action.COMPUTE_MANAGE: OrgRole.COMPUTE_ADMIN,
-    Action.AUDIT_READ: OrgRole.AUDITOR,
-    Action.ORG_WEBHOOKS_MANAGE: OrgRole.ORG_ADMIN,
+#: The org roles that may take each organization-wide action: any one of them.
+_ORG_ACTION_ROLES = {
+    Action.ORG_MANAGE: {OrgRole.ORG_ADMIN},
+    Action.TEAM_CREATE: {OrgRole.ORG_ADMIN},
+    Action.COMPUTE_MANAGE: {OrgRole.COMPUTE_ADMIN},
+    Action.AUDIT_READ: {OrgRole.AUDITOR},
+    # Who answers for what's spent: those who run compute, audit it, and run the org.
+    Action.COSTS_READ: {OrgRole.COMPUTE_ADMIN, OrgRole.AUDITOR, OrgRole.ORG_ADMIN},
+    Action.ORG_WEBHOOKS_MANAGE: {OrgRole.ORG_ADMIN},
 }
 
 #: The lowest project role each project action needs.
@@ -242,7 +248,7 @@ def _roles_allow(user: Any, action: Action, target: Team | Project | None) -> bo
     if action in ORG_ACTIONS:
         if target is not None:
             raise TypeError(f"{action} takes no target")
-        return _ORG_ACTION_ROLE[action] in org_roles(user)
+        return bool(_ORG_ACTION_ROLES[action] & org_roles(user))
 
     if action in TEAM_ACTIONS:
         if not isinstance(target, Team):

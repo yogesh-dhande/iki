@@ -60,3 +60,5 @@ rather than ignored.
 - The scheduler, autoscaler and provisioners that use these come with the
   tiers (commits 23, 31 and 35). Templates for other clouds (GCE first)
   are new provisioners, with their own settings.
+- What a template's `price` is used for, and how runs' costs are recorded at
+  it, is [ADR 0070](0070-runs-show-what-they-cost.md).

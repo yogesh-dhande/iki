@@ -40,7 +40,9 @@ from django.utils import timezone
 
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
-from iki_server.runs import checkpoints, launches, live, quotas, secrets, workers
+from iki_server.org import permissions
+from iki_server.org.permissions import Action
+from iki_server.runs import checkpoints, costs, launches, live, quotas, secrets, workers
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -97,6 +99,15 @@ _FINAL = {
     "interrupted": RunStatus.FAILED,
     "worker_lost": RunStatus.FAILED,
     "machine_unavailable": RunStatus.FAILED,
+    "not_allowed": RunStatus.REJECTED,
+}
+
+#: The permission running on each tier needs, as launching it did.
+TIER_ACTIONS = {
+    "client": Action.RUN_CLIENT,
+    "backend": Action.RUN_BACKEND,
+    "container": Action.RUN_CONTAINER,
+    "vm": Action.RUN_VM,
 }
 
 
@@ -223,7 +234,21 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         )
         if job is None:
             return None
-        run = ActionRun.objects.select_for_update().get(pk=job.run_id)
+        run = (
+            ActionRun.objects.select_for_update(of=("self",))
+            .select_related("requested_by", "project__team")
+            .get(pk=job.run_id)
+        )
+        if not permissions.can(run.requested_by, TIER_ACTIONS[run.tier], run.project):
+            # Its launcher was removed, or lost the role it needs there, since: it doesn't
+            # start in their name. Nor does what's packed with it, until it's leased itself.
+            fail_queued(
+                job,
+                "not_allowed",
+                f"{run.requested_by.name} can no longer run actions on the {run.tier} tier in "
+                f"{run.project.name}, so it didn't start.",
+            )
+            return None
         members = _pack(job, run)
         build = _build(worker, job.environment)
         template = worker.launch.template if worker.launch is not None else ""
@@ -519,6 +544,7 @@ def complete(
 
     with transaction.atomic():
         job = held(worker, job_id, token)
+        costs.released(job)
         members = list(Job.objects.select_for_update().filter(packed_into=job).order_by("run_id"))
         runs = {
             r.pk: r
@@ -705,6 +731,8 @@ def recover_expired() -> int:
 def _end_pack(job: Job, state: str, reason: str, message: str) -> ActionRun:
     """Ends the attempt a worker held and those packed into it, each run retried or ended
     under its own policy. Returns the held attempt's run. Call inside a transaction."""
+    # Its machine is let go of: on a persistent one, the time it held it is its runs'.
+    costs.released(job)
     members = list(Job.objects.select_for_update().filter(packed_into=job).order_by("run_id"))
     run = _end_attempt(job, state, reason, message)
     for member in members:

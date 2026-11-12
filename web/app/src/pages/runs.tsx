@@ -15,6 +15,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
+import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import {
@@ -1277,8 +1278,34 @@ export function RunPage() {
               </>
             ) : null}
           </dd>
+          {run.cost ? (
+            <>
+              <dt>Cost</dt>
+              <dd>
+                <RunCost cost={run.cost} />
+              </dd>
+            </>
+          ) : null}
         </dl>
       </section>
+    </>
+  );
+}
+
+/** What the run's machines cost (ADR 0070): so far while one is still its, then all. */
+function RunCost({ cost }: { cost: NonNullable<Run["cost"]> }) {
+  const time = machineTime(cost.seconds);
+  if (!cost.currency) {
+    return (
+      <>
+        {time} of machine time <span className="muted">(its machine’s template has no price)</span>
+      </>
+    );
+  }
+  return (
+    <>
+      {money(cost.amount, cost.currency)}
+      {cost.final ? "" : " so far"} <span className="muted">for {time} of machine time</span>
     </>
   );
 }

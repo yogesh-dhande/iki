@@ -121,8 +121,8 @@ metadata:
     {{- include "iki.labels" . | nindent 4 }}
 {{- range $namespace := $namespaces }}
 ---
-# What the provisioner may do where runs go: manage Jobs and see their pods,
-# and create Secrets (each owned by its Job). It can't read, change or delete
+# What the provisioner may do where runs go: manage Jobs, see their pods and
+# label them with the run they're for (for cost tools), and create Secrets (each owned by its Job). It can't read, change or delete
 # any Secret, and has nothing in Iki's own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -137,7 +137,7 @@ rules:
     verbs: [create, get, list, watch, patch, delete]
   - apiGroups: [""]
     resources: [pods]
-    verbs: [get, list, watch]
+    verbs: [get, list, watch, patch]
   - apiGroups: [""]
     resources: [secrets]
     verbs: [create]

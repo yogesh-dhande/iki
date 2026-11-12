@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import builtins
+import csv
+import io
 import os
 import platform
 import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from datetime import date
 from importlib import metadata
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
@@ -23,6 +26,7 @@ if TYPE_CHECKING:
     from iki.schema import (
         ActionOut,
         AttemptLogOut,
+        CostSummaryOut,
         CreatedOut,
         EntityOut,
         EntityTypeOut,
@@ -144,6 +148,7 @@ class Client:
         self.actions = Actions(self)
         self.runs = Runs(self)
         self.files = Files(self)
+        self.costs = Costs(self)
 
     # --- The connection -------------------------------------------------------------
 
@@ -268,6 +273,8 @@ def _param(value: Any) -> Any:  # noqa: ANN401
         return "true" if value else "false"
     if isinstance(value, list | tuple):
         return [_param(v) for v in value]
+    if isinstance(value, date):
+        return value.isoformat()
     return value
 
 
@@ -468,6 +475,57 @@ class Projects(_Part):
             if found["slug"] == project:
                 return found
         raise IkiError(f"No project {project!r} that you can see.")
+
+    def costs(
+        self,
+        project: str,
+        *,
+        by: str = "action",
+        since: str | date | None = None,
+        until: str | date | None = None,
+    ) -> CostSummaryOut:
+        """What the project's runs cost from `since` up to `until` (days, in UTC; this month
+        unless given), by ``action`` or ``template`` (ADR 0070)."""
+        found = project if _UUID.match(project) else self.get(project)["id"]
+        return cast(
+            "CostSummaryOut",
+            self._client.request(
+                "GET",
+                _path("/projects/{id}/costs", id=found),
+                params={"by": by, "since": since, "until": until},
+            ),
+        )
+
+
+class Costs(_Part):
+    """What runs cost across the organization (ADR 0070), for Compute Admins, Auditors and
+    Org Admins. Each run's ``cost`` and each action's ``estimate`` are for anyone who can
+    read them."""
+
+    def summary(
+        self,
+        *,
+        by: str = "project",
+        since: str | date | None = None,
+        until: str | date | None = None,
+    ) -> CostSummaryOut:
+        """Totals from `since` up to `until` (days, in UTC; this month unless given), by
+        ``project``, ``team``, ``template``, ``action`` or ``tier``."""
+        return cast(
+            "CostSummaryOut",
+            self._client.request(
+                "GET", "/compute/costs", params={"by": by, "since": since, "until": until}
+            ),
+        )
+
+    def records(
+        self, *, since: str | date | None = None, until: str | date | None = None
+    ) -> builtins.list[dict[str, str]]:
+        """Every cost record in the period, oldest first, as the CSV download has them."""
+        response = self._client._send(
+            "GET", "/compute/costs/records.csv", params={"since": since, "until": until}
+        )
+        return builtins.list(csv.DictReader(io.StringIO(response.text)))
 
 
 class Actions(_Part):

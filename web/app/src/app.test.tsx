@@ -61,7 +61,13 @@ function onProjectPage(overrides: Parameters<typeof project>[0] = {}) {
 describe("the frame", () => {
   it("shows the navigation each person may use", async () => {
     signedIn({
-      can: { manage_org: true, read_audit: false, create_projects: true, manage_webhooks: false },
+      can: {
+        manage_org: true,
+        read_audit: false,
+        create_projects: true,
+        manage_webhooks: false,
+        read_costs: false,
+      },
     });
     answer("GET /api/v1/projects", page([]));
     await renderApp("/projects/");
@@ -112,7 +118,13 @@ describe("the frame", () => {
 describe("home", () => {
   it("welcomes people and lists their active projects", async () => {
     signedIn({
-      can: { manage_org: true, read_audit: false, create_projects: true, manage_webhooks: false },
+      can: {
+        manage_org: true,
+        read_audit: false,
+        create_projects: true,
+        manage_webhooks: false,
+        read_costs: false,
+      },
     });
     answer(
       "GET /api/v1/projects",
@@ -138,7 +150,13 @@ describe("home", () => {
 
   it("points Org Admins without a team at teams", async () => {
     signedIn({
-      can: { manage_org: true, read_audit: true, create_projects: false, manage_webhooks: false },
+      can: {
+        manage_org: true,
+        read_audit: true,
+        create_projects: false,
+        manage_webhooks: false,
+        read_costs: false,
+      },
     });
     answer("GET /api/v1/projects", page([]));
     await renderApp("/");
@@ -148,7 +166,13 @@ describe("home", () => {
 
   it("tells everyone else whom to ask", async () => {
     signedIn({
-      can: { manage_org: false, read_audit: false, create_projects: false, manage_webhooks: false },
+      can: {
+        manage_org: false,
+        read_audit: false,
+        create_projects: false,
+        manage_webhooks: false,
+        read_costs: false,
+      },
     });
     answer("GET /api/v1/projects", page([]));
     await renderApp("/");
@@ -212,7 +236,13 @@ describe("a new project", () => {
 
   it("explains how to get a team", async () => {
     signedIn({
-      can: { manage_org: false, read_audit: false, create_projects: false, manage_webhooks: false },
+      can: {
+        manage_org: false,
+        read_audit: false,
+        create_projects: false,
+        manage_webhooks: false,
+        read_costs: false,
+      },
     });
     answer("GET /api/v1/teams", page([]));
     await renderApp("/projects/new/");
@@ -241,7 +271,13 @@ describe("a project", () => {
 
   it("lets an Org Admin who isn't a member add themselves", async () => {
     signedIn({
-      can: { manage_org: true, read_audit: false, create_projects: false, manage_webhooks: false },
+      can: {
+        manage_org: true,
+        read_audit: false,
+        create_projects: false,
+        manage_webhooks: false,
+        read_costs: false,
+      },
     });
     onProjectPage({
       my_role: null,
@@ -657,7 +693,13 @@ describe("webhooks", () => {
   const HOOK = webhook();
   const HOOKS = `/api/v1/projects/${PROJECT.id}/webhooks`;
   const ORG_ADMIN = {
-    can: { manage_org: true, read_audit: true, create_projects: true, manage_webhooks: true },
+    can: {
+      manage_org: true,
+      read_audit: true,
+      create_projects: true,
+      manage_webhooks: true,
+      read_costs: false,
+    },
   };
 
   function onWebhooks(hooks = [HOOK]) {

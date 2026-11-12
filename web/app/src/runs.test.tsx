@@ -261,6 +261,50 @@ describe("a run's page", () => {
     expect(screen.queryByRole("list", { name: /Network use/ })).not.toBeInTheDocument();
   });
 
+  it("says what its machine has cost so far, and in the end", async () => {
+    let cost: Schemas["RunOut"]["cost"] = {
+      amount: 0.42,
+      currency: "USD",
+      seconds: 1260,
+      final: false,
+    };
+    onRun(
+      () => run({ tier: "container", cost }),
+      () => [attempt()],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(await within(details).findByText("Cost")).toBeInTheDocument();
+    expect(within(details).getByText("Cost").nextSibling).toHaveTextContent(
+      "$0.42 so far for 21 min of machine time",
+    );
+    cost = { ...cost, amount: 0.5, seconds: 1500, final: true };
+    act(() => {
+      runStream().send("run", { id: RUN_ID });
+    });
+    await waitFor(() => {
+      expect(within(details).getByText("Cost").nextSibling).toHaveTextContent(
+        "$0.50 for 25 min of machine time",
+      );
+    });
+  });
+
+  it("says a run's machine time when its template has no price, and nothing on the backend", async () => {
+    onRun(
+      () =>
+        run({ tier: "container", cost: { amount: 0, currency: null, seconds: 60, final: true } }),
+      () => [attempt()],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(await within(details).findByText("Cost")).toBeInTheDocument();
+    expect(within(details).getByText("Cost").nextSibling).toHaveTextContent(
+      "1 min of machine time (its machine’s template has no price)",
+    );
+  });
+
   it("follows the log as it grows, and the run until it ends", async () => {
     let log = "hello\n";
     let current = run();

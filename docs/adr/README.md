@@ -99,3 +99,4 @@ supersedes the old one, and update the old one's status.
 | [0067](0067-a-project-can-keep-its-entities-to-itself.md)                            | A project can keep its entities to itself                                                           | Accepted |
 | [0068](0068-runs-keep-artifacts-for-a-while.md)                                      | Runs keep artifacts for a while                                                                     | Accepted |
 | [0069](0069-checkpointable-runs-resume.md)                                           | Checkpointable runs resume                                                                          | Accepted |
+| [0070](0070-runs-show-what-they-cost.md)                                             | Runs show what they cost                                                                            | Accepted |

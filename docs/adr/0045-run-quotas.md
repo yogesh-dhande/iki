@@ -43,5 +43,6 @@ every change is audited with its before and after values.
 - With no quotas, nothing changes: fair share alone decides the order.
 - Leases on a tier with quotas are serialized. They take milliseconds, so
   this matters only at thousands of workers per tier.
-- Spending limits are a separate matter (budgets, later): a quota counts
-  jobs, not money.
+- Spending limits are a separate matter: a quota counts jobs, not money.
+  What runs cost is recorded and reported per [ADR 0070](0070-runs-show-what-they-cost.md);
+  budgets build on it.

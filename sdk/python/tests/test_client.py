@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -557,3 +558,43 @@ def test_the_module_works_through_one_client(
     assert iki.client() is made
     with pytest.raises(AttributeError):
         iki.nothing  # noqa: B018
+
+
+# --- Costs -------------------------------------------------------------------------------------
+
+SUMMARY = {
+    "since": "2026-11-01",
+    "until": "2026-12-01",
+    "by": "team",
+    "totals": [{"currency": "USD", "amount": 41.5, "seconds": 90000.0}],
+    "groups": [],
+}
+
+
+def test_costs_sum_up_a_period_and_download_their_records(fake: FakeIki, client: Client) -> None:
+    fake.on("GET", "/api/v1/compute/costs", SUMMARY)
+    assert client.costs.summary(by="team", since=date(2026, 11, 1)) == SUMMARY
+    (sent,) = fake.sent("GET", "/api/v1/compute/costs")
+    assert dict(sent.url.params) == {"by": "team", "since": "2026-11-01"}
+    fake.on(
+        "GET",
+        "/api/v1/compute/costs/records.csv",
+        httpx2.Response(
+            200,
+            text="kind,run,amount\r\nrun,RUN-000001,0.4200\r\nidle,,0.0100\r\n",
+            headers={"Content-Type": "text/csv; charset=utf-8"},
+        ),
+    )
+    assert client.costs.records(since="2026-11-01", until="2026-12-01") == [
+        {"kind": "run", "run": "RUN-000001", "amount": "0.4200"},
+        {"kind": "idle", "run": "", "amount": "0.0100"},
+    ]
+
+
+def test_a_projects_costs_by_its_slug(fake: FakeIki, client: Client) -> None:
+    project = "00000000-0000-7000-8000-000000000a01"
+    fake.on("GET", "/api/v1/projects", {"items": [{"id": project, "slug": "kinase-atlas"}]})
+    fake.on("GET", f"/api/v1/projects/{project}/costs", {**SUMMARY, "by": "action"})
+    assert client.projects.costs("kinase-atlas")["by"] == "action"
+    (sent,) = fake.sent("GET", f"/api/v1/projects/{project}/costs")
+    assert dict(sent.url.params) == {"by": "action"}

@@ -90,6 +90,7 @@ class FakeCluster:
         self.pod_status: dict[tuple[str, str], dict[str, Any]] = {}
         self.refuse: str | None = None
         self.deleted: list[str] = []
+        self.labelled: dict[tuple[str, str], dict[str, str]] = {}
 
     def create_job(self, namespace: str, job: dict[str, Any], secret: dict[str, Any]) -> None:
         if self.refuse:
@@ -106,7 +107,10 @@ class FakeCluster:
             {
                 "metadata": {
                     "name": f"{name}-x1y2z",
-                    "labels": job["spec"]["template"]["metadata"]["labels"],
+                    "labels": {
+                        **job["spec"]["template"]["metadata"]["labels"],
+                        **self.labelled.get((ns, f"{name}-x1y2z"), {}),
+                    },
                     "creationTimestamp": status.get("created"),
                 },
                 "status": status.get("status", {}),
@@ -119,6 +123,14 @@ class FakeCluster:
         self.made.pop((namespace, name), None)
         self.secrets.pop((namespace, name), None)
         self.deleted.append(name)
+
+    def label_pod(self, namespace: str, name: str, labels: dict[str, str | None]) -> None:
+        mine = self.labelled.setdefault((namespace, name), {})
+        for key, value in labels.items():
+            if value is None:
+                mine.pop(key, None)
+            else:
+                mine[key] = value
 
     # What happens to the pods.
 

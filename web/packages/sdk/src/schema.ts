@@ -188,6 +188,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/costs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What runs cost
+         * @description For Compute Admins, Auditors and Org Admins: what the machines Iki started cost in a
+         *     period, by project, team, template, action or tier. A machine's cost counts when it's
+         *     recorded: when it ends, or when a persistent one lets go of a job.
+         */
+        get: operations["iki_server_api_costs_org_costs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/costs/records.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download what runs cost
+         * @description Every cost record in the period, oldest first, for finance and audits.
+         */
+        get: operations["iki_server_api_costs_org_cost_records"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/quotas": {
         parameters: {
             query?: never;
@@ -859,6 +901,28 @@ export interface paths {
          *     way, since restricting it only protects them.
          */
         patch: operations["iki_server_api_projects_patch_project"];
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/costs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a project's runs cost
+         * @description For anyone who can read the project, and those who can read the organization's costs:
+         *     what its runs cost in a period, by action or template. Each run shows its own cost
+         *     too.
+         */
+        get: operations["iki_server_api_costs_project_costs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/projects/{project_id}/grantable-teams": {
@@ -1850,6 +1914,8 @@ export interface components {
             deterministic: boolean;
             /** Environment */
             environment: string;
+            /** @description On the container and VM tiers, what a run may cost (ADR 0070). Null where runs cost nothing, or the templates have no price. */
+            estimate: components["schemas"]["EstimateOut"] | null;
             /** Inputs */
             inputs: components["schemas"]["InputOut"][];
             /** Label */
@@ -2283,6 +2349,64 @@ export interface components {
              * @description What to compare with, as the field takes it.
              */
             value?: unknown;
+        };
+        /** CostGroupOut */
+        CostGroupOut: {
+            /** Amount */
+            amount: number;
+            /** Currency */
+            currency: string | null;
+            /**
+             * Key
+             * @description The project's or team's ID, or the template, action or tier. Null for idle machines: the organization's, not any project's.
+             */
+            key: string | null;
+            /** Label */
+            label: string;
+            /** Runs */
+            runs: number;
+            /** Seconds */
+            seconds: number;
+        };
+        /** CostSummaryOut */
+        CostSummaryOut: {
+            /** By */
+            by: string;
+            /**
+             * Groups
+             * @description Most first.
+             */
+            groups: components["schemas"]["CostGroupOut"][];
+            /**
+             * Since
+             * Format: date
+             */
+            since: string;
+            /**
+             * Totals
+             * @description By currency.
+             */
+            totals: components["schemas"]["CostTotalOut"][];
+            /**
+             * Until
+             * Format: date
+             */
+            until: string;
+        };
+        /** CostTotalOut */
+        CostTotalOut: {
+            /** Amount */
+            amount: number;
+            /**
+             * Currency
+             * @description Null for time on templates without a price.
+             */
+            currency: string | null;
+            /**
+             * Seconds
+             * @description Machine time.
+             */
+            seconds: number;
         };
         /** CreatedOut */
         CreatedOut: {
@@ -2825,6 +2949,36 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** EstimateOut */
+        EstimateOut: {
+            /**
+             * Currency
+             * @description An ISO 4217 code, such as USD.
+             */
+            currency: string;
+            /** Price Per Hour */
+            price_per_hour: number;
+            /**
+             * Runs Seen
+             * @description How many recent runs `typical` is from, up to 50.
+             */
+            runs_seen: number;
+            /**
+             * Template
+             * @description The compute template a run would start on.
+             */
+            template: string;
+            /**
+             * Timeout Cost
+             * @description What an attempt that runs to its timeout costs. Retries cost again.
+             */
+            timeout_cost: number;
+            /**
+             * Typical
+             * @description What its recent runs that succeeded cost, the median of them; null before any has.
+             */
+            typical: number | null;
+        };
         /** EventTypeOut */
         EventTypeOut: {
             /** Description */
@@ -3264,6 +3418,11 @@ export interface components {
             manage_webhooks: boolean;
             /** Read Audit */
             read_audit: boolean;
+            /**
+             * Read Costs
+             * @description What runs cost, across the organization.
+             */
+            read_costs: boolean;
         };
         /** MeOut */
         MeOut: {
@@ -3358,6 +3517,25 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** OrgParams */
+        OrgParams: {
+            /**
+             * By
+             * @default project
+             * @enum {string}
+             */
+            by: "project" | "team" | "template" | "action" | "tier";
+            /**
+             * Since
+             * @description The first day, in UTC. The first of this month unless given.
+             */
+            since?: string | null;
+            /**
+             * Until
+             * @description The day after the last, in UTC. The first of next month unless given.
+             */
+            until?: string | null;
         };
         /** OrgRolesIn */
         OrgRolesIn: {
@@ -3770,6 +3948,19 @@ export interface components {
              */
             numbers?: number[] | null;
         };
+        /** PeriodParams */
+        PeriodParams: {
+            /**
+             * Since
+             * @description The first day, in UTC. The first of this month unless given.
+             */
+            since?: string | null;
+            /**
+             * Until
+             * @description The day after the last, in UTC. The first of next month unless given.
+             */
+            until?: string | null;
+        };
         /**
          * PersonRef
          * @description Someone, by name, or by email address when they have none.
@@ -3930,6 +4121,25 @@ export interface components {
             /** Slug */
             slug: string;
             team: components["schemas"]["TeamRef"];
+        };
+        /** ProjectParams */
+        ProjectParams: {
+            /**
+             * By
+             * @default action
+             * @enum {string}
+             */
+            by: "action" | "template";
+            /**
+             * Since
+             * @description The first day, in UTC. The first of this month unless given.
+             */
+            since?: string | null;
+            /**
+             * Until
+             * @description The day after the last, in UTC. The first of next month unless given.
+             */
+            until?: string | null;
         };
         /** ProjectPatch */
         ProjectPatch: {
@@ -4530,6 +4740,29 @@ export interface components {
              */
             run_again: boolean;
         };
+        /** RunCostOut */
+        RunCostOut: {
+            /**
+             * Amount
+             * @description What it has cost so far, at its templates' prices.
+             */
+            amount: number;
+            /**
+             * Currency
+             * @description Null while nothing it ran on has a price.
+             */
+            currency: string | null;
+            /**
+             * Final
+             * @description It's ended and so have its machines: nothing more will be added.
+             */
+            final: boolean;
+            /**
+             * Seconds
+             * @description Machine time it has used.
+             */
+            seconds: number;
+        };
         /** RunFileOut */
         RunFileOut: {
             /** Media Type */
@@ -4642,6 +4875,8 @@ export interface components {
              * @description The OAuth app it was asked for through, if any.
              */
             client: string;
+            /** @description On the container and VM tiers: what the machines it ran on cost (ADR 0070). Null on tiers whose machines run anyway. */
+            cost: components["schemas"]["RunCostOut"] | null;
             /**
              * Created At
              * Format: date-time
@@ -5803,6 +6038,57 @@ export interface operations {
             };
         };
     };
+    iki_server_api_costs_org_costs: {
+        parameters: {
+            query?: {
+                /** @description The first day, in UTC. The first of this month unless given. */
+                since?: string | null;
+                /** @description The day after the last, in UTC. The first of next month unless given. */
+                until?: string | null;
+                by?: "project" | "team" | "template" | "action" | "tier";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostSummaryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_costs_org_cost_records: {
+        parameters: {
+            query?: {
+                /** @description The first day, in UTC. The first of this month unless given. */
+                since?: string | null;
+                /** @description The day after the last, in UTC. The first of next month unless given. */
+                until?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The records, as CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+        };
+    };
     iki_server_api_compute_list_quotas: {
         parameters: {
             query?: never;
@@ -6807,6 +7093,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_costs_project_costs: {
+        parameters: {
+            query?: {
+                /** @description The first day, in UTC. The first of this month unless given. */
+                since?: string | null;
+                /** @description The day after the last, in UTC. The first of next month unless given. */
+                until?: string | null;
+                by?: "action" | "template";
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostSummaryOut"];
                 };
             };
         };

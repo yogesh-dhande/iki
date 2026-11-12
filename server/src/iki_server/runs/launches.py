@@ -208,7 +208,7 @@ def stop_if_idle(launch: Launch, reason: str, message: str) -> bool:
 def end(launch: Launch, reason: str, message: str = "") -> bool:
     """Marks the launch ended, and revokes its worker if it registered (its jobs are
     interrupted, and retried under their policy). Returns whether it was still going."""
-    from iki_server.runs import workers
+    from iki_server.runs import costs, workers
 
     with transaction.atomic():
         locked = Launch.objects.select_for_update().get(pk=launch.pk)
@@ -225,4 +225,6 @@ def end(launch: Launch, reason: str, message: str = "") -> bool:
         worker = Worker.objects.filter(launch=locked, revoked_at__isnull=True).first()
         if worker is not None:
             workers.revoke_worker(worker, by=None)
+        # Once its jobs are let go: what's left of what it cost (ADR 0070).
+        costs.launch_ended(locked)
     return True

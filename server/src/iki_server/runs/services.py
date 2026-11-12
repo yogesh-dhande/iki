@@ -36,7 +36,6 @@ from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, Refs, to_db
 from iki_server.org import permissions
 from iki_server.org.models import Project
-from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
 from iki_server.runs import approvals, catalog, checkpoints, live, queue, quotas, reuse
 from iki_server.runs.models import (
@@ -69,12 +68,7 @@ __all__ = [
 ]
 
 #: The project permission each tier needs (Editor for client and backend, Runner above).
-TIER_PERMISSIONS = {
-    "client": Permission.RUN_CLIENT,
-    "backend": Permission.RUN_BACKEND,
-    "container": Permission.RUN_CONTAINER,
-    "vm": Permission.RUN_VM,
-}
+TIER_PERMISSIONS = queue.TIER_ACTIONS
 
 
 class OutsideProject(Exception):  # noqa: N818 - reads as "they're outside the project"

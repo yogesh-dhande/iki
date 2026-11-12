@@ -1,7 +1,8 @@
 # The dev cluster's compute: its backend worker pod (backendWorkers in
 # values-dev.yaml), sized as the pod is, and on the container tier
 # (containerTier), in the iki-runs namespace, a pod for each run and one kept
-# warm for actions that ask for a persistent machine.
+# warm for actions that ask for a persistent machine. Prices are made up, so
+# runs there have costs to show.
 apiVersion: iki/v1
 kind: ComputeTemplate
 name: backend-small
@@ -24,6 +25,7 @@ name: container-small
 provisioner: k8s_job
 capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
 limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
 ---
 apiVersion: iki/v1
 kind: ComputeTemplate
@@ -31,6 +33,7 @@ name: container-warm
 provisioner: k8s_deployment
 capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
 limits: { max_concurrent: 2, min_warm: 1, idle_shutdown: 10m }
+price: { per_hour: 0.05, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
@@ -45,6 +48,7 @@ name: container-structures
 provisioner: k8s_job
 capacity: { cpu: 0.25, memory: 1Gi, scratch_disk: 4Gi }
 limits: { max_concurrent: 1 }
+price: { per_hour: 0.12, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding

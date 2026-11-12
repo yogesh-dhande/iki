@@ -407,6 +407,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     ("GET", "/project-roles", fixed("/project-roles"), row(200)),
     ("GET", "/projects/{project_id}/members", project("/members"), visible(200)),
+    ("GET", "/projects/{project_id}/costs", project("/costs"), visible(200)),
     (
         "GET",
         "/projects/{project_id}/grantable-teams",
@@ -581,6 +582,19 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     ("GET", "/compute/workers", fixed("/compute/workers"), COMPUTE_ONLY),
     ("GET", "/compute/quotas", fixed("/compute/quotas"), COMPUTE_ONLY),
+    # What runs cost: for those who answer for it (ADR 0070).
+    (
+        "GET",
+        "/compute/costs",
+        fixed("/compute/costs"),
+        row(403, compute_admin=200, auditor=200, org_admin=200),
+    ),
+    (
+        "GET",
+        "/compute/costs/records.csv",
+        fixed("/compute/costs/records.csv"),
+        row(403, compute_admin=200, auditor=200, org_admin=200),
+    ),
     (
         "POST",
         "/compute/quotas",

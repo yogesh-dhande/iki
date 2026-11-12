@@ -355,8 +355,8 @@ def build() -> MCPServer:
     async def describe_action(
         name: Annotated[str, Field(description="Its name, such as dna.gc_content.")],
     ) -> CallToolResult:
-        """One action: its inputs, params (with a JSON Schema), effects, tier, limits and
-        whether it can run now."""
+        """One action: its inputs, params (with a JSON Schema), effects, tier, limits, what a
+        run of it may cost (on tiers where Iki starts machines) and whether it can run now."""
         return answer(await call("GET", path("/actions/{name}", name=name)))
 
     @server.tool(annotations=READ, title="List runs")
@@ -379,9 +379,9 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Get a run")
     async def get_run(ref: Ref) -> CallToolResult:
-        """A run: its status, inputs, params, what it wrote, each attempt (where it ran, how
-        it ended), and the artifacts it kept (files people download from its page in Iki,
-        each with when it's deleted)."""
+        """A run: its status, inputs, params, what it wrote, what it cost, each attempt
+        (where it ran, how it ended), and the artifacts it kept (files people download from
+        its page in Iki, each with when it's deleted)."""
         found = await call("GET", path("/runs/{ref}", ref=ref))
         attempts = await call("GET", path("/runs/{ref}/attempts", ref=ref))
         artifacts = await call("GET", path("/runs/{ref}/artifacts", ref=ref))

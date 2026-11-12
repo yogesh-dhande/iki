@@ -53,6 +53,17 @@
             "title": "Environment",
             "type": "string"
           },
+          "estimate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EstimateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On the container and VM tiers, what a run may cost (ADR 0070). Null where runs cost nothing, or the templates have no price."
+          },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/InputOut"
@@ -160,7 +171,8 @@
           "batchable",
           "available",
           "unavailable_reason",
-          "needs"
+          "needs",
+          "estimate"
         ],
         "title": "ActionOut",
         "type": "object"
@@ -879,6 +891,134 @@
           }
         },
         "title": "Condition",
+        "type": "object"
+      },
+      "CostGroupOut": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project's or team's ID, or the template, action or tier. Null for idle machines: the organization's, not any project's.",
+            "title": "Key"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "seconds": {
+            "title": "Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "currency",
+          "amount",
+          "seconds",
+          "runs"
+        ],
+        "title": "CostGroupOut",
+        "type": "object"
+      },
+      "CostSummaryOut": {
+        "properties": {
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "groups": {
+            "description": "Most first.",
+            "items": {
+              "$ref": "#/components/schemas/CostGroupOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "since": {
+            "format": "date",
+            "title": "Since",
+            "type": "string"
+          },
+          "totals": {
+            "description": "By currency.",
+            "items": {
+              "$ref": "#/components/schemas/CostTotalOut"
+            },
+            "title": "Totals",
+            "type": "array"
+          },
+          "until": {
+            "format": "date",
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "until",
+          "by",
+          "totals",
+          "groups"
+        ],
+        "title": "CostSummaryOut",
+        "type": "object"
+      },
+      "CostTotalOut": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for time on templates without a price.",
+            "title": "Currency"
+          },
+          "seconds": {
+            "description": "Machine time.",
+            "title": "Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "currency",
+          "amount",
+          "seconds"
+        ],
+        "title": "CostTotalOut",
         "type": "object"
       },
       "CreatedOut": {
@@ -2006,6 +2146,56 @@
         "title": "ErrorOut",
         "type": "object"
       },
+      "EstimateOut": {
+        "properties": {
+          "currency": {
+            "description": "An ISO 4217 code, such as USD.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "price_per_hour": {
+            "title": "Price Per Hour",
+            "type": "number"
+          },
+          "runs_seen": {
+            "description": "How many recent runs `typical` is from, up to 50.",
+            "title": "Runs Seen",
+            "type": "integer"
+          },
+          "template": {
+            "description": "The compute template a run would start on.",
+            "title": "Template",
+            "type": "string"
+          },
+          "timeout_cost": {
+            "description": "What an attempt that runs to its timeout costs. Retries cost again.",
+            "title": "Timeout Cost",
+            "type": "number"
+          },
+          "typical": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What its recent runs that succeeded cost, the median of them; null before any has.",
+            "title": "Typical"
+          }
+        },
+        "required": [
+          "template",
+          "price_per_hour",
+          "currency",
+          "typical",
+          "runs_seen",
+          "timeout_cost"
+        ],
+        "title": "EstimateOut",
+        "type": "object"
+      },
       "EventTypeOut": {
         "properties": {
           "description": {
@@ -2918,13 +3108,19 @@
           "read_audit": {
             "title": "Read Audit",
             "type": "boolean"
+          },
+          "read_costs": {
+            "description": "What runs cost, across the organization.",
+            "title": "Read Costs",
+            "type": "boolean"
           }
         },
         "required": [
           "manage_org",
           "read_audit",
           "create_projects",
-          "manage_webhooks"
+          "manage_webhooks",
+          "read_costs"
         ],
         "title": "MeCan",
         "type": "object"
@@ -3140,6 +3336,50 @@
           "slug"
         ],
         "title": "NotificationProject",
+        "type": "object"
+      },
+      "OrgParams": {
+        "properties": {
+          "by": {
+            "default": "project",
+            "enum": [
+              "project",
+              "team",
+              "template",
+              "action",
+              "tier"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first day, in UTC. The first of this month unless given.",
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The day after the last, in UTC. The first of next month unless given.",
+            "title": "Until"
+          }
+        },
+        "title": "OrgParams",
         "type": "object"
       },
       "OrgRolesIn": {
@@ -4241,6 +4481,38 @@
         "title": "PartsIn",
         "type": "object"
       },
+      "PeriodParams": {
+        "properties": {
+          "since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first day, in UTC. The first of this month unless given.",
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The day after the last, in UTC. The first of next month unless given.",
+            "title": "Until"
+          }
+        },
+        "title": "PeriodParams",
+        "type": "object"
+      },
       "PersonRef": {
         "description": "Someone, by name, or by email address when they have none.",
         "properties": {
@@ -4579,6 +4851,47 @@
           "can"
         ],
         "title": "ProjectOut",
+        "type": "object"
+      },
+      "ProjectParams": {
+        "properties": {
+          "by": {
+            "default": "action",
+            "enum": [
+              "action",
+              "template"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first day, in UTC. The first of this month unless given.",
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The day after the last, in UTC. The first of next month unless given.",
+            "title": "Until"
+          }
+        },
+        "title": "ProjectParams",
         "type": "object"
       },
       "ProjectPatch": {
@@ -5880,6 +6193,45 @@
         "title": "RunCan",
         "type": "object"
       },
+      "RunCostOut": {
+        "properties": {
+          "amount": {
+            "description": "What it has cost so far, at its templates' prices.",
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null while nothing it ran on has a price.",
+            "title": "Currency"
+          },
+          "final": {
+            "description": "It's ended and so have its machines: nothing more will be added.",
+            "title": "Final",
+            "type": "boolean"
+          },
+          "seconds": {
+            "description": "Machine time it has used.",
+            "title": "Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "seconds",
+          "final"
+        ],
+        "title": "RunCostOut",
+        "type": "object"
+      },
       "RunFileOut": {
         "properties": {
           "media_type": {
@@ -6116,6 +6468,17 @@
             "description": "The OAuth app it was asked for through, if any.",
             "title": "Client",
             "type": "string"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunCostOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On the container and VM tiers: what the machines it ran on cost (ADR 0070). Null on tiers whose machines run anyway."
           },
           "created_at": {
             "format": "date-time",
@@ -6409,6 +6772,7 @@
           "reused_from",
           "reproduces",
           "reproduction",
+          "cost",
           "can"
         ],
         "title": "RunOut",
@@ -8779,6 +9143,159 @@
         ]
       }
     },
+    "/api/v1/compute/costs": {
+      "get": {
+        "description": "For Compute Admins, Auditors and Org Admins: what the machines Iki started cost in a\nperiod, by project, team, template, action or tier. A machine's cost counts when it's\nrecorded: when it ends, or when a persistent one lets go of a job.",
+        "operationId": "iki_server_api_costs_org_costs",
+        "parameters": [
+          {
+            "description": "The first day, in UTC. The first of this month unless given.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The first day, in UTC. The first of this month unless given.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "The day after the last, in UTC. The first of next month unless given.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The day after the last, in UTC. The first of next month unless given.",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "by",
+            "required": false,
+            "schema": {
+              "default": "project",
+              "enum": [
+                "project",
+                "team",
+                "template",
+                "action",
+                "tier"
+              ],
+              "title": "By",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSummaryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What runs cost",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
+    "/api/v1/compute/costs/records.csv": {
+      "get": {
+        "description": "Every cost record in the period, oldest first, for finance and audits.",
+        "operationId": "iki_server_api_costs_org_cost_records",
+        "parameters": [
+          {
+            "description": "The first day, in UTC. The first of this month unless given.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The first day, in UTC. The first of this month unless given.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "The day after the last, in UTC. The first of next month unless given.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The day after the last, in UTC. The first of next month unless given.",
+              "title": "Until"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "The records, as CSV"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download what runs cost",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
     "/api/v1/compute/quotas": {
       "get": {
         "description": "Every quota, the organization's first, with how much of each is in use.",
@@ -10986,6 +11503,100 @@
         "summary": "Rename, describe, archive or restore, or allow or restrict sharing",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/costs": {
+      "get": {
+        "description": "For anyone who can read the project, and those who can read the organization's costs:\nwhat its runs cost in a period, by action or template. Each run shows its own cost\ntoo.",
+        "operationId": "iki_server_api_costs_project_costs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The first day, in UTC. The first of this month unless given.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The first day, in UTC. The first of this month unless given.",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "The day after the last, in UTC. The first of next month unless given.",
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The day after the last, in UTC. The first of next month unless given.",
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "by",
+            "required": false,
+            "schema": {
+              "default": "action",
+              "enum": [
+                "action",
+                "template"
+              ],
+              "title": "By",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostSummaryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What a project's runs cost",
+        "tags": [
+          "costs"
         ]
       }
     },

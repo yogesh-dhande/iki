@@ -91,7 +91,13 @@ export const ME: Schemas["MeOut"] = {
   kind: "person",
   active: true,
   org_roles: [],
-  can: { manage_org: false, read_audit: false, create_projects: true, manage_webhooks: false },
+  can: {
+    manage_org: false,
+    read_audit: false,
+    create_projects: true,
+    manage_webhooks: false,
+    read_costs: false,
+  },
 };
 
 export const TEAM: Schemas["TeamRef"] = {

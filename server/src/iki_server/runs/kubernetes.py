@@ -46,6 +46,9 @@ SCRATCH = "/iki/scratch"
 UID = 10001
 #: Seconds a run pod waits for a job before it stops.
 IDLE_EXIT = 300
+#: What a run pod is labelled with while it's a run's (ADR 0070), for tools that put
+#: clusters' costs down to projects, as Iki's own records do.
+RUN_LABELS = ("iki.ikisci.org/run", "iki.ikisci.org/project", "iki.ikisci.org/team")
 #: Seconds a finished Job is kept, for whoever is looking into it, before Kubernetes
 #: deletes it with its pod and Secret.
 KEEP_FINISHED = 600
@@ -70,6 +73,9 @@ class Cluster(Protocol):
 
     def delete_job(self, namespace: str, name: str) -> None:
         """Deletes a Job, with its pods and Secret; nothing if it's gone already."""
+
+    def label_pod(self, namespace: str, name: str, labels: dict[str, str | None]) -> None:
+        """Sets the pod's labels, removing those given as None."""
 
 
 @dataclass(frozen=True)
@@ -356,3 +362,6 @@ class InCluster:
 
     def delete_job(self, namespace: str, name: str) -> None:
         self._delete(f"/apis/batch/v1/namespaces/{namespace}/jobs/{name}")
+
+    def label_pod(self, namespace: str, name: str, labels: dict[str, str | None]) -> None:
+        self._patch(f"/api/v1/namespaces/{namespace}/pods/{name}", {"metadata": {"labels": labels}})

@@ -1033,7 +1033,11 @@ def test_the_provisioner_manages_only_jobs_where_runs_go() -> None:
                 "resources": ["jobs"],
                 "verbs": ["create", "get", "list", "watch", "patch", "delete"],
             },
-            {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
+            {
+                "apiGroups": [""],
+                "resources": ["pods"],
+                "verbs": ["get", "list", "watch", "patch"],
+            },
             # Never read, change or delete a Secret: only make each Job's own.
             {"apiGroups": [""], "resources": ["secrets"], "verbs": ["create"]},
         ]

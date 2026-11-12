@@ -1028,3 +1028,74 @@ class RunQuota(models.Model):
     def __str__(self) -> str:
         scope = self.project or self.team or "organization"
         return f"{scope} ({self.tier or 'all tiers'})"
+
+
+class CostKind(models.TextChoices):
+    #: A run's share of a machine: all of an ephemeral one's life, or the time a persistent
+    #: one held its job.
+    RUN = "run", "Run"
+    #: A persistent machine's time without a job, or a machine that never ran one: the
+    #: organization's, not any project's.
+    IDLE = "idle", "Idle"
+
+
+class CostRecord(models.Model):
+    """What a machine Iki started cost, and whose it was (ADR 0070): its seconds times its
+    template's price when it was recorded. Recorded once, never changed."""
+
+    id = models.BigAutoField(primary_key=True)
+    launch = models.ForeignKey(Launch, on_delete=models.PROTECT, related_name="costs")
+    kind = models.CharField(max_length=8, choices=CostKind.choices)
+    #: For a run's share: the attempt, its run and where the run was, when it was recorded.
+    job = models.ForeignKey(Job, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    run = models.ForeignKey(
+        ActionRun, null=True, blank=True, on_delete=models.PROTECT, related_name="costs"
+    )
+    project = models.ForeignKey(
+        Project, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    team = models.ForeignKey(
+        Team, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    action = models.CharField(max_length=200, blank=True, default="")
+    template = models.CharField(max_length=100)
+    tier = models.CharField(max_length=16)
+    started_at = models.DateTimeField()
+    ended_at = models.DateTimeField()
+    seconds = models.DecimalField(max_digits=14, decimal_places=3)
+    #: None for a template without a price: its time is recorded, at no cost.
+    price_per_hour = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True, default="")
+    amount = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_cost_record"
+        db_table_comment = "What each machine Iki started cost, by run, project and team."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["ended_at"], name="iki_cost_by_time"),
+            models.Index(fields=["project", "ended_at"], name="iki_cost_by_project"),
+            models.Index(fields=["team", "ended_at"], name="iki_cost_by_team"),
+            models.Index(fields=["run"], name="iki_cost_by_run"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(kind__in=CostKind.values), name="iki_cost_kind"),
+            models.CheckConstraint(condition=Q(seconds__gte=0), name="iki_cost_seconds"),
+            models.CheckConstraint(
+                condition=Q(kind="run", run__isnull=False, project__isnull=False)
+                | Q(kind="idle", run__isnull=True, project__isnull=True, team__isnull=True),
+                name="iki_cost_whose",
+            ),
+            models.CheckConstraint(
+                condition=Q(price_per_hour__isnull=True, amount__isnull=True, currency="")
+                | Q(
+                    price_per_hour__isnull=False,
+                    amount__isnull=False,
+                    currency__regex=r"^[A-Z]{3}$",
+                ),
+                name="iki_cost_priced",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.template} {self.kind} {self.amount} {self.currency}"

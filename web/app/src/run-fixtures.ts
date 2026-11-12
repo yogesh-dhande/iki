@@ -55,6 +55,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     reproduces: null,
     reproduction: null,
     can: { cancel: true, reproduce: false, run_again: false },
+    cost: null,
     ...overrides,
   };
 }
@@ -179,4 +180,5 @@ export const ACTION = {
   available: true,
   unavailable_reason: null,
   needs: "editor",
+  estimate: null,
 } satisfies Schemas["ActionOut"];

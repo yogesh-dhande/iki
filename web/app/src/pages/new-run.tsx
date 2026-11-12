@@ -22,6 +22,7 @@ import {
   type EntityType,
   type FieldDef,
 } from "../entities";
+import { money } from "../costs";
 import { FieldInput } from "../entity-inputs";
 import {
   blankMessage,
@@ -93,6 +94,29 @@ function duration(seconds: number): string {
 }
 
 /** As a field the entity form's inputs know: a reference, or a list of them. */
+/** What a run may cost (ADR 0070): typically, from its recent runs, and at most, for its
+ * timeout, on the machine it would run on. */
+function Estimate({ estimate, runs }: { estimate: NonNullable<Action["estimate"]>; runs: number }) {
+  const { currency } = estimate;
+  const each = runs > 1 ? " each" : "";
+  const most = `at most ${money(estimate.timeout_cost, currency)}${each} if it runs for its whole timeout`;
+  if (estimate.typical === null) {
+    return (
+      <>
+        Its machine costs {money(estimate.price_per_hour, currency)} an hour: {most}.
+      </>
+    );
+  }
+  return (
+    <>
+      A run typically costs about {money(estimate.typical, currency)}
+      {runs > 1 ? `, ${money(estimate.typical * runs, currency)} for all ${String(runs)}` : ""}{" "}
+      <span className="muted">(the median of its last {estimate.runs_seen} that succeeded)</span>,
+      and {most}.
+    </>
+  );
+}
+
 function inputField(input: Input): FieldDef {
   return {
     name: input.name,
@@ -466,6 +490,11 @@ function RunForm({
           ) : null}
           , for up to {duration(action.timeout)} each time.
         </li>
+        {action.estimate ? (
+          <li>
+            <Estimate estimate={action.estimate} runs={batch ? entities.length : 1} />
+          </li>
+        ) : null}
         {changes.length ? <li>It changes {changes.join("; ")}.</li> : null}
         {makes.length ? <li>It makes new {makes.join(", ")}.</li> : null}
         {action.network.length ? (

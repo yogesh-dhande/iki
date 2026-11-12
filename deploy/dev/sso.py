@@ -1388,6 +1388,18 @@ def containers() -> None:
         f"{action} ran in a pod of its own ({attempt['worker']}, {TOOLS_IMAGE.split('@')[0]}) "
         f"on the container tier ({run['hrid']}) and wrote storage {storage!r}"
     )
+    # Its pod says whose it is, for the cluster's own cost tools (ADR 0070).
+    wanted = {"iki.ikisci.org/run": run["id"], "iki.ikisci.org/project": project["id"]}
+    deadline = time.monotonic() + 60
+    while True:
+        pod = next((p for p in _run_pods() if p["metadata"]["name"] == attempt["worker"]), None)
+        labels = (pod or {}).get("metadata", {}).get("labels", {})
+        if all(labels.get(k) == v for k, v in wanted.items()):
+            break
+        if pod is None or time.monotonic() > deadline:
+            fail(f"{attempt['worker']} isn't labelled with its run and project: {labels}")
+        time.sleep(2)
+    ok(f"{attempt['worker']} is labelled with {run['hrid']}'s run and project")
 
     action = "example.tidy_storage"
     ran = [
@@ -1413,6 +1425,21 @@ def containers() -> None:
     ok(
         f"{action} ran twice ({', '.join(r['hrid'] for r, _, _ in ran)}) on the pod kept warm "
         f"({worker}), started before them, and tidied storage to '-80 °C freezer'"
+    )
+
+    # What they cost (ADR 0070): the warm pod's time holding each is that run's, recorded
+    # when it let go, at container-warm's price.
+    for done, _, _ in ran:
+        cost = api_call(alice, "GET", f"/runs/{done['id']}").json()["cost"]
+        if not cost or cost["currency"] != "USD" or not cost["final"] or cost["seconds"] <= 0:
+            fail(f"{done['hrid']} doesn't say what it cost: {cost}")
+    spent = api_call(alice, "GET", f"/projects/{project['id']}/costs").json()
+    tidied = next((g for g in spent["groups"] if g["key"] == action), None)
+    if tidied is None or tidied["runs"] < 2 or tidied["currency"] != "USD":
+        fail(f"Atlas's costs don't count {action}'s runs: {spent}")
+    ok(
+        f"{action}'s runs say what they cost, and Atlas's costs count them "
+        f"({tidied['runs']} runs, {tidied['seconds']:.0f} s of machine time)"
     )
 
 

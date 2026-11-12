@@ -20,6 +20,7 @@ import { ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
 import { entityQuery, typesQuery, validateEntitySearch, validateNewEntitySearch } from "./entities";
 import { validateLineageSearch } from "./lineage";
+import { validateCostsSearch } from "./costs-search";
 import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
@@ -31,6 +32,7 @@ import { actionsQuery, batchQuery, runQuery, STATUS, type RunStatus } from "./ru
 const entityPages = () => import("./pages/entity");
 const typePages = () => import("./pages/types");
 const webhookPages = () => import("./pages/webhooks");
+const OrgCosts = lazyRouteComponent(() => import("./pages/costs"), "OrgCosts");
 const Notifications = lazyRouteComponent(() => import("./pages/notifications"), "Notifications");
 const ProjectMembers = lazyRouteComponent(
   () => import("./pages/project-members"),
@@ -76,6 +78,14 @@ const notificationsRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { show?: "unread" } =>
     search["show"] === "unread" ? { show: "unread" } : {},
   component: Notifications,
+});
+
+const costsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "costs",
+  // ?month=2026-11&by=team: another month, grouped another way.
+  validateSearch: validateCostsSearch,
+  component: OrgCosts,
 });
 
 const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "projects" });
@@ -278,6 +288,7 @@ const orgWebhookRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   homeRoute,
   notificationsRoute,
+  costsRoute,
   projectsRoute.addChildren([
     projectListRoute,
     projectNewRoute,

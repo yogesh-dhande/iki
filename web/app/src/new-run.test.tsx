@@ -196,6 +196,51 @@ describe("starting a run", () => {
     );
   });
 
+  it("says what a run may cost, from its recent runs and its timeout", async () => {
+    onProject({ run: ["client", "backend", "container"] });
+    const RELAX: Schemas["ActionOut"] = {
+      ...ACTION,
+      tier: "container",
+      estimate: {
+        template: "container-small",
+        price_per_hour: 1.8,
+        currency: "USD",
+        typical: 0.2,
+        runs_seen: 12,
+        timeout_cost: 0.3,
+      },
+    };
+    answer("GET /api/v1/actions", [RELAX]);
+    await renderApp(
+      `/projects/kinase-atlas/runs/new/?entities=PRT-000001,PRT-000002&action=${ACTION.name}`,
+    );
+    expect(await screen.findByText(/^A run typically costs/)).toHaveTextContent(
+      "A run typically costs about $0.20, $0.40 for all 2 (the median of its last 12 that succeeded), and at most $0.30 each if it runs for its whole timeout.",
+    );
+  });
+
+  it("says what its machine costs an hour, before any run has", async () => {
+    onProject({ run: ["client", "backend", "container"] });
+    answer("GET /api/v1/actions", [
+      {
+        ...ACTION,
+        tier: "container",
+        estimate: {
+          template: "container-small",
+          price_per_hour: 1.8,
+          currency: "USD",
+          typical: null,
+          runs_seen: 0,
+          timeout_cost: 0.3,
+        },
+      },
+    ]);
+    await renderApp(`/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=${ACTION.name}`);
+    expect(await screen.findByText(/^Its machine costs/)).toHaveTextContent(
+      "Its machine costs $1.80 an hour: at most $0.30 if it runs for its whole timeout.",
+    );
+  });
+
   it("imports from a file in the project, with no entities to choose", async () => {
     onProject();
     const IMPORT: Schemas["ActionOut"] = {

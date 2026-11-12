@@ -13,6 +13,7 @@ import {
   type Project,
 } from "../api";
 import { usePageTitle } from "../layout";
+import { ProjectCosts } from "./cost-table";
 import { Badge, Button, PageHeader, ProblemAlert, Time, useMessages } from "../ui";
 
 /** The project the current page is about, from the `$slug` in its address. */
@@ -160,6 +161,7 @@ export function ProjectOverview() {
       ) : (
         <NotAMember project={project} />
       )}
+      {project.can.read ? <ProjectCosts project={project} /> : null}
     </>
   );
 }

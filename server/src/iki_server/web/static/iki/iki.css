@@ -1843,3 +1843,11 @@ input[type="file"]::file-selector-button {
 .run-facts li + li {
   margin-top: 0.25rem;
 }
+
+/* The Costs page's month: the one shown, between the one before and the one after. */
+.month-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
