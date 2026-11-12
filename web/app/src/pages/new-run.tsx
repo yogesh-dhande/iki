@@ -13,7 +13,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
-import { iki, useApiMutation, type Project } from "../api";
+import { iki, problemOf, useApiMutation, type Project } from "../api";
 import {
   inSentence,
   typeLabel,
@@ -41,10 +41,32 @@ import {
   RUNS,
   type Action,
 } from "../runs";
-import { Button, buttonClass, Loading, SelectField, TextField, useMessages } from "../ui";
+import {
+  Button,
+  buttonClass,
+  ConfirmDialog,
+  Loading,
+  SelectField,
+  TextField,
+  useMessages,
+} from "../ui";
 import { useProject } from "./project-overview";
 
 type Input = Action["inputs"][number];
+
+interface Launch {
+  inputs: Record<string, string | string[]>;
+  params: Record<string, unknown>;
+  /** Link inputs from other projects into this one first (ADR 0066). */
+  addToProject: boolean;
+}
+
+/** "PRT-000001", "PRT-000001 and PRT-000002", "PRT-000001, PRT-000002 and PRT-000003". */
+function listed(items: string[]): string {
+  return items.length > 1
+    ? `${items.slice(0, -1).join(", ")} and ${items.at(-1) ?? ""}`
+    : (items[0] ?? "");
+}
 
 /** Whether entities of `type` can be given to an input taking `wanted`. */
 function isA(types: EntityType[], type: string, wanted: string): boolean {
@@ -302,15 +324,13 @@ function RunForm({
   const tooMany = each?.cardinality === "many" && each.max !== null && entities.length > each.max;
 
   const launch = useApiMutation(
-    async (body: {
-      inputs: Record<string, string | string[]>;
-      params: Record<string, unknown>;
-    }) => {
+    async (body: Launch) => {
       const common = {
         project: project.id,
         params: body.params,
         reason: reason.trim(),
         reuse: true,
+        add_to_project: body.addToProject,
       };
       if (batch) {
         const made = unwrap(
@@ -348,6 +368,8 @@ function RunForm({
     [RUNS],
   );
   const form = useForm(launch.error);
+  // A launch refused for inputs from other projects, to send again adding them.
+  const [outside, setOutside] = useState<{ body: Launch; hrids: string[] } | null>(null);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -379,33 +401,41 @@ function RunForm({
     }
     if (tooMany) errors[`inputs/${each.name}`] = `This input takes at most ${String(each.max)}.`;
     if (!form.validate(errors)) return;
-    launch.mutate(
-      { inputs, params: values },
-      {
-        onSuccess: ({ runs, batch: made }) => {
-          const first = runs[0];
-          if (made) {
-            const reused = runs.filter((r) => r.reused).length;
-            void navigate({ to: "/batches/$ref/", params: { ref: made.hrid } }).then(() => {
-              say(
-                `Started ${String(runs.length)} runs of ${action.label || action.name}, as ${made.hrid}` +
-                  (reused
-                    ? `. ${String(reused)} reused the results of identical runs, so ran nothing.`
-                    : "."),
-              );
-            });
-          } else if (first) {
-            void navigate({ to: "/runs/$ref/", params: { ref: first.hrid } }).then(() => {
-              say(
-                first.reused
-                  ? `${first.hrid} reused the results of ${first.reused_from?.hrid ?? "an identical run"}.`
-                  : `Started ${first.hrid}.`,
-              );
-            });
-          }
-        },
+    start({ inputs, params: values, addToProject: false });
+  }
+
+  function start(body: Launch) {
+    launch.mutate(body, {
+      onError: (error) => {
+        const problem = problemOf(error);
+        if (problem.code === "inputs_outside_project") {
+          setOutside({ body, hrids: (problem.entities ?? []).map((e) => e.hrid) });
+        }
       },
-    );
+      onSuccess: ({ runs, batch: made }) => {
+        setOutside(null);
+        const first = runs[0];
+        if (made) {
+          const reused = runs.filter((r) => r.reused).length;
+          void navigate({ to: "/batches/$ref/", params: { ref: made.hrid } }).then(() => {
+            say(
+              `Started ${String(runs.length)} runs of ${action.label || action.name}, as ${made.hrid}` +
+                (reused
+                  ? `. ${String(reused)} reused the results of identical runs, so ran nothing.`
+                  : "."),
+            );
+          });
+        } else if (first) {
+          void navigate({ to: "/runs/$ref/", params: { ref: first.hrid } }).then(() => {
+            say(
+              first.reused
+                ? `${first.hrid} reused the results of ${first.reused_from?.hrid ?? "an identical run"}.`
+                : `Started ${first.hrid}.`,
+            );
+          });
+        }
+      },
+    });
   }
 
   const changes = action.updates.map((u) => {
@@ -518,6 +548,32 @@ function RunForm({
           Cancel
         </Link>
       </div>
+      <ConfirmDialog
+        isOpen={outside !== null}
+        title={`Add to ${project.name}?`}
+        confirmLabel={batch ? `Add and start ${String(entities.length)} runs` : "Add and start run"}
+        confirmVariant="primary"
+        busy={launch.isPending}
+        problem={
+          launch.error && problemOf(launch.error).code !== "inputs_outside_project"
+            ? problemOf(launch.error)
+            : undefined
+        }
+        onCancel={() => {
+          setOutside(null);
+        }}
+        onConfirm={() => {
+          if (outside) start({ ...outside.body, addToProject: true });
+        }}
+      >
+        <p>
+          {listed(outside?.hrids ?? [])} {(outside?.hrids.length ?? 0) > 1 ? "are" : "is"} in other
+          projects. A run reads only what’s in its project, so{" "}
+          {(outside?.hrids.length ?? 0) > 1 ? "they’ll" : "it’ll"} be added to {project.name} first,
+          and its members will be able to read {(outside?.hrids.length ?? 0) > 1 ? "them" : "it"}.
+        </p>
+        <p>Adding is recorded in each project’s audit log.</p>
+      </ConfirmDialog>
     </form>
   );
 }

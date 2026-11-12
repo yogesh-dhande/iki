@@ -38,9 +38,19 @@ export function problem(
   code: string,
   detail: string,
   errors?: { pointer?: string; parameter?: string; detail: string }[],
+  /** More members, as RFC 9457 extensions. */
+  extensions: Record<string, unknown> = {},
 ): Response {
   const title = status === 409 ? "Conflict" : "Error";
-  return respond(status, { type: "about:blank", title, status, code, detail, errors });
+  return respond(status, {
+    type: "about:blank",
+    title,
+    status,
+    code,
+    detail,
+    errors,
+    ...extensions,
+  });
 }
 
 export function resetApi(): void {

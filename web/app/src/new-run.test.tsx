@@ -116,8 +116,43 @@ describe("starting a run", () => {
       params: { ph: 7.4 },
       reason: "Weekly batch",
       reuse: true,
+      add_to_project: false,
     });
     expect(await screen.findByText("Started RUN-000001.")).toBeVisible();
+  });
+
+  it("offers to add inputs from other projects to this one, then starts the run", async () => {
+    onProject();
+    answer(
+      `POST /api/v1/actions/${ACTION.name}/runs`,
+      (r: { body: { add_to_project: boolean } }) =>
+        r.body.add_to_project
+          ? run()
+          : problem(409, "inputs_outside_project", "PRT-000001 isn't in Kinase Atlas.", undefined, {
+              entities: [{ id: PROTEIN_ID, hrid: "PRT-000001", type: "protein.Protein" }],
+            }),
+    );
+    answer("GET /api/v1/runs/RUN-000001", run());
+    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    const { user, router } = await renderApp(
+      `/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=${ACTION.name}`,
+    );
+    await user.click(await screen.findByRole("button", { name: "Start run" }));
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Add to Kinase Atlas?" });
+    expect(dialog).toHaveTextContent(
+      "PRT-000001 is in other projects. A run reads only what’s in its project, so it’ll be " +
+        "added to Kinase Atlas first, and its members will be able to read it.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Add and start run" }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/runs/RUN-000001/");
+    });
+    const sent = calls("POST", `/api/v1/actions/${ACTION.name}/runs`).map(
+      (c) => (c.body as { add_to_project: boolean }).add_to_project,
+    );
+    expect(sent).toEqual([false, true]);
   });
 
   it("starts one run for each of several, all or none", async () => {
@@ -143,6 +178,7 @@ describe("starting a run", () => {
       params: { ph: 7 },
       reason: "",
       reuse: true,
+      add_to_project: false,
     });
 
     answer(`POST /api/v1/actions/${ACTION.name}/runs/batch`, () => ({
@@ -264,6 +300,7 @@ describe("starting a run", () => {
       params: { file: FILE_ID },
       reason: "",
       reuse: true,
+      add_to_project: false,
     });
   });
 

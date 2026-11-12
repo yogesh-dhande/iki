@@ -239,6 +239,13 @@ class RunIn(Schema):
         "succeeded, which you can read, instead of running again (ADR 0057). The run ends at "
         "once, with `reused_from`. Set false to run it anyway.",
     )
+    add_to_project: bool = Field(
+        False,
+        description="A run reads only what's in its project (ADR 0066). Set true to add "
+        "inputs from other projects to it first, which its members can then read; each is "
+        "audited as `entity.linked`. Without it, such inputs are refused with 409 "
+        "`inputs_outside_project`, which lists them.",
+    )
 
 
 class CancelIn(Schema):
@@ -701,6 +708,17 @@ def _find(me: User, ref: str) -> ActionRun:
     return found
 
 
+def _outside(error: services.OutsideProject) -> Problem:
+    return Problem(
+        409,
+        str(error),
+        code="inputs_outside_project",
+        extensions={
+            "entities": [{"id": str(e.pk), "hrid": e.hrid, "type": e.type} for e in error.entities]
+        },
+    )
+
+
 def _invalid(error: Invalid) -> Problem:
     return Problem(
         422,
@@ -717,7 +735,8 @@ def _invalid(error: Invalid) -> Problem:
 def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpResponse) -> Any:  # noqa: ANN401
     """Queue a run. Everything is checked first: your role for the action's tier, that it can
     run on this deployment, its inputs (entities you can read, of the right types, not archived,
-    and editable by you where it changes them) and its params."""
+    and editable by you where it changes them) and its params. A run reads only what's in its
+    project: inputs from other projects need `add_to_project`."""
     me = caller(request)
     action = _action(name)
     target = project(me, payload.project, services.TIER_PERMISSIONS[action.tier])
@@ -731,9 +750,12 @@ def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpRe
             payload.params,
             reason=payload.reason,
             reuse_results=payload.reuse,
+            add_to_project=payload.add_to_project,
         )
     except Invalid as error:
         raise _invalid(error) from None
+    except services.OutsideProject as error:
+        raise _outside(error) from None
     response["Location"] = f"/api/v1/runs/{run.pk}"
     return Status(201, _runs_out(me, [_find(me, str(run.pk))])[0])
 
@@ -760,6 +782,13 @@ class RunBatchIn(Schema):
         description="For a deterministic action: for each run, reuse the results of an "
         "identical one that succeeded, which you can read, instead of running again (ADR "
         "0057). Those end at once, with `reused_from`. Set false to run them all.",
+    )
+    add_to_project: bool = Field(
+        False,
+        description="A run reads only what's in its project (ADR 0066). Set true to add "
+        "inputs from other projects to it first, which its members can then read; each is "
+        "audited as `entity.linked`. Without it, such inputs are refused with 409 "
+        "`inputs_outside_project`, which lists them.",
     )
 
 
@@ -849,9 +878,12 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
             payload.params,
             reason=payload.reason,
             reuse_results=payload.reuse,
+            add_to_project=payload.add_to_project,
         )
     except Invalid as error:
         raise _invalid(error) from None
+    except services.OutsideProject as error:
+        raise _outside(error) from None
     found = {
         r.pk: r
         for r in services.visible_runs(me)

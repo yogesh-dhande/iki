@@ -5593,6 +5593,12 @@
       },
       "RunBatchIn": {
         "properties": {
+          "add_to_project": {
+            "default": false,
+            "description": "A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.",
+            "title": "Add To Project",
+            "type": "boolean"
+          },
           "each": {
             "description": "The input each run takes one of `entities` for.",
             "title": "Each",
@@ -5806,6 +5812,12 @@
       },
       "RunIn": {
         "properties": {
+          "add_to_project": {
+            "default": false,
+            "description": "A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.",
+            "title": "Add To Project",
+            "type": "boolean"
+          },
           "inputs": {
             "additionalProperties": {
               "anyOf": [
@@ -8200,7 +8212,7 @@
     },
     "/api/v1/actions/{name}/runs": {
       "post": {
-        "description": "Queue a run. Everything is checked first: your role for the action's tier, that it can\nrun on this deployment, its inputs (entities you can read, of the right types, not archived,\nand editable by you where it changes them) and its params.",
+        "description": "Queue a run. Everything is checked first: your role for the action's tier, that it can\nrun on this deployment, its inputs (entities you can read, of the right types, not archived,\nand editable by you where it changes them) and its params. A run reads only what's in its\nproject: inputs from other projects need `add_to_project`.",
         "operationId": "iki_server_api_runs_launch_run",
         "parameters": [
           {

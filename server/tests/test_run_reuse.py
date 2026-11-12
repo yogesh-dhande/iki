@@ -163,7 +163,9 @@ def test_reused_entities_are_linked_into_the_runs_project(world: World) -> None:
     ProjectMembership.objects.create(
         project=second, user=world.users["editor"], role=ProjectRole.EDITOR
     )
-    run = launch(api_as(world), second, {}, IMPORT, params={"file": file_id}).json()
+    # The same file, uploaded to the second project: a run reads only its own project's.
+    again = stored(world, project=second)
+    run = launch(api_as(world), second, {}, IMPORT, params={"file": again}).json()
     assert run["reused_from"]["hrid"] == first["hrid"]
     made = [e["entity"] for e in run["effects"]]
     assert ProjectLink.objects.filter(project=second, entity_id__in=made).count() == 2

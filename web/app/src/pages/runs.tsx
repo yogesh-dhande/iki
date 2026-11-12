@@ -435,6 +435,8 @@ function ReusedNote({ run }: { run: Run }) {
           params: run.params,
           reason: run.reason,
           reuse: false,
+          // Its inputs were in the project; one taken out since is refused, saying so.
+          add_to_project: false,
         },
       }),
     );

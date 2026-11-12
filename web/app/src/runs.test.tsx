@@ -640,6 +640,7 @@ describe("a run's page", () => {
         params: { ph: 7.4 },
         reason: "Weights",
         reuse: false,
+        add_to_project: false,
       });
     });
 

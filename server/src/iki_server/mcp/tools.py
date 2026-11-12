@@ -412,9 +412,11 @@ def build() -> MCPServer:
         reuse: Reuse = True,
     ) -> CallToolResult:
         """Queues one run of an action. Its inputs, params and the person's role are
-        checked first. Runs on the container and VM tiers wait for the person to approve
-        them in Iki; the answer says so. A run that reuses an identical run's results ends
-        at once (`reused_from`). Follow it with get_run."""
+        checked first. Its inputs must be in the project: for ones that aren't, the error
+        lists them, and the person adds them to it in Iki. Runs on the container and VM
+        tiers wait for the person to approve them in Iki; the answer says so. A run that
+        reuses an identical run's results ends at once (`reused_from`). Follow it with
+        get_run."""
         body = {
             "project": str(project),
             "inputs": _ids(inputs),
@@ -449,7 +451,8 @@ def build() -> MCPServer:
         reuse: Reuse = True,
     ) -> CallToolResult:
         """Queues one run for each entity, all or none: if any can't run, none is queued
-        and the error says which. Runs that need approval are approved together."""
+        and the error says which. Inputs must be in the project, as for run_action. Runs
+        that need approval are approved together."""
         body = {
             "project": str(project),
             "each": each,

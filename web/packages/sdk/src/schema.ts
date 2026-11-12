@@ -54,7 +54,8 @@ export interface paths {
          * Run an action
          * @description Queue a run. Everything is checked first: your role for the action's tier, that it can
          *     run on this deployment, its inputs (entities you can read, of the right types, not archived,
-         *     and editable by you where it changes them) and its params.
+         *     and editable by you where it changes them) and its params. A run reads only what's in its
+         *     project: inputs from other projects need `add_to_project`.
          */
         post: operations["iki_server_api_runs_launch_run"];
         delete?: never;
@@ -4324,6 +4325,12 @@ export interface components {
         /** RunBatchIn */
         RunBatchIn: {
             /**
+             * Add To Project
+             * @description A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
+             * @default false
+             */
+            add_to_project: boolean;
+            /**
              * Each
              * @description The input each run takes one of `entities` for.
              */
@@ -4428,6 +4435,12 @@ export interface components {
         };
         /** RunIn */
         RunIn: {
+            /**
+             * Add To Project
+             * @description A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
+             * @default false
+             */
+            add_to_project: boolean;
             /**
              * Inputs
              * @description Entity IDs for each input: one, or a list for inputs that take many.

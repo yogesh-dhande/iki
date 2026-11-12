@@ -1242,6 +1242,8 @@ class RunAttemptOut(TypedDict):
 
 
 class RunBatchIn(TypedDict):
+    #: A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
+    add_to_project: NotRequired[bool]
     #: The input each run takes one of `entities` for.
     each: str
     #: One run for each, in this order: at most 1000.
@@ -1292,6 +1294,8 @@ class RunFilters(TypedDict):
 
 
 class RunIn(TypedDict):
+    #: A run reads only what's in its project (ADR 0066). Set true to add inputs from other projects to it first, which its members can then read; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
+    add_to_project: NotRequired[bool]
     #: Entity IDs for each input: one, or a list for inputs that take many.
     inputs: NotRequired[dict[str, str | list[str]]]
     params: NotRequired[dict[str, Any]]

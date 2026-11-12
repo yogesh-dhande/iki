@@ -9,6 +9,9 @@ Entities people can't read behave as if they don't exist (404).
 
 **Files** are readable by whoever can read the project they were added to,
 or an entity that refers to them, at any revision.
+
+A run reads only what belongs to its project: entities linked into it, and
+its files (ADR 0066).
 """
 
 from typing import Any, cast
@@ -45,6 +48,19 @@ def readable_files(user: Any) -> QuerySet[File]:  # noqa: ANN401 - User or Anony
     projects = readable_projects(user).values("pk")
     uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=visible(user).values("pk"))
     return File.objects.filter(Q(project__in=projects) | Exists(uses))
+
+
+def in_project(project: Project) -> QuerySet[Entity]:
+    """The entities that belong to `project`: its own, and those linked into it."""
+    return Entity.objects.filter(
+        Exists(ProjectLink.objects.filter(entity=OuterRef("pk"), project=project))
+    )
+
+
+def project_files(project: Project) -> QuerySet[File]:
+    """The files that belong to `project`: added to it, or used by one of its entities."""
+    uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=in_project(project).values("pk"))
+    return File.objects.filter(Q(project=project) | Exists(uses))
 
 
 def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401

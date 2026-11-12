@@ -316,6 +316,7 @@ def test_runs_take_inputs_by_hrid_id_or_entity(fake: FakeIki, client: Client) ->
         "params": {"ph": 7.4},
         "reason": "Weights",
         "reuse": True,
+        "add_to_project": False,
     }
 
 

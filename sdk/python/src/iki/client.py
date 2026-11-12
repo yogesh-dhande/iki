@@ -497,12 +497,18 @@ class Runs(_Part):
         params: Mapping[str, Any] | None = None,
         reason: str = "",
         reuse: bool = True,
+        add_to_project: bool = False,
     ) -> RunOut:
         """Queues a run. `inputs` name entities by ID, HRID or the entity itself:
         ``{"protein": "PRT-000123"}``, or a list for inputs that take many.
 
         For a deterministic action, an identical run's results are reused when you can
-        read one: the run ends at once, with ``reused_from``. ``reuse=False`` runs it."""
+        read one: the run ends at once, with ``reused_from``. ``reuse=False`` runs it.
+
+        A run reads only what's in its project. Inputs from other projects raise an
+        :class:`ApiError` with code ``inputs_outside_project`` (its ``problem`` lists
+        them in ``entities``), unless ``add_to_project=True`` adds them to it first: its
+        members can then read them."""
         client = self._client
         body = {
             "project": client._project_id(project),
@@ -510,6 +516,7 @@ class Runs(_Part):
             "params": dict(params or {}),
             "reason": reason,
             "reuse": reuse,
+            "add_to_project": add_to_project,
         }
         return cast(
             "RunOut",
@@ -527,10 +534,12 @@ class Runs(_Part):
         params: Mapping[str, Any] | None = None,
         reason: str = "",
         reuse: bool = True,
+        add_to_project: bool = False,
     ) -> builtins.list[RunOut]:
         """Queues one run for each of `entities` as its `each` input, all or none:
         if any can't run, none is queued, and the error says which. Runs identical to
-        earlier ones reuse their results, as :meth:`start`'s do."""
+        earlier ones reuse their results, and inputs from other projects need
+        `add_to_project`, as for :meth:`start`."""
         client = self._client
         body = {
             "project": client._project_id(project),
@@ -540,6 +549,7 @@ class Runs(_Part):
             "params": dict(params or {}),
             "reason": reason,
             "reuse": reuse,
+            "add_to_project": add_to_project,
         }
         batch = client.request("POST", _path("/actions/{n}/runs/batch", n=action), json=body)
         return cast("builtins.list[RunOut]", batch["runs"])

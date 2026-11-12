@@ -7,6 +7,11 @@ an entity they can read, of the right type and not archived, the entities it
 updates are ones they can edit, and every param fits. It records the
 revision of each input, so the run's provenance says what it read.
 
+A run reads only what belongs to its project (ADR 0066): its inputs must be
+linked into it, and its file params be its files. Otherwise the launch raises
+:class:`OutsideProject`, unless the caller asked to add the inputs to the
+project first, which links them, audited, as the link API does.
+
 A run an agent asks for through MCP, on a tier that needs approval, waits for
 the person it acts for to approve it (:mod:`iki_server.runs.approvals`).
 """
@@ -53,6 +58,7 @@ from iki_spec.validate import value_problems
 
 __all__ = [
     "TIER_PERMISSIONS",
+    "OutsideProject",
     "cancel",
     "cancel_batch",
     "launch",
@@ -69,6 +75,44 @@ TIER_PERMISSIONS = {
     "container": Permission.RUN_CONTAINER,
     "vm": Permission.RUN_VM,
 }
+
+
+class OutsideProject(Exception):  # noqa: N818 - reads as "they're outside the project"
+    """Inputs the caller can read that aren't in the run's project. Launching with
+    `add_to_project` adds them first."""
+
+    def __init__(self, project: Project, entities: Sequence[Entity]) -> None:
+        self.project = project
+        self.entities = list(entities)
+        hrids_ = [e.hrid for e in self.entities]
+        listed = ", ".join(hrids_[:-1]) + f" and {hrids_[-1]}" if len(hrids_) > 1 else hrids_[0]
+        verb = "aren't" if len(hrids_) > 1 else "isn't"
+        them = "them" if len(hrids_) > 1 else "it"
+        super().__init__(
+            f"{listed} {verb} in {project.name}. A run reads only what's in its project: "
+            f"add {them} to {project.name} first, and its members will be able to read {them}."
+        )
+
+
+def _outside(project: Project, chosen: Mapping[str, Sequence[Entity]]) -> list[Entity]:
+    """The inputs that aren't in `project`, in the order given."""
+    wanted = {e.pk for entities in chosen.values() for e in entities}
+    inside = set(access.in_project(project).filter(pk__in=wanted).values_list("pk", flat=True))
+    seen: set[UUID] = set()
+    out = []
+    for entities in chosen.values():
+        for e in entities:
+            if e.pk not in inside and e.pk not in seen:
+                seen.add(e.pk)
+                out.append(e)
+    return out
+
+
+def _add_to_project(user: User, project: Project, outside: Sequence[Entity]) -> None:
+    from iki_server.entities import services as entities
+
+    for entity in outside:
+        entities.link(user, entity, project)
 
 
 def visible_runs(user: Any) -> QuerySet[ActionRun]:  # noqa: ANN401 - User or AnonymousUser
@@ -90,21 +134,27 @@ def launch(
     *,
     reason: str = "",
     reuse_results: bool = True,
+    add_to_project: bool = False,
 ) -> ActionRun:
     """Queue a run of `action` in `project`, or raise why it can't run. For a deterministic
     action, an identical earlier run's results are reused instead, unless `reuse_results`
-    is off (ADR 0057).
+    is off (ADR 0057). `add_to_project` links inputs from other projects into it first.
 
     Raises :class:`PermissionDenied` if the caller can't run the action's tier in the project,
-    :class:`Refused` if it can't run here now, and :class:`Invalid` for inputs and params.
+    :class:`Refused` if it can't run here now, :class:`Invalid` for inputs and params, and
+    :class:`OutsideProject` for inputs that aren't in the project.
     """
     _may_launch(user, action, project)
     errors: dict[str, list[str]] = {}
     entities = _inputs(user, action, inputs, errors)
-    values = _params(user, action, params, errors)
+    values = _params(user, action, project, params, errors)
     if errors:
         raise Invalid(errors)
+    outside = _outside(project, entities)
+    if outside and not add_to_project:
+        raise OutsideProject(project, outside)
     with transaction.atomic():
+        _add_to_project(user, project, outside)
         made = _made(user, action, entities, values, reuse_results=reuse_results)
         if made.original is not None:
             return _reuse(user, action, project, entities, values, reason, made)
@@ -128,6 +178,7 @@ def launch_each(
     *,
     reason: str = "",
     reuse_results: bool = True,
+    add_to_project: bool = False,
 ) -> list[ActionRun]:
     """Queue one run of `action` for each of `entity_ids` as its `each` input, the others the
     same for all, or none of them: raises as :func:`launch` does, with problems with the
@@ -146,13 +197,17 @@ def launch_each(
     if errors:
         raise Invalid(errors)
     entities = _inputs(user, action, {**inputs, each: entity_ids}, errors, each=each)
-    values = _params(user, action, params, errors)
+    values = _params(user, action, project, params, errors)
     if f"inputs/{each}" in errors:
         errors["entities"] = errors.pop(f"inputs/{each}")
     if errors:
         raise Invalid(errors)
+    outside = _outside(project, entities)
+    if outside and not add_to_project:
+        raise OutsideProject(project, outside)
     chosen = entities.pop(each)
     with transaction.atomic():
+        _add_to_project(user, project, outside)
         made = [
             _made(user, action, {**entities, each: [e]}, values, reuse_results=reuse_results)
             for e in chosen
@@ -407,6 +462,19 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
     hidden = RunInput.objects.filter(run=original).exclude(entity_id__in=readable)
     if hidden.exists():
         raise PermissionDenied
+    gone = list(
+        Entity.objects.filter(pk__in=RunInput.objects.filter(run=original).values("entity_id"))
+        .exclude(pk__in=access.in_project(original.project).values("pk"))
+        .order_by("hrid")
+        .values_list("hrid", flat=True)
+    )
+    if gone:
+        listed = ", ".join(gone)
+        verb = "aren't" if len(gone) > 1 else "isn't"
+        raise Refused(
+            f"{listed} {verb} in {original.project.name} any more, so this run can't be "
+            "reproduced there: a run reads only what's in its project."
+        )
     with transaction.atomic():
         approval = approvals.ask(user, action, original.project)
         reproduction = _queue(
@@ -493,7 +561,11 @@ def is_a(entity_type: str, wanted: str) -> bool:
 
 
 def _params(
-    user: User, action: Action, given: Mapping[str, Any], errors: dict[str, list[str]]
+    user: User,
+    action: Action,
+    project: Project,
+    given: Mapping[str, Any],
+    errors: dict[str, list[str]],
 ) -> dict[str, Any]:
     for name in sorted(given.keys() - action.params.keys()):
         errors[f"params/{name}"] = [f"`{action.qualified_name}` has no param `{name}`."]
@@ -503,8 +575,18 @@ def _params(
         key = f"params/{name}"
         if name in given and given[name] is not None:
             if f.type == "file":
-                # A file the person can read, of a type and size the param takes.
-                files = files or Refs(access.visible(user), access.readable_files(user))
+                # A file the person can read, in the run's project, of a type and size
+                # the param takes.
+                files = files or Refs(
+                    access.visible(user),
+                    access.readable_files(user) & access.project_files(project),
+                )
+                if _elsewhere(user, project, given[name]):
+                    errors[key] = [
+                        f"That file isn't in {project.name}: a run reads only what's in its "
+                        "project. Upload it there, or choose one of its files."
+                    ]
+                    continue
                 try:
                     values[name] = str(to_db(f, given[name], files))
                 except ValueError as error:
@@ -520,6 +602,16 @@ def _params(
         elif f.required:
             errors[key] = ["Choose a value for this param."]
     return values
+
+
+def _elsewhere(user: User, project: Project, value: Any) -> bool:  # noqa: ANN401 - JSON
+    """A file the user can read that isn't in `project`."""
+    try:
+        file_id = UUID(str(value))
+    except ValueError:
+        return False
+    readable = access.readable_files(user).filter(pk=file_id)
+    return readable.exists() and not access.project_files(project).filter(pk=file_id).exists()
 
 
 def _next_hrid(prefix: str = HRID_PREFIX, sequence: str = HRID_SEQUENCE) -> str:

@@ -95,3 +95,4 @@ supersedes the old one, and update the old one's status.
 | [0063](0063-the-cluster-admits-only-images-iki-signed-or-the-deployment-approved.md) | The cluster admits only images Iki signed or the deployment approved                                | Accepted |
 | [0064](0064-a-runs-new-entities-can-refer-to-one-another.md)                         | A run's new entities can refer to one another                                                       | Accepted |
 | [0065](0065-first-party-plugins-images-are-built-and-signed-like-ikis.md)            | First-party plugins' images are built and signed like Iki's                                         | Accepted |
+| [0066](0066-a-run-reads-only-whats-in-its-project.md)                                | A run reads only what's in its project                                                              | Accepted |

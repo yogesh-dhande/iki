@@ -35,6 +35,8 @@ export interface Problem {
   code: string;
   /** For `validation_failed`: which fields, and why. */
   errors?: { detail: string; pointer?: string; parameter?: string }[];
+  /** For `inputs_outside_project`: the inputs that aren't in the run's project. */
+  entities?: { id: string; hrid: string; type: string }[];
   request_id?: string;
 }
 
