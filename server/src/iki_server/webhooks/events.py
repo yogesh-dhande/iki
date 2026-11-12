@@ -50,6 +50,18 @@ _register(
     EventType("project.archived", "Someone archives the project.", project=True, org=True),
     EventType("project.restored", "Someone restores the project.", project=True, org=True),
     EventType(
+        "project.sharing_allowed",
+        "Someone allows sharing the project's entities with other projects.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "project.sharing_restricted",
+        "Someone stops the project's entities being shared with other projects.",
+        project=True,
+        org=True,
+    ),
+    EventType(
         "project.member_added",
         "Someone gives a person or team a role in the project.",
         project=True,
@@ -141,6 +153,7 @@ def project_data(project: Project) -> dict[str, Any]:
         "description": project.description,
         "team": {"id": str(project.team.pk), "name": project.team.name, "slug": project.team.slug},
         "archived": project.is_archived,
+        "allow_sharing": project.allow_sharing,
         "created_at": _time(project.created_at),
     }
 
@@ -270,6 +283,8 @@ FROM_AUDIT: dict[str, Builder] = {
     "project.updated": _project("project.updated"),
     "project.archived": _project("project.archived"),
     "project.restored": _project("project.restored"),
+    "project.sharing_allowed": _project("project.sharing_allowed"),
+    "project.sharing_restricted": _project("project.sharing_restricted"),
     "project.role_granted": _membership,
     "project.member_removed": _membership,
     "team.created": _team("team.created"),

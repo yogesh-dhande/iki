@@ -65,5 +65,6 @@ can no longer see as an entity they can't read.
   the run's or creator's project, and still do.
 - Scripts that ran actions across projects now get a 409 and must add the
   inputs to the project, once.
-- A later setting will let a project forbid sharing its entities, which
-  would refuse `add_to_project` for them.
+- A project can forbid sharing its entities
+  ([ADR 0067](0067-a-project-can-keep-its-entities-to-itself.md)), which
+  refuses `add_to_project` for them.

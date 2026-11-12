@@ -853,9 +853,10 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename, describe, archive or restore
+         * Rename, describe, archive or restore, or allow or restrict sharing
          * @description Archived projects are read-only: restore one (``archived: false``) to change it,
-         *     in the same request if you like.
+         *     in the same request if you like. Whether its entities may be shared can change either
+         *     way, since restricting it only protects them.
          */
         patch: operations["iki_server_api_projects_patch_project"];
         trace?: never;
@@ -3737,7 +3738,7 @@ export interface components {
             edit: boolean;
             /**
              * Manage
-             * @description Rename, describe, archive or restore it.
+             * @description Rename, describe, archive or restore it, and allow or restrict sharing.
              */
             manage: boolean;
             /**
@@ -3831,6 +3832,11 @@ export interface components {
         };
         /** ProjectOut */
         ProjectOut: {
+            /**
+             * Allow Sharing
+             * @description Whether its entities may be shared with other projects: linked into them, used in their runs, referred to by their entities, or reused as their duplicates. Off for confidential work (ADR 0067).
+             */
+            allow_sharing: boolean;
             /** Archived */
             archived: boolean;
             /** @description What you may do with it. */
@@ -3860,6 +3866,11 @@ export interface components {
         };
         /** ProjectPatch */
         ProjectPatch: {
+            /**
+             * Allow Sharing
+             * @description Turning it off keeps entities already shared with other projects there, until someone takes them out. It can change while the project is archived.
+             */
+            allow_sharing?: boolean | null;
             /** Archived */
             archived?: boolean | null;
             /** Description */

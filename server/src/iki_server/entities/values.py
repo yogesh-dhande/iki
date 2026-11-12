@@ -124,9 +124,20 @@ def subtypes(qualified: str) -> set[str]:
 class Refs:
     """Finds what values refer to, so a reference never reveals what the caller can't read."""
 
-    def __init__(self, readable: Any, files: Any = None) -> None:  # noqa: ANN401 - QuerySets
+    def __init__(
+        self,
+        readable: Any,  # noqa: ANN401 - QuerySets
+        files: Any = None,  # noqa: ANN401
+        *,
+        held: Any = None,  # noqa: ANN401
+        held_files: Any = None,  # noqa: ANN401
+    ) -> None:
         self.readable = readable
         self.files = files
+        #: What the caller can read but these values may not refer to, because its project
+        #: doesn't allow sharing (ADR 0067): a reference to one says so.
+        self.held = held
+        self.held_files = held_files
         #: Types already looked up; None for an entity the caller can't read.
         self._types: dict[uuid.UUID, str | None] = {}
 
@@ -144,6 +155,23 @@ class Refs:
             return None
         found = self.files.filter(pk=file_id).values_list("media_type", "blob__size").first()
         return None if found is None else (found[0], found[1])
+
+    def holder(self, entity_id: uuid.UUID) -> str | None:
+        """The project keeping a readable entity to itself, if it's why it can't be used."""
+        if self.held is None:
+            return None
+        name: str | None = (
+            self.held.filter(pk=entity_id).values_list("owner_project__name", flat=True).first()
+        )
+        return name
+
+    def file_holder(self, file_id: uuid.UUID) -> str | None:
+        if self.held_files is None:
+            return None
+        name: str | None = (
+            self.held_files.filter(pk=file_id).values_list("project__name", flat=True).first()
+        )
+        return name
 
 
 def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a model value out
@@ -254,6 +282,12 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
     assert f.to is not None  # noqa: S101 - refs always name a type
     found = refs.types([target]).get(target)
     if found is None:
+        holder = refs.holder(target)
+        if holder is not None:
+            raise ValueError(
+                f"refers to an entity in {holder}, which doesn't allow sharing its entities "
+                "with other projects."
+            )
         raise ValueError("refers to no entity you can read.")
     if found not in subtypes(f.to):
         raise ValueError(f"must refer to a {f.to}, not a {found}.")
@@ -267,6 +301,11 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
         raise ValueError("must be a file's ID: upload the file first.") from None
     found = refs.file(target)
     if found is None:
+        holder = refs.file_holder(target)
+        if holder is not None:
+            raise ValueError(
+                f"refers to a file in {holder}, which doesn't allow sharing with other projects."
+            )
         raise ValueError("refers to no file you can read.")
     media_type, size = found
     if f.media_types and not media_type_allowed(media_type, f.media_types):

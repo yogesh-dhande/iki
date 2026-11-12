@@ -4259,7 +4259,7 @@
             "type": "boolean"
           },
           "manage": {
-            "description": "Rename, describe, archive or restore it.",
+            "description": "Rename, describe, archive or restore it, and allow or restrict sharing.",
             "title": "Manage",
             "type": "boolean"
           },
@@ -4472,6 +4472,11 @@
       },
       "ProjectOut": {
         "properties": {
+          "allow_sharing": {
+            "description": "Whether its entities may be shared with other projects: linked into them, used in their runs, referred to by their entities, or reused as their duplicates. Off for confidential work (ADR 0067).",
+            "title": "Allow Sharing",
+            "type": "boolean"
+          },
           "archived": {
             "title": "Archived",
             "type": "boolean"
@@ -4531,6 +4536,7 @@
           "description",
           "team",
           "archived",
+          "allow_sharing",
           "created_at",
           "my_role",
           "can"
@@ -4540,6 +4546,18 @@
       },
       "ProjectPatch": {
         "properties": {
+          "allow_sharing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Turning it off keeps entities already shared with other projects there, until someone takes them out. It can change while the project is archived.",
+            "title": "Allow Sharing"
+          },
           "archived": {
             "anyOf": [
               {
@@ -10773,7 +10791,7 @@
         ]
       },
       "patch": {
-        "description": "Archived projects are read-only: restore one (``archived: false``) to change it,\nin the same request if you like.",
+        "description": "Archived projects are read-only: restore one (``archived: false``) to change it,\nin the same request if you like. Whether its entities may be shared can change either\nway, since restricting it only protects them.",
         "operationId": "iki_server_api_projects_patch_project",
         "parameters": [
           {
@@ -10817,7 +10835,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Rename, describe, archive or restore",
+        "summary": "Rename, describe, archive or restore, or allow or restrict sharing",
         "tags": [
           "projects"
         ]

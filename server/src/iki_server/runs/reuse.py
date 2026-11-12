@@ -101,10 +101,11 @@ def key(
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def find(user: User, reuse_key: str) -> ActionRun | None:
+def find(user: User, reuse_key: str, project: Project) -> ActionRun | None:
     """The newest run with this key that succeeded, ran (didn't reuse another), that `user`
-    can read, and whose entities are all still there to reuse: none archived, and no more
-    than :data:`MAX_EFFECTS` of them."""
+    can read, and whose entities are all still there to reuse in `project`: none archived,
+    none whose project keeps it to itself (ADR 0067), and no more than
+    :data:`MAX_EFFECTS` of them."""
     if not reuse_key:
         return None
     candidates = (
@@ -125,6 +126,8 @@ def find(user: User, reuse_key: str) -> ActionRun | None:
         if RunEffect.objects.filter(run=candidate)[: MAX_EFFECTS + 1].count() > MAX_EFFECTS:
             continue
         if made.filter(entity__archived_at__isnull=False).exists():
+            continue
+        if made.exclude(entity__in=access.shareable_into(user, project).values("pk")).exists():
             continue
         return candidate
     return None

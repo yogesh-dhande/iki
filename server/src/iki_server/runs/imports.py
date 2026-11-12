@@ -465,7 +465,8 @@ def _stage_rows(
     check: results.Check, run: ActionRun, parsed: list[_Line], errors: list[dict[str, str]]
 ) -> list[tuple[Any, ...]]:
     user = run.requested_by
-    refs = Refs(access.visible(user), None)
+    # Like a create in the run's project: references to what it may use (ADR 0067).
+    refs = Refs(access.shareable_into(user, run.project), None, held=access.visible(user))
     _look_up_refs(refs, parsed)
     rows: list[tuple[Any, ...]] = []
     for line in parsed:
@@ -738,6 +739,12 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " AND e.archived_at IS NULL"
             " AND EXISTS (SELECT 1 FROM iki_entity_project l"
             "  WHERE l.entity_id = e.id AND l.project_id = ANY(%(projects)s))"
+            # One the run's project may use: its project allows sharing, or it's already
+            # here (ADR 0067). Otherwise the line makes its own, as if it weren't there.
+            " AND (EXISTS (SELECT 1 FROM iki_project p WHERE p.id = e.owner_project_id"
+            "  AND (p.allow_sharing OR p.id = %(project)s))"
+            "  OR EXISTS (SELECT 1 FROM iki_entity_project h"
+            "  WHERE h.entity_id = e.id AND h.project_id = %(project)s))"
             " ORDER BY e.identity_hash, e.created_at, e.id"
             "), lines AS ("
             " SELECT s.line, s.entity_id,"

@@ -304,6 +304,19 @@ def set_project_archived(project: Project, archived: bool, *, by: User) -> None:
         audit.record(action, actor=by, target=project, project=project)
 
 
+def set_project_sharing(project: Project, allowed: bool, *, by: User) -> None:
+    """Whether its entities may be shared with other projects (ADR 0067). Entities already
+    shared stay so until someone takes them out."""
+    with transaction.atomic():
+        locked = Project.objects.select_for_update().get(pk=project.pk)
+        if locked.allow_sharing == allowed:
+            return
+        locked.allow_sharing = project.allow_sharing = allowed
+        locked.save(update_fields=["allow_sharing"])
+        action = "project.sharing_allowed" if allowed else "project.sharing_restricted"
+        audit.record(action, actor=by, target=project, project=project)
+
+
 def _other_admins(project: Project, membership: ProjectMembership) -> bool:
     """Whether someone active other than this grant's holder(s) stays an Admin."""
     return (

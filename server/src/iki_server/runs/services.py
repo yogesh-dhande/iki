@@ -94,17 +94,42 @@ class OutsideProject(Exception):  # noqa: N818 - reads as "they're outside the p
         )
 
 
-def _outside(project: Project, chosen: Mapping[str, Sequence[Entity]]) -> list[Entity]:
-    """The inputs that aren't in `project`, in the order given."""
+def _outside(
+    user: User,
+    project: Project,
+    chosen: Mapping[str, Sequence[Entity]],
+    errors: dict[str, list[str]],
+    *,
+    each: str | None = None,
+) -> list[Entity]:
+    """The inputs that aren't in `project` but could be added to it, in the order given.
+    Ones whose project doesn't allow sharing them can't be (ADR 0067): they go in
+    `errors`, as `each`'s go under ``entities``."""
+    from iki_server.entities.services import not_shared
+
     wanted = {e.pk for entities in chosen.values() for e in entities}
     inside = set(access.in_project(project).filter(pk__in=wanted).values_list("pk", flat=True))
+    allowed = set(
+        access.shareable_into(user, project).filter(pk__in=wanted).values_list("pk", flat=True)
+    )
+    owners = {
+        p.pk: p
+        for p in Project.objects.filter(
+            pk__in={e.owner_project_id for entities in chosen.values() for e in entities}
+        )
+    }
     seen: set[UUID] = set()
     out = []
-    for entities in chosen.values():
+    for name, entities in chosen.items():
         for e in entities:
-            if e.pk not in inside and e.pk not in seen:
-                seen.add(e.pk)
+            if e.pk in inside or e.pk in seen:
+                continue
+            seen.add(e.pk)
+            if e.pk in allowed:
                 out.append(e)
+            else:
+                key = "entities" if name == each else f"inputs/{name}"
+                errors.setdefault(key, []).append(not_shared(e, owners[e.owner_project_id]))
     return out
 
 
@@ -150,12 +175,14 @@ def launch(
     values = _params(user, action, project, params, errors)
     if errors:
         raise Invalid(errors)
-    outside = _outside(project, entities)
+    outside = _outside(user, project, entities, errors)
+    if errors:
+        raise Invalid(errors)
     if outside and not add_to_project:
         raise OutsideProject(project, outside)
     with transaction.atomic():
         _add_to_project(user, project, outside)
-        made = _made(user, action, entities, values, reuse_results=reuse_results)
+        made = _made(user, action, project, entities, values, reuse_results=reuse_results)
         if made.original is not None:
             return _reuse(user, action, project, entities, values, reason, made)
         approval = approvals.ask(user, action, project)
@@ -202,14 +229,23 @@ def launch_each(
         errors["entities"] = errors.pop(f"inputs/{each}")
     if errors:
         raise Invalid(errors)
-    outside = _outside(project, entities)
+    outside = _outside(user, project, entities, errors, each=each)
+    if errors:
+        raise Invalid(errors)
     if outside and not add_to_project:
         raise OutsideProject(project, outside)
     chosen = entities.pop(each)
     with transaction.atomic():
         _add_to_project(user, project, outside)
         made = [
-            _made(user, action, {**entities, each: [e]}, values, reuse_results=reuse_results)
+            _made(
+                user,
+                action,
+                project,
+                {**entities, each: [e]},
+                values,
+                reuse_results=reuse_results,
+            )
             for e in chosen
         ]
         to_run = sum(1 for m in made if m.original is None)
@@ -309,7 +345,7 @@ def _queue(
     environment = catalog.environment(action)
     if approval is None:
         quotas.check_queued(project, action.tier)
-    made = made or _made(None, action, entities, values, reuse_results=False)
+    made = made or _made(None, action, project, entities, values, reuse_results=False)
     run = ActionRun.objects.create(
         status=RunStatus.AWAITING_APPROVAL if approval else RunStatus.QUEUED,
         approval=approval,
@@ -395,6 +431,7 @@ class _Made:
 def _made(
     user: User | None,
     action: Action,
+    project: Project,
     entities: Mapping[str, Sequence[Entity]],
     values: Mapping[str, Any],
     *,
@@ -403,7 +440,7 @@ def _made(
     sha = plugin_sha(action.plugin)
     settings = plugin_settings(action)
     key = reuse.key(action, sha, entities, values, settings)
-    original = reuse.find(user, key) if reuse_results and user is not None else None
+    original = reuse.find(user, key, project) if reuse_results and user is not None else None
     return _Made(sha, settings, key, original)
 
 

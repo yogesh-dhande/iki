@@ -271,6 +271,45 @@ export function CheckboxesField<T extends string>({
   );
 }
 
+/** One checkbox for a yes-or-no setting, its help under it (a description, not its name). */
+export function CheckboxField({
+  label,
+  checked,
+  onChange,
+  help,
+  disabled = false,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  help?: string;
+  disabled?: boolean;
+}) {
+  const id = useId();
+  return (
+    <div className="field field-choices">
+      <label className="choice" htmlFor={id}>
+        <input
+          type="checkbox"
+          id={id}
+          checked={checked}
+          disabled={disabled}
+          aria-describedby={help ? `${id}-help` : undefined}
+          onChange={(event) => {
+            onChange(event.target.checked);
+          }}
+        />
+        <span className="choice-text">{label}</span>
+      </label>
+      {help ? (
+        <p className="field-help" id={`${id}-help`}>
+          {help}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** A value to copy, such as a secret shown once, with a Copy button. */
 export function CopyValue({ value, label }: { value: string; label: string }) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");

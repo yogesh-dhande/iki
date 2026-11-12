@@ -43,6 +43,13 @@ async function renderApp(path: string) {
 const PROJECT = project();
 const MEMBERS = `/api/v1/projects/${PROJECT.id}/members`;
 
+/** The settings card with this heading. */
+function card(heading: string): HTMLElement {
+  const found = screen.getByRole("heading", { name: heading }).closest("section");
+  if (!found) throw new Error(`no ${heading} card`);
+  return found;
+}
+
 function onProjectPage(overrides: Parameters<typeof project>[0] = {}) {
   const found = project(overrides);
   answer("GET /api/v1/projects", ({ query }: { query: URLSearchParams }) =>
@@ -406,6 +413,46 @@ describe("settings", () => {
     expect(calls("PATCH")[0]?.body).toEqual({ archived: true });
     expect(await screen.findByText("Archived Kinase Atlas.")).toBeVisible();
     expect(await screen.findByText(/archived and read-only/)).toBeVisible();
+  });
+
+  it("restricts sharing without asking, and shows it's restricted", async () => {
+    signedIn();
+    onProjectPage();
+    answer(`PATCH /api/v1/projects/${PROJECT.id}`, project({ allow_sharing: false }));
+    const { user } = await renderApp("/projects/kinase-atlas/settings/");
+    const sharing = screen.getByRole("checkbox", {
+      name: "Allow sharing this project’s entities with other projects",
+    });
+    expect(sharing).toBeChecked();
+    expect(sharing).toHaveAccessibleDescription(/Use this for partner or CRO data/);
+    await user.click(sharing);
+    onProjectPage({ allow_sharing: false });
+    await user.click(within(card("Sharing")).getByRole("button", { name: "Save" }));
+    expect(
+      await screen.findByText("Kinase Atlas’s entities can’t be shared outside it now."),
+    ).toBeVisible();
+    expect(calls("PATCH")[0]?.body).toEqual({ allow_sharing: false });
+    expect(await screen.findByText("Not shared outside this project")).toBeVisible();
+  });
+
+  it("asks before allowing sharing again", async () => {
+    signedIn();
+    onProjectPage({ allow_sharing: false });
+    answer(`PATCH /api/v1/projects/${PROJECT.id}`, project());
+    const { user } = await renderApp("/projects/kinase-atlas/settings/");
+    expect(screen.getByText("Not shared outside this project")).toBeVisible();
+    await user.click(screen.getByRole("checkbox", { name: /Allow sharing/ }));
+    await user.click(within(card("Sharing")).getByRole("button", { name: "Save" }));
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Allow sharing Kinase Atlas’s entities?",
+    });
+    expect(calls("PATCH")).toEqual([]);
+    onProjectPage();
+    await user.click(within(dialog).getByRole("button", { name: "Allow sharing" }));
+    expect(
+      await screen.findByText("Kinase Atlas’s entities can be shared with other projects."),
+    ).toBeVisible();
+    expect(calls("PATCH")[0]?.body).toEqual({ allow_sharing: true });
   });
 
   it("is for Admins only", async () => {

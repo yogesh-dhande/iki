@@ -31,7 +31,15 @@ export function ProjectTabs() {
       <PageHeader
         eyebrow={<a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>}
         title={project.name}
-        badge={project.archived ? <Badge muted>Archived</Badge> : null}
+        badge={
+          project.archived || !project.allow_sharing ? (
+            <>
+              {project.archived ? <Badge muted>Archived</Badge> : null}
+              {project.archived && !project.allow_sharing ? " " : null}
+              {project.allow_sharing ? null : <Badge muted>Not shared outside this project</Badge>}
+            </>
+          ) : null
+        }
       />
       <nav className="tabs" aria-label="Project">
         <Link

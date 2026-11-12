@@ -94,11 +94,14 @@ def get_project(request: HttpRequest, project_id: UUID) -> Project:
 
 
 @router.patch(
-    "/projects/{project_id}", response=ProjectOut, summary="Rename, describe, archive or restore"
+    "/projects/{project_id}",
+    response=ProjectOut,
+    summary="Rename, describe, archive or restore, or allow or restrict sharing",
 )
 def patch_project(request: HttpRequest, project_id: UUID, payload: ProjectPatch) -> Project:
     """Archived projects are read-only: restore one (``archived: false``) to change it,
-    in the same request if you like."""
+    in the same request if you like. Whether its entities may be shared can change either
+    way, since restricting it only protects them."""
     me = caller(request)
     found = project(me, project_id, Action.PROJECT_MANAGE)
     edits = payload.name is not None or payload.description is not None
@@ -114,6 +117,8 @@ def patch_project(request: HttpRequest, project_id: UUID, payload: ProjectPatch)
                 payload.description if payload.description is not None else found.description,
                 by=me,
             )
+        if payload.allow_sharing is not None:
+            services.set_project_sharing(found, payload.allow_sharing, by=me)
         if payload.archived is True and not found.is_archived:
             services.set_project_archived(found, True, by=me)
     return _reload(me, found)

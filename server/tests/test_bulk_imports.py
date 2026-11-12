@@ -17,6 +17,7 @@ from test_runs import launch, world
 from test_workers import WorkerClient, keep_connection, worker
 
 from iki_server.entities.models import Entity, ProjectLink, Revision
+from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import imports
 from iki_server.runs.models import (
     ActionRun,
@@ -211,6 +212,33 @@ def test_duplicates_are_reused_as_one_at_a_time(world: World) -> None:
     assert Entity.objects.filter(type="protein.Protein").count() == 3
     imported = RunImport.objects.get(run_id=run["id"])
     assert (imported.created, imported.reused, imported.linked) == (2, 1, 0)
+
+
+def test_a_project_that_keeps_its_entities_has_none_reused_or_referred_to(world: World) -> None:
+    """ADR 0067: to an import elsewhere, its entities are as if the person couldn't read them."""
+    editor = api_as(world, "editor")
+    cro = Project.objects.create(team=world.team, name="Oncology CRO", allow_sharing=False)
+    ProjectMembership.objects.create(
+        project=cro, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    theirs = create(editor, cro, {"name": "Old", "sequence": KINASES[1]}, "protein.Protein").json()
+    run, _ = started(world, lambda f: lines(protein(KINASES[1], "B", f)))
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+    assert [e["kind"] for e in body["effects"]] == ["created"]
+    assert not ProjectLink.objects.filter(entity_id=theirs["id"], project=world.project).exists()
+    # Nor may a line refer to one.
+    dna = create(editor, cro, {"bases": "ACGT"}).json()
+    run, _ = started(world, lambda f: lines(protein(KINASES[2], "C", f, encoded_by=dna["id"])))
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    assert body["error"]["errors"] == [
+        {
+            "pointer": "#/creates_file/1/values/encoded_by",
+            "detail": "refers to an entity in Oncology CRO, which doesn't allow sharing its "
+            "entities with other projects.",
+        }
+    ]
 
 
 def test_a_line_that_doesnt_fit_fails_the_run_and_writes_nothing(world: World) -> None:

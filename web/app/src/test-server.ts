@@ -115,6 +115,7 @@ export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas
     description: "",
     team: TEAM,
     archived: false,
+    allow_sharing: true,
     created_at: "2026-03-14T09:00:00Z",
     my_role: "admin",
     can: {

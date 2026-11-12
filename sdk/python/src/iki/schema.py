@@ -970,7 +970,7 @@ class PolicyOut(TypedDict):
 class ProjectCan(TypedDict):
     #: Add entities and files, and change its entities.
     edit: bool
-    #: Rename, describe, archive or restore it.
+    #: Rename, describe, archive or restore it, and allow or restrict sharing.
     manage: bool
     #: Give and remove access.
     manage_members: bool
@@ -1012,6 +1012,8 @@ class ProjectMemberOut(TypedDict):
 
 
 class ProjectOut(TypedDict):
+    #: Whether its entities may be shared with other projects: linked into them, used in their runs, referred to by their entities, or reused as their duplicates. Off for confidential work (ADR 0067).
+    allow_sharing: bool
     archived: bool
     #: What you may do with it.
     can: ProjectCan
@@ -1026,6 +1028,8 @@ class ProjectOut(TypedDict):
 
 
 class ProjectPatch(TypedDict):
+    #: Turning it off keeps entities already shared with other projects there, until someone takes them out. It can change while the project is archived.
+    allow_sharing: NotRequired[bool | None]
     archived: NotRequired[bool | None]
     description: NotRequired[str | None]
     name: NotRequired[str | None]

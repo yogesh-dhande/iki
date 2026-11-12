@@ -58,6 +58,8 @@ ACTIONS: dict[str, str] = {
     "project.updated": "Changed a project",
     "project.archived": "Archived a project",
     "project.restored": "Restored a project",
+    "project.sharing_allowed": "Allowed sharing a project's entities",
+    "project.sharing_restricted": "Restricted sharing a project's entities",
     "project.role_granted": "Granted a project role",
     "project.member_removed": "Removed a project member",
     "file.added": "Added a file",

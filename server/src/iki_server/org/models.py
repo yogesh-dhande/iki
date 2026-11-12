@@ -151,6 +151,12 @@ class Project(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     #: Archived projects are read-only until a project Admin restores them.
     archived_at = models.DateTimeField(null=True, blank=True)
+    #: Off for confidential work (a CRO's or partner's data, a blinded study): its entities
+    #: can't be shared with other projects, by a link, a run, a reference or a duplicate.
+    allow_sharing = models.BooleanField(
+        default=True,
+        db_comment="Whether its entities may be shared with other projects (ADR 0067).",
+    )
 
     class Meta:
         db_table = "iki_project"

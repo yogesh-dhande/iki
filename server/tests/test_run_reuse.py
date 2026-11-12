@@ -172,6 +172,27 @@ def test_reused_entities_are_linked_into_the_runs_project(world: World) -> None:
     assert AuditEvent.objects.filter(action="entity.linked", project=second).count() == 2
 
 
+def test_a_project_that_keeps_its_entities_has_no_results_reused_elsewhere(world: World) -> None:
+    """ADR 0067: reusing them would add them to the other project."""
+    file_id = stored(world)
+    first, _ = ran_import(world, file_id)
+    second = Project.objects.create(team=world.team, name="Second")
+    ProjectMembership.objects.create(
+        project=second, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    world.project.allow_sharing = False
+    world.project.save()
+
+    run = launch(api_as(world), second, {}, IMPORT, params={"file": stored(world, project=second)})
+
+    assert run.status_code == 201, run.content
+    assert run.json()["reused_from"] is None and run.json()["status"] == "queued"
+    assert not ProjectLink.objects.filter(project=second).exists()
+    # Its own project still reuses them.
+    here = launch(api_as(world), world.project, {}, IMPORT, params={"file": file_id}).json()
+    assert here["reused_from"]["hrid"] == first["hrid"]
+
+
 def test_a_run_whose_entities_were_archived_isnt_reused(world: World) -> None:
     file_id = stored(world)
     first, _ = ran_import(world, file_id)

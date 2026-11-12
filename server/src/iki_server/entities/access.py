@@ -12,6 +12,10 @@ or an entity that refers to them, at any revision.
 
 A run reads only what belongs to its project: entities linked into it, and
 its files (ADR 0066).
+
+**Sharing** an entity with another project (linking it in, referring to it
+from that project's entities, or reusing it as their duplicate) takes its
+own project's leave: :func:`shareable_into` (ADR 0067).
 """
 
 from typing import Any, cast
@@ -19,6 +23,7 @@ from typing import Any, cast
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from iki_server.entities.models import Entity, ProjectLink
+from iki_server.entities.values import Refs
 from iki_server.files.models import File, FileUse
 from iki_server.org import permissions
 from iki_server.org.models import Project
@@ -61,6 +66,36 @@ def project_files(project: Project) -> QuerySet[File]:
     """The files that belong to `project`: added to it, or used by one of its entities."""
     uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=in_project(project).values("pk"))
     return File.objects.filter(Q(project=project) | Exists(uses))
+
+
+def shareable_into(user: Any, project: Project) -> QuerySet[Entity]:  # noqa: ANN401
+    """The entities the user can read that `project` may use (ADR 0067): its own, those
+    already in it, and those whose project allows sharing. Others behave, for it, as if
+    the user couldn't read them."""
+    here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
+    return visible(user).filter(
+        Q(owner_project__allow_sharing=True) | Q(owner_project=project) | Exists(here)
+    )
+
+
+def shareable_files(user: Any, project: Project) -> QuerySet[File]:  # noqa: ANN401
+    """The files the user can read that `project`'s entities may refer to: its own, those
+    its entities use, and those from projects that allow sharing."""
+    uses = FileUse.objects.filter(file=OuterRef("pk"), entity__in=in_project(project).values("pk"))
+    return readable_files(user).filter(
+        Q(project__allow_sharing=True) | Q(project=project) | Exists(uses)
+    )
+
+
+def refs_for(user: Any, project: Project) -> Refs:  # noqa: ANN401
+    """What values of `project`'s entities may refer to: what the user can read, and the
+    project may use. A reference to something another project keeps to itself says so."""
+    return Refs(
+        shareable_into(user, project),
+        shareable_files(user, project),
+        held=visible(user),
+        held_files=readable_files(user),
+    )
 
 
 def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401

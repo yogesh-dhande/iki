@@ -120,13 +120,7 @@ def create(
     ``by_run``: an action run is writing its results (ADR 0044), for ``user``. It may set
     computed fields, and its revision is marked ``via="run"``.
     """
-    form, given = prepare(
-        user,
-        type_name,
-        values,
-        Refs(access.visible(user), access.readable_files(user)),
-        by_run=by_run,
-    )
+    form, given = prepare(user, type_name, values, access.refs_for(user, project), by_run=by_run)
     entity_type = form.entity_type
     fields = form.fields()
 
@@ -139,7 +133,7 @@ def create(
                     _set(instance, f, given[name])
         instance.identity_hash = identity.hash_for(instance, entity_type)
         policy = registry.duplicate_policy(entity_type) or "allow"
-        found = _duplicate(user, instance, entity_type, policy, allow_duplicate)
+        found = _duplicate(user, project, instance, entity_type, policy, allow_duplicate)
         if found is not None:
             return _reuse(user, found, project)
         instance.save()
@@ -226,9 +220,17 @@ def identity_lock(entity_type: EntityType, *, shared: bool) -> None:
 
 
 def _duplicate(
-    user: User, instance: Model, entity_type: EntityType, policy: str, allow: bool
+    user: User,
+    project: Project,
+    instance: Model,
+    entity_type: EntityType,
+    policy: str,
+    allow: bool,
 ) -> Entity | None:
-    """The existing entity to reuse, if any. Raises :class:`Duplicate` for ``warn``."""
+    """The existing entity to reuse, if any. Raises :class:`Duplicate` for ``warn``.
+
+    Only entities the user can read, and `project` may use, count: one a project keeps to
+    itself (ADR 0067) is no duplicate for another, which gets an entity of its own."""
     digest = instance.identity_hash  # type: ignore[attr-defined]
     if digest is None or policy == "allow":
         return None
@@ -237,7 +239,7 @@ def _duplicate(
         # Two people creating the same entity at once: the second waits, then finds it.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [digest])
     existing = list(
-        access.visible(user)
+        access.shareable_into(user, project)
         .filter(identity_hash=digest, archived_at__isnull=True)
         .order_by("created_at", "pk")
     )
@@ -279,7 +281,7 @@ def update(
         fields = form.fields()
         instance = _specific(locked)
         rows = _extension_rows(form, instance.pk)
-        refs = Refs(access.visible(user), access.readable_files(user))
+        refs = access.refs_for(user, locked.owner_project)
         errors: dict[str, list[str]] = {}
         new: dict[str, Any] = {}
         for name, value in values.items():
@@ -374,14 +376,25 @@ def set_archived(
 def link(user: User, entity: Entity, project: Project) -> bool:
     """Adds the entity to another project, so its members can read it. True if it's new there.
 
-    It changes who can read the entity, so it's audited."""
+    It changes who can read the entity, so it's audited. Raises :class:`Refused` if the
+    entity's own project doesn't allow sharing it (ADR 0067)."""
     with transaction.atomic():
+        if not access.shareable_into(user, project).filter(pk=entity.pk).exists():
+            owner = Project.objects.get(pk=entity.owner_project_id)
+            raise Refused(not_shared(entity, owner))
         _, created = ProjectLink.objects.get_or_create(
             entity=entity, project=project, defaults={"linked_by": user}
         )
         if created:
             log.record("entity.linked", actor=user, target=entity, project=project)
     return created
+
+
+def not_shared(entity: Entity, owner: Project) -> str:
+    return (
+        f"{entity.hrid} can't be shared outside {owner.name}: its project doesn't allow "
+        "sharing its entities with other projects."
+    )
 
 
 def unlink(user: User, entity: Entity, project: Project) -> bool:

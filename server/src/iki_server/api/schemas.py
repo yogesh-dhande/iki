@@ -121,7 +121,9 @@ class TeamMemberOut(Schema):
 class ProjectCan(Schema):
     read: bool = Field(description="Read the project's data.")
     edit: bool = Field(description="Add entities and files, and change its entities.")
-    manage: bool = Field(description="Rename, describe, archive or restore it.")
+    manage: bool = Field(
+        description="Rename, describe, archive or restore it, and allow or restrict sharing."
+    )
     manage_members: bool = Field(description="Give and remove access.")
     manage_webhooks: bool = Field(description="Add and change the project's webhooks.")
     run: list[Literal["client", "backend", "container", "vm"]] = Field(
@@ -137,6 +139,11 @@ class ProjectOut(Schema):
     description: str
     team: TeamRef
     archived: bool = Field(alias="is_archived")
+    allow_sharing: bool = Field(
+        description="Whether its entities may be shared with other projects: linked into "
+        "them, used in their runs, referred to by their entities, or reused as their "
+        "duplicates. Off for confidential work (ADR 0067)."
+    )
     created_at: datetime
     my_role: ProjectRoleName | None = Field(
         description="Your role, from your own grant or your teams'; null if you have none."
@@ -176,6 +183,11 @@ class ProjectPatch(Schema):
     name: str | None = Field(None, min_length=1, max_length=100)
     description: str | None = Field(None, max_length=2000)
     archived: bool | None = None
+    allow_sharing: bool | None = Field(
+        None,
+        description="Turning it off keeps entities already shared with other projects there, "
+        "until someone takes them out. It can change while the project is archived.",
+    )
 
 
 class ProjectMemberOut(Schema):
