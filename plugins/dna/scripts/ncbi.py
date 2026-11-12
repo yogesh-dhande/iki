@@ -115,7 +115,7 @@ def fetch(asked: list[str], email: str) -> list[Record]:
             time.sleep(PAUSE_WITH_KEY if os.environ.get("NCBI_API_KEY") else PAUSE)
         batch = asked[start : start + BATCH]
         text = efetch(batch, email)
-        got = genbank(text) if text.strip() else []
+        got = list(genbank(text.splitlines(keepends=True))) if text.strip() else []
         print(f"::progress {min(start + BATCH, len(asked)) / len(asked):.2f} Fetched", flush=True)
         for accession in batch:
             found = next((r for r in got if matches(accession, r)), None)

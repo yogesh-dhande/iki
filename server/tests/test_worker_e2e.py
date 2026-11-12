@@ -445,3 +445,52 @@ def test_input_files_are_staged_and_result_files_uploaded(
     assert link.status_code == 302
     fetched = requests.get(link["Location"], timeout=30)
     assert fetched.content == b"REMARK   1 RELAXED BY IKI EXAMPLE\n" + pdb
+
+
+#: Writes a protein for each of 1,500 made-up records to a creates file (ADR 0056).
+MANY = """
+import json, os
+from pathlib import Path
+run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
+file_id = run["params"]["file"]
+letters = "ACDEFGHIKLMNPQRSTVWY"
+with (Path(os.environ["IKI_OUT_DIR"]) / "creates.ndjson").open("w") as out:
+    for n in range(1500):
+        sequence = "M" + letters[n // 400] + letters[n // 20 % 20] + letters[n % 20] + "KV"
+        create = {
+            "type": "protein.Protein",
+            "values": {"name": f"P{n}", "sequence": sequence},
+            "origin": {"source": "FASTA file", "id": f"P{n}", "file": file_id},
+        }
+        out.write(json.dumps(create) + "\\n")
+output = {"apiVersion": "iki/v1", "kind": "RunOutput", "creates_file": {"$file": "creates.ndjson"}}
+Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+"""
+
+
+def test_a_command_gives_many_creates_in_a_file_and_they_are_imported(
+    world: World, start: Callable[..., Running], tmp_path: Path
+) -> None:
+    from test_run_imports import IMPORT, stored
+
+    plugins = tmp_path / "plugins"
+    shutil.copytree(PLUGINS / "protein", plugins / "protein")
+    (plugins / "protein" / "scripts" / "imports.py").write_text(MANY, encoding="utf-8")
+    file_id = stored(world)
+    made = launch(api_as(world, "editor"), world.project, {}, IMPORT, params={"file": file_id})
+    assert made.status_code == 201, made.content
+    run = made.json()
+    code, said = start(registration(world), "--once", plugins=plugins).wait(120)
+    assert code == 0, said
+    assert "Uploaded the result files." in said
+    # The task runner beside the server checks and writes them.
+    body = eventually(
+        lambda: (b := api_as(world).get(f"/runs/{run['id']}").json())["status"] != "running" and b,
+        timeout=120,
+    )
+    assert body["status"] == "succeeded", body
+    assert body["effect_counts"] == {"created": 1500, "updated": 0, "reused": 0}
+    assert len(body["effects"]) == 100
+    assert body["effects_next_cursor"] is not None
+    job = Job.objects.get(run_id=run["id"])
+    assert (job.state, job.progress) == (JobState.SUCCEEDED, 1.0)

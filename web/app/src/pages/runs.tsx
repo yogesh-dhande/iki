@@ -25,6 +25,7 @@ import {
   finished,
   LOG_KEPT_BYTES,
   logDownloadUrl,
+  moreEffectsQuery,
   projectRunsQuery,
   readLog,
   RUNS,
@@ -64,6 +65,74 @@ const EFFECT: Record<Run["effects"][number]["kind"], string> = {
   updated: "Updated",
   reused: "Already existed",
 };
+
+type Effect = Run["effects"][number];
+
+function counted(n: number, one: string, many: string) {
+  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
+}
+
+/** What the run created, updated and reused: its answer lists the first 100, and the
+ * rest come a page at a time (an import may make millions). */
+function RunEffects({ run }: { run: Run }) {
+  const types = useQuery(typesQuery).data;
+  const [more, setMore] = useState(false);
+  const rest = useInfiniteQuery({
+    ...moreEffectsQuery(run.hrid, run.effects_next_cursor ?? ""),
+    enabled: more && run.effects_next_cursor !== null,
+  });
+  const { created, updated, reused } = run.effect_counts;
+  const total = created + updated + reused;
+  if (run.effects.length === 0) {
+    return <p className="muted">It changed no entities.</p>;
+  }
+  const listed: Effect[] = [...run.effects, ...(rest.data?.pages.flatMap((p) => p.items) ?? [])];
+  const parts = [
+    created ? `created ${counted(created, "entity", "entities")}` : "",
+    updated ? `updated ${counted(updated, "entity", "entities")}` : "",
+    reused ? `found ${counted(reused, "that already existed", "that already existed")}` : "",
+  ].filter(Boolean);
+  const hasMore = run.effects_next_cursor !== null && (!more || rest.hasNextPage);
+  return (
+    <>
+      {total > run.effects.length ? (
+        <p>
+          It {parts.join(", ").replace(/, ([^,]*)$/, " and $1")}. Showing{" "}
+          {listed.length.toLocaleString()}.
+        </p>
+      ) : null}
+      <ul className="value-list" aria-label="Entities it changed">
+        {listed.map((effect) => (
+          <li key={effect.entity}>
+            {EFFECT[effect.kind]}{" "}
+            <Link to="/entities/$ref/" params={{ ref: effect.hrid }}>
+              {effect.hrid}
+            </Link>{" "}
+            <span className="muted">
+              {typeLabel(types, effect.type)}
+              {effect.revision !== null ? `, revision ${String(effect.revision)}` : ""}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {rest.error ? <ProblemAlert problem={problemOf(rest.error)} /> : null}
+      {hasMore ? (
+        <div className="actions">
+          <Button
+            busy={rest.isFetching}
+            busyText="Loading…"
+            onClick={() => {
+              if (more) void rest.fetchNextPage();
+              else setMore(true);
+            }}
+          >
+            Show more
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 export function StatusBadge({ status }: { status: RunStatus | Attempt["state"] }) {
   const label =
@@ -537,6 +606,18 @@ function others(runs: number): string {
   return runs === 2 ? "1 other run" : `${String(runs - 1)} other runs`;
 }
 
+/** How far importing a creates file has got (ADR 0056). */
+function importNote(found: NonNullable<Attempt["bulk_import"]>) {
+  const lines = counted(found.lines, "line", "lines");
+  if (found.phase === "checking") {
+    return `Checking its creates file: ${lines} so far, ${formatSize(found.read)} of ${formatSize(found.size)}. Nothing is written until all of it is checked.`;
+  }
+  if (found.phase === "writing") {
+    return `Writing ${counted(found.staged, "entity", "entities")} from its creates file, all at once.`;
+  }
+  return `Gave its creates in a file of ${formatSize(found.size)}, ${lines}.`;
+}
+
 function AttemptRow({
   runRef,
   attempt,
@@ -595,6 +676,7 @@ function AttemptRow({
         {attempt.error && !(latest && runError) ? (
           <p className="row-reason">{attempt.error.message}</p>
         ) : null}
+        {attempt.bulk_import ? <p className="row-meta">{importNote(attempt.bulk_import)}</p> : null}
         {attempt.pack ? (
           <p className="row-meta">
             Ran in one job with {others(attempt.pack.runs)} of its batch
@@ -660,7 +742,6 @@ export function RunPage() {
   const action = actions?.find((a) => a.name === run.action);
   const label = actionLabel(actions, run.action);
   usePageTitle(`${label} (${run.hrid})`);
-  const types = useQuery(typesQuery).data;
   const project = useQuery(projectsQuery).data?.find((p) => p.id === run.project);
   const attempts = useQuery(attemptsQuery(run.hrid));
   const client = useQueryClient();
@@ -747,24 +828,7 @@ export function RunPage() {
           <h2 className="section-title" id="results-title">
             Results
           </h2>
-          {run.effects.length === 0 ? (
-            <p className="muted">It changed no entities.</p>
-          ) : (
-            <ul className="value-list">
-              {run.effects.map((effect) => (
-                <li key={effect.entity}>
-                  {EFFECT[effect.kind]}{" "}
-                  <Link to="/entities/$ref/" params={{ ref: effect.hrid }}>
-                    {effect.hrid}
-                  </Link>{" "}
-                  <span className="muted">
-                    {typeLabel(types, effect.type)}
-                    {effect.revision !== null ? `, revision ${String(effect.revision)}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <RunEffects run={run} />
           {metrics.length ? (
             <dl className="summary">
               {metrics.map(([name, value]) => (

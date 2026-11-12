@@ -283,6 +283,7 @@ describe("a run's page", () => {
           revision: 3,
         },
       ],
+      effect_counts: { created: 0, updated: 1, reused: 0 },
       messages: [{ level: "warning", text: "pI is outside the usual range." }],
     });
     attempts = [attempt({ state: "succeeded", finished_at: "2026-03-14T09:01:00Z", log_size: 13 })];
@@ -304,6 +305,73 @@ describe("a run's page", () => {
     );
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("pages through what an import made, and says how far importing has got", async () => {
+    const effect = (n: number): Schemas["EffectOut"] => ({
+      entity: `00000000-0000-7000-8000-${String(n).padStart(12, "0")}`,
+      hrid: `PRT-${String(n).padStart(6, "0")}`,
+      type: "protein.Protein",
+      kind: "created",
+      revision: 1,
+    });
+    const range = (from: number, to: number) =>
+      Array.from({ length: to - from }, (_, i) => effect(from + i));
+    onRun(
+      () =>
+        run({
+          status: "succeeded",
+          finished_at: "2026-03-14T09:01:00Z",
+          can: { cancel: false },
+          effects: range(1, 101),
+          effects_next_cursor: "after-100",
+          effect_counts: { created: 250, updated: 0, reused: 3 },
+        }),
+      () => [
+        attempt({
+          state: "succeeded",
+          finished_at: "2026-03-14T09:01:00Z",
+          bulk_import: {
+            phase: "ended",
+            size: 3_000_000,
+            read: 3_000_000,
+            lines: 253,
+            staged: 253,
+            created: 250,
+            reused: 3,
+          },
+        }),
+      ],
+    );
+    answer("GET /api/v1/runs/RUN-000001/effects", (r: { query: URLSearchParams }) =>
+      r.query.get("cursor") === "after-100"
+        ? { items: range(101, 201), next_cursor: "after-200" }
+        : { items: range(201, 254), next_cursor: null },
+    );
+    await renderApp("/runs/RUN-000001/");
+    const results = await screen.findByRole("region", { name: "Results" });
+    expect(results).toHaveTextContent(
+      "It created 250 entities and found 3 that already existed. Showing 100.",
+    );
+    const list = within(results).getByRole("list", { name: "Entities it changed" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(100);
+    expect(screen.getByText(/Gave its creates in a file/)).toHaveTextContent(
+      "Gave its creates in a file of 2.9 MiB, 253 lines.",
+    );
+
+    within(results).getByRole("button", { name: "Show more" }).click();
+    await waitFor(() => {
+      expect(within(list).getAllByRole("listitem")).toHaveLength(200);
+    });
+    within(results).getByRole("button", { name: "Show more" }).click();
+    await waitFor(() => {
+      expect(within(list).getAllByRole("listitem")).toHaveLength(253);
+    });
+    expect(within(results).queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+    expect(results).toHaveTextContent("Showing 253.");
+    expect(
+      calls("GET", "/api/v1/runs/RUN-000001/effects").map((c) => c.query.get("cursor")),
+    ).toEqual(["after-100", "after-200"]);
   });
 
   it("reads everything again when its stream reconnects", async () => {

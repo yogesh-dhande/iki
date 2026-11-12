@@ -87,6 +87,10 @@ web: ## Build the web app into the server's static files (server/src/iki_server/
 web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (needs the dev cluster)
 	$(PNPM) --filter @ikisci/app dev
 
+.PHONY: check-scale
+check-scale: ## Load tests: import 10M entities, interrupted halfway (IKI_SCALE_RECORDS sets how many)
+	uv run pytest server/tests/test_scale_import.py --scale -s
+
 .PHONY: check-rust
 check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo fmt --all --check

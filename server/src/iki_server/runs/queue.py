@@ -27,6 +27,7 @@ retried, on its own.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
@@ -58,12 +59,15 @@ __all__ = [
     "Stale",
     "append_log",
     "complete",
+    "end_cancelled",
     "fail",
+    "finish",
     "heartbeat",
     "held",
     "interrupt_worker",
     "lease",
     "notify",
+    "outcome",
     "payload",
     "progress",
     "recover_expired",
@@ -511,7 +515,7 @@ def complete(
                         attempt, JobState.CANCELLED, "cancelled", "Cancelled before it ended."
                     )
                 else:
-                    _finish(attempt, run, JobState.FAILED, RunStatus.FAILED, error)
+                    finish(attempt, run, JobState.FAILED, RunStatus.FAILED, error)
             return runs[job.run_id]
         for (attempt, run), part in zip(attempts, parts, strict=True):
             _commit(attempt, run, part)
@@ -519,15 +523,35 @@ def complete(
 
 
 def _commit(job: Job, run: ActionRun, document: dict[str, Any]) -> ActionRun:
-    """Keeps one run's output, writes its results or not, and ends it."""
-    from iki_server.runs import results
+    """Keeps one run's output, writes its results or not, and ends it. Creates in a file
+    are checked and written by a bulk import (ADR 0056): the job stays ``committing``."""
+    from iki_server.runs import imports, results
 
     RunOutput.objects.create(run=run, job=job, document=document)
     if run.cancel_requested_at is not None:
         return _end_attempt(job, JobState.CANCELLED, "cancelled", "Cancelled before it ended.")
-    error: dict[str, Any] | None = None
+    started: list[bool] = []
+
+    def commit() -> None:
+        done = results.checked(run, document)
+        if done.creates_file is None:
+            results.write(done)
+        else:
+            imports.start(job, run, done.creates_file)
+            started.append(True)
+
+    state, status, error = outcome(run, commit)
+    if started:
+        return run
+    return finish(job, run, state, status, error)
+
+
+def outcome(run: ActionRun, write: Callable[[], None]) -> tuple[str, str, dict[str, Any] | None]:
+    """How the run ends once ``write`` writes its results: succeeded, or why not."""
+    from iki_server.runs import results
+
     try:
-        results.commit(run, document)
+        write()
     except results.InvalidOutput as invalid:
         changed = _plugin_changed(run)
         error = {
@@ -540,28 +564,25 @@ def _commit(job: Job, run: ActionRun, document: dict[str, Any]) -> ActionRun:
             ),
             "errors": invalid.errors,
         }
-        final = (
-            (JobState.REJECTED, RunStatus.REJECTED)
-            if changed
-            else (
-                JobState.FAILED,
-                RunStatus.FAILED,
-            )
-        )
+        if changed:
+            return JobState.REJECTED, RunStatus.REJECTED, error
+        return JobState.FAILED, RunStatus.FAILED, error
     except results.Rejected as rejected:
-        error = {"code": rejected.code, "message": rejected.message}
-        final = (JobState.REJECTED, RunStatus.REJECTED)
+        return (
+            JobState.REJECTED,
+            RunStatus.REJECTED,
+            {"code": rejected.code, "message": rejected.message},
+        )
     except results.Failed as failed:
-        error = {"code": "failed", "message": failed.message}
-        final = (JobState.FAILED, RunStatus.FAILED)
-    else:
-        final = (JobState.SUCCEEDED, RunStatus.SUCCEEDED)
-    return _finish(job, run, final[0], final[1], error)
+        return JobState.FAILED, RunStatus.FAILED, {"code": "failed", "message": failed.message}
+    return JobState.SUCCEEDED, RunStatus.SUCCEEDED, None
 
 
-def _finish(
+def finish(
     job: Job, run: ActionRun, state: str, status: str, error: dict[str, Any] | None
 ) -> ActionRun:
+    """Ends the attempt and its run, as ``state`` and ``status``. Call inside a transaction
+    holding both."""
     now = timezone.now()
     job.state, job.finished_at, job.error = state, now, error
     job.lease_token = job.lease_expires_at = None
@@ -570,6 +591,11 @@ def _finish(
     run.save(update_fields=["status", "finished_at", "error"])
     live.changed(run.pk, run.batch_id)
     return run
+
+
+def end_cancelled(job: Job) -> ActionRun:
+    """Ends an attempt whose run was cancelled. Call inside a transaction holding it."""
+    return _end_attempt(job, JobState.CANCELLED, "cancelled", "Cancelled before it ended.")
 
 
 def _plugin_changed(run: ActionRun) -> bool:

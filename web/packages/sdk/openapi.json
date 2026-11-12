@@ -236,6 +236,59 @@
         "title": "ApprovalRunOut",
         "type": "object"
       },
+      "AttemptImportOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "lines": {
+            "description": "Lines checked so far.",
+            "title": "Lines",
+            "type": "integer"
+          },
+          "phase": {
+            "description": "Checking each line, then writing them all at once.",
+            "enum": [
+              "checking",
+              "writing",
+              "ended"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "read": {
+            "description": "Bytes of it checked so far.",
+            "title": "Read",
+            "type": "integer"
+          },
+          "reused": {
+            "title": "Reused",
+            "type": "integer"
+          },
+          "size": {
+            "description": "The creates file's size, in bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "staged": {
+            "description": "Creates checked and ready to write.",
+            "title": "Staged",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "phase",
+          "size",
+          "read",
+          "lines",
+          "staged",
+          "created",
+          "reused"
+        ],
+        "title": "AttemptImportOut",
+        "type": "object"
+      },
       "AttemptLogOut": {
         "properties": {
           "ended": {
@@ -1137,6 +1190,71 @@
           "finished_at"
         ],
         "title": "DeliverySummary",
+        "type": "object"
+      },
+      "EffectCountsOut": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "reused": {
+            "title": "Reused",
+            "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "reused"
+        ],
+        "title": "EffectCountsOut",
+        "type": "object"
+      },
+      "EffectFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "created",
+                  "updated",
+                  "reused"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "EffectFilters",
         "type": "object"
       },
       "EffectOut": {
@@ -3202,6 +3320,35 @@
         "title": "Page[DeliverySummary]",
         "type": "object"
       },
+      "Page_EffectOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EffectOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[EffectOut]",
+        "type": "object"
+      },
       "Page_EntityOut_": {
         "properties": {
           "items": {
@@ -5209,6 +5356,17 @@
             "title": "Attempt",
             "type": "integer"
           },
+          "bulk_import": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttemptImportOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its command gave its creates in a file: how far importing them has got (ADR 0056)."
+          },
           "environment_build": {
             "description": "The digest of the environment it ran in; empty for the host's own software.",
             "title": "Environment Build",
@@ -5331,7 +5489,8 @@
           "error",
           "network",
           "secrets",
-          "pack"
+          "pack",
+          "bulk_import"
         ],
         "title": "RunAttemptOut",
         "type": "object"
@@ -5665,13 +5824,29 @@
             "title": "Created At",
             "type": "string"
           },
+          "effect_counts": {
+            "$ref": "#/components/schemas/EffectCountsOut",
+            "description": "How many entities it created, updated and reused."
+          },
           "effects": {
-            "description": "The entities it created or updated, that you can read.",
+            "description": "The first 100 entities it created, updated or reused, that you can read. `GET /runs/{ref}/effects` pages through all of them.",
             "items": {
               "$ref": "#/components/schemas/EffectOut"
             },
             "title": "Effects",
             "type": "array"
+          },
+          "effects_next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it changed more than `effects` lists: the `cursor` for `GET /runs/{ref}/effects` that goes on from there.",
+            "title": "Effects Next Cursor"
           },
           "environment": {
             "title": "Environment",
@@ -5859,6 +6034,8 @@
           "cancel_requested_at",
           "error",
           "effects",
+          "effects_next_cursor",
+          "effect_counts",
           "metrics",
           "messages",
           "waiting",
@@ -11577,6 +11754,100 @@
           }
         ],
         "summary": "Cancel a run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{ref}/effects": {
+      "get": {
+        "description": "The entities it created, updated or reused, that you can read, in the order it\nwrote them.",
+        "operationId": "iki_server_api_runs_list_effects",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "created",
+                    "updated",
+                    "reused"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_EffectOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What a run changed",
         "tags": [
           "runs"
         ]

@@ -41,6 +41,11 @@ def _decode(cursor: str) -> str:
         ) from error
 
 
+def cursor_after(pk: Any) -> str:  # noqa: ANN401 - a primary key
+    """A cursor for the page after the item with this key, as ``next_cursor`` would be."""
+    return _encode(pk)
+
+
 def page[M: Model](
     queryset: QuerySet[M], params: PageParams, *, key: str = "pk", newest_first: bool = False
 ) -> dict[str, Any]:

@@ -49,7 +49,7 @@ from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
-from iki_spec.model import Field
+from iki_spec.model import EntityType, Field
 
 __all__ = [
     "Duplicate",
@@ -60,7 +60,9 @@ __all__ = [
     "create",
     "current_values",
     "current_values_of",
+    "identity_lock",
     "link",
+    "prepare",
     "provenance",
     "set_archived",
     "unlink",
@@ -118,36 +120,15 @@ def create(
     ``by_run``: an action run is writing its results (ADR 0044), for ``user``. It may set
     computed fields, and its revision is marked ``via="run"``.
     """
-    if type_name not in registry.types() or type_name == "core.Entity":
-        raise Invalid({"type": [f"There's no entity type {type_name}."]})
-    form = shape(type_name)
+    form, given = prepare(
+        user,
+        type_name,
+        values,
+        Refs(access.visible(user), access.readable_files(user)),
+        by_run=by_run,
+    )
     entity_type = form.entity_type
-    if entity_type.abstract:
-        raise Invalid({"type": [f"{type_name} is abstract: create one of its subtypes."]})
     fields = form.fields()
-    refs = Refs(access.visible(user), access.readable_files(user))
-    errors: dict[str, list[str]] = {}
-    given: dict[str, Any] = {}
-    for name, value in values.items():
-        f = fields.get(name)
-        if f is None:
-            errors[name] = [f"{type_name} has no field `{name}`."]
-        elif f.computed and not by_run:
-            errors[name] = ["is computed: only actions set it."]
-        else:
-            try:
-                given[name] = to_db(f, value, refs)
-            except ValueError as error:
-                errors[name] = [str(error)]
-    for name, f in fields.items():
-        if name not in values and f.has_default and not f.computed:
-            given[name] = to_db(f, f.default, refs)
-        if f.required and given.get(name) is None and name not in errors:
-            errors[name] = ["is required."]
-    if not errors:
-        errors = rules.check(user, entity_type, given.get)
-    if errors:
-        raise Invalid(errors)
 
     with transaction.atomic():
         instance = form.model(owner_project=project, created_by=user)
@@ -158,7 +139,7 @@ def create(
                     _set(instance, f, given[name])
         instance.identity_hash = identity.hash_for(instance, entity_type)
         policy = registry.duplicate_policy(entity_type) or "allow"
-        found = _duplicate(user, instance, policy, allow_duplicate)
+        found = _duplicate(user, instance, entity_type, policy, allow_duplicate)
         if found is not None:
             return _reuse(user, found, project)
         instance.save()
@@ -184,11 +165,74 @@ def create(
     return Saved(_specific(instance), revision)
 
 
-def _duplicate(user: User, instance: Model, policy: str, allow: bool) -> Entity | None:
+def prepare(
+    user: User,
+    type_name: str,
+    values: Mapping[str, Any],
+    refs: Refs,
+    *,
+    by_run: bool = False,
+) -> tuple[Shape, dict[str, Any]]:
+    """A new entity's values as the database stores them, defaults filled in, checked
+    against its type's fields and rules. Raises :class:`Invalid` with what's wrong.
+
+    Bulk imports (ADR 0056) check each record with this, as :func:`create` does.
+    """
+    if type_name not in registry.types() or type_name == "core.Entity":
+        raise Invalid({"type": [f"There's no entity type {type_name}."]})
+    form = shape(type_name)
+    entity_type = form.entity_type
+    if entity_type.abstract:
+        raise Invalid({"type": [f"{type_name} is abstract: create one of its subtypes."]})
+    fields = form.fields()
+    errors: dict[str, list[str]] = {}
+    given: dict[str, Any] = {}
+    for name, value in values.items():
+        f = fields.get(name)
+        if f is None:
+            errors[name] = [f"{type_name} has no field `{name}`."]
+        elif f.computed and not by_run:
+            errors[name] = ["is computed: only actions set it."]
+        else:
+            try:
+                given[name] = to_db(f, value, refs)
+            except ValueError as error:
+                errors[name] = [str(error)]
+    for name, f in fields.items():
+        if name not in values and f.has_default and not f.computed:
+            given[name] = to_db(f, f.default, refs)
+        if f.required and given.get(name) is None and name not in errors:
+            errors[name] = ["is required."]
+    if not errors:
+        errors = rules.check(user, entity_type, given.get)
+    if errors:
+        raise Invalid(errors)
+    return form, given
+
+
+def identity_lock(entity_type: EntityType, *, shared: bool) -> None:
+    """Serializes finding duplicates of a type's entities with a bulk import writing them
+    (ADR 0056): each create shares the lock, and an import holds it alone while it writes.
+    Locks the type its identity belongs to, as duplicates of subtypes share hashes."""
+    owner = registry.identity_owner(entity_type)
+    if owner is None:
+        return
+    function = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {function}(hashtextextended(%s, 0))",
+            [f"iki_identity:{owner.qualified_name}"],
+        )
+
+
+def _duplicate(
+    user: User, instance: Model, entity_type: EntityType, policy: str, allow: bool
+) -> Entity | None:
     """The existing entity to reuse, if any. Raises :class:`Duplicate` for ``warn``."""
     digest = instance.identity_hash  # type: ignore[attr-defined]
     if digest is None or policy == "allow":
         return None
+    identity_lock(entity_type, shared=True)
     with connection.cursor() as cursor:
         # Two people creating the same entity at once: the second waits, then finds it.
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [digest])

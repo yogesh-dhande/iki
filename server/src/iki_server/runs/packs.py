@@ -74,6 +74,15 @@ def split(
                 continue
             parts[run].setdefault("updates", {}).setdefault(name, []).append(item)
 
+    if "creates_file" in document:
+        errors.append(
+            {
+                "pointer": _pointer("creates_file"),
+                "detail": "A job that runs several runs at once can't give its creates in a "
+                "file: give them in `creates`, each derived from its run's entity.",
+            }
+        )
+
     for index, item in enumerate(document.get("creates") or []):
         parents = {run_of(e) for e in item.get("derived_from") or []}
         if not parents:

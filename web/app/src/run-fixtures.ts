@@ -43,6 +43,8 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     cancel_requested_at: null,
     error: null,
     effects: [],
+    effects_next_cursor: null,
+    effect_counts: { created: 0, updated: 0, reused: 0 },
     metrics: {},
     messages: [],
     waiting: null,
@@ -89,6 +91,7 @@ export function attempt(
     network: [],
     secrets: [],
     pack: null,
+    bulk_import: null,
     ...overrides,
   };
 }

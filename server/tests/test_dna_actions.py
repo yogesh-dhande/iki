@@ -81,14 +81,20 @@ def imported(
     path.write_text(text, encoding="utf-8")
     run_input = {
         "params": {"file": FILE_ID, "topology": topology},
-        "files": {FILE_ID: {"name": name, "path": str(path)}},
+        "files": {FILE_ID: {"name": name, "path": str(path), "size": path.stat().st_size}},
     }
     (tmp_path / "input.json").write_text(json.dumps(run_input))
     out = tmp_path / "out.json"
     out.unlink(missing_ok=True)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
         [sys.executable, "-I", str(IMPORTS)],
-        env={"IKI_INPUT": str(tmp_path / "input.json"), "IKI_OUTPUT": str(out)},
+        env={
+            "IKI_INPUT": str(tmp_path / "input.json"),
+            "IKI_OUTPUT": str(out),
+            "IKI_OUT_DIR": str(out_dir),
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -192,7 +198,7 @@ def test_a_genbank_record_keeps_its_names_features_and_where_it_came_from(
         "text": "Record 1 (pDemo): a misc_feature on another record (J00194.1:100..202) "
         "was left out.",
     }
-    assert result.stdout.splitlines()[-1] == "::progress 1.00 2 of 2"
+    assert result.stdout.splitlines()[-1] == "::progress 1.00 2 records"
 
 
 def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -> None:
@@ -215,6 +221,35 @@ def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -
 
 
 NEITHER = "seqs.txt: It isn't FASTA (records start with '>') or GenBank (records start with LOCUS)."
+
+
+def test_a_large_file_is_read_a_line_at_a_time_into_a_creates_file(tmp_path: Path) -> None:
+    count = 2500
+    text = "".join(f">seq{n} number {n}\n{BASES[: 10 + n % 40]}\n" for n in range(count))
+    result, output = imported(tmp_path, text, name="many.fa")
+    assert result.returncode == 0, result.stdout
+    assert output is not None
+    assert "creates" not in output
+    assert output["creates_file"] == {"$file": "creates.ndjson"}
+    assert output["metrics"] == {"records": count}
+    lines = (tmp_path / "out" / "creates.ndjson").read_text().splitlines()
+    assert len(lines) == count
+    issues = [schemas.check("run-output", json.loads(line), part="create") for line in lines]
+    assert not any(issues)
+    last = json.loads(lines[-1])
+    assert last["values"]["name"] == f"seq{count - 1}"
+    assert last["values"]["description"] == f"number {count - 1}"
+    assert last["origin"]["id"] == f"seq{count - 1}"
+    # It says how far it's got as it goes, and the log stays short.
+    assert "::progress 0.39 1,000 records" in result.stdout
+    assert "… and 1,500 more records." in result.stdout
+
+
+def test_a_few_records_go_in_output_json(tmp_path: Path) -> None:
+    _, output = imported(tmp_path, ">a\nACGT\n>b\nGGCC\n")
+    assert output is not None
+    assert [c["values"]["name"] for c in output["creates"]] == ["a", "b"]
+    assert not (tmp_path / "out" / "creates.ndjson").exists()
 
 
 @pytest.mark.parametrize(

@@ -69,6 +69,13 @@ _register(
     ),
     EventType("entity.created", "Someone, or a run, creates an entity.", project=True, org=True),
     EventType("entity.updated", "Someone, or a run, changes an entity.", project=True, org=True),
+    EventType(
+        "entity.imported",
+        "A run imports entities from a file, too many to tell of one by one: one event for "
+        "all of them, in place of entity.created for each.",
+        project=True,
+        org=True,
+    ),
     EventType("entity.archived", "Someone archives an entity.", project=True, org=True),
     EventType("entity.restored", "Someone restores an entity.", project=True, org=True),
     EventType("entity.linked", "Someone adds an entity to the project.", project=True, org=True),

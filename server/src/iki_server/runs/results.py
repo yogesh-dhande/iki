@@ -48,7 +48,19 @@ from iki_server.runs.services import TIER_PERMISSIONS, is_a
 from iki_spec import schemas
 from iki_spec.model import Action, Creates, action_from_dict
 
-__all__ = ["Failed", "InvalidOutput", "Rejected", "commit"]
+__all__ = [
+    "Check",
+    "Checked",
+    "Failed",
+    "InvalidOutput",
+    "Rejected",
+    "check_line",
+    "checked",
+    "commit",
+    "invalid",
+    "pointer",
+    "write",
+]
 
 #: The most problems one output reports; past this, the rest are summed up.
 MAX_ERRORS = 100
@@ -85,7 +97,7 @@ class Rejected(Exception):  # noqa: N818 - reads as "the results were rejected"
 
 
 @dataclass
-class _Check:
+class Check:
     run: ActionRun
     action: Action
     #: input name → entity ID → the revision the run read
@@ -118,7 +130,7 @@ class _Check:
         return file_id in self._files
 
 
-def _check_files(check: _Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
+def _check_files(check: Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
     if type_name not in registry.types():
         return  # reported when it's written
     fields = shape(type_name).fields()
@@ -133,12 +145,41 @@ def _check_files(check: _Check, at: str, type_name: str, values: Mapping[str, An
             )
 
 
+@dataclass
+class Checked:
+    """A run's output, checked against its action: ready to write."""
+
+    check: Check
+    updates: list[_Update]
+    creates: list[_Create]
+    #: Creates in a file (ADR 0056): a bulk import writes them, with these.
+    creates_file: UUID | None
+
+
 def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
     """Writes the run's results, or nothing. Call inside a transaction holding the run.
 
     Raises :class:`InvalidOutput`, :class:`Rejected` or :class:`Failed`; whichever,
-    nothing is written.
+    nothing is written. A ``creates_file`` isn't read here: a bulk import writes its
+    creates, with the rest (:mod:`iki_server.runs.imports`).
     """
+    write(checked(run, document))
+
+
+def write(done: Checked) -> None:
+    """Writes what :func:`checked` checked. Raises :class:`InvalidOutput` (writing nothing)
+    for values that don't fit the entities' types as installed now."""
+    check = done.check
+    with transaction.atomic():
+        _write_updates(check, done.updates)
+        _write_creates(check, done.creates)
+        if check.errors:
+            raise InvalidOutput(check.errors)  # rolls back what was written
+
+
+def checked(run: ActionRun, document: Mapping[str, Any]) -> Checked:
+    """The output checked against the run's action and its launcher's access now. Raises
+    :class:`InvalidOutput`, :class:`Rejected` or :class:`Failed`."""
     issues = schemas.check("run-output", document)
     if issues:
         raise InvalidOutput([{"pointer": _pointer(*i.path), "detail": i.message} for i in issues])
@@ -152,24 +193,44 @@ def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
     inputs: dict[str, dict[UUID, int]] = {}
     for row in RunInput.objects.filter(run=run).order_by("name", "position"):
         inputs.setdefault(row.name, {})[row.entity_id] = row.revision
-    check = _Check(run, action_from_dict(run.spec), inputs)
+    check = Check(run, action_from_dict(run.spec), inputs)
     updates = _updates(check, document.get("updates") or {})
     creates = _creates(check, document.get("creates") or [])
+    creates_file = _creates_file(check, document.get("creates_file"))
     _messages(check, document.get("messages") or [])
     if check.errors:
         raise InvalidOutput(check.errors)
     for message in document.get("messages") or []:
         if message["level"] == "error" and "entity" in message:
             raise Failed(message["text"])
-    with transaction.atomic():
-        _write_updates(check, updates)
-        _write_creates(check, creates)
-        if check.errors:
-            raise InvalidOutput(check.errors)  # rolls back what was written
+    return Checked(check, updates, creates, creates_file)
 
 
-def _pointer(*parts: object) -> str:
+def _creates_file(check: Check, given: object) -> UUID | None:
+    if given is None:
+        return None
+    if not isinstance(given, str):
+        # The worker uploads it and puts its ID here.
+        check.error(_pointer("creates_file"), "Give the uploaded file's ID.")
+        return None
+    try:
+        file_id = UUID(given)
+    except ValueError:
+        check.error(_pointer("creates_file"), "Give the uploaded file's ID.")
+        return None
+    own = RunUpload.objects.filter(run=check.run, upload__file_id=file_id).exists()
+    if not own:
+        check.error(_pointer("creates_file"), "Give a file this run uploaded, once it's ready.")
+        return None
+    return file_id
+
+
+def pointer(*parts: object) -> str:
+    """A JSON pointer into the output, as problems name where they are."""
     return "#/" + "/".join(str(p).replace("~", "~0").replace("/", "~1") for p in parts)
+
+
+_pointer = pointer
 
 
 # --- Checking against the action ---------------------------------------------------------------
@@ -182,7 +243,7 @@ class _Update:
     values: Mapping[str, Any]
 
 
-def _updates(check: _Check, given: Mapping[str, Any]) -> list[_Update]:
+def _updates(check: Check, given: Mapping[str, Any]) -> list[_Update]:
     declared = {u.input: set(u.fields) for u in check.action.updates}
     out: list[_Update] = []
     for name, items in given.items():
@@ -216,7 +277,7 @@ def _updates(check: _Check, given: Mapping[str, Any]) -> list[_Update]:
     return out
 
 
-def _messages(check: _Check, given: list[Mapping[str, Any]]) -> None:
+def _messages(check: Check, given: list[Mapping[str, Any]]) -> None:
     read = {entity for entities in check.inputs.values() for entity in entities}
     for index, item in enumerate(given):
         if "entity" in item and UUID(item["entity"]) not in read:
@@ -234,7 +295,7 @@ class _Create:
     origin: dict[str, Any] | None = None
 
 
-def _origin(check: _Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
+def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
     """An entity's origin as ExternalOrigin keeps it. The schema checked its shape."""
     origin: dict[str, Any] = {
         "source": given["source"],
@@ -268,38 +329,82 @@ def _origin(check: _Check, at: tuple[object, ...], given: Mapping[str, Any]) -> 
     return origin
 
 
-def _creates(check: _Check, given: list[Mapping[str, Any]]) -> list[_Create]:
+def _creates(check: Check, given: list[Mapping[str, Any]]) -> list[_Create]:
     counts: dict[int, int] = {}
     out: list[_Create] = []
     for index, item in enumerate(given):
-        at = ("creates", index)
-        found = next(
-            ((n, c) for n, c in enumerate(check.action.creates) if is_a(item["type"], c.type)),
-            None,
-        )
-        if found is None:
-            allowed = ", ".join(c.type for c in check.action.creates) or "nothing"
-            check.error(
-                _pointer(*at, "type"),
-                f"The action doesn't declare that it creates {item['type']} "
-                f"(it creates: {allowed}).",
-            )
-            continue
-        number, effect = found
-        counts[number] = counts.get(number, 0) + 1
-        if effect.cardinality == "one" and counts[number] > 1:
-            check.error(_pointer(*at), f"The action creates at most one {effect.type} per run.")
-            continue
-        _check_files(check, _pointer(*at), item["type"], item["values"])
-        parents = _parents(check, effect, item.get("derived_from"), at)
-        origin = _origin(check, at, item["origin"]) if "origin" in item else None
-        if parents is not None:
-            out.append(_Create(_pointer(*at), item["type"], item["values"], parents, origin))
+        create = _create(check, item, ("creates", index), counts)
+        if create is not None:
+            out.append(create)
     return out
 
 
+def check_line(check: Check, item: Mapping[str, Any], line: int) -> _Create | None:
+    """One line of a ``creates_file``, as an item of ``creates`` is checked; its problems
+    point at ``#/creates_file/<line>``. Its values are checked as it's written."""
+    return _create(check, item, ("creates_file", line), None)
+
+
+def _create(
+    check: Check,
+    item: Mapping[str, Any],
+    at: tuple[object, ...],
+    counts: dict[int, int] | None,
+) -> _Create | None:
+    """``counts``: how many of each declared effect so far; None for a creates file."""
+    found = next(
+        ((n, c) for n, c in enumerate(check.action.creates) if is_a(item["type"], c.type)),
+        None,
+    )
+    if found is None:
+        allowed = ", ".join(c.type for c in check.action.creates) or "nothing"
+        check.error(
+            _pointer(*at, "type"),
+            f"The action doesn't declare that it creates {item['type']} (it creates: {allowed}).",
+        )
+        return None
+    number, effect = found
+    if effect.cardinality == "one":
+        if counts is None:
+            check.error(
+                _pointer(*at),
+                f"The action creates at most one {effect.type} per run: give it in `creates`.",
+            )
+            return None
+        counts[number] = counts.get(number, 0) + 1
+        if counts[number] > 1:
+            check.error(_pointer(*at), f"The action creates at most one {effect.type} per run.")
+            return None
+    if counts is None:
+        _no_files(check, _pointer(*at), item["type"], item["values"])
+    else:
+        _check_files(check, _pointer(*at), item["type"], item["values"])
+    parents = _parents(check, effect, item.get("derived_from"), at)
+    origin = _origin(check, at, item["origin"]) if "origin" in item else None
+    if parents is None:
+        return None
+    return _Create(_pointer(*at), item["type"], item["values"], parents, origin)
+
+
+def _no_files(check: Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
+    if type_name not in registry.types():
+        return  # Writing it says there's no such type.
+    fields = shape(type_name).fields()
+    for name, value in values.items():
+        f = fields.get(name)
+        holds_files = f is not None and (
+            f.type == "file"
+            or (f.type == "list" and f.items is not None and f.items.type == "file")
+        )
+        if holds_files and value not in (None, []):
+            check.error(
+                f"{at}/values/{name}",
+                "Creates in a file can't attach files: give these in `creates`.",
+            )
+
+
 def _parents(
-    check: _Check, effect: Creates, given: list[str] | None, at: tuple[object, ...]
+    check: Check, effect: Creates, given: list[str] | None, at: tuple[object, ...]
 ) -> dict[UUID, tuple[str, int]] | None:
     allowed = {
         entity: (name, revision)
@@ -332,13 +437,14 @@ def _parents(
 # --- Writing -----------------------------------------------------------------------------------
 
 
-def _invalid(check: _Check, at: str, error: Invalid, *, values: str = "values") -> None:
+def invalid(check: Check, at: str, error: Invalid, *, values: str = "values") -> None:
+    """Notes an entity's problems (field → messages) at ``at``, the create or update."""
     for name, messages in error.errors.items():
-        pointer = f"{at}/type" if name == "type" else f"{at}/{values}/{name}"
-        check.error(pointer, " ".join(messages))
+        where = f"{at}/type" if name == "type" else f"{at}/{values}/{name}"
+        check.error(where, " ".join(messages))
 
 
-def _write_updates(check: _Check, updates: list[_Update]) -> None:
+def _write_updates(check: Check, updates: list[_Update]) -> None:
     user = check.run.requested_by
     for update in updates:
         entity = Entity.objects.select_for_update().get(pk=update.entity)
@@ -355,7 +461,7 @@ def _write_updates(check: _Check, updates: list[_Update]) -> None:
                 by_run=True,
             )
         except Invalid as error:
-            _invalid(check, update.pointer, error)
+            invalid(check, update.pointer, error)
             continue
         except Refused as error:
             raise Rejected("conflict", f"{entity.hrid}: {error}") from None
@@ -367,7 +473,7 @@ def _write_updates(check: _Check, updates: list[_Update]) -> None:
         )
 
 
-def _write_creates(check: _Check, creates: list[_Create]) -> None:
+def _write_creates(check: Check, creates: list[_Create]) -> None:
     run = check.run
     for create in creates:
         try:
@@ -382,7 +488,7 @@ def _write_creates(check: _Check, creates: list[_Create]) -> None:
                 by_run=True,
             )
         except Invalid as error:
-            _invalid(check, create.pointer, error)
+            invalid(check, create.pointer, error)
             continue
         entity_id = saved.entity.pk
         if RunEffect.objects.filter(run=run, entity_id=entity_id).exists():

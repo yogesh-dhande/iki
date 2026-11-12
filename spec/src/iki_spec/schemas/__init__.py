@@ -64,8 +64,9 @@ def registry() -> Registry[Any]:
 
 
 @cache
-def _validator(name: str) -> Draft202012Validator:
-    return Draft202012Validator(load(name), registry=registry())
+def _validator(name: str, part: str | None = None) -> Draft202012Validator:
+    schema = load(name) if part is None else {"$ref": f"{url(name)}#/$defs/{part}"}
+    return Draft202012Validator(schema, registry=registry())
 
 
 class SchemaIssue:
@@ -83,11 +84,13 @@ class SchemaIssue:
         return f"SchemaIssue({self.path!r}, {self.message!r})"
 
 
-def check(name: str, document: Any) -> list[SchemaIssue]:  # noqa: ANN401 - manifest data is JSON-shaped
-    """Check a document against a schema, returning the problems in reading order."""
+def check(name: str, document: Any, *, part: str | None = None) -> list[SchemaIssue]:  # noqa: ANN401 - manifest data is JSON-shaped
+    """Check a document against a schema (or one of its ``$defs``, ``part``), returning the
+    problems in reading order."""
     issues: list[SchemaIssue] = []
     seen: set[tuple[Path, str]] = set()
-    errors = sorted(_validator(name).iter_errors(document), key=lambda e: list(map(str, e.path)))
+    validator = _validator(name, part)
+    errors = sorted(validator.iter_errors(document), key=lambda e: list(map(str, e.path)))
     for error in errors:
         for issue in _explain(error, document):
             key = (issue.path, issue.message)
@@ -187,6 +190,11 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
         return
     if validator == "pattern":
         yield SchemaIssue(path, _bad_value(where, error.instance, str(error.validator_value)))
+        return
+    negated = error.validator_value
+    if validator == "not" and isinstance(negated, dict) and set(negated) == {"required"}:
+        names = " or ".join(f"`{n}`" for n in negated["required"])
+        yield SchemaIssue(path, f"Give {names}{_in(where)}, not both.")
         return
     if validator == "not" and path and path[-1] == "type":
         yield SchemaIssue(

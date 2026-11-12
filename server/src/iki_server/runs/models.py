@@ -17,6 +17,7 @@ hashes of either are stored.
 from typing import ClassVar
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions import Now
@@ -545,6 +546,9 @@ class RunEffect(models.Model):
         db_table_comment = "Every entity each run created or updated, with the revision it made."
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["entity", "revision"], name="iki_run_effect_revision"),
+            # A run's effects in the order it wrote them, a page at a time: a bulk import
+            # writes millions (ADR 0056).
+            models.Index(fields=["run", "id"], name="iki_run_effect_run"),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(fields=["run", "entity"], name="iki_run_effect_once"),
@@ -673,6 +677,111 @@ class RunUpload(models.Model):
 
     def __str__(self) -> str:
         return f"{self.run_id} {self.upload_id}"
+
+
+class ImportPhase(models.TextChoices):
+    #: Reading the file, checking each line and staging it.
+    CHECKING = "checking", "Checking"
+    #: Writing what was staged, in one transaction.
+    WRITING = "writing", "Writing"
+    ENDED = "ended", "Ended"
+
+
+class RunImport(models.Model):
+    """A run's creates from a file, too many for output.json (ADR 0056).
+
+    The file is checked a chunk of lines at a time, each staged in a table of the import's
+    own and committed with how far it got, so an import that's interrupted goes on from
+    there. Once every line is checked, all of it is written in one transaction, or none.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    run = models.ForeignKey(ActionRun, on_delete=models.CASCADE, related_name="imports")
+    job = models.OneToOneField(Job, on_delete=models.CASCADE, related_name="bulk_import")
+    file = models.ForeignKey("iki_files.File", on_delete=models.PROTECT, related_name="+")
+    phase = models.CharField(
+        max_length=16, choices=ImportPhase.choices, default=ImportPhase.CHECKING
+    )
+    size = models.BigIntegerField(db_comment="The file's size, in bytes.")
+    #: Bytes read and checked so far: where the next chunk starts.
+    offset = models.BigIntegerField(default=0)
+    #: Lines read so far, blank ones included, so problems can say which line.
+    lines = models.BigIntegerField(default=0)
+    #: Creates staged so far.
+    staged = models.BigIntegerField(default=0)
+    #: Problems found so far, as output errors are: {pointer, detail}.
+    errors = models.JSONField(default=list)
+    created = models.BigIntegerField(default=0)
+    reused = models.BigIntegerField(default=0)
+    #: Entities the run's output updated (its inputs), written with the creates.
+    updated = models.BigIntegerField(default=0)
+    #: Reused entities that weren't in the run's project yet.
+    linked = models.BigIntegerField(default=0)
+    #: The installed plugins it was checked against: if they change before it's written,
+    #: it's checked again, from the start.
+    schema = models.CharField(max_length=64, default="")
+    #: Lines are staged afresh each round: a new one starts when a plugin changes.
+    round = models.PositiveSmallIntegerField(default=1)
+    #: Its staged lines are all deleted (they are, a batch at a time, once it ends).
+    cleared = models.BooleanField(default=False)
+    #: Attempts at a step that failed unexpectedly, in a row; past a few, it gives up.
+    failures = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_run_import"
+        db_table_comment = "Runs' creates from a file: how far each import has got."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["updated_at"],
+                name="iki_run_import_open",
+                condition=~Q(phase="ended"),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(phase__in=ImportPhase.values), name="iki_run_import_phase"
+            ),
+            models.CheckConstraint(
+                condition=Q(offset__gte=0, offset__lte=models.F("size")),
+                name="iki_run_import_offset",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id} import"
+
+
+class ImportLine(models.Model):
+    """A line of a creates file, checked and ready to write, until its import ends
+    (ADR 0056). Written with COPY, read back with INSERT … SELECT, then deleted."""
+
+    pk = models.CompositePrimaryKey("bulk_import_id", "round", "line")
+    #: Not a foreign key: millions of rows needn't each check it, and they go once it ends.
+    bulk_import_id = models.UUIDField()
+    round = models.PositiveSmallIntegerField()
+    #: Its line number in the file, from 1.
+    line = models.BigIntegerField()
+    #: The new entity's ID, if it's new.
+    entity_id = models.UUIDField()
+    type = models.CharField(max_length=81)
+    identity_hash = models.CharField(max_length=64, null=True)
+    #: Each table's values, by table then field: {"protein_protein": {"sequence": …}}.
+    parts = models.JSONField()
+    changed = ArrayField(models.CharField(max_length=63))
+    #: As ExternalOrigin keeps it.
+    origin = models.JSONField(null=True)
+    #: [[parent ID, input name, revision read], …]
+    parents = models.JSONField(null=True)
+
+    class Meta:
+        db_table = "iki_import_line"
+        db_table_comment = "Creates staged by bulk imports, until each is written or ends."
+
+    def __str__(self) -> str:
+        return f"{self.bulk_import_id} line {self.line}"
 
 
 class RunQuota(models.Model):

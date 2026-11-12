@@ -186,6 +186,21 @@ export function batchRunsQuery(ref: string, status?: RunStatus) {
   });
 }
 
+/** The rest of a run's effects, after those its answer lists (`effects_next_cursor`). */
+export function moreEffectsQuery(ref: string, after: string) {
+  return infiniteQueryOptions({
+    queryKey: [...RUNS, "effects", ref.toUpperCase(), after],
+    initialPageParam: after,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await iki.GET("/api/v1/runs/{ref}/effects", {
+          params: { path: { ref }, query: { limit: 100, cursor: pageParam } },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
 export function attemptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "attempts", ref.toUpperCase()],

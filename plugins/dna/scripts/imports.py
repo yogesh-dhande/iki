@@ -15,25 +15,36 @@ FASTA headers give a name (the first word) and a description (the rest). A word 
 the header that looks like an INSDC accession with its version (`L09137.2`,
 `NM_000014.6`), including inside NCBI's `gb|…|` style, is kept as the accession.
 FASTA doesn't say whether a sequence is circular, so the `topology` param does.
+
+Files are read a line at a time, so they may hold millions of records. Past a thousand
+(or a megabyte of them), the creates go in a creates file (`creates_file`, one per
+line), which Iki checks and then writes all at once, or not at all (ADR 0056).
 """
 
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable, Iterator
 
 BASES = re.compile(r"^[ACGTRYSWKMBDHVN]*$")
 ACCESSION = re.compile(r"^[A-Z]{1,6}_?[0-9]{5,9}\.[0-9]+$")
-MAX_RECORDS = 10_000
+#: The most records one run imports.
+MAX_RECORDS = 10_000_000
+#: Up to these many (and bytes of them), creates go in output.json; past them, in a file.
+INLINE_RECORDS = 1_000
+INLINE_BYTES = 1_000_000
+CREATES_FILE = "creates.ndjson"
+MAX_MESSAGES = 99
 MAX_FEATURES = 10_000
 MAX_QUALIFIERS = 50
 MAX_QUALIFIER = 10_000
@@ -90,44 +101,45 @@ def fit(values: dict[str, Any], record: Record) -> dict[str, Any]:
 # --- FASTA ---------------------------------------------------------------------------------------
 
 
-def fasta(text: str, topology: str) -> list[Record]:
-    records: list[Record] = []
+def fasta(lines: Iterable[str], topology: str) -> Iterator[Record]:
+    """Each record of a FASTA file, from its lines (with their line ends), as it's read."""
+    count = 0
     header: str | None = None
-    lines: list[str] = []
-    start = 0
+    raw: list[str] = []
+    bases: list[str] = []
 
-    def close(end: int) -> None:
-        if header is None:
-            return
-        words = header.split(None, 1)
+    def record() -> Record:
+        words = header.split(None, 1) if header is not None else []
         # NCBI's old `gb|L09137.2|` style names the record by its accession.
         name = (accession_in(words[0]) or words[0]) if words else ""
-        label = f"Record {len(records) + 1}" + (f" ({name})" if name else "")
-        record = Record(label, {}, text[start:end])
-        record.values = fit(
+        label = f"Record {count}" + (f" ({name})" if name else "")
+        found = Record(label, {}, "".join(raw))
+        found.values = fit(
             {
                 "name": name,
                 "description": words[1].strip() if len(words) > 1 else "",
                 "accession": accession_in(name),
-                "bases": clean_bases(label, "".join(lines)),
+                "bases": clean_bases(label, "".join(bases)),
                 "topology": topology,
             },
-            record,
+            found,
         )
-        records.append(record)
+        return found
 
-    offset = 0
-    for line in text.splitlines(keepends=True):
+    for line in lines:
         if line.startswith(">"):
-            close(offset)
-            header, lines, start = line[1:].strip(), [], offset
+            if header is not None:
+                yield record()
+            count += 1
+            header, raw, bases = line[1:].strip(), [], []
         elif line.strip() and not line.startswith(";"):
             if header is None:
                 raise UnreadableError("This FASTA file has bases before its first '>' header.")
-            lines.append(line)
-        offset += len(line)
-    close(offset)
-    return records
+            bases.append(line)
+        if header is not None:
+            raw.append(line)
+    if header is not None:
+        yield record()
 
 
 def accession_in(name: str) -> str:
@@ -140,25 +152,19 @@ def accession_in(name: str) -> str:
 # --- GenBank -------------------------------------------------------------------------------------
 
 
-def genbank(text: str) -> list[Record]:
-    records: list[Record] = []
-    start = 0
-    lines: list[str] = []
-    offset = 0
-    for line in text.splitlines(keepends=True):
-        if not lines and not line.strip():
-            start = offset + len(line)
-        else:
-            lines.append(line)
-        offset += len(line)
+def genbank(lines: Iterable[str]) -> Iterator[Record]:
+    """Each record of a GenBank file, from its lines (with their line ends), as it's read."""
+    count = 0
+    held: list[str] = []
+    for line in lines:
+        if held or line.strip():
+            held.append(line)
         if line.startswith("//"):
-            records.append(genbank_record(len(records) + 1, lines, text[start:offset]))
-            lines, start = [], offset
-    if any(line.strip() for line in lines):
-        raise UnreadableError(
-            f"Record {len(records) + 1} doesn't end with '//': is the file cut short?"
-        )
-    return records
+            count += 1
+            yield genbank_record(count, held, "".join(held))
+            held = []
+    if any(line.strip() for line in held):
+        raise UnreadableError(f"Record {count + 1} doesn't end with '//': is the file cut short?")
 
 
 def genbank_record(number: int, lines: list[str], text: str) -> Record:
@@ -308,16 +314,34 @@ def _feature(
 # --- The run -------------------------------------------------------------------------------------
 
 
-def read(path: Path, topology: str) -> tuple[str, list[Record]]:
-    try:
-        text = path.read_text(encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        raise UnreadableError("It isn't a text file: give a FASTA or GenBank file.") from None
-    first = next((line for line in text.splitlines() if line.strip()), "")
+def text_lines(path: Path, counted: list[int]) -> Iterator[str]:
+    """The file's lines as text, counting the bytes read so far in ``counted[0]``."""
+    with path.open("rb") as given:
+        for number, raw in enumerate(given):
+            counted[0] += len(raw)
+            try:
+                line = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                raise UnreadableError(
+                    f"Line {number + 1} isn't UTF-8 text: give a FASTA or GenBank file."
+                ) from None
+            yield line.removeprefix("\ufeff") if number == 0 else line
+
+
+def read(path: Path, topology: str, counted: list[int]) -> tuple[str, Iterator[Record]]:
+    """What kind of file it is, and its records as they're read."""
+    lines = text_lines(path, counted)
+    skipped: list[str] = []
+    for line in lines:
+        skipped.append(line)
+        if line.strip():
+            break
+    first = skipped[-1] if skipped else ""
+    every = itertools.chain(skipped, lines)
     if first.startswith(">"):
-        return "FASTA file", fasta(text, topology)
+        return "FASTA file", fasta(every, topology)
     if first.startswith("LOCUS"):
-        return "GenBank file", genbank(text)
+        return "GenBank file", genbank(every)
     raise UnreadableError(
         "It isn't FASTA (records start with '>') or GenBank (records start with LOCUS)."
     )
@@ -327,58 +351,103 @@ def main() -> None:
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
     file_id = run["params"]["file"]
     given = run["files"][file_id]
+    size = max(int(given.get("size") or 0), 1)
+    done = [0]
     try:
-        source, records = read(Path(given["path"]), run["params"].get("topology", "linear"))
-        if not records:
+        source, records = read(Path(given["path"]), run["params"].get("topology", "linear"), done)
+
+        def origin(record: Record) -> dict[str, Any]:
+            found = {
+                "source": source,
+                "id": record.values.get("name") or record.label,
+                "file": file_id,
+                "sha256": hashlib.sha256(record.text.encode("utf-8")).hexdigest(),
+            }
+            if record.values.get("accession"):
+                found["version"] = record.values["accession"]
+            return found
+
+        count = finish(records, origin, lambda: done[0] / size)
+        if not count:
             raise UnreadableError("It holds no records.")
-        if len(records) > MAX_RECORDS:
-            raise UnreadableError(
-                f"It holds {len(records):,} records, more than the {MAX_RECORDS:,} one run "
-                "imports: split it."
-            )
     except UnreadableError as why:
         print(f"::error {given['name']}: {why}", flush=True)
         sys.exit(1)
 
-    def origin(record: Record) -> dict[str, Any]:
-        found = {
-            "source": source,
-            "id": record.values.get("name") or record.label,
-            "file": file_id,
-            "sha256": hashlib.sha256(record.text.encode("utf-8")).hexdigest(),
-        }
-        if record.values.get("accession"):
-            found["version"] = record.values["accession"]
-        return found
 
-    finish(records, origin)
+class _Creates:
+    """Where the creates go: output.json while they're few and small, then a creates
+    file (``creates_file``, one per line), which a run may fill with millions."""
+
+    def __init__(self) -> None:
+        self.held: list[str] = []
+        self.size = 0
+        self.file: TextIO | None = None
+
+    def add(self, create: dict[str, Any]) -> None:
+        line = json.dumps(create, separators=(",", ":"))
+        if self.file is None:
+            self.held.append(line)
+            self.size += len(line)
+            if len(self.held) <= INLINE_RECORDS and self.size <= INLINE_BYTES:
+                return
+            out = Path(os.environ["IKI_OUT_DIR"]) / CREATES_FILE
+            self.file = out.open("w", encoding="utf-8")
+            self.file.writelines(f"{held}\n" for held in self.held)
+            self.held = []
+            return
+        self.file.write(f"{line}\n")
+
+    def output(self) -> dict[str, Any]:
+        if self.file is None:
+            return {"creates": [json.loads(line) for line in self.held]}
+        self.file.close()
+        return {"creates_file": {"$file": CREATES_FILE}}
 
 
-def finish(records: list[Record], origin: Callable[[Record], dict[str, Any]]) -> None:
-    """Writes the sequences to create, each with where it came from, to $IKI_OUTPUT."""
-    creates = []
-    messages = []
+def finish(
+    records: Iterable[Record],
+    origin: Callable[[Record], dict[str, Any]],
+    progress: Callable[[], float] | None = None,
+) -> int:
+    """Writes the sequences to create, each with where it came from, to $IKI_OUTPUT (or,
+    past a few thousand, to a creates file it names). Returns how many."""
+    creates = _Creates()
+    messages: list[dict[str, str]] = []
+    warned = 0
+    done = 0
     for done, record in enumerate(records, start=1):
-        creates.append(
-            {"type": "dna.DNASequence", "values": record.values, "origin": origin(record)}
+        if done > MAX_RECORDS:
+            raise UnreadableError(
+                f"It holds more than the {MAX_RECORDS:,} records one run imports: split it."
+            )
+        creates.add({"type": "dna.DNASequence", "values": record.values, "origin": origin(record)})
+        for warning in record.warnings:
+            warned += 1
+            if len(messages) < MAX_MESSAGES:
+                messages.append({"level": "warning", "text": warning[:2000]})
+        if done <= 1000:
+            print(f"{record.label}: {len(record.values['bases']):,} bp")
+        if done % 1000 == 0:
+            fraction = progress() if progress is not None else 0.0
+            print(f"::progress {min(fraction, 1.0):.2f} {done:,} records", flush=True)
+    if done > 1000:
+        print(f"… and {done - 1000:,} more records.")
+    if warned > MAX_MESSAGES:
+        messages.append(
+            {"level": "warning", "text": f"And {warned - MAX_MESSAGES:,} more warnings."}
         )
-        messages.extend({"level": "warning", "text": w[:2000]} for w in record.warnings)
-        print(f"{record.label}: {len(record.values['bases']):,} bp")
-        if done % 100 == 0 or done == len(records):
-            print(f"::progress {done / len(records):.2f} {done} of {len(records)}", flush=True)
+    if done:
+        print(f"::progress 1.00 {done:,} records", flush=True)
     output = {
         "apiVersion": "iki/v1",
         "kind": "RunOutput",
-        "creates": creates,
-        "metrics": {"records": len(records)},
-        "messages": messages[:99]
-        + (
-            [{"level": "warning", "text": f"And {len(messages) - 99:,} more warnings."}]
-            if len(messages) > 99
-            else []
-        ),
+        **creates.output(),
+        "metrics": {"records": done},
+        "messages": messages,
     }
     Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+    return done
 
 
 if __name__ == "__main__":

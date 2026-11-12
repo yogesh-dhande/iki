@@ -5,6 +5,7 @@
   "description": "What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.",
   "type": "object",
   "required": ["apiVersion", "kind"],
+  "not": { "required": ["creates", "creates_file"] },
   "additionalProperties": false,
   "$defs": {
     "origin": {
@@ -52,6 +53,26 @@
           "description": "The file it was read from: one of the run's file params."
         }
       }
+    },
+    "create": {
+      "type": "object",
+      "description": "A new entity, of a type the action declares it creates.",
+      "required": ["type", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
+        },
+        "values": { "type": "object" },
+        "derived_from": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true,
+          "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json)."
+        },
+        "origin": { "$ref": "#/$defs/origin" }
+      }
     }
   },
   "properties": {
@@ -82,25 +103,29 @@
       "type": "array",
       "description": "New entities, of types the action declares it creates.",
       "maxItems": 10000,
-      "items": {
-        "type": "object",
-        "required": ["type", "values"],
-        "additionalProperties": false,
-        "properties": {
-          "type": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
-          },
-          "values": { "type": "object" },
-          "derived_from": {
-            "type": "array",
-            "items": { "type": "string", "format": "uuid" },
-            "uniqueItems": true,
-            "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json)."
-          },
-          "origin": { "$ref": "#/$defs/origin" }
+      "items": { "$ref": "#/$defs/create" }
+    },
+    "creates_file": {
+      "description": "Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. Give `creates` or this, not both.",
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["$file"],
+          "additionalProperties": false,
+          "properties": {
+            "$file": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The file's path in IKI_OUT_DIR, such as `creates.ndjson`."
+            }
+          }
+        },
+        {
+          "type": "string",
+          "format": "uuid",
+          "description": "The file's ID, once the worker has uploaded it."
         }
-      }
+      ]
     },
     "metrics": {
       "type": "object",

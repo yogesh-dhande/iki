@@ -378,7 +378,9 @@ class OutputErrorOut(Schema):
 class CompleteOut(Schema):
     run_status: str = Field(
         description="`succeeded` if the results were written; `failed` (`invalid_output`) or "
-        "`rejected` if they weren't. Either way the output is kept with the run."
+        "`rejected` if they weren't. Either way the output is kept with the run. `running` "
+        "when its creates came in a file: Iki is importing them (ADR 0056), and the job is "
+        "over for the worker all the same."
     )
     code: str | None = None
     message: str | None = None

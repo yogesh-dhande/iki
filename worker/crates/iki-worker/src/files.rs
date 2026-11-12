@@ -310,14 +310,32 @@ fn value_maps(
     found
 }
 
-/// Puts what `place` makes of each `$file` in `output` (a field's value, or an item of a
-/// list field's) in its place, once per file. Returns how many files there were.
+/// Puts what `place` makes of each `$file` in `output` (a field's value, an item of a
+/// list field's, or `creates_file`) in its place, once per file. Returns how many files
+/// there were.
 fn replace_file_refs(
     out_dir: &Path,
     output: &mut serde_json::Map<String, serde_json::Value>,
     mut place: impl FnMut(&Made) -> Result<serde_json::Value, Failed>,
 ) -> Result<usize, Failed> {
     let mut placed: BTreeMap<PathBuf, serde_json::Value> = BTreeMap::new();
+    let mut put = |slot: &mut serde_json::Value| -> Result<(), Failed> {
+        let reference = slot.as_object().cloned().unwrap_or_default();
+        let made = resolve(&reference, out_dir).map_err(Failed::Job)?;
+        let value = if let Some(value) = placed.get(&made.path) {
+            value.clone()
+        } else {
+            let value = place(&made)?;
+            placed.insert(made.path.clone(), value.clone());
+            value
+        };
+        *slot = value;
+        Ok(())
+    };
+    // Creates too many for output.json, one per line of a file (ADR 0056).
+    if let Some(slot) = output.get_mut("creates_file").filter(|v| is_file_ref(v)) {
+        put(slot)?;
+    }
     for values in value_maps(output) {
         let Some(values) = values.as_object_mut() else {
             continue;
@@ -331,16 +349,7 @@ fn replace_file_refs(
                 _ => continue,
             };
             for slot in slots {
-                let reference = slot.as_object().cloned().unwrap_or_default();
-                let made = resolve(&reference, out_dir).map_err(Failed::Job)?;
-                let value = if let Some(value) = placed.get(&made.path) {
-                    value.clone()
-                } else {
-                    let value = place(&made)?;
-                    placed.insert(made.path.clone(), value.clone());
-                    value
-                };
-                *slot = value;
+                put(slot)?;
             }
         }
     }
@@ -669,5 +678,34 @@ mod tests {
         assert!(is_file_ref(&updates["report"]));
         assert!(is_file_ref(&creates["files"][0]));
         assert!(!is_file_ref(&creates["files"][1]));
+    }
+
+    #[test]
+    fn replaces_a_creates_file_once_with_the_rest() {
+        let dir = scratch("creates-file");
+        let out = dir.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("creates.ndjson"), "{}\n").unwrap();
+        let mut output = serde_json::json!({
+            "creates_file": {"$file": "creates.ndjson"},
+            "creates": [{"type": "t", "values": {"log": {"$file": "creates.ndjson"}}}],
+        });
+        let mut placed = 0;
+        let count = replace_file_refs(&out, output.as_object_mut().unwrap(), |made| {
+            placed += 1;
+            Ok(serde_json::Value::String(made.relative.clone()))
+        })
+        .unwrap();
+        assert_eq!((count, placed), (1, 1));
+        assert_eq!(output["creates_file"], "creates.ndjson");
+        assert_eq!(output["creates"][0]["values"]["log"], "creates.ndjson");
+        let mut outside = serde_json::json!({"creates_file": {"$file": "../input.json"}});
+        assert!(
+            replace_file_refs(&out, outside.as_object_mut().unwrap(), |_| Ok(
+                serde_json::Value::Null
+            ))
+            .is_err()
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

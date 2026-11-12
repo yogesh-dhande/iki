@@ -19,7 +19,7 @@ from ninja import Field, Query, Router, Schema, Status
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
 from iki_server.api.entities import FieldOut, field_out
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, cursor_after, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, schema
@@ -30,12 +30,14 @@ from iki_server.runs.models import (
     FINISHED,
     ActionRun,
     ApprovalState,
+    ImportPhase,
     Job,
     JobLog,
     JobState,
     RunApproval,
     RunBatch,
     RunEffect,
+    RunImport,
     RunInput,
     RunOutput,
     RunStatus,
@@ -262,6 +264,16 @@ class EffectOut(Schema):
     revision: int | None = Field(description="The revision it made; none if it changed nothing.")
 
 
+class EffectCountsOut(Schema):
+    created: int
+    updated: int
+    reused: int
+
+
+#: The effects a run's answer lists; the rest are paged from ``/runs/{ref}/effects``.
+EFFECTS_SHOWN = 100
+
+
 class MessageOut(Schema):
     level: Literal["info", "warning", "error"]
     text: str
@@ -350,7 +362,15 @@ class RunOut(Schema):
     cancel_requested_at: datetime | None
     error: ErrorOut | None
     effects: list[EffectOut] = Field(
-        description="The entities it created or updated, that you can read."
+        description=f"The first {EFFECTS_SHOWN} entities it created, updated or reused, that "
+        "you can read. `GET /runs/{ref}/effects` pages through all of them."
+    )
+    effects_next_cursor: str | None = Field(
+        description="When it changed more than `effects` lists: the `cursor` for "
+        "`GET /runs/{ref}/effects` that goes on from there."
+    )
+    effect_counts: EffectCountsOut = Field(
+        description="How many entities it created, updated and reused."
     )
     metrics: dict[str, float]
     messages: list[MessageOut]
@@ -358,6 +378,54 @@ class RunOut(Schema):
         description="Why a queued run hasn't started, when a quota is holding it."
     )
     can: RunCan
+
+
+def _effect_out(effect: RunEffect) -> dict[str, Any]:
+    return {
+        "entity": effect.entity_id,
+        "hrid": effect.entity.hrid,
+        "type": effect.entity.type,
+        "kind": effect.kind,
+        "revision": effect.revision,
+    }
+
+
+def _effect_counts(runs: list[ActionRun]) -> dict[Any, dict[str, int]]:
+    """By run. A bulk import counted what it wrote (ADR 0056), so its millions of effects
+    aren't counted again on every read."""
+    out: dict[Any, dict[str, int]] = {r.pk: {"created": 0, "updated": 0, "reused": 0} for r in runs}
+    imported = {
+        i.run_id: i
+        for i in RunImport.objects.filter(
+            run__in=runs, phase=ImportPhase.ENDED, job__state=JobState.SUCCEEDED
+        )
+    }
+    for run_id, i in imported.items():
+        out[run_id] = {"created": i.created, "updated": i.updated, "reused": i.reused}
+    rest = [r for r in runs if r.pk not in imported]
+    for row in (
+        RunEffect.objects.filter(run__in=rest).values("run_id", "kind").annotate(n=Count("id"))
+    ):
+        out[row["run_id"]][row["kind"]] = row["n"]
+    return out
+
+
+class EffectFilters(PageParams):
+    kind: Literal["created", "updated", "reused"] | None = None
+
+
+@router.get("/runs/{ref}/effects", response=Page[EffectOut], summary="What a run changed")
+def list_effects(request: HttpRequest, ref: str, filters: Query[EffectFilters]) -> dict[str, Any]:
+    """The entities it created, updated or reused, that you can read, in the order it
+    wrote them."""
+    me = caller(request)
+    run = _find(me, ref)
+    found = RunEffect.objects.filter(run=run, entity__in=access.visible(me).values("pk"))
+    if filters.kind:
+        found = found.filter(kind=filters.kind)
+    result = page(found.select_related("entity"), filters)
+    result["items"] = [_effect_out(e) for e in result["items"]]
+    return result
 
 
 def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
@@ -373,20 +441,24 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         for row in Job.objects.filter(run__in=runs).values("run").annotate(count=Count("id"))
     }
     effects: dict[Any, list[dict[str, Any]]] = {}
-    for effect in (
-        RunEffect.objects.filter(run__in=runs, entity__in=access.visible(me).values("pk"))
-        .select_related("entity")
+    visible = access.visible(me).values("pk")
+    shown = [
+        RunEffect.objects.filter(run=run, entity__in=visible)
         .order_by("id")
-    ):
-        effects.setdefault(effect.run_id, []).append(
-            {
-                "entity": effect.entity_id,
-                "hrid": effect.entity.hrid,
-                "type": effect.entity.type,
-                "kind": effect.kind,
-                "revision": effect.revision,
-            }
-        )
+        .values_list("pk", flat=True)[: EFFECTS_SHOWN + 1]
+        for run in runs
+    ]
+    more: dict[Any, str] = {}
+    if shown:
+        first, *rest = shown
+        ids = list(first.union(*rest, all=True) if rest else first)
+        for effect in RunEffect.objects.filter(pk__in=ids).select_related("entity").order_by("id"):
+            listed = effects.setdefault(effect.run_id, [])
+            if len(listed) == EFFECTS_SHOWN:
+                more[effect.run_id] = cursor_after(listed[-1]["id"])
+                continue
+            listed.append({**_effect_out(effect), "id": effect.pk})
+    counts = _effect_counts(runs)
     outputs = {o.run_id: o.document for o in RunOutput.objects.filter(run__in=runs)}
     named = {run.pk: input_files.of_params(run) for run in runs}
     readable = {
@@ -430,6 +502,8 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             },
             "attempts": attempts.get(run.pk, 0),
             "effects": effects.get(run.pk, []),
+            "effects_next_cursor": more.get(run.pk),
+            "effect_counts": counts[run.pk],
             "metrics": outputs.get(run.pk, {}).get("metrics") or {},
             "messages": outputs.get(run.pk, {}).get("messages") or [],
             "waiting": (
@@ -852,6 +926,18 @@ class AttemptPackOut(Schema):
     )
 
 
+class AttemptImportOut(Schema):
+    phase: Literal["checking", "writing", "ended"] = Field(
+        description="Checking each line, then writing them all at once."
+    )
+    size: int = Field(description="The creates file's size, in bytes.")
+    read: int = Field(description="Bytes of it checked so far.")
+    lines: int = Field(description="Lines checked so far.")
+    staged: int = Field(description="Creates checked and ready to write.")
+    created: int
+    reused: int
+
+
 class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
@@ -873,6 +959,10 @@ class RunAttemptOut(Schema):
     pack: AttemptPackOut | None = Field(
         description="When it ran in one job with other runs of its batch (ADR 0055)."
     )
+    bulk_import: AttemptImportOut | None = Field(
+        description="When its command gave its creates in a file: how far importing them has "
+        "got (ADR 0056)."
+    )
 
 
 @router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
@@ -885,6 +975,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
         .prefetch_related("egress", "packed_into__egress")
         .order_by("attempt")
     )
+    bulk = {i.job_id: i for i in RunImport.objects.filter(job__in=jobs)}
     carriers = {job.packed_into_id or job.pk for job in jobs}
     packed = dict(
         Job.objects.filter(packed_into__in=carriers)
@@ -929,9 +1020,22 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 }
                 if size
                 else None,
+                "bulk_import": _import_out(bulk[job.pk]) if job.pk in bulk else None,
             }
         )
     return out
+
+
+def _import_out(found: RunImport) -> dict[str, Any]:
+    return {
+        "phase": found.phase,
+        "size": found.size,
+        "read": found.offset,
+        "lines": found.lines,
+        "staged": found.staged,
+        "created": found.created,
+        "reused": found.reused,
+    }
 
 
 def _attempt(run: ActionRun, attempt: int) -> Job:

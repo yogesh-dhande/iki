@@ -58,6 +58,24 @@ def _web_app_manifest(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     monkeypatch.setattr(frontend, "manifest", lambda: FAKE_WEB_APP_MANIFEST)
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--scale",
+        action="store_true",
+        help="Run the load tests (marked scale), such as importing 10M entities: "
+        "`make check-scale`.",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if config.getoption("--scale"):
+        return
+    skip = pytest.mark.skip(reason="a load test: run it with --scale (make check-scale)")
+    for item in items:
+        if "scale" in item.keywords:
+            item.add_marker(skip)
+
+
 def pytest_configure(config: pytest.Config) -> None:
     from django.conf import settings
 
@@ -66,6 +84,10 @@ def pytest_configure(config: pytest.Config) -> None:
         environment=settings.IKI_ENVIRONMENT,
         span_processor=SimpleSpanProcessor(SPAN_EXPORTER),
     )
+
+
+#: Postgres's settings for the tests' own server (CI starts one with the same).
+POSTGRES_SETTINGS = "-c shared_buffers=512MB -c max_wal_size=4GB -c work_mem=64MB"
 
 
 @pytest.fixture(scope="session")
@@ -81,7 +103,11 @@ def _postgres_url() -> Iterator[str]:
         return
     from testcontainers.community.postgres import PostgresContainer
 
-    with PostgresContainer(POSTGRES_IMAGE, username="iki", password="iki", dbname="iki") as pg:
+    container = PostgresContainer(POSTGRES_IMAGE, username="iki", password="iki", dbname="iki")
+    # Sized as a deployment's database is, not Postgres's defaults: the load tests write
+    # gigabytes (make check-scale).
+    container.with_command(POSTGRES_SETTINGS)
+    with container as pg:
         yield pg.get_connection_url(driver=None)
 
 

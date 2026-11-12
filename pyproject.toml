@@ -191,6 +191,7 @@ markers = [
   "built_web_app: loads the web app's real build (run `make web` first) instead of a stand-in",
   "real_rate_limit_clock: lets rate limits see the real (or the test's patched) clock",
   "worker_e2e: runs the iki-worker binary (built with cargo) against the real server",
+  "scale: a load test, such as importing 10M entities; runs only with --scale (make check-scale)",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

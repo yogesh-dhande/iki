@@ -473,8 +473,14 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             audit.record(
                 "run.cancel_requested", actor=user, target=run, project=run.project, data=data
             )
-            # Its worker is watching for this: the command stops within a second. In a
-            # packed job, it stops once every run in it is cancelled (ADR 0055).
-            queue.notify_job(job.packed_into_id or job.pk)
+            if job.state == JobState.COMMITTING and hasattr(job, "bulk_import"):
+                # Its import stops at its next chunk, writing nothing (ADR 0056).
+                from iki_server.runs import tasks
+
+                tasks.import_creates.enqueue(str(job.bulk_import.pk))
+            else:
+                # Its worker is watching for this: the command stops within a second. In a
+                # packed job, it stops once every run in it is cancelled (ADR 0055).
+                queue.notify_job(job.packed_into_id or job.pk)
         live.changed(run.pk, run.batch_id)
     return run

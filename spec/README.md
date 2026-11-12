@@ -567,6 +567,27 @@ uploaded can be attached. Iki writes all of it in one transaction, or none.
 A message can name the input `entity` it's about. One at level `error`
 fails that entity's run, which then writes nothing.
 
+### Creates in a file
+
+`creates` holds at most 10,000, and `output.json` at most 2.5 MB. A command
+that makes more (an import of a million sequences, say) writes them to a file
+in `IKI_OUT_DIR`, one create per line as an item of `creates` is (JSON
+Lines), and names it instead of giving `creates`
+([ADR 0056](../docs/adr/0056-bulk-imports.md)):
+
+```json
+{ "apiVersion": "iki/v1", "kind": "RunOutput", "creates_file": { "$file": "creates.ndjson" } }
+```
+
+The worker uploads it with the run's other files. Iki then checks every line,
+a chunk at a time, going on from where it was if it's interrupted, and writes
+them all in one transaction, or none: nobody sees half an import. A line's
+problems point at `#/creates_file/<line>`, counting from 1. Lines can't
+attach files (give those in `creates`), and a job that runs several runs at
+once can't give a creates file. Webhooks hear of an import once, as
+`entity.imported`, not `entity.created` for each entity. A file holds at most
+100 million lines, each at most 256 MiB.
+
 ### Batches and packing
 
 Launching an action on several entities at once makes a batch

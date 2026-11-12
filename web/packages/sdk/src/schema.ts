@@ -1223,6 +1223,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{ref}/effects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a run changed
+         * @description The entities it created, updated or reused, that you can read, in the order it
+         *     wrote them.
+         */
+        get: operations["iki_server_api_runs_list_effects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/saved-searches": {
         parameters: {
             query?: never;
@@ -1856,6 +1877,39 @@ export interface components {
              */
             id: string;
         };
+        /** AttemptImportOut */
+        AttemptImportOut: {
+            /** Created */
+            created: number;
+            /**
+             * Lines
+             * @description Lines checked so far.
+             */
+            lines: number;
+            /**
+             * Phase
+             * @description Checking each line, then writing them all at once.
+             * @enum {string}
+             */
+            phase: "checking" | "writing" | "ended";
+            /**
+             * Read
+             * @description Bytes of it checked so far.
+             */
+            read: number;
+            /** Reused */
+            reused: number;
+            /**
+             * Size
+             * @description The creates file's size, in bytes.
+             */
+            size: number;
+            /**
+             * Staged
+             * @description Creates checked and ready to write.
+             */
+            staged: number;
+        };
         /** AttemptLogOut */
         AttemptLogOut: {
             /**
@@ -2297,6 +2351,31 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "succeeded" | "failed";
+        };
+        /** EffectCountsOut */
+        EffectCountsOut: {
+            /** Created */
+            created: number;
+            /** Reused */
+            reused: number;
+            /** Updated */
+            updated: number;
+        };
+        /** EffectFilters */
+        EffectFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /** Kind */
+            kind?: ("created" | "updated" | "reused") | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
         };
         /** EffectOut */
         EffectOut: {
@@ -3266,6 +3345,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[EffectOut] */
+        Page_EffectOut_: {
+            /** Items */
+            items: components["schemas"]["EffectOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[EntityOut] */
         Page_EntityOut_: {
             /** Items */
@@ -4095,6 +4184,8 @@ export interface components {
              * @description 1 for the first, then 2, 3, ...
              */
             attempt: number;
+            /** @description When its command gave its creates in a file: how far importing them has got (ADR 0056). */
+            bulk_import: components["schemas"]["AttemptImportOut"] | null;
             /**
              * Environment Build
              * @description The digest of the environment it ran in; empty for the host's own software.
@@ -4296,11 +4387,18 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** @description How many entities it created, updated and reused. */
+            effect_counts: components["schemas"]["EffectCountsOut"];
             /**
              * Effects
-             * @description The entities it created or updated, that you can read.
+             * @description The first 100 entities it created, updated or reused, that you can read. `GET /runs/{ref}/effects` pages through all of them.
              */
             effects: components["schemas"]["EffectOut"][];
+            /**
+             * Effects Next Cursor
+             * @description When it changed more than `effects` lists: the `cursor` for `GET /runs/{ref}/effects` that goes on from there.
+             */
+            effects_next_cursor: string | null;
             /** Environment */
             environment: string;
             error: components["schemas"]["ErrorOut"] | null;
@@ -6931,6 +7029,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_list_effects: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                kind?: ("created" | "updated" | "reused") | null;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_EffectOut_"];
                 };
             };
         };

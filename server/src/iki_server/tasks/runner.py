@@ -36,6 +36,7 @@ from django.utils.json import normalize_json
 from opentelemetry import metrics, trace
 
 from iki_server import health
+from iki_server.runs import imports as runs_imports
 from iki_server.runs import queue as runs_queue
 from iki_server.tasks.backend import CHANNEL, GiveUp, LeaseExpired, Retry, load_task, to_result
 from iki_server.tasks.models import TaskRecord
@@ -320,6 +321,15 @@ class Runner:
                     logger.info("jobs_recovered", count=ended)
             except Exception:
                 logger.exception("jobs_housekeeping_error")
+            finally:
+                close_old_connections()
+            try:
+                # Bulk imports whose runner went away (ADR 0056).
+                moved = runs_imports.recover()
+                if moved:
+                    logger.info("imports_recovered", count=moved)
+            except Exception:
+                logger.exception("imports_housekeeping_error")
             finally:
                 close_old_connections()
 

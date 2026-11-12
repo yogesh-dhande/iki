@@ -155,6 +155,18 @@ pub struct RunOutputOrigin {
     pub file: Option<String>,
 }
 
+/// A new entity, of a type the action declares it creates.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunOutputCreate {
+    pub r#type: String,
+    pub values: serde_json::Map<String, serde_json::Value>,
+    /// The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_from: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<RunOutputOrigin>,
+}
+
 /// What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutput {
@@ -166,7 +178,10 @@ pub struct RunOutput {
     pub updates: Option<std::collections::BTreeMap<String, Vec<RunOutputUpdatesValueItem>>>,
     /// New entities, of types the action declares it creates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub creates: Option<Vec<RunOutputCreatesItem>>,
+    pub creates: Option<Vec<RunOutputCreate>>,
+    /// Creates too many for output.json (over 10,000, or large ones): a file in IKI_OUT_DIR with one create per line, each as an item of `creates` is (JSON Lines). Iki checks every line, then writes them all or none, as it does `creates`. Their values can't attach files. Give `creates` or this, not both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creates_file: Option<serde_json::Value>,
     /// Numbers about the run, such as a score or a count, kept on the run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<std::collections::BTreeMap<String, f64>>,
@@ -192,17 +207,6 @@ pub struct RunOutputUpdatesValueItem {
     /// The input entity's ID, from input.json.
     pub entity: String,
     pub values: serde_json::Map<String, serde_json::Value>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RunOutputCreatesItem {
-    pub r#type: String,
-    pub values: serde_json::Map<String, serde_json::Value>,
-    /// The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub derived_from: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin: Option<RunOutputOrigin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -255,7 +259,7 @@ pub struct CompleteOut {
     pub errors: Option<Vec<OutputErrorOut>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
-    /// `succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run.
+    /// `succeeded` if the results were written; `failed` (`invalid_output`) or `rejected` if they weren't. Either way the output is kept with the run. `running` when its creates came in a file: Iki is importing them (ADR 0056), and the job is over for the worker all the same.
     pub run_status: String,
 }
 

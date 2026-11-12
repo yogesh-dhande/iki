@@ -100,6 +100,7 @@ mod tests {
             kind: RunOutputKind::RunOutput,
             updates: None,
             creates: None,
+            creates_file: None,
             metrics: Some([("score".to_owned(), 0.9)].into()),
             messages: None,
         };

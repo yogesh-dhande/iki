@@ -74,6 +74,21 @@ class ApprovalRunOut(TypedDict):
     id: str
 
 
+class AttemptImportOut(TypedDict):
+    created: int
+    #: Lines checked so far.
+    lines: int
+    #: Checking each line, then writing them all at once.
+    phase: Literal['checking', 'writing', 'ended']
+    #: Bytes of it checked so far.
+    read: int
+    reused: int
+    #: The creates file's size, in bytes.
+    size: int
+    #: Creates checked and ready to write.
+    staged: int
+
+
 class AttemptLogOut(TypedDict):
     #: The attempt has ended, so nothing more will come.
     ended: bool
@@ -269,6 +284,20 @@ class DeliverySummary(TypedDict):
     message_id: str
     redelivered_by: PersonRef | None
     status: Literal['pending', 'succeeded', 'failed']
+
+
+class EffectCountsOut(TypedDict):
+    created: int
+    reused: int
+    updated: int
+
+
+class EffectFilters(TypedDict):
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    kind: NotRequired[Literal['created', 'updated', 'reused'] | None]
+    #: Items per page.
+    limit: NotRequired[int]
 
 
 class EffectOut(TypedDict):
@@ -734,6 +763,12 @@ class PageDeliverySummary(TypedDict):
     next_cursor: str | None
 
 
+class PageEffectOut(TypedDict):
+    items: list[EffectOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
 class PageEntityOut(TypedDict):
     items: list[EntityOut]
     #: Pass as cursor for the next page; null at the end.
@@ -1149,6 +1184,8 @@ class RunApprovalOut(TypedDict):
 class RunAttemptOut(TypedDict):
     #: 1 for the first, then 2, 3, ...
     attempt: int
+    #: When its command gave its creates in a file: how far importing them has got (ADR 0056).
+    bulk_import: AttemptImportOut | None
     #: The digest of the environment it ran in; empty for the host's own software.
     environment_build: str
     error: ErrorOut | None
@@ -1245,8 +1282,12 @@ class RunOut(TypedDict):
     #: The OAuth app it was asked for through, if any.
     client: str
     created_at: str
-    #: The entities it created or updated, that you can read.
+    #: How many entities it created, updated and reused.
+    effect_counts: EffectCountsOut
+    #: The first 100 entities it created, updated or reused, that you can read. `GET /runs/{ref}/effects` pages through all of them.
     effects: list[EffectOut]
+    #: When it changed more than `effects` lists: the `cursor` for `GET /runs/{ref}/effects` that goes on from there.
+    effects_next_cursor: str | None
     environment: str
     error: ErrorOut | None
     #: The files its file params name, by ID, that you can read.
@@ -1647,4 +1688,4 @@ class WorkerRegistrationOut(TypedDict):
     workers: int
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']
