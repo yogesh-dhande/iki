@@ -100,6 +100,32 @@ cosign verify ghcr.io/$OWNER/charts/iki:1.0.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+## Admitting only signed images
+
+Container-tier runs run plugins' images in the deployment's cluster
+([ADR 0063](adr/0063-the-cluster-admits-only-images-iki-signed-or-the-deployment-approved.md)).
+With `containerTier.imagePolicy` and Sigstore's
+[policy-controller](https://docs.sigstore.dev/policy-controller/overview/),
+the cluster starts Iki's run pods only with images that one of these
+signed:
+
+- Iki's release workflow: the worker binary each pod copies in comes from
+  Iki's worker image.
+- The deployment's own build: the config template's CI signs each image
+  `iki deploy build --images` lists, the environments its compute binds.
+  The images live in registries it can't write to, such as Docker Hub or a
+  vendor's, so it signs them into a package of its own
+  (`ghcr.io/<owner>/iki-<deployment>-approvals`).
+
+Any other pod in the runs' namespace is refused. To check what a
+deployment approved:
+
+```console
+COSIGN_REPOSITORY=ghcr.io/acme/iki-production-approvals cosign verify $IMAGE \
+  --certificate-identity https://github.com/acme/iki-config/.github/workflows/build.yml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## Dependency policy (CI)
 
 | Check                   | Tool                                                       | Fails on                                                      |

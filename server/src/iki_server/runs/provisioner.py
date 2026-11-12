@@ -32,7 +32,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, TypeGuard
 
 import structlog
 from django.conf import settings
@@ -100,7 +100,9 @@ LIST_LAG = timedelta(seconds=60)
 IMAGE_TROUBLE = {"ErrImagePull", "ImagePullBackOff", "InvalidImageName", "ErrImageNeverPull"}
 #: And that it can't start for some other reason that won't go away by itself.
 START_TROUBLE = {"CreateContainerConfigError", "CreateContainerError", "RunContainerError"}
-FAILED_TO_START = ("image_unavailable", "never_started", "failed")
+FAILED_TO_START = ("image_unavailable", "refused", "never_started", "failed")
+#: Reasons no pod for an environment's runs can start until someone fixes something.
+HOPELESS = ("image_unavailable", "refused")
 
 
 def run_pods() -> RunPods:
@@ -366,7 +368,14 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         )
     except (KubernetesError, OSError) as error:
         logger.warning("launch_failed", launch=str(launch.pk), error=str(error))
-        launches.end(launch, "failed", f"Kubernetes didn't start it: {error}")
+        if refused(error):
+            # The cluster's admission policy said no: its image isn't signed as it asks,
+            # say (ADR 0063). It will say no again until someone changes something.
+            message = _clip(f"The cluster refused to start it: {error.message}")
+            launches.end(launch, "refused", message)
+            _give_up_if_hopeless(launch, "refused", message, timezone.now())
+        else:
+            launches.end(launch, "failed", f"Kubernetes didn't start it: {error}")
         return False
     logger.info(
         "launched",
@@ -376,6 +385,17 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         namespace=namespace,
     )
     return True
+
+
+def refused(error: Exception) -> TypeGuard[KubernetesError]:
+    """Whether Kubernetes refused an object because an admission webhook, such as an image
+    signature policy, denied it."""
+    return (
+        isinstance(error, KubernetesError)
+        and error.status in (400, 403)
+        and "admission webhook" in error.message
+        and "denied the request" in error.message
+    )
 
 
 # --- Reconciling -----------------------------------------------------------------------------
@@ -507,7 +527,7 @@ def _reconcile_one(
             launches.end(launch, problem.reason, problem.message)
             _delete(cluster, launch.namespace, launch.name)
             if problem.reason == "image_unavailable":
-                _give_up_if_hopeless(launch, problem.message, now)
+                _give_up_if_hopeless(launch, problem.reason, problem.message, now)
             return 1
     if launch.state == LaunchState.STARTING and launch.expires_at <= now:
         message = problem.message if problem is not None else "It didn't start in time."
@@ -527,20 +547,28 @@ def _delete(cluster: Cluster, namespace: str, name: str) -> None:
         logger.warning("delete_failed", namespace=namespace, job=name, error=str(error))
 
 
-def _give_up_if_hopeless(launch: Launch, message: str, now: datetime) -> None:
-    """Fails the environment's queued runs once its image has failed again and again:
-    no pod for them can start until someone fixes it."""
+def _give_up_if_hopeless(launch: Launch, reason: str, message: str, now: datetime) -> None:
+    """Fails the environment's queued runs once its image has failed, or the cluster has
+    refused its pods, again and again: none can start until someone fixes it."""
     failures = Launch.objects.filter(
         environment=launch.environment,
         plugin_sha=launch.plugin_sha,
-        ended_reason="image_unavailable",
+        ended_reason=reason,
         ended_at__gt=now - FAILURE_WINDOW,
     ).count()
     if failures < GIVE_UP_AFTER:
         return
+    check = (
+        f"that the deployment's build approved `{launch.image}` (it signs each image "
+        "`iki deploy build --images` lists), and that the cluster's admission policy "
+        "admits it"
+        if reason == "refused"
+        else f"that `{launch.image}` exists and that the cluster may pull it"
+    )
+    # What to check comes first: what Kubernetes said can be long.
     text = (
-        f"No machine could start for it, {failures} times. {message} An administrator "
-        f"can check that `{launch.image}` exists and that the cluster may pull it."
+        f"No machine could start for it, {failures} times. An administrator can check "
+        f"{check}. {message}"
     )
     with transaction.atomic():
         for job in Job.objects.select_for_update(skip_locked=True).filter(
@@ -551,7 +579,9 @@ def _give_up_if_hopeless(launch: Launch, message: str, now: datetime) -> None:
             packed_into__isnull=True,
         ):
             queue.fail_queued(job, "machine_unavailable", _clip(text))
-    logger.warning("environment_unavailable", environment=launch.environment, image=launch.image)
+    logger.warning(
+        "environment_unavailable", environment=launch.environment, image=launch.image, reason=reason
+    )
 
 
 def waiting(environments: Iterable[str]) -> dict[str, str]:

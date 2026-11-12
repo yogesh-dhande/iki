@@ -55,6 +55,7 @@ class KubernetesError(Exception):
     def __init__(self, status: int, message: str) -> None:
         super().__init__(f"Kubernetes said {status}: {message}")
         self.status = status
+        self.message = message
 
 
 class Cluster(Protocol):

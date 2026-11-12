@@ -1,0 +1,69 @@
+{{- if and .Values.containerTier.enabled .Values.containerTier.imagePolicy.enabled }}
+{{- $p := .Values.containerTier.imagePolicy }}
+{{- $namespaces := include "iki.runNamespaces" . | fromJsonArray }}
+{{- if not (.Capabilities.APIVersions.Has "policy.sigstore.dev/v1beta1/ClusterImagePolicy") }}
+{{- fail "containerTier.imagePolicy needs Sigstore's policy-controller in the cluster (its ClusterImagePolicy, policy.sigstore.dev/v1beta1)" }}
+{{- end }}
+{{- $approvals := required "containerTier.imagePolicy.approvals.repository is required: where the deployment's build signs the images runs use" $p.approvals.repository }}
+{{- if not (or $p.approvals.subject $p.approvals.subjectRegExp) }}
+{{- fail "containerTier.imagePolicy.approvals needs subject (or subjectRegExp): the deployment build's identity" }}
+{{- end }}
+{{- range $namespaces }}
+{{- $found := lookup "v1" "Namespace" "" . }}
+{{- if and $found (ne (dig "metadata" "labels" "policy.sigstore.dev/include" "" $found) "true") }}
+{{- fail (printf "namespace %s needs the label policy.sigstore.dev/include=true, or its pods' images aren't checked" .) }}
+{{- end }}
+{{- end }}
+# Run pods start only with images Iki's release workflow signed (the worker
+# copied into each) or the deployment's build approved (ADR 0063). Within a
+# policy, either authority admits an image. In a namespace that opts in, a pod
+# no policy matches is refused, so nothing else runs beside them.
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: {{ include "iki.fullname" . }}-runs
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+spec:
+  images:
+    - glob: "**"
+  match:
+    - group: batch
+      version: v1
+      resource: jobs
+      selector:
+        matchLabels: { app.kubernetes.io/managed-by: iki-provisioner }
+    - version: v1
+      resource: pods
+      selector:
+        matchLabels: { app.kubernetes.io/managed-by: iki-provisioner }
+  authorities:
+    - name: iki
+      keyless:
+        url: {{ $p.fulcioUrl | quote }}
+        identities:
+          - issuer: {{ $p.iki.issuer | quote }}
+            subjectRegExp: {{ $p.iki.subjectRegExp | quote }}
+      ctlog:
+        url: {{ $p.rekorUrl | quote }}
+    - name: approved
+      keyless:
+        url: {{ $p.fulcioUrl | quote }}
+        identities:
+          - issuer: {{ $p.approvals.issuer | quote }}
+            {{- if $p.approvals.subject }}
+            subject: {{ $p.approvals.subject | quote }}
+            {{- else }}
+            subjectRegExp: {{ $p.approvals.subjectRegExp | quote }}
+            {{- end }}
+      source:
+        - oci: {{ $approvals | quote }}
+          {{- with $p.approvals.signaturePullSecrets }}
+          signaturePullSecrets:
+            {{- range . }}
+            - name: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+      ctlog:
+        url: {{ $p.rekorUrl | quote }}
+{{- end }}

@@ -71,6 +71,16 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         ),
     )
     build.add_argument(
+        "--images",
+        type=Path,
+        metavar="FILE",
+        help=(
+            "Also write the images the deployment's runs use, one per line, pinned by digest: "
+            "those of environments it binds to container-tier templates. Its build signs "
+            "each, so the cluster admits them (ADR 0063)."
+        ),
+    )
+    build.add_argument(
         "--environments-dir",
         default=workers.ENVIRONMENTS,
         metavar="DIRECTORY",
@@ -183,6 +193,11 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
             if not _replace_workers(bundle, args.workers, err):
                 return 1
             out.write(f"Wrote what workers need to {args.workers}.\n")
+        if args.images is not None:
+            listed = run_images([f.plugin for f in fetched if f.plugin is not None], compute)
+            args.images.parent.mkdir(parents=True, exist_ok=True)
+            args.images.write_text("".join(f"{image}\n" for image in listed), "utf-8")
+            out.write(f"Wrote the {len(listed)} image(s) runs use to {args.images}.\n")
     summary = ", ".join(f"{f.entry.name} {f.plugin.version}" for f in fetched if f.plugin)
     out.write(f"Built {args.output}: {summary or 'no plugins besides core'}.\n")
     return 0
@@ -273,6 +288,23 @@ def _compute(lock: Lock, fetched: list[_Fetched], err: TextIO) -> compute_spec.C
     if result.problems:
         write_problems(err, result.problems, lock.directory, {str(file): file})
     return result.compute if result.ok else None
+
+
+def run_images(plugins: Sequence[Plugin], compute: compute_spec.Compute) -> list[str]:
+    """The images runs use: each environment's that the deployment binds to a template that
+    starts machines in its image, sorted and once each."""
+    found = set()
+    for plugin in plugins:
+        for environment in plugin.environments.values():
+            binding = compute.bindings.get(f"{plugin.name}.{environment.name}")
+            if environment.image is None or binding is None:
+                continue
+            if any(
+                name in compute.templates and compute.templates[name].tier == "container"
+                for name, _ in binding.templates
+            ):
+                found.add(environment.image)
+    return sorted(found)
 
 
 #: In ``iki_installed_plugins``: each pinned plugin's code, for workers to fetch (ADR 0059).

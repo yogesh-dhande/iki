@@ -26,12 +26,15 @@ REQUIRED: dict[str, Any] = {
 Manifest = dict[str, Any]
 
 
-def render(values: dict[str, Any] | None = None, *, ok: bool = True) -> list[Manifest] | str:
+def render(
+    values: dict[str, Any] | None = None, *, ok: bool = True, api_versions: tuple[str, ...] = ()
+) -> list[Manifest] | str:
     helm = shutil.which("helm")
     assert helm, "helm is required for chart tests (brew install helm)"
     values_yaml = yaml.safe_dump({**REQUIRED, **(values or {})})
+    apis = [arg for api in api_versions for arg in ("--api-versions", api)]
     result = subprocess.run(  # noqa: S603 - fixed argv
-        [helm, "template", "iki", str(CHART), "--namespace", "iki", "-f", "-"],
+        [helm, "template", "iki", str(CHART), "--namespace", "iki", "-f", "-", *apis],
         input=values_yaml,
         capture_output=True,
         text=True,
@@ -1096,3 +1099,88 @@ def test_runs_reach_only_the_server_storage_and_the_egress_proxy() -> None:
     assert (
         kube["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "provisioner"
     )
+
+
+POLICY_API = "policy.sigstore.dev/v1beta1/ClusterImagePolicy"
+APPROVED = {
+    "repository": "ghcr.io/acme/iki-production-approvals",
+    "subject": "https://github.com/acme/iki-config/.github/workflows/build.yml@refs/heads/main",
+}
+
+
+def with_policy(**policy: Any) -> dict[str, Any]:
+    return {
+        "containerTier": {
+            **CONTAINERS["containerTier"],
+            "imagePolicy": {"enabled": True, "approvals": APPROVED, **policy},
+        }
+    }
+
+
+def test_run_pods_admit_only_images_iki_signed_or_the_build_approved() -> None:
+    docs = render(with_policy(), api_versions=(POLICY_API,))
+    assert isinstance(docs, list)
+    (policy,) = by_kind(docs, "ClusterImagePolicy")
+    assert policy["apiVersion"] == "policy.sigstore.dev/v1beta1"
+    spec = policy["spec"]
+    assert spec["images"] == [{"glob": "**"}]
+    # It checks Iki's run pods, and Jobs that make them, wherever they are.
+    managed = {"matchLabels": {"app.kubernetes.io/managed-by": "iki-provisioner"}}
+    assert spec["match"] == [
+        {"group": "batch", "version": "v1", "resource": "jobs", "selector": managed},
+        {"version": "v1", "resource": "pods", "selector": managed},
+    ]
+    iki, approved = spec["authorities"]
+    assert iki["keyless"]["identities"] == [
+        {
+            "issuer": "https://token.actions.githubusercontent.com",
+            "subjectRegExp": (
+                r"^https://github\.com/yogesh-dhande/iki/\.github/workflows/publish\.yml@refs/tags/v"
+            ),
+        }
+    ]
+    assert "source" not in iki
+    assert approved["keyless"]["identities"] == [
+        {"issuer": "https://token.actions.githubusercontent.com", "subject": APPROVED["subject"]}
+    ]
+    assert approved["source"] == [{"oci": APPROVED["repository"]}]
+    for authority in (iki, approved):
+        assert authority["keyless"]["url"] == "https://fulcio.sigstore.dev"
+        assert authority["ctlog"] == {"url": "https://rekor.sigstore.dev"}
+    # The provisioner's Jobs carry the label it matches.
+    from iki_server.runs.kubernetes import MANAGED
+
+    assert MANAGED["app.kubernetes.io/managed-by"] == "iki-provisioner"
+
+
+def test_the_image_policy_is_off_unless_turned_on() -> None:
+    assert not by_kind(manifests(CONTAINERS), "ClusterImagePolicy")
+
+
+@pytest.mark.parametrize(
+    ("values", "api_versions", "message"),
+    [
+        (with_policy(), (), "needs Sigstore's policy-controller"),
+        (
+            with_policy(approvals={"repository": ""}),
+            (POLICY_API,),
+            "approvals.repository is required",
+        ),
+        (
+            with_policy(approvals={"repository": APPROVED["repository"]}),
+            (POLICY_API,),
+            "needs subject (or subjectRegExp)",
+        ),
+        (
+            with_policy(approvals={**APPROVED, "repository": "not a repository"}),
+            (POLICY_API,),
+            "repository",
+        ),
+    ],
+)
+def test_the_image_policy_needs_its_controller_and_the_builds_identity(
+    values: dict[str, Any], api_versions: tuple[str, ...], message: str
+) -> None:
+    error = render(values, ok=False, api_versions=api_versions)
+    assert isinstance(error, str)
+    assert message in error

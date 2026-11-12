@@ -87,7 +87,12 @@ and your compute admins to review changes, with `CODEOWNERS` if you use it.
 - Protect `main`, and require the build to pass and a review, from the
   plugin's owners for its settings files if you use `CODEOWNERS`.
 - In each cluster, admit only images signed by this repository's workflow
-  (for example with Sigstore's policy-controller or Kyverno), and Iki's.
+  and Iki's (for example with Sigstore's policy-controller or Kyverno). For
+  the plugins' images that container-tier runs use, the build approves each
+  by signing it into `ghcr.io/<owner>/iki-<deployment>-approvals`, and
+  `containerTier.imagePolicy` in the chart admits only those in the runs'
+  namespace, with policy-controller
+  ([ADR 0063](../../docs/adr/0063-the-cluster-admits-only-images-iki-signed-or-the-deployment-approved.md)).
 - Point Argo CD or Flux at each deployment: the Iki chart at the version in
   `iki.yaml`, with `values.yaml` and `image.yaml` as value files.
 - Once Iki is up, a Compute admin makes a backend-tier registration token

@@ -426,7 +426,8 @@ class Launch(models.Model):
     #: What it's doing or why it ended, for people: "Waiting for a node with 1 GPU", say.
     message = models.CharField(max_length=500, blank=True, default="")
     #: Why it ended, for code: ``finished``, ``image_unavailable``, ``never_started``,
-    #: ``gone``, ``removed``, ``failed``, ``idle`` or ``replaced``.
+    #: ``gone``, ``removed``, ``failed``, ``refused`` (by the cluster's admission policy),
+    #: ``idle`` or ``replaced``.
     ended_reason = models.CharField(max_length=32, blank=True, default="")
     created_at = models.DateTimeField(db_default=Now())
     #: Its token works until then, or until its worker registers with it.

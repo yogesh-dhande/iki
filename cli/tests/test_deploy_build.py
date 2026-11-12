@@ -427,3 +427,49 @@ def test_a_plugin_with_a_symbolic_link_is_refused(tmp_path: Path) -> None:
     first = workers.bundle(plugin, tmp_path / "a.tar.gz")
     (plugin / "plugin.yaml").touch()  # a new time changes nothing
     assert workers.bundle(plugin, tmp_path / "b.tar.gz") == first
+
+
+def test_the_images_runs_use_are_those_bound_to_container_templates(tmp_path: Path) -> None:
+    from iki_cli.deploy import run_images
+    from iki_spec import compute as compute_spec
+    from iki_spec.validate import load_plugin
+
+    plugins = []
+    for name, deps in {
+        "dna": [],
+        "protein": ["dna"],
+        "structure_prediction": ["protein", "dna"],
+    }.items():
+        loaded = load_plugin(PLUGINS / name, dependencies=[PLUGINS / d for d in deps])
+        assert loaded.plugin is not None
+        plugins.append(loaded.plugin)
+    file = tmp_path / "compute.yaml"
+    file.write_text(
+        "apiVersion: iki/v1\nkind: ComputeTemplate\nname: gpu\nprovisioner: k8s_job\n"
+        "capacity: { cpu: 4, memory: 16Gi, gpu: { count: 1, memory: 16Gi } }\n"
+    )
+    unbound = compute_spec.load_compute(file, plugins, "compute.yaml").compute
+    assert unbound is not None
+    assert run_images(plugins, unbound) == []
+    file.write_text(
+        file.read_text() + "---\napiVersion: iki/v1\nkind: EnvironmentBinding\n"
+        "environment: structure_prediction.colabfold\ntemplates: [{ template: gpu }]\n"
+    )
+    bound = compute_spec.load_compute(file, plugins, "compute.yaml").compute
+    assert bound is not None
+    assert run_images(plugins, bound) == [
+        "ghcr.io/acme/colabfold@sha256:"
+        "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+    ]
+
+
+@pytest.mark.usefixtures("allow_file")
+def test_the_build_writes_the_images_runs_use(
+    tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = deployment(tmp_path, upstream[1])
+    images = tmp_path / "build" / "images.txt"
+    args = ["deploy", "build", str(directory), "-o", str(tmp_path / "o"), "--images", str(images)]
+    assert main(args) == 0
+    assert images.read_text() == ""
+    assert "Wrote the 0 image(s) runs use" in capsys.readouterr().out

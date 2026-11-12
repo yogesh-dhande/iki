@@ -342,6 +342,36 @@ containerTier:
   serverInCluster: false
   # Secrets in the runs namespace for pulling plugins' images.
   imagePullSecrets: []
+  # Admit only signed images in the runs' namespaces (ADR 0063), with
+  # Sigstore's policy-controller: install it, and label each namespace
+  #   kubectl label namespace iki-runs policy.sigstore.dev/include=true
+  # The chart refuses to install if a namespace it can see lacks the label.
+  # Iki's run pods then start only with images Iki's release workflow signed
+  # (the worker copied into each) or the deployment's build approved (the
+  # plugins' environments'), and any other pod there is refused.
+  imagePolicy:
+    enabled: false
+    # Iki's own images: signed by its release workflow, as docs/supply-chain.md
+    # verifies.
+    iki:
+      issuer: https://token.actions.githubusercontent.com
+      subjectRegExp: '^https://github\.com/yogesh-dhande/iki/\.github/workflows/publish\.yml@refs/tags/v'
+    # The images runs use, approved by the deployment's build: it signs each
+    # one `iki deploy build --images` lists into a repository of its own. The
+    # config template's CI writes these into image.yaml.
+    approvals:
+      # required with imagePolicy, such as ghcr.io/acme/iki-production-approvals.
+      repository: ""
+      issuer: https://token.actions.githubusercontent.com
+      # The build workflow's identity, exactly (subject) or as a pattern.
+      subject: ""
+      subjectRegExp: ""
+      # Secrets in the runs' namespaces for reading a private repository.
+      signaturePullSecrets: []
+    # Sigstore's public signing and transparency services, unless the site
+    # runs its own.
+    fulcioUrl: https://fulcio.sigstore.dev
+    rekorUrl: https://rekor.sigstore.dev
   provisioner:
     resources:
       requests: { cpu: 50m, memory: 192Mi }

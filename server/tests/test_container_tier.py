@@ -594,3 +594,48 @@ def test_warm_pods_are_replaced_once_idle_when_their_template_changes(warm: Worl
     new = Launch.objects.exclude(state=LaunchState.ENDED).get()
     container = cluster.made[("iki-runs", new.name)]["spec"]["template"]["spec"]["containers"][0]
     assert container["resources"]["limits"]["cpu"] == "8000m"
+
+
+# --- Admission (ADR 0063) --------------------------------------------------------------------
+
+DENIED = (
+    'admission webhook "policy.sigstore.dev" denied the request: validation failed: failed '
+    "policy: iki-runs: spec.template.spec.containers[0].image\n" + IMAGE + " signature keyless "
+    "validation failed for authority approved"
+)
+
+
+def test_pods_the_cluster_refuses_fail_their_runs_saying_what_to_check(world: World) -> None:
+    run = queue_run(world)
+    cluster = FakeCluster()
+    cluster.refuse = DENIED
+    assert provisioner.tick(cluster) == (0, 0)
+    launch = Launch.objects.get()
+    assert launch.ended_reason == "refused"
+    assert launch.message.startswith(
+        'The cluster refused to start it: admission webhook "policy.sigstore.dev" denied'
+    )
+    # It waits before trying again, and gives up after the third time.
+    assert provisioner.tick(cluster, later(0.1)) == (0, 0)
+    assert Launch.objects.count() == 1
+    provisioner.tick(cluster, later(1))
+    assert ActionRun.objects.get(pk=run["id"]).status == RunStatus.QUEUED
+    provisioner.tick(cluster, later(3))
+    assert Launch.objects.filter(ended_reason="refused").count() == 3
+    failed = ActionRun.objects.get(pk=run["id"])
+    assert failed.status == RunStatus.FAILED
+    error = failed.error
+    assert error is not None
+    assert error["code"] == "machine_unavailable"
+    assert "No machine could start for it, 3 times." in error["message"]
+    assert "the deployment's build approved `" + IMAGE + "`" in error["message"]
+
+
+def test_other_refusals_back_off_without_failing_runs(world: World) -> None:
+    run = queue_run(world)
+    cluster = FakeCluster()
+    cluster.refuse = 'jobs.batch is forbidden: User "system:serviceaccount:iki:iki" cannot create'
+    for minutes in (0, 1, 3, 7):
+        provisioner.tick(cluster, later(minutes))
+    assert set(Launch.objects.values_list("ended_reason", flat=True)) == {"failed"}
+    assert ActionRun.objects.get(pk=run["id"]).status == RunStatus.QUEUED

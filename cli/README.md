@@ -121,6 +121,7 @@ another version built.
 | `DEPLOYMENT`                   | The deployment's directory, holding `plugins.lock.yaml` (or the lockfile).     |
 | `--output DIRECTORY`           | Where to write the plugins. Replaces an earlier build there, and nothing else. |
 | `--workers DIRECTORY`          | Also write what the deployment's workers need (below).                         |
+| `--images FILE`                | Also list the images its container-tier runs use, for its build to approve.    |
 | `--environments-dir DIRECTORY` | Where the worker image builds environments (default `/opt/iki/envs`).          |
 | `--allow-local`                | Accept `local:` plugins, for development. Servers refuse them unless told to.  |
 | `--cache DIRECTORY`            | Where to keep fetched repositories (default `~/.cache/iki/git`).               |

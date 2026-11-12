@@ -589,6 +589,61 @@
         },
         "provisioner": {
           "type": "object"
+        },
+        "imagePolicy": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "iki": {
+              "type": "object",
+              "properties": {
+                "issuer": {
+                  "type": "string",
+                  "pattern": "^https://.+$"
+                },
+                "subjectRegExp": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "approvals": {
+              "type": "object",
+              "properties": {
+                "repository": {
+                  "type": "string",
+                  "pattern": "^([a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+)?$"
+                },
+                "issuer": {
+                  "type": "string",
+                  "pattern": "^https://.+$"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "subjectRegExp": {
+                  "type": "string"
+                },
+                "signaturePullSecrets": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "fulcioUrl": {
+              "type": "string",
+              "pattern": "^https://.+$"
+            },
+            "rekorUrl": {
+              "type": "string",
+              "pattern": "^https://.+$"
+            }
+          }
         }
       }
     }

@@ -18,3 +18,13 @@ database:
 #   enabled: true
 #   registrationToken:
 #     existingSecret: iki-worker-registration
+# Container-tier runs (ADR 0061, 0062) get pods in a namespace of their own:
+# create it, labelled to enforce PodSecurity "restricted" and for Sigstore's
+# policy-controller (policy.sigstore.dev/include: "true"), then turn them on.
+# The cluster then admits only images Iki or this repository's build signed
+# there (ADR 0063); image.yaml says where its signatures are.
+# containerTier:
+#   enabled: true
+#   namespace: iki-runs
+#   imagePolicy:
+#     enabled: true

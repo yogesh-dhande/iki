@@ -7,3 +7,8 @@ backendWorkers:
   image:
     repository: ghcr.io/acme/iki-staging-worker
     digest: ""
+containerTier:
+  imagePolicy:
+    approvals:
+      repository: ghcr.io/acme/iki-staging-approvals
+      subject: "https://github.com/acme/iki-config/.github/workflows/build.yml@refs/heads/main"
