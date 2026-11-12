@@ -23,21 +23,24 @@ const LEASE_WAIT: u32 = 20;
 
 /// What `IKI_WORKER_STATE` holds: the worker's own token, for the server it's for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Saved {
-    url: String,
-    id: String,
-    token: String,
+pub struct Saved {
+    pub url: String,
+    pub id: String,
+    pub token: String,
+}
+
+/// The saved token, whichever server it's for.
+pub fn load_any(path: &Path) -> Option<Saved> {
+    let text = std::fs::read(path).ok()?;
+    serde_json::from_slice::<Saved>(&text).ok()
 }
 
 fn load(path: &Path, url: &str) -> Option<Saved> {
-    let text = std::fs::read(path).ok()?;
-    serde_json::from_slice::<Saved>(&text)
-        .ok()
-        .filter(|saved| saved.url == url)
+    load_any(path).filter(|saved| saved.url == url)
 }
 
 /// Writes the token where only this user can read it, replacing the file in one step.
-fn save(path: &Path, saved: &Saved) -> std::io::Result<()> {
+pub fn save(path: &Path, saved: &Saved) -> std::io::Result<()> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir)?;
     }
@@ -82,10 +85,13 @@ fn sign_in(config: &Config, plugins: &[PluginCode]) -> Result<(Api, bool), Strin
             Err(error) => return Err(format!("Couldn't reach {}: {error}", config.url)),
         }
     }
-    let registration = config
-        .registration_token
-        .as_deref()
-        .ok_or("The saved token no longer works. Set IKI_REGISTRATION_TOKEN to register again.")?;
+    let registration = config.registration_token.as_deref().ok_or_else(|| {
+        format!(
+            "This worker isn't signed in to {0}. Run iki-worker login {0}, or set \
+             IKI_REGISTRATION_TOKEN to register with a registration token.",
+            config.url
+        )
+    })?;
     let body = RegisterIn {
         capacity: config.capacity.clone(),
         name: config.name.clone(),
@@ -170,7 +176,7 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
             Ok(Some(raw)) => {
                 failures = 0;
                 if job::run(&api, config, &have, &interrupted, &raw) == Ended::Unauthorized {
-                    outcome = Err(revoked());
+                    outcome = Err(revoked(config));
                     break;
                 }
                 if once {
@@ -179,7 +185,7 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
             }
             Ok(None) => failures = 0,
             Err(Error::Unauthorized(_)) => {
-                outcome = Err(revoked());
+                outcome = Err(revoked(config));
                 break;
             }
             Err(error) => {
@@ -203,10 +209,18 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
     outcome
 }
 
-fn revoked() -> String {
-    "The server no longer accepts this worker's token: a Compute admin revoked it. \
-     Register again with a registration token."
-        .to_owned()
+fn revoked(config: &Config) -> String {
+    if config.registration_token.is_some() {
+        "The server no longer accepts this worker's token: a Compute admin revoked it. \
+         Register again with a registration token."
+            .to_owned()
+    } else {
+        format!(
+            "The server no longer accepts this worker's token: it was revoked, or you \
+             revoked the Iki worker app. Run iki-worker login {} to sign in again.",
+            config.url
+        )
+    }
 }
 
 #[cfg(test)]

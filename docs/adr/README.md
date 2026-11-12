@@ -84,3 +84,7 @@ supersedes the old one, and update the old one's status.
 | [0052](0052-imports-file-params-and-origins.md)                   | Imports take files as params, and say where what they make came from                                | Accepted |
 | [0053](0053-runs-reach-the-internet-through-an-egress-proxy.md)   | Runs reach the internet through an egress proxy, and only the hosts their action declares           | Accepted |
 | [0054](0054-run-secrets.md)                                       | Runs get the secrets their action declares, from the deployment's secret manager, one job at a time | Accepted |
+| [0055](0055-batches-and-packing.md)                               | Runs launched together share a batch, and a batchable action packs them into jobs                   | Accepted |
+| [0056](0056-bulk-imports.md)                                      | A run's creates can come from a file, checked in resumable chunks and written all at once           | Accepted |
+| [0057](0057-reuse-reproduce-exactly-and-seeds.md)                 | Identical deterministic runs reuse results; any run can be reproduced exactly                       | Accepted |
+| [0058](0058-workers-on-peoples-computers-sign-in-as-them.md)      | A worker on someone's own computer signs in as them                                                 | Accepted |

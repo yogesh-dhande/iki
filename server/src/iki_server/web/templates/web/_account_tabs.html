@@ -2,5 +2,6 @@
 <nav class="tabs" aria-label="Account">
   <a href="{% url 'notifications:preferences' %}"{% if name == "preferences" %} aria-current="page"{% endif %}>Notifications</a>
   <a href="{% url 'oauth:my_apps' %}"{% if name == "my_apps" %} aria-current="page"{% endif %}>Authorized apps</a>
+  <a href="{% url 'runs:my_workers' %}"{% if name == "my_workers" %} aria-current="page"{% endif %}>Your workers</a>
 </nav>
 {% endwith %}

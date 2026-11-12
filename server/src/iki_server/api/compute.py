@@ -5,7 +5,7 @@ All of it takes the Compute admin role. A registration token's value is
 shown once, when it's made; only a hash is kept.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -38,7 +38,7 @@ from iki_server.runs.queue import HELD
 router = Router(tags=["compute"])
 
 #: A worker not heard from for this long is shown as offline.
-OFFLINE_AFTER = timedelta(minutes=2)
+OFFLINE_AFTER = workers.OFFLINE_AFTER
 
 
 class WorkerRegistrationIn(Schema):

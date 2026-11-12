@@ -15,6 +15,7 @@ Its OpenAPI document is at ``/worker/v1/openapi.json``.
 
 import asyncio
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -26,6 +27,7 @@ from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import HttpBearer
 from pydantic import field_validator
 
+from iki_server.accounts.models import User
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import ANONYMOUS_LIMIT, _limit
 from iki_server.files import services as files
@@ -47,14 +49,29 @@ def _refuse(request: HttpRequest) -> None:
     _limit(request, RateLimiter("worker_anonymous", ANONYMOUS_LIMIT), client_key(request))
 
 
-class RegistrationAuth(HttpBearer):
-    """A registration token, to register with."""
+@dataclass(frozen=True)
+class SignedIn:
+    """Someone who signed a worker in on their own computer (``iki-worker login``)."""
 
-    def authenticate(self, request: HttpRequest, token: str) -> RegistrationToken | None:
-        found = workers.registration_for(f"Bearer {token}")
-        if found is None:
+    person: User
+    access_token: Any
+
+
+class RegistrationAuth(HttpBearer):
+    """A registration token, or the access token ``iki-worker login`` got, to register
+    with."""
+
+    def authenticate(self, request: HttpRequest, token: str) -> RegistrationToken | SignedIn | None:
+        if token.startswith(workers.REGISTRATION_PREFIX):
+            found = workers.registration_for(f"Bearer {token}")
+            if found is None:
+                _refuse(request)
+            return found
+        signed_in = workers.signed_in(token)
+        if signed_in is None:
             _refuse(request)
-        return found
+            return None
+        return SignedIn(*signed_in)
 
 
 class WorkerAuth(HttpBearer):
@@ -218,15 +235,20 @@ class RegisteredOut(Schema):
     summary="Register a worker",
 )
 def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
-    registration = request.auth  # type: ignore[attr-defined]
-    assert isinstance(registration, RegistrationToken)  # noqa: S101 - RegistrationAuth set it
-    worker, token = workers.register(
-        registration,
-        name=payload.name,
-        version=payload.version,
-        capacity=payload.capacity.model_dump(),
-        plugins=_plugins(payload),
-    )
+    """With a registration token for a deployment's workers, or, for a worker on someone's
+    own computer, the access token ``iki-worker login`` got them (which this spends)."""
+    auth = request.auth  # type: ignore[attr-defined]
+    details: dict[str, Any] = {
+        "name": payload.name,
+        "version": payload.version,
+        "capacity": payload.capacity.model_dump(),
+        "plugins": _plugins(payload),
+    }
+    if isinstance(auth, SignedIn):
+        worker, token = workers.register_client(auth.person, auth.access_token, **details)
+    else:
+        assert isinstance(auth, RegistrationToken)  # noqa: S101 - RegistrationAuth set it
+        worker, token = workers.register(auth, **details)
     return Status(
         201,
         {

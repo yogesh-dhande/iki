@@ -2,6 +2,8 @@
 //!
 //! `iki-worker start` registers with `IKI_REGISTRATION_TOKEN` and runs jobs until it's
 //! stopped. Everything else it needs comes from the environment too; see `config`.
+//! On someone's own computer, `iki-worker login <server>` signs it in as them instead
+//! (ADR 0058), and `iki-worker logout` signs it out.
 //! `iki-worker run --local input.json` runs one action's command offline, the same way.
 
 mod api;
@@ -9,6 +11,7 @@ mod config;
 mod files;
 mod job;
 mod local;
+mod login;
 mod logs;
 mod plugins;
 mod say;
@@ -22,6 +25,8 @@ use std::process::ExitCode;
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Start { once: bool },
+    Login { url: String, open_browser: bool },
+    Logout,
     RunLocal(local::Options),
     Version,
     Help,
@@ -34,6 +39,18 @@ fn parse(args: &[String]) -> Command {
         ["start"] => Command::Start { once: false },
         ["start", "--once"] => Command::Start { once: true },
         ["run", rest @ ..] => parse_run(rest),
+        ["login", url] | ["login", url, "--no-browser"] | ["login", "--no-browser", url]
+            if !url.starts_with('-') =>
+        {
+            Command::Login {
+                url: (*url).to_owned(),
+                open_browser: !args.contains(&"--no-browser"),
+            }
+        }
+        ["login", ..] => Command::Unknown(
+            "login needs your Iki's address, such as https://iki.example.com".into(),
+        ),
+        ["logout"] => Command::Logout,
         ["--version" | "-V"] => Command::Version,
         [] | ["--help" | "-h"] => Command::Help,
         [first, ..] => Command::Unknown(format!("unknown argument '{first}'")),
@@ -87,7 +104,11 @@ fn version_line() -> String {
 }
 
 const USAGE: &str = "\
-Usage: iki-worker start [--once]   Lease jobs and run them until stopped (or one job)
+Usage: iki-worker login <server> [--no-browser]
+                                   Sign in on your own computer, to run your client-tier
+                                   runs (opens your browser to confirm a code)
+       iki-worker logout           Sign this computer's worker out
+       iki-worker start [--once]   Lease jobs and run them until stopped (or one job)
        iki-worker run --local <input.json> [--plugin DIR] [--timeout SECONDS]
                                    Run one action's command here, with no server: its
                                    output goes to stdout, what it prints to stderr.
@@ -95,9 +116,11 @@ Usage: iki-worker start [--once]   Lease jobs and run them until stopped (or one
        iki-worker --version
 
 Set in the environment:
-  IKI_URL                  The server, such as https://iki.example.com
-  IKI_REGISTRATION_TOKEN   From Compute settings, to register with
+  IKI_URL                  The server, such as https://iki.example.com (once signed
+                           in with login, the one you signed in to)
+  IKI_REGISTRATION_TOKEN   From Compute settings, to register a deployment's worker with
   IKI_WORKER_STATE         A file to keep the worker's own token in across restarts
+                           (after login, ~/.config/iki/worker.json unless set)
   IKI_PLUGINS_DIR          Each plugin's code, in a directory named for it
   IKI_WORK_DIR             Where jobs run (a temporary directory unless set)
   IKI_WORKER_NAME          How people tell it apart (the host name unless set)
@@ -121,6 +144,12 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Command::Login { url, open_browser } => finish(sign_in(&url, open_browser)),
+        Command::Logout => finish(
+            state_file(&|name| std::env::var(name).ok())
+                .ok_or_else(|| NO_STATE.to_owned())
+                .and_then(|path| login::logout(&path)),
+        ),
         Command::RunLocal(options) => {
             let work_dir = std::env::var_os("IKI_WORK_DIR")
                 .map_or_else(|| std::env::temp_dir().join("iki-worker"), PathBuf::from);
@@ -140,6 +169,40 @@ fn main() -> ExitCode {
             &mut io::stderr(),
             &format!("iki-worker: {arg}\n{USAGE}"),
             ExitCode::from(2),
+        ),
+    }
+}
+
+const NO_STATE: &str = "Set IKI_WORKER_STATE to where the worker's token is kept: there's \
+    no home directory to keep it in.";
+
+/// Where the signed-in worker's token is: `IKI_WORKER_STATE`, or the user's configuration.
+fn state_file(var: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    var("IKI_WORKER_STATE")
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| PathBuf::from(v.trim()))
+        .or_else(|| login::default_state_file(var))
+}
+
+fn sign_in(url: &str, open_browser: bool) -> Result<(), String> {
+    let var = |name: &str| std::env::var(name).ok();
+    let allow_http = var("IKI_ALLOW_HTTP").is_some_and(|v| v.trim() == "1" || v.trim() == "true");
+    login::login(&login::Options {
+        url: config::server_url(url, allow_http)?,
+        state_file: state_file(&var).ok_or_else(|| NO_STATE.to_owned())?,
+        name: config::name(&var),
+        capacity: config::capacity(&var)?,
+        open_browser,
+    })
+}
+
+fn finish(done: Result<(), String>) -> ExitCode {
+    match done {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => write_or_fail(
+            &mut io::stderr(),
+            &format!("iki-worker: {message}"),
+            ExitCode::FAILURE,
         ),
     }
 }
@@ -174,6 +237,36 @@ mod tests {
             parse(&args(&["start", "--twice"])),
             Command::Unknown("unknown argument 'start'".into())
         );
+    }
+
+    #[test]
+    fn parses_login_and_logout() {
+        let url = "https://iki.example.com";
+        assert_eq!(
+            parse(&args(&["login", url])),
+            Command::Login {
+                url: url.into(),
+                open_browser: true
+            }
+        );
+        for order in [
+            ["login", url, "--no-browser"],
+            ["login", "--no-browser", url],
+        ] {
+            assert_eq!(
+                parse(&args(&order)),
+                Command::Login {
+                    url: url.into(),
+                    open_browser: false
+                }
+            );
+        }
+        assert!(matches!(parse(&args(&["login"])), Command::Unknown(_)));
+        assert!(matches!(
+            parse(&args(&["login", "--twice"])),
+            Command::Unknown(_)
+        ));
+        assert_eq!(parse(&args(&["logout"])), Command::Logout);
     }
 
     #[test]

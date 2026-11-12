@@ -44,3 +44,14 @@ def test_relative_links_go_to_files_that_are_there() -> None:
     assert len(files) > 50  # ADRs, READMEs, the spec
     problems = {str(p.relative_to(ROOT)): links for p in files if (links := broken(p))}
     assert problems == {}
+
+
+def test_every_adr_is_in_the_index() -> None:
+    adrs = ROOT / "docs" / "adr"
+    index = (adrs / "README.md").read_text(encoding="utf-8")
+    missing = [
+        p.name
+        for p in sorted(adrs.glob("[0-9][0-9][0-9][0-9]-*.md"))
+        if p.name != "0000-template.md" and f"]({p.name})" not in index
+    ]
+    assert not missing, f"Add these to docs/adr/README.md: {missing}"

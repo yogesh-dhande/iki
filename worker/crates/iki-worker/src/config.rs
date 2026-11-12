@@ -30,6 +30,11 @@ pub struct Config {
     pub allow_http: bool,
 }
 
+/// What to do when the worker has no way to sign in.
+const NOT_SIGNED_IN: &str = "Run iki-worker login https://iki.example.com (your Iki's \
+    address) to sign in on this computer. A deployment's workers set IKI_URL and \
+    IKI_REGISTRATION_TOKEN, to a registration token from Compute settings, instead.";
+
 /// What `IKI_URL` must look like, in words for whoever set it.
 const URL_RULE: &str = "IKI_URL must be the server's https:// address, such as \
     https://iki.example.com (plain http:// is allowed only for localhost).";
@@ -104,6 +109,65 @@ fn hostname() -> String {
         .into_owned()
 }
 
+fn reader(var: &dyn Fn(&str) -> Option<String>) -> impl Fn(&str) -> Option<String> + '_ {
+    move |name: &str| {
+        var(name)
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    }
+}
+
+/// How people tell the worker apart: `IKI_WORKER_NAME`, or the host name.
+pub fn name(var: &dyn Fn(&str) -> Option<String>) -> String {
+    reader(var)("IKI_WORKER_NAME").unwrap_or_else(hostname)
+}
+
+/// What the worker can give one job, from `IKI_WORKER_CPU` and the rest, or detected.
+pub fn capacity(var: &dyn Fn(&str) -> Option<String>) -> Result<Capacity, String> {
+    let get = reader(var);
+    let cpu = match get("IKI_WORKER_CPU") {
+        Some(raw) => raw
+            .parse::<f64>()
+            .ok()
+            .filter(|cpu| cpu.is_finite() && *cpu > 0.0)
+            .ok_or("IKI_WORKER_CPU must be a number of cores above 0, such as 4 or 0.5.")?,
+        None => std::thread::available_parallelism().map_or(1.0, |n| {
+            f64::from(u32::try_from(n.get()).unwrap_or(u32::MAX))
+        }),
+    };
+    let memory = match get("IKI_WORKER_MEMORY") {
+        Some(raw) => bytes(&raw)
+            .filter(|m| *m > 0)
+            .ok_or("IKI_WORKER_MEMORY must be bytes, such as 16Gi or 512Mi.")?,
+        None => detected_memory()
+            .ok_or("Set IKI_WORKER_MEMORY to the memory jobs may use, such as 16Gi.")?,
+    };
+    let optional_bytes = |name: &str| -> Result<Option<i64>, String> {
+        get(name)
+            .map(|raw| {
+                bytes(&raw)
+                    .filter(|b| *b >= 0)
+                    .ok_or(format!("{name} must be bytes, such as 80Gi."))
+            })
+            .transpose()
+    };
+    let gpu_count = get("IKI_WORKER_GPUS")
+        .map(|raw| {
+            raw.parse::<i64>()
+                .ok()
+                .filter(|n| *n >= 0)
+                .ok_or("IKI_WORKER_GPUS must be a whole number, such as 1.")
+        })
+        .transpose()?;
+    Ok(Capacity {
+        cpu,
+        memory,
+        gpu_count,
+        gpu_memory: optional_bytes("IKI_WORKER_GPU_MEMORY")?,
+        scratch_disk: optional_bytes("IKI_WORKER_SCRATCH_DISK")?,
+    })
+}
+
 impl Config {
     /// Reads the configuration through `var`, which is `std::env::var` outside tests.
     pub fn from_env(var: &dyn Fn(&str) -> Option<String>) -> Result<Self, String> {
@@ -114,7 +178,6 @@ impl Config {
         };
         let flag = |name: &str| get(name).is_some_and(|v| v == "1" || v == "true");
         let allow_http = flag("IKI_ALLOW_HTTP");
-        let url = server_url(&get("IKI_URL").ok_or(URL_RULE)?, allow_http)?;
         let registration_token = get("IKI_REGISTRATION_TOKEN");
         // It goes in a header: anything else in the value (a log line that was captured
         // with it, say) would fail every call, so say so now.
@@ -128,67 +191,37 @@ impl Config {
                     .to_owned(),
             );
         }
-        let state_file = get("IKI_WORKER_STATE").map(PathBuf::from);
-        if registration_token.is_none() && state_file.is_none() {
-            return Err(
-                "Set IKI_REGISTRATION_TOKEN to a registration token from Compute \
-                 settings (and IKI_WORKER_STATE to keep the worker's own token across restarts)."
-                    .to_owned(),
-            );
+        // A worker someone signed in on their computer keeps its token where `login` put it.
+        let state_file = get("IKI_WORKER_STATE").map(PathBuf::from).or_else(|| {
+            registration_token
+                .is_none()
+                .then(|| crate::login::default_state_file(var))
+                .flatten()
+        });
+        let signed_in = state_file
+            .as_deref()
+            .and_then(crate::worker::load_any)
+            .map(|saved| saved.url);
+        if registration_token.is_none() && signed_in.is_none() {
+            return Err(NOT_SIGNED_IN.to_owned());
         }
+        let url = match get("IKI_URL") {
+            Some(raw) => server_url(&raw, allow_http)?,
+            None => server_url(&signed_in.ok_or(URL_RULE)?, allow_http)?,
+        };
         let plugins_dir = get("IKI_PLUGINS_DIR")
             .map(PathBuf::from)
             .ok_or("Set IKI_PLUGINS_DIR to the directory holding each plugin's code, by name.")?;
         let work_dir = get("IKI_WORK_DIR")
             .map_or_else(|| std::env::temp_dir().join("iki-worker"), PathBuf::from);
-        let cpu = match get("IKI_WORKER_CPU") {
-            Some(raw) => raw
-                .parse::<f64>()
-                .ok()
-                .filter(|cpu| cpu.is_finite() && *cpu > 0.0)
-                .ok_or("IKI_WORKER_CPU must be a number of cores above 0, such as 4 or 0.5.")?,
-            None => std::thread::available_parallelism().map_or(1.0, |n| {
-                f64::from(u32::try_from(n.get()).unwrap_or(u32::MAX))
-            }),
-        };
-        let memory = match get("IKI_WORKER_MEMORY") {
-            Some(raw) => bytes(&raw)
-                .filter(|m| *m > 0)
-                .ok_or("IKI_WORKER_MEMORY must be bytes, such as 16Gi or 512Mi.")?,
-            None => detected_memory()
-                .ok_or("Set IKI_WORKER_MEMORY to the memory jobs may use, such as 16Gi.")?,
-        };
-        let optional_bytes = |name: &str| -> Result<Option<i64>, String> {
-            get(name)
-                .map(|raw| {
-                    bytes(&raw)
-                        .filter(|b| *b >= 0)
-                        .ok_or(format!("{name} must be bytes, such as 80Gi."))
-                })
-                .transpose()
-        };
-        let gpu_count = get("IKI_WORKER_GPUS")
-            .map(|raw| {
-                raw.parse::<i64>()
-                    .ok()
-                    .filter(|n| *n >= 0)
-                    .ok_or("IKI_WORKER_GPUS must be a whole number, such as 1.")
-            })
-            .transpose()?;
         Ok(Self {
             url,
             registration_token,
             state_file,
-            name: get("IKI_WORKER_NAME").unwrap_or_else(hostname),
+            name: name(var),
             work_dir,
             plugins_dir,
-            capacity: Capacity {
-                cpu,
-                memory,
-                gpu_count,
-                gpu_memory: optional_bytes("IKI_WORKER_GPU_MEMORY")?,
-                scratch_disk: optional_bytes("IKI_WORKER_SCRATCH_DISK")?,
-            },
+            capacity: capacity(var)?,
             keep_job_dirs: flag("IKI_KEEP_JOB_DIRS"),
             allow_http,
         })

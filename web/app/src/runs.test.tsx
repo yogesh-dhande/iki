@@ -441,6 +441,38 @@ describe("a run's page", () => {
     expect(await screen.findByText("Nothing printed yet.")).toBeInTheDocument();
   });
 
+  it("says a client-tier run waits for a worker on its requester's computer", async () => {
+    const queued = { state: "queued", worker: null, started_at: null, progress: null } as const;
+    onRun(
+      () => run({ status: "queued", started_at: null, tier: "client", needs_worker: "yours" }),
+      () => [attempt({ ...queued, log_size: 0 })],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const yours = screen.getByText(/Waiting for a worker on your computer/).closest(".alert");
+    expect(yours).toHaveTextContent("Start iki-worker, or sign one in from Your workers.");
+    expect(screen.getByRole("link", { name: "Your workers" })).toHaveAttribute(
+      "href",
+      "/account/workers/",
+    );
+  });
+
+  it("names whose computer a run waits for when it isn't yours", async () => {
+    onRun(
+      () => run({ status: "queued", started_at: null, tier: "client", needs_worker: "theirs" }),
+      () => [
+        attempt({ state: "queued", worker: null, started_at: null, progress: null, log_size: 0 }),
+      ],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const name = run().requested_by.name;
+    expect(
+      screen.getByText(new RegExp(`Waiting for a worker on ${name}’s computer`)),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Your workers" })).not.toBeInTheDocument();
+  });
+
   it("cancels, with a reason for the record", async () => {
     onRun(run, () => [attempt()]);
     withLog(() => "");

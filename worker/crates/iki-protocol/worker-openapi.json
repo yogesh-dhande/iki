@@ -1274,6 +1274,7 @@
     },
     "/worker/v1/register": {
       "post": {
+        "description": "With a registration token for a deployment's workers, or, for a worker on someone's\nown computer, the access token ``iki-worker login`` got them (which this spends).",
         "operationId": "iki_server_api_worker_register",
         "parameters": [],
         "requestBody": {

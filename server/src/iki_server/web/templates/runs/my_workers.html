@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Your workers{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Your workers</h1></div>
+{% include "web/_account_tabs.html" %}
+<p class="muted">Workers on your own computers run the actions you launch on the client tier, using your computer’s files and hardware. Each runs only your runs, in the projects you allowed it. Revoking one signs it out at once.</p>
+{% if workers %}
+<ul class="rows">
+  {% for worker, online in workers %}
+  <li class="row">
+    <div class="row-main">
+      <span class="row-title">{{ worker.name }}</span>
+      <span class="row-meta">{% if online %}Online{% else %}Offline{% endif %} · iki-worker {{ worker.version }} · signed in <time datetime="{{ worker.registered_at|date:'c' }}">{{ worker.registered_at|date:"j M Y" }}</time> · last seen <time datetime="{{ worker.last_seen_at|date:'c' }}">{{ worker.last_seen_at|date:"j M Y, H:i" }}</time>{% if worker.held_jobs %} · running {{ worker.held_jobs }} job{{ worker.held_jobs|pluralize }}{% endif %}</span>
+    </div>
+    <form class="row-actions" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="worker" value="{{ worker.pk }}">
+      <button class="button button-quiet button-danger" type="submit" name="action" value="revoke">Revoke</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">You haven’t signed in a worker yet.</p>
+{% endif %}
+<h2>Sign in a worker</h2>
+<p>Install <code>iki-worker</code> on your computer, then run:</p>
+<pre><code>iki-worker login {{ server_url }}
+iki-worker start</code></pre>
+<p class="muted">It opens this site to confirm a code, and asks which projects it may run your actions in. Leave it running to take your client-tier runs; <code>iki-worker logout</code> signs it out.</p>
+{% endblock %}

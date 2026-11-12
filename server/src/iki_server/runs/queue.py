@@ -40,7 +40,7 @@ from django.utils import timezone
 
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
-from iki_server.runs import live, quotas, secrets
+from iki_server.runs import live, quotas, secrets, workers
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -189,6 +189,11 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
     )
     if worker.tier == "client":
         candidates = candidates.filter(owner=worker.owner_id)
+        allowed = workers.allowed_projects(worker)
+        if allowed is not None:
+            if not allowed:
+                return None
+            candidates = candidates.filter(project__in=allowed)
     with transaction.atomic():
         stop = quotas.blocked(worker.tier, lock=True)
         if stop.organization:

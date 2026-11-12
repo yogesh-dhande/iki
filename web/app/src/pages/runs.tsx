@@ -147,6 +147,26 @@ const STATUS_CHOICES = [
   ...Object.entries(STATUS).map(([value, label]) => ({ value, label })),
 ] as const;
 
+/** A client-tier run runs on its requester's own computer, so it waits for their worker. */
+function NeedsWorker({ whose, run }: { whose: "yours" | "theirs"; run: Run }) {
+  return (
+    <div className="alert alert-info" role="status">
+      {whose === "yours" ? (
+        <p>
+          Waiting for a worker on your computer: this action runs on the client tier, and none of
+          yours is online. Start <code>iki-worker</code>, or sign one in from{" "}
+          <a href="/account/workers/">Your workers</a>.
+        </p>
+      ) : (
+        <p>
+          Waiting for a worker on {run.requested_by.name}’s computer: this action runs on the client
+          tier, and none of theirs is online.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** While some run listed is going, the list reads itself again this often. */
 export const LIST_REFRESH_MS = 10_000;
 
@@ -1015,6 +1035,7 @@ export function RunPage() {
           <p>Waiting to start: {run.waiting}</p>
         </div>
       ) : null}
+      {run.needs_worker ? <NeedsWorker whose={run.needs_worker} run={run} /> : null}
       {run.reused ? <ReusedNote run={run} /> : null}
       {run.reproduces || run.reproduction ? <ReproductionNote run={run} /> : null}
       {run.error ? (

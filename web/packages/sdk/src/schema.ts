@@ -4533,6 +4533,11 @@ export interface components {
                 [key: string]: number;
             };
             /**
+             * Needs Worker
+             * @description A queued client-tier run whose requester has no worker online on their own computer to run it (ADR 0058): `yours` when that's you, else `theirs`.
+             */
+            needs_worker: ("yours" | "theirs") | null;
+            /**
              * Network
              * @description The hosts it may reach, as its action declared them when it was launched.
              */

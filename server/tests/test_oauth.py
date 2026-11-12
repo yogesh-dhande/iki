@@ -555,8 +555,8 @@ def test_tokens_are_stored_hashed(world: World) -> None:
 # --- Device flow (the CLI) -----------------------------------------------------
 
 
-def start_device(scope: str = "read write") -> dict[str, Any]:
-    response = form_post("/oauth/device-authorization/", {"client_id": "iki-cli", "scope": scope})
+def start_device(scope: str = "read write", client_id: str = "iki-cli") -> dict[str, Any]:
+    response = form_post("/oauth/device-authorization/", {"client_id": client_id, "scope": scope})
     assert response.status_code == 200, response.content
     body: dict[str, Any] = response.json()
     return body

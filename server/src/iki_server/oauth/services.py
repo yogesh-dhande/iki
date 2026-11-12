@@ -20,7 +20,7 @@ from iki_server.audit import log as audit
 from iki_server.notifications import kinds as notification_kinds
 from iki_server.notifications.services import notify, org_admins
 from iki_server.oauth.models import Approval, Client, Consent
-from iki_server.oauth.scopes import SCOPES, ordered
+from iki_server.oauth.scopes import RESERVED, SCOPES, ordered
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.setup.models import Installation
@@ -143,13 +143,13 @@ def grant(user: User, client: Client, choice: Grant) -> Consent:
 def revoke_consent(consent: Consent, *, by: User) -> int:
     with transaction.atomic():
         revoked = _revoke({"user": consent.user, "application": consent.client})
+        data: dict[str, Any] = {"user": consent.user.email, "tokens_revoked": revoked}
+        if consent.client.client_id == RESERVED["worker"]:
+            from iki_server.runs import workers
+
+            data["workers_revoked"] = workers.revoke_signed_in(consent.user, by=by)
         consent.delete()
-        audit.record(
-            "oauth.consent_revoked",
-            actor=by,
-            target=consent.client,
-            data={"user": consent.user.email, "tokens_revoked": revoked},
-        )
+        audit.record("oauth.consent_revoked", actor=by, target=consent.client, data=data)
     return revoked
 
 
@@ -177,6 +177,8 @@ def create_credential(account: User, name: str, scopes: list[str], *, by: User) 
         raise Refused("Choose at least one kind of access.")
     if "admin" in chosen:
         raise Refused("Service accounts can’t administer the organization.")
+    if set(chosen) & set(RESERVED):
+        raise Refused("Service accounts can’t run workers on someone’s computer.")
     from oauth2_provider.generators import generate_client_secret
 
     secret = generate_client_secret()

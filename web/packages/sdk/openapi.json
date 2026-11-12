@@ -6026,6 +6026,22 @@
             "title": "Metrics",
             "type": "object"
           },
+          "needs_worker": {
+            "anyOf": [
+              {
+                "enum": [
+                  "yours",
+                  "theirs"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A queued client-tier run whose requester has no worker online on their own computer to run it (ADR 0058): `yours` when that's you, else `theirs`.",
+            "title": "Needs Worker"
+          },
           "network": {
             "description": "The hosts it may reach, as its action declared them when it was launched.",
             "items": {
@@ -6203,6 +6219,7 @@
           "metrics",
           "messages",
           "waiting",
+          "needs_worker",
           "seed",
           "reused",
           "reused_from",

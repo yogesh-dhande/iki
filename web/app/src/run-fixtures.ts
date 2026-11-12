@@ -48,6 +48,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     metrics: {},
     messages: [],
     waiting: null,
+    needs_worker: null,
     seed: 1234567,
     reused: false,
     reused_from: null,

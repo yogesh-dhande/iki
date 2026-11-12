@@ -25,7 +25,7 @@ from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, registry, schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
-from iki_server.runs import approvals, catalog, input_files, quotas, secrets, services
+from iki_server.runs import approvals, catalog, input_files, quotas, secrets, services, workers
 from iki_server.runs.models import (
     FINISHED,
     ActionRun,
@@ -415,6 +415,10 @@ class RunOut(Schema):
     waiting: str | None = Field(
         description="Why a queued run hasn't started, when a quota is holding it."
     )
+    needs_worker: Literal["yours", "theirs"] | None = Field(
+        description="A queued client-tier run whose requester has no worker online on their "
+        "own computer to run it (ADR 0058): `yours` when that's you, else `theirs`."
+    )
     seed: int | None = Field(
         description="The seed its command was given (`IKI_SEED`). None for runs from before seeds."
     )
@@ -541,6 +545,10 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         tier: quotas.blocked(tier)
         for tier in {r.tier for r in runs if r.status == RunStatus.QUEUED}
     }
+    waiting_for_client = {
+        r.requested_by_id for r in runs if r.status == RunStatus.QUEUED and r.tier == "client"
+    }
+    online = workers.online_owners(waiting_for_client) if waiting_for_client else set()
     held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})
     batches = {
         b["id"]: b
@@ -578,6 +586,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "messages": outputs.get(run.pk, {}).get("messages") or [],
             "waiting": (
                 holds[run.tier].why(run.project) if run.status == RunStatus.QUEUED else None
+            ),
+            "needs_worker": (
+                ("yours" if run.requested_by_id == me.pk else "theirs")
+                if run.status == RunStatus.QUEUED
+                and run.tier == "client"
+                and run.requested_by_id not in online
+                else None
             ),
             "seed": run.seed,
             "reused": run.reused_from_id is not None,

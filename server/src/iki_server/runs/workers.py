@@ -7,6 +7,13 @@ own token (``iki_wkr_…``), which it uses for everything else. Only SHA-256
 hashes of both are stored; each is shown once. Revoking a registration
 token stops new workers registering with it (and, if asked, revokes those
 that did). Revoking a worker interrupts its jobs, which are retried elsewhere.
+
+A worker on someone's own computer (the client tier) signs in as them instead
+(ADR 0058): ``iki-worker login`` takes them through OAuth's device flow as the
+``iki-worker`` client, and registers with the access token that gives it, for the
+``worker`` scope alone. Registering spends that token. The worker leases only its
+person's runs, in the projects they allowed it, and stops working when they're
+deactivated, revoke it, or revoke the app.
 """
 
 from __future__ import annotations
@@ -26,17 +33,29 @@ from iki_server.runs.models import RegistrationToken, Worker
 __all__ = [
     "REGISTRATION_PREFIX",
     "WORKER_PREFIX",
+    "allowed_projects",
     "authenticate",
     "create_registration",
+    "online_owners",
     "register",
+    "register_client",
     "revoke_registration",
+    "revoke_signed_in",
     "revoke_worker",
+    "signed_in",
 ]
 
 REGISTRATION_PREFIX = "iki_wreg_"
 WORKER_PREFIX = "iki_wkr_"
 #: ``last_seen_at`` and ``last_used_at`` are written at most this often, not on every call.
 SEEN_RESOLUTION = timedelta(seconds=15)
+
+#: The OAuth client a worker signs in on someone's computer with, and the scope it needs.
+CLIENT_ID = "iki-worker"
+SCOPE = "worker"
+
+#: A worker not heard from for this long shows as offline.
+OFFLINE_AFTER = timedelta(minutes=2)
 
 #: What a worker reports it can give one job.
 CAPACITY_KEYS = ("cpu", "memory", "gpu_count", "gpu_memory", "scratch_disk")
@@ -140,6 +159,107 @@ def register(
                 "version": version,
                 "plugins": plugins,
             },
+        )
+    return worker, value
+
+
+def signed_in(token: str) -> tuple[User, Any] | None:
+    """The person an ``iki-worker`` access token is for, and the token, if it may register
+    a worker on their computer: it's current, for the ``worker`` scope, from the
+    ``iki-worker`` client, and they're active and still allow the app."""
+    from oauth2_provider.models import get_access_token_model
+
+    from iki_server.oauth.models import Consent
+
+    found = (
+        get_access_token_model()
+        .objects.select_related("user", "application")
+        .filter(token_checksum=hashlib.sha256(token.encode()).hexdigest())
+        .first()
+    )
+    if found is None or found.is_expired() or found.user is None or found.application is None:
+        return None
+    if found.application.client_id != CLIENT_ID or SCOPE not in found.scope.split():
+        return None
+    if not found.user.is_active or found.user.is_service_account:
+        return None
+    if not Consent.objects.filter(user=found.user, client=found.application).exists():
+        return None
+    return found.user, found
+
+
+def online_owners(people: set[Any]) -> set[Any]:
+    """Which of `people` have a client-tier worker online now."""
+    return set(
+        Worker.objects.filter(
+            owner__in=people,
+            tier="client",
+            revoked_at__isnull=True,
+            last_seen_at__gt=timezone.now() - OFFLINE_AFTER,
+        ).values_list("owner_id", flat=True)
+    )
+
+
+def allowed_projects(worker: Worker) -> list[Any] | None:
+    """The projects a client-tier worker may run its person's jobs in: None for all they
+    can access, and none at all once they've revoked the app."""
+    from iki_server.oauth.models import Consent
+
+    consent = (
+        Consent.objects.filter(user=worker.owner_id, client__client_id=CLIENT_ID)
+        .prefetch_related("projects")
+        .first()
+    )
+    if consent is None or SCOPE not in consent.scope_list:
+        return []
+    if consent.all_projects:
+        return None
+    return [p.pk for p in consent.projects.all()]
+
+
+def revoke_signed_in(person: User, *, by: User | None) -> int:
+    """Revoke the workers `person` signed in on their computers, when they revoke the app
+    (or an admin does)."""
+    revoked = 0
+    for worker in Worker.objects.filter(owner=person, tier="client", revoked_at__isnull=True):
+        revoked += revoke_worker(worker, by=by)
+    return revoked
+
+
+def register_client(
+    person: User,
+    access_token: Any,  # noqa: ANN401 - an oauth2_provider AccessToken
+    *,
+    name: str,
+    version: str,
+    capacity: dict[str, Any],
+    plugins: list[dict[str, Any]],
+) -> tuple[Worker, str]:
+    """A client-tier worker on `person`'s computer, and its token (shown once). The access
+    token it signed in with is spent: the worker's own token is all it keeps."""
+    value = _token(WORKER_PREFIX)
+    now = timezone.now()
+    with transaction.atomic():
+        worker = Worker.objects.create(
+            name=name,
+            tier="client",
+            token_hash=_hash(value),
+            hint=value[-4:],
+            owner=person,
+            version=version,
+            capacity={k: capacity.get(k) for k in CAPACITY_KEYS},
+            plugins=plugins,
+            last_seen_at=now,
+        )
+        refresh = getattr(access_token, "refresh_token", None)
+        if refresh is not None:
+            refresh.revoke()
+        access_token.revoke()
+        audit.record(
+            "worker.registered",
+            actor=person,
+            target=worker,
+            data={"tier": "client", "version": version, "plugins": plugins},
         )
     return worker, value
 
