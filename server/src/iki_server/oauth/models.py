@@ -23,6 +23,7 @@ from django.db import models
 from django.db.models import Q
 from oauth2_provider.models import AbstractApplication
 
+from iki_server.core.ids import uuid7
 from iki_server.oauth import redirects
 from iki_server.org.models import Project
 
@@ -141,6 +142,9 @@ class Consent(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="oauth_consents"
     )
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name="consents")
+    #: Names this grant on what the client does with it (ADR 0072). It stays while the
+    #: consent changes; a consent given again after it was revoked is a new grant.
+    grant = models.UUIDField(default=uuid7, unique=True, editable=False)
     #: Space-separated scopes.
     scopes = models.CharField(max_length=200)
     #: All the projects the person can access, now and later; otherwise only ``projects``.

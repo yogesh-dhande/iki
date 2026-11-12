@@ -14,6 +14,7 @@ import {
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { AgentRows, Through } from "../agent";
 import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
@@ -558,7 +559,7 @@ type Approval = NonNullable<Run["approval"]>;
 
 /** Whoever asked: the app, for whom. */
 function asker(approval: Approval): string {
-  return approval.client || "An app";
+  return approval.agent?.name ?? (approval.client || "An app");
 }
 
 /** A run an agent asked for that waits for the person's approval: theirs to decide. */
@@ -1186,8 +1187,9 @@ export function RunPage() {
           <dd>
             By {run.requested_by.name} <RelativeTime value={run.created_at} />{" "}
             {VIA[run.via] ?? run.via}
-            {run.client ? `, through ${run.client}` : ""}
+            <Through agent={run.agent} />
           </dd>
+          <AgentRows agent={run.agent} />
           {run.approval && run.approval.state !== "pending" ? (
             <>
               <dt>Approval</dt>

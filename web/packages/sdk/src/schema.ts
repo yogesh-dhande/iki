@@ -2042,6 +2042,47 @@ export interface components {
              */
             set: boolean;
         };
+        /**
+         * AgentOut
+         * @description The agent that acted for the person (ADR 0072): an OAuth client, through one of
+         *     the person's grants.
+         */
+        AgentOut: {
+            /**
+             * Client Id
+             * @description The OAuth client's ID. Null for older records whose label doesn't name it.
+             */
+            client_id: string | null;
+            /**
+             * Grant
+             * @description The person's grant to the client it acted under, if recorded.
+             */
+            grant: string | null;
+            /**
+             * Mcp Session
+             * @description The MCP session, if it came through one.
+             */
+            mcp_session: string | null;
+            /**
+             * Name
+             * @description The client's name when it acted.
+             */
+            name: string;
+            reported: components["schemas"]["AgentReportedOut"];
+        };
+        /** AgentReportedOut */
+        AgentReportedOut: {
+            /**
+             * Model
+             * @description What model the agent says it is (its Iki-Agent-Model header). Iki can't check it.
+             */
+            model: string | null;
+            /**
+             * Software
+             * @description What software the agent says it is (MCP's clientInfo). Iki can't check it.
+             */
+            software: string | null;
+        };
         /** ApprovalCan */
         ApprovalCan: {
             /**
@@ -2186,6 +2227,8 @@ export interface components {
         BatchOut: {
             /** Action */
             action: string;
+            /** @description The agent that asked for it, acting for requested_by, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
             can: components["schemas"]["BatchCan"];
             /**
              * Client
@@ -3261,6 +3304,8 @@ export interface components {
         };
         /** FileOut */
         FileOut: {
+            /** @description The agent that added it, acting for created_by, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
             /**
              * Created At
              * Format: date-time
@@ -4611,6 +4656,8 @@ export interface components {
         };
         /** RevisionDetailOut */
         RevisionDetailOut: {
+            /** @description The agent that made it, acting for user, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
             /** Changed Fields */
             changed_fields: string[];
             /**
@@ -4672,6 +4719,8 @@ export interface components {
         };
         /** RevisionOut */
         RevisionOut: {
+            /** @description The agent that made it, acting for user, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
             /** Changed Fields */
             changed_fields: string[];
             /**
@@ -4722,6 +4771,8 @@ export interface components {
         };
         /** RunApprovalOut */
         RunApprovalOut: {
+            /** @description The agent that asked, acting for requested_by, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
             can: components["schemas"]["ApprovalCan"];
             /**
              * Client
@@ -5075,6 +5126,8 @@ export interface components {
         RunOut: {
             /** Action */
             action: string;
+            /** @description The agent that asked for it, acting for requested_by, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
             /** @description When an agent asked for it on a tier that needs approval: the request. */
             approval: components["schemas"]["RunApprovalOut"] | null;
             /** Attempts */

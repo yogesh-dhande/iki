@@ -27,7 +27,7 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page, ProjectRef, UserOut
+from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
 from iki_server.files import services, storage
 from iki_server.files.models import (
     File,
@@ -55,6 +55,9 @@ class FileOut(Schema):
     sha256: str
     project: ProjectRef | None = Field(description="Where it was added. Null if you can't see it.")
     created_by: UserOut | None
+    agent: AgentOut | None = Field(
+        description="The agent that added it, acting for created_by, if one did (ADR 0072)."
+    )
     created_at: datetime
     external: bool = Field(description="Registered where it already was, rather than uploaded.")
 
@@ -160,6 +163,7 @@ def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
             "sha256": f.blob.sha256,
             "project": projects.get(f.project_id),
             "created_by": f.created_by,
+            "agent": agent_out(f.agent),
             "created_at": f.created_at,
             "external": f.blob.registered_external,
         }
@@ -170,7 +174,7 @@ def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
 def _upload_out(user: User, upload: Upload) -> dict[str, Any]:
     file = None
     if upload.file_id is not None:
-        found = File.objects.select_related("blob", "created_by").get(pk=upload.file_id)
+        found = File.objects.select_related("blob", "created_by", "agent").get(pk=upload.file_id)
         file = _file_out(user, [found])[0]
     return {
         "id": upload.pk,
@@ -192,7 +196,9 @@ def _upload_out(user: User, upload: Upload) -> dict[str, Any]:
 def _registration_out(user: User, registration: Registration) -> dict[str, Any]:
     file = None
     if registration.file_id is not None:
-        found = File.objects.select_related("blob", "created_by").get(pk=registration.file_id)
+        found = File.objects.select_related("blob", "created_by", "agent").get(
+            pk=registration.file_id
+        )
         file = _file_out(user, [found])[0]
     return {
         "id": registration.pk,
@@ -230,7 +236,12 @@ def _upload(user: User, upload_id: UUID) -> Upload:
 
 
 def _file(user: User, file_id: UUID) -> File:
-    found = services.readable(user).select_related("blob", "created_by").filter(pk=file_id).first()
+    found = (
+        services.readable(user)
+        .select_related("blob", "created_by", "agent")
+        .filter(pk=file_id)
+        .first()
+    )
     if found is None:
         raise Problem(404, "No such file, or you can’t read it.")
     return found
@@ -380,7 +391,7 @@ def list_files(request: HttpRequest, filters: Query[FileFilters]) -> dict[str, A
     """Oldest first, unless ``newest_first``. Files are read through the projects they
     were added to."""
     me = caller(request)
-    files = services.readable(me).select_related("blob", "created_by")
+    files = services.readable(me).select_related("blob", "created_by", "agent")
     if filters.project:
         files = files.filter(project=project(me, filters.project))
     result = page(files, filters, newest_first=filters.newest_first)

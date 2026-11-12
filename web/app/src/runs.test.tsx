@@ -8,7 +8,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { entity, KINASE, nth, renderApp, revision, withTypes } from "./entity-fixtures";
-import { ACTION, approval, attempt, run, RUN_ID } from "./run-fixtures";
+import { ACTION, AGENT, approval, attempt, run, RUN_ID } from "./run-fixtures";
 import { answer, calls, FakeEventSource, page } from "./test-server";
 
 const EVENTS = "/api/v1/runs/RUN-000001/events";
@@ -789,7 +789,8 @@ describe("a run's page", () => {
       status: "awaiting_approval" as const,
       tier: "container" as const,
       via: "mcp",
-      client: "Claude",
+      client: "Claude (c-81f3)",
+      agent: AGENT,
       started_at: null,
     };
     const unstarted = () => [
@@ -824,6 +825,14 @@ describe("a run's page", () => {
       );
       expect(request).toHaveTextContent(/If nobody decides, the request expires/);
       expect(screen.getByText(/by an AI assistant \(MCP\), through Claude/)).toBeInTheDocument();
+      // Who the agent is, and what it says it is, in its own word.
+      expect(screen.getByText("Agent").nextElementSibling).toHaveTextContent(
+        "Claude (client c-81f3), grant 00000000-0000-7000-8000-0000000000g1",
+      );
+      expect(screen.getByText("MCP session").nextElementSibling).toHaveTextContent("5e55");
+      expect(screen.getByText("Says it is").nextElementSibling).toHaveTextContent(
+        "claude-code 2.1, claude-opus-5-5 (as the agent reports it)",
+      );
 
       await user.click(within(request).getByRole("button", { name: "Approve" }));
       expect(await screen.findByText("Approved RUN-000001.")).toBeVisible();

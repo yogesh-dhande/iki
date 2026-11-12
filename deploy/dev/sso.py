@@ -31,7 +31,7 @@ import time
 from datetime import datetime
 from html.parser import HTMLParser
 from typing import Any, NoReturn
-from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urljoin, urlsplit
 
 import requests
 import urllib3.util.connection
@@ -249,7 +249,16 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
     ok("the Org Admin created a team and added a member")
     told(member, email, name)
 
-    teams = api_call(member, "GET", "/teams?can_create_projects=true&limit=100").json()["items"]
+    # Every run makes a team, so a long-lived cluster has many: look through them all.
+    teams: list[dict[str, Any]] = []
+    cursor = ""
+    while True:
+        after = f"&cursor={quote(cursor)}" if cursor else ""
+        found = api_call(member, "GET", f"/teams?can_create_projects=true&limit=100{after}").json()
+        teams += found["items"]
+        cursor = found.get("next_cursor") or ""
+        if not cursor:
+            break
     team = next((t for t in teams if t["name"] == name), None)
     if team is None:
         fail("the new team isn't offered for new projects")
@@ -757,7 +766,9 @@ def oauth(admin: requests.Session) -> None:
 def mcp(token: str) -> None:
     """An agent's view: the MCP server, through the ingress, with the app's token."""
 
-    def rpc(method: str, params: dict[str, Any], auth: str | None = token) -> requests.Response:
+    def rpc(
+        method: str, params: dict[str, Any], auth: str | None = token, **headers: str
+    ) -> requests.Response:
         return requests.post(
             f"{IKI}/mcp",
             json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
@@ -765,6 +776,7 @@ def mcp(token: str) -> None:
                 "Accept": "application/json, text/event-stream",
                 "MCP-Protocol-Version": "2025-11-25",
                 **({"Authorization": f"Bearer {auth}"} if auth else {}),
+                **headers,
             },
             timeout=30,
         )
@@ -784,7 +796,17 @@ def mcp(token: str) -> None:
     )
     if hello.status_code != 200 or hello.json()["result"]["serverInfo"]["name"] != "iki":
         fail(f"MCP initialize answered HTTP {hello.status_code}: {hello.text[:300]}")
-    called = rpc("tools/call", {"name": "list_projects", "arguments": {"member": True}})
+    # The ingress passes on the session Iki gives it, and the session it's sent back.
+    session = hello.headers.get("Mcp-Session-Id", "")
+    if not session:
+        fail(f"MCP initialize gave no session: {dict(hello.headers)}")
+    if rpc("tools/list", {}, **{"Mcp-Session-Id": session + "x"}).status_code != 404:
+        fail("MCP took a session Iki didn't issue")
+    called = rpc(
+        "tools/call",
+        {"name": "list_projects", "arguments": {"member": True}},
+        **{"Mcp-Session-Id": session, "Iki-Agent-Model": "e2e-model"},
+    )
     result = called.json().get("result", {}) if called.status_code == 200 else {}
     names = {p["name"] for p in result.get("structuredContent", {}).get("items", [])}
     granted = bearer_call(token, "GET", "/projects?member=true").json()["items"]
@@ -792,7 +814,10 @@ def mcp(token: str) -> None:
         fail(f"MCP list_projects answered HTTP {called.status_code}: {called.text[:300]}")
     if "<iki-data-" not in result["content"][0]["text"]:
         fail("MCP answers aren't fenced as data")
-    ok(f"an agent signed in as alice reached the MCP server and saw what the API shows: {names}")
+    ok(
+        "an agent signed in as alice reached the MCP server in a session of its own and saw "
+        f"what the API shows: {names}"
+    )
 
 
 def saml() -> None:

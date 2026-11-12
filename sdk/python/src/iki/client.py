@@ -107,6 +107,9 @@ class Client:
 
     Its parts follow the API: ``entities``, ``types``, ``projects``, ``actions``,
     ``runs`` and ``files``. For anything else, ``request`` calls the API directly.
+
+    An AI agent using it may say what model it is, ``agent_model="claude-opus-5-5"``
+    (or ``IKI_AGENT_MODEL``): what it changes then records that, as the agent's own word.
     """
 
     def __init__(
@@ -118,6 +121,7 @@ class Client:
         store: auth.Store | None = None,
         transport: httpx2.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        agent_model: str | None = None,
     ) -> None:
         self._store = store or auth.Store()
         chosen = url or os.environ.get("IKI_URL") or auth.remembered_url(self._store.directory)
@@ -133,6 +137,7 @@ class Client:
             if self._credentials is None:
                 raise NotSignedIn(f"You're not signed in to {self.url}: run iki.login().")
         self._sleep = sleep
+        model = agent_model or os.environ.get("IKI_AGENT_MODEL")
         self._http = httpx2.Client(
             base_url=self.url,
             timeout=timeout,
@@ -141,6 +146,7 @@ class Client:
             headers={
                 "User-Agent": f"ikisci/{_version()} python/{platform.python_version()}",
                 "Accept": "application/json",
+                **({"Iki-Agent-Model": model} if model else {}),
             },
         )
         self.entities = Entities(self)

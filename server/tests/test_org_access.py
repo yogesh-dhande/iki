@@ -91,6 +91,16 @@ def app_url(suffix: str = "", **data: str) -> Callable[[World], tuple[str, dict[
     return build
 
 
+def my_grant_url(w: World) -> tuple[str, dict[str, str]]:
+    """The viewer's grant to the CLI: what it did is the viewer's alone to see."""
+    from iki_server.oauth import services
+    from iki_server.oauth.models import Client
+
+    cli = Client.objects.get(client_id="iki-cli")
+    consent = services.grant(w.users["viewer"], cli, services.Grant(["read"], True, []))
+    return f"/account/apps/grants/{consent.grant}/", {}
+
+
 def device_grant_url(**data: str) -> Callable[[World], tuple[str, dict[str, str]]]:
     """A device code the viewer has entered and not yet approved."""
 
@@ -220,6 +230,7 @@ CASES: list[Case] = [
     ),
     ("my_apps", "GET", lambda w: ("/account/apps/", {}), row(OK)),
     ("my_apps", "POST", lambda w: ("/account/apps/", {}), row(OK)),
+    ("my_grant", "GET", my_grant_url, row(HIDDEN, viewer=OK)),
     ("device", "GET", lambda w: ("/oauth/device/", {}), row(OK)),
     ("device", "POST", lambda w: ("/oauth/device/", {"user_code": "NOPE"}), row(OK)),
     ("device_confirm", "GET", device_grant_url(), row(HIDDEN, viewer=OK)),

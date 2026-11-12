@@ -80,6 +80,23 @@ def test_it_uses_the_deployment_you_last_signed_in_to(fake: FakeIki, config: Pat
     assert sent.headers["User-Agent"].startswith("ikisci/")
 
 
+def test_an_agent_may_say_what_model_it_is(
+    fake: FakeIki, monkeypatch: pytest.MonkeyPatch, config: Path
+) -> None:
+    monkeypatch.setenv("IKI_URL", URL)
+    monkeypatch.setenv("IKI_TOKEN", "agent-token")
+    fake.on("GET", "/api/v1/me", {"name": "Rosalind Franklin"})
+    transport = httpx2.MockTransport(fake.handle)
+    Client(transport=transport, store=auth.Store(config), agent_model="claude-opus-5-5").me()
+    assert fake.requests[-1].headers["Iki-Agent-Model"] == "claude-opus-5-5"
+    monkeypatch.setenv("IKI_AGENT_MODEL", "claude-sonnet-5-5")
+    Client(transport=transport, store=auth.Store(config)).me()
+    assert fake.requests[-1].headers["Iki-Agent-Model"] == "claude-sonnet-5-5"
+    monkeypatch.delenv("IKI_AGENT_MODEL")
+    Client(transport=transport, store=auth.Store(config)).me()
+    assert "Iki-Agent-Model" not in fake.requests[-1].headers
+
+
 def test_a_token_from_the_environment_is_used_as_it_is(
     fake: FakeIki, monkeypatch: pytest.MonkeyPatch, config: Path
 ) -> None:

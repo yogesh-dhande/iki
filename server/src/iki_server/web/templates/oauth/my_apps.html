@@ -13,6 +13,7 @@
       <span class="row-title">{{ consent.client.display_name }}</span>
       <span class="row-meta">Allowed <time datetime="{{ consent.updated_at|date:'c' }}">{{ consent.updated_at|date:"j M Y" }}</time>{% if consent.client.last_used_at %} · last used <time datetime="{{ consent.client.last_used_at|date:'c' }}">{{ consent.client.last_used_at|date:"j M Y" }}</time>{% endif %}</span>
       <div>{% include "oauth/_scopes.html" %}</div>
+      <a href="{% url 'oauth:my_grant' consent.grant %}">What it did for you</a>
     </div>
     <form class="row-actions" method="post">
       {% csrf_token %}

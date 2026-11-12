@@ -17,6 +17,7 @@ from typing import Any
 from django.db import models
 
 from iki_server.accounts.models import User
+from iki_server.audit import log as audit
 from iki_server.audit.models import AuditEvent
 from iki_server.org.models import Project, ProjectRole, Team
 
@@ -337,6 +338,7 @@ def from_audit(event: AuditEvent, target: models.Model | None) -> None:
         return
     key, data = built
     data["actor"] = actor_data(event.actor)
+    data["agent"] = audit.agent_data(event.agent)
     from iki_server.webhooks.services import emit
 
     project = event.project if EVENTS[key].project else None

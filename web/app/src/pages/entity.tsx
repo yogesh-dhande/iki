@@ -13,6 +13,7 @@ import {
 import { Link, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { Through } from "../agent";
 import { iki, problemOf, useApiMutation } from "../api";
 import {
   ENTITIES,
@@ -71,8 +72,13 @@ function Via({ revision }: { revision: Revision }) {
     );
   }
   const how = VIA[revision.via] ?? revision.via;
-  // The OAuth app it came through, as the audit log names it: an agent's MCP client, say.
-  return <>{revision.client ? `${how}, through ${revision.client}` : how}</>;
+  // The agent it came through, if any: an AI assistant's MCP client, say.
+  return (
+    <>
+      {how}
+      <Through agent={revision.agent} />
+    </>
+  );
 }
 
 const KIND: Record<string, string> = {

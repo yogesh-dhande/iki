@@ -13,17 +13,21 @@ management commands.
 
 import contextlib
 import dataclasses
+import hashlib
+import json
+import re
 from collections.abc import Awaitable, Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import structlog
 from asgiref.sync import iscoroutinefunction, markcoroutinefunction
 from django.db import models, transaction
 from django.http import HttpRequest, HttpResponseBase
 
-from iki_server.audit.models import AuditEvent, Via
+from iki_server.audit.models import Agent, AuditEvent, Via
 from iki_server.org.models import Project, Team
 
 logger = structlog.get_logger("iki.audit")
@@ -125,6 +129,34 @@ ACTIONS: dict[str, str] = {
 
 
 @dataclass(frozen=True)
+class AgentInfo:
+    """The agent a request comes through (ADR 0072): what ``Agent`` stores."""
+
+    client_id: str
+    client_name: str
+    grant: UUID | None = None
+    session: str = ""
+    #: What the agent says it is.
+    software: str = ""
+    model: str = ""
+
+    def label(self) -> str:
+        """As records named the client before agents were stored: "Name (client ID)"."""
+        return f"{self.client_name} ({self.client_id[:40]})"[:254]
+
+    def key(self) -> str:
+        parts = (
+            self.client_id,
+            self.client_name,
+            str(self.grant or ""),
+            self.session,
+            self.software,
+            self.model,
+        )
+        return hashlib.sha256(json.dumps(parts).encode()).hexdigest()
+
+
+@dataclass(frozen=True)
 class Context:
     via: str
     client_ip: str | None = None
@@ -132,6 +164,10 @@ class Context:
     actor_label: str = ""
     #: The OAuth client the request came through, if any.
     oauth_client: str = ""
+    #: The agent acting for the request's person, if one is.
+    agent: AgentInfo | None = None
+    #: The stored agent, once a change needed it: a batch's thousand runs look it up once.
+    stored: dict[str, Agent] = dataclasses.field(default_factory=dict, compare=False)
 
 
 _SYSTEM = Context(via=Via.SYSTEM)
@@ -153,14 +189,55 @@ def current_via() -> str:
 
 
 def current_oauth_client() -> str:
-    """The OAuth app the current change comes through, if any, as ``note_oauth_client``
-    named it."""
+    """The OAuth app the current change comes through, if any, labelled as records named
+    it before agents were stored ("Name (client ID)")."""
     return _context.get(_SYSTEM).oauth_client
 
 
-def note_oauth_client(label: str) -> None:
-    """Marks the rest of this request as made through an OAuth client."""
-    _context.set(dataclasses.replace(_context.get(_SYSTEM), oauth_client=label[:254]))
+def note_agent(agent: AgentInfo) -> None:
+    """Marks the rest of this request as made by an agent: through an OAuth client, for
+    the token's person."""
+    _context.set(
+        dataclasses.replace(
+            _context.get(_SYSTEM), oauth_client=agent.label(), agent=agent, stored={}
+        )
+    )
+
+
+_LABEL = re.compile(r"(?P<name>.*) \((?P<client_id>[^()\s]+)\)")
+
+
+def legacy_agent(label: str) -> tuple[str, str | None]:
+    """The client name and ID a label recorded before agents were stored says: "Name
+    (client ID)". The ID is None when the label doesn't end with one."""
+    found = _LABEL.fullmatch(label)
+    if found is None:
+        return label, None
+    return found["name"], found["client_id"]
+
+
+def current_agent() -> Agent | None:
+    """The stored agent the current change is made by, if any: found, or stored now."""
+    context = _context.get(_SYSTEM)
+    info = context.agent
+    if info is None:
+        return None
+    key = info.key()
+    if key in context.stored:
+        return context.stored[key]
+    found, _ = Agent.objects.get_or_create(
+        key=key,
+        defaults={
+            "client_id": info.client_id,
+            "client_name": info.client_name[:255],
+            "grant": info.grant,
+            "session": info.session,
+            "software": info.software[:255],
+            "model": info.model[:255],
+        },
+    )
+    context.stored[key] = found
+    return found
 
 
 def cli() -> contextlib.AbstractContextManager[None]:
@@ -187,8 +264,11 @@ def record(
     project: Project | None = None,
     team: Team | None = None,
     data: dict[str, Any] | None = None,
+    agent: Any = UNSET,  # noqa: ANN401 - an Agent, None, or UNSET for the change's own
 ) -> AuditEvent:
-    """Records an audit event. ``actor`` defaults to nobody (the system)."""
+    """Records an audit event. ``actor`` defaults to nobody (the system), and ``agent``
+    to the one the current change is made by. Work done later for a request, such as
+    checking an upload, names the request's agent."""
     if action not in ACTIONS:
         raise ValueError(f"unknown audit action {action!r}; add it to ACTIONS")
     context = _context.get(_SYSTEM)
@@ -208,7 +288,8 @@ def record(
         data=data or {},
         request_id=str(structlog.contextvars.get_contextvars().get("request_id", "")),
         client_ip=context.client_ip,
-        oauth_client=context.oauth_client,
+        oauth_client=context.oauth_client if agent is UNSET else (agent.label() if agent else ""),
+        agent=current_agent() if agent is UNSET else agent,
     )
     for listener in LISTENERS:
         listener(event, target)
@@ -236,7 +317,21 @@ def _emit(event: AuditEvent) -> None:
         data=event.data or None,
         client_ip=event.client_ip,
         oauth_client=event.oauth_client or None,
+        agent=agent_data(event.agent),
     )
+
+
+def agent_data(agent: Agent | None) -> dict[str, Any] | None:
+    """An agent as the log stream and webhooks give it."""
+    if agent is None:
+        return None
+    return {
+        "client_id": agent.client_id,
+        "name": agent.client_name,
+        "grant": str(agent.grant) if agent.grant else None,
+        "mcp_session": agent.session or None,
+        "reported": {"software": agent.software or None, "model": agent.model or None},
+    }
 
 
 GetResponse = Callable[[HttpRequest], Awaitable[HttpResponseBase]]

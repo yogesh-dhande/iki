@@ -102,6 +102,7 @@ def start(
     upload = Upload(
         project=project,
         created_by=user,
+        agent=log.current_agent(),
         name=name,
         media_type=media_type,
         size=size,
@@ -249,12 +250,14 @@ def _finish(upload: Upload, sha256: str, size: int) -> None:
             media_type=locked.media_type,
             project_id=locked.project_id,
             created_by_id=locked.created_by_id,
+            agent_id=locked.agent_id,
         )
         locked.file = file
         _end(locked, UploadState.READY)
         log.record(
             "file.added",
             actor=locked.created_by,
+            agent=locked.agent,
             target=file,
             project=locked.project,
             data={"sha256": sha256, "size": size, "media_type": file.media_type},
@@ -376,6 +379,7 @@ def register(
         registration = Registration.objects.create(
             project=project,
             created_by=user,
+            agent=log.current_agent(),
             name=name,
             media_type=media_type,
             storage_uri=uri,
@@ -437,12 +441,14 @@ def _registered(registration: Registration, blob: Blob) -> None:
         media_type=registration.media_type,
         project_id=registration.project_id,
         created_by_id=registration.created_by_id,
+        agent_id=registration.agent_id,
     )
     registration.file = file
     _end_registration(registration, RegistrationState.READY)
     log.record(
         "file.registered",
         actor=registration.created_by,
+        agent=registration.agent,
         target=file,
         project=registration.project,
         data={

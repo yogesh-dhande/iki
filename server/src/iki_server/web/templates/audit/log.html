@@ -11,6 +11,8 @@
     {% include "web/_field.html" with field=form.person %}
     {% include "web/_field.html" with field=form.project %}
     {% include "web/_field.html" with field=form.via %}
+    {% include "web/_field.html" with field=form.agent %}
+    {% include "web/_field.html" with field=form.grant %}
     {% include "web/_field.html" with field=form.since %}
     {% include "web/_field.html" with field=form.until %}
     <div class="actions">
@@ -20,13 +22,13 @@
   </form>
 </details>
 <ol class="rows audit-events" aria-label="Events">
-  {% for event, label in events %}
+  {% for event, label, agent in events %}
   <li class="row">
     <div class="row-main">
       <span class="row-title">{{ label }}{% if event.target_label %}: {{ event.target_label }}{% endif %}</span>
       <span class="row-meta">
         <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s" }}</time>
-        · {{ event.actor_label|default:"System" }}
+        · {{ event.actor_label|default:"System" }}{% if agent %}, through {{ agent.name }}{% endif %}
         · {{ event.get_via_display }}
         {% if event.project %}· {{ event.project.name }}{% endif %}
         {% if event.team %}· {{ event.team.name }}{% endif %}
@@ -36,6 +38,14 @@
         <dl class="summary">
           <dt>Action</dt><dd><code>{{ event.action }}</code></dd>
           {% for key, value in event.data.items %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+          {% if agent %}
+          <dt>Agent</dt>
+          <dd>{{ agent.name }}{% if agent.client_id %} (<a href="?agent={{ agent.client_id|urlencode }}">client <code>{{ agent.client_id }}</code></a>){% endif %}</dd>
+          {% if agent.grant %}<dt>Grant</dt><dd><a href="?grant={{ agent.grant }}">Everything this grant did</a> (<code>{{ agent.grant }}</code>)</dd>{% endif %}
+          {% if agent.mcp_session %}<dt>MCP session</dt><dd><code>{{ agent.mcp_session }}</code></dd>{% endif %}
+          {% if agent.reported.software %}<dt>Says its software is</dt><dd>{{ agent.reported.software }} <span class="muted">(as the agent reports it)</span></dd>{% endif %}
+          {% if agent.reported.model %}<dt>Says its model is</dt><dd>{{ agent.reported.model }} <span class="muted">(as the agent reports it)</span></dd>{% endif %}
+          {% endif %}
           {% if event.client_ip %}<dt>Client address</dt><dd>{{ event.client_ip }}</dd>{% endif %}
           {% if event.request_id %}<dt>Request ID</dt><dd><code>{{ event.request_id }}</code></dd>{% endif %}
           <dt>Event ID</dt><dd><code>{{ event.pk }}</code></dd>

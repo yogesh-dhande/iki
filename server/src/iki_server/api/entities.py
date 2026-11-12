@@ -27,7 +27,7 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page, ProjectRef, UserOut
+from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
 from iki_server.entities import access, registry, schema, search, services
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid, shape, subtypes, to_json
@@ -179,6 +179,9 @@ class RevisionOut(Schema):
     via: str = Field(description="How: web, api, mcp, run, …")
     client: str = Field(
         description="The OAuth app it came through, such as an AI agent's MCP client, if any."
+    )
+    agent: AgentOut | None = Field(
+        description="The agent that made it, acting for user, if one did (ADR 0072)."
     )
     run: RunRefOut | None = Field(
         None,
@@ -758,7 +761,7 @@ def list_revisions(request: HttpRequest, ref: str, params: Query[PageParams]) ->
     """Newest first: who changed what, how, when and why."""
     me = caller(request)
     entity = _find(me, ref)
-    revisions = Revision.objects.filter(entity=entity).select_related("user")
+    revisions = Revision.objects.filter(entity=entity).select_related("user", "agent")
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, entity, result["items"])
     result["items"] = [_revision(r, made) for r in result["items"]]
@@ -773,7 +776,11 @@ def list_revisions(request: HttpRequest, ref: str, params: Query[PageParams]) ->
 def get_revision(request: HttpRequest, ref: str, number: int) -> dict[str, Any]:
     me = caller(request)
     entity = _find(me, ref)
-    revision = Revision.objects.filter(entity=entity, number=number).select_related("user").first()
+    revision = (
+        Revision.objects.filter(entity=entity, number=number)
+        .select_related("user", "agent")
+        .first()
+    )
     if revision is None:
         raise Problem(404, f"{entity.hrid} has no revision {number}.")
     fields = shape(entity.type).fields()
@@ -821,6 +828,7 @@ def _revision(revision: Revision, runs: dict[int, dict[str, Any]]) -> dict[str, 
         "user": revision.user,
         "via": revision.via,
         "client": revision.client,
+        "agent": agent_out(revision.agent, revision.client),
         "run": runs.get(revision.number),
         "reason": revision.reason,
         "created_at": revision.created_at,

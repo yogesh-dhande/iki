@@ -406,7 +406,18 @@ describe("an entity's page", () => {
       }),
     );
     answer("GET /api/v1/entities/PST-000001/provenance", {
-      structure: revision({ number: 1, via: "mcp", client: "Claude Code (c-81f3)" }),
+      structure: revision({
+        number: 1,
+        via: "mcp",
+        client: "Claude Code (c-81f3)",
+        agent: {
+          client_id: "c-81f3",
+          name: "Claude Code",
+          grant: null,
+          mcp_session: null,
+          reported: { software: null, model: null },
+        },
+      }),
       resolution: revision({ number: 2, kind: "edited", reason: "Refined" }),
     });
     answer("GET /api/v1/entities/PST-000001/projects", [
@@ -441,7 +452,7 @@ describe("an entity's page", () => {
     expect(within(values).getByText("An entity you can’t read")).toBeInTheDocument();
     // An agent's change names the person it acted for and the app it came through.
     expect(await within(values).findByText(/Claude Code/)).toHaveTextContent(
-      /^Set by Rosalind Franklin .+ by an AI assistant \(MCP\), through Claude Code \(c-81f3\) \(revision 1\)$/,
+      /^Set by Rosalind Franklin .+ by an AI assistant \(MCP\), through Claude Code \(revision 1\)$/,
     );
     expect(within(values).getByText(/Refined/)).toHaveTextContent(
       /^Changed by Rosalind Franklin .+ in the web app: “Refined” \(revision 2\)$/,

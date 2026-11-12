@@ -43,6 +43,11 @@ as needed.
 For scripts and pipelines, set `IKI_URL` and `IKI_TOKEN` (a service account's
 token, say) instead. Nothing is stored then.
 
+An AI agent using the SDK may say what model it is, with
+`iki.Client(agent_model="claude-opus-5-5")` or `IKI_AGENT_MODEL`. What it
+changes then records that, labelled as the agent's own word, next to you and
+the app it signed in as.
+
 Iki is reached only over HTTPS (plain HTTP works only on this machine), with
 your system's trusted certificates, so it works behind corporate proxies that
 inspect TLS.

@@ -21,7 +21,7 @@ from iki_server.api.common import caller, project, require
 from iki_server.api.entities import FieldOut, RunRefOut, field_out
 from iki_server.api.pagination import PageParams, cursor_after, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import Page, PersonRef
+from iki_server.api.schemas import AgentOut, Page, PersonRef, agent_out
 from iki_server.entities import access, registry, schema
 from iki_server.entities.values import Invalid
 from iki_server.files import storage
@@ -378,6 +378,9 @@ class RunApprovalOut(Schema):
     id: UUID
     state: Literal["pending", "approved", "declined", "expired"]
     client: str = Field(description="The app that asked, such as an AI agent's MCP client.")
+    agent: AgentOut | None = Field(
+        description="The agent that asked, acting for requested_by, if one did (ADR 0072)."
+    )
     requested_by: PersonRef = Field(description="Who the app acted for: who decides.")
     created_at: datetime
     expires_at: datetime
@@ -412,6 +415,9 @@ class RunOut(Schema):
     requested_by: PersonRef
     via: str
     client: str = Field(description="The OAuth app it was asked for through, if any.")
+    agent: AgentOut | None = Field(
+        description="The agent that asked for it, acting for requested_by, if one did (ADR 0072)."
+    )
     approval: RunApprovalOut | None = Field(
         description="When an agent asked for it on a tier that needs approval: the request."
     )
@@ -629,6 +635,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
     return [
         {
             **{f: getattr(run, f) for f in _RUN_FIELDS},
+            "agent": agent_out(run.agent, run.client),
             "project_id": run.project_id,
             "requested_by": run.requested_by,
             "approval": held.get(run.approval_id) if run.approval_id else None,
@@ -736,7 +743,7 @@ _RUN_FIELDS = (
 
 
 def _find(me: User, ref: str) -> ActionRun:
-    runs = services.visible_runs(me).select_related("project__team", "requested_by")
+    runs = services.visible_runs(me).select_related("project__team", "requested_by", "agent")
     try:
         found = runs.filter(pk=UUID(ref)).first()
     except ValueError:
@@ -842,6 +849,9 @@ class BatchOut(Schema):
     requested_by: PersonRef
     via: str
     client: str = Field(description="The OAuth app it was asked for through, if any.")
+    agent: AgentOut | None = Field(
+        description="The agent that asked for it, acting for requested_by, if one did (ADR 0072)."
+    )
     reason: str
     each: str = Field(description="The input each run took one entity for.")
     size: int = Field(description="How many runs it launched.")
@@ -873,6 +883,7 @@ def _batches_out(me: User, batches: list[RunBatch]) -> list[dict[str, Any]]:
         out.append(
             {
                 **{f: getattr(batch, f) for f in _BATCH_FIELDS},
+                "agent": agent_out(batch.agent, batch.client),
                 "project_id": batch.project_id,
                 "requested_by": batch.requested_by,
                 "statuses": counts,
@@ -926,7 +937,7 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
         r.pk: r
         for r in services.visible_runs(me)
         .filter(pk__in=[r.pk for r in launched])
-        .select_related("project__team", "requested_by")
+        .select_related("project__team", "requested_by", "agent")
     }
     runs = [found[r.pk] for r in launched]
     batch = _find_batch(me, str(launched[0].batch_id))
@@ -934,7 +945,7 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
 
 
 def _find_batch(me: User, ref: str) -> RunBatch:
-    batches = services.visible_batches(me).select_related("project__team", "requested_by")
+    batches = services.visible_batches(me).select_related("project__team", "requested_by", "agent")
     try:
         found = batches.filter(pk=UUID(ref)).first()
     except ValueError:
@@ -954,7 +965,7 @@ def list_batches(request: HttpRequest, filters: Query[BatchFilters]) -> dict[str
     """Newest first. A batch is the runs of one action launched together, one for each of
     several entities; `GET /runs?batch=` lists them."""
     me = caller(request)
-    batches = services.visible_batches(me).select_related("project__team", "requested_by")
+    batches = services.visible_batches(me).select_related("project__team", "requested_by", "agent")
     if filters.project is not None:
         batches = batches.filter(
             project=project(me, filters.project, permissions.Action.PROJECT_READ)
@@ -998,7 +1009,7 @@ class RunFilters(PageParams):
 def list_runs(request: HttpRequest, filters: Query[RunFilters]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
-    runs = services.visible_runs(me).select_related("project__team", "requested_by")
+    runs = services.visible_runs(me).select_related("project__team", "requested_by", "agent")
     if filters.project is not None:
         runs = runs.filter(project=project(me, filters.project, permissions.Action.PROJECT_READ))
     if filters.action is not None:
@@ -1059,7 +1070,9 @@ def reproduce_run(
 def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
     if not ids:
         return {}
-    found = RunApproval.objects.filter(pk__in=ids).select_related("requested_by", "decided_by")
+    found = RunApproval.objects.filter(pk__in=ids).select_related(
+        "requested_by", "decided_by", "agent"
+    )
     held: dict[Any, list[dict[str, Any]]] = {}
     for run_id, hrid, approval_id in (
         ActionRun.objects.filter(approval__in=ids)
@@ -1073,6 +1086,7 @@ def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
             "id": a.pk,
             "state": a.state,
             "client": a.client,
+            "agent": agent_out(a.agent, a.client),
             "requested_by": a.requested_by,
             "created_at": a.created_at,
             "expires_at": a.expires_at,

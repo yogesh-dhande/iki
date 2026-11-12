@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}What {{ app }} did for you{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>What {{ app }} did for you</h1></div>
+{% include "web/_account_tabs.html" %}
+<p class="muted">Everything this app did with your grant <code>{{ grant }}</code>, newest first.{% if not current %} You’ve since revoked it.{% endif %} <a href="{% url 'oauth:my_apps' %}">Authorized apps</a></p>
+<ol class="rows audit-events" aria-label="What it did">
+  {% for event, label in events %}
+  <li class="row">
+    <div class="row-main">
+      <span class="row-title">{{ label }}{% if event.target_label %}: {{ event.target_label }}{% endif %}</span>
+      <span class="row-meta">
+        <time datetime="{{ event.occurred_at|date:'c' }}">{{ event.occurred_at|date:"j M Y, H:i:s" }}</time>
+        · {{ event.get_via_display }}
+        {% if event.project %}· {{ event.project.name }}{% endif %}
+        {% if event.agent.model %}· says it’s {{ event.agent.model }}{% endif %}
+      </span>
+    </div>
+  </li>
+  {% empty %}
+  <li class="row"><span class="muted">It hasn’t done anything yet.</span></li>
+  {% endfor %}
+</ol>
+{% if older %}<p><a class="button" href="?before={{ older }}">Older</a></p>{% endif %}
+{% endblock %}

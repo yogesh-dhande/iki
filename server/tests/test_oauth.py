@@ -359,7 +359,12 @@ def test_people_choose_what_a_client_may_do_and_where(world: World) -> None:
     assert saved.scope_list == ["read"] and not saved.all_projects
     assert list(saved.projects.all()) == [world.project]
     event = AuditEvent.objects.get(action="oauth.consent_granted")
-    assert event.data == {"scopes": ["read"], "projects": [str(world.project.pk)], "changed": False}
+    assert event.data == {
+        "scopes": ["read"],
+        "projects": [str(world.project.pk)],
+        "changed": False,
+        "grant": str(saved.grant),
+    }
 
 
 def test_the_code_works_only_with_its_verifier_and_only_once(world: World) -> None:

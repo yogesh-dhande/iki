@@ -12,6 +12,7 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET
 
+from iki_server.api.schemas import agent_out
 from iki_server.audit.log import ACTIONS
 from iki_server.audit.models import AuditEvent, Via
 from iki_server.org import permissions
@@ -38,6 +39,19 @@ class FilterForm(forms.Form):
         label="Project", required=False, queryset=Project.objects.order_by("name")
     )
     via = forms.ChoiceField(label="Through", required=False, choices=[("", "Any"), *Via.choices])
+    agent = forms.CharField(
+        label="Agent",
+        required=False,
+        max_length=255,
+        help_text="An app’s client ID: what it did for anyone.",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "spellcheck": "false"}),
+    )
+    grant = forms.UUIDField(
+        label="Grant",
+        required=False,
+        help_text="One person’s grant to an app: everything it did with it.",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "spellcheck": "false"}),
+    )
     since = forms.DateField(
         label="From", required=False, widget=forms.DateInput(attrs={"type": "date"})
     )
@@ -47,7 +61,7 @@ class FilterForm(forms.Form):
 
 
 def _filtered(form: FilterForm) -> QuerySet[AuditEvent]:
-    events = AuditEvent.objects.select_related("project", "team")
+    events = AuditEvent.objects.select_related("project", "team", "agent")
     if not form.is_valid():
         return events.none()
     data: dict[str, Any] = form.cleaned_data
@@ -61,6 +75,15 @@ def _filtered(form: FilterForm) -> QuerySet[AuditEvent]:
         events = events.filter(project=data["project"])
     if data["via"]:
         events = events.filter(via=data["via"])
+    if data["agent"]:
+        client_id = data["agent"].strip()
+        # Older events name the client only in their label (ADR 0072).
+        events = events.filter(
+            Q(agent__client_id=client_id)
+            | Q(agent=None, oauth_client__endswith=f"({client_id[:40]})")
+        )
+    if data["grant"]:
+        events = events.filter(agent__grant=data["grant"])
     zone = timezone.get_current_timezone()
     if data["since"]:
         events = events.filter(occurred_at__gte=datetime.combine(data["since"], time.min, zone))
@@ -82,7 +105,9 @@ def audit_log(request: HttpRequest) -> HttpResponse:
     permissions.require(request.user, Action.AUDIT_READ)
     form = FilterForm(request.GET or None)
     events = (
-        _filtered(form) if request.GET else AuditEvent.objects.select_related("project", "team")
+        _filtered(form)
+        if request.GET
+        else AuditEvent.objects.select_related("project", "team", "agent")
     )
     # Keyset pagination: stable while new events arrive.
     before = _uuid(request.GET.get("before"))
@@ -105,7 +130,14 @@ def audit_log(request: HttpRequest) -> HttpResponse:
         "audit/log.html",
         {
             "form": form,
-            "events": [(event, ACTIONS.get(event.action, event.action)) for event in page],
+            "events": [
+                (
+                    event,
+                    ACTIONS.get(event.action, event.action),
+                    agent_out(event.agent, event.oauth_client),
+                )
+                for event in page
+            ],
             "older_query": query.urlencode() if more else "",
             "filtered": any(v for k, v in request.GET.items() if k != "before"),
         },

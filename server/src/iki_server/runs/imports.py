@@ -46,6 +46,7 @@ from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from iki_server.audit import log as audit
 from iki_server.entities import access, registry
 from iki_server.entities import services as entities
 from iki_server.entities.access import readable_projects
@@ -688,6 +689,7 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
         "reused": imported.reused,
         "linked": imported.linked,
         "actor": events.actor_data(run.requested_by),
+        "agent": audit.agent_data(run.agent),
     }
     emit("entity.imported", data, project=run.project)
 

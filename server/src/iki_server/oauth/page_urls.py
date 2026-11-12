@@ -17,4 +17,5 @@ urlpatterns: list[URLPattern] = [
     path("settings/apps/", pages.org_apps, name="org_apps"),
     path("settings/apps/<int:client_id>/", pages.org_app, name="org_app"),
     path("account/apps/", pages.my_apps, name="my_apps"),
+    path("account/apps/grants/<uuid:grant>/", pages.my_grant, name="my_grant"),
 ]

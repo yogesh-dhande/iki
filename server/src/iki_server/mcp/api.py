@@ -18,6 +18,7 @@ from django.core.handlers.asgi import ASGIHandler
 from mcp.server.mcpserver.exceptions import ToolError
 from oauth2_provider.oauth2_validators import validate_resource_as_url_prefix
 
+from iki_server.api.security import MCP_AGENT_KEY
 from iki_server.mcp import bridge
 
 #: The ASGI scope key that marks a request as an MCP tool's.
@@ -25,7 +26,14 @@ VIA_KEY = "iki.via"
 
 #: Headers an API call made for a tool keeps from the agent's request.
 _KEPT = frozenset(
-    {b"host", b"authorization", b"user-agent", b"x-forwarded-for", b"x-forwarded-proto"}
+    {
+        b"host",
+        b"authorization",
+        b"user-agent",
+        b"x-forwarded-for",
+        b"x-forwarded-proto",
+        b"iki-agent-model",
+    }
 )
 
 
@@ -116,6 +124,7 @@ async def call(
         "client": outer.get("client"),
         "server": outer.get("server"),
         VIA_KEY: "mcp",
+        MCP_AGENT_KEY: outer.get(MCP_AGENT_KEY),
     }
     answer = await bridge.call(_django(), scope, payload)
     data = await answer.read()

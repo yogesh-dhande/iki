@@ -108,6 +108,10 @@ class RunApproval(models.Model):
     )
     #: The OAuth app that asked, as the audit log names it.
     client = models.CharField(max_length=255, blank=True, default="")
+    #: The agent that asked for the person, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     created_at = models.DateTimeField(db_default=Now())
     expires_at = models.DateTimeField()
     state = models.CharField(
@@ -161,6 +165,10 @@ class RunBatch(models.Model):
     )
     via = models.CharField(max_length=16)
     client = models.CharField(max_length=255, blank=True, default="")
+    #: The agent that asked for the person, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     reason = models.TextField(blank=True, default="")
     #: The input each run took one entity for.
     each = models.CharField(max_length=63)
@@ -200,6 +208,10 @@ class ActionRun(models.Model):
     via = models.CharField(max_length=16)
     #: The OAuth app it was asked for through, if any, as the audit log names it.
     client = models.CharField(max_length=255, blank=True, default="")
+    #: The agent that asked for the person, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     #: The approval it waits for, or waited for, if an agent asked for it (ADR 0013).
     approval = models.ForeignKey(
         RunApproval, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"

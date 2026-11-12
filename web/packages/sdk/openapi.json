@@ -215,6 +215,99 @@
         "title": "ActionSecretOut",
         "type": "object"
       },
+      "AgentOut": {
+        "description": "The agent that acted for the person (ADR 0072): an OAuth client, through one of\nthe person's grants.",
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The OAuth client's ID. Null for older records whose label doesn't name it.",
+            "title": "Client Id"
+          },
+          "grant": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The person's grant to the client it acted under, if recorded.",
+            "title": "Grant"
+          },
+          "mcp_session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The MCP session, if it came through one.",
+            "title": "Mcp Session"
+          },
+          "name": {
+            "description": "The client's name when it acted.",
+            "title": "Name",
+            "type": "string"
+          },
+          "reported": {
+            "$ref": "#/components/schemas/AgentReportedOut"
+          }
+        },
+        "required": [
+          "client_id",
+          "name",
+          "grant",
+          "mcp_session",
+          "reported"
+        ],
+        "title": "AgentOut",
+        "type": "object"
+      },
+      "AgentReportedOut": {
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What model the agent says it is (its Iki-Agent-Model header). Iki can't check it.",
+            "title": "Model"
+          },
+          "software": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What software the agent says it is (MCP's clientInfo). Iki can't check it.",
+            "title": "Software"
+          }
+        },
+        "required": [
+          "software",
+          "model"
+        ],
+        "title": "AgentReportedOut",
+        "type": "object"
+      },
       "ApprovalCan": {
         "properties": {
           "decide": {
@@ -471,6 +564,17 @@
             "title": "Action",
             "type": "string"
           },
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that asked for it, acting for requested_by, if one did (ADR 0072)."
+          },
           "can": {
             "$ref": "#/components/schemas/BatchCan"
           },
@@ -550,6 +654,7 @@
           "requested_by",
           "via",
           "client",
+          "agent",
           "reason",
           "each",
           "size",
@@ -2716,6 +2821,17 @@
       },
       "FileOut": {
         "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that added it, acting for created_by, if one did (ADR 0072)."
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -2778,6 +2894,7 @@
           "sha256",
           "project",
           "created_by",
+          "agent",
           "created_at",
           "external"
         ],
@@ -5837,6 +5954,17 @@
       },
       "RevisionDetailOut": {
         "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that made it, acting for user, if one did (ADR 0072)."
+          },
           "changed_fields": {
             "items": {
               "type": "string"
@@ -5937,6 +6065,7 @@
           "user",
           "via",
           "client",
+          "agent",
           "reason",
           "created_at",
           "values",
@@ -5949,6 +6078,17 @@
       },
       "RevisionOut": {
         "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that made it, acting for user, if one did (ADR 0072)."
+          },
           "changed_fields": {
             "items": {
               "type": "string"
@@ -6019,6 +6159,7 @@
           "user",
           "via",
           "client",
+          "agent",
           "reason",
           "created_at"
         ],
@@ -6058,6 +6199,17 @@
       },
       "RunApprovalOut": {
         "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that asked, acting for requested_by, if one did (ADR 0072)."
+          },
           "can": {
             "$ref": "#/components/schemas/ApprovalCan"
           },
@@ -6135,6 +6287,7 @@
           "id",
           "state",
           "client",
+          "agent",
           "requested_by",
           "created_at",
           "expires_at",
@@ -6763,6 +6916,17 @@
             "title": "Action",
             "type": "string"
           },
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that asked for it, acting for requested_by, if one did (ADR 0072)."
+          },
           "approval": {
             "anyOf": [
               {
@@ -7083,6 +7247,7 @@
           "requested_by",
           "via",
           "client",
+          "agent",
           "approval",
           "reason",
           "batch",

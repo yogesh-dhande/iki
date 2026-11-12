@@ -18,6 +18,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     requested_by: { id: ME.id, name: ME.name },
     via: "web",
     client: "",
+    agent: null,
     approval: null,
     reason: "",
     batch: null,
@@ -60,6 +61,15 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
   };
 }
 
+/** An agent acting for the person, through their grant, in an MCP session. */
+export const AGENT: Schemas["AgentOut"] = {
+  client_id: "c-81f3",
+  name: "Claude",
+  grant: "00000000-0000-7000-8000-0000000000g1",
+  mcp_session: "5e55",
+  reported: { software: "claude-code 2.1", model: "claude-opus-5-5" },
+};
+
 /** A request an agent made for `run`, waiting for the person who signed it in. */
 export function approval(
   overrides: Partial<Schemas["RunApprovalOut"]> = {},
@@ -68,6 +78,7 @@ export function approval(
     id: "00000000-0000-7000-8000-0000000000a1",
     state: "pending",
     client: "Claude",
+    agent: AGENT,
     requested_by: { id: ME.id, name: ME.name },
     created_at: "2026-03-14T09:00:00Z",
     expires_at: "2026-03-21T09:00:00Z",
@@ -118,6 +129,7 @@ export function batch(overrides: Partial<Schemas["BatchOut"]> = {}): Schemas["Ba
     requested_by: { id: ME.id, name: ME.name },
     via: "web",
     client: "",
+    agent: null,
     reason: "Weights for the kinase panel",
     each: "protein",
     size: 3,

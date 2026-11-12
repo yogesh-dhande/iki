@@ -58,6 +58,7 @@ def ask(user: User, action: Action, project: Project, *, runs: int = 1) -> RunAp
         project=project,
         requested_by=user,
         client=audit.current_oauth_client(),
+        agent=audit.current_agent(),
         expires_at=timezone.now() + EXPIRES_AFTER,
     )
     audit.record(

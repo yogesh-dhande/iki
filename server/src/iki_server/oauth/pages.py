@@ -1,9 +1,11 @@
 """Pages for OAuth apps: the Org Admin's app list and approvals, and each person's
 authorized apps."""
 
+from uuid import UUID
+
 from django.contrib import messages
-from django.db.models import Count, QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.db.models import Count, Q, QuerySet
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from iki_server.oauth import services
@@ -107,4 +109,51 @@ def my_apps(request: HttpRequest) -> HttpResponse:
         request,
         "oauth/my_apps.html",
         {"consents": consents, "scope_descriptions": SCOPES},
+    )
+
+
+#: Events a page of a grant's activity shows.
+GRANT_PAGE = 50
+
+
+@page("GET")
+def my_grant(request: HttpRequest, grant: UUID) -> HttpResponse:
+    """What an app did for the person with one of their grants (ADR 0072), revoked or
+    not: their own events only."""
+    from iki_server.audit.log import ACTIONS
+    from iki_server.audit.models import Agent, AuditEvent
+
+    me = _user(request)
+    events = AuditEvent.objects.filter(actor=me, agent__grant=grant).select_related(
+        "project", "agent"
+    )
+    current = Consent.objects.filter(user=me, grant=grant).select_related("client").first()
+    if current is None and not events.exists():
+        raise Http404  # not theirs, or it never did anything
+    if current is not None:
+        app = current.client.display_name()
+    else:
+        first = Agent.objects.filter(grant=grant).order_by("first_seen_at").first()
+        app = first.client_name if first is not None else ""
+    before = request.GET.get("before")
+    if before:
+        anchor = AuditEvent.objects.filter(pk=before).values("occurred_at", "id").first()
+        if anchor:
+            events = events.filter(
+                Q(occurred_at__lt=anchor["occurred_at"])
+                | Q(occurred_at=anchor["occurred_at"], id__lt=anchor["id"])
+            )
+    shown = list(events.order_by("-occurred_at", "-id")[: GRANT_PAGE + 1])
+    older = str(shown[GRANT_PAGE - 1].pk) if len(shown) > GRANT_PAGE else ""
+    shown = shown[:GRANT_PAGE]
+    return render(
+        request,
+        "oauth/my_grant.html",
+        {
+            "app": app,
+            "grant": grant,
+            "current": current is not None,
+            "events": [(e, ACTIONS.get(e.action, e.action)) for e in shown],
+            "older": older,
+        },
     )

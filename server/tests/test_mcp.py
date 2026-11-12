@@ -335,6 +335,69 @@ async def test_tools_see_only_what_the_grant_allows(world: World) -> None:
 # --- Writing ------------------------------------------------------------------------------------
 
 
+def _created(hrid: str) -> Any:
+    from iki_server.entities.models import Revision
+
+    return Revision.objects.select_related("agent").get(entity__hrid=hrid, number=1).agent
+
+
+def _create(name: str, sequence: str, project: Project) -> dict[str, Any]:
+    return {
+        "name": "create_entity",
+        "arguments": {
+            "type": "protein.Protein",
+            "project": str(project.pk),
+            "values": {"sequence": sequence, "name": name},
+        },
+    }
+
+
+async def test_an_agents_session_and_what_it_says_it_is_are_on_the_record(world: World) -> None:
+    from iki_server.oauth.models import Consent
+
+    token = await token_for(world)
+    hello = await rpc(
+        token,
+        "initialize",
+        {
+            "protocolVersion": VERSION,
+            "capabilities": {},
+            "clientInfo": {"name": "claude-code", "version": "2.1"},
+        },
+    )
+    assert hello.status_code == 200, hello.content
+    session = hello["Mcp-Session-Id"]
+    said = {"Mcp-Session-Id": session, "Iki-Agent-Model": "claude-opus-5-5"}
+    first = await rpc(token, "tools/call", _create("ABL1", "MKVLA", world.project), **said)
+    second = await rpc(token, "tools/call", _create("ABL2", "MKVLG", world.project), **said)
+    agents = [
+        await sync_to_async(_created)(data(r.json()["result"])["hrid"]) for r in (first, second)
+    ]
+    assert agents[0] == agents[1]  # one agent: the same session, saying the same
+    agent = agents[0]
+    consent = await sync_to_async(Consent.objects.get)(user=world.users["editor"])
+    assert (agent.grant, agent.software, agent.model) == (
+        consent.grant,
+        "claude-code 2.1",
+        "claude-opus-5-5",
+    )
+    assert re.fullmatch(r"[0-9a-f]{32}", agent.session)
+
+    # A session Iki didn't issue, or issued to someone else, is unknown: start another.
+    forged = await rpc(token, "tools/list", **{"Mcp-Session-Id": session[:-2] + "xx"})
+    assert forged.status_code == 404
+    someone_else = await token_for(world, "admin")
+    assert (await rpc(someone_else, "tools/list", **{"Mcp-Session-Id": session})).status_code == 404
+
+    # Without a session (MCP 2026-07-28 has none), a request may say what client it is.
+    meta = {"io.modelcontextprotocol/clientInfo": {"name": "goose", "version": "1.9"}}
+    sessionless = await rpc(
+        token, "tools/call", {**_create("ABL3", "MKVLW", world.project), "_meta": meta}
+    )
+    made = await sync_to_async(_created)(data(sessionless.json()["result"])["hrid"])
+    assert (made.session, made.software, made.model) == ("", "goose 1.9", "")
+
+
 async def test_agents_create_and_change_entities_on_the_record(world: World) -> None:
     token = await token_for(world)
     made = data(
@@ -483,6 +546,9 @@ async def test_agents_run_actions_and_costly_runs_wait_for_the_person(
     assert held["approval"]["state"] == "pending"
     # A token never can, so nothing tells the agent it may.
     assert held["approval"]["can"] == {"decide": False}
+    # The request names the agent that made it, and its person's grant (ADR 0072).
+    assert held["agent"]["grant"] is not None
+    assert held["approval"]["agent"] == held["agent"]
     told = note(predicted)
     assert told.startswith(
         "This run waits for the person's approval: it runs on the vm tier, which an agent "

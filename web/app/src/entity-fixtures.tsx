@@ -178,6 +178,7 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
     reason: "",
     via: "web",
     client: "",
+    agent: null,
     user: ALICE,
     created_at: "2026-03-14T09:00:00Z",
     ...overrides,

@@ -41,7 +41,7 @@ from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.audit.log import current_oauth_client, current_via
+from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
 from iki_server.entities import access, identity, registry, rules
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Part, Refs, Shape, read_value, shape, to_db
@@ -577,6 +577,7 @@ def _revise(
         user=user,
         via=via or current_via(),
         client=current_oauth_client(),
+        agent=current_agent(),
         reason=reason.strip(),
     )
     Entity.objects.filter(pk=entity.pk).update(revision=number, updated_at=Now())
@@ -608,6 +609,7 @@ def _announce(entity_id: Any, revision: Revision, user: User) -> None:  # noqa: 
             "reason": revision.reason,
         },
         "actor": events.actor_data(user),
+        "agent": agent_data(revision.agent),
     }
     emit(_EVENTS[RevisionKind(revision.kind)], data, project=entity.owner_project)
 

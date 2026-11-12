@@ -69,6 +69,34 @@ def _invalid_token(request: HttpRequest) -> Problem:
     )
 
 
+#: The ASGI scope key in which the MCP endpoint passes its tools' API calls what it knows
+#: of the agent: its session and the software it says it is. Not a header, so no client
+#: can set it.
+MCP_AGENT_KEY = "iki.mcp_agent"
+
+#: The header in which an agent may say what model it is (ADR 0072).
+MODEL_HEADER = "Iki-Agent-Model"
+
+
+def reported(value: str) -> str:
+    """Something an agent says about itself, as stored: printable, and not too long."""
+    return "".join(c for c in value if c.isprintable()).strip()[:255]
+
+
+def agent_of(request: HttpRequest, client: Any, consent: Any) -> audit.AgentInfo:  # noqa: ANN401
+    """The agent a token's request comes through: its client, the person's grant, and
+    what the MCP endpoint and the agent say of it."""
+    mcp = getattr(request, "scope", {}).get(MCP_AGENT_KEY) or {}
+    return audit.AgentInfo(
+        client_id=client.client_id,
+        client_name=client.display_name(),
+        grant=consent.grant if consent is not None else None,
+        session=str(mcp.get("session", "")),
+        software=reported(str(mcp.get("software", ""))),
+        model=reported(request.headers.get(MODEL_HEADER, "")),
+    )
+
+
 class BearerAuth(HttpBearer):
     """OAuth access tokens issued by Iki's authorization server."""
 
@@ -93,6 +121,7 @@ class BearerAuth(HttpBearer):
                 headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="read"'},
             )
         projects = None
+        consent = None
         if client.service_account_id is None:
             consent = (
                 Consent.objects.filter(user=user, client=client)
@@ -107,7 +136,7 @@ class BearerAuth(HttpBearer):
                 projects = frozenset(p.pk for p in consent.projects.all())
         permissions.limit_to(user, permissions.TokenLimits(scopes=scopes, projects=projects))
         request.iki_oauth_client = client  # type: ignore[attr-defined]
-        audit.note_oauth_client(f"{client.display_name()} ({client.client_id[:40]})")
+        audit.note_agent(agent_of(request, client, consent))
         _limit(
             request, RateLimiter(POLICY, settings.IKI_API_RATE_LIMIT_PER_MINUTE), f"user:{user.pk}"
         )

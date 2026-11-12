@@ -135,6 +135,7 @@ def grant(user: User, client: Client, choice: Grant) -> Consent:
                 if choice.all_projects
                 else sorted(str(p.pk) for p in choice.projects),
                 "changed": not created,
+                "grant": str(consent.grant),
             },
         )
     return consent
@@ -143,7 +144,11 @@ def grant(user: User, client: Client, choice: Grant) -> Consent:
 def revoke_consent(consent: Consent, *, by: User) -> int:
     with transaction.atomic():
         revoked = _revoke({"user": consent.user, "application": consent.client})
-        data: dict[str, Any] = {"user": consent.user.email, "tokens_revoked": revoked}
+        data: dict[str, Any] = {
+            "user": consent.user.email,
+            "grant": str(consent.grant),
+            "tokens_revoked": revoked,
+        }
         if consent.client.client_id == RESERVED["worker"]:
             from iki_server.runs import workers
 

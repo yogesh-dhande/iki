@@ -79,6 +79,10 @@ class File(models.Model):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
     )
+    #: The agent that added it for ``created_by``, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
@@ -161,6 +165,10 @@ class Upload(models.Model):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
+    #: The agent that uploaded it for ``created_by``, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     name = models.CharField(max_length=255)
     media_type = models.CharField(max_length=255)
     size = models.BigIntegerField(db_comment="Bytes, as declared.")
@@ -237,6 +245,10 @@ class Registration(models.Model):
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    #: The agent that registered it for ``created_by``, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     name = models.CharField(max_length=255)
     media_type = models.CharField(max_length=255)

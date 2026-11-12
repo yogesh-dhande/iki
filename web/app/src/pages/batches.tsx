@@ -13,6 +13,7 @@ import {
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
+import { AgentRows, Through } from "../agent";
 import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
 import { ENTITIES } from "../entities";
 import { usePageTitle } from "../layout";
@@ -226,8 +227,9 @@ export function BatchPage() {
           <dd>
             By {batch.requested_by.name} <RelativeTime value={batch.created_at} />{" "}
             {VIA[batch.via] ?? batch.via}
-            {batch.client ? `, through ${batch.client}` : ""}
+            <Through agent={batch.agent} />
           </dd>
+          <AgentRows agent={batch.agent} />
           {batch.reason ? (
             <>
               <dt>Reason</dt>

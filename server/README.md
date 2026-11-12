@@ -93,8 +93,19 @@ claude mcp add --transport http iki https://iki.example.com/mcp
 Its tools search and read entities with their provenance, history and
 lineage, and actions and runs with their logs. They also create, change,
 archive and restore entities, giving a reason for each change, and start and
-cancel runs. Everything an agent does is recorded as done through MCP,
-through its app, for the person it acts for.
+cancel runs. Everything an agent does is recorded as the person's, through
+the agent (ADR 0072): its client ID, the person's grant, its MCP session, and
+what it says it is. Iki gives each session an `Mcp-Session-Id`. An agent may
+say what model it is with the `Iki-Agent-Model` header, which works for the
+REST API too. To add it to Claude Code with the header:
+
+```sh
+claude mcp add --transport http iki https://iki.example.com/mcp \
+  --header "Iki-Agent-Model: claude-opus-5-5"
+```
+
+Iki can't check what an agent says it is, and labels it as the agent's own
+word wherever it's shown.
 
 An agent's runs on the container and VM tiers wait for the person to approve
 them on the run's page, where a notification takes them (ADR 0050). No token
@@ -454,6 +465,10 @@ transaction as the change (ADR 0025). Auditors read them at `/audit/`. Each
 event is also written to the `iki.audit` log stream once it commits, so a
 SIEM fed from the logs keeps its own copy. Nobody, the table's owner
 included, can update or delete events.
+
+Events made by an agent name it beside the person. The log filters by an
+app's client ID, and by one person's grant to it: everything it did with that
+grant. People see what each of their grants did under **Account → Apps**.
 
 ## Observability
 

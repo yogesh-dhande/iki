@@ -201,6 +201,7 @@ def allow_test_flush() -> None:
 
     with connection.cursor() as cursor:
         cursor.execute("ALTER TABLE iki_audit_event DISABLE TRIGGER iki_audit_event_no_truncate")
+        cursor.execute("ALTER TABLE iki_audit_agent DISABLE TRIGGER iki_audit_agent_no_truncate")
         # Revisions and plugin history refuse TRUNCATE the same way.
         cursor.execute(
             "SELECT tgrelid::regclass::text FROM pg_trigger"

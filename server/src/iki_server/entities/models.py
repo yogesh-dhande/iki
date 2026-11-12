@@ -153,6 +153,10 @@ class Revision(models.Model):
     #: The OAuth app it came through, if any, as the audit log names it: an MCP client,
     #: say, acting for ``user``.
     client = models.CharField(max_length=255, blank=True, default="")
+    #: The agent that made it for ``user``, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     #: Why, if the person said.
     reason = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(db_default=Now())

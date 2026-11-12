@@ -25,6 +25,44 @@ class Via(models.TextChoices):
     SYSTEM = "system", "System"
 
 
+class Agent(models.Model):
+    """An agent that acted for a person (ADR 0072): an OAuth client, through one of the
+    person's grants, in an MCP session, saying what software and model it is.
+
+    Each distinct agent is stored once, and records of what it did point to it. Like
+    audit events, agents are never changed or deleted.
+    """
+
+    APPEND_ONLY = True
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    #: A digest of the rest, which finds the agent again.
+    key = models.CharField(max_length=64, unique=True)
+    client_id = models.CharField(max_length=255, db_index=True)
+    #: The client's name when the agent first acted.
+    client_name = models.CharField(max_length=255)
+    #: The person's consent the client acted under (``Consent.grant``), or none for a
+    #: service account's own credential.
+    grant = models.UUIDField(null=True, blank=True, db_index=True)
+    #: The MCP session, before MCP 2026-07-28 (which has none).
+    session = models.CharField(max_length=64, blank=True)
+    #: What the agent says it is: its software (MCP's ``clientInfo``) and its model (the
+    #: ``Iki-Agent-Model`` header). Iki can't check either.
+    software = models.CharField(max_length=255, blank=True)
+    model = models.CharField(max_length=255, blank=True)
+    first_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "iki_audit_agent"
+
+    def __str__(self) -> str:
+        return self.label()
+
+    def label(self) -> str:
+        """As records named the client before agents were stored: "Name (client ID)"."""
+        return f"{self.client_name} ({self.client_id[:40]})"[:254]
+
+
 class AuditEvent(models.Model):
     #: Tables the app may only INSERT into and SELECT from.
     APPEND_ONLY = True
@@ -61,6 +99,10 @@ class AuditEvent(models.Model):
     client_ip = models.GenericIPAddressField(null=True, blank=True)
     #: The OAuth client the actor used, e.g. "Claude Code (client …4f2a)".
     oauth_client = models.CharField(max_length=254, blank=True, db_default="")
+    #: The agent that acted for ``actor``, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        Agent, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
 
     class Meta:
         db_table = "iki_audit_event"

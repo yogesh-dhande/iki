@@ -37,6 +37,55 @@ class UserOut(Schema):
     active: bool = Field(alias="is_active")
 
 
+class AgentReportedOut(Schema):
+    software: str | None = Field(
+        description="What software the agent says it is (MCP's clientInfo). Iki can't check it."
+    )
+    model: str | None = Field(
+        description="What model the agent says it is (its Iki-Agent-Model header). Iki can't "
+        "check it."
+    )
+
+
+class AgentOut(Schema):
+    """The agent that acted for the person (ADR 0072): an OAuth client, through one of
+    the person's grants."""
+
+    client_id: str | None = Field(
+        description="The OAuth client's ID. Null for older records whose label doesn't name it."
+    )
+    name: str = Field(description="The client's name when it acted.")
+    grant: UUID | None = Field(
+        description="The person's grant to the client it acted under, if recorded."
+    )
+    mcp_session: str | None = Field(description="The MCP session, if it came through one.")
+    reported: AgentReportedOut
+
+
+def agent_out(agent: Any, label: str = "") -> dict[str, Any] | None:  # noqa: ANN401 - an Agent
+    """A record's agent, or for an older record, what its client label says."""
+    from iki_server.audit.log import legacy_agent
+
+    if agent is not None:
+        return {
+            "client_id": agent.client_id,
+            "name": agent.client_name,
+            "grant": agent.grant,
+            "mcp_session": agent.session or None,
+            "reported": {"software": agent.software or None, "model": agent.model or None},
+        }
+    if not label:
+        return None
+    name, client_id = legacy_agent(label)
+    return {
+        "client_id": client_id,
+        "name": name,
+        "grant": None,
+        "mcp_session": None,
+        "reported": {"software": None, "model": None},
+    }
+
+
 class MeCan(Schema):
     manage_org: bool = Field(description="People, teams, sign-in and apps settings.")
     read_audit: bool

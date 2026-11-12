@@ -153,6 +153,7 @@ def reuse(
     run = ActionRun.objects.create(
         status=RunStatus.SUCCEEDED,
         client=audit.current_oauth_client(),
+        agent=audit.current_agent(),
         hrid=hrid,
         batch=batch,
         action=action.qualified_name,
