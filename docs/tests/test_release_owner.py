@@ -9,11 +9,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = "yogesh-dhande"
-#: ``ghcr.io/<owner>/iki-server``, ``iki-worker`` or ``charts/iki`` (a deployment's own
-#: images are under its own account), ``github.com/<owner>/iki``, a
+#: ``ghcr.io/<owner>/iki-server``, ``iki-worker``, a first-party plugin's image such as
+#: ``iki-protein-structure-tools``, or ``charts/iki`` (a deployment's own images are under
+#: its own account), ``github.com/<owner>/iki``, a
 #: workflow's ``repository: <owner>/iki``, and the shell examples' ``OWNER=<owner>``.
 NAMED = re.compile(
-    r"ghcr\\?\.io/(?P<a>[\w.-]+)/(?:iki-server|iki-worker|charts/iki)\b(?!-)"
+    r"ghcr\\?\.io/(?P<a>[\w.-]+)/(?:iki-server|iki-worker|iki-protein-structure-tools|charts/iki)\b(?!-)"
     r"|github\\?\.com/(?P<b>[\w.-]+)/iki\b(?![\w-])"
     r"|repository: (?P<c>[\w.-]+)/iki\b"
     r"|\bOWNER=(?P<d>[\w.-]+)"

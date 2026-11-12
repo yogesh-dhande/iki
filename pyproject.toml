@@ -87,6 +87,7 @@ allowed-confusables = ["’", "“", "”"]
 "**/migrations/**" = ["E501", "RUF012"]
 # Action commands report through what they print: their log and `::progress` lines.
 "{spec/tests/plugins,plugins,plugin-template}/**/scripts/**" = ["T201"]
+"plugins/*/images/**" = ["T201"]
 # The SDK's exceptions read as what happened: `except iki.NotFound`, `iki.Conflict`.
 "sdk/python/src/iki/errors.py" = ["N818"]
 # SAML XML templates read best unwrapped.

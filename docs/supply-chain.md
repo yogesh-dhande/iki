@@ -6,12 +6,13 @@ The policy is set in [ADR 0017](adr/0017-supply-chain-security.md).
 
 ## What is published
 
-| Artifact                    | Where                                            | Built by      |
-| --------------------------- | ------------------------------------------------ | ------------- |
-| Server image (amd64, arm64) | `ghcr.io/yogesh-dhande/iki-server`               | `publish.yml` |
-| Worker image (amd64, arm64) | `ghcr.io/yogesh-dhande/iki-worker`               | `publish.yml` |
-| Helm chart                  | `oci://ghcr.io/yogesh-dhande/charts/iki`         | `release.yml` |
-| `iki-worker` binaries       | GitHub release assets (Linux musl static, macOS) | `release.yml` |
+| Artifact                                        | Where                                               | Built by      |
+| ----------------------------------------------- | --------------------------------------------------- | ------------- |
+| Server image (amd64, arm64)                     | `ghcr.io/yogesh-dhande/iki-server`                  | `publish.yml` |
+| Worker image (amd64, arm64)                     | `ghcr.io/yogesh-dhande/iki-worker`                  | `publish.yml` |
+| Protein plugin's structure tools (amd64, arm64) | `ghcr.io/yogesh-dhande/iki-protein-structure-tools` | `publish.yml` |
+| Helm chart                                      | `oci://ghcr.io/yogesh-dhande/charts/iki`            | `release.yml` |
+| `iki-worker` binaries                           | GitHub release assets (Linux musl static, macOS)    | `release.yml` |
 
 They live under `yogesh-dhande`, the GitHub account that hosts the repository,
 until it moves to the `ikisci` organization. `docs/tests/test_release_owner.py`
@@ -20,6 +21,11 @@ lists every place that names it, so the move is one change.
 The worker image holds the worker and micromamba but no plugins; each
 deployment builds its own worker image on top of it with its plugins' code and
 environments (`deploy/worker.Dockerfile`).
+
+First-party plugins whose container-tier actions need more than a Python
+environment, such as the protein plugin's DSSP, have their images built here
+too, from the plugin's `images/` directory ([ADR 0065](adr/0065-first-party-plugins-images-are-built-and-signed-like-ikis.md)).
+The plugin pins each by digest, and the cluster admits them as Iki-signed.
 
 The `main` branch publishes each image as `:main` and `:sha-<commit>`. A
 version tag `vX.Y.Z` publishes the images as `:X.Y.Z` and `:X.Y`, the chart
@@ -48,7 +54,8 @@ You need [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
 
 ### Server and worker images
 
-The worker image verifies the same way: set `IMAGE=ghcr.io/$OWNER/iki-worker`.
+The worker image and plugins' images verify the same way: set
+`IMAGE=ghcr.io/$OWNER/iki-worker`, for instance.
 Always deploy images by digest. Resolve a tag once, verify it, then pin the
 digest in your Helm values (`image.digest`).
 

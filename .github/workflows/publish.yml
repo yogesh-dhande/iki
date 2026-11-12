@@ -1,7 +1,8 @@
 name: Publish images
 
-# Builds the server and worker images for amd64 and arm64 on native runners,
-# scans each platform image, then publishes each as a multi-arch image that is:
+# Builds the server and worker images, and first-party plugins' images (ADR
+# 0065), for amd64 and arm64 on native runners, scans each platform image, then
+# publishes each as a multi-arch image that is:
 #   - signed with cosign (keyless: the signature is bound to this workflow's
 #     GitHub OIDC identity, so there is no signing key to leak);
 #   - attested with SLSA build provenance and a CycloneDX SBOM per platform
@@ -28,7 +29,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        image: [iki-server, iki-worker]
+        image: [iki-server, iki-worker, iki-protein-structure-tools]
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -39,8 +40,13 @@ jobs:
             runner: ubuntu-24.04-arm
           - image: iki-server
             file: server/Dockerfile
+            context: .
           - image: iki-worker
             file: worker/Dockerfile
+            context: .
+          - image: iki-protein-structure-tools
+            file: plugins/protein/images/structure-tools/Dockerfile
+            context: plugins/protein
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
@@ -66,7 +72,7 @@ jobs:
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: .
+          context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           platforms: ${{ matrix.platform }}
           # Untagged until the scan below passes and the merge job tags it.
@@ -108,7 +114,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [iki-server, iki-worker]
+        image: [iki-server, iki-worker, iki-protein-structure-tools]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
