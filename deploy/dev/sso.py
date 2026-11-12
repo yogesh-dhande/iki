@@ -27,6 +27,7 @@ import secrets
 import subprocess
 import sys
 import time
+from datetime import datetime
 from html.parser import HTMLParser
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, urljoin, urlsplit
@@ -1010,16 +1011,19 @@ TOOLS_IMAGE = (
 )
 
 
-def containers() -> None:
-    """The plugin template's action on the container tier (ADR 0061): the provisioner starts
-    a pod of its own in iki-runs, running the environment's image with iki-worker copied in."""
-    alice = sign_in_as("alice")
-    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
-    project = next(p for p in mine if p["name"] == "Atlas")
-    action = "example.assign_storage"
-    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
-    if not listed.get(action, {}).get("available"):
-        fail(f"{action} isn't available to run: {listed.get(action)}")
+def _run_pods() -> list[dict[str, Any]]:
+    pods: list[dict[str, Any]] = json.loads(
+        subprocess.run(  # noqa: S603 - fixed argv
+            ["kubectl", "--context", CONTEXT, "-n", "iki-runs", "get", "pods", "-o", "json"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )["items"]
+    return pods
+
+
+def _sample(alice: requests.Session, project: dict[str, Any], **values: str) -> dict[str, Any]:
     made = api_call(
         alice,
         "POST",
@@ -1027,12 +1031,19 @@ def containers() -> None:
         {
             "type": "example.Sample",
             "project": project["id"],
-            "values": {"name": f"e2e-{secrets.token_hex(4)}", "kind": "dna"},
+            "values": {"name": f"e2e-{secrets.token_hex(4)}", "kind": "dna", **values},
         },
     )
     if made.status_code not in (200, 201):
         fail(f"registering a sample answered HTTP {made.status_code}: {made.text[:300]}")
-    sample = made.json()
+    sample: dict[str, Any] = made.json()
+    return sample
+
+
+def _contained(
+    alice: requests.Session, project: dict[str, Any], action: str, sample: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Runs `action` on `sample`: the run, its one attempt, and the storage it wrote."""
     launched = api_call(
         alice,
         "POST",
@@ -1041,28 +1052,37 @@ def containers() -> None:
     )
     if launched.status_code != 201:
         fail(f"launching {action} answered HTTP {launched.status_code}: {launched.text[:300]}")
-    # Its pod pulls the image first.
+    # A pod of its own pulls the image first.
     run = followed(alice, launched.json(), within=300)
     if run["status"] != "succeeded":
         fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
     got = api_call(alice, "GET", f"/entities/{sample['id']}").json()["values"]
-    if got.get("storage") != "-80 °C freezer":
-        fail(f"{run['hrid']} wrote {got}, not the plugin's default storage")
     (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
-    digest = TOOLS_IMAGE.rpartition("@")[2]
-    if attempt["template"] != "container-small" or attempt["environment_build"] != digest:
-        fail(f"{run['hrid']} didn't record its template and image: {attempt}")
+    if attempt["environment_build"] != TOOLS_IMAGE.rpartition("@")[2]:
+        fail(f"{run['hrid']} didn't record its image: {attempt}")
     if not attempt["worker"].startswith("iki-run-"):
-        fail(f"{run['hrid']} ran on {attempt['worker']}, not a pod started for it")
-    pods = json.loads(
-        subprocess.run(  # noqa: S603 - fixed argv
-            ["kubectl", "--context", CONTEXT, "-n", "iki-runs", "get", "pods", "-o", "json"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-    )["items"]
-    pod = next((p for p in pods if p["metadata"]["name"] == attempt["worker"]), None)
+        fail(f"{run['hrid']} ran on {attempt['worker']}, not a pod Iki started")
+    return run, attempt, str(got.get("storage"))
+
+
+def containers() -> None:
+    """The plugin template's actions on the container tier (ADR 0061, 0062): the provisioner
+    starts a pod of its own in iki-runs for one, running the environment's image with
+    iki-worker copied in; the other, persistent, runs one after another on a warm pod."""
+    alice = sign_in_as("alice")
+    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
+    project = next(p for p in mine if p["name"] == "Atlas")
+    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
+    for action in ("example.assign_storage", "example.tidy_storage"):
+        if not listed.get(action, {}).get("available"):
+            fail(f"{action} isn't available to run: {listed.get(action)}")
+    action = "example.assign_storage"
+    run, attempt, storage = _contained(alice, project, action, _sample(alice, project))
+    if storage != "-80 °C freezer":
+        fail(f"{run['hrid']} wrote {storage!r}, not the plugin's default storage")
+    if attempt["template"] != "container-small":
+        fail(f"{run['hrid']} didn't run on a pod of its own: {attempt}")
+    pod = next((p for p in _run_pods() if p["metadata"]["name"] == attempt["worker"]), None)
     if pod is None:
         fail(f"no pod {attempt['worker']} in iki-runs")
     (container,) = pod["spec"]["containers"]
@@ -1070,7 +1090,33 @@ def containers() -> None:
         fail(f"{attempt['worker']} isn't the environment's image without a Kubernetes token")
     ok(
         f"{action} ran in a pod of its own ({attempt['worker']}, {TOOLS_IMAGE.split('@')[0]}) "
-        f"on the container tier ({run['hrid']}) and wrote storage {got['storage']!r}"
+        f"on the container tier ({run['hrid']}) and wrote storage {storage!r}"
+    )
+
+    action = "example.tidy_storage"
+    ran = [
+        _contained(alice, project, action, _sample(alice, project, storage=" -80C   freezer"))
+        for _ in range(2)
+    ]
+    workers = {attempt["worker"] for _, attempt, _ in ran}
+    if len(workers) != 1 or any(a["template"] != "container-warm" for _, a, _ in ran):
+        fail(f"{action}'s runs didn't share the warm pod: {[a for _, a, _ in ran]}")
+    if any(storage != "-80 °C freezer" for _, _, storage in ran):
+        fail(f"{action} wrote {[s for _, _, s in ran]}")
+    (worker,) = workers
+    pod = next((p for p in _run_pods() if p["metadata"]["name"] == worker), None)
+    if pod is None:
+        fail(f"no warm pod {worker} in iki-runs")
+    first = ran[0][0]
+    started = datetime.fromisoformat(pod["metadata"]["creationTimestamp"])
+    if started > datetime.fromisoformat(first["created_at"]):
+        fail(f"{worker} started after {first['hrid']}: it wasn't kept warm")
+    command = pod["spec"]["containers"][0]["command"]
+    if "--once" in command:
+        fail(f"{worker} runs one job only: {command}")
+    ok(
+        f"{action} ran twice ({', '.join(r['hrid'] for r, _, _ in ran)}) on the pod kept warm "
+        f"({worker}), started before them, and tidied storage to '-80 °C freezer'"
     )
 
 

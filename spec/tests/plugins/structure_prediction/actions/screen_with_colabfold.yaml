@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: Action
+name: screen_with_colabfold
+label: Screen with ColabFold
+description: A quick, single-model prediction, for screening many proteins.
+inputs:
+  protein: { type: protein.Protein, schema: ">=1" }
+effects:
+  creates: [{ type: protein.ProteinStructure, cardinality: one, derived_from: [protein] }]
+runs_on: { tier: container, environment: colabfold, lifecycle: persistent }
+command: [colabfold_batch, --num-models, "1", --input, protein.fasta]
+deterministic: true
+timeout: 10m

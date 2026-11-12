@@ -7,6 +7,7 @@
 //! `iki-worker run --local input.json` runs one action's command offline, the same way.
 
 mod api;
+mod between;
 mod bundles;
 mod config;
 mod files;
@@ -172,6 +173,8 @@ Set in the environment:
   IKI_WORKER_AUTO_UPDATE   0 leaves updates to whoever installed it, rather than updating
                            to the release the server says while idle
   IKI_WORKER_IDLE_EXIT     Stop after this many seconds without a job
+  IKI_WORKER_CLEAN_DIR     A directory that holds only what jobs leave (a pod's scratch
+                           volume): emptied after each job, so the next starts clean
   IKI_ALLOW_HTTP           1 allows a plain http:// IKI_URL anywhere: development clusters only";
 
 fn main() -> ExitCode {

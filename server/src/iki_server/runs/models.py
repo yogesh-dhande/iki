@@ -413,8 +413,12 @@ class Launch(models.Model):
     #: Where it runs: a Kubernetes namespace and object name.
     namespace = models.CharField(max_length=63)
     name = models.CharField(max_length=63, unique=True)
-    #: Whether its worker runs one job and stops (an ephemeral machine).
+    #: Whether its worker runs one job and stops (an ephemeral machine). A persistent one
+    #: runs one after another until it's stopped (ADR 0062).
     once = models.BooleanField(default=True)
+    #: A digest of the pod it was started as. When the template or Iki's settings for run
+    #: pods change, persistent machines started before are replaced once they're idle.
+    spec = models.CharField(max_length=64, blank=True, default="")
     token_hash = models.CharField(max_length=64, unique=True)
     state = models.CharField(
         max_length=16, choices=LaunchState.choices, default=LaunchState.STARTING
@@ -422,7 +426,7 @@ class Launch(models.Model):
     #: What it's doing or why it ended, for people: "Waiting for a node with 1 GPU", say.
     message = models.CharField(max_length=500, blank=True, default="")
     #: Why it ended, for code: ``finished``, ``image_unavailable``, ``never_started``,
-    #: ``gone``, ``removed`` or ``failed``.
+    #: ``gone``, ``removed``, ``failed``, ``idle`` or ``replaced``.
     ended_reason = models.CharField(max_length=32, blank=True, default="")
     created_at = models.DateTimeField(db_default=Now())
     #: Its token works until then, or until its worker registers with it.
@@ -518,6 +522,9 @@ class Job(models.Model):
     environment_build = models.CharField(max_length=100, blank=True, default="")
     #: The compute template of the machine Iki started for it, if it did (ADR 0061).
     template = models.CharField(max_length=100, blank=True, default="")
+    #: The kind of machine its action asks for, if it does: ``ephemeral`` (a fresh one, that
+    #: runs nothing else) or ``persistent``.
+    lifecycle = models.CharField(max_length=16, blank=True, default="")
     #: What the job needs: the environment's minimum, raised by the action's own.
     resources = models.JSONField(default=dict)
     #: For client-tier jobs: only this person's own worker may lease it.

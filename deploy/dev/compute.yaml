@@ -1,6 +1,7 @@
 # The dev cluster's compute: its backend worker pod (backendWorkers in
-# values-dev.yaml), sized as the pod is, and a pod for each container-tier run
-# (containerTier), in the iki-runs namespace.
+# values-dev.yaml), sized as the pod is, and on the container tier
+# (containerTier), in the iki-runs namespace, a pod for each run and one kept
+# warm for actions that ask for a persistent machine.
 apiVersion: iki/v1
 kind: ComputeTemplate
 name: backend-small
@@ -20,6 +21,13 @@ capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
 limits: { max_concurrent: 2 }
 ---
 apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-warm
+provisioner: k8s_deployment
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2, min_warm: 1, idle_shutdown: 10m }
+---
+apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: example.tools
-templates: [{ template: container-small }]
+templates: [{ template: container-small }, { template: container-warm }]

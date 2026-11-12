@@ -15,6 +15,9 @@ What's here:
   `dna.DNASequence`. They live in this plugin's tables.
 - `actions/assign_storage.yaml` and `scripts/storage.py`: an action that sets
   a sample's storage to the plugin's setting, and the command it runs.
+- `actions/tidy_storage.yaml`: another, with the same script, that asks for a
+  persistent machine (`lifecycle: persistent`): a quick action that runs
+  often can go to a pod that's kept warm, rather than wait for one of its own.
 - `environments/tools.yaml`: where that command runs. On the container tier,
   each run gets a pod with this image, pinned by its digest.
 - `migrations/`: the database migrations for those types, made by

@@ -141,6 +141,30 @@ The binary is static, so it runs in any Linux image. The pod then runs
   stops. That covers runs another pod took first, and runs that were
   cancelled.
 
+A persistent template's pods (`k8s_deployment`) run `iki-worker start`
+instead, one job after another, until the provisioner stops them
+([ADR 0062](../docs/adr/0062-warm-pods-run-one-job-after-another-and-start-each-clean.md)).
+
+### Between jobs
+
+Runs from different projects can follow one another on a worker that runs
+many: backend workers, and persistent container-tier pods. So that nothing
+one leaves reaches the next:
+
+- On Linux, the worker makes its memory unreadable to other processes,
+  which run as the same user. Its token is in there.
+- When the worker is its container's first process, every other process is
+  a job's. After each job it stops any still running and reaps them, and
+  empties `/dev/shm`.
+- `IKI_WORKER_CLEAN_DIR`, a directory that holds only what jobs leave (the
+  pod's scratch volume), is emptied after each job, whatever permissions a
+  job gave what it left. A worker whose plugin code is in there fetches it
+  again, checked against its SHA-256. The chart sets it for backend workers
+  and the provisioner for persistent pods.
+
+If it can't make the machine clean, the worker stops rather than take
+another job.
+
 ### Stopping
 
 `iki-worker start --once` runs one job and exits. SIGTERM or SIGINT stops

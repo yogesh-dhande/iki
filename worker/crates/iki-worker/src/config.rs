@@ -40,6 +40,11 @@ pub struct Config {
     pub image: Option<InImage>,
     /// `IKI_WORKER_IDLE_EXIT`: stop after this long without a job.
     pub idle_exit: Option<Duration>,
+    /// `IKI_WORKER_CLEAN_DIR`: a directory that holds only what jobs leave, such as a
+    /// pod's scratch volume. A worker that runs one job after another empties it after
+    /// each, so the next starts clean (ADR 0062). If its cache is in there too, it
+    /// fetches its plugin's code again.
+    pub clean_dir: Option<PathBuf>,
 }
 
 /// The environment a worker runs in the image of.
@@ -289,6 +294,21 @@ impl Config {
             )?;
         let work_dir = get("IKI_WORK_DIR")
             .map_or_else(|| std::env::temp_dir().join("iki-worker"), PathBuf::from);
+        let image = in_image(get("IKI_WORKER_ENVIRONMENT"), get("IKI_WORKER_IMAGE"))?;
+        let clean_dir = get("IKI_WORKER_CLEAN_DIR").map(PathBuf::from);
+        if let Some(dir) = &clean_dir {
+            if !dir.is_absolute() || dir.parent().is_none() {
+                return Err("IKI_WORKER_CLEAN_DIR must be an absolute directory, not /.".to_owned());
+            }
+            // Emptying it would throw away what the worker built for its environments.
+            if image.is_none() && plugins_dir.is_none() && cache_dir.starts_with(dir) {
+                return Err(
+                    "IKI_WORKER_CACHE can't be inside IKI_WORKER_CLEAN_DIR on a worker \
+                            that builds its environments: it would build them for every job."
+                        .to_owned(),
+                );
+            }
+        }
         Ok(Self {
             url,
             registration_token,
@@ -301,13 +321,14 @@ impl Config {
             keep_job_dirs: flag("IKI_KEEP_JOB_DIRS"),
             auto_update: !get("IKI_WORKER_AUTO_UPDATE").is_some_and(|v| v == "0" || v == "false"),
             allow_http,
-            image: in_image(get("IKI_WORKER_ENVIRONMENT"), get("IKI_WORKER_IMAGE"))?,
+            image,
             idle_exit: match get("IKI_WORKER_IDLE_EXIT") {
                 None => None,
                 Some(raw) => Some(Duration::from_secs(raw.parse().map_err(
                     |_| "IKI_WORKER_IDLE_EXIT must be a whole number of seconds, such as 300.",
                 )?)),
             },
+            clean_dir,
         })
     }
 }
@@ -472,5 +493,36 @@ mod tests {
         let mut half = BASE.to_vec();
         half.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
         assert!(Config::from_env(&env(&half)).unwrap_err().contains("both"));
+    }
+
+    #[test]
+    fn a_clean_directory_must_not_hold_what_the_worker_builds() {
+        let mut pairs = BASE.to_vec();
+        pairs.push(("IKI_WORKER_CLEAN_DIR", "/iki/scratch"));
+        pairs.push(("IKI_WORKER_CACHE", "/var/cache/iki"));
+        let config = Config::from_env(&env(&pairs)).unwrap();
+        assert_eq!(config.clean_dir, Some(PathBuf::from("/iki/scratch")));
+        // Without IKI_PLUGINS_DIR, it fetches its plugins and builds their environments.
+        let mut inside: Vec<_> = BASE
+            .iter()
+            .copied()
+            .filter(|(k, _)| *k != "IKI_PLUGINS_DIR")
+            .collect();
+        inside.push(("IKI_WORKER_CLEAN_DIR", "/iki/scratch"));
+        inside.push(("IKI_WORKER_CACHE", "/iki/scratch/cache"));
+        assert!(
+            Config::from_env(&env(&inside))
+                .unwrap_err()
+                .contains("every job")
+        );
+        let image = format!("ghcr.io/acme/fold@sha256:{}", "a".repeat(64));
+        inside.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        inside.push(("IKI_WORKER_IMAGE", &image));
+        assert!(Config::from_env(&env(&inside)).is_ok());
+        for odd in ["scratch", "/"] {
+            let mut pairs = BASE.to_vec();
+            pairs.push(("IKI_WORKER_CLEAN_DIR", odd));
+            assert!(Config::from_env(&env(&pairs)).is_err(), "{odd}");
+        }
     }
 }

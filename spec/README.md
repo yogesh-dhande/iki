@@ -259,8 +259,12 @@ retries: { max: 2, on: [worker_lost, interrupted] }
 ```
 
 The tiers are `client` (the person's own machine), `backend` (Iki's isolated
-worker pods), `container` (the plugin's image on Kubernetes) and `vm`. The
-validator checks that:
+worker pods), `container` (the plugin's image on Kubernetes) and `vm`. On the
+container and vm tiers, `lifecycle` says what machine a run needs: `ephemeral`
+(the default), a fresh one that runs nothing else, or `persistent`, one that
+runs one job after another and is kept warm, for quick actions that run often.
+A persistent machine starts each run clean, but other projects' runs have run
+on it. The validator checks that:
 
 - inputs, created types and updated fields exist, and the fields aren't
   removed or `immutable`; updates reach inherited fields and fields this
@@ -406,7 +410,7 @@ aws:
   subnets: [subnet-0a1b2c3d4e5f60718]
   instance_profile: iki-vm-worker
 volumes: { af-db: { strategy: clone_from_snapshot, fast_snapshot_restore: true } }
-limits: { max_concurrent: 10 } # persistent machines also take min_warm and idle_shutdown
+limits: { max_concurrent: 10 } # persistent ones also take min_warm and idle_shutdown (10m)
 price: { per_hour: 32.77, currency: USD }
 ---
 apiVersion: iki/v1
@@ -418,7 +422,10 @@ templates:
 ```
 
 For each job, Iki picks among the bound templates on the action's tier that
-it fits: the lowest priority number first, then the smallest. Kubernetes
+it fits and whose lifecycle the action asks for: the lowest priority number
+first, then the smallest. A persistent template keeps `min_warm` machines
+running for each environment bound to it, and stops others once they've had
+nothing to do for `idle_shutdown` (ten minutes unless it says). Kubernetes
 templates take `kubernetes`, with `namespace`, `node_selector`,
 `tolerations` and `runtime_class` (such as `gvisor`). `iki deploy build`
 checks that:

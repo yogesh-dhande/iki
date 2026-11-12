@@ -431,3 +431,166 @@ def test_a_run_says_what_its_pod_is_waiting_for(world: World) -> None:
     assert got["waiting"] == (
         "Waiting for a machine: 0/3 nodes are available: 3 Insufficient nvidia.com/gpu."
     )
+
+
+# --- Warm, persistent pods (ADR 0062) --------------------------------------------------------
+
+SCREEN = "structure_prediction.screen_with_colabfold"
+
+
+def rewrite_compute(change: Any) -> None:
+    file = Path(catalog._compute_file())  # type: ignore[arg-type]
+    compute = json.loads(file.read_text())
+    change(compute)
+    file.write_text(json.dumps(compute))
+    catalog.compute.cache_clear()
+
+
+@pytest.fixture
+def warm(world: World) -> World:
+    """A persistent template, kept one pod warm, bound to ColabFold ahead of the per-run
+    one: actions that ask for a persistent machine run on it."""
+
+    def change(compute: dict[str, Any]) -> None:
+        compute["templates"]["gpu-warm"] = {
+            **compute["templates"]["gpu-t4"],
+            "name": "gpu-warm",
+            "provisioner": "k8s_deployment",
+            "lifecycle": "persistent",
+            "min_warm": 1,
+            "idle_shutdown": 600,
+        }
+        compute["bindings"]["structure_prediction.colabfold"]["templates"] = [
+            ["gpu-warm", 0],
+            ["gpu-t4", 1],
+        ]
+
+    rewrite_compute(change)
+    return world
+
+
+def screen(world: World, name: str = "ACDE") -> dict[str, Any]:
+    runner = api_as(world, "runner")
+    abl = protein(runner, world.project, name=name)
+    made = runner.post(
+        f"/actions/{SCREEN}/runs",
+        {"project": str(world.project.pk), "inputs": {"protein": abl["id"]}},
+    )
+    assert made.status_code == 201, made.content
+    body: dict[str, Any] = made.json()
+    return body
+
+
+def start_pod(cluster: FakeCluster, name: str) -> WorkerClient:
+    made = register(cluster.token(name), name=f"{name}-x1y2z")
+    assert made.status_code == 201, made.content
+    return WorkerClient(made.json()["token"])
+
+
+def fail(pod: WorkerClient, leased: Any) -> None:
+    assert leased.status_code == 200, leased.content
+    ended = pod.report(leased.json(), "fail", reason="failed", message="no")
+    assert ended.status_code == 200, ended.content
+
+
+def test_a_persistent_template_keeps_a_pod_warm_that_runs_one_job_after_another(
+    warm: World,
+) -> None:
+    cluster = FakeCluster()
+    # With nothing queued, it starts the one pod the template keeps warm, and no more.
+    assert provisioner.tick(cluster) == (1, 0)
+    assert provisioner.tick(cluster) == (0, 0)
+    name, job = cluster.only()
+    container = job["spec"]["template"]["spec"]["containers"][0]
+    assert container["command"] == ["/iki/bin/iki-worker", "start"]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env["IKI_WORKER_CLEAN_DIR"] == "/iki/scratch"
+    assert "IKI_WORKER_IDLE_EXIT" not in env
+    launch = Launch.objects.get()
+    assert (launch.template, launch.once, len(launch.spec)) == ("gpu-warm", False, 64)
+    pod = start_pod(cluster, name)
+    # A run goes to the warm pod: none starts for it.
+    screen(warm)
+    assert provisioner.tick(cluster) == (0, 0)
+    first = pod.lease()
+    assert Job.objects.get(pk=first.json()["job"]["id"]).template == "gpu-warm"
+    # While it's busy, another run gets a pod of its own.
+    screen(warm, name="ACDEF")
+    assert provisioner.tick(cluster) == (1, 0)
+    # And the warm pod takes the next job when it's done with the first.
+    fail(pod, first)
+    second = pod.lease()
+    assert second.status_code == 200, second.content
+    assert Launch.objects.get(pk=launch.pk).state == LaunchState.RUNNING
+
+
+def test_runs_that_ask_for_a_fresh_machine_never_go_to_a_warm_one(warm: World) -> None:
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = cluster.only()
+    pod = start_pod(cluster, name)
+    queue_run(warm)  # predict_with_colabfold: lifecycle ephemeral
+    assert pod.lease().status_code == 204
+    assert provisioner.tick(cluster) == (1, 0)
+    fresh = Launch.objects.get(template="gpu-t4")
+    assert fresh.once
+    command = cluster.made[("iki-runs", fresh.name)]["spec"]["template"]["spec"]["containers"][0]
+    assert command["command"][-1] == "--once"
+
+
+def test_idle_pods_beyond_the_warm_ones_stop_and_a_busy_one_never_does(warm: World) -> None:
+    cluster = FakeCluster()
+    screen(warm)
+    screen(warm, name="ACDEF")
+    assert provisioner.tick(cluster) == (2, 0)
+    pods = [start_pod(cluster, name) for (_, name) in list(cluster.made)]
+    for pod in pods:
+        fail(pod, pod.lease())
+    # Both are idle now; not for long enough yet.
+    assert provisioner.tick(cluster, later(5)) == (0, 0)
+    # Past idle_shutdown, one stops: the template keeps one warm.
+    assert provisioner.tick(cluster, later(11)) == (0, 1)
+    stopped = Launch.objects.get(state=LaunchState.ENDED)
+    assert (stopped.ended_reason, stopped.message) == ("idle", "Nothing ran on it for 10 minutes.")
+    assert cluster.deleted == [stopped.name]
+    assert AuditEvent.objects.filter(
+        action="worker.launch_ended", target_id=str(stopped.pk), data__reason="idle"
+    ).exists()
+    kept = Launch.objects.get(state=LaunchState.RUNNING)
+    statuses = sorted(pod.lease().status_code for pod in pods)
+    assert statuses == [204, 401]  # the stopped pod's worker was revoked
+    # A pod holding a job is never stopped, even when the provisioner decides to.
+    screen(warm, name="ACDEFG")
+    survivor = next(p for p in pods if p.lease().status_code == 200)
+    assert survivor is not None
+    from iki_server.runs import launches
+
+    assert not launches.stop_if_idle(kept, "idle", "")
+    assert provisioner.tick(cluster, later(60)) == (0, 0)
+
+
+def test_warm_pods_are_replaced_once_idle_when_their_template_changes(warm: World) -> None:
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = cluster.only()
+    pod = start_pod(cluster, name)
+    screen(warm)
+    leased = pod.lease()
+
+    def bigger(compute: dict[str, Any]) -> None:
+        compute["templates"]["gpu-warm"]["capacity"]["cpu"] = 8
+
+    rewrite_compute(bigger)
+    # Busy, it keeps going.
+    assert provisioner.tick(cluster) == (0, 0)
+    fail(pod, leased)
+    # Idle, it's replaced by one started as the template says now.
+    assert provisioner.tick(cluster) == (1, 1)
+    old = Launch.objects.get(name=name)
+    assert (old.ended_reason, old.message) == (
+        "replaced",
+        "Its template, or how Iki starts run pods, changed.",
+    )
+    new = Launch.objects.exclude(state=LaunchState.ENDED).get()
+    container = cluster.made[("iki-runs", new.name)]["spec"]["template"]["spec"]["containers"][0]
+    assert container["resources"]["limits"]["cpu"] == "8000m"

@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Another action in the same image. It's quick and runs often, so it asks for a
+# persistent machine: on a deployment that keeps pods warm for the tools
+# environment, one run after another goes to the same pod, which starts each
+# clean. Without `lifecycle`, a container-tier run gets a fresh pod of its own.
+apiVersion: iki/v1
+kind: Action
+name: tidy_storage
+label: Tidy storage locations
+description: Writes each sample's storage location the same way, such as "-80 °C freezer" for "-80C  freezer".
+inputs:
+  sample: { type: Sample, schema: ">=1" }
+effects:
+  updates: [{ input: sample, fields: [storage] }]
+runs_on: { tier: container, environment: tools, lifecycle: persistent }
+command: [python, ./scripts/storage.py, --tidy]
+deterministic: true
+batchable: 50
+timeout: 5m

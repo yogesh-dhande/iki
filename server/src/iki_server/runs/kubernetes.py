@@ -8,9 +8,11 @@ chart mounts into the provisioner's pod alone) and the cluster's CA.
 its digest, with ``iki-worker`` as its command: an init container from Iki's own signed
 worker image copies the binary into a volume the image's container mounts read-only. The
 worker registers with the launch's token, from a Secret the Job owns, runs one job and
-exits, so the Job completes and Kubernetes cleans it up. The pod meets PodSecurity
-``restricted``: a non-root user, no privilege escalation or capabilities, a read-only root
-filesystem, the runtime's default seccomp profile, and no Kubernetes API token.
+exits, so the Job completes and Kubernetes cleans it up. On a persistent machine it runs
+one job after another, cleaning up between them, until the provisioner stops it (ADR
+0062). The pod meets PodSecurity ``restricted``: a non-root user, no privilege escalation
+or capabilities, a read-only root filesystem, the runtime's default seccomp profile, and no
+Kubernetes API token.
 """
 
 from __future__ import annotations
@@ -103,7 +105,7 @@ def _resources(template: Template) -> dict[str, Any]:
 
 
 def _worker_env(
-    template: Template, environment: str, image: str, pods: RunPods
+    template: Template, environment: str, image: str, pods: RunPods, *, once: bool
 ) -> list[dict[str, Any]]:
     have = template.capacity
     values = {
@@ -122,8 +124,12 @@ def _worker_env(
         # scratch volume. Each run's command gets a home and temporary directory of its own.
         "HOME": SCRATCH,
         "TMPDIR": SCRATCH,
-        # A pod whose run was leased by another, or cancelled, stops rather than waits.
-        "IKI_WORKER_IDLE_EXIT": str(IDLE_EXIT),
+        # A pod for one run that another took, or that was cancelled, stops rather than
+        # waits. A persistent one waits until the provisioner stops it (ADR 0062).
+        "IKI_WORKER_IDLE_EXIT": str(IDLE_EXIT) if once else None,
+        # It runs one job after another: the scratch volume, plugin code and all, is
+        # emptied after each, so the next starts clean.
+        "IKI_WORKER_CLEAN_DIR": None if once else SCRATCH,
         "IKI_ALLOW_HTTP": "1" if pods.allow_http else None,
     }
     env: list[dict[str, Any]] = [
@@ -161,8 +167,10 @@ def job_manifest(
     environment: str,
     image: str,
     pods: RunPods,
+    once: bool = True,
 ) -> tuple[dict[str, Any], str]:
-    """The Job for a launch, and the name of the Secret holding its token."""
+    """The Job for a launch, and the name of the Secret holding its token. Its worker runs
+    one job, or with `once` false, one after another (ADR 0062)."""
     labels = {**pods.labels, **MANAGED, LABEL: launch_id}
     secret = name
     kube = template.kubernetes
@@ -196,9 +204,9 @@ def job_manifest(
                 "name": "run",
                 "image": image,
                 "imagePullPolicy": "IfNotPresent",
-                "command": [f"{BIN}/iki-worker", "start", "--once"],
+                "command": [f"{BIN}/iki-worker", "start", *(["--once"] if once else [])],
                 "env": [
-                    *_worker_env(template, environment, image, pods),
+                    *_worker_env(template, environment, image, pods, once=once),
                     {
                         "name": "IKI_REGISTRATION_TOKEN",
                         "valueFrom": {"secretKeyRef": {"name": secret, "key": "token"}},

@@ -188,13 +188,13 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         tier=worker.tier,
         queued_at__lte=Now(),
     )
-    if worker.launch_id is not None:
-        # A machine Iki started runs its own environment, and an ephemeral one only one
-        # job (ADR 0061).
-        assert worker.launch is not None  # noqa: S101 - launch_id is set
-        if not launches.may_lease(worker):
-            return None
-        candidates = candidates.filter(environment=worker.launch.environment)
+    if worker.launch is not None:
+        # A machine Iki started runs its own environment's jobs (ADR 0061), and only those
+        # whose actions take its kind of machine (ADR 0062).
+        candidates = candidates.filter(
+            Q(lifecycle="") | Q(lifecycle=launches.lifecycle(worker.launch)),
+            environment=worker.launch.environment,
+        )
     if worker.tier == "client":
         candidates = candidates.filter(owner=worker.owner_id)
         allowed = workers.allowed_projects(worker)
@@ -203,6 +203,9 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
                 return None
             candidates = candidates.filter(project__in=allowed)
     with transaction.atomic():
+        # It's still running, and an ephemeral machine's first job.
+        if not launches.may_lease(worker):
+            return None
         stop = quotas.blocked(worker.tier, lock=True)
         if stop.organization:
             return None
@@ -729,6 +732,7 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
             tier=job.tier,
             environment=job.environment,
             resources=job.resources,
+            lifecycle=job.lifecycle,
             owner_id=job.owner_id,
             # The database's clock, as leasing compares with: app servers' clocks may drift.
             queued_at=Now() + RETRY_BACKOFF * job.attempt,

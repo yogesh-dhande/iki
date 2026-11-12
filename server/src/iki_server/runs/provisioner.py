@@ -6,9 +6,16 @@ Each :func:`tick`:
 
 - **Starts** what queued runs need. Each queued container-tier job goes to the first of
   its environment's templates (by priority, then size) that it fits and whose lifecycle
-  its action asks for. For ``k8s_job`` templates, the provisioner starts one pod for each
-  job no pod is already starting for, up to the template's ``max_concurrent``, a few at a
-  time. A template whose pods keep failing to start waits longer each time before the next.
+  its action asks for. The provisioner starts a pod for each job that no free pod can take
+  (one starting, or a persistent one with nothing to do), up to the template's
+  ``max_concurrent``, a few at a time. A template whose pods keep failing to start waits
+  longer each time before the next.
+- **Keeps machines warm** (ADR 0062). ``k8s_deployment`` templates are persistent: their
+  pods run one job after another. Each keeps ``min_warm`` running for each environment
+  bound to it, and stops one that has had nothing to do for ``idle_shutdown`` (ten minutes
+  unless it says) when there are more than that. One started before its template, or how
+  Iki starts run pods, changed is replaced as soon as it's idle. A lease and a stop both
+  lock the launch, so a machine is never stopped as it takes a job.
 - **Reconciles** what Kubernetes has with what Iki launched. A launch whose Job finished,
   or was deleted, ends (its worker's jobs are interrupted and retried); a Job whose launch
   ended is deleted. A pod that can't pull its image is ended after a short grace, and
@@ -19,6 +26,8 @@ Each :func:`tick`:
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -28,9 +37,10 @@ from typing import Any
 import structlog
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q, Subquery
 from django.utils import timezone
 
+from iki_server.entities import registry
 from iki_server.runs import catalog, launches, queue, quotas
 from iki_server.runs.kubernetes import (
     LABEL,
@@ -52,17 +62,23 @@ __all__ = [
     "namespaces",
     "reconcile",
     "run_pods",
+    "spec_of",
     "start",
+    "stop_idle",
     "template_for",
     "tick",
     "trouble",
     "waiting",
+    "warm",
 ]
 
 logger = structlog.get_logger("iki.provisioner")
 
-#: The provisioners this process starts machines for.
-PROVISIONERS = ("k8s_job",)
+#: The provisioners this process starts machines for: a pod per run, or persistent pods.
+PROVISIONERS = ("k8s_job", "k8s_deployment")
+#: How long a persistent machine may have nothing to do before it's stopped, unless its
+#: template's ``idle_shutdown`` says.
+IDLE_SHUTDOWN = timedelta(minutes=10)
 #: At most this many pods are started for one template and environment in a tick, and
 #: this many in all, so a burst of runs doesn't flood the API server.
 BURST = 10
@@ -121,6 +137,26 @@ class Group:
     def key(self) -> tuple[str, str, str]:
         return (self.environment, self.plugin_sha, self.template.name)
 
+    @property
+    def once(self) -> bool:
+        return self.template.lifecycle == "ephemeral"
+
+
+def spec_of(group: Group, namespace: str, pods: RunPods) -> str:
+    """A digest of the pod a launch for `group` gets: it changes when its template, or how
+    Iki starts run pods (the worker's image, say), does."""
+    job, _ = job_manifest(
+        name="-",
+        launch_id="-",
+        template=group.template,
+        environment=group.environment,
+        image=group.image,
+        pods=pods,
+        once=group.once,
+    )
+    canonical = json.dumps([namespace, job], sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
 
 def _resources(job: Job) -> Resources:
     known = {k: v for k, v in (job.resources or {}).items() if k in Resources.__dataclass_fields__}
@@ -174,16 +210,69 @@ def demand(now: datetime) -> dict[tuple[str, str, str], Group]:
     return groups
 
 
-def _waiting_launches() -> Counter[tuple[str, str, str]]:
-    """Pods started for runs that haven't leased one yet, by kind of pod."""
-    busy = Job.objects.filter(worker__launch=OuterRef("pk"))
-    live = (
+def warm() -> dict[tuple[str, str, str], Group]:
+    """The machines persistent templates keep running with nothing to do: ``min_warm`` of
+    each, for each environment bound to it, at the plugin commit runs launch with now."""
+    from iki_server.runs.services import plugin_sha
+
+    deployment = catalog.compute()
+    plugins = registry.plugins()
+    found: dict[tuple[str, str, str], Group] = {}
+    for qualified, binding in deployment.bindings.items():
+        plugin, _, name = qualified.partition(".")
+        environment = plugins[plugin].environments.get(name) if plugin in plugins else None
+        if environment is None or environment.image is None:
+            continue
+        sha = plugin_sha(plugin)
+        for template_name, _ in binding.templates:
+            template = deployment.templates.get(template_name)
+            if template is None or template.provisioner not in PROVISIONERS:
+                continue
+            if template.min_warm and template.lifecycle == "persistent":
+                group = Group(qualified, sha, template, environment.image)
+                found[group.key] = group
+    return found
+
+
+def _free() -> list[Launch]:
+    """Machines that can take a job now or once they start: one starting, or a persistent
+    one with nothing to do."""
+    held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=queue.HELD)
+    ever = Job.objects.filter(worker__launch=OuterRef("pk"))
+    return list(
         Launch.objects.exclude(state=LaunchState.ENDED)
         .filter(provisioner__in=PROVISIONERS)
-        .annotate(busy=Exists(busy))
-        .filter(busy=False)
+        .annotate(held=Exists(held), ever=Exists(ever))
+        .filter(Q(once=False, held=False) | Q(once=True, ever=False))
+        .order_by("created_at")
     )
-    return Counter((each.environment, each.plugin_sha, each.template) for each in live)
+
+
+def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
+    """Whether `launch`'s worker may lease `job`, as :func:`queue.lease` decides."""
+    template = templates.get(launch.template)
+    return (
+        template is not None
+        and launch.environment == job.environment
+        and launch.plugin_sha == job.run.plugin_sha
+        and job.lifecycle in ("", launches.lifecycle(launch))
+        and template.fits(_resources(job))
+    )
+
+
+def _unmet(groups: dict[tuple[str, str, str], Group]) -> Counter[tuple[str, str, str]]:
+    """How many of each group's jobs no free machine can take."""
+    templates = catalog.compute().templates
+    spare = _free()
+    unmet: Counter[tuple[str, str, str]] = Counter()
+    for key, group in groups.items():
+        for job in group.jobs:
+            taken = next((i for i, m in enumerate(spare) if _serves(m, job, templates)), None)
+            if taken is None:
+                unmet[key] += 1
+            else:
+                del spare[taken]
+    return unmet
 
 
 def _backing_off(group: Group, now: datetime) -> bool:
@@ -204,21 +293,35 @@ def _backing_off(group: Group, now: datetime) -> bool:
     return bool(last + wait > now)
 
 
-def start(cluster: Cluster, now: datetime) -> int:
-    """Starts the pods queued runs need. Returns how many."""
-    groups = demand(now)
-    if not groups:
+def start(
+    cluster: Cluster,
+    now: datetime,
+    groups: dict[tuple[str, str, str], Group],
+    kept: dict[tuple[str, str, str], Group],
+) -> int:
+    """Starts the pods queued runs need, and the warm ones persistent templates keep.
+    Returns how many."""
+    wanted = {**kept, **groups}
+    if not wanted:
         return 0
-    waiting = _waiting_launches()
+    unmet = _unmet(groups)
     live = Counter(
         Launch.objects.exclude(state=LaunchState.ENDED).values_list("template", flat=True)
+    )
+    running = Counter(
+        Launch.objects.exclude(state=LaunchState.ENDED).values_list(
+            "environment", "plugin_sha", "template"
+        )
     )
     allowed = set(namespaces())
     pods = run_pods()
     started = 0
-    for key, group in groups.items():
+    for key, group in wanted.items():
         template = group.template
-        want = min(len(group.jobs) - waiting[key], BURST, BURST_TOTAL - started)
+        want = unmet[key]
+        if key in kept:
+            want = max(want, template.min_warm - running[key])
+        want = min(want, BURST, BURST_TOTAL - started)
         if template.max_concurrent is not None:
             want = min(want, template.max_concurrent - live[template.name])
         if want <= 0 or _backing_off(group, now):
@@ -245,7 +348,8 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         plugin_sha=group.plugin_sha,
         image=group.image,
         namespace=namespace,
-        once=True,
+        once=group.once,
+        spec=spec_of(group, namespace, pods),
     )
     job, secret = job_manifest(
         name=launch.name,
@@ -254,6 +358,7 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         environment=group.environment,
         image=group.image,
         pods=pods,
+        once=group.once,
     )
     try:
         cluster.create_job(
@@ -462,9 +567,88 @@ def waiting(environments: Iterable[str]) -> dict[str, str]:
     return found
 
 
+# --- Stopping idle machines ------------------------------------------------------------------
+
+
+def _bound(environment: str, template: str) -> bool:
+    binding = catalog.compute().bindings.get(environment)
+    return binding is not None and any(name == template for name, _ in binding.templates)
+
+
+def _minutes(wait: timedelta) -> str:
+    minutes = round(wait.total_seconds() / 60)
+    return "a minute" if minutes <= 1 else f"{minutes} minutes"
+
+
+def stop_idle(
+    cluster: Cluster,
+    now: datetime,
+    groups: dict[tuple[str, str, str], Group],
+    kept: dict[tuple[str, str, str], Group],
+) -> int:
+    """Stops persistent machines with nothing to do that aren't needed: ones started before
+    their template, or how Iki starts run pods, changed, and ones idle for their template's
+    ``idle_shutdown`` beyond its ``min_warm``. Returns how many."""
+    held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=queue.HELD)
+    last = (
+        Job.objects.filter(worker__launch=OuterRef("pk"), finished_at__isnull=False)
+        .order_by("-finished_at")
+        .values("finished_at")[:1]
+    )
+    idle = list(
+        Launch.objects.filter(state=LaunchState.RUNNING, once=False, provisioner__in=PROVISIONERS)
+        .annotate(held=Exists(held), last=Subquery(last))
+        .filter(held=False)
+    )
+    if not idle:
+        return 0
+    templates = catalog.compute().templates
+    pods = run_pods()
+    running = Counter(
+        Launch.objects.exclude(state=LaunchState.ENDED)
+        .filter(once=False)
+        .values_list("environment", "plugin_sha", "template")
+    )
+    # The longest idle go first.
+    idle.sort(key=lambda each: each.last or each.registered_at or each.created_at)
+    stopped = 0
+    for launch in idle:
+        key = (launch.environment, launch.plugin_sha, launch.template)
+        template = templates.get(launch.template)
+        since = launch.last or launch.registered_at or launch.created_at
+        reason = message = ""
+        if template is None or not _bound(launch.environment, template.name):
+            reason, message = "replaced", "Its template is no longer bound to its environment."
+        elif launch.spec != spec_of(
+            Group(launch.environment, launch.plugin_sha, template, launch.image),
+            namespace_of(template),
+            pods,
+        ):
+            reason, message = "replaced", "Its template, or how Iki starts run pods, changed."
+        elif key not in groups:
+            wait = (
+                timedelta(seconds=template.idle_shutdown)
+                if template.idle_shutdown is not None
+                else IDLE_SHUTDOWN
+            )
+            keep = template.min_warm if key in kept else 0
+            if now - since >= wait and running[key] > keep:
+                reason, message = "idle", f"Nothing ran on it for {_minutes(wait)}."
+        if reason and launches.stop_if_idle(launch, reason, message):
+            _delete(cluster, launch.namespace, launch.name)
+            running[key] -= 1
+            stopped += 1
+            logger.info("stopped", launch=str(launch.pk), reason=reason)
+    return stopped
+
+
 def tick(cluster: Cluster, now: datetime | None = None) -> tuple[int, int]:
-    """One round: reconcile, then start what's needed. Returns (started, ended)."""
+    """One round: reconcile, stop idle machines that aren't needed, then start what is.
+    Returns (started, ended)."""
     now = now or timezone.now()
     ended = reconcile(cluster, now)
-    started = start(cluster, now)
+    groups = demand(now)
+    kept = warm()
+    ended += stop_idle(cluster, now, groups, kept)
+    started = start(cluster, now, groups, kept)
     return started, ended

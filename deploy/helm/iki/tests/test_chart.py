@@ -718,6 +718,7 @@ def test_workers_report_what_one_job_may_use() -> None:
     assert env["IKI_WORKER_CPU"]["value"] == "1.5"
     assert env["IKI_WORKER_MEMORY"]["valueFrom"]["resourceFieldRef"]["resource"] == "limits.memory"
     assert env["IKI_WORKER_SCRATCH_DISK"]["value"] == "50Gi"
+    assert env["IKI_WORKER_CLEAN_DIR"]["value"] == "/tmp"  # noqa: S108 - the pod's scratch volume
     assert env["IKI_WORKER_NAME"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
     assert "IKI_WORKER_STATE" not in env
     resources["limits"]["cpu"] = "2"

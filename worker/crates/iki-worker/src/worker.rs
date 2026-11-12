@@ -15,7 +15,7 @@ use crate::api::{self, Api, Error};
 use crate::config::Config;
 use crate::job::{self, Ended};
 use crate::say;
-use crate::{bundles, plugins, update};
+use crate::{between, bundles, plugins, update};
 
 /// Seconds a lease request waits for work. Short enough that a stopping worker isn't
 /// held for long (give pods a termination grace period of at least a minute).
@@ -287,6 +287,31 @@ fn plugins_for(
     Ok((listed, have))
 }
 
+/// Makes the machine clean for the next job (ADR 0062): stops what the last one left
+/// running, empties `IKI_WORKER_CLEAN_DIR`, and fetches the plugin's code again if it was
+/// in there.
+fn clean_up(
+    api: &Api,
+    config: &Config,
+    listed: &[iki_protocol::AvailableOut],
+    have: &mut plugins::Have,
+) -> Result<(), String> {
+    between::end_strays()?;
+    if between::owns_processes() {
+        between::empty(Path::new("/dev/shm"))?;
+    }
+    let Some(dir) = &config.clean_dir else {
+        return Ok(());
+    };
+    between::empty(dir)?;
+    if let Some(image) = &config.image
+        && config.cache_dir.starts_with(dir)
+    {
+        *have = bundles::sync_image(api, &config.cache_dir, listed, image)?;
+    }
+    Ok(())
+}
+
 /// Warns about settings that work, but shouldn't be left that way.
 fn warn_about(config: &Config, local: Option<&plugins::Have>) {
     if config.allow_http && config.url.starts_with("http://") {
@@ -310,6 +335,7 @@ fn warn_about(config: &Config, local: Option<&plugins::Have>) {
 /// command too (SIGTERM, then SIGKILL after 10 seconds) and reports it `interrupted`, so
 /// it can be retried elsewhere.
 pub fn start(config: &Config, once: bool) -> Result<(), String> {
+    between::guard_memory();
     let interrupted = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, Arc::clone(&interrupted))
@@ -342,6 +368,11 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
                     break;
                 }
                 if once {
+                    break;
+                }
+                if let Err(error) = clean_up(&api, config, &listed, &mut have) {
+                    // A machine that can't be made clean takes no more jobs.
+                    outcome = Err(error);
                     break;
                 }
                 idle_since = std::time::Instant::now();

@@ -79,6 +79,10 @@ spec:
             {{- end }}
             - name: IKI_WORK_DIR
               value: /tmp/iki-worker
+            # Runs follow one another here: the scratch volume is emptied after each, and
+            # what a run left running is stopped, so the next starts clean (ADR 0062).
+            - name: IKI_WORKER_CLEAN_DIR
+              value: /tmp
             {{- if $cpu }}
             - name: IKI_WORKER_CPU
               {{- if hasSuffix "m" $cpu }}

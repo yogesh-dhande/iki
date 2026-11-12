@@ -44,6 +44,13 @@ kubernetes: { node_selector: { iki.ikisci.org/pool: gpu } }
 ---
 apiVersion: iki/v1
 kind: ComputeTemplate
+name: gpu-t4-warm
+provisioner: k8s_deployment
+capacity: { cpu: 4, memory: 16Gi, gpu: { count: 1, memory: 16Gi, model: T4 } }
+limits: { min_warm: 1, idle_shutdown: 15m }
+---
+apiVersion: iki/v1
+kind: ComputeTemplate
 name: a100-spot
 provisioner: aws_ec2
 capacity:
@@ -78,7 +85,7 @@ templates: [{ template: a100-spot }]
 apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: structure_prediction.colabfold
-templates: [{ template: gpu-t4 }]
+templates: [{ template: gpu-t4 }, { template: gpu-t4-warm }]
 """
 
 

@@ -80,8 +80,9 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         RELAX,
         PREDICT,
         "structure_prediction.predict_with_colabfold",
+        "structure_prediction.screen_with_colabfold",
     ]
-    compute, _, _, _, predict, _ = actions
+    compute, _, _, _, predict, _, _ = actions
     assert compute["tier"] == "backend"
     assert compute["available"] is True
     assert compute["needs"] == "Editor"
@@ -144,6 +145,7 @@ def test_lists_the_actions_that_take_a_type(world: World) -> None:
         COMPUTE,
         PREDICT,
         "structure_prediction.predict_with_colabfold",
+        "structure_prediction.screen_with_colabfold",
     ]
     assert taking("protein.ProteinStructure") == [RELAX]
     assert taking("protein.Protein", "protein.ProteinStructure") == []
