@@ -502,6 +502,17 @@ pub enum StartedOutState {
     Unknown,
 }
 
+/// A release of iki-worker to update to (ADR 0060). It checks the release's signature
+/// before running it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateOut {
+    /// Its Sigstore bundle, the same way.
+    pub bundle_url: String,
+    /// The release for this computer, with `{target}` for its target, such as `aarch64-apple-darwin`.
+    pub url: String,
+    pub version: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UploadIn {
     pub lease_token: String,
@@ -560,6 +571,8 @@ pub struct WorkerOut {
     pub name: String,
     pub plugins: Vec<PluginCode>,
     pub tier: String,
+    /// For a worker on someone's computer: the release to update itself to, when it's idle. Null when it runs the one it should.
+    pub update: Option<UpdateOut>,
     pub version: String,
 }
 

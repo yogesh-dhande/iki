@@ -29,6 +29,8 @@ dependencies = [
   "iki-spec",
   "boto3>=1.43.0",
   "mcp>=2.3.0",
+  # Comparing worker versions, as Python and Cargo write them (ADR 0060).
+  "packaging>=26.3",
 ]
 
 [project.optional-dependencies]

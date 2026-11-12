@@ -6,7 +6,7 @@
 #
 #   iki deploy build deployments/prod --output build/plugins
 #   docker build -f plugins.Dockerfile \
-#     --build-arg IKI_SERVER_IMAGE=ghcr.io/ikisci/iki-server:0.1.0@sha256:... build
+#     --build-arg IKI_SERVER_IMAGE=ghcr.io/yogesh-dhande/iki-server:0.1.0@sha256:... build
 #
 # Use the server image of the Iki version that ran `iki deploy build`, pinned
 # by digest: the server refuses plugins another version built.

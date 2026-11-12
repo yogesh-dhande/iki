@@ -121,11 +121,10 @@ def test_secrets_are_only_referenced_never_inlined() -> None:
 
 def test_image_digest_takes_precedence_over_tag() -> None:
     digest = "sha256:" + "a" * 64
-    docs = manifests(
-        {"image": {"repository": "ghcr.io/ikisci/iki-server", "tag": "1.0.0", "digest": digest}}
-    )
+    image = {"repository": "ghcr.io/yogesh-dhande/iki-server", "tag": "1.0.0", "digest": digest}
+    docs = manifests({"image": image})
     for name, spec in pod_specs(docs):
-        assert spec["containers"][0]["image"] == f"ghcr.io/ikisci/iki-server@{digest}", name
+        assert spec["containers"][0]["image"] == f"ghcr.io/yogesh-dhande/iki-server@{digest}", name
 
 
 @pytest.mark.parametrize(
@@ -328,6 +327,33 @@ def test_api_rate_limit_is_configurable() -> None:
     for name, spec in pod_specs(manifests({"api": {"rateLimitPerMinute": 1200}})):
         env = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
         assert env["IKI_API_RATE_LIMIT_PER_MINUTE"] == "1200", name
+
+
+def test_client_worker_updates_are_configurable() -> None:
+    def env_of(values: dict[str, Any] | None = None) -> dict[str, Any]:
+        _, spec = next(pod_specs(manifests(values)))
+        return {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+
+    default = env_of()
+    assert "IKI_WORKER_VERSION" not in default  # the server's own
+    assert default["IKI_WORKER_UPDATES"] == "true"
+    assert (
+        default["IKI_WORKER_DOWNLOADS"] == "https://github.com/yogesh-dhande/iki/releases/download"
+    )
+    pinned = env_of(
+        {
+            "clientWorkers": {
+                "version": "0.4.1",
+                "autoUpdate": False,
+                "downloadsUrl": "https://artifacts.example.com/iki",
+            }
+        }
+    )
+    assert pinned["IKI_WORKER_VERSION"] == "0.4.1"
+    assert pinned["IKI_WORKER_UPDATES"] == "false"
+    assert pinned["IKI_WORKER_DOWNLOADS"] == "https://artifacts.example.com/iki"
+    refused = render({"clientWorkers": {"downloadsUrl": "http://mirror"}}, ok=False)
+    assert "downloadsUrl" in str(refused)
 
 
 def test_web_keeps_idle_connections_longer_than_load_balancers_do() -> None:

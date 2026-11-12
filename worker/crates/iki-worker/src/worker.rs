@@ -8,14 +8,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use iki_protocol::{PluginCode, RegisterIn, RegisteredOut, WorkerIn, WorkerOut, paths};
+use iki_protocol::{PluginCode, RegisterIn, RegisteredOut, UpdateOut, WorkerIn, WorkerOut, paths};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{self, Api, Error};
 use crate::config::Config;
 use crate::job::{self, Ended};
 use crate::say;
-use crate::{bundles, plugins};
+use crate::{bundles, plugins, update};
 
 /// Seconds a lease request waits for work. Short enough that a stopping worker isn't
 /// held for long (give pods a termination grace period of at least a minute).
@@ -194,6 +194,64 @@ fn resync(
     }
 }
 
+/// Updates the worker to `update` (ADR 0060), once per version, and starts it in this
+/// process's place. Returns why it couldn't start the new one, if it updated but that
+/// failed; otherwise the worker goes on as it is.
+fn self_update(
+    config: &Config,
+    update: Option<&UpdateOut>,
+    tried: &mut Option<String>,
+) -> Option<String> {
+    let update = update?;
+    if tried.as_deref() == Some(update.version.as_str()) {
+        return None;
+    }
+    *tried = Some(update.version.clone());
+    if !config.auto_update {
+        say::warn(
+            "The server wants a newer iki-worker; IKI_WORKER_AUTO_UPDATE=0 leaves that to you.",
+            &[("version", &update.version)],
+        );
+        return None;
+    }
+    say::info("Updating iki-worker.", &[("version", &update.version)]);
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(error) => {
+            say::warn(
+                "Couldn't update: couldn't tell where iki-worker is.",
+                &[("detail", &error)],
+            );
+            return None;
+        }
+    };
+    match update::install(update, &exe, config.allow_http) {
+        Ok(exe) => Some(update::restart(&exe)),
+        Err(error) => {
+            say::warn(
+                "Couldn't update iki-worker; carrying on with this one.",
+                &[("version", &update.version), ("detail", &error)],
+            );
+            None
+        }
+    }
+}
+
+/// What the server says of this worker now, including any update.
+fn told(api: &Api) -> Option<UpdateOut> {
+    match api.get::<WorkerOut>(paths::ME) {
+        Ok(Some(me)) => me.update,
+        Ok(None) => None,
+        Err(error) => {
+            say::warn(
+                "Couldn't ask the server about this worker.",
+                &[("detail", &error)],
+            );
+            None
+        }
+    }
+}
+
 /// Sleeps for `wait`, waking early if the worker is stopping.
 fn pause(wait: Duration, interrupted: &AtomicBool) {
     let end = std::time::Instant::now() + wait;
@@ -240,6 +298,10 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         fetch_plugins(&api, config, &listed).map_err(|e| unreachable_or_revoked(config, &e))?
     };
     let mut synced = std::time::Instant::now();
+    let mut tried = None;
+    if let Some(failed) = self_update(config, told(&api).as_ref(), &mut tried) {
+        return Err(failed);
+    }
     let lease = format!("{}?wait={LEASE_WAIT}", paths::LEASE);
     let mut failures = 0;
     let mut outcome = Ok(());
@@ -258,10 +320,26 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
             }
             Ok(None) => {
                 failures = 0;
-                if config.plugins_dir.is_none() && synced.elapsed() >= RESYNC_EVERY {
+                if synced.elapsed() >= RESYNC_EVERY {
                     synced = std::time::Instant::now();
-                    resync(&api, config, &mut listed, &mut have);
+                    if config.plugins_dir.is_none() {
+                        resync(&api, config, &mut listed, &mut have);
+                    }
+                    if let Some(failed) = self_update(config, told(&api).as_ref(), &mut tried) {
+                        outcome = Err(failed);
+                        break;
+                    }
                 }
+            }
+            Err(Error::Refused {
+                code, body, detail, ..
+            }) if code == "worker_outdated" => {
+                let update = body
+                    .get("update")
+                    .and_then(|u| serde_json::from_value::<UpdateOut>(u.clone()).ok());
+                tried = None;
+                outcome = Err(self_update(config, update.as_ref(), &mut tried).unwrap_or(detail));
+                break;
             }
             Err(Error::Unauthorized(_)) => {
                 outcome = Err(revoked(config));

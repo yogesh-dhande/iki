@@ -702,3 +702,43 @@ def test_a_worker_with_no_plugins_dir_fetches_and_builds_what_the_server_install
     assert worker.plugins == [
         {"name": "protein", "sha": BUNDLED_SHA, "environments": {"protein-tools": digest}}
     ]
+
+
+@pytest.fixture(scope="module")
+def newer_server(server: Server) -> Iterator[Server]:
+    """The server again, wanting iki-worker 9.9.0 (ADR 0060)."""
+    port = str(free_port())
+    env = {
+        **server.env,
+        "IKI_PORT": port,
+        "IKI_PUBLIC_URL": f"http://127.0.0.1:{port}",
+        "IKI_WORKER_VERSION": "9.9.0",
+    }
+    with serve(env) as running:
+        yield running
+
+
+def test_a_worker_too_old_for_the_server_says_so_and_stops(
+    world: World, worker_bin: Path, newer_server: Server, tmp_path: Path
+) -> None:
+    queued(world)
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "IKI_URL": newer_server.url,
+        "IKI_REGISTRATION_TOKEN": registration(world),
+        "IKI_PLUGINS_DIR": str(PLUGINS),
+        "IKI_WORK_DIR": str(tmp_path / "work"),
+        "IKI_WORKER_CPU": "4",
+        "IKI_WORKER_MEMORY": "8Gi",
+    }
+    started = subprocess.Popen(  # noqa: S603 - our own binary
+        [str(worker_bin), "start"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    code, said = Running(started).wait(60)
+    assert code == 1, said
+    assert "too old for this server, which takes 9.9.0 or the minor release before it" in said
+    assert Job.objects.filter(state=JobState.QUEUED).exists()  # it ran nothing

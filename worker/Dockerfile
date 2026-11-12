@@ -42,7 +42,7 @@ ENV IKI_PLUGINS_DIR=/opt/iki/plugins \
     IKI_WORK_DIR=/tmp/iki-worker \
     MAMBA_ROOT_PREFIX=/opt/iki/mamba
 LABEL org.opencontainers.image.title="iki-worker" \
-      org.opencontainers.image.source="https://github.com/ikisci/iki" \
+      org.opencontainers.image.source="https://github.com/yogesh-dhande/iki" \
       org.opencontainers.image.licenses="Apache-2.0"
 # Numeric UID so Kubernetes can verify runAsNonRoot.
 USER 10001:10001

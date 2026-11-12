@@ -29,7 +29,7 @@ pandas = ["pandas>=2.3.0"]
 
 [project.urls]
 Homepage = "https://ikisci.org"
-Source = "https://github.com/ikisci/iki"
+Source = "https://github.com/yogesh-dhande/iki"
 
 [tool.uv.build-backend]
 module-name = "iki"

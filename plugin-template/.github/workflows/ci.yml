@@ -20,7 +20,7 @@ concurrency:
 env:
   # The Iki your deployments run: a plugin is checked and built by the same version.
   IKI_VERSION: "0.1.0"
-  # The commit of ikisci/iki whose first-party plugins (here, dna) this one is
+  # The commit of yogesh-dhande/iki whose first-party plugins (here, dna) this one is
   # checked against: the one your deployment's lockfile pins.
   IKI_PLUGINS_SHA: "0000000000000000000000000000000000000000"
   UV_VERSION: "0.13.7"
@@ -39,7 +39,7 @@ jobs:
       - name: Check out the plugins it depends on
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ikisci/iki
+          repository: yogesh-dhande/iki
           ref: ${{ env.IKI_PLUGINS_SHA }}
           path: .deps/iki
           sparse-checkout: plugins/dna

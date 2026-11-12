@@ -82,6 +82,18 @@ INSTALLED_APPS = [
 # directory rather than a pinned commit (`iki deploy build --allow-local`) are
 # for development, so the server only accepts them when told to.
 IKI_ALLOW_LOCAL_PLUGINS: bool = env.bool("IKI_ALLOW_LOCAL_PLUGINS", default=False)
+
+# Workers on people's computers update themselves (ADR 0060): the server says which
+# release to run, and they fetch it from IKI_WORKER_DOWNLOADS, laid out as GitHub's
+# releases are (``v<version>/iki-worker-<version>-<target>.tar.gz``, and its
+# ``.sigstore.json``), so an internal mirror works too. Each checks the signature
+# itself, offline, so the mirror needn't be trusted. Workers more than one minor
+# release older than IKI_WORKER_VERSION are refused until they update.
+IKI_WORKER_VERSION: str = env.str("IKI_WORKER_VERSION", default=__version__)
+IKI_WORKER_UPDATES: bool = env.bool("IKI_WORKER_UPDATES", default=True)
+IKI_WORKER_DOWNLOADS: str = env.str(
+    "IKI_WORKER_DOWNLOADS", default="https://github.com/yogesh-dhande/iki/releases/download"
+).rstrip("/")
 if find_spec("iki_installed_plugins") is not None:
     import iki_installed_plugins as _plugins  # type: ignore[import-not-found]
 

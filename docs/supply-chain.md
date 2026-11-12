@@ -8,13 +8,14 @@ The policy is set in [ADR 0017](adr/0017-supply-chain-security.md).
 
 | Artifact                    | Where                                            | Built by      |
 | --------------------------- | ------------------------------------------------ | ------------- |
-| Server image (amd64, arm64) | `ghcr.io/<owner>/iki-server`                     | `publish.yml` |
-| Worker image (amd64, arm64) | `ghcr.io/<owner>/iki-worker`                     | `publish.yml` |
-| Helm chart                  | `oci://ghcr.io/<owner>/charts/iki`               | `release.yml` |
+| Server image (amd64, arm64) | `ghcr.io/yogesh-dhande/iki-server`               | `publish.yml` |
+| Worker image (amd64, arm64) | `ghcr.io/yogesh-dhande/iki-worker`               | `publish.yml` |
+| Helm chart                  | `oci://ghcr.io/yogesh-dhande/charts/iki`         | `release.yml` |
 | `iki-worker` binaries       | GitHub release assets (Linux musl static, macOS) | `release.yml` |
 
-`<owner>` is the GitHub account that hosts the repository (currently
-`yogesh-dhande`, later the `ikisci` organization).
+They live under `yogesh-dhande`, the GitHub account that hosts the repository,
+until it moves to the `ikisci` organization. `docs/tests/test_release_owner.py`
+lists every place that names it, so the move is one change.
 
 The worker image holds the worker and micromamba but no plugins; each
 deployment builds its own worker image on top of it with its plugins' code and
@@ -84,6 +85,11 @@ cosign verify-blob $FILE --bundle $FILE.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 gh attestation verify $FILE --repo $OWNER/iki
 ```
+
+`iki-worker verify $FILE $FILE.sigstore.json --version 1.0.0` makes the same
+signature check offline, with no cosign needed. Workers on people's computers
+make it before updating themselves to a release
+([ADR 0060](adr/0060-workers-update-themselves-to-signed-releases.md)).
 
 ### Helm chart
 

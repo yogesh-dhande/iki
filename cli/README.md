@@ -102,7 +102,7 @@ Fetched dna at 4f1c2b9e0d6a from https://github.com/acme/iki-plugins.git
 Fetched protein at 4f1c2b9e0d6a from https://github.com/acme/iki-plugins.git
 Built build/plugins: dna 1.2.0, protein 3.0.0.
 $ docker build -f plugins.Dockerfile \
-    --build-arg IKI_SERVER_IMAGE=ghcr.io/ikisci/iki-server:0.1.0@sha256:… build
+    --build-arg IKI_SERVER_IMAGE=ghcr.io/yogesh-dhande/iki-server:0.1.0@sha256:… build
 ```
 
 It fetches each plugin at its commit and checks them together, along with

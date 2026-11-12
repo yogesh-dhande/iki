@@ -89,3 +89,4 @@ supersedes the old one, and update the old one's status.
 | [0057](0057-reuse-reproduce-exactly-and-seeds.md)                 | Identical deterministic runs reuse results; any run can be reproduced exactly                       | Accepted |
 | [0058](0058-workers-on-peoples-computers-sign-in-as-them.md)      | A worker on someone's own computer signs in as them                                                 | Accepted |
 | [0059](0059-workers-fetch-plugin-code-and-build-environments.md)  | Workers on people's computers fetch plugin code and build its environments                          | Accepted |
+| [0060](0060-workers-update-themselves-to-signed-releases.md)      | Workers on people's computers update themselves to signed releases                                  | Accepted |

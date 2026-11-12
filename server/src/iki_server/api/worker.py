@@ -262,6 +262,18 @@ def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
     )
 
 
+class UpdateOut(Schema):
+    """A release of iki-worker to update to (ADR 0060). It checks the release's signature
+    before running it."""
+
+    version: str
+    url: str = Field(
+        description="The release for this computer, with `{target}` for its target, such as "
+        "`aarch64-apple-darwin`."
+    )
+    bundle_url: str = Field(description="Its Sigstore bundle, the same way.")
+
+
 class WorkerOut(Schema):
     id: UUID
     name: str
@@ -269,6 +281,28 @@ class WorkerOut(Schema):
     version: str
     capacity: dict[str, Any]
     plugins: list[PluginCode]
+    update: UpdateOut | None = Field(
+        description="For a worker on someone's computer: the release to update itself to, "
+        "when it's idle. Null when it runs the one it should."
+    )
+
+    @staticmethod
+    def resolve_update(worker: Worker) -> dict[str, str] | None:
+        return workers.update_for(worker)
+
+
+def _current(worker: Worker) -> None:
+    """Refuses to give an outdated worker jobs (409 ``worker_outdated``), with the release
+    to update to when it can update itself."""
+    try:
+        workers.check_version(worker.version)
+    except workers.Outdated as outdated:
+        raise Problem(
+            409,
+            str(outdated),
+            code="worker_outdated",
+            extensions={"update": workers.update_for(worker)},
+        ) from None
 
 
 @api.get("/me", response=WorkerOut, summary="This worker")
@@ -715,6 +749,7 @@ async def lease(request: HttpRequest) -> HttpResponseBase:
     try:
         wait = _wait(request)
         worker = await db(_authenticate, request)
+        _current(worker)
     except Problem as problem:
         return response(problem)
     waker = wakeup.waker()

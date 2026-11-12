@@ -93,6 +93,8 @@ jobs:
       - name: Build
         env:
           TARGET: ${{ matrix.target }}
+          # Whose release workflow signs updates this worker accepts (ADR 0060).
+          IKI_RELEASE_REPOSITORY: ${{ github.repository }}
         run: cargo build --release --locked --target "$TARGET" -p iki-worker
       - name: Check the Linux binary is fully static
         if: contains(matrix.target, 'musl')
@@ -184,6 +186,29 @@ jobs:
             gh attestation verify "$f" --repo "$REPO" --predicate-type https://cyclonedx.org/bom > /dev/null
           done
           echo "SLSA provenance and SBOM attestations verified"
+      - name: Check iki-worker itself accepts these signatures, and only these
+        env:
+          IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # What a worker checks before updating to a release (ADR 0060), offline.
+          name="iki-worker-$VERSION-x86_64-unknown-linux-musl"
+          tar -xzf "dist/$name.tar.gz" -C "$RUNNER_TEMP" "$name/iki-worker"
+          worker="$RUNNER_TEMP/$name/iki-worker"
+          for f in dist/*.tar.gz; do
+            "$worker" verify "$f" "$f.sigstore.json" --identity "$IDENTITY"
+          done
+          cp "dist/$name.tar.gz" "$RUNNER_TEMP/tampered.tar.gz"
+          printf x >> "$RUNNER_TEMP/tampered.tar.gz"
+          if "$worker" verify "$RUNNER_TEMP/tampered.tar.gz" "dist/$name.tar.gz.sigstore.json" \
+              --identity "$IDENTITY"; then
+            echo "::error::iki-worker accepted a tampered release"; exit 1
+          fi
+          if "$worker" verify "dist/$name.tar.gz" "dist/$name.tar.gz.sigstore.json" \
+              --identity "https://github.com/someone/else/.github/workflows/release.yml@refs/tags/v$VERSION"; then
+            echo "::error::iki-worker accepted another repository's signature"; exit 1
+          fi
+          echo "iki-worker verifies releases, and refuses tampered or foreign ones"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: worker-signed

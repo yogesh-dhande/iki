@@ -1,6 +1,6 @@
 # The Iki release staging runs. Upgrade by changing all four together, in
 # staging first. The server refuses plugins built by another version.
 version: 0.1.0
-serverImage: ghcr.io/ikisci/iki-server:0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
-workerImage: ghcr.io/ikisci/iki-worker:0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+serverImage: ghcr.io/yogesh-dhande/iki-server:0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
+workerImage: ghcr.io/yogesh-dhande/iki-worker:0.1.0@sha256:0000000000000000000000000000000000000000000000000000000000000000
 chart: 0.1.0

@@ -28,6 +28,9 @@ pub struct Config {
     pub capacity: Capacity,
     /// Keep job directories after their jobs end, to debug a command.
     pub keep_job_dirs: bool,
+    /// Whether a worker on someone's computer updates itself when the server says to
+    /// (ADR 0060). `IKI_WORKER_AUTO_UPDATE=0` leaves updates to whoever installed it.
+    pub auto_update: bool,
     /// `IKI_ALLOW_HTTP`: plain http:// to any host, for a development cluster
     /// whose server has no TLS. The worker warns when it starts with it.
     pub allow_http: bool,
@@ -237,6 +240,7 @@ impl Config {
             cache_dir,
             capacity: capacity(var)?,
             keep_job_dirs: flag("IKI_KEEP_JOB_DIRS"),
+            auto_update: !get("IKI_WORKER_AUTO_UPDATE").is_some_and(|v| v == "0" || v == "false"),
             allow_http,
         })
     }

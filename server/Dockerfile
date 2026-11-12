@@ -88,7 +88,7 @@ ENV PATH=/opt/iki/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PSYCOPG_IMPL=c
 LABEL org.opencontainers.image.title="iki-server" \
-      org.opencontainers.image.source="https://github.com/ikisci/iki" \
+      org.opencontainers.image.source="https://github.com/yogesh-dhande/iki" \
       org.opencontainers.image.licenses="Apache-2.0"
 # Numeric UID so Kubernetes can verify runAsNonRoot.
 USER 10001:10001

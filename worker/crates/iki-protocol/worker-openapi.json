@@ -716,6 +716,32 @@
         "title": "StartedOut",
         "type": "object"
       },
+      "UpdateOut": {
+        "description": "A release of iki-worker to update to (ADR 0060). It checks the release's signature\nbefore running it.",
+        "properties": {
+          "bundle_url": {
+            "description": "Its Sigstore bundle, the same way.",
+            "title": "Bundle Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "The release for this computer, with `{target}` for its target, such as `aarch64-apple-darwin`.",
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "url",
+          "bundle_url"
+        ],
+        "title": "UpdateOut",
+        "type": "object"
+      },
       "UploadIn": {
         "properties": {
           "lease_token": {
@@ -863,6 +889,17 @@
             "title": "Tier",
             "type": "string"
           },
+          "update": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a worker on someone's computer: the release to update itself to, when it's idle. Null when it runs the one it should."
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -874,7 +911,8 @@
           "tier",
           "version",
           "capacity",
-          "plugins"
+          "plugins",
+          "update"
         ],
         "title": "WorkerOut",
         "type": "object"

@@ -79,7 +79,7 @@ jobs:
           for image in "$SERVER" "$WORKER"; do
             cosign verify "$image" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              --certificate-identity-regexp '^https://github.com/ikisci/iki/\.github/workflows/publish\.yml@refs/tags/v'
+              --certificate-identity-regexp '^https://github.com/yogesh-dhande/iki/\.github/workflows/publish\.yml@refs/tags/v'
           done
       - if: github.ref == 'refs/heads/main'
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0

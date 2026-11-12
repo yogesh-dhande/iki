@@ -33,11 +33,11 @@ def test_names_this_iki_release(deployment: str) -> None:
     assert iki["version"] == release
     assert iki["chart"] == release
     assert re.fullmatch(
-        rf"ghcr\.io/ikisci/iki-server:{re.escape(release)}@sha256:[0-9a-f]{{64}}",
+        rf"ghcr\.io/yogesh-dhande/iki-server:{re.escape(release)}@sha256:[0-9a-f]{{64}}",
         iki["serverImage"],
     )
     assert re.fullmatch(
-        rf"ghcr\.io/ikisci/iki-worker:{re.escape(release)}@sha256:[0-9a-f]{{64}}",
+        rf"ghcr\.io/yogesh-dhande/iki-worker:{re.escape(release)}@sha256:[0-9a-f]{{64}}",
         iki["workerImage"],
     )
 

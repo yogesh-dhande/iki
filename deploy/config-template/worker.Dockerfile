@@ -7,7 +7,7 @@
 #
 #   iki deploy build deployments/prod --output build/plugins --workers build/worker
 #   docker build -f worker.Dockerfile \
-#     --build-arg IKI_WORKER_IMAGE=ghcr.io/ikisci/iki-worker:0.1.0@sha256:... build/worker
+#     --build-arg IKI_WORKER_IMAGE=ghcr.io/yogesh-dhande/iki-worker:0.1.0@sha256:... build/worker
 #
 # Packages come from PyPI and conda-forge unless the build says otherwise:
 # pass a mirror as a secret (`--secret id=uv_index,env=UV_INDEX_URL`), never

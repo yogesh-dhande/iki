@@ -23,8 +23,10 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from packaging.version import InvalidVersion, Version
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
@@ -33,8 +35,10 @@ from iki_server.runs.models import RegistrationToken, Worker
 __all__ = [
     "REGISTRATION_PREFIX",
     "WORKER_PREFIX",
+    "Outdated",
     "allowed_projects",
     "authenticate",
+    "check_version",
     "create_registration",
     "online_owners",
     "register",
@@ -43,6 +47,7 @@ __all__ = [
     "revoke_signed_in",
     "revoke_worker",
     "signed_in",
+    "update_for",
 ]
 
 REGISTRATION_PREFIX = "iki_wreg_"
@@ -53,6 +58,51 @@ SEEN_RESOLUTION = timedelta(seconds=15)
 #: The OAuth client a worker signs in on someone's computer with, and the scope it needs.
 CLIENT_ID = "iki-worker"
 SCOPE = "worker"
+
+
+class Outdated(Exception):  # noqa: N818 - reads as "the worker is outdated"
+    """A worker more than one minor release behind the one the server wants (ADR 0060)."""
+
+    def __init__(self, version: str) -> None:
+        wanted = settings.IKI_WORKER_VERSION
+        super().__init__(
+            f"iki-worker {version} is too old for this server, which takes {wanted} or the "
+            "minor release before it. Update iki-worker."
+        )
+        self.version = version
+
+
+def _parsed(version: str) -> Version | None:
+    try:
+        return Version(version)
+    except InvalidVersion:
+        return None
+
+
+def check_version(version: str) -> None:
+    """Refuses (with :class:`Outdated`) a worker too old for this server: it takes the
+    version it wants and the minor release before it, and anything newer."""
+    have, want = _parsed(version), _parsed(settings.IKI_WORKER_VERSION)
+    if have is None or want is None:
+        return
+    oldest = (want.major, max(want.minor - 1, 0))
+    if (have.major, have.minor) < oldest:
+        raise Outdated(version)
+
+
+def update_for(worker: Worker) -> dict[str, str] | None:
+    """The release a worker on someone's computer should update itself to, if any: the one
+    the server wants, when that's a release and not what it runs. Workers in images (the
+    other tiers) come with their deployment instead."""
+    wanted = settings.IKI_WORKER_VERSION
+    want, have = _parsed(wanted), _parsed(worker.version)
+    if not settings.IKI_WORKER_UPDATES or worker.tier != "client" or want is None:
+        return None
+    if want.is_prerelease or want.is_devrelease or want == have:
+        return None
+    base = f"{settings.IKI_WORKER_DOWNLOADS}/v{wanted}/iki-worker-{wanted}-{{target}}.tar.gz"
+    return {"version": wanted, "url": base, "bundle_url": f"{base}.sigstore.json"}
+
 
 #: A worker not heard from for this long shows as offline.
 OFFLINE_AFTER = timedelta(minutes=2)

@@ -16,6 +16,7 @@ mod login;
 mod logs;
 mod plugins;
 mod say;
+mod update;
 mod worker;
 
 use std::io::{self, Write};
@@ -25,9 +26,19 @@ use std::process::ExitCode;
 /// What the command line asked for.
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
-    Start { once: bool },
-    Login { url: String, open_browser: bool },
+    Start {
+        once: bool,
+    },
+    Login {
+        url: String,
+        open_browser: bool,
+    },
     Logout,
+    Verify {
+        file: PathBuf,
+        bundle: PathBuf,
+        identity: String,
+    },
     RunLocal(local::Options),
     Version,
     Help,
@@ -52,6 +63,25 @@ fn parse(args: &[String]) -> Command {
             "login needs your Iki's address, such as https://iki.example.com".into(),
         ),
         ["logout"] => Command::Logout,
+        ["verify", file, bundle, "--identity", identity] => Command::Verify {
+            file: PathBuf::from(file),
+            bundle: PathBuf::from(bundle),
+            identity: (*identity).to_owned(),
+        },
+        ["verify", file, bundle, "--version", version] => match update::REPOSITORY {
+            Some(repository) => Command::Verify {
+                file: PathBuf::from(file),
+                bundle: PathBuf::from(bundle),
+                identity: update::identity(repository, version),
+            },
+            None => Command::Unknown(
+                "this iki-worker was built from source: give --identity instead of --version"
+                    .into(),
+            ),
+        },
+        ["verify", ..] => Command::Unknown(
+            "verify needs a release, its .sigstore.json, and --version or --identity".into(),
+        ),
         ["--version" | "-V"] => Command::Version,
         [] | ["--help" | "-h"] => Command::Help,
         [first, ..] => Command::Unknown(format!("unknown argument '{first}'")),
@@ -109,6 +139,9 @@ Usage: iki-worker login <server> [--no-browser]
                                    Sign in on your own computer, to run your client-tier
                                    runs (opens your browser to confirm a code)
        iki-worker logout           Sign this computer's worker out
+       iki-worker verify <release.tar.gz> <release.tar.gz.sigstore.json> --version V
+                                   Check a release was signed by Iki's release workflow at
+                                   that version (offline), as updating does
        iki-worker start [--once]   Lease jobs and run them until stopped (or one job)
        iki-worker run --local <input.json> [--plugin DIR] [--timeout SECONDS]
                                    Run one action's command here, with no server: its
@@ -132,6 +165,8 @@ Set in the environment:
   IKI_WORKER_SCRATCH_DISK  What one job may use (CPU and memory are detected on Linux)
   HTTPS_PROXY, NO_PROXY    A proxy to reach the server through
   SSL_CERT_FILE            Extra CA certificates, if the system's don't cover the server
+  IKI_WORKER_AUTO_UPDATE   0 leaves updates to whoever installed it, rather than updating
+                           to the release the server says while idle
   IKI_ALLOW_HTTP           1 allows a plain http:// IKI_URL anywhere: development clusters only";
 
 fn main() -> ExitCode {
@@ -149,6 +184,19 @@ fn main() -> ExitCode {
             }
         }
         Command::Login { url, open_browser } => finish(sign_in(&url, open_browser)),
+        Command::Verify {
+            file,
+            bundle,
+            identity,
+        } => finish(
+            std::fs::read_to_string(&bundle)
+                .map_err(|e| format!("Couldn't read {}: {e}", bundle.display()))
+                .and_then(|text| update::verify(&file, &text, &identity))
+                .map(|()| {
+                    let _ = writeln!(io::stdout(), "{} is signed by {identity}.", file.display());
+                })
+                .map_err(|e| format!("{}: {e}", file.display())),
+        ),
         Command::Logout => finish(
             state_file(&|name| std::env::var(name).ok())
                 .ok_or_else(|| NO_STATE.to_owned())

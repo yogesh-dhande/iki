@@ -123,6 +123,14 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ $ctx.Values.sessions.maxAgeHours | quote }}
 - name: IKI_API_RATE_LIMIT_PER_MINUTE
   value: {{ $ctx.Values.api.rateLimitPerMinute | quote }}
+{{- with $ctx.Values.clientWorkers.version }}
+- name: IKI_WORKER_VERSION
+  value: {{ . | quote }}
+{{- end }}
+- name: IKI_WORKER_UPDATES
+  value: {{ $ctx.Values.clientWorkers.autoUpdate | quote }}
+- name: IKI_WORKER_DOWNLOADS
+  value: {{ $ctx.Values.clientWorkers.downloadsUrl | quote }}
 - name: IKI_OAUTH_ACCESS_TOKEN_MINUTES
   value: {{ $ctx.Values.oauth.accessTokenMinutes | quote }}
 - name: IKI_OAUTH_REFRESH_TOKEN_DAYS

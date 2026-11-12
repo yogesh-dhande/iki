@@ -41,6 +41,18 @@ digest, so the next start reuses it. When the deployment upgrades a
 plugin, an idle worker notices within ten minutes and fetches the new
 code.
 
+It also keeps itself up to date
+([ADR 0060](../docs/adr/0060-workers-update-themselves-to-signed-releases.md)).
+When the server wants a newer release, the idle worker downloads it, checks
+its Sigstore signature against Iki's release workflow (offline), and starts
+the new version in its place. Set `IKI_WORKER_AUTO_UPDATE=0` if IT manages
+the install. To check a download by hand:
+
+```sh
+iki-worker verify iki-worker-0.5.0-aarch64-apple-darwin.tar.gz \
+  iki-worker-0.5.0-aarch64-apple-darwin.tar.gz.sigstore.json --version 0.5.0
+```
+
 ## Running it on a deployment
 
 A Compute admin makes a registration token for a tier in Compute settings.

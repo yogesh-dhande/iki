@@ -7,7 +7,7 @@ image:
   # Iki's server image. A deployment with plugins uses its own image: this one
   # with the plugins its lockfile pins, built by `iki deploy build` (see
   # deploy/plugins.Dockerfile).
-  repository: ghcr.io/ikisci/iki-server
+  repository: ghcr.io/yogesh-dhande/iki-server
   # Defaults to the chart's appVersion.
   tag: ""
   # Pin by digest in production (sha256:...). It takes precedence over the tag.
@@ -68,6 +68,17 @@ sessions:
 api:
   # Requests one caller may make to /api/v1 per minute.
   rateLimitPerMinute: 600
+
+# iki-worker on people's computers (ADR 0060). The server tells them which release
+# to run and refuses any more than one minor release older. They download it from
+# `downloadsUrl`, laid out as GitHub's releases are (an internal mirror works), and
+# check its Sigstore signature offline before running it.
+clientWorkers:
+  # The release to run: this server's own version unless set.
+  version: ""
+  # Tell them to update themselves while idle. Off leaves updates to IT.
+  autoUpdate: true
+  downloadsUrl: https://github.com/yogesh-dhande/iki/releases/download
 
 oauth:
   # Access tokens for apps, the CLI and service accounts last this long;

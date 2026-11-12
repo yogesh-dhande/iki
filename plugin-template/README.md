@@ -19,7 +19,7 @@ What's here:
   build will.
 
 The manifest format is in Iki's
-[spec](https://github.com/ikisci/iki/tree/main/spec#readme). Editors that read
+[spec](https://github.com/yogesh-dhande/iki/tree/main/spec#readme). Editors that read
 `yaml-language-server` comments (VS Code with the YAML extension, JetBrains)
 complete and check it as you type.
 
@@ -38,7 +38,7 @@ complete and check it as you type.
    ```
 
 5. In `.github/workflows/ci.yml`, set `IKI_VERSION` to your deployments' Iki
-   and `IKI_PLUGINS_SHA` to the `ikisci/iki` commit their lockfile pins.
+   and `IKI_PLUGINS_SHA` to the `yogesh-dhande/iki` commit their lockfile pins.
 
 ## Change it
 
