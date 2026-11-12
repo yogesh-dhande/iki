@@ -37,7 +37,7 @@ from iki_server.entities.values import Invalid, Refs, to_db
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
-from iki_server.runs import approvals, catalog, checkpoints, live, queue, quotas, reuse
+from iki_server.runs import approvals, budgets, catalog, checkpoints, live, queue, quotas, reuse
 from iki_server.runs.models import (
     BATCH_HRID_PREFIX,
     BATCH_HRID_SEQUENCE,
@@ -179,6 +179,7 @@ def launch(
         made = _made(user, action, project, entities, values, reuse_results=reuse_results)
         if made.original is not None:
             return _reuse(user, action, project, entities, values, reason, made)
+        budgets.check_launch(project, action)
         approval = approvals.ask(user, action, project)
         run = _queue(user, action, project, entities, values, reason, approval, made=made)
         if approval is not None:
@@ -243,6 +244,8 @@ def launch_each(
             for e in chosen
         ]
         to_run = sum(1 for m in made if m.original is None)
+        if to_run:
+            budgets.check_launch(project, action, to_run)
         # One request, one approval: a batch is approved or declined together. Runs that
         # reuse results run nothing, so they need none.
         approval = approvals.ask(user, action, project, runs=to_run) if to_run else None
@@ -507,6 +510,7 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             "reproduced there: a run reads only what's in its project."
         )
     with transaction.atomic():
+        budgets.check_launch(original.project, action)
         approval = approvals.ask(user, action, original.project)
         reproduction = _queue(
             user,

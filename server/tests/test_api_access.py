@@ -215,6 +215,14 @@ def _registration(w: World) -> Any:
     return token
 
 
+def _budget(w: World) -> Any:
+    from iki_server.runs.models import Budget
+
+    return Budget.objects.create(
+        project=w.project, amount=100, currency="USD", created_by=w.users["compute_admin"]
+    )
+
+
 def _quota(w: World) -> Any:
     from iki_server.runs.models import RunQuota
 
@@ -588,6 +596,32 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/compute/costs",
         fixed("/compute/costs"),
         row(403, compute_admin=200, auditor=200, org_admin=200),
+    ),
+    (
+        "GET",
+        "/compute/budgets",
+        fixed("/compute/budgets"),
+        row(403, compute_admin=200, auditor=200, org_admin=200),
+    ),
+    # No compute template here has a price: there's nothing to budget, but only Compute
+    # Admins are told so.
+    (
+        "POST",
+        "/compute/budgets",
+        fixed("/compute/budgets", {"amount": "10"}),
+        row(403, compute_admin=409),
+    ),
+    (
+        "PATCH",
+        "/compute/budgets/{budget_id}",
+        lambda w: (f"/compute/budgets/{_budget(w).pk}", {"amount": "200"}),
+        COMPUTE_ONLY,
+    ),
+    (
+        "DELETE",
+        "/compute/budgets/{budget_id}",
+        lambda w: (f"/compute/budgets/{_budget(w).pk}", None),
+        row(403, compute_admin=204),
     ),
     (
         "GET",

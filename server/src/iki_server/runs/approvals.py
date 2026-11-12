@@ -27,7 +27,7 @@ from iki_server.notifications.services import notify
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
-from iki_server.runs import live, queue, quotas
+from iki_server.runs import budgets, catalog, live, queue, quotas
 from iki_server.runs.models import (
     ActionRun,
     ApprovalState,
@@ -139,6 +139,10 @@ def approve(user: User, approval: RunApproval) -> list[ActionRun]:
             if run.project.archived_at is not None:
                 raise Refused(f"{run.project.name} is archived, so nothing new can run in it.")
         now = timezone.now()
+        # Spending may have gone on since it was asked for (ADR 0071).
+        action = catalog.action(runs[0].action) if runs else None
+        if action is not None:
+            budgets.check_launch(runs[0].project, action, len(runs))
         for run in runs:
             quotas.check_queued(run.project, run.tier)
             run.status = RunStatus.QUEUED

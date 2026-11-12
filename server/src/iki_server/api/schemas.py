@@ -43,6 +43,7 @@ class MeCan(Schema):
     create_projects: bool = Field(description="In at least one of your teams.")
     manage_webhooks: bool = Field(description="The organization's webhooks.")
     read_costs: bool = Field(description="What runs cost, across the organization.")
+    manage_compute: bool = Field(description="Workers, quotas and budgets.")
 
 
 class MeOut(UserOut):

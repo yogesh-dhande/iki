@@ -45,4 +45,4 @@ every change is audited with its before and after values.
   this matters only at thousands of workers per tier.
 - Spending limits are a separate matter: a quota counts jobs, not money.
   What runs cost is recorded and reported per [ADR 0070](0070-runs-show-what-they-cost.md);
-  budgets build on it.
+  budgets build on it ([ADR 0071](0071-budgets-warn-and-can-stop-spending.md)).

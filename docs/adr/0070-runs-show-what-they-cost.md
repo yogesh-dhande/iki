@@ -100,4 +100,5 @@ Spending stays with people who may still spend.
   finance's job.
 - Negative: a long-lived persistent machine's idle time is recorded only
   when it ends, so a month's idle cost can show up in the next month.
-- Budgets that warn and stop spending build on these records (commit 34b).
+- Budgets that warn and stop spending build on these records
+  ([ADR 0071](0071-budgets-warn-and-can-stop-spending.md)).

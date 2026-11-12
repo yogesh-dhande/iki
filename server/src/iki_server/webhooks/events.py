@@ -94,6 +94,13 @@ _register(
     EventType(
         "entity.unlinked", "Someone takes an entity out of the project.", project=True, org=True
     ),
+    EventType(
+        "budget.threshold_reached",
+        "Spending on runs passes one of a budget's warning levels for the month: the "
+        "project's own budget, for a project's webhooks.",
+        project=True,
+        org=True,
+    ),
     EventType("team.created", "Someone creates a team.", project=False, org=True),
     EventType("team.updated", "Someone renames or redescribes a team.", project=False, org=True),
     EventType("team.archived", "Someone archives a team.", project=False, org=True),
@@ -276,7 +283,25 @@ def _entity_link(
     return event.action, {"entity": entity_data(target), "project": project_data(event.project)}
 
 
+def _budget(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:
+    from iki_server.runs.models import Budget
+
+    if not isinstance(target, Budget):
+        return None
+    scope: dict[str, Any] = {"kind": "organization"}
+    if target.project is not None:
+        scope = {"kind": "project", "project": project_data(target.project)}
+    elif target.team is not None:
+        scope = {"kind": "team", "team": team_data(target.team)}
+    keys = ("threshold", "month", "spent", "amount", "currency", "enforce")
+    return event.action, {
+        "budget": {"id": str(target.pk), "scope": scope},
+        **{k: event.data[k] for k in keys if k in event.data},
+    }
+
+
 FROM_AUDIT: dict[str, Builder] = {
+    "budget.threshold_reached": _budget,
     "entity.linked": _entity_link,
     "entity.unlinked": _entity_link,
     "project.created": _project("project.created"),

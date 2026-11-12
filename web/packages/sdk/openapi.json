@@ -581,6 +581,285 @@
         "title": "BatchRefOut",
         "type": "object"
       },
+      "BudgetIn": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "A month's.",
+            "title": "Amount"
+          },
+          "enforce": {
+            "default": false,
+            "description": "Once it's spent, no more container or VM runs start that month.",
+            "title": "Enforce",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project's runs.",
+            "title": "Project"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A team's runs. Leave out team and project for the organization's.",
+            "title": "Team"
+          },
+          "warn_at": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Warn At",
+            "type": "array"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "BudgetIn",
+        "type": "object"
+      },
+      "BudgetOut": {
+        "properties": {
+          "amount": {
+            "description": "A month's.",
+            "title": "Amount",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "enforce": {
+            "description": "Once spent, no more container or VM runs start.",
+            "title": "Enforce",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "month": {
+            "description": "This month's first day, in UTC.",
+            "format": "date",
+            "title": "Month",
+            "type": "string"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetScopeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spent": {
+            "description": "This month, so far.",
+            "title": "Spent",
+            "type": "number"
+          },
+          "stopped": {
+            "description": "It's enforced and spent: runs on costly tiers wait.",
+            "title": "Stopped",
+            "type": "boolean"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetScopeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "warn_at": {
+            "description": "Percentages at which to warn, once a month each.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Warn At",
+            "type": "array"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "month",
+          "spent",
+          "percent",
+          "enforce",
+          "stopped",
+          "id",
+          "team",
+          "project",
+          "warn_at",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "BudgetOut",
+        "type": "object"
+      },
+      "BudgetPatch": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "enforce": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enforce"
+          },
+          "warn_at": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warn At"
+          }
+        },
+        "title": "BudgetPatch",
+        "type": "object"
+      },
+      "BudgetScopeOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "BudgetScopeOut",
+        "type": "object"
+      },
+      "BudgetStatusOut": {
+        "properties": {
+          "amount": {
+            "description": "A month's.",
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "enforce": {
+            "description": "Once spent, no more container or VM runs start.",
+            "title": "Enforce",
+            "type": "boolean"
+          },
+          "month": {
+            "description": "This month's first day, in UTC.",
+            "format": "date",
+            "title": "Month",
+            "type": "string"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          },
+          "spent": {
+            "description": "This month, so far.",
+            "title": "Spent",
+            "type": "number"
+          },
+          "stopped": {
+            "description": "It's enforced and spent: runs on costly tiers wait.",
+            "title": "Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "month",
+          "spent",
+          "percent",
+          "enforce",
+          "stopped"
+        ],
+        "title": "BudgetStatusOut",
+        "type": "object"
+      },
       "BuildsOut": {
         "properties": {
           "original": {
@@ -3095,6 +3374,11 @@
             "title": "Create Projects",
             "type": "boolean"
           },
+          "manage_compute": {
+            "description": "Workers, quotas and budgets.",
+            "title": "Manage Compute",
+            "type": "boolean"
+          },
           "manage_org": {
             "description": "People, teams, sign-in and apps settings.",
             "title": "Manage Org",
@@ -3120,7 +3404,8 @@
           "read_audit",
           "create_projects",
           "manage_webhooks",
-          "read_costs"
+          "read_costs",
+          "manage_compute"
         ],
         "title": "MeCan",
         "type": "object"
@@ -4611,6 +4896,61 @@
           "run"
         ],
         "title": "ProjectCan",
+        "type": "object"
+      },
+      "ProjectCostSummaryOut": {
+        "properties": {
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BudgetStatusOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project's own budget, if it has one."
+          },
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "groups": {
+            "description": "Most first.",
+            "items": {
+              "$ref": "#/components/schemas/CostGroupOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "since": {
+            "format": "date",
+            "title": "Since",
+            "type": "string"
+          },
+          "totals": {
+            "description": "By currency.",
+            "items": {
+              "$ref": "#/components/schemas/CostTotalOut"
+            },
+            "title": "Totals",
+            "type": "array"
+          },
+          "until": {
+            "format": "date",
+            "title": "Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "since",
+          "until",
+          "by",
+          "totals",
+          "groups",
+          "budget"
+        ],
+        "title": "ProjectCostSummaryOut",
         "type": "object"
       },
       "ProjectFilters": {
@@ -9143,6 +9483,164 @@
         ]
       }
     },
+    "/api/v1/compute/budgets": {
+      "get": {
+        "description": "Every budget, the organization's first, with what's been spent this month.",
+        "operationId": "iki_server_api_costs_list_budgets",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BudgetOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Budgets",
+        "tags": [
+          "costs"
+        ]
+      },
+      "post": {
+        "description": "One per scope: the organization, a team or a project. It's in the currency of the\ndeployment's prices. Enforcing it stops new container and VM runs once it's spent; runs\nalready going finish.",
+        "operationId": "iki_server_api_costs_create_budget",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Set a budget",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
+    "/api/v1/compute/budgets/{budget_id}": {
+      "delete": {
+        "operationId": "iki_server_api_costs_delete_budget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "budget_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Budget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Remove a budget",
+        "tags": [
+          "costs"
+        ]
+      },
+      "patch": {
+        "description": "Changes what's given. A raised budget lets waiting runs start; warnings already sent\nthis month aren't sent again.",
+        "operationId": "iki_server_api_costs_update_budget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "budget_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Budget Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BudgetPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change a budget",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
     "/api/v1/compute/costs": {
       "get": {
         "description": "For Compute Admins, Auditors and Org Admins: what the machines Iki started cost in a\nperiod, by project, team, template, action or tier. A machine's cost counts when it's\nrecorded: when it ends, or when a persistent one lets go of a job.",
@@ -11579,7 +12077,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CostSummaryOut"
+                  "$ref": "#/components/schemas/ProjectCostSummaryOut"
                 }
               }
             },

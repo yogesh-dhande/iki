@@ -598,3 +598,8 @@ def test_a_projects_costs_by_its_slug(fake: FakeIki, client: Client) -> None:
     assert client.projects.costs("kinase-atlas")["by"] == "action"
     (sent,) = fake.sent("GET", f"/api/v1/projects/{project}/costs")
     assert dict(sent.url.params) == {"by": "action"}
+
+
+def test_budgets_say_what_has_been_spent(fake: FakeIki, client: Client) -> None:
+    fake.on("GET", "/api/v1/compute/budgets", [{"id": "b1", "amount": 50.0, "spent": 40.25}])
+    assert client.costs.budgets()[0]["spent"] == 40.25

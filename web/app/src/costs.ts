@@ -89,3 +89,32 @@ export function monthName(since: string): string {
     timeZone: "UTC",
   }).format(new Date(`${since}T00:00:00Z`));
 }
+
+export type Budget = Schemas["BudgetOut"];
+export type BudgetStatus = Schemas["BudgetStatusOut"];
+
+export const budgetsQuery = queryOptions({
+  queryKey: ["costs", "budgets"],
+  queryFn: async () => unwrap(await iki.GET("/api/v1/compute/budgets")),
+});
+
+/** "50, 80 and 100%" for a budget's warning levels. */
+export function warnAtText(levels: number[]): string {
+  if (!levels.length) return "never";
+  const shown = levels.map(String);
+  const last = shown.pop() ?? "";
+  return `${shown.length ? `${shown.join(", ")} and ` : ""}${last}%`;
+}
+
+/** Warning levels as people type them, "50, 80, 100"; undefined if they don't read. */
+export function parseWarnAt(text: string): number[] | undefined {
+  const parts = text
+    .split(/[\s,%]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const levels = parts.map(Number);
+  if (levels.some((n) => !Number.isInteger(n) || n < 1 || n > 100) || levels.length > 10) {
+    return undefined;
+  }
+  return [...new Set(levels)].sort((a, b) => a - b);
+}

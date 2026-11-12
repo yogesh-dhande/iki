@@ -1099,3 +1099,80 @@ class CostRecord(models.Model):
 
     def __str__(self) -> str:
         return f"{self.template} {self.kind} {self.amount} {self.currency}"
+
+
+def _warn_at() -> list[int]:
+    return [50, 80, 100]
+
+
+class Budget(models.Model):
+    """What the organization, a team or a project may spend on runs' machines in a month
+    (ADR 0071): warned of as spending passes each of `warn_at` percent, and, with
+    `enforce`, no more runs on the container and VM tiers once it's spent."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    #: Neither: the whole organization.
+    team = models.ForeignKey(
+        Team, null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+    project = models.ForeignKey(
+        Project, null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+    amount = models.DecimalField(max_digits=14, decimal_places=2, db_comment="A month's.")
+    currency = models.CharField(max_length=3, db_comment="The deployment's prices' currency.")
+    warn_at = ArrayField(
+        models.PositiveSmallIntegerField(),
+        default=_warn_at,
+        db_comment="Percentages of the amount at which to warn, once a month each.",
+    )
+    enforce = models.BooleanField(
+        default=False, db_comment="Once spent, no more runs start in its scope that month."
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_budget"
+        db_table_comment = "Monthly spending limits on runs, per organization, team or project."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["team", "project"], name="iki_budget_once", nulls_distinct=False
+            ),
+            models.CheckConstraint(
+                condition=Q(team__isnull=True) | Q(project__isnull=True),
+                name="iki_budget_one_scope",
+            ),
+            models.CheckConstraint(condition=Q(amount__gt=0), name="iki_budget_amount"),
+            models.CheckConstraint(
+                condition=Q(currency__regex=r"^[A-Z]{3}$"), name="iki_budget_currency"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.amount} {self.currency} a month"
+
+
+class BudgetAlert(models.Model):
+    """That a budget's spending passed one of its thresholds in a month: each is told once."""
+
+    id = models.BigAutoField(primary_key=True)
+    budget = models.ForeignKey(Budget, on_delete=models.CASCADE, related_name="alerts")
+    month = models.DateField(db_comment="Its first day, in UTC.")
+    threshold = models.PositiveSmallIntegerField(db_comment="Percent of the budget.")
+    spent = models.DecimalField(max_digits=14, decimal_places=4)
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_budget_alert"
+        db_table_comment = "Each budget threshold passed, once a month."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["budget", "month", "threshold"], name="iki_budget_alert_once"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.threshold}% of {self.budget_id} in {self.month}"

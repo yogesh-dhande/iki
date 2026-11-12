@@ -188,6 +188,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/budgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Budgets
+         * @description Every budget, the organization's first, with what's been spent this month.
+         */
+        get: operations["iki_server_api_costs_list_budgets"];
+        put?: never;
+        /**
+         * Set a budget
+         * @description One per scope: the organization, a team or a project. It's in the currency of the
+         *     deployment's prices. Enforcing it stops new container and VM runs once it's spent; runs
+         *     already going finish.
+         */
+        post: operations["iki_server_api_costs_create_budget"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/budgets/{budget_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a budget */
+        delete: operations["iki_server_api_costs_delete_budget"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a budget
+         * @description Changes what's given. A raised budget lets waiting runs start; warnings already sent
+         *     this month aren't sent again.
+         */
+        patch: operations["iki_server_api_costs_update_budget"];
+        trace?: never;
+    };
     "/api/v1/compute/costs": {
         parameters: {
             query?: never;
@@ -2205,6 +2253,140 @@ export interface components {
              */
             id: string;
         };
+        /** BudgetIn */
+        BudgetIn: {
+            /**
+             * Amount
+             * @description A month's.
+             */
+            amount: number | string;
+            /**
+             * Enforce
+             * @description Once it's spent, no more container or VM runs start that month.
+             * @default false
+             */
+            enforce: boolean;
+            /**
+             * Project
+             * @description A project's runs.
+             */
+            project?: string | null;
+            /**
+             * Team
+             * @description A team's runs. Leave out team and project for the organization's.
+             */
+            team?: string | null;
+            /** Warn At */
+            warn_at?: number[];
+        };
+        /** BudgetOut */
+        BudgetOut: {
+            /**
+             * Amount
+             * @description A month's.
+             */
+            amount: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["PersonRef"];
+            /** Currency */
+            currency: string;
+            /**
+             * Enforce
+             * @description Once spent, no more container or VM runs start.
+             */
+            enforce: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Month
+             * Format: date
+             * @description This month's first day, in UTC.
+             */
+            month: string;
+            /** Percent */
+            percent: number;
+            project: components["schemas"]["BudgetScopeOut"] | null;
+            /**
+             * Spent
+             * @description This month, so far.
+             */
+            spent: number;
+            /**
+             * Stopped
+             * @description It's enforced and spent: runs on costly tiers wait.
+             */
+            stopped: boolean;
+            team: components["schemas"]["BudgetScopeOut"] | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Warn At
+             * @description Percentages at which to warn, once a month each.
+             */
+            warn_at: number[];
+        };
+        /** BudgetPatch */
+        BudgetPatch: {
+            /** Amount */
+            amount?: number | string | null;
+            /** Enforce */
+            enforce?: boolean | null;
+            /** Warn At */
+            warn_at?: number[] | null;
+        };
+        /** BudgetScopeOut */
+        BudgetScopeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** BudgetStatusOut */
+        BudgetStatusOut: {
+            /**
+             * Amount
+             * @description A month's.
+             */
+            amount: number;
+            /** Currency */
+            currency: string;
+            /**
+             * Enforce
+             * @description Once spent, no more container or VM runs start.
+             */
+            enforce: boolean;
+            /**
+             * Month
+             * Format: date
+             * @description This month's first day, in UTC.
+             */
+            month: string;
+            /** Percent */
+            percent: number;
+            /**
+             * Spent
+             * @description This month, so far.
+             */
+            spent: number;
+            /**
+             * Stopped
+             * @description It's enforced and spent: runs on costly tiers wait.
+             */
+            stopped: boolean;
+        };
         /** BuildsOut */
         BuildsOut: {
             /**
@@ -3407,6 +3589,11 @@ export interface components {
              */
             create_projects: boolean;
             /**
+             * Manage Compute
+             * @description Workers, quotas and budgets.
+             */
+            manage_compute: boolean;
+            /**
              * Manage Org
              * @description People, teams, sign-in and apps settings.
              */
@@ -4019,6 +4206,33 @@ export interface components {
              * @description The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.
              */
             run: ("client" | "backend" | "container" | "vm")[];
+        };
+        /** ProjectCostSummaryOut */
+        ProjectCostSummaryOut: {
+            /** @description The project's own budget, if it has one. */
+            budget: components["schemas"]["BudgetStatusOut"] | null;
+            /** By */
+            by: string;
+            /**
+             * Groups
+             * @description Most first.
+             */
+            groups: components["schemas"]["CostGroupOut"][];
+            /**
+             * Since
+             * Format: date
+             */
+            since: string;
+            /**
+             * Totals
+             * @description By currency.
+             */
+            totals: components["schemas"]["CostTotalOut"][];
+            /**
+             * Until
+             * Format: date
+             */
+            until: string;
         };
         /** ProjectFilters */
         ProjectFilters: {
@@ -6038,6 +6252,96 @@ export interface operations {
             };
         };
     };
+    iki_server_api_costs_list_budgets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_costs_create_budget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_costs_delete_budget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                budget_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_costs_update_budget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                budget_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetOut"];
+                };
+            };
+        };
+    };
     iki_server_api_costs_org_costs: {
         parameters: {
             query?: {
@@ -7120,7 +7424,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CostSummaryOut"];
+                    "application/json": components["schemas"]["ProjectCostSummaryOut"];
                 };
             };
         };

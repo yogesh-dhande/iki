@@ -97,6 +97,7 @@ export const ME: Schemas["MeOut"] = {
     create_projects: true,
     manage_webhooks: false,
     read_costs: false,
+    manage_compute: false,
   },
 };
 

@@ -64,10 +64,14 @@ def _tier_words(quota: RunQuota) -> str:
 
 
 def blocked(tier: str, *, lock: bool = False) -> Blocked:
-    """Which scopes are at their running limit on `tier`. With `lock`, call inside the
-    transaction that leases: the lock is held until it ends."""
+    """Which scopes are at their running limit on `tier`, or whose enforced budget is spent
+    (ADR 0071). With `lock`, call inside the transaction that leases: the lock is held until
+    it ends."""
+    from iki_server.runs import budgets
+
     quotas = list(_covering(tier).filter(max_running__isnull=False))
     out = Blocked()
+    budgets.hold(out, tier)
     if not quotas:
         return out
     if lock:

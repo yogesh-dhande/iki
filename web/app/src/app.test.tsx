@@ -67,6 +67,7 @@ describe("the frame", () => {
         create_projects: true,
         manage_webhooks: false,
         read_costs: false,
+        manage_compute: false,
       },
     });
     answer("GET /api/v1/projects", page([]));
@@ -124,6 +125,7 @@ describe("home", () => {
         create_projects: true,
         manage_webhooks: false,
         read_costs: false,
+        manage_compute: false,
       },
     });
     answer(
@@ -156,6 +158,7 @@ describe("home", () => {
         create_projects: false,
         manage_webhooks: false,
         read_costs: false,
+        manage_compute: false,
       },
     });
     answer("GET /api/v1/projects", page([]));
@@ -172,6 +175,7 @@ describe("home", () => {
         create_projects: false,
         manage_webhooks: false,
         read_costs: false,
+        manage_compute: false,
       },
     });
     answer("GET /api/v1/projects", page([]));
@@ -242,6 +246,7 @@ describe("a new project", () => {
         create_projects: false,
         manage_webhooks: false,
         read_costs: false,
+        manage_compute: false,
       },
     });
     answer("GET /api/v1/teams", page([]));
@@ -277,6 +282,7 @@ describe("a project", () => {
         create_projects: false,
         manage_webhooks: false,
         read_costs: false,
+        manage_compute: false,
       },
     });
     onProjectPage({
@@ -699,6 +705,7 @@ describe("webhooks", () => {
       create_projects: true,
       manage_webhooks: true,
       read_costs: false,
+      manage_compute: false,
     },
   };
 

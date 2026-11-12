@@ -209,6 +209,7 @@ def test_me(world: World) -> None:
             "create_projects": False,
             "manage_webhooks": True,
             "read_costs": True,
+            "manage_compute": False,
         },
     }
     member = api_as(world, "team_member").get("/me").json()
@@ -218,6 +219,7 @@ def test_me(world: World) -> None:
         "create_projects": True,
         "manage_webhooks": False,
         "read_costs": False,
+        "manage_compute": False,
     }
 
 

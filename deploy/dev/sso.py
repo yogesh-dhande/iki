@@ -1441,6 +1441,47 @@ def containers() -> None:
         f"{action}'s runs say what they cost, and Atlas's costs count them "
         f"({tidied['runs']} runs, {tidied['seconds']:.0f} s of machine time)"
     )
+    budget_warns(project)
+
+
+def budget_warns(project: dict[str, Any]) -> None:
+    """A budget's warning reaches its Compute Admins (ADR 0071): the task runners check
+    budgets every minute. Bob is made a Compute Admin for it, then put back as he was."""
+    bob = sign_in_as("bob")
+    me = api_call(bob, "GET", "/me").json()
+    roles = me["org_roles"]
+    path = f"/users/{me['id']}/org-roles"
+    if api_call(bob, "PUT", path, {"roles": [*roles, "compute_admin"]}).status_code != 200:
+        fail("bob couldn't be made a Compute Admin")
+    made = api_call(
+        bob,
+        "POST",
+        "/compute/budgets",
+        {"project": project["id"], "amount": "0.01", "warn_at": [1]},
+    )
+    try:
+        if made.status_code != 201:
+            fail(f"setting a budget answered HTTP {made.status_code}: {made.text[:300]}")
+        deadline = time.monotonic() + 120
+        while True:
+            inbox = api_call(bob, "GET", "/notifications?limit=50").json()["items"]
+            told = [
+                n
+                for n in inbox
+                if n["kind"] == "budget.threshold_reached"
+                and project["name"] in n["title"]
+                and n["created_at"] >= made.json()["created_at"]
+            ]
+            if told:
+                break
+            if time.monotonic() > deadline:
+                fail(f"no budget warning reached bob: {made.json()}")
+            time.sleep(3)
+        ok(f"a budget for Atlas warned its Compute Admin: {told[0]['title']!r}")
+    finally:
+        if made.status_code == 201:
+            api_call(bob, "DELETE", f"/compute/budgets/{made.json()['id']}")
+        api_call(bob, "PUT", path, {"roles": roles})
 
 
 def main() -> None:

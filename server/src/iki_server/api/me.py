@@ -27,5 +27,6 @@ def me(request: HttpRequest) -> dict[str, Any]:
             "create_projects": permissions.teams_for_new_project(user).exists(),
             "manage_webhooks": permissions.can(user, Action.ORG_WEBHOOKS_MANAGE),
             "read_costs": permissions.can(user, Action.COSTS_READ),
+            "manage_compute": permissions.can(user, Action.COMPUTE_MANAGE),
         },
     }

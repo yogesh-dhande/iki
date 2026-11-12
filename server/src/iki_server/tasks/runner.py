@@ -36,6 +36,7 @@ from django.utils.json import normalize_json
 from opentelemetry import metrics, trace
 
 from iki_server import health
+from iki_server.runs import budgets as runs_budgets
 from iki_server.runs import imports as runs_imports
 from iki_server.runs import queue as runs_queue
 from iki_server.tasks.backend import CHANNEL, GiveUp, LeaseExpired, Retry, load_task, to_result
@@ -57,6 +58,8 @@ LEASE = timedelta(seconds=60)
 HOUSEKEEPING_EVERY = 15.0
 #: How often idle threads look for work without being woken.
 POLL_EVERY = 5.0
+#: How often budgets' spending is checked against their warning levels (ADR 0071).
+BUDGETS_EVERY = 60.0
 #: How long the listener waits for a notification before checking for shutdown.
 LISTEN_TICK = 1.0
 FIRST_RETRY = timedelta(seconds=30)
@@ -88,6 +91,7 @@ class Runner:
     running: dict[uuid.UUID, uuid.UUID] = field(default_factory=dict)
     stopping: threading.Event = field(default_factory=threading.Event)
     last_housekeeping: float = field(default_factory=time.monotonic)
+    last_budgets: float = 0.0
     _wake: threading.Condition = field(default_factory=threading.Condition)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _threads: list[threading.Thread] = field(default_factory=list)
@@ -332,6 +336,16 @@ class Runner:
                 logger.exception("imports_housekeeping_error")
             finally:
                 close_old_connections()
+            if time.monotonic() - self.last_budgets >= BUDGETS_EVERY:
+                self.last_budgets = time.monotonic()
+                try:
+                    told = runs_budgets.send_alerts()
+                    if told:
+                        logger.info("budget_alerts_sent", count=told)
+                except Exception:
+                    logger.exception("budgets_housekeeping_error")
+                finally:
+                    close_old_connections()
 
     def _listen(self) -> None:
         """Wakes idle threads when a task is enqueued (LISTEN/NOTIFY)."""

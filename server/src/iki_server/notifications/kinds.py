@@ -99,6 +99,15 @@ RUN_APPROVAL_REQUESTED = register(
         group="Runs",
     )
 )
+BUDGET_THRESHOLD = register(
+    Kind(
+        "budget.threshold_reached",
+        "A budget is being spent",
+        "Spending on runs passes one of a budget's warning levels for the month: for "
+        "Compute Admins, and a project's Admins for its own budget.",
+        group="Costs",
+    )
+)
 WEBHOOK_DISABLED = register(
     Kind(
         "webhook.disabled",

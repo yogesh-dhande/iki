@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from iki.schema import (
         ActionOut,
         AttemptLogOut,
+        BudgetOut,
         CostSummaryOut,
         CreatedOut,
         EntityOut,
@@ -517,6 +518,10 @@ class Costs(_Part):
                 "GET", "/compute/costs", params={"by": by, "since": since, "until": until}
             ),
         )
+
+    def budgets(self) -> builtins.list[BudgetOut]:
+        """Every budget (ADR 0071), with what's been spent of it this month."""
+        return cast("builtins.list[BudgetOut]", self._client.request("GET", "/compute/budgets"))
 
     def records(
         self, *, since: str | date | None = None, until: str | date | None = None
