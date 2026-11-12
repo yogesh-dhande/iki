@@ -611,6 +611,40 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
     ]
 
 
+def test_migrations_change_columns_under_the_views_and_sync_makes_them_again(
+    lab: Path, database: str
+) -> None:
+    """A view stops Postgres changing or dropping the columns it reads, so migrations run
+    without Iki's, and `sync_plugins` makes them again."""
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    sync(out, database)
+    assert query(database, "SELECT count(*) FROM iki_views.lab_sample") == [(0,)]
+
+    write_sample(
+        lab,
+        ("count: { type: int }", "count: { type: float }"),
+        ("old: { type: string }", "old: { type: string, removed: true }"),
+    )
+    made("lab", "--name", "changes", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    migrate(out, database, "lab", "0001")
+    migrate(out, database)
+    sync(out, database)
+
+    types = dict(
+        query(
+            database,
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_schema = 'iki_views' AND table_name = 'lab_sample'",
+        )
+    )
+    assert types["count"] == "double precision"
+    assert "old" not in types
+
+
 def test_indexing_a_field_adds_search_indexes_after_pg_trgm(lab: Path, database: str) -> None:
     made("lab", "--no-input", cwd=lab.parent)
     write_sample(

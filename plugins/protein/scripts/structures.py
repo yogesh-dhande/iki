@@ -99,7 +99,7 @@ def _text(block: gemmi.cif.Block, tag: str) -> str:
     return str(gemmi.cif.as_string(raw)).strip()
 
 
-def _rows(block: gemmi.cif.Block, category: str, tags: list[str]) -> list[dict[str, str]]:
+def rows(block: gemmi.cif.Block, category: str, tags: list[str]) -> list[dict[str, str]]:
     """A category's rows, as tag → unquoted value, with optional tags marked `?`."""
     table = block.find(category, tags)
     names = [t.lstrip("?") for t in tags]
@@ -162,12 +162,12 @@ def sequences(block: gemmi.cif.Block) -> dict[str, str]:
     """Each polymer entity's full sequence, by its ID: the canonical one-letter code the
     file gives, or from its residues, first of each where several are possible."""
     out: dict[str, str] = {}
-    for row in _rows(block, "_entity_poly.", ["entity_id", "?pdbx_seq_one_letter_code_can"]):
+    for row in rows(block, "_entity_poly.", ["entity_id", "?pdbx_seq_one_letter_code_can"]):
         code = re.sub(r"\s", "", row["pdbx_seq_one_letter_code_can"]).upper()
         if code:
             out[row["entity_id"]] = code
     residues: dict[str, dict[str, str]] = {}
-    for row in _rows(block, "_entity_poly_seq.", ["entity_id", "num", "mon_id"]):
+    for row in rows(block, "_entity_poly_seq.", ["entity_id", "num", "mon_id"]):
         residues.setdefault(row["entity_id"], {}).setdefault(row["num"], row["mon_id"])
     for entity, by_number in residues.items():
         if entity not in out:
@@ -179,7 +179,7 @@ def sequences(block: gemmi.cif.Block) -> dict[str, str]:
 def _by_entity(block: gemmi.cif.Block, category: str, tag: str) -> dict[str, str]:
     return {
         row["entity_id"]: row[tag.lstrip("?")]
-        for row in _rows(block, category, ["entity_id", tag])
+        for row in rows(block, category, ["entity_id", tag])
         if row[tag.lstrip("?")]
     }
 
@@ -207,7 +207,7 @@ def read(path: Path, label: str, prefix: str) -> Read:
     notes: list[str] = []
     entry = _text(block, "_entry.id").upper()
     pdb_id = entry if PDB_ID.match(entry) else ""
-    method_names = [r["method"].upper() for r in _rows(block, "_exptl.", ["method"])]
+    method_names = [r["method"].upper() for r in rows(block, "_exptl.", ["method"])]
     method = next((METHODS.get(m, "other") for m in method_names), "")
     resolution = next(
         (
@@ -221,7 +221,7 @@ def read(path: Path, label: str, prefix: str) -> Read:
         ),
         "",
     )
-    revisions = _rows(
+    revisions = rows(
         block,
         "_pdbx_audit_revision_history.",
         ["major_revision", "minor_revision", "revision_date"],
@@ -229,7 +229,7 @@ def read(path: Path, label: str, prefix: str) -> Read:
     found = sequences(block)
     names = {
         r["id"]: r["pdbx_description"]
-        for r in _rows(block, "_entity.", ["id", "?pdbx_description"])
+        for r in rows(block, "_entity.", ["id", "?pdbx_description"])
         if r["pdbx_description"]
     }
     organisms = {
@@ -240,12 +240,12 @@ def read(path: Path, label: str, prefix: str) -> Read:
     genes = _by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_gene")
     accessions = {
         r["entity_id"]: r["pdbx_db_accession"]
-        for r in _rows(block, "_struct_ref.", ["entity_id", "db_name", "?pdbx_db_accession"])
+        for r in rows(block, "_struct_ref.", ["entity_id", "db_name", "?pdbx_db_accession"])
         if r["db_name"] == "UNP" and UNIPROT.match(r["pdbx_db_accession"])
     }
     shown = pdb_id or label
     proteins: list[Chains] = []
-    for row in _rows(block, "_entity_poly.", ["entity_id", "type", "?pdbx_strand_id"]):
+    for row in rows(block, "_entity_poly.", ["entity_id", "type", "?pdbx_strand_id"]):
         entity, kind = row["entity_id"], row["type"].lower()
         chains = sorted(
             (c.strip() for c in row["pdbx_strand_id"].split(",") if c.strip()),

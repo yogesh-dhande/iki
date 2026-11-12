@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: assign_secondary_structure
+label: Assign secondary structure (DSSP)
+description: >-
+  Runs DSSP on a structure's first model: each chain's helices, strands, turns
+  and bends, residue by residue, the shares of its residues in helices and
+  strands, and its solvent-accessible surface. It keeps DSSP's annotated mmCIF
+  too. A structure with a residue DSSP doesn't know fails, and its run names
+  the residue.
+inputs:
+  structure: { type: ProteinStructure, schema: ">=2" }
+effects:
+  updates:
+    - input: structure
+      fields:
+        - secondary_structure
+        - helix_fraction
+        - strand_fraction
+        - accessible_surface_area
+        - dssp
+runs_on: { tier: container, environment: structure-tools }
+command: [python, ./scripts/secondary.py]
+deterministic: true
+batchable: 20
+timeout: 1h

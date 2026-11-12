@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# DSSP on the container tier: the image built from images/structure-tools,
+# which Iki's publish workflow signed (ADR 0065). Pinned by its multi-arch
+# digest; changing the image is a commit to its Dockerfile, then one here.
+apiVersion: iki/v1
+kind: Environment
+name: structure-tools
+label: Structure tools
+description: mkdssp 4.4 with the Chemical Component Dictionary of 2026-01-01, and the plugin's Python packages.
+tiers: [container]
+resources: { cpu: 0.25, memory: 512Mi }
+image: ghcr.io/yogesh-dhande/iki-protein-structure-tools@sha256:28de99fb4916dd8380113f45588d63c6dc7b3f352589bf079237e817022895de

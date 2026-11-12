@@ -36,3 +36,17 @@ apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: example.tools
 templates: [{ template: container-small }, { template: container-warm }]
+---
+# The protein plugin's DSSP (structure-tools): its image is about 1 GB, and a
+# structure and DSSP's annotated copy of it share the scratch disk.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-structures
+provisioner: k8s_job
+capacity: { cpu: 0.25, memory: 1Gi, scratch_disk: 4Gi }
+limits: { max_concurrent: 1 }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: protein.structure-tools
+templates: [{ template: container-structures }]

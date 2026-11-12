@@ -22,6 +22,7 @@ import hmac
 import html
 import http.cookiejar
 import json
+import math
 import re
 import secrets
 import subprocess
@@ -1015,12 +1016,13 @@ def launch(
     action: str,
     inputs: dict[str, str],
     params: dict[str, Any] | None = None,
+    within: int = 120,
 ) -> dict[str, Any]:
     body = {"project": project["id"], "inputs": inputs, "params": params or {}}
     launched = api_call(alice, "POST", f"/actions/{action}/runs", body)
     if launched.status_code != 201:
         fail(f"launching {action} answered HTTP {launched.status_code}: {launched.text[:300]}")
-    run = followed(alice, launched.json())
+    run = followed(alice, launched.json(), within=within)
     if run["status"] != "succeeded":
         fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
     return run
@@ -1107,18 +1109,71 @@ def upload(alice: requests.Session, project: dict[str, Any], name: str, data: by
     fail(f"the upload of {name} wasn't checked within a minute")
 
 
+def _place(
+    a: tuple[float, ...],
+    b: tuple[float, ...],
+    c: tuple[float, ...],
+    bond: float,
+    angle: float,
+    torsion: float,
+) -> tuple[float, ...]:
+    """The atom bonded to c, `bond` from it, at `angle` b-c-d and dihedral `torsion` a-b-c-d
+    (degrees)."""
+
+    def sub(u: tuple[float, ...], v: tuple[float, ...]) -> tuple[float, ...]:
+        return tuple(x - y for x, y in zip(u, v, strict=True))
+
+    def unit(u: tuple[float, ...]) -> tuple[float, ...]:
+        size = math.sqrt(sum(x * x for x in u))
+        return tuple(x / size for x in u)
+
+    def cross(u: tuple[float, ...], v: tuple[float, ...]) -> tuple[float, ...]:
+        return (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+
+    angle, torsion = math.radians(angle), math.radians(torsion)
+    bc = unit(sub(c, b))
+    n = unit(cross(sub(b, a), bc))
+    m = cross(n, bc)
+    d = (
+        -bond * math.cos(angle),
+        bond * math.sin(angle) * math.cos(torsion),
+        bond * math.sin(angle) * math.sin(torsion),
+    )
+    return tuple(c[i] + bc[i] * d[0] + m[i] * d[1] + n[i] * d[2] for i in range(3))
+
+
+def _helix(names: list[str], chain: str, shift: float, serial: int) -> list[str]:
+    """An ideal alpha helix's backbone (N, CA, C, O) as PDB ATOM records, from Engh & Huber
+    bond lengths and angles at phi -57.8, psi -47.0."""
+    n: tuple[float, ...] = (shift, 0.0, 0.0)
+    ca: tuple[float, ...] = (shift + 1.458, 0.0, 0.0)
+    turn = math.radians(180 - 111.2)
+    c: tuple[float, ...] = (ca[0] + 1.525 * math.cos(turn), 1.525 * math.sin(turn), 0.0)
+    lines = []
+    for number, name in enumerate(names, start=1):
+        next_n = _place(n, ca, c, 1.329, 116.2, -47.0)
+        o = _place(n, ca, c, 1.231, 120.5, -47.0 + 180)
+        for atom, (x, y, z) in (("N", n), ("CA", ca), ("C", c), ("O", o)):
+            serial += 1
+            lines.append(
+                f"ATOM  {serial:5d}  {atom:<3} {name} {chain}{number:4d}    "
+                f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00 90.00           {atom[0]}"
+            )
+        next_ca = _place(ca, c, next_n, 1.458, 121.7, 180.0)
+        n, ca, c = next_n, next_ca, _place(c, next_n, next_ca, 1.525, 111.2, -57.8)
+    return lines
+
+
 def structures(alice: requests.Session, project: dict[str, Any]) -> None:
     """A structure file imported into a structure linked to the proteins its chains are,
-    made in one run (ADR 0064), with gemmi in the protein plugin's environment."""
-    # New residues each time, so each check registers a new structure.
+    made in one run (ADR 0064), with gemmi in the protein plugin's environment; then its
+    secondary structure, by DSSP in the plugin's own image on the container tier."""
+    # New residues each time, so each check registers a new structure. Two helices of
+    # them, side by side.
     chain = [secrets.choice(list(RESIDUES)) for _ in range(12)]
-    atoms = [
-        f"ATOM  {i:5d}  CA  {name} {c}{i:4d}    {3.8 * i:8.3f}{0.0:8.3f}{0.0:8.3f}"
-        "  1.00 90.00           C"
-        for c in ("A", "B")
-        for i, name in enumerate(chain, start=1)
-    ]
-    data = ("\n".join([*atoms[:12], "TER", *atoms[12:], "TER", "END"]) + "\n").encode()
+    first = _helix(chain, "A", 0.0, 0)
+    second = _helix(chain, "B", 30.0, len(first))
+    data = ("\n".join([*first, "TER", *second, "TER", "END"]) + "\n").encode()
     file_id = upload(alice, project, "model_1.pdb", data)
     run = launch(alice, project, "protein.import_structure", {}, {"file": file_id})
     made = {e["type"]: e for e in run["effects"]}
@@ -1137,6 +1192,46 @@ def structures(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(
         f"protein.import_structure made {structure['hrid']}, its chains A and B linked to "
         f"the protein it made with it ({run['hrid']})"
+    )
+    secondary(alice, project, structure)
+
+
+#: The protein plugin's structure-tools image (plugins/protein/environments/structure-tools.yaml).
+STRUCTURE_TOOLS = (
+    "ghcr.io/yogesh-dhande/iki-protein-structure-tools"
+    "@sha256:28de99fb4916dd8380113f45588d63c6dc7b3f352589bf079237e817022895de"
+)
+
+
+def secondary(alice: requests.Session, project: dict[str, Any], structure: dict[str, Any]) -> None:
+    """DSSP assigns each helix as one, in a pod of its own with the plugin's image, which
+    Iki's publish workflow built (ADR 0065)."""
+    action = "protein.assign_secondary_structure"
+    # A pod of its own pulls the image (about 1 GB) first.
+    run = launch(alice, project, action, {"structure": structure["id"]}, within=900)
+    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    if attempt["environment_build"] != STRUCTURE_TOOLS.rpartition("@")[2]:
+        fail(f"{run['hrid']} didn't run in the structure-tools image: {attempt}")
+    if attempt["template"] != "container-structures" or not attempt["worker"].startswith(
+        "iki-run-"
+    ):
+        fail(f"{run['hrid']} didn't run on a pod of its own: {attempt}")
+    values = api_call(alice, "GET", f"/entities/{structure['id']}").json()["values"]
+    assigned = values.get("secondary_structure") or []
+    helix = values.get("helix_fraction")
+    if (
+        len(assigned) != 2
+        or any(len(s) != 12 or "H" * 8 not in s for s in assigned)
+        or not isinstance(helix, (int, float))
+        or helix < 60
+        or not values.get("dssp")
+        or not values.get("accessible_surface_area")
+    ):
+        fail(f"{run['hrid']} ({action}) wrote {values}, not two helices")
+    ok(
+        f"{action} ran DSSP in {STRUCTURE_TOOLS.split('@')[0].rpartition('/')[2]} on a pod "
+        f"of its own ({run['hrid']}): {' '.join(assigned)}, {helix}% helix, "
+        f"{values['accessible_surface_area']} Å² accessible"
     )
 
 

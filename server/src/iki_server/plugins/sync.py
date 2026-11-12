@@ -206,6 +206,18 @@ def _comments() -> list[sql.Composable]:
 # --- Views -------------------------------------------------------------------------------------
 
 
+def drop_views(cursor: Any) -> None:  # noqa: ANN401 - Django's cursor
+    """Drops Iki's views. Migrations run without them, since a view stops its columns from
+    being dropped or changed; ``sync_plugins`` makes them again. A view someone else built
+    on one of these makes the drop fail, and the deploy with it, rather than being dropped
+    silently."""
+    cursor.execute(
+        "SELECT viewname FROM pg_views WHERE schemaname = %s ORDER BY viewname", [VIEWS_SCHEMA]
+    )
+    for (name,) in cursor.fetchall():
+        cursor.execute(sql.SQL("DROP VIEW {}").format(sql.Identifier(VIEWS_SCHEMA, name)))
+
+
 def _views(cursor: Any) -> list[str]:  # noqa: ANN401 - Django's cursor
     cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(VIEWS_SCHEMA)))
     cursor.execute(
@@ -215,13 +227,8 @@ def _views(cursor: Any) -> list[str]:  # noqa: ANN401 - Django's cursor
         )
     )
     # Views are rebuilt from scratch, since a changed type may have changed their
-    # columns. A view someone else built on one of these makes the drop fail,
-    # and the deploy with it, rather than being dropped silently.
-    cursor.execute(
-        "SELECT viewname FROM pg_views WHERE schemaname = %s ORDER BY viewname", [VIEWS_SCHEMA]
-    )
-    for (name,) in cursor.fetchall():
-        cursor.execute(sql.SQL("DROP VIEW {}").format(sql.Identifier(VIEWS_SCHEMA, name)))
+    # columns.
+    drop_views(cursor)
     made = []
     for t in sorted(registry.types().values(), key=lambda t: t.qualified_name):
         if t.plugin == "core":

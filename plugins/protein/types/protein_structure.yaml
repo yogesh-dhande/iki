@@ -4,7 +4,7 @@ kind: EntityType
 name: ProteinStructure
 label: Protein structure
 label_plural: Protein structures
-schema_version: 1
+schema_version: 2
 description: >-
   A three-dimensional structure of one or more proteins: an experimental one,
   from the PDB or a lab's own, or a prediction. Two with the same file are the
@@ -54,5 +54,51 @@ fields:
   released:
     type: date
     description: When its PDB entry was first released.
+  secondary_structure:
+    type: list
+    items: { type: string, pattern: "^[HGIPEBTS?-]*$" }
+    max_items: 10000
+    computed: true
+    description: >-
+      Each chain's secondary structure as DSSP assigns it, in the order of
+      chain_ids: a letter for each residue of its protein's sequence. H is an
+      alpha helix, G a 3-10 helix, I a pi helix, P a polyproline II helix, E a
+      strand in a sheet, B an isolated bridge, T a turn, S a bend, - none, and ?
+      a residue the structure doesn't have coordinates for.
+  helix_fraction:
+    type: quantity
+    unit: "%"
+    min: 0
+    max: 100
+    computed: true
+    indexed: true
+    description: The share of its proteins' modelled residues in helices (H, G or I).
+  strand_fraction:
+    type: quantity
+    unit: "%"
+    min: 0
+    max: 100
+    computed: true
+    indexed: true
+    description: The share of its proteins' modelled residues in strands or bridges (E or B).
+  accessible_surface_area:
+    type: quantity
+    label: Solvent-accessible surface area
+    unit: Ao2
+    display_unit: nm2
+    min: 0
+    computed: true
+    description: >-
+      Its proteins' surface that a water molecule can reach, summed over their
+      residues, as DSSP computes it for the first model.
+  dssp:
+    type: file
+    label: DSSP annotations
+    media_types: [chemical/x-mmcif]
+    max_size: 4GiB
+    computed: true
+    description: >-
+      Its coordinates as mmCIF with DSSP's annotations: each residue's
+      secondary structure, accessibility, hydrogen bonds and backbone angles.
 display:
   title: "{{ name or pdb_id or hrid }}"
