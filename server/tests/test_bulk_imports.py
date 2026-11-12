@@ -244,6 +244,28 @@ def test_a_line_that_doesnt_fit_fails_the_run_and_writes_nothing(world: World) -
     assert not _staged_tables()
 
 
+def test_a_creates_files_lines_cant_refer_to_one_another(world: World) -> None:
+    run, _ = started(
+        world,
+        lambda f: lines(
+            {**protein(KINASES[0], "A", f), "key": "a"},
+            {
+                "type": "protein.ProteinStructure",
+                "values": {"method": "predicted", "chains": [{"$create": "a"}]},
+            },
+        ),
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed"
+    problems = {e["pointer"]: e["detail"] for e in body["error"]["errors"]}
+    refused = (
+        "A creates file's lines can't refer to one another: give creates that do (with `key` "
+        "and `$create`) in `creates`."
+    )
+    assert problems["#/creates_file/1"] == refused
+    assert not Entity.objects.filter(type="protein.Protein").exists()
+
+
 def _staged_tables() -> list[Any]:
     """Lines still staged: none, once an import has ended and been cleared."""
     from iki_server.runs.models import ImportLine

@@ -93,3 +93,4 @@ supersedes the old one, and update the old one's status.
 | [0061](0061-container-tier-runs-get-pods-of-their-own.md)                            | Container-tier runs get pods of their own, started by a provisioner                                 | Accepted |
 | [0062](0062-warm-pods-run-one-job-after-another-and-start-each-clean.md)             | Warm pods run one job after another, and start each clean                                           | Accepted |
 | [0063](0063-the-cluster-admits-only-images-iki-signed-or-the-deployment-approved.md) | The cluster admits only images Iki signed or the deployment approved                                | Accepted |
+| [0064](0064-a-runs-new-entities-can-refer-to-one-another.md)                         | A run's new entities can refer to one another                                                       | Accepted |

@@ -12,7 +12,7 @@ from test_run_results import done, output
 from test_runs import PREDICT, bind_vm, launch, protein, world
 from test_workers import keep_connection, worker
 
-from iki_server.entities.models import ProjectLink
+from iki_server.entities.models import Entity, ProjectLink
 from iki_server.files import services as files
 from iki_server.files.services import EMPTY_SHA256
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
@@ -250,3 +250,29 @@ def test_runs_of_plugins_without_settings_get_none(world: World) -> None:
     run = importing(world, stored(world)).json()
     assert run["settings"] == {}
     assert worker(world).lease().json()["settings"] == {}
+
+
+def test_an_import_may_attach_the_file_it_was_given(world: World) -> None:
+    run = importing(world, stored(world)).json()
+    # As an action that imports structures would be launched: on a structure file.
+    file_id = stored(world, "1abc.pdb")
+    stored_run = ActionRun.objects.get(pk=run["id"])
+    stored_run.spec["creates"].append(
+        {"type": "protein.ProteinStructure", "cardinality": "many", "derived_from": []}
+    )
+    ActionRun.objects.filter(pk=stored_run.pk).update(
+        spec=stored_run.spec, params={"file": file_id}
+    )
+    pod = worker(world)
+    job = pod.lease().json()
+    structure = {
+        "type": "protein.ProteinStructure",
+        "key": "s",
+        "values": {"structure": file_id, "method": "xray", "chains": [{"$create": "a"}]},
+    }
+    chain = {"type": "protein.Protein", "key": "a", "values": {"sequence": "MKVW"}}
+    body = done(pod, job, output(creates=[chain, structure]))
+    assert body["run_status"] == "succeeded", body
+    made = Entity.objects.get(type="protein.ProteinStructure")
+    values = api_as(world, "editor").get(f"/entities/{made.pk}").json()["values"]
+    assert values["structure"] == file_id

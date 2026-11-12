@@ -110,14 +110,15 @@ class Check:
         self.errors.append({"pointer": pointer, "detail": detail})
 
     def may_attach(self, file_id: UUID) -> bool:
-        """Results may attach the run's own uploads, and files its inputs already had: not
-        any file the launcher can read, which would share it into the run's project."""
+        """Results may attach the run's own uploads, the files its file params name (such as
+        a structure file it imports), and files its inputs already had: not any file the
+        launcher can read, which would share it into the run's project."""
         if self._files is None:
             self._files = set(
                 RunUpload.objects.filter(run=self.run, upload__file__isnull=False).values_list(
                     "upload__file_id", flat=True
                 )
-            )
+            ) | input_files.of_params(self.run)
         if file_id in self._files or self._inputs_read:
             return file_id in self._files
         self._inputs_read = True
@@ -141,7 +142,8 @@ def _check_files(check: Check, at: str, type_name: str, values: Mapping[str, Any
         if any(not check.may_attach(file_id) for file_id in input_files.file_ids(f, value)):
             check.error(
                 f"{at}/values/{name}",
-                "Attach only files this run uploaded (once they're ready) or its inputs' files.",
+                "Attach only files this run uploaded (once they're ready), its file params' "
+                "files, or its inputs' files.",
             )
 
 
@@ -293,6 +295,8 @@ class _Create:
     parents: dict[UUID, tuple[str, int]]
     #: Where it came from, checked: ExternalOrigin's fields.
     origin: dict[str, Any] | None = None
+    #: Its name in ``creates``, which later creates' ref fields can give (``$create``).
+    key: str | None = None
 
 
 def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
@@ -331,12 +335,60 @@ def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> d
 
 def _creates(check: Check, given: list[Mapping[str, Any]]) -> list[_Create]:
     counts: dict[int, int] = {}
+    keys: set[str] = set()
     out: list[_Create] = []
     for index, item in enumerate(given):
-        create = _create(check, item, ("creates", index), counts)
+        at = ("creates", index)
+        for name, key, where in created_refs(item):
+            if key not in keys:
+                check.error(
+                    _pointer(*at, "values", name, *where),
+                    f"No earlier create has the key {key!r}: a create can refer only to "
+                    "those before it.",
+                )
+        create = _create(check, item, at, counts)
+        if "key" in item:
+            if item["key"] in keys:
+                check.error(_pointer(*at, "key"), f"Another create has the key {item['key']!r}.")
+            keys.add(item["key"])
         if create is not None:
             out.append(create)
     return out
+
+
+def created_refs(item: Mapping[str, Any]) -> list[tuple[str, str, tuple[int, ...]]]:
+    """Each ``{"$create": key}`` in a create's ref fields (and lists of refs): (field, key,
+    list index if any)."""
+    found: list[tuple[str, str, tuple[int, ...]]] = []
+    refs = _ref_fields(item.get("type"))
+    for name, value in (item.get("values") or {}).items():
+        if name not in refs:
+            continue
+        if _is_created_ref(value):
+            found.append((name, value["$create"], ()))
+        elif isinstance(value, list):
+            found.extend(
+                (name, v["$create"], (i,)) for i, v in enumerate(value) if _is_created_ref(v)
+            )
+    return found
+
+
+def _ref_fields(type_name: object) -> set[str]:
+    """Its type's ref fields and lists of refs; none if it isn't installed (as its create
+    then reports)."""
+    if not isinstance(type_name, str) or type_name not in registry.types():
+        return set()
+    return {
+        name
+        for name, f in shape(type_name).fields().items()
+        if f.type == "ref" or (f.type == "list" and f.items is not None and f.items.type == "ref")
+    }
+
+
+def _is_created_ref(value: object) -> bool:
+    return (
+        isinstance(value, dict) and set(value) == {"$create"} and isinstance(value["$create"], str)
+    )
 
 
 def check_line(check: Check, item: Mapping[str, Any], line: int) -> _Create | None:
@@ -376,6 +428,13 @@ def _create(
             check.error(_pointer(*at), f"The action creates at most one {effect.type} per run.")
             return None
     if counts is None:
+        if "key" in item or created_refs(item):
+            check.error(
+                _pointer(*at),
+                "A creates file's lines can't refer to one another: give creates that do "
+                "(with `key` and `$create`) in `creates`.",
+            )
+            return None
         _no_files(check, _pointer(*at), item["type"], item["values"])
     else:
         _check_files(check, _pointer(*at), item["type"], item["values"])
@@ -383,7 +442,7 @@ def _create(
     origin = _origin(check, at, item["origin"]) if "origin" in item else None
     if parents is None:
         return None
-    return _Create(_pointer(*at), item["type"], item["values"], parents, origin)
+    return _Create(_pointer(*at), item["type"], item["values"], parents, origin, item.get("key"))
 
 
 def _no_files(check: Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
@@ -473,15 +532,41 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
         )
 
 
+def _with_created(check: Check, create: _Create, made: dict[str, UUID]) -> dict[str, Any] | None:
+    """Its values with each ``{"$create": key}`` replaced by the entity that create made,
+    or None (with the problem noted) if that create couldn't be written."""
+    values = dict(create.values)
+    refs = created_refs({"type": create.type, "values": values})
+    for name, key, where in refs:
+        if key not in made:
+            check.error(
+                "/".join((create.pointer, "values", name, *map(str, where))),
+                f"It refers to the create with the key {key!r}, which couldn't be written.",
+            )
+            return None
+    for name, key, where in refs:
+        if where:
+            values[name] = list(values[name])
+            values[name][where[0]] = str(made[key])
+        else:
+            values[name] = str(made[key])
+    return values
+
+
 def _write_creates(check: Check, creates: list[_Create]) -> None:
     run = check.run
+    #: key → the entity its create made or reused
+    made: dict[str, UUID] = {}
     for create in creates:
+        values = _with_created(check, create, made)
+        if values is None:
+            continue
         try:
             saved = entities.create(
                 run.requested_by,
                 create.type,
                 run.project,
-                create.values,
+                values,
                 # A run can't answer "this looks like a duplicate": types that only warn
                 # get a new entity, as they would if the person went ahead.
                 allow_duplicate=True,
@@ -491,6 +576,8 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
             invalid(check, create.pointer, error)
             continue
         entity_id = saved.entity.pk
+        if create.key is not None:
+            made[create.key] = entity_id
         if RunEffect.objects.filter(run=run, entity_id=entity_id).exists():
             # The same entity, made twice: its type reuses duplicates.
             continue

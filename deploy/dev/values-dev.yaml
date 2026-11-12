@@ -81,9 +81,10 @@ backendWorkers:
   serverUrl: http://iki-web.iki.svc:8000
   allowHttp: true
   replicas: 1
+  # Memory for the protein plugin's structure actions (2Gi), as compute.yaml says.
   resources:
     requests: { cpu: 250m, memory: 512Mi }
-    limits: { memory: 512Mi }
+    limits: { memory: 2Gi }
   scratch:
     sizeLimit: 2Gi
 # A pod for each container-tier run, in iki-runs (deploy/dev/manifests/namespace.yaml).

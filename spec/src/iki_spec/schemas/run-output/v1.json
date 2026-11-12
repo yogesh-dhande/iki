@@ -64,7 +64,15 @@
           "type": "string",
           "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
         },
-        "values": { "type": "object" },
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$",
+          "description": "A name for it, unique in `creates`, that a later create's ref fields can give as `{\"$create\": \"<key>\"}` to refer to it, such as a structure to the chains made with it. Not in a `creates_file`."
+        },
+        "values": {
+          "type": "object",
+          "description": "Its fields' values. A ref field (or an item of a list of refs) may be `{\"$create\": \"<key>\"}`: the entity an earlier create with that key made or reused."
+        },
         "derived_from": {
           "type": "array",
           "items": { "type": "string", "format": "uuid" },

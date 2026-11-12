@@ -7,3 +7,4 @@
 # and keep the same release in the repository's dev dependencies (pyproject.toml),
 # where its tests run: `make check-deps` checks they match.
 biopython==1.88
+gemmi==0.7.5

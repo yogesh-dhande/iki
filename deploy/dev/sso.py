@@ -1010,11 +1010,14 @@ SENSE = [codon for codon in SENSE if codon not in ("TAA", "TAG", "TGA")]
 
 
 def launch(
-    alice: requests.Session, project: dict[str, Any], action: str, inputs: dict[str, str]
+    alice: requests.Session,
+    project: dict[str, Any],
+    action: str,
+    inputs: dict[str, str],
+    params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    launched = api_call(
-        alice, "POST", f"/actions/{action}/runs", {"project": project["id"], "inputs": inputs}
-    )
+    body = {"project": project["id"], "inputs": inputs, "params": params or {}}
+    launched = api_call(alice, "POST", f"/actions/{action}/runs", body)
     if launched.status_code != 201:
         fail(f"launching {action} answered HTTP {launched.status_code}: {launched.text[:300]}")
     run = followed(alice, launched.json())
@@ -1060,6 +1063,80 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(
         f"protein.compute_properties ran in Biopython's environment ({run['hrid']}): "
         f"{weight} Da, pI {point}"
+    )
+    structures(alice, project)
+
+
+#: Residues a made-up structure's chains are made of.
+RESIDUES = {"ALA": "A", "GLY": "G", "LYS": "K", "SER": "S", "TRP": "W", "VAL": "V"}
+
+
+def upload(alice: requests.Session, project: dict[str, Any], name: str, data: bytes) -> str:
+    """A file added as the web app adds one: its parts sent to the URLs Iki signs, then
+    checked. Returns its ID."""
+    started = api_call(
+        alice,
+        "POST",
+        "/uploads",
+        {
+            "project": project["id"],
+            "name": name,
+            "media_type": "chemical/x-pdb",
+            "size": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        },
+    )
+    if started.status_code != 201:
+        fail(f"starting an upload answered HTTP {started.status_code}: {started.text[:300]}")
+    made = started.json()
+    offset = 0
+    for part in made["parts"]:
+        sent = requests.put(part["url"], data=data[offset : offset + part["size"]], timeout=30)
+        if sent.status_code != 200:
+            fail(f"sending part {part['number']} answered HTTP {sent.status_code}")
+        offset += part["size"]
+    api_call(alice, "POST", f"/uploads/{made['id']}/complete")
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        made = api_call(alice, "GET", f"/uploads/{made['id']}").json()
+        if made["state"] == "ready":
+            return str(made["file"]["id"])
+        if made["state"] != "checking":
+            fail(f"the upload of {name} is {made['state']}")
+        time.sleep(1)
+    fail(f"the upload of {name} wasn't checked within a minute")
+
+
+def structures(alice: requests.Session, project: dict[str, Any]) -> None:
+    """A structure file imported into a structure linked to the proteins its chains are,
+    made in one run (ADR 0064), with gemmi in the protein plugin's environment."""
+    # New residues each time, so each check registers a new structure.
+    chain = [secrets.choice(list(RESIDUES)) for _ in range(12)]
+    atoms = [
+        f"ATOM  {i:5d}  CA  {name} {c}{i:4d}    {3.8 * i:8.3f}{0.0:8.3f}{0.0:8.3f}"
+        "  1.00 90.00           C"
+        for c in ("A", "B")
+        for i, name in enumerate(chain, start=1)
+    ]
+    data = ("\n".join([*atoms[:12], "TER", *atoms[12:], "TER", "END"]) + "\n").encode()
+    file_id = upload(alice, project, "model_1.pdb", data)
+    run = launch(alice, project, "protein.import_structure", {}, {"file": file_id})
+    made = {e["type"]: e for e in run["effects"]}
+    if set(made) != {"protein.Protein", "protein.ProteinStructure"}:
+        fail(f"{run['hrid']} (protein.import_structure) made {run['effects']}")
+    structure = api_call(
+        alice, "GET", f"/entities/{made['protein.ProteinStructure']['entity']}"
+    ).json()
+    values = structure["values"]
+    protein = made["protein.Protein"]["entity"]
+    if values.get("chains") != [protein, protein] or values.get("structure") != file_id:
+        fail(f"{run['hrid']} made {values}, not two chains of {protein} in {file_id}")
+    sequence = api_call(alice, "GET", f"/entities/{protein}").json()["values"]["sequence"]
+    if sequence != "".join(RESIDUES[name] for name in chain):
+        fail(f"{run['hrid']} read the chains' sequence as {sequence}")
+    ok(
+        f"protein.import_structure made {structure['hrid']}, its chains A and B linked to "
+        f"the protein it made with it ({run['hrid']})"
     )
 
 

@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: import_structure
+label: Import a structure file
+description: >-
+  Reads an mmCIF or PDB file and registers it as a protein structure, linked to
+  the proteins its chains are. Those are registered too, from its sequences, or
+  reused if Iki has them. The structure keeps the file itself, and each records
+  that it came from it.
+params:
+  file:
+    type: file
+    label: mmCIF or PDB file
+    required: true
+    media_types: [chemical/x-mmcif, chemical/x-pdb]
+    max_size: 1GiB
+effects:
+  creates:
+    - { type: Protein, cardinality: many }
+    - { type: ProteinStructure, cardinality: one }
+runs_on: { tier: backend, environment: protein-tools, resources: { memory: 2Gi } }
+command: [python, ./scripts/structures.py, file]
+deterministic: true
+timeout: 30m

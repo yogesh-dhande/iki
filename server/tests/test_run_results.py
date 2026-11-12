@@ -413,6 +413,90 @@ def test_a_failed_write_writes_nothing(world: World, s3: Any) -> None:
     assert not Lineage.objects.exists()
 
 
+def _also_creating_proteins(run: dict[str, Any]) -> None:
+    stored = ActionRun.objects.get(pk=run["id"])
+    stored.spec["creates"].append(
+        {"type": "protein.Protein", "cardinality": "many", "derived_from": []}
+    )
+    ActionRun.objects.filter(pk=stored.pk).update(spec=stored.spec)
+
+
+def test_new_entities_can_refer_to_ones_made_with_them(world: World, s3: Any) -> None:
+    gpu, run, job = _predicting(world)
+    _also_creating_proteins(run)
+    parent = run["inputs"][0]["entity"]
+    sequence = api_as(world, "runner").get(f"/entities/{parent}").json()["values"]["sequence"]
+    structure = _structure(gpu, job, run, key="model")
+    structure["values"]["chains"] = [{"$create": "heavy"}, {"$create": "same"}, parent]
+    body = done(
+        gpu,
+        job,
+        output(
+            creates=[
+                {"type": "protein.Protein", "key": "heavy", "values": {"sequence": "MKVWHEAVY"}},
+                # The same sequence as the input: reused, and referred to as it.
+                {"type": "protein.Protein", "key": "same", "values": {"sequence": sequence}},
+                structure,
+            ]
+        ),
+    )
+    assert body["run_status"] == "succeeded", body
+    effects = api_as(world, "runner").get(f"/runs/{run['id']}").json()["effects"]
+    kinds = {e["type"]: e for e in effects if e["kind"] == "created"}
+    heavy = kinds["protein.Protein"]["entity"]
+    made = api_as(world, "runner").get(f"/entities/{kinds['protein.ProteinStructure']['entity']}")
+    assert made.json()["values"]["chains"] == [heavy, parent, parent]
+    assert [e["kind"] for e in effects if e["entity"] == parent] == ["reused"]
+
+
+def test_a_new_entity_refers_only_to_earlier_creates_by_their_keys(world: World, s3: Any) -> None:
+    gpu, run, job = _predicting(world)
+    _also_creating_proteins(run)
+    first = _structure(gpu, job, run, key="a")
+    first["values"]["chains"] = [{"$create": "later"}]
+    errors = _failed(
+        gpu,
+        job,
+        output(
+            creates=[
+                first,
+                {"type": "protein.Protein", "key": "later", "values": {"sequence": "MKV"}},
+                {"type": "protein.Protein", "key": "later", "values": {"sequence": "MKW"}},
+                {**_structure(gpu, job, run), "values": {"chains": [{"$create": "nope"}]}},
+            ]
+        ),
+    )
+    assert errors == {
+        "#/creates/0/values/chains/0": "No earlier create has the key 'later': a create can "
+        "refer only to those before it.",
+        "#/creates/2/key": "Another create has the key 'later'.",
+        "#/creates/3/values/chains/0": "No earlier create has the key 'nope': a create can "
+        "refer only to those before it.",
+    }
+    assert not Entity.objects.filter(type="protein.ProteinStructure").exists()
+
+
+def test_a_reference_to_a_create_that_couldnt_be_written_says_so(world: World, s3: Any) -> None:
+    gpu, run, job = _predicting(world)
+    _also_creating_proteins(run)
+    structure = _structure(gpu, job, run)
+    structure["values"]["chains"] = [{"$create": "bad"}]
+    errors = _failed(
+        gpu,
+        job,
+        output(
+            creates=[
+                {"type": "protein.Protein", "key": "bad", "values": {"sequence": "not one!"}},
+                structure,
+            ]
+        ),
+    )
+    assert set(errors) == {"#/creates/0/values/sequence", "#/creates/1/values/chains/0"}
+    assert errors["#/creates/1/values/chains/0"] == (
+        "It refers to the create with the key 'bad', which couldn't be written."
+    )
+
+
 # --- Result files ------------------------------------------------------------------------------
 
 
@@ -505,7 +589,7 @@ def test_results_attach_only_their_own_files(world: World, s3: Any) -> None:
     errors = _failed(gpu, job, output(creates=[structure]))
     assert errors == {
         "#/creates/0/values/structure": "Attach only files this run uploaded (once they're "
-        "ready) or its inputs' files."
+        "ready), its file params' files, or its inputs' files."
     }
 
 

@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: ProteinStructure
+label: Protein structure
+label_plural: Protein structures
+schema_version: 1
+description: >-
+  A three-dimensional structure of one or more proteins: an experimental one,
+  from the PDB or a lab's own, or a prediction. Two with the same file are the
+  same structure, so importing one again reuses it.
+hrid: { prefix: PST }
+identity: [structure]
+on_duplicate: reuse
+fields:
+  structure:
+    type: file
+    media_types: [chemical/x-mmcif, chemical/x-pdb]
+    max_size: 2GiB
+    required: true
+    immutable: true
+    description: Its coordinates, in mmCIF or PDB format.
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000, description: Such as the PDB entry's title. }
+  pdb_id:
+    type: string
+    label: PDB ID
+    max_length: 12
+    indexed: true
+    pattern: "^([0-9][A-Z0-9]{3}|PDB_[0-9]{4}[0-9][A-Z0-9]{3})$"
+    description: Its PDB entry, such as 4HHB.
+  method:
+    type: enum
+    values: [xray, nmr, cryo_em, electron_crystallography, neutron, predicted, other]
+    indexed: true
+    description: How it was determined.
+  resolution:
+    type: quantity
+    unit: Ao
+    min: 0
+    indexed: true
+    description: For diffraction and cryo-EM, the highest resolution its data reached.
+  chains:
+    type: list
+    items: { type: ref, to: Protein }
+    max_items: 10000
+    description: The protein each of its chains is, in the order of chain_ids.
+  chain_ids:
+    type: list
+    label: Chain IDs
+    items: { type: string, max_length: 4 }
+    max_items: 10000
+    description: The chains' IDs in the file, as their authors gave them (A, B, ...).
+  released:
+    type: date
+    description: When its PDB entry was first released.
+display:
+  title: "{{ name or pdb_id or hrid }}"

@@ -445,3 +445,37 @@ def test_an_error_about_an_entity_fails_only_its_run(world: World) -> None:
     }
     assert failed["effects"] == []
     assert failed["messages"] == document["messages"]
+
+
+def test_a_new_entity_can_refer_only_to_its_own_runs_new_entities(world: World) -> None:
+    from iki_server.runs import packs
+
+    launched = batch(world, 2)
+    runs = [ActionRun.objects.get(pk=r["id"]) for r in launched["runs"]]
+    first, second = (str(r.inputs.get().entity_id) for r in runs)
+
+    def made(key: str, parent: str, chains: list[Any]) -> dict[str, Any]:
+        return {
+            "type": "protein.ProteinStructure",
+            "key": key,
+            "values": {"chains": chains},
+            "derived_from": [parent],
+        }
+
+    document = output(
+        creates=[
+            {"type": "protein.Protein", "key": "a", "values": {}, "derived_from": [first]},
+            made("own", first, [{"$create": "a"}]),
+            made("other", second, [second, {"$create": "a"}]),
+        ]
+    )
+    split = packs.split(document, runs)
+    assert isinstance(split, packs.Unsplittable)
+    assert {e["pointer"]: e["detail"] for e in split.errors} == {
+        "#/creates/2/values/chains/1": "The create with the key 'a' belongs to another run: a "
+        "new entity can refer only to its own run's."
+    }
+    del document["creates"][2]
+    parts = packs.split(document, runs)
+    assert not isinstance(parts, packs.Unsplittable)
+    assert [len(p.get("creates", [])) for p in parts] == [2, 0]

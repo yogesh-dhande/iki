@@ -52,6 +52,8 @@ dev = [
   # The protein plugin's actions use it; its tests run them (plugins/protein/requirements.txt
   # pins the same release for its environment).
   "biopython==1.88",
+  # Its structure actions read mmCIF and PDB files with it, pinned likewise.
+  "gemmi==0.7.5",
 ]
 
 [tool.ruff]

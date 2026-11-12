@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: fetch_structures
+label: Fetch structures from the PDB
+description: >-
+  Fetches PDB entries by ID from RCSB, in mmCIF, and registers each as a
+  protein structure, with its title, method, resolution and release, linked to
+  the proteins its chains are. Those are registered too, with their names,
+  organisms, genes and UniProt accessions, or reused if Iki has them. Each
+  records which entry and revision it came from, and when it was fetched.
+params:
+  pdb_ids:
+    type: text
+    label: PDB IDs
+    required: true
+    max_length: 2000
+    description: Separated by spaces, commas or new lines, such as 4HHB 1CRN. Up to 100.
+effects:
+  creates:
+    - { type: Protein, cardinality: many }
+    - { type: ProteinStructure, cardinality: many }
+runs_on: { tier: backend, environment: protein-tools, resources: { memory: 2Gi } }
+command: [python, ./scripts/structures.py, fetch]
+network: [files.rcsb.org]
+timeout: 1h

@@ -1,7 +1,8 @@
 # protein
 
 Iki's protein plugin: proteins, translated from DNA, imported or fetched from
-UniProt, with the properties of their sequences.
+UniProt, with the properties of their sequences, and their structures, from
+the PDB or a lab's own files.
 
 - **`protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
   - Its identity is its sequence, so registering the same protein again
@@ -11,13 +12,20 @@ UniProt, with the properties of their sequences.
   - Its length, molecular weight, isoelectric point, extinction coefficients,
     GRAVY and instability index are computed by the plugin's actions.
 
-It extends `core.Sequence`, so a search for sequences finds proteins alongside
-DNA. It depends on the [dna plugin](../dna) for `encoded_by`.
+- **`protein.ProteinStructure`** (`PST-000001`): a three-dimensional
+  structure, experimental or predicted, in mmCIF or PDB format.
+  - Its identity is its file, so importing the same file again reuses it.
+  - It keeps its PDB ID, title, method, resolution and first release, and the
+    protein each of its chains is (`chains`, in the order of `chain_ids`).
+
+`Protein` extends `core.Sequence`, so a search for sequences finds proteins
+alongside DNA. The plugin depends on the [dna plugin](../dna) for
+`encoded_by`.
 
 ## Actions
 
 They run on backend workers, in the `protein-tools` environment (Python 3.12
-with Biopython).
+with Biopython and gemmi). The structure actions ask for 2 GiB of memory.
 
 - **`compute_properties`**: a protein's properties, as ExPASy's ProtParam
   computes them, for many at once.
@@ -32,6 +40,14 @@ with Biopython).
   protein. Each records the entry, the UniProt release and sequence version,
   its link, when it was fetched and its SHA-256. It reaches only
   `rest.uniprot.org`, through the deployment's egress proxy.
+- **`fetch_structures`**: fetches PDB entries by ID (up to 100, such as
+  `4HHB`) from RCSB in mmCIF, and registers each as a structure, with the
+  proteins its chains are. Each records the entry, its revision, its link,
+  when it was fetched and the file's SHA-256. It reaches only
+  `files.rcsb.org`.
+- **`import_structure`**: registers an mmCIF or PDB file (up to 1 GiB) as a
+  structure, with the proteins its chains are. The structure keeps the file
+  itself.
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 
@@ -68,7 +84,19 @@ An accession UniProt has no entry for (merged into another, or made obsolete)
 fails the fetch, which names it. When UniProt says to slow down or fails on
 its side, it waits and asks again.
 
-Structures, from the PDB and from structure prediction, come next.
+A structure and the proteins its chains are come from the same run, all or
+nothing, the structure referring to the proteins made with it
+([ADR 0064](../../docs/adr/0064-a-runs-new-entities-can-refer-to-one-another.md)).
+Each protein (an mmCIF entity of type `polypeptide(L)`) takes its full
+sequence (SEQRES, or the residues it has where a file gives none, as
+predictions often do), and its name, organism, gene and UniProt accession
+where the file gives them. Chains of the same protein refer to the same
+`Protein`, which is reused if Iki already has its sequence. Other polymers
+(DNA, RNA, D-peptides) and ligands are left out, and the run says so. A file
+with no protein chains, or that isn't mmCIF or PDB, fails the run, which says
+why. An entry the PDB doesn't have, or has made obsolete, fails the fetch.
+
+Structure prediction (ESMFold) comes next.
 
 ## Developing it
 

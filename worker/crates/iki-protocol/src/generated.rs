@@ -162,6 +162,10 @@ pub struct RunOutputOrigin {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputCreate {
     pub r#type: String,
+    /// A name for it, unique in `creates`, that a later create's ref fields can give as `{"$create": "<key>"}` to refer to it, such as a structure to the chains made with it. Not in a `creates_file`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Its fields' values. A ref field (or an item of a list of refs) may be `{"$create": "<key>"}`: the entity an earlier create with that key made or reused.
     pub values: serde_json::Map<String, serde_json::Value>,
     /// The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json).
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -5,7 +5,8 @@ input. Each part of what it writes says which entity it's for, so each goes to
 that entity's run:
 
 - an update, by its ``entity``
-- a new entity, by its ``derived_from`` (all of one run's)
+- a new entity, by its ``derived_from`` (all of one run's); one that refers to another
+  (``$create``) must refer to its own run's
 - a message, by its ``entity``; one without goes to every run
 - metrics go to every run
 
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from iki_server.runs import results
 from iki_server.runs.models import ActionRun, RunInput
 from iki_spec import schemas
 
@@ -83,6 +85,8 @@ def split(
             }
         )
 
+    #: each create's key → the run it went to
+    keyed: dict[str, int] = {}
     for index, item in enumerate(document.get("creates") or []):
         parents = {run_of(e) for e in item.get("derived_from") or []}
         if not parents:
@@ -111,6 +115,17 @@ def split(
         else:
             (run,) = parents
             assert run is not None  # noqa: S101 - excluded above
+            for name, key, where in results.created_refs(item):
+                if keyed.get(key, run) != run:
+                    errors.append(
+                        {
+                            "pointer": _pointer("creates", index, "values", name, *where),
+                            "detail": f"The create with the key {key!r} belongs to another "
+                            "run: a new entity can refer only to its own run's.",
+                        }
+                    )
+            if "key" in item:
+                keyed.setdefault(item["key"], run)
             parts[run].setdefault("creates", []).append(item)
 
     for index, item in enumerate(document.get("messages") or []):

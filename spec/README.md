@@ -575,6 +575,25 @@ uploaded can be attached. Iki writes all of it in one transaction, or none.
 A message can name the input `entity` it's about. One at level `error`
 fails that entity's run, which then writes nothing.
 
+A new entity can refer to one made with it, such as a structure to its
+chains ([ADR 0064](../docs/adr/0064-a-runs-new-entities-can-refer-to-one-another.md)).
+Give the earlier create a `key`, unique in `creates`, and the later one's ref
+field (or an item of a list of refs) `{"$create": "<key>"}`:
+
+```json
+[
+  { "type": "protein.Protein", "key": "A", "values": { "sequence": "MVLSPADKTN…" } },
+  {
+    "type": "protein.ProteinStructure",
+    "values": { "structure": { "$file": "1abc.cif" }, "chains": [{ "$create": "A" }] }
+  }
+]
+```
+
+It becomes the ID of the entity that create made, or the one it reused. A
+create can refer only to those before it, and, in a job that runs several
+runs at once, only to its own run's.
+
 ### Creates in a file
 
 `creates` holds at most 10,000, and `output.json` at most 2.5 MB. A command
@@ -591,7 +610,7 @@ The worker uploads it with the run's other files. Iki then checks every line,
 a chunk at a time, going on from where it was if it's interrupted, and writes
 them all in one transaction, or none: nobody sees half an import. A line's
 problems point at `#/creates_file/<line>`, counting from 1. Lines can't
-attach files (give those in `creates`), and a job that runs several runs at
+attach files or refer to one another (give those in `creates`), and a job that runs several runs at
 once can't give a creates file. Webhooks hear of an import once, as
 `entity.imported`, not `entity.created` for each entity. A file holds at most
 100 million lines, each at most 256 MiB.

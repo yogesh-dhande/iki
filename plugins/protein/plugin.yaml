@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: protein
-version: 0.1.0
+version: 0.2.0
 title: Protein
 description: Proteins, with the properties of their sequences.
 license: Apache-2.0
