@@ -2,6 +2,15 @@
 # Fail on any high or critical vulnerability that has a fix available:
 # those are fixed by updating the base image or a dependency. Unfixed ones
 # are reported but don't block, since there is nothing to update to.
+#
+# Each exception says why it's safe and, on the line before it, when it
+# expires (`# Until YYYY-MM-DD:`): `make check-deps` fails once that's passed.
 fail-on-severity: high
 only-fixed: true
-ignore: []
+ignore:
+  # Until 2026-12-15: CPython 3.14.10 enforces OpenSSL's FIPS mode wrongly in hashlib
+  # (CVE-2026-119170). Only processes with OpenSSL in FIPS mode are affected, and Iki's
+  # images don't enable it. The fix, 3.14.11, isn't released yet (due about 2026-12-01),
+  # so no python image has it. Pinned to 3.14.10: the next base image drops it.
+  - vulnerability: CVE-2026-119170
+    package: { name: python, version: 3.14.10, type: binary }

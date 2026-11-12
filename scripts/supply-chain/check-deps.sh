@@ -23,3 +23,6 @@ echo "==> Rust: advisories, licenses, banned crates and sources (cargo-deny)"
 
 echo "==> Releases at least 3 days old (uv.lock, Cargo.lock, plugins' pins; pnpm refuses them itself)"
 uv run --no-project --quiet python scripts/supply-chain/release-age.py
+
+echo "==> Image scan exceptions (.grype.yaml) haven't expired"
+uv run --no-project --quiet python scripts/supply-chain/image-exceptions.py

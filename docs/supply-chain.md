@@ -141,8 +141,8 @@ First-party plugins' environments install only what their pinned, hashed
 `requirements.txt` lists. Each pin must be the release the repository's own
 lockfile has, so the plugin's tests run exactly what its environment installs.
 
-Exceptions live in `osv-scanner.toml` (vulnerabilities expire on a set date)
-and `worker/deny.toml`. Each covers one package and explains why it is safe:
+Exceptions live in `osv-scanner.toml` (vulnerabilities expire on a set date),
+`.grype.yaml` and `worker/deny.toml`. Each covers one package and explains why it is safe:
 
 - psycopg, the PostgreSQL driver, and jwcrypto, which django-oauth-toolkit
   requires, are LGPL-3.0. Iki uses both unmodified as dynamically imported
@@ -155,6 +155,11 @@ and `worker/deny.toml`. Each covers one package and explains why it is safe:
   mdn-data), and a crate locked only for a platform Iki never builds for.
 - A denial-of-service advisory in minimatch, reachable only through ESLint's
   handling of our own lint config. Expires 2027-01-15.
+- In images (`.grype.yaml`, each with a `# Until` date that
+  `make check-deps` enforces): CPython 3.14.10's FIPS-mode regression in
+  hashlib (CVE-2026-119170), which needs OpenSSL in FIPS mode, and Iki's
+  images don't enable it. Until 3.14.11 is released and in the base image,
+  or 2026-12-15.
 
 CI tools are installed by `scripts/ci/install-tools.sh` at pinned versions with
 SHA-256 checksums. GitHub Actions are pinned by commit SHA.
