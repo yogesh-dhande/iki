@@ -13,8 +13,9 @@ the person it acts for to approve it (:mod:`iki_server.runs.approvals`).
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 from uuid import UUID
 
@@ -32,7 +33,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action as Permission
 from iki_server.org.services import Refused
-from iki_server.runs import approvals, catalog, live, queue, quotas
+from iki_server.runs import approvals, catalog, live, queue, quotas, reuse
 from iki_server.runs.models import (
     BATCH_HRID_PREFIX,
     BATCH_HRID_SEQUENCE,
@@ -56,6 +57,7 @@ __all__ = [
     "cancel_batch",
     "launch",
     "launch_each",
+    "reproduce",
     "visible_batches",
     "visible_runs",
 ]
@@ -87,8 +89,11 @@ def launch(
     params: Mapping[str, Any],
     *,
     reason: str = "",
+    reuse_results: bool = True,
 ) -> ActionRun:
-    """Queue a run of `action` in `project`, or raise why it can't run.
+    """Queue a run of `action` in `project`, or raise why it can't run. For a deterministic
+    action, an identical earlier run's results are reused instead, unless `reuse_results`
+    is off (ADR 0057).
 
     Raises :class:`PermissionDenied` if the caller can't run the action's tier in the project,
     :class:`Refused` if it can't run here now, and :class:`Invalid` for inputs and params.
@@ -100,8 +105,11 @@ def launch(
     if errors:
         raise Invalid(errors)
     with transaction.atomic():
+        made = _made(user, action, entities, values, reuse_results=reuse_results)
+        if made.original is not None:
+            return _reuse(user, action, project, entities, values, reason, made)
         approval = approvals.ask(user, action, project)
-        run = _queue(user, action, project, entities, values, reason, approval)
+        run = _queue(user, action, project, entities, values, reason, approval, made=made)
         if approval is not None:
             approvals.announce(
                 approval, 1, action.label or action.qualified_name, path=f"/runs/{run.hrid}/"
@@ -119,6 +127,7 @@ def launch_each(
     params: Mapping[str, Any],
     *,
     reason: str = "",
+    reuse_results: bool = True,
 ) -> list[ActionRun]:
     """Queue one run of `action` for each of `entity_ids` as its `each` input, the others the
     same for all, or none of them: raises as :func:`launch` does, with problems with the
@@ -144,8 +153,14 @@ def launch_each(
         raise Invalid(errors)
     chosen = entities.pop(each)
     with transaction.atomic():
-        # One request, one approval: a batch is approved or declined together.
-        approval = approvals.ask(user, action, project, runs=len(chosen))
+        made = [
+            _made(user, action, {**entities, each: [e]}, values, reuse_results=reuse_results)
+            for e in chosen
+        ]
+        to_run = sum(1 for m in made if m.original is None)
+        # One request, one approval: a batch is approved or declined together. Runs that
+        # reuse results run nothing, so they need none.
+        approval = approvals.ask(user, action, project, runs=to_run) if to_run else None
         batch = RunBatch.objects.create(
             hrid=_next_hrid(BATCH_HRID_PREFIX, BATCH_HRID_SEQUENCE),
             action=action.qualified_name,
@@ -158,7 +173,9 @@ def launch_each(
             size=len(chosen),
         )
         runs = [
-            _queue(
+            _reuse(user, action, project, {**entities, each: [entity]}, values, reason, m, batch)
+            if m.original is not None
+            else _queue(
                 user,
                 action,
                 project,
@@ -167,8 +184,9 @@ def launch_each(
                 reason,
                 approval,
                 batch=batch,
+                made=m,
             )
-            for entity in chosen
+            for entity, m in zip(chosen, made, strict=True)
         ]
         audit.record(
             "run.batch_launched",
@@ -177,10 +195,10 @@ def launch_each(
             project=project,
             data={"action": action.qualified_name, "tier": action.tier, "runs": len(runs)},
         )
-        if approval is not None and runs:
+        if approval is not None and to_run:
             approvals.announce(
                 approval,
-                len(runs),
+                to_run,
                 action.label or action.qualified_name,
                 path=f"/batches/{batch.hrid}/",
             )
@@ -227,12 +245,16 @@ def _queue(
     approval: RunApproval | None = None,
     *,
     batch: RunBatch | None = None,
+    made: _Made | None = None,
+    copy_of: ActionRun | None = None,
 ) -> ActionRun:
     """Queues the run, or holds it for `approval`. Call inside a transaction, with its
-    inputs and params checked."""
+    inputs and params checked. A reproduction is a `copy_of` the run it reproduces: its
+    action as launched, plugin settings, inputs at the revisions it read, and seed."""
     environment = catalog.environment(action)
     if approval is None:
         quotas.check_queued(project, action.tier)
+    made = made or _made(None, action, entities, values, reuse_results=False)
     run = ActionRun.objects.create(
         status=RunStatus.AWAITING_APPROVAL if approval else RunStatus.QUEUED,
         approval=approval,
@@ -241,25 +263,40 @@ def _queue(
         batch=batch,
         action=action.qualified_name,
         plugin_version=registry.plugins()[action.plugin].version,
-        plugin_sha=plugin_sha(action.plugin),
-        spec=asdict(action),
+        plugin_sha=made.sha,
+        spec=copy_of.spec if copy_of else asdict(action),
         project=project,
         requested_by=user,
         via=audit.current_via(),
         reason=reason,
-        tier=action.tier,
-        environment=action.environment,
+        tier=copy_of.tier if copy_of else action.tier,
+        environment=copy_of.environment if copy_of else action.environment,
         params=values,
-        plugin_settings=plugin_settings(action),
-        timeout=action.timeout,
-        max_attempts=1 + action.retry_max,
-        retry_on=list(action.retry_on),
+        plugin_settings=made.settings,
+        seed=copy_of.seed if copy_of and copy_of.seed is not None else _seed(),
+        reuse_key="" if copy_of else made.key,
+        reproduces=copy_of,
+        timeout=copy_of.timeout if copy_of else action.timeout,
+        max_attempts=copy_of.max_attempts if copy_of else 1 + action.retry_max,
+        retry_on=copy_of.retry_on if copy_of else list(action.retry_on),
     )
-    RunInput.objects.bulk_create(
-        RunInput(run=run, name=name, position=index, entity=entity, revision=entity.revision)
-        for name, chosen in entities.items()
-        for index, entity in enumerate(chosen)
-    )
+    if copy_of:
+        RunInput.objects.bulk_create(
+            RunInput(
+                run=run,
+                name=i.name,
+                position=i.position,
+                entity_id=i.entity_id,
+                revision=i.revision,
+            )
+            for i in RunInput.objects.filter(run=copy_of).order_by("name", "position")
+        )
+    else:
+        RunInput.objects.bulk_create(
+            RunInput(run=run, name=name, position=index, entity=entity, revision=entity.revision)
+            for name, chosen in entities.items()
+            for index, entity in enumerate(chosen)
+        )
     Job.objects.create(
         run=run,
         project=project,
@@ -282,9 +319,114 @@ def _queue(
             "inputs": sum(len(e) for e in entities.values()),
             **({"approval": str(approval.pk)} if approval else {}),
             **({"batch": batch.hrid} if batch else {}),
+            **({"reproduces": copy_of.hrid} if copy_of else {}),
         },
     )
     return run
+
+
+@dataclass(frozen=True)
+class _Made:
+    """What a run's results depend on that isn't its inputs and params, its reuse key, and
+    the identical run it reuses, if any."""
+
+    sha: str
+    settings: dict[str, Any]
+    key: str
+    original: ActionRun | None
+
+
+def _made(
+    user: User | None,
+    action: Action,
+    entities: Mapping[str, Sequence[Entity]],
+    values: Mapping[str, Any],
+    *,
+    reuse_results: bool,
+) -> _Made:
+    sha = plugin_sha(action.plugin)
+    settings = plugin_settings(action)
+    key = reuse.key(action, sha, entities, values, settings)
+    original = reuse.find(user, key) if reuse_results and user is not None else None
+    return _Made(sha, settings, key, original)
+
+
+def _reuse(
+    user: User,
+    action: Action,
+    project: Project,
+    entities: Mapping[str, Sequence[Entity]],
+    values: dict[str, Any],
+    reason: str,
+    made: _Made,
+    batch: RunBatch | None = None,
+) -> ActionRun:
+    assert made.original is not None  # noqa: S101 - only called with one
+    return reuse.reuse(
+        user,
+        action,
+        project,
+        entities,
+        values,
+        made.settings,
+        reason,
+        made.original,
+        hrid=_next_hrid(),
+        batch=batch,
+    )
+
+
+def _seed() -> int:
+    """A seed for a run's random numbers: 31 bits, so it fits every tool's seed."""
+    return secrets.randbelow(2**31)
+
+
+def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
+    """Queue a run that reproduces `run` exactly (ADR 0057): the same plugin commit, action
+    as launched, params, plugin settings, inputs at the revisions it read, and seed. It
+    writes nothing; when it ends, it says whether its results are the same.
+
+    A run that reused another's results is reproduced as that one. Raises as :func:`launch`
+    does, and :class:`Refused` if this deployment runs other code for its plugin."""
+    original = reuse.reproducible(run)
+    action = catalog.action(original.action)
+    if action is None:
+        raise Refused(f"{original.action} isn't installed now, so it can't run here.")
+    _may_launch(user, action, original.project)
+    why = reuse.blocked(
+        original, plugin_sha(action.plugin), registry.plugins()[action.plugin].version
+    )
+    if why:
+        raise Refused(why)
+    readable = set(
+        access.visible(user)
+        .filter(pk__in=RunInput.objects.filter(run=original).values("entity_id"))
+        .values_list("pk", flat=True)
+    )
+    hidden = RunInput.objects.filter(run=original).exclude(entity_id__in=readable)
+    if hidden.exists():
+        raise PermissionDenied
+    with transaction.atomic():
+        approval = approvals.ask(user, action, original.project)
+        reproduction = _queue(
+            user,
+            action,
+            original.project,
+            {},
+            dict(original.params),
+            reason,
+            approval,
+            made=_Made(original.plugin_sha, dict(original.plugin_settings), "", None),
+            copy_of=original,
+        )
+        if approval is not None:
+            approvals.announce(
+                approval,
+                1,
+                action.label or action.qualified_name,
+                path=f"/runs/{reproduction.hrid}/",
+            )
+        return reproduction
 
 
 def _inputs(

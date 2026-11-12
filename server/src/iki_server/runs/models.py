@@ -215,6 +215,32 @@ class ActionRun(models.Model):
     params = models.JSONField(default=dict)
     #: The plugin's settings, as the deployment set them at launch (never secrets).
     plugin_settings = models.JSONField(default=dict)
+    #: For the command's random numbers: given as ``IKI_SEED``, and again when it's
+    #: reproduced (ADR 0057). None for runs from before seeds.
+    seed = models.PositiveIntegerField(null=True, blank=True)
+    #: For a deterministic action: a hash of everything its results depend on, so an
+    #: identical run can reuse them (ADR 0057). Empty when it can't be reused.
+    reuse_key = models.CharField(max_length=64, blank=True, default="")
+    #: The identical run whose results it reused instead of running.
+    reused_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        db_index=False,  # iki_action_run_reuses, built concurrently
+    )
+    #: The run it reproduces exactly: it writes nothing, and compares its results with them.
+    reproduces = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="reproductions",
+        db_index=False,  # iki_action_run_reproductions, built concurrently
+    )
+    #: For a reproduction that ended with an output: ``matches``, and the ``differences``.
+    reproduction = models.JSONField(null=True, blank=True)
     status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.QUEUED)
     created_at = models.DateTimeField(db_default=Now())
     started_at = models.DateTimeField(null=True, blank=True)
@@ -250,6 +276,23 @@ class ActionRun(models.Model):
                 condition=Q(batch__isnull=False),
             ),
             models.Index(
+                fields=["reuse_key", "-finished_at"],
+                name="iki_action_run_reusable",
+                condition=Q(status=RunStatus.SUCCEEDED)
+                & ~Q(reuse_key="")
+                & Q(reused_from__isnull=True, reproduces__isnull=True),
+            ),
+            models.Index(
+                fields=["reused_from", "id"],
+                name="iki_action_run_reuses",
+                condition=Q(reused_from__isnull=False),
+            ),
+            models.Index(
+                fields=["reproduces", "id"],
+                name="iki_action_run_reproductions",
+                condition=Q(reproduces__isnull=False),
+            ),
+            models.Index(
                 fields=["status", "id"],
                 name="iki_action_run_unfinished",
                 condition=Q(
@@ -264,6 +307,10 @@ class ActionRun(models.Model):
             models.CheckConstraint(condition=Q(tier__in=TIERS), name="iki_action_run_tier"),
             models.CheckConstraint(
                 condition=Q(max_attempts__gte=1), name="iki_action_run_attempts"
+            ),
+            models.CheckConstraint(
+                condition=Q(reused_from__isnull=True) | Q(reproduces__isnull=True),
+                name="iki_action_run_reused_or_reproduces",
             ),
             models.CheckConstraint(
                 condition=Q(finished_at__isnull=True)

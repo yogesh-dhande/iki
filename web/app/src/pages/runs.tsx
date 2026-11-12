@@ -324,6 +324,209 @@ function CancelRun({ run }: { run: Run }) {
   );
 }
 
+/** The run a reproduction of `run` reproduces: a run that reused or reproduced another
+ * stands for it. */
+function reproducible(run: Run): { id: string; hrid: string } {
+  return run.reused_from ?? run.reproduces ?? { id: run.id, hrid: run.hrid };
+}
+
+function ReproduceRun({ run }: { run: Run }) {
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
+  const { say } = useMessages();
+  const navigate = useNavigate();
+  const original = reproducible(run);
+  const reproduce = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.POST("/api/v1/runs/{ref}/reproduce", {
+          params: { path: { ref: original.id } },
+          body: { reason: reason.trim() },
+        }),
+      ),
+    [RUNS],
+  );
+  if (!run.can.reproduce) return null;
+  const close = () => {
+    setAsking(false);
+    setReason("");
+    reproduce.reset();
+  };
+  return (
+    <div className="actions">
+      <Button
+        onClick={() => {
+          setAsking(true);
+        }}
+      >
+        Reproduce exactly
+      </Button>
+      <ConfirmDialog
+        isOpen={asking}
+        title={`Reproduce ${original.hrid} exactly?`}
+        confirmLabel="Reproduce"
+        cancelLabel="Don’t"
+        busy={reproduce.isPending}
+        problem={reproduce.error ? problemOf(reproduce.error) : undefined}
+        onCancel={close}
+        onConfirm={() => {
+          reproduce.mutate(undefined, {
+            onSuccess: (made) => {
+              close();
+              void navigate({ to: "/runs/$ref/", params: { ref: made.hrid } }).then(() => {
+                say(`Started ${made.hrid}, reproducing ${original.hrid}.`);
+              });
+            },
+          });
+        }}
+      >
+        <p>
+          It runs {original.hrid} again with the same plugin commit, params, settings and seed, on
+          its inputs as they were then. It changes no entities: when it ends, it says whether its
+          results are the same.
+        </p>
+        <TextField
+          label="Reason"
+          value={reason}
+          onChange={setReason}
+          maxLength={2000}
+          optional
+          multiline
+          help="Why, for the record. It’s kept with the run."
+        />
+      </ConfirmDialog>
+    </div>
+  );
+}
+
+/** For a run that reused another's results: which, and a way to run it after all. */
+function ReusedNote({ run }: { run: Run }) {
+  const { say } = useMessages();
+  const navigate = useNavigate();
+  const again = useApiMutation(async () => {
+    const inputs: Record<string, string[]> = {};
+    for (const input of run.inputs) (inputs[input.name] ??= []).push(input.entity);
+    return unwrap(
+      await iki.POST("/api/v1/actions/{name}/runs", {
+        params: { path: { name: run.action } },
+        body: {
+          project: run.project,
+          inputs,
+          params: run.params,
+          reason: run.reason,
+          reuse: false,
+        },
+      }),
+    );
+  }, [RUNS]);
+  return (
+    <div className="alert alert-info" role="status">
+      <p>
+        Reused the results of{" "}
+        {run.reused_from ? (
+          <Link to="/runs/$ref/" params={{ ref: run.reused_from.hrid }}>
+            {run.reused_from.hrid}
+          </Link>
+        ) : (
+          "an earlier run"
+        )}
+        , an identical run: the same plugin commit, params and settings, on the same inputs at the
+        same revisions. Nothing ran.
+      </p>
+      {again.error ? <ProblemAlert problem={problemOf(again.error)} /> : null}
+      {run.can.run_again ? (
+        <div className="actions">
+          <Button
+            busy={again.isPending}
+            onClick={() => {
+              again.mutate(undefined, {
+                onSuccess: (made) => {
+                  void navigate({ to: "/runs/$ref/", params: { ref: made.hrid } }).then(() => {
+                    say(`Started ${made.hrid}.`);
+                  });
+                },
+              });
+            }}
+          >
+            Run again
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** For a reproduction: what it reproduces, and once it has results, whether they match. */
+function ReproductionNote({ run }: { run: Run }) {
+  const original = run.reproduces ? (
+    <Link to="/runs/$ref/" params={{ ref: run.reproduces.hrid }}>
+      {run.reproduces.hrid}
+    </Link>
+  ) : (
+    "the run it reproduces"
+  );
+  const result = run.reproduction;
+  if (!result) {
+    return (
+      <div className="alert alert-info" role="status">
+        <p>
+          Reproduces {original} exactly: the same plugin commit, params, settings and seed, on its
+          inputs as they were then. It changes no entities.
+          {finished(run.status) ? null : " When it ends, it compares its results with those."}
+        </p>
+      </div>
+    );
+  }
+  const builds = result.environment_build;
+  const otherBuild = builds.original && builds.reproduced && builds.original !== builds.reproduced;
+  if (result.matches) {
+    return (
+      <div className="alert alert-success" role="status">
+        <p className="alert-title">Reproduced</p>
+        <p>Its results are the same as {original}’s, in the same environment build.</p>
+      </div>
+    );
+  }
+  const count = result.differences.length + result.more_differences;
+  return (
+    <div className="alert alert-warning" role="status">
+      <p className="alert-title">Didn’t reproduce</p>
+      <p>
+        {count
+          ? `Its results differ from ${run.reproduces?.hrid ?? "the original"}’s in ${counted(count, "place", "places")}`
+          : `Its results are the same as ${run.reproduces?.hrid ?? "the original"}’s`}
+        {otherBuild ? `, and it ran in another environment build.` : "."}
+      </p>
+      {result.differences.length ? (
+        <ul className="run-differences">
+          {result.differences.map((d) => (
+            <li key={d.pointer}>
+              <code>{d.pointer}</code>: {shown(d.original)} → {shown(d.reproduced)}
+            </li>
+          ))}
+          {result.more_differences ? (
+            <li className="muted">
+              and {counted(result.more_differences, "more place", "more places")}
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+      {otherBuild ? (
+        <p className="muted">
+          Environment build <code>{builds.original}</code> then, <code>{builds.reproduced}</code>{" "}
+          now.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A value from an output, as a difference shows it. */
+function shown(value: unknown): string {
+  if (value === null || value === undefined) return "nothing";
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 type Approval = NonNullable<Run["approval"]>;
 
 /** Whoever asked: the app, for whom. */
@@ -789,7 +992,12 @@ export function RunPage() {
             <Badge>{run.hrid}</Badge> <StatusBadge status={run.status} />
           </>
         }
-        actions={<CancelRun run={run} />}
+        actions={
+          <>
+            <ReproduceRun run={run} />
+            <CancelRun run={run} />
+          </>
+        }
       />
       {run.cancel_requested_at && !done ? (
         <div className="alert alert-warning" role="status">
@@ -807,6 +1015,8 @@ export function RunPage() {
           <p>Waiting to start: {run.waiting}</p>
         </div>
       ) : null}
+      {run.reused ? <ReusedNote run={run} /> : null}
+      {run.reproduces || run.reproduction ? <ReproductionNote run={run} /> : null}
       {run.error ? (
         <div className="alert alert-error" role="alert">
           <p className="alert-title">{STATUS[run.status]}</p>
@@ -975,6 +1185,15 @@ export function RunPage() {
               </>
             ) : null}
           </dd>
+          {run.seed !== null ? (
+            <>
+              <dt>Seed</dt>
+              <dd>
+                <code>{run.seed}</code>{" "}
+                <span className="muted">given to its command as IKI_SEED</span>
+              </dd>
+            </>
+          ) : null}
           {Object.keys(run.settings).length ? (
             <>
               <dt>Plugin settings</dt>

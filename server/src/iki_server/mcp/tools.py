@@ -125,6 +125,14 @@ Params = Annotated[
 RunReason = Annotated[
     str, Field(min_length=1, max_length=2000, description="Why, for the record: people read it.")
 ]
+Reuse = Annotated[
+    bool,
+    Field(
+        description="For a deterministic action: reuse an identical run's results, if the "
+        "person can read one, instead of running again. Set false only when they ask for a "
+        "fresh run."
+    ),
+]
 
 
 def build() -> MCPServer:
@@ -401,15 +409,18 @@ def build() -> MCPServer:
         reason: RunReason,
         inputs: Inputs | None = None,
         params: Params | None = None,
+        reuse: Reuse = True,
     ) -> CallToolResult:
         """Queues one run of an action. Its inputs, params and the person's role are
         checked first. Runs on the container and VM tiers wait for the person to approve
-        them in Iki; the answer says so. Follow it with get_run."""
+        them in Iki; the answer says so. A run that reuses an identical run's results ends
+        at once (`reused_from`). Follow it with get_run."""
         body = {
             "project": str(project),
             "inputs": _ids(inputs),
             "params": params or {},
             "reason": reason,
+            "reuse": reuse,
         }
         run = await call("POST", path("/actions/{name}/runs", name=name), body=body)
         return answer(run, note=waiting([run]))
@@ -435,6 +446,7 @@ def build() -> MCPServer:
             Field(description="Every run's other inputs, as for run_action."),
         ] = None,
         params: Params | None = None,
+        reuse: Reuse = True,
     ) -> CallToolResult:
         """Queues one run for each entity, all or none: if any can't run, none is queued
         and the error says which. Runs that need approval are approved together."""
@@ -445,6 +457,7 @@ def build() -> MCPServer:
             "inputs": _ids(inputs),
             "params": params or {},
             "reason": reason,
+            "reuse": reuse,
         }
         made = await call("POST", path("/actions/{name}/runs/batch", name=name), body=body)
         batch = made["batch"]
@@ -485,6 +498,15 @@ def build() -> MCPServer:
         return answer(
             await call("POST", path("/runs/{ref}/cancel", ref=ref), body={"reason": reason})
         )
+
+    @server.tool(annotations=ADD, title="Reproduce a run exactly")
+    async def reproduce_run(ref: Ref, reason: RunReason) -> CallToolResult:
+        """Queues a run that does a run again exactly: the same plugin commit, params,
+        settings, inputs at the revisions it read, and seed. It writes nothing; once it
+        ends, get_run's `reproduction` says whether its results match. On the container
+        and VM tiers it waits for the person to approve it, as run_action does."""
+        run = await call("POST", path("/runs/{ref}/reproduce", ref=ref), body={"reason": reason})
+        return answer(run, note=waiting([run]))
 
     return server
 

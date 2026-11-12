@@ -115,6 +115,7 @@ describe("starting a run", () => {
       inputs: { protein: PROTEIN_ID },
       params: { ph: 7.4 },
       reason: "Weekly batch",
+      reuse: true,
     });
     expect(await screen.findByText("Started RUN-000001.")).toBeVisible();
   });
@@ -141,6 +142,7 @@ describe("starting a run", () => {
       inputs: {},
       params: { ph: 7 },
       reason: "",
+      reuse: true,
     });
 
     answer(`POST /api/v1/actions/${ACTION.name}/runs/batch`, () => ({
@@ -261,6 +263,7 @@ describe("starting a run", () => {
       inputs: {},
       params: { file: FILE_ID },
       reason: "",
+      reuse: true,
     });
   });
 

@@ -273,7 +273,7 @@ describe("a run's page", () => {
     current = run({
       status: "succeeded",
       finished_at: "2026-03-14T09:01:00Z",
-      can: { cancel: false },
+      can: { cancel: false, reproduce: false, run_again: false },
       effects: [
         {
           entity: "00000000-0000-7000-8000-00000000e001",
@@ -322,7 +322,7 @@ describe("a run's page", () => {
         run({
           status: "succeeded",
           finished_at: "2026-03-14T09:01:00Z",
-          can: { cancel: false },
+          can: { cancel: false, reproduce: false, run_again: false },
           effects: range(1, 101),
           effects_next_cursor: "after-100",
           effect_counts: { created: 250, updated: 0, reused: 3 },
@@ -399,7 +399,7 @@ describe("a run's page", () => {
         run({
           status: "failed",
           finished_at: "2026-03-14T09:01:00Z",
-          can: { cancel: false },
+          can: { cancel: false, reproduce: false, run_again: false },
           error: {
             code: "invalid_output",
             message: "Its output didn't match what the action declares.",
@@ -445,7 +445,10 @@ describe("a run's page", () => {
     onRun(run, () => [attempt()]);
     withLog(() => "");
     answer(`POST /api/v1/runs/${RUN_ID}/cancel`, () =>
-      run({ cancel_requested_at: "2026-03-14T09:00:30Z", can: { cancel: false } }),
+      run({
+        cancel_requested_at: "2026-03-14T09:00:30Z",
+        can: { cancel: false, reproduce: false, run_again: false },
+      }),
     );
     const { user } = await renderApp("/runs/RUN-000001/");
     await user.click(screen.getByRole("button", { name: "Cancel run" }));
@@ -457,6 +460,170 @@ describe("a run's page", () => {
     expect(calls("POST").at(-1)?.body).toEqual({ reason: "Wrong pH" });
     expect(screen.getByText(/^Cancelling: asked to stop/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
+  });
+
+  describe("reuse and Reproduce exactly", () => {
+    const AGAIN = "00000000-0000-7000-8000-0000000000r2";
+    const done = {
+      status: "succeeded" as const,
+      finished_at: "2026-03-14T09:01:00Z",
+      plugin_sha: "a".repeat(40),
+    };
+    const original = { id: RUN_ID, hrid: "RUN-000001", action: ACTION.name };
+
+    function onAgain(found: () => Schemas["RunOut"]): void {
+      answer("GET /api/v1/runs/RUN-000002", () => found());
+      answer("GET /api/v1/runs/RUN-000002/attempts", () => [attempt({ state: "queued" })]);
+      answer("GET /api/v1/runs/RUN-000002/attempts/1/log", {
+        offset: 0,
+        text: "",
+        next_offset: 0,
+        more: false,
+        size: 0,
+        ended: false,
+      });
+    }
+
+    it("reproduces a run exactly, with a reason for the record", async () => {
+      onRun(
+        () => run({ ...done, can: { cancel: false, reproduce: true, run_again: false } }),
+        () => [attempt({ state: "succeeded" })],
+      );
+      withLog(
+        () => "",
+        () => true,
+      );
+      const queued = () =>
+        run({ id: AGAIN, hrid: "RUN-000002", status: "queued", reproduces: original });
+      answer(`POST /api/v1/runs/${RUN_ID}/reproduce`, queued);
+      onAgain(queued);
+      const { user } = await renderApp("/runs/RUN-000001/");
+      await user.click(await screen.findByRole("button", { name: "Reproduce exactly" }));
+      const dialog = screen.getByRole("alertdialog", { name: "Reproduce RUN-000001 exactly?" });
+      expect(dialog).toHaveTextContent(/It changes no entities/);
+      await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "Audit");
+      await user.click(within(dialog).getByRole("button", { name: "Reproduce" }));
+      expect(await screen.findByText("Started RUN-000002, reproducing RUN-000001.")).toBeVisible();
+      expect(calls("POST").at(-1)?.body).toEqual({ reason: "Audit" });
+      expect(screen.getByText(/^Reproduces/)).toHaveTextContent(
+        /When it ends, it compares its results with those/,
+      );
+      expect(screen.getByRole("link", { name: "RUN-000001" })).toHaveAttribute(
+        "href",
+        "/runs/RUN-000001/",
+      );
+    });
+
+    it("says whether a reproduction's results match, and where they differ", async () => {
+      const builds = { original: "sha256:b", reproduced: "sha256:b" };
+      const reproduction: Schemas["RunOut"]["reproduction"] = {
+        matches: true,
+        differences: [],
+        more_differences: 0,
+        environment_build: builds,
+      };
+      onRun(
+        () =>
+          run({
+            ...done,
+            reproduces: { ...original, id: AGAIN, hrid: "RUN-000000" },
+            reproduction,
+          }),
+        () => [attempt({ state: "succeeded" })],
+      );
+      withLog(
+        () => "",
+        () => true,
+      );
+      await renderApp("/runs/RUN-000001/");
+      expect(await screen.findByText("Reproduced")).toBeVisible();
+      expect(screen.getByText("Reproduced").closest(".alert")).toHaveTextContent(
+        "Its results are the same as RUN-000000’s, in the same environment build.",
+      );
+    });
+
+    it("lists a reproduction's differences", async () => {
+      onRun(
+        () =>
+          run({
+            ...done,
+            reproduces: { ...original, id: AGAIN, hrid: "RUN-000000" },
+            reproduction: {
+              matches: false,
+              differences: [
+                { pointer: "#/metrics/score", original: 0.91, reproduced: 0.93 },
+                { pointer: "#/creates/0/values/name", original: "ABL1", reproduced: null },
+              ],
+              more_differences: 3,
+              environment_build: { original: "sha256:b", reproduced: "sha256:c" },
+            },
+          }),
+        () => [attempt({ state: "succeeded" })],
+      );
+      withLog(
+        () => "",
+        () => true,
+      );
+      await renderApp("/runs/RUN-000001/");
+      expect(await screen.findByText("Didn’t reproduce")).toBeVisible();
+      expect(
+        screen.getByText(
+          "Its results differ from RUN-000000’s in 5 places, and it ran in another environment build.",
+        ),
+      ).toBeVisible();
+      expect(screen.getByText("#/metrics/score").closest("li")).toHaveTextContent(
+        "#/metrics/score: 0.91 → 0.93",
+      );
+      expect(screen.getByText("#/creates/0/values/name").closest("li")).toHaveTextContent(
+        "ABL1 → nothing",
+      );
+      expect(screen.getByText("and 3 more places")).toBeVisible();
+    });
+
+    it("says which run's results a run reused, and runs it again when asked", async () => {
+      onRun(
+        () =>
+          run({
+            ...done,
+            attempts: 0,
+            reason: "Weights",
+            reused: true,
+            reused_from: { ...original, id: AGAIN, hrid: "RUN-000000" },
+            can: { cancel: false, reproduce: true, run_again: true },
+          }),
+        () => [],
+      );
+      const queued = () => run({ id: AGAIN, hrid: "RUN-000002", status: "queued" });
+      answer(`POST /api/v1/actions/${ACTION.name}/runs`, queued);
+      onAgain(queued);
+      const { user } = await renderApp("/runs/RUN-000001/");
+      expect(await screen.findByText(/^Reused the results of/)).toHaveTextContent(
+        "Reused the results of RUN-000000, an identical run",
+      );
+      await user.click(screen.getByRole("button", { name: "Run again" }));
+      expect(await screen.findByText("Started RUN-000002.")).toBeVisible();
+      expect(calls("POST").at(-1)?.body).toEqual({
+        project: KINASE.id,
+        inputs: { protein: ["00000000-0000-7000-8000-00000000e001"] },
+        params: { ph: 7.4 },
+        reason: "Weights",
+        reuse: false,
+      });
+    });
+
+    it("shows the seed its command was given", async () => {
+      onRun(
+        () => run(done),
+        () => [attempt({ state: "succeeded" })],
+      );
+      withLog(
+        () => "",
+        () => true,
+      );
+      await renderApp("/runs/RUN-000001/");
+      expect(await screen.findByText("Seed")).toBeVisible();
+      expect(screen.getByText("1234567")).toBeVisible();
+    });
   });
 
   describe("that an AI agent asked for, on a tier that needs approval", () => {

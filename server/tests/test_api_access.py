@@ -534,6 +534,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/runs", fixed("/runs"), row(200)),
     ("GET", "/runs/{ref}", run(), readers(200)),
     ("POST", "/runs/{ref}/cancel", run("/cancel", {}), editors(200)),
+    # A queued run has no results to compare with yet: those who may run it are told so.
+    ("POST", "/runs/{ref}/reproduce", run("/reproduce", {}), editors(409)),
     ("GET", "/runs/{ref}/effects", run("/effects"), readers(200)),
     ("GET", "/runs/{ref}/attempts", run("/attempts"), readers(200)),
     ("GET", "/batches", fixed("/batches"), row(200)),

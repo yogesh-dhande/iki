@@ -163,6 +163,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "run_batch",
         "get_batch",
         "cancel_run",
+        "reproduce_run",
     ]
     writes = {
         "create_entity",
@@ -171,6 +172,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "run_action",
         "run_batch",
         "cancel_run",
+        "reproduce_run",
     }
     for t in listed:
         assert t["annotations"]["readOnlyHint"] is (t["name"] not in writes), t["name"]

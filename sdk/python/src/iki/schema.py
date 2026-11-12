@@ -162,6 +162,13 @@ class BatchRefOut(TypedDict):
     id: str
 
 
+class BuildsOut(TypedDict):
+    #: The environment build the original ran in.
+    original: str
+    #: The one the reproduction ran in.
+    reproduced: str
+
+
 class CancelIn(TypedDict):
     #: Why, for the record.
     reason: NotRequired[str]
@@ -284,6 +291,15 @@ class DeliverySummary(TypedDict):
     message_id: str
     redelivered_by: PersonRef | None
     status: Literal['pending', 'succeeded', 'failed']
+
+
+class DifferenceOut(TypedDict):
+    #: Its value in the original run's output.
+    original: Any
+    #: Where in the output, as a JSON pointer.
+    pointer: str
+    #: Its value in the reproduction's.
+    reproduced: Any
 
 
 class EffectCountsOut(TypedDict):
@@ -1114,6 +1130,21 @@ class RegistrationOut(TypedDict):
     version: str
 
 
+class ReproduceIn(TypedDict):
+    #: Why, for the record.
+    reason: NotRequired[str]
+
+
+class ReproductionOut(TypedDict):
+    #: The first 20 places they differ.
+    differences: list[DifferenceOut]
+    environment_build: BuildsOut
+    #: Its results are the same as the original's, in the same environment build.
+    matches: bool
+    #: How many more places they differ.
+    more_differences: int
+
+
 class RevisionDetailOut(TypedDict):
     changed_fields: list[str]
     #: What this revision changed.
@@ -1221,6 +1252,8 @@ class RunBatchIn(TypedDict):
     project: str
     #: Why, for the record.
     reason: NotRequired[str]
+    #: For a deterministic action: for each run, reuse the results of an identical one that succeeded, which you can read, instead of running again (ADR 0057). Those end at once, with `reused_from`. Set false to run them all.
+    reuse: NotRequired[bool]
 
 
 class RunBatchOut(TypedDict):
@@ -1230,6 +1263,10 @@ class RunBatchOut(TypedDict):
 
 class RunCan(TypedDict):
     cancel: bool
+    #: You may reproduce it exactly: it ran (or reused a run that did) with code this deployment still has, and you may run its tier in its project.
+    reproduce: bool
+    #: It reused another run's results, and you may launch its action in its project: launching it with `reuse: false` runs it after all.
+    run_again: bool
 
 
 class RunFileOut(TypedDict):
@@ -1260,6 +1297,8 @@ class RunIn(TypedDict):
     project: str
     #: Why, for the record.
     reason: NotRequired[str]
+    #: For a deterministic action: reuse the results of an identical run that succeeded, which you can read, instead of running again (ADR 0057). The run ends at once, with `reused_from`. Set false to run it anyway.
+    reuse: NotRequired[bool]
 
 
 class RunInputOut(TypedDict):
@@ -1306,7 +1345,17 @@ class RunOut(TypedDict):
     plugin_version: str
     project: str
     reason: str
+    #: The run it reproduces exactly, if you can read it. It writes nothing.
+    reproduces: RunRefOut | None
+    #: Once a reproduction has its results: whether they match the original's.
+    reproduction: ReproductionOut | None
     requested_by: PersonRef
+    #: It reused an identical run's results, and ran nothing (ADR 0057).
+    reused: bool
+    #: The run whose results it reused, if you can read it.
+    reused_from: RunRefOut | None
+    #: The seed its command was given (`IKI_SEED`). None for runs from before seeds.
+    seed: int | None
     #: The plugin's settings, as the deployment set them when it was launched.
     settings: dict[str, Any]
     started_at: str | None
@@ -1688,4 +1737,4 @@ class WorkerRegistrationOut(TypedDict):
     workers: int
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']

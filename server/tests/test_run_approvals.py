@@ -159,7 +159,7 @@ def test_declining_ends_them_unstarted(world: World) -> None:
     body = request_of(api_as(world), run)
     assert body["status"] == "declined"
     assert body["finished_at"] is not None
-    assert body["can"] == {"cancel": False}
+    assert body["can"] == {"cancel": False, "reproduce": False, "run_again": False}
     assert Job.objects.get(run=run).state == JobState.CANCELLED
     event = AuditEvent.objects.get(action="run.declined")
     assert event.data == {"runs": [run.hrid], "note": "Not today"}

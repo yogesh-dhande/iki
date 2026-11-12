@@ -185,6 +185,7 @@ testpaths = [
   "codegen/tests",
   "sdk/python/tests",
   "deploy/helm/iki/tests",
+  "docs/tests",
 ]
 xfail_strict = true
 markers = [

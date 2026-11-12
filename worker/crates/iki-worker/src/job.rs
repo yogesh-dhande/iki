@@ -10,6 +10,7 @@
 //! - `IKI_OUTPUT`: where to write `output.json`
 //! - `IKI_OUT_DIR`: a directory for files it makes
 //! - `TMPDIR` and `HOME`: directories of the job's own, removed afterwards
+//! - `IKI_SEED`: a seed for its random numbers, given again when it's reproduced
 //!
 //! Lines it prints like `::progress 0.4 Folding chain A` report progress.
 
@@ -478,6 +479,10 @@ fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(Str
         // Output reaches the log as it's written, not when a buffer fills.
         ("PYTHONUNBUFFERED".into(), "1".into()),
     ]);
+    // For its random numbers: the same again when the run is reproduced (ADR 0057).
+    if let Some(seed) = input.run.seed {
+        env.push(("IKI_SEED".into(), seed.to_string()));
+    }
     // An action that declares hosts reaches them through the egress proxy, with this
     // attempt's credentials (ADR 0053). Plain-HTTP requests go there too, to be refused
     // with a reason rather than time out.

@@ -320,6 +320,37 @@ def test_a_command_gets_its_secrets_in_its_environment_and_never_shows_them(
     assert attempt["secrets"] == [SECRET_NAME]
 
 
+#: Draws a random number from its seed, and reports both.
+SEEDED = """
+import json, os, random
+seed = int(os.environ["IKI_SEED"])
+draw = random.Random(seed).random()
+metrics = {"seed": seed, "draw": draw}
+with open(os.environ["IKI_OUTPUT"], "w") as out:
+    json.dump({"apiVersion": "iki/v1", "kind": "RunOutput", "metrics": metrics}, out)
+"""
+
+
+def test_a_command_gets_its_seed_and_a_reproduction_gets_it_again(
+    world: World, start: Callable[..., Running], tmp_path: Path
+) -> None:
+    run = queued(world)
+    plugins = with_script(tmp_path, SEEDED)
+    code, said = start(registration(world), "--once", plugins=plugins).wait()
+    assert code == 0, said
+    body = api_as(world).get(f"/runs/{run['id']}").json()
+    assert body["status"] == "succeeded", body
+    assert body["metrics"]["seed"] == body["seed"]
+
+    again = api_as(world).post(f"/runs/{run['hrid']}/reproduce", {"reason": "Audit"})
+    assert again.status_code == 201, again.content
+    code, said = start(registration(world), "--once", plugins=plugins).wait()
+    assert code == 0, said
+    reproduced = api_as(world).get(f"/runs/{again.json()['id']}").json()
+    assert reproduced["status"] == "succeeded", reproduced
+    assert reproduced["reproduction"]["matches"] is True, reproduced["reproduction"]
+
+
 def test_a_cancel_stops_the_command_at_once(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:

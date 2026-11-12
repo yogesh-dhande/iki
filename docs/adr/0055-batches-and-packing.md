@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-11
-- Refines: [0042](0042-action-runs.md), [0043](0043-the-job-queue.md), [0044](0044-run-results.md)
+- Refines: [0042](0042-action-runs-and-jobs.md), [0043](0043-workers-lease-jobs.md), [0044](0044-run-results-are-written-all-or-nothing.md)
 
 ## Context
 

@@ -17,6 +17,12 @@
         "id": { "type": "string", "format": "uuid" },
         "hrid": { "type": "string", "pattern": "^RUN-[0-9]{6,}$" },
         "attempt": { "type": "integer", "minimum": 1 },
+        "seed": {
+          "description": "For the command's random numbers, also in `IKI_SEED`. A run reproduced exactly gets its seed again.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
         "action": {
           "type": "string",
           "description": "The qualified name, such as `protein.compute_properties`."

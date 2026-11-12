@@ -496,15 +496,20 @@ class Runs(_Part):
         inputs: Mapping[str, Any] | None = None,
         params: Mapping[str, Any] | None = None,
         reason: str = "",
+        reuse: bool = True,
     ) -> RunOut:
         """Queues a run. `inputs` name entities by ID, HRID or the entity itself:
-        ``{"protein": "PRT-000123"}``, or a list for inputs that take many."""
+        ``{"protein": "PRT-000123"}``, or a list for inputs that take many.
+
+        For a deterministic action, an identical run's results are reused when you can
+        read one: the run ends at once, with ``reused_from``. ``reuse=False`` runs it."""
         client = self._client
         body = {
             "project": client._project_id(project),
             "inputs": client._inputs(inputs),
             "params": dict(params or {}),
             "reason": reason,
+            "reuse": reuse,
         }
         return cast(
             "RunOut",
@@ -521,9 +526,11 @@ class Runs(_Part):
         inputs: Mapping[str, Any] | None = None,
         params: Mapping[str, Any] | None = None,
         reason: str = "",
+        reuse: bool = True,
     ) -> builtins.list[RunOut]:
         """Queues one run for each of `entities` as its `each` input, all or none:
-        if any can't run, none is queued, and the error says which."""
+        if any can't run, none is queued, and the error says which. Runs identical to
+        earlier ones reuse their results, as :meth:`start`'s do."""
         client = self._client
         body = {
             "project": client._project_id(project),
@@ -532,6 +539,7 @@ class Runs(_Part):
             "inputs": client._inputs(inputs),
             "params": dict(params or {}),
             "reason": reason,
+            "reuse": reuse,
         }
         batch = client.request("POST", _path("/actions/{n}/runs/batch", n=action), json=body)
         return cast("builtins.list[RunOut]", batch["runs"])
@@ -559,6 +567,17 @@ class Runs(_Part):
         return Results(
             lambda c: client.request("GET", "/runs", params={**params, "cursor": c}),
             frames.runs,
+        )
+
+    def reproduce(self, ref: str | Mapping[str, Any], *, reason: str = "") -> RunOut:
+        """Queues a run that does this one again exactly: the same plugin commit, params,
+        settings, seed, and inputs at the revisions it read. It writes nothing; once it
+        ends, its ``reproduction`` says whether its results match."""
+        return cast(
+            "RunOut",
+            self._client.request(
+                "POST", _path("/runs/{r}/reproduce", r=_ref(ref)), json={"reason": reason}
+            ),
         )
 
     def cancel(self, ref: str | Mapping[str, Any], *, reason: str = "") -> RunOut:

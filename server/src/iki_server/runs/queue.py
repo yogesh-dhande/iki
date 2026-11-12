@@ -240,7 +240,10 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         for each in runs:
             each.status = RunStatus.RUNNING
             each.started_at = each.started_at or now
-            each.save(update_fields=["status", "started_at"])
+            # A packed command gets one seed, its first run's: each run records the seed
+            # it was run with, so a reproduction gets it again (ADR 0057).
+            each.seed = run.seed
+            each.save(update_fields=["status", "started_at", "seed"])
             live.changed(each.pk, each.batch_id)
         return job, payload(job, run)
 
@@ -322,6 +325,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             "id": str(run.pk),
             "hrid": run.hrid,
             "attempt": job.attempt,
+            **({"seed": run.seed} if run.seed is not None else {}),
             "action": run.action,
             "plugin": {
                 "name": run.action.split(".")[0],
@@ -530,6 +534,13 @@ def _commit(job: Job, run: ActionRun, document: dict[str, Any]) -> ActionRun:
     RunOutput.objects.create(run=run, job=job, document=document)
     if run.cancel_requested_at is not None:
         return _end_attempt(job, JobState.CANCELLED, "cancelled", "Cancelled before it ended.")
+    if run.reproduces_id is not None:
+        # A reproduction writes nothing: it says whether its results are the same (ADR 0057).
+        from iki_server.runs import reuse
+
+        run.reproduction = reuse.compare(job, run, document)
+        run.save(update_fields=["reproduction"])
+        return finish(job, run, JobState.SUCCEEDED, RunStatus.SUCCEEDED, None)
     started: list[bool] = []
 
     def commit() -> None:

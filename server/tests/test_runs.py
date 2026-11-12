@@ -176,7 +176,7 @@ def test_launches_a_run_on_an_entity(world: World) -> None:
         {"name": "protein", "entity": abl["id"], "hrid": abl["hrid"], "revision": 1}
     ]
     assert run["attempts"] == 1
-    assert run["can"] == {"cancel": True}
+    assert run["can"] == {"cancel": True, "reproduce": False, "run_again": False}
 
     stored = ActionRun.objects.get(pk=run["id"])
     assert stored.spec["command"] == ["python", "./scripts/properties.py"]
@@ -418,7 +418,7 @@ def test_runs_are_read_by_whoever_reads_their_project(world: World) -> None:
     run = launch(api_as(world), world.project, {"protein": abl["id"]}).json()
     viewer = api_as(world, "viewer")
     seen = viewer.get(f"/runs/{run['id']}").json()
-    assert seen["can"] == {"cancel": False}
+    assert seen["can"] == {"cancel": False, "reproduce": False, "run_again": False}
     listed = viewer.get("/runs", project=str(world.project.pk)).json()
     assert [r["id"] for r in listed["items"]] == [run["id"]]
     assert viewer.get("/runs", status="succeeded").json()["items"] == []
@@ -448,7 +448,7 @@ def test_cancelling_a_queued_run(world: World) -> None:
     body = cancelled.json()
     assert body["status"] == "cancelled"
     assert body["finished_at"] is not None
-    assert body["can"] == {"cancel": False}
+    assert body["can"] == {"cancel": False, "reproduce": False, "run_again": False}
     assert Job.objects.get(run_id=run["id"]).state == JobState.CANCELLED
     event = AuditEvent.objects.get(action="run.cancelled")
     assert event.data == {"reason": "Wrong one"}
@@ -466,7 +466,7 @@ def test_cancelling_a_running_run_asks_its_worker(world: World) -> None:
     body = editor.post(f"/runs/{run['id']}/cancel", {}).json()
     assert body["status"] == "running"
     assert body["cancel_requested_at"] is not None
-    assert body["can"] == {"cancel": False}
+    assert body["can"] == {"cancel": False, "reproduce": False, "run_again": False}
     assert AuditEvent.objects.filter(action="run.cancel_requested").count() == 1
     # Asking again changes nothing.
     assert editor.post(f"/runs/{run['id']}/cancel", {}).status_code == 200

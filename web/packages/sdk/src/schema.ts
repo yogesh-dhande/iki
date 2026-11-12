@@ -1244,6 +1244,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{ref}/reproduce": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reproduce a run exactly
+         * @description Queue a run that reproduces this one exactly (ADR 0057): the same plugin commit,
+         *     action as launched, params, plugin settings, inputs at the revisions it read, and seed.
+         *     It writes nothing: when it ends, `reproduction` says whether its results are the same.
+         *     A run that reused another's results is reproduced as that one. Whoever may launch its
+         *     tier in its project may reproduce it; it's refused (409) when this deployment runs
+         *     other code for its plugin.
+         */
+        post: operations["iki_server_api_runs_reproduce_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/saved-searches": {
         parameters: {
             query?: never;
@@ -2070,6 +2095,19 @@ export interface components {
              */
             id: string;
         };
+        /** BuildsOut */
+        BuildsOut: {
+            /**
+             * Original
+             * @description The environment build the original ran in.
+             */
+            original: string;
+            /**
+             * Reproduced
+             * @description The one the reproduction ran in.
+             */
+            reproduced: string;
+        };
         /** CancelIn */
         CancelIn: {
             /**
@@ -2351,6 +2389,24 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "succeeded" | "failed";
+        };
+        /** DifferenceOut */
+        DifferenceOut: {
+            /**
+             * Original
+             * @description Its value in the original run's output.
+             */
+            original: unknown;
+            /**
+             * Pointer
+             * @description Where in the output, as a JSON pointer.
+             */
+            pointer: string;
+            /**
+             * Reproduced
+             * @description Its value in the reproduction's.
+             */
+            reproduced: unknown;
         };
         /** EffectCountsOut */
         EffectCountsOut: {
@@ -4022,6 +4078,34 @@ export interface components {
              */
             version: string;
         };
+        /** ReproduceIn */
+        ReproduceIn: {
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+        };
+        /** ReproductionOut */
+        ReproductionOut: {
+            /**
+             * Differences
+             * @description The first 20 places they differ.
+             */
+            differences: components["schemas"]["DifferenceOut"][];
+            environment_build: components["schemas"]["BuildsOut"];
+            /**
+             * Matches
+             * @description Its results are the same as the original's, in the same environment build.
+             */
+            matches: boolean;
+            /**
+             * More Differences
+             * @description How many more places they differ.
+             */
+            more_differences: number;
+        };
         /** RevisionDetailOut */
         RevisionDetailOut: {
             /** Changed Fields */
@@ -4270,6 +4354,12 @@ export interface components {
              * @default
              */
             reason: string;
+            /**
+             * Reuse
+             * @description For a deterministic action: for each run, reuse the results of an identical one that succeeded, which you can read, instead of running again (ADR 0057). Those end at once, with `reused_from`. Set false to run them all.
+             * @default true
+             */
+            reuse: boolean;
         };
         /** RunBatchOut */
         RunBatchOut: {
@@ -4281,6 +4371,16 @@ export interface components {
         RunCan: {
             /** Cancel */
             cancel: boolean;
+            /**
+             * Reproduce
+             * @description You may reproduce it exactly: it ran (or reused a run that did) with code this deployment still has, and you may run its tier in its project.
+             */
+            reproduce: boolean;
+            /**
+             * Run Again
+             * @description It reused another run's results, and you may launch its action in its project: launching it with `reuse: false` runs it after all.
+             */
+            run_again: boolean;
         };
         /** RunFileOut */
         RunFileOut: {
@@ -4346,6 +4446,12 @@ export interface components {
              * @default
              */
             reason: string;
+            /**
+             * Reuse
+             * @description For a deterministic action: reuse the results of an identical run that succeeded, which you can read, instead of running again (ADR 0057). The run ends at once, with `reused_from`. Set false to run it anyway.
+             * @default true
+             */
+            reuse: boolean;
         };
         /** RunInputOut */
         RunInputOut: {
@@ -4449,7 +4555,23 @@ export interface components {
             project: string;
             /** Reason */
             reason: string;
+            /** @description The run it reproduces exactly, if you can read it. It writes nothing. */
+            reproduces: components["schemas"]["RunRefOut"] | null;
+            /** @description Once a reproduction has its results: whether they match the original's. */
+            reproduction: components["schemas"]["ReproductionOut"] | null;
             requested_by: components["schemas"]["PersonRef"];
+            /**
+             * Reused
+             * @description It reused an identical run's results, and ran nothing (ADR 0057).
+             */
+            reused: boolean;
+            /** @description The run whose results it reused, if you can read it. */
+            reused_from: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Seed
+             * @description The seed its command was given (`IKI_SEED`). None for runs from before seeds.
+             */
+            seed: number | null;
             /**
              * Settings
              * @description The plugin's settings, as the deployment set them when it was launched.
@@ -7057,6 +7179,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_EffectOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_runs_reproduce_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReproduceIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"];
                 };
             };
         };

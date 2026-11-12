@@ -495,13 +495,14 @@ An action with no inputs (an import) gets `"inputs": {}`.
 The command runs from its plugin's directory, and finds its files through
 the environment ([ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md)):
 
-| Variable                        | What it is                          |
-| ------------------------------- | ----------------------------------- |
-| `IKI_INPUT`                     | `input.json`                        |
-| `IKI_OUTPUT`                    | where to write `output.json`        |
-| `IKI_OUT_DIR`                   | a directory for files it makes      |
-| `TMPDIR`, `HOME`                | the job's own, removed when it ends |
-| `IKI_RUN_ID`, `IKI_RUN_ATTEMPT` | the run, and which attempt this is  |
+| Variable                        | What it is                                   |
+| ------------------------------- | -------------------------------------------- |
+| `IKI_INPUT`                     | `input.json`                                 |
+| `IKI_OUTPUT`                    | where to write `output.json`                 |
+| `IKI_OUT_DIR`                   | a directory for files it makes               |
+| `TMPDIR`, `HOME`                | the job's own, removed when it ends          |
+| `IKI_RUN_ID`, `IKI_RUN_ATTEMPT` | the run, and which attempt this is           |
+| `IKI_SEED`                      | a seed for its random numbers (0 to 2³¹ − 1) |
 
 What it prints goes to the run's log. A line like
 `::progress 0.4 Folding chain A` reports progress (a fraction, or `40%`).
@@ -609,6 +610,28 @@ messages by their `entity` (one without goes to every run). Metrics go to
 every run. Each run's part is then checked and written on its own, so one
 entity's bad result fails only its run. To fail one entity and go on with
 the rest, report an `error` message about it.
+
+### Seeds, reuse and Reproduce exactly
+
+Every run gets a seed, as `IKI_SEED` and `run.seed` in `input.json`
+([ADR 0057](../docs/adr/0057-reuse-reproduce-exactly-and-seeds.md)). A
+command that uses random numbers should seed them from it: a run reproduced
+exactly gets the same seed again. A packed job's command gets its first
+run's.
+
+An action that's `deterministic: true` promises that its results depend only
+on its plugin's commit, its params, its plugin's settings and its inputs at
+the revisions it reads. Its runs can then be reused: launching one identical
+to a run that succeeded, which the launcher can read, ends at once with that
+run's results (`reused_from`), and runs nothing. Launch with `reuse: false`
+to run it anyway. Don't declare it for an action that fetches what may
+change, or whose results depend on the time or the machine.
+
+`POST /runs/{ref}/reproduce` runs any run again exactly: the same commit,
+params, settings, seed and input revisions. It writes nothing: its
+`reproduction` says whether its results (creates, updates, the creates file
+and metrics; files by their content) and environment build match the
+original's, and where they differ.
 
 ## YAML
 

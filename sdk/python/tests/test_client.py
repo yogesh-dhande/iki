@@ -315,7 +315,21 @@ def test_runs_take_inputs_by_hrid_id_or_entity(fake: FakeIki, client: Client) ->
         },
         "params": {"ph": 7.4},
         "reason": "Weights",
+        "reuse": True,
     }
+
+
+def test_runs_can_run_again_rather_than_reuse_and_be_reproduced(
+    fake: FakeIki, client: Client
+) -> None:
+    fake.on("POST", "/api/v1/actions/protein.import_proteins/runs", run())
+    client.runs.start("protein.import_proteins", project=PROJECT, reuse=False)
+    sent = fake.body("POST", "/api/v1/actions/protein.import_proteins/runs")
+    assert sent["reuse"] is False
+    fake.on("POST", "/api/v1/runs/RUN-000001/reproduce", run("RUN-000002"))
+    again = client.runs.reproduce(run(), reason="Audit")
+    assert again["hrid"] == "RUN-000002"
+    assert fake.body("POST", "/api/v1/runs/RUN-000001/reproduce") == {"reason": "Audit"}
 
 
 def test_a_batch_runs_one_for_each(fake: FakeIki, client: Client) -> None:

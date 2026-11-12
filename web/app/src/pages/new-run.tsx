@@ -306,7 +306,12 @@ function RunForm({
       inputs: Record<string, string | string[]>;
       params: Record<string, unknown>;
     }) => {
-      const common = { project: project.id, params: body.params, reason: reason.trim() };
+      const common = {
+        project: project.id,
+        params: body.params,
+        reason: reason.trim(),
+        reuse: true,
+      };
       if (batch) {
         const made = unwrap(
           await iki.POST("/api/v1/actions/{name}/runs/batch", {
@@ -380,14 +385,22 @@ function RunForm({
         onSuccess: ({ runs, batch: made }) => {
           const first = runs[0];
           if (made) {
+            const reused = runs.filter((r) => r.reused).length;
             void navigate({ to: "/batches/$ref/", params: { ref: made.hrid } }).then(() => {
               say(
-                `Started ${String(runs.length)} runs of ${action.label || action.name}, as ${made.hrid}.`,
+                `Started ${String(runs.length)} runs of ${action.label || action.name}, as ${made.hrid}` +
+                  (reused
+                    ? `. ${String(reused)} reused the results of identical runs, so ran nothing.`
+                    : "."),
               );
             });
           } else if (first) {
             void navigate({ to: "/runs/$ref/", params: { ref: first.hrid } }).then(() => {
-              say(`Started ${first.hrid}.`);
+              say(
+                first.reused
+                  ? `${first.hrid} reused the results of ${first.reused_from?.hrid ?? "an identical run"}.`
+                  : `Started ${first.hrid}.`,
+              );
             });
           }
         },

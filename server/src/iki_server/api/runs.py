@@ -18,11 +18,11 @@ from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
-from iki_server.api.entities import FieldOut, field_out
+from iki_server.api.entities import FieldOut, RunRefOut, field_out
 from iki_server.api.pagination import PageParams, cursor_after, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
-from iki_server.entities import access, schema
+from iki_server.entities import access, registry, schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.runs import approvals, catalog, input_files, quotas, secrets, services
@@ -224,6 +224,12 @@ class RunIn(Schema):
     )
     params: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field("", max_length=2000, description="Why, for the record.")
+    reuse: bool = Field(
+        True,
+        description="For a deterministic action: reuse the results of an identical run that "
+        "succeeded, which you can read, instead of running again (ADR 0057). The run ends at "
+        "once, with `reused_from`. Set false to run it anyway.",
+    )
 
 
 class CancelIn(Schema):
@@ -282,6 +288,38 @@ class MessageOut(Schema):
 
 class RunCan(Schema):
     cancel: bool
+    reproduce: bool = Field(
+        description="You may reproduce it exactly: it ran (or reused a run that did) with "
+        "code this deployment still has, and you may run its tier in its project."
+    )
+    run_again: bool = Field(
+        description="It reused another run's results, and you may launch its action in its "
+        "project: launching it with `reuse: false` runs it after all."
+    )
+
+
+class DifferenceOut(Schema):
+    pointer: str = Field(description="Where in the output, as a JSON pointer.")
+    original: Any = Field(description="Its value in the original run's output.")
+    reproduced: Any = Field(description="Its value in the reproduction's.")
+
+
+class BuildsOut(Schema):
+    original: str = Field(description="The environment build the original ran in.")
+    reproduced: str = Field(description="The one the reproduction ran in.")
+
+
+class ReproductionOut(Schema):
+    matches: bool = Field(
+        description="Its results are the same as the original's, in the same environment build."
+    )
+    differences: list[DifferenceOut] = Field(description="The first 20 places they differ.")
+    more_differences: int = Field(description="How many more places they differ.")
+    environment_build: BuildsOut
+
+
+class ReproduceIn(Schema):
+    reason: str = Field("", max_length=2000, description="Why, for the record.")
 
 
 class ApprovalRunOut(Schema):
@@ -377,6 +415,21 @@ class RunOut(Schema):
     waiting: str | None = Field(
         description="Why a queued run hasn't started, when a quota is holding it."
     )
+    seed: int | None = Field(
+        description="The seed its command was given (`IKI_SEED`). None for runs from before seeds."
+    )
+    reused: bool = Field(
+        description="It reused an identical run's results, and ran nothing (ADR 0057)."
+    )
+    reused_from: RunRefOut | None = Field(
+        description="The run whose results it reused, if you can read it."
+    )
+    reproduces: RunRefOut | None = Field(
+        description="The run it reproduces exactly, if you can read it. It writes nothing."
+    )
+    reproduction: ReproductionOut | None = Field(
+        description="Once a reproduction has its results: whether they match the original's."
+    )
     can: RunCan
 
 
@@ -459,7 +512,23 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
                 continue
             listed.append({**_effect_out(effect), "id": effect.pk})
     counts = _effect_counts(runs)
-    outputs = {o.run_id: o.document for o in RunOutput.objects.filter(run__in=runs)}
+    # A run that reused another's results shows that run's metrics and messages.
+    sources = {r.pk: r.reused_from_id or r.pk for r in runs}
+    documents = {
+        o.run_id: o.document for o in RunOutput.objects.filter(run__in=set(sources.values()))
+    }
+    outputs = {pk: documents[source] for pk, source in sources.items() if source in documents}
+    linked = {pk for r in runs for pk in (r.reused_from_id, r.reproduces_id) if pk is not None}
+    refs: dict[Any, ActionRun] = {
+        r.pk: r
+        for r in services.visible_runs(me).filter(pk__in=linked).select_related("project__team")
+    }
+    shas = {r.action.split(".")[0] for r in runs}
+    here = {
+        plugin: (services.plugin_sha(plugin), registry.plugins()[plugin].version)
+        for plugin in shas
+        if plugin in registry.plugins()
+    }
     named = {run.pk: input_files.of_params(run) for run in runs}
     readable = {
         f.pk: f
@@ -479,9 +548,10 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             pk__in={r.batch_id for r in runs if r.batch_id is not None}
         ).values("id", "hrid")
     }
+    projects.update({r.project_id: r.project for r in refs.values()})
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
-        for pid, tier in {(r.project_id, r.tier) for r in runs}
+        for pid, tier in {(r.project_id, r.tier) for r in [*runs, *refs.values()]}
     }
     return [
         {
@@ -509,14 +579,55 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "waiting": (
                 holds[run.tier].why(run.project) if run.status == RunStatus.QUEUED else None
             ),
+            "seed": run.seed,
+            "reused": run.reused_from_id is not None,
+            "reused_from": _ref_out(refs.get(run.reused_from_id)),
+            "reproduces": _ref_out(refs.get(run.reproduces_id)),
+            "reproduction": run.reproduction,
             "can": {
                 "cancel": not run.finished
                 and run.cancel_requested_at is None
-                and may_cancel[(run.project_id, run.tier)]
+                and may_cancel[(run.project_id, run.tier)],
+                "reproduce": _may_reproduce(run, refs, here, may_cancel),
+                "run_again": run.reused_from_id is not None
+                and catalog.action(run.action) is not None
+                and may_cancel[(run.project_id, run.tier)],
             },
         }
         for run in runs
     ]
+
+
+def _ref_out(run: ActionRun | None) -> dict[str, Any] | None:
+    return {"id": run.pk, "hrid": run.hrid, "action": run.action} if run is not None else None
+
+
+def _may_reproduce(
+    run: ActionRun,
+    refs: dict[Any, ActionRun],
+    here: dict[str, tuple[str, str]],
+    may_run: dict[tuple[Any, str], bool],
+) -> bool:
+    """Whether reproducing the run would be taken: what it reproduces (a run that reused or
+    reproduced another stands for it) ended with an output, at code this deployment has."""
+    linked = run.reused_from_id or run.reproduces_id
+    original = refs.get(linked) if linked else run
+    if original is None or not _has_output(original):
+        return False
+    if here.get(original.action.split(".")[0]) != (original.plugin_sha, original.plugin_version):
+        return False
+    return may_run.get((original.project_id, original.tier), False)
+
+
+def _has_output(run: ActionRun) -> bool:
+    """It ended with results: it succeeded, or they didn't fit."""
+    if run.status == RunStatus.SUCCEEDED:
+        return run.reused_from_id is None
+    code = (run.error or {}).get("code")
+    return run.status in (RunStatus.FAILED, RunStatus.REJECTED) and code in (
+        "invalid_output",
+        "schema_changed",
+    )
 
 
 _RUN_FIELDS = (
@@ -574,7 +685,15 @@ def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpRe
     target = project(me, payload.project, services.TIER_PERMISSIONS[action.tier])
     inputs = {k: v if isinstance(v, list) else [v] for k, v in payload.inputs.items()}
     try:
-        run = services.launch(me, action, target, inputs, payload.params, reason=payload.reason)
+        run = services.launch(
+            me,
+            action,
+            target,
+            inputs,
+            payload.params,
+            reason=payload.reason,
+            reuse_results=payload.reuse,
+        )
     except Invalid as error:
         raise _invalid(error) from None
     response["Location"] = f"/api/v1/runs/{run.pk}"
@@ -598,6 +717,12 @@ class RunBatchIn(Schema):
     )
     params: dict[str, Any] = Field(default_factory=dict, description="Every run's params.")
     reason: str = Field("", max_length=2000, description="Why, for the record.")
+    reuse: bool = Field(
+        True,
+        description="For a deterministic action: for each run, reuse the results of an "
+        "identical one that succeeded, which you can read, instead of running again (ADR "
+        "0057). Those end at once, with `reused_from`. Set false to run them all.",
+    )
 
 
 class BatchCan(Schema):
@@ -685,6 +810,7 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
             inputs,
             payload.params,
             reason=payload.reason,
+            reuse_results=payload.reuse,
         )
     except Invalid as error:
         raise _invalid(error) from None
@@ -797,6 +923,26 @@ def cancel_run(request: HttpRequest, ref: str, payload: CancelIn) -> dict[str, A
     except PermissionDenied:
         raise Problem(403) from None
     return _runs_out(me, [_find(me, ref)])[0]
+
+
+@router.post("/runs/{ref}/reproduce", response={201: RunOut}, summary="Reproduce a run exactly")
+def reproduce_run(
+    request: HttpRequest, ref: str, payload: ReproduceIn, response: HttpResponse
+) -> Any:  # noqa: ANN401
+    """Queue a run that reproduces this one exactly (ADR 0057): the same plugin commit,
+    action as launched, params, plugin settings, inputs at the revisions it read, and seed.
+    It writes nothing: when it ends, `reproduction` says whether its results are the same.
+    A run that reused another's results is reproduced as that one. Whoever may launch its
+    tier in its project may reproduce it; it's refused (409) when this deployment runs
+    other code for its plugin."""
+    me = caller(request)
+    run = _find(me, ref)
+    try:
+        made = services.reproduce(me, run, reason=payload.reason)
+    except PermissionDenied:
+        raise Problem(403) from None
+    response["Location"] = f"/api/v1/runs/{made.pk}"
+    return Status(201, _runs_out(me, [_find(me, str(made.pk))])[0])
 
 
 # --- Approvals -----------------------------------------------------------------------------------

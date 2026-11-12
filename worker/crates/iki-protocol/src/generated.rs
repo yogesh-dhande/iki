@@ -74,6 +74,9 @@ pub struct RunInputRun {
     pub id: String,
     pub hrid: String,
     pub attempt: i64,
+    /// For the command's random numbers, also in `IKI_SEED`. A run reproduced exactly gets its seed again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
     /// The qualified name, such as `protein.compute_properties`.
     pub action: String,
     pub plugin: RunInputRunPlugin,

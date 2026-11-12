@@ -11,6 +11,7 @@ locally and fail in CI.
 import itertools
 import os
 import re
+import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -177,6 +178,27 @@ def open_as(browser: Browser, server: Server, world: World) -> Iterator[Any]:
     yield open_as
     for context in contexts:
         context.close()
+    quiet()
+
+
+def quiet(timeout: float = 10) -> None:
+    """Waits for the server to finish what the pages asked of it. Closing a page doesn't
+    stop its requests on the server, and one still in a transaction when the test's
+    database is flushed deadlocks with it."""
+    from django.db import connection
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+                " AND pid <> pg_backend_pid() AND backend_type = 'client backend'"
+                " AND state <> 'idle'"
+            )
+            (busy,) = cursor.fetchone()
+        if not busy:
+            return
+        time.sleep(0.05)
 
 
 def assert_clean(page: Page) -> None:
