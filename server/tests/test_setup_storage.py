@@ -4,6 +4,7 @@ from io import StringIO
 from typing import Any
 
 import pytest
+from conftest import S3_BUCKET
 from django.core.management import CommandError, call_command
 
 from iki_server.files.management.commands import setup_storage
@@ -14,7 +15,7 @@ def bucket(s3: Any, settings: Any) -> Any:
     settings.IKI_PUBLIC_URL = "https://iki.example.com"
     settings.IKI_WEB_DEV_SERVER = False
     for clear in (s3.delete_bucket_cors, s3.delete_bucket_lifecycle):
-        clear(Bucket="iki")
+        clear(Bucket=S3_BUCKET)
     return s3
 
 
@@ -25,38 +26,38 @@ def run(*args: str) -> tuple[str, str]:
 
 
 def test_it_sets_browser_uploads_and_cleanup_rules_and_keeps_others(bucket: Any) -> None:
-    bucket.put_bucket_versioning(Bucket="iki", VersioningConfiguration={"Status": "Enabled"})
+    bucket.put_bucket_versioning(Bucket=S3_BUCKET, VersioningConfiguration={"Status": "Enabled"})
     theirs = {
         "ID": "analytics",
         "AllowedOrigins": ["https://bi.example.com"],
         "AllowedMethods": ["GET"],
     }
-    bucket.put_bucket_cors(Bucket="iki", CORSConfiguration={"CORSRules": [theirs]})
+    bucket.put_bucket_cors(Bucket=S3_BUCKET, CORSConfiguration={"CORSRules": [theirs]})
     with pytest.raises(CommandError, match="missing: CORS for browser uploads; lifecycle rules"):
         run("--check")
     out, _ = run()
     assert "CORS for browser uploads, lifecycle rules for abandoned uploads" in out
-    rules = {r.get("ID"): r for r in bucket.get_bucket_cors(Bucket="iki")["CORSRules"]}
+    rules = {r.get("ID"): r for r in bucket.get_bucket_cors(Bucket=S3_BUCKET)["CORSRules"]}
     assert set(rules) == {"analytics", "iki-browser-uploads"}
     assert rules["iki-browser-uploads"]["AllowedOrigins"] == ["https://iki.example.com"]
     assert rules["iki-browser-uploads"]["AllowedMethods"] == ["PUT"]
-    (rule,) = bucket.get_bucket_lifecycle_configuration(Bucket="iki")["Rules"]
+    (rule,) = bucket.get_bucket_lifecycle_configuration(Bucket=S3_BUCKET)["Rules"]
     assert rule["Filter"]["Prefix"].endswith("/uploads/")
     assert rule["AbortIncompleteMultipartUpload"] == {"DaysAfterInitiation": 2}
-    assert run("--check")[0].startswith("Bucket iki is ready")
-    assert run()[0].startswith("Bucket iki is ready")
+    assert run("--check")[0].startswith(f"Bucket {S3_BUCKET} is ready")
+    assert run()[0].startswith(f"Bucket {S3_BUCKET} is ready")
 
 
 def test_versioning_is_reported_not_changed(bucket: Any) -> None:
-    bucket.put_bucket_versioning(Bucket="iki", VersioningConfiguration={"Status": "Suspended"})
+    bucket.put_bucket_versioning(Bucket=S3_BUCKET, VersioningConfiguration={"Status": "Suspended"})
     _, err = run()
     assert "doesn't keep versions" in err
-    assert bucket.get_bucket_versioning(Bucket="iki")["Status"] == "Suspended"
+    assert bucket.get_bucket_versioning(Bucket=S3_BUCKET)["Status"] == "Suspended"
     with pytest.raises(CommandError, match="versioning"):
         run("--check")
     out, err = run("--enable-versioning")
     assert "Turned on versioning" in out and not err
-    assert bucket.get_bucket_versioning(Bucket="iki")["Status"] == "Enabled"
+    assert bucket.get_bucket_versioning(Bucket=S3_BUCKET)["Status"] == "Enabled"
 
 
 def test_the_web_app_dev_server_may_upload_too(settings: Any) -> None:

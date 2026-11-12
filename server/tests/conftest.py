@@ -1,6 +1,7 @@
 import os
 import socket
 from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager, suppress
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -28,6 +29,8 @@ SEAWEEDFS_IMAGE = (
     "@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59"
 )
 S3_ACCESS_KEY = "ikitestaccesskey0001"
+#: Each parallel worker's bucket of its own: servers under test set its CORS rule.
+S3_BUCKET = f"iki-{os.environ.get('PYTEST_XDIST_WORKER', 'main')}"
 S3_SECRET_KEY = "ikitest-only-secret-key-not-used-anywhere"
 
 SPAN_EXPORTER = InMemorySpanExporter()
@@ -76,6 +79,19 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip)
 
 
+#: The servers the controller started for its workers, stopped when the run ends.
+_SHARED = ExitStack()
+
+
+def _runs_workers(config: pytest.Config) -> bool:
+    """Whether this is pytest-xdist's controller, about to start workers (``-n``)."""
+    return (
+        "PYTEST_XDIST_WORKER" not in os.environ
+        and bool(getattr(config.option, "numprocesses", None))
+        and getattr(config.option, "dist", "no") != "no"
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
     from django.conf import settings
 
@@ -84,35 +100,81 @@ def pytest_configure(config: pytest.Config) -> None:
         environment=settings.IKI_ENVIRONMENT,
         span_processor=SimpleSpanProcessor(SPAN_EXPORTER),
     )
+    from django.db.models.signals import post_migrate
+
+    post_migrate.connect(_seed_after_flush, dispatch_uid="iki-tests-seed-after-flush")
+    if _runs_workers(config):
+        # Workers share one Postgres and one object store, each test database and key
+        # prefix its own, rather than start a server each. They inherit these.
+        if "IKI_TEST_DATABASE_URL" not in os.environ:
+            os.environ["IKI_TEST_DATABASE_URL"] = _SHARED.enter_context(_postgres_server())
+        if "IKI_TEST_S3_URL" not in os.environ:
+            os.environ["IKI_TEST_S3_URL"] = _SHARED.enter_context(_seaweedfs_server())
 
 
-#: Postgres's settings for the tests' own server (CI starts one with the same).
-POSTGRES_SETTINGS = "-c shared_buffers=512MB -c max_wal_size=4GB -c work_mem=64MB"
+#: Data migrations that make rows every deployment has: the first-party OAuth clients.
+SEEDING_MIGRATIONS = (
+    "iki_server.oauth.migrations.0002_iki_cli",
+    "iki_server.oauth.migrations.0003_iki_worker",
+)
 
 
-@pytest.fixture(scope="session")
-def _postgres_url() -> Iterator[str]:
-    """A Postgres server for the test run.
-
-    CI provides one through ``IKI_TEST_DATABASE_URL``. Locally, a throwaway
-    container is started with Docker and removed at the end of the session.
-    """
-    url = os.environ.get("IKI_TEST_DATABASE_URL")
-    if url:
-        yield url
+def _seed_after_flush(sender: Any, app_config: Any, **kwargs: Any) -> None:
+    """Recreates the rows data migrations made, once a transactional test's flush has
+    emptied every table: flush sends post_migrate after it. Run one at a time,
+    pytest-django puts those tests last. In parallel, a file's tests run together, so
+    other files' tests follow them on the same worker."""
+    if app_config.label != "iki_oauth":
         return
+    import importlib
+
+    from django.apps import apps
+
+    for name in SEEDING_MIGRATIONS:
+        importlib.import_module(name).create(apps, None)
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    _SHARED.close()
+
+
+#: Postgres's settings for the tests' own server. Sized as a deployment's database is, not
+#: Postgres's defaults: the load tests write gigabytes (make check-scale). Each parallel
+#: worker has a database of its own, and its servers and runners connect to it too.
+POSTGRES_SETTINGS = (
+    "-c shared_buffers=512MB -c max_wal_size=4GB -c work_mem=64MB -c max_connections=500"
+)
+
+
+@contextmanager
+def _postgres_server() -> Iterator[str]:
+    """A throwaway Postgres container, removed afterwards."""
     from testcontainers.community.postgres import PostgresContainer
 
     container = PostgresContainer(POSTGRES_IMAGE, username="iki", password="iki", dbname="iki")
-    # Sized as a deployment's database is, not Postgres's defaults: the load tests write
-    # gigabytes (make check-scale).
     container.with_command(POSTGRES_SETTINGS)
     with container as pg:
         yield pg.get_connection_url(driver=None)
 
 
 @pytest.fixture(scope="session")
-def django_db_modify_db_settings(_postgres_url: str) -> None:
+def _postgres_url() -> Iterator[str]:
+    """A Postgres server for the test run.
+
+    CI provides one through ``IKI_TEST_DATABASE_URL``, and so does the controller of a
+    parallel run (``-n``) for its workers. Otherwise a throwaway container is started
+    with Docker and removed at the end of the session.
+    """
+    url = os.environ.get("IKI_TEST_DATABASE_URL")
+    if url:
+        yield url
+        return
+    with _postgres_server() as url:
+        yield url
+
+
+@pytest.fixture(scope="session")
+def django_db_modify_db_settings(_postgres_url: str, request: pytest.FixtureRequest) -> None:
     from django.conf import settings
 
     parts = urlsplit(_postgres_url)
@@ -124,6 +186,9 @@ def django_db_modify_db_settings(_postgres_url: str) -> None:
         PASSWORD=parts.password,
         NAME=parts.path.lstrip("/"),
     )
+    # Then each parallel worker's test database is named after it (test_iki_gw0, ...),
+    # as pytest-django's own fixture, which this replaces, would.
+    request.getfixturevalue("django_db_modify_db_settings_parallel_suffix")
 
 
 def allow_test_flush() -> None:
@@ -226,12 +291,37 @@ def saml_idp(settings: Any) -> Iterator["FakeSamlIdP"]:
 def _s3_endpoint() -> Iterator[str]:
     """An S3-compatible store for the test run: a throwaway SeaweedFS, started on first use.
 
-    ``IKI_TEST_S3_URL`` names one instead, which must accept the test keys above.
+    ``IKI_TEST_S3_URL`` names one instead, which must accept the test keys above. The
+    controller of a parallel run (``-n``) starts one for its workers.
     """
     url = os.environ.get("IKI_TEST_S3_URL")
     if url:
         yield url
         return
+    with _seaweedfs_server() as url:
+        yield url
+
+
+@pytest.fixture(scope="session")
+def _s3_bucket(_s3_endpoint: str) -> str:
+    """The worker's bucket in the test store (S3_BUCKET), made if it isn't there."""
+    import boto3
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=_s3_endpoint,
+        region_name="us-east-1",
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
+    )
+    with suppress(s3.exceptions.BucketAlreadyOwnedByYou, s3.exceptions.BucketAlreadyExists):
+        s3.create_bucket(Bucket=S3_BUCKET)
+    return S3_BUCKET
+
+
+@contextmanager
+def _seaweedfs_server() -> Iterator[str]:
+    """A throwaway SeaweedFS container, removed afterwards."""
     import time
     import urllib.request
 
@@ -280,7 +370,9 @@ def _s3_endpoint() -> Iterator[str]:
 
 
 @pytest.fixture
-def s3(_s3_endpoint: str, settings: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+def s3(
+    _s3_endpoint: str, _s3_bucket: str, settings: Any, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Any]:
     """File storage, configured: Iki's settings point at the test store, under a prefix of
     the test's own. Yields a client for looking at what's stored."""
     import uuid
@@ -289,7 +381,7 @@ def s3(_s3_endpoint: str, settings: Any, monkeypatch: pytest.MonkeyPatch) -> Ite
 
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY)
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY)
-    settings.IKI_FILES_BUCKET = "iki"
+    settings.IKI_FILES_BUCKET = _s3_bucket
     settings.IKI_FILES_PREFIX = f"test-{uuid.uuid4().hex}"
     settings.IKI_FILES_ENDPOINT_URL = _s3_endpoint
     settings.IKI_FILES_PUBLIC_ENDPOINT_URL = _s3_endpoint

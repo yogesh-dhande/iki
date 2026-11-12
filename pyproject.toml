@@ -54,6 +54,7 @@ dev = [
   "biopython==1.88",
   # Its structure actions read mmCIF and PDB files with it, pinned likewise.
   "gemmi==0.7.5",
+  "pytest-xdist>=3.8.0",
 ]
 
 [tool.ruff]

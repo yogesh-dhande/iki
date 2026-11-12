@@ -271,7 +271,8 @@ def test_enqueueing_wakes_idle_runners_at_once(monkeypatch: pytest.MonkeyPatch) 
             while time.monotonic() < deadline:
                 row = probe.execute(
                     "SELECT count(*) FROM pg_stat_activity "
-                    "WHERE application_name = 'iki-server-listen' AND query LIKE 'LISTEN%%'"
+                    "WHERE datname = current_database() "
+                    "AND application_name = 'iki-server-listen' AND query LIKE 'LISTEN%%'"
                 ).fetchone()
                 if row and row[0] >= 1:
                     break

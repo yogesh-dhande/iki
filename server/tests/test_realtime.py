@@ -229,7 +229,8 @@ async def test_streams_resync_after_the_hub_loses_its_connection(world: World) -
             with connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                    "WHERE application_name = 'iki-server-realtime'"
+                    "WHERE datname = current_database() "
+                    "AND application_name = 'iki-server-realtime'"
                 )
 
         await sync_to_async(drop_listener)()

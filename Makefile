@@ -46,12 +46,15 @@ check-chart: ## Helm lint (strict) with the minimum required values
 	  --set database.migrator.existingSecret=m
 	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml
 
+#: Tests run in parallel: workers take a file's tests in runs, and idle ones take over the rest.
+PYTEST_PARALLEL ?= -n auto --dist worksteal
+
 .PHONY: check-python
 check-python: ## Ruff, mypy (strict) and pytest
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
-	uv run pytest
+	uv run pytest $(PYTEST_PARALLEL)
 
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations

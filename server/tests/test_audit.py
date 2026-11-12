@@ -1,5 +1,6 @@
 """The audit log: what is recorded, that it can't be changed, and the app's database role."""
 
+import os
 from collections.abc import Callable, Iterator
 from io import StringIO
 
@@ -21,7 +22,8 @@ pytestmark = pytest.mark.django_db
 
 ADMIN = {"sub": "admin-1", "email": "ada@example.com", "name": "Ada Lovelace"}
 SCIENTIST = {"sub": "sci-1", "email": "rosalind@example.com", "name": "Rosalind Franklin"}
-APP_ROLE = "iki_test_app"
+#: Roles are the server's, not a database's: each parallel worker creates its own.
+APP_ROLE = f"iki_test_app_{os.environ.get('PYTEST_XDIST_WORKER', 'main')}"
 
 
 def actions() -> list[str]:

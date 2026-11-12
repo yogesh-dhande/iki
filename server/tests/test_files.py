@@ -77,7 +77,9 @@ def add(api: Api, world: World, data: bytes, **kw: Any) -> dict[str, Any]:
 def keys(s3: Any) -> list[str]:
     from django.conf import settings
 
-    listed = s3.list_objects_v2(Bucket="iki", Prefix=settings.IKI_FILES_PREFIX + "/")
+    listed = s3.list_objects_v2(
+        Bucket=settings.IKI_FILES_BUCKET, Prefix=settings.IKI_FILES_PREFIX + "/"
+    )
     return sorted(
         o["Key"].removeprefix(settings.IKI_FILES_PREFIX + "/") for o in listed.get("Contents", [])
     )

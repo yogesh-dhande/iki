@@ -151,9 +151,11 @@ def signer_for(bucket_name: str, *, workers: bool = False) -> S3Client:
 
 
 def reset() -> None:
-    """Forgets the clients, after settings change (tests)."""
+    """Forgets the clients, after settings or credentials change (tests)."""
     for cached in (client, _signer, region_of, _regional, upload_origin):
         cached.cache_clear()
+    # boto3's default session keeps the credentials it found first.
+    boto3.DEFAULT_SESSION = None
 
 
 # --- Uploads -------------------------------------------------------------------------------------

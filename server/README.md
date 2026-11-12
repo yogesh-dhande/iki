@@ -469,6 +469,16 @@ included, can update or delete events.
 `uv run pytest` starts a throwaway Postgres container (Docker required), unless
 `IKI_TEST_DATABASE_URL` points at an existing server, as it does in CI.
 
+`make check` and CI run the tests in parallel (`-n auto --dist worksteal`): a
+worker for each CPU, each taking a run of a file's tests, and idle workers take
+over what's left. The workers share one Postgres and one object store, which
+the first process starts. Each worker has a test database and a bucket of its
+own (`S3_BUCKET`), and each test its own object keys. So a test must not
+change what the whole Postgres server shares: name a role after the worker
+(`PYTEST_XDIST_WORKER`), and filter `pg_stat_activity` by
+`datname = current_database()`. Nor may a test rely on another running before
+it. `make check-python PYTEST_PARALLEL=` runs them one at a time.
+
 The browser tests (`tests/test_browser.py`) run Chromium, Firefox and WebKit
 against the real server, with axe and the production CSP. They need the built
 web app (`make web`) and the browsers (`uv run playwright install`). Without

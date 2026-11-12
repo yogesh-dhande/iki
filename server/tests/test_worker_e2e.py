@@ -80,6 +80,7 @@ def server(
     django_db_blocker: Any,
     tmp_path_factory: pytest.TempPathFactory,
     _s3_endpoint: str,
+    _s3_bucket: str,
 ) -> Iterator[Server]:
     """The server, with file storage, and a task runner beside it (it checks uploads)."""
     with django_db_blocker.unblock(), app_role() as role:
@@ -94,7 +95,7 @@ def server(
             PYTHONPATH=plugins,
             IKI_COMPUTE_FILE=os.environ["IKI_COMPUTE_FILE"],
             IKI_RUN_SECRETS_DIR=str(secrets),
-            IKI_FILES_BUCKET="iki",
+            IKI_FILES_BUCKET=_s3_bucket,
             IKI_FILES_PREFIX=PREFIX,
             IKI_FILES_ENDPOINT_URL=_s3_endpoint,
             AWS_ACCESS_KEY_ID=S3_ACCESS_KEY,
@@ -110,14 +111,18 @@ def server(
 
 @pytest.fixture
 def world(
-    server: Server, _s3_endpoint: str, settings: Any, monkeypatch: pytest.MonkeyPatch
+    server: Server,
+    _s3_endpoint: str,
+    _s3_bucket: str,
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[World]:
     from iki_server.files import storage
 
     # The test adds files as the server would, to the same store.
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", S3_ACCESS_KEY)
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", S3_SECRET_KEY)
-    settings.IKI_FILES_BUCKET = "iki"
+    settings.IKI_FILES_BUCKET = _s3_bucket
     settings.IKI_FILES_PREFIX = PREFIX
     settings.IKI_FILES_ENDPOINT_URL = _s3_endpoint
     settings.IKI_FILES_PUBLIC_ENDPOINT_URL = _s3_endpoint

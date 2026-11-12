@@ -164,7 +164,7 @@ jobs:
       - name: pytest (includes Helm chart policy tests)
         env:
           MARKERS: ${{ matrix.markers }}
-        run: uv run --no-sync pytest --cov --cov-report=term-missing -m "$MARKERS"
+        run: uv run --no-sync pytest -n auto --dist worksteal --cov --cov-report=term-missing -m "$MARKERS"
 
   web:
     name: TypeScript

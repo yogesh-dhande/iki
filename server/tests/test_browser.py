@@ -119,6 +119,7 @@ def server(
     django_db_blocker: Any,
     tmp_path_factory: pytest.TempPathFactory,
     _s3_endpoint: str,
+    _s3_bucket: str,
 ) -> Iterator[Server]:
     _require(frontend._manifest_path() is not None, "Build the web app first: make web")
     _require(AXE.is_file(), "Install the web dependencies first: pnpm install")
@@ -134,7 +135,7 @@ def server(
             IKI_SECRET_KEY=settings.SECRET_KEY,
             PYTHONPATH=plugins,
             # Browsers upload straight to this store, as they would to S3.
-            IKI_FILES_BUCKET="iki",
+            IKI_FILES_BUCKET=_s3_bucket,
             IKI_FILES_PREFIX=f"browser-{uuid.uuid4().hex}",
             IKI_FILES_ENDPOINT_URL=_s3_endpoint,
             # The tests' deployment, so backend actions can run.
@@ -846,6 +847,13 @@ def test_dialogs_hold_focus_and_give_it_back(open_as: Any) -> None:
 
 def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: World) -> None:
     page = open_as("admin", "/projects/kinase-atlas/")
+    # Once the overview has what it asked for: had a request of it still been going, its
+    # answer would send the page to sign in, coming back to the overview.
+    page.get_by_text("Your role").wait_for()
+    page.wait_for_function(
+        "() => performance.getEntriesByType('resource')"
+        ".some((e) => new URL(e.name).pathname.endsWith('/costs') && e.responseEnd > 0)"
+    )
     # The session ends (signed out elsewhere, or deactivated) while the page is open.
     from iki_server.accounts.models import UserSession
 
