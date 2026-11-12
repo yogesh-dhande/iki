@@ -1,0 +1,6 @@
+apiVersion: iki/v1
+kind: Environment
+name: colabfold
+tiers: [container]
+resources: { cpu: 2, memory: 8Gi, gpu: { count: 1, min_memory: 16Gi } }
+image: ghcr.io/acme/colabfold@sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae

@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# An action: what it takes, what it changes, and where its command runs. This
+# one runs on the container tier, in the `tools` environment's image.
+apiVersion: iki/v1
+kind: Action
+name: assign_storage
+label: Assign default storage
+description: Records where a sample is stored as the deployment's default, if nobody said.
+inputs:
+  sample: { type: Sample, schema: ">=1" }
+effects:
+  updates: [{ input: sample, fields: [storage] }]
+runs_on: { tier: container, environment: tools }
+command: [python, ./scripts/storage.py]
+deterministic: true
+batchable: 50
+timeout: 5m

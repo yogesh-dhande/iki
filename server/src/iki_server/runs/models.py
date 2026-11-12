@@ -391,6 +391,67 @@ class RegistrationToken(models.Model):
         return f"{self.label} (…{self.hint})"
 
 
+class LaunchState(models.TextChoices):
+    #: Asked for: its pod is being scheduled, pulling its image or starting.
+    STARTING = "starting", "Starting"
+    #: Its worker registered.
+    RUNNING = "running", "Running"
+    ENDED = "ended", "Ended"
+
+
+class Launch(models.Model):
+    """A machine Iki started for runs (ADR 0061): a container-tier pod, for one environment
+    on one compute template. Its worker registers with a token made for it alone, which
+    gives it only that environment's runs, with the image it was launched with."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    template = models.CharField(max_length=100)
+    provisioner = models.CharField(max_length=32)
+    environment = models.CharField(max_length=200, db_comment="plugin.environment")
+    plugin_sha = models.CharField(max_length=64)
+    image = models.CharField(max_length=500, db_comment="Pinned by its digest.")
+    #: Where it runs: a Kubernetes namespace and object name.
+    namespace = models.CharField(max_length=63)
+    name = models.CharField(max_length=63, unique=True)
+    #: Whether its worker runs one job and stops (an ephemeral machine).
+    once = models.BooleanField(default=True)
+    token_hash = models.CharField(max_length=64, unique=True)
+    state = models.CharField(
+        max_length=16, choices=LaunchState.choices, default=LaunchState.STARTING
+    )
+    #: What it's doing or why it ended, for people: "Waiting for a node with 1 GPU", say.
+    message = models.CharField(max_length=500, blank=True, default="")
+    #: Why it ended, for code: ``finished``, ``image_unavailable``, ``never_started``,
+    #: ``gone``, ``removed`` or ``failed``.
+    ended_reason = models.CharField(max_length=32, blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+    #: Its token works until then, or until its worker registers with it.
+    expires_at = models.DateTimeField()
+    registered_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_worker_launch"
+        db_table_comment = "Machines Iki started for runs. Only hashes of their tokens are kept."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["environment", "template"],
+                condition=~Q(state="ended"),
+                name="iki_launch_live",
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(state="ended", ended_at__isnull=False)
+                | Q(~Q(state="ended"), ended_at__isnull=True),
+                name="iki_launch_ended",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.template})"
+
+
 class Worker(models.Model):
     """One running ``iki-worker``: what it can run, and when it was last heard from."""
 
@@ -405,6 +466,10 @@ class Worker(models.Model):
     #: For client-tier workers: the person whose machine it runs on.
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: For a machine Iki started (ADR 0061): the launch it registered for.
+    launch = models.OneToOneField(
+        Launch, null=True, blank=True, on_delete=models.PROTECT, related_name="worker"
     )
     version = models.CharField(max_length=50)
     #: What one job may use on it: cpu, memory, gpu_count, gpu_memory and scratch_disk.
@@ -425,7 +490,8 @@ class Worker(models.Model):
             models.CheckConstraint(condition=Q(tier__in=TIERS), name="iki_worker_tier"),
             models.CheckConstraint(
                 condition=Q(tier="client", owner__isnull=False)
-                | Q(~Q(tier="client"), registration__isnull=False),
+                | Q(~Q(tier="client"), registration__isnull=False)
+                | Q(tier="container", launch__isnull=False),
                 name="iki_worker_registered",
             ),
         ]
@@ -450,6 +516,8 @@ class Job(models.Model):
     #: The digest of the environment build its worker ran it with, for provenance; empty
     #: when the worker used its host's own software.
     environment_build = models.CharField(max_length=100, blank=True, default="")
+    #: The compute template of the machine Iki started for it, if it did (ADR 0061).
+    template = models.CharField(max_length=100, blank=True, default="")
     #: What the job needs: the environment's minimum, raised by the action's own.
     resources = models.JSONField(default=dict)
     #: For client-tier jobs: only this person's own worker may lease it.

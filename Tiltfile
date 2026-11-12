@@ -69,7 +69,7 @@ custom_build(
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
         # First-party plugins the dev lockfile installs from their directories.
-        'plugins',
+        'plugins', 'plugin-template',
     ],
     ignore=[
         'server/tests', 'cli/tests', 'codegen/tests', '**/__pycache__', '**/node_modules',
@@ -87,7 +87,8 @@ custom_build(
         'worker/crates', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
         'deploy/dev/build-worker.sh',
         # What `iki deploy build --workers` reads and runs.
-        'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'cli', 'spec/src',
+        'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'plugin-template',
+        'cli', 'spec/src',
     ],
     ignore=['**/__pycache__'],
 )
@@ -115,6 +116,23 @@ k8s_resource(
     'iki-egress-proxy',
     objects=['iki-egress-proxy:serviceaccount', 'iki-egress-proxy:networkpolicy'],
     resource_deps=['iki-migrate'],
+    labels=['iki'],
+)
+
+# Starts a pod in iki-runs for each container-tier run (ADR 0061).
+k8s_resource(
+    'iki-provisioner',
+    objects=[
+        'iki-provisioner:serviceaccount:iki',
+        'iki-provisioner:role:iki-runs',
+        'iki-provisioner:rolebinding:iki-runs',
+        'iki-run:serviceaccount:iki-runs',
+        'iki-runs:networkpolicy:iki-runs',
+        'iki-provisioner-kubernetes-api:networkpolicy',
+        'iki-web-from-runs:networkpolicy',
+        'iki-egress-proxy-from-runs:networkpolicy',
+    ],
+    resource_deps=['iki-migrate', 'iki-worker'],
     labels=['iki'],
 )
 

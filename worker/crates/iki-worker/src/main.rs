@@ -40,6 +40,7 @@ enum Command {
         identity: String,
     },
     RunLocal(local::Options),
+    Install(PathBuf),
     Version,
     Help,
     Unknown(String),
@@ -51,6 +52,7 @@ fn parse(args: &[String]) -> Command {
         ["start"] => Command::Start { once: false },
         ["start", "--once"] => Command::Start { once: true },
         ["run", rest @ ..] => parse_run(rest),
+        ["install", dir] => Command::Install(PathBuf::from(dir)),
         ["login", url] | ["login", url, "--no-browser"] | ["login", "--no-browser", url]
             if !url.starts_with('-') =>
         {
@@ -147,6 +149,8 @@ Usage: iki-worker login <server> [--no-browser]
                                    Run one action's command here, with no server: its
                                    output goes to stdout, what it prints to stderr.
                                    DIR is the plugin's (the current directory unless set).
+       iki-worker install <dir>    Copy this binary into <dir>, for a run's pod to run it
+                                   in a plugin's image (the container tier does this)
        iki-worker --version
 
 Set in the environment:
@@ -167,6 +171,7 @@ Set in the environment:
   SSL_CERT_FILE            Extra CA certificates, if the system's don't cover the server
   IKI_WORKER_AUTO_UPDATE   0 leaves updates to whoever installed it, rather than updating
                            to the release the server says while idle
+  IKI_WORKER_IDLE_EXIT     Stop after this many seconds without a job
   IKI_ALLOW_HTTP           1 allows a plain http:// IKI_URL anywhere: development clusters only";
 
 fn main() -> ExitCode {
@@ -215,6 +220,7 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Command::Install(dir) => finish(install(&dir)),
         Command::Version => write_or_fail(&mut io::stdout(), &version_line(), ExitCode::SUCCESS),
         Command::Help => write_or_fail(&mut io::stdout(), USAGE, ExitCode::SUCCESS),
         Command::Unknown(arg) => write_or_fail(
@@ -223,6 +229,27 @@ fn main() -> ExitCode {
             ExitCode::from(2),
         ),
     }
+}
+
+/// Copies this binary into `dir` as `iki-worker`, executable, in one step: a run's init
+/// container does this, so the run's own image needs nothing of Iki's (ADR 0061).
+fn install(dir: &std::path::Path) -> Result<(), String> {
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Couldn't tell where iki-worker is: {e}"))?;
+    let target = dir.join("iki-worker");
+    let partial = dir.join(".iki-worker.partial");
+    let copy = || -> std::io::Result<()> {
+        std::fs::copy(&exe, &partial)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o755))?;
+        }
+        std::fs::rename(&partial, &target)
+    };
+    copy().map_err(|e| format!("Couldn't copy iki-worker to {}: {e}", target.display()))?;
+    say::info("Installed iki-worker.", &[("path", &target.display())]);
+    Ok(())
 }
 
 const NO_STATE: &str = "Set IKI_WORKER_STATE to where the worker's token is kept: there's \

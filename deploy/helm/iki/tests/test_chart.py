@@ -933,3 +933,165 @@ def test_only_web_pods_hold_run_secrets_mounted_read_only() -> None:
             assert "IKI_RUN_SECRETS_DIR" not in env, name
             assert "run-secrets" not in mounts, name
             assert all(v["name"] != "run-secrets" for v in spec.get("volumes", [])), name
+
+
+# --- The container tier (ADR 0061) ---------------------------------------------------------
+
+CONTAINERS: dict[str, Any] = {"containerTier": {"enabled": True, "namespace": "iki-runs"}}
+
+
+def where(doc: Manifest) -> str:
+    return f"{doc['metadata'].get('namespace', 'iki')}/{doc['kind']}/{doc['metadata']['name']}"
+
+
+def provisioner_env(docs: list[Manifest]) -> dict[str, Any]:
+    pod = named(docs, "Deployment", "iki-provisioner")["spec"]["template"]["spec"]
+    return {e["name"]: e.get("value", e.get("valueFrom")) for e in pod["containers"][0]["env"]}
+
+
+def test_the_container_tier_is_off_unless_turned_on() -> None:
+    names = {where(d) for d in manifests(CONTAINERS)} - {where(d) for d in manifests()}
+    assert names == {
+        "iki/Deployment/iki-provisioner",
+        "iki/ServiceAccount/iki-provisioner",
+        "iki/NetworkPolicy/iki-provisioner-kubernetes-api",
+        "iki-runs/Role/iki-provisioner",
+        "iki-runs/RoleBinding/iki-provisioner",
+        "iki-runs/ServiceAccount/iki-run",
+        "iki-runs/NetworkPolicy/iki-runs",
+    }
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"containerTier": {"enabled": True}}, "containerTier.namespace is required"),
+        (
+            {"containerTier": {"enabled": True, "namespace": "iki"}},
+            "must not be this release's namespace",
+        ),
+        (
+            {"containerTier": {"enabled": True, "namespace": "runs", "extraNamespaces": ["iki"]}},
+            "extraNamespaces must not include this release's namespace",
+        ),
+        (
+            {
+                "containerTier": {
+                    "enabled": True,
+                    "namespace": "runs",
+                    "serverUrl": "http://iki-web.iki.svc:8000",
+                }
+            },
+            "must be an https:// address",
+        ),
+    ],
+)
+def test_run_pods_go_in_a_namespace_of_their_own_and_reach_the_server_over_https(
+    values: dict[str, Any], message: str
+) -> None:
+    error = render(values, ok=False)
+    assert isinstance(error, str)
+    assert message in error
+
+
+def test_the_provisioner_manages_only_jobs_where_runs_go() -> None:
+    docs = manifests({"containerTier": {**CONTAINERS["containerTier"], "extraNamespaces": ["gpu"]}})
+    assert not by_kind(docs, "ClusterRole")
+    assert not by_kind(docs, "ClusterRoleBinding")
+    roles = by_kind(docs, "Role")
+    assert sorted(r["metadata"]["namespace"] for r in roles) == ["gpu", "iki-runs"]
+    for role in roles:
+        assert role["rules"] == [
+            {
+                "apiGroups": ["batch"],
+                "resources": ["jobs"],
+                "verbs": ["create", "get", "list", "watch", "patch", "delete"],
+            },
+            {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
+            # Never read, change or delete a Secret: only make each Job's own.
+            {"apiGroups": [""], "resources": ["secrets"], "verbs": ["create"]},
+        ]
+    for binding in by_kind(docs, "RoleBinding"):
+        assert binding["subjects"] == [
+            {"kind": "ServiceAccount", "name": "iki-provisioner", "namespace": "iki"}
+        ]
+    pod = named(docs, "Deployment", "iki-provisioner")["spec"]["template"]["spec"]
+    assert pod["serviceAccountName"] == "iki-provisioner"
+    assert pod["automountServiceAccountToken"] is True
+    assert pod["containers"][0]["args"] == ["provision"]
+    # Run pods never get a Kubernetes token.
+    for account in [
+        d for d in by_kind(docs, "ServiceAccount") if d["metadata"]["name"] == "iki-run"
+    ]:
+        assert account["automountServiceAccountToken"] is False
+    env = provisioner_env(docs)
+    assert env["IKI_RUNS_NAMESPACE"] == "iki-runs"
+    assert env["IKI_RUNS_NAMESPACES"] == "gpu"
+    assert env["IKI_RUNS_SERVER_URL"] == "https://iki.example.com"
+    assert env["IKI_RUNS_SERVICE_ACCOUNT"] == "iki-run"
+    assert "IKI_RUNS_ALLOW_HTTP" not in env
+
+
+def test_runs_copy_iki_worker_from_iki_s_own_image() -> None:
+    chart = yaml.safe_load((CHART / "Chart.yaml").read_text())
+    env = provisioner_env(manifests(CONTAINERS))
+    assert env["IKI_RUNS_WORKER_IMAGE"] == (
+        f"ghcr.io/yogesh-dhande/iki-worker:{chart['appVersion']}"
+    )
+    digest = "sha256:" + "c" * 64
+    pinned = {"containerTier": {**CONTAINERS["containerTier"], "workerImage": {"digest": digest}}}
+    assert provisioner_env(manifests(pinned))["IKI_RUNS_WORKER_IMAGE"] == (
+        f"ghcr.io/yogesh-dhande/iki-worker@{digest}"
+    )
+
+
+def test_runs_reach_only_the_server_storage_and_the_egress_proxy() -> None:
+    values = {
+        **CONTAINERS,
+        **FILES,
+        "egressProxy": {"enabled": True},
+        "networkPolicy": {
+            "enabled": True,
+            "egress": {
+                "objectStorage": {
+                    "ports": [8333],
+                    "to": [{"podSelector": {"matchLabels": {"app": "seaweedfs"}}}],
+                }
+            },
+        },
+    }
+    docs = manifests(values)
+    runs = next(
+        d for d in by_kind(docs, "NetworkPolicy") if where(d) == "iki-runs/NetworkPolicy/iki-runs"
+    )
+    assert runs["spec"]["podSelector"] == {}
+    assert runs["spec"]["policyTypes"] == ["Ingress", "Egress"]
+    assert "ingress" not in runs["spec"]
+    peers = [rule["to"] for rule in runs["spec"]["egress"]]
+    # Pods named without a namespace are in Iki's own.
+    assert [
+        {
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "iki"}},
+            "podSelector": {"matchLabels": {"app": "seaweedfs"}},
+        }
+    ] in peers
+    proxy = named(docs, "NetworkPolicy", "iki-egress-proxy-from-runs")
+    assert proxy["spec"]["ingress"][0]["from"] == [
+        {
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "iki-runs"}},
+            "podSelector": {"matchLabels": {"app.kubernetes.io/component": "run"}},
+        }
+    ]
+    # Straight to the web pods, only when asked.
+    assert not [
+        d for d in by_kind(docs, "NetworkPolicy") if d["metadata"]["name"] == "iki-web-from-runs"
+    ]
+    direct = {"containerTier": {**CONTAINERS["containerTier"], "serverInCluster": True}}
+    docs = manifests(direct)
+    assert named(docs, "NetworkPolicy", "iki-web-from-runs")["spec"]["ingress"][0]["ports"] == [
+        {"protocol": "TCP", "port": 8000}
+    ]
+    kube = named(docs, "NetworkPolicy", "iki-provisioner-kubernetes-api")
+    assert (
+        kube["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/component"] == "provisioner"
+    )

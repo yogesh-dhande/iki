@@ -87,6 +87,7 @@ export function attempt(
     state: "running",
     worker: "pod-7",
     environment_build: "sha256:4f2a9c1e7b3d5a6f8e9d0c1b2a3f4e5d",
+    template: "",
     queued_at: "2026-03-14T09:00:00Z",
     started_at: "2026-03-14T09:00:05Z",
     finished_at: null,

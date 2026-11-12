@@ -1235,6 +1235,8 @@ class RunAttemptOut(TypedDict):
     secrets: list[str]
     started_at: str | None
     state: JobState
+    #: The compute template of the machine Iki started for it, if it did (ADR 0061).
+    template: str
     #: The name of the worker that ran it.
     worker: str | None
 
@@ -1364,7 +1366,7 @@ class RunOut(TypedDict):
     status: Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
     tier: Literal['client', 'backend', 'container', 'vm']
     via: str
-    #: Why a queued run hasn't started, when a quota is holding it.
+    #: Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
     waiting: str | None
 
 

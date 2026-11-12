@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: Action
+name: predict_with_colabfold
+label: Predict structure with ColabFold
+inputs:
+  protein: { type: protein.Protein, schema: ">=1" }
+effects:
+  creates: [{ type: protein.ProteinStructure, cardinality: one, derived_from: [protein] }]
+runs_on: { tier: container, environment: colabfold, lifecycle: ephemeral }
+command: [colabfold_batch, --input, protein.fasta]
+deterministic: true
+timeout: 1h

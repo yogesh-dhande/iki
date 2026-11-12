@@ -270,3 +270,47 @@ schema, and knows the app's role so it can grant it privileges.
         path: {{ .Values.webhooks.caSecret.key }}
 {{- end }}
 {{- end -}}
+
+{{/*
+The container tier's namespaces: its own, then any others templates may name.
+*/}}
+{{- define "iki.runNamespaces" -}}
+{{- $c := .Values.containerTier -}}
+{{- $own := required "containerTier.namespace is required: the namespace run pods go in, not this release's" $c.namespace -}}
+{{- if eq $own .Release.Namespace -}}
+{{- fail "containerTier.namespace must not be this release's namespace: plugins' images run there, and must never reach Iki's own Secrets" -}}
+{{- end -}}
+{{- $all := uniq (concat (list $own) ($c.extraNamespaces | default list)) -}}
+{{- if has .Release.Namespace $all -}}
+{{- fail "containerTier.extraNamespaces must not include this release's namespace" -}}
+{{- end -}}
+{{- toJson $all -}}
+{{- end -}}
+
+{{/*
+Network policy peers, as seen from another namespace: a peer that names pods but no
+namespace means pods in this release's.
+*/}}
+{{- define "iki.peersFromElsewhere" -}}
+{{- $out := list -}}
+{{- range .peers -}}
+{{- if and (hasKey . "podSelector") (not (hasKey . "namespaceSelector")) -}}
+{{- $out = append $out (merge (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $.namespace))) .) -}}
+{{- else -}}
+{{- $out = append $out . -}}
+{{- end -}}
+{{- end -}}
+{{- toYaml $out -}}
+{{- end -}}
+
+{{/*
+The iki-worker image run pods copy the binary from.
+*/}}
+{{- define "iki.runsWorkerImage" -}}
+{{- $w := .Values.containerTier.workerImage -}}
+{{- if $w.digest -}}
+{{- printf "%s@%s" $w.repository $w.digest -}}
+{{- else -}}
+{{- printf "%s:%s" $w.repository ($w.tag | default .Chart.AppVersion) -}}
+{{- end -}}
+{{- end -}}

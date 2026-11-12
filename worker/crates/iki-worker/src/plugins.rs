@@ -66,6 +66,9 @@ pub struct Have {
     /// Where each plugin's code is, when the worker fetched it (ADR 0059); otherwise in
     /// `IKI_PLUGINS_DIR`, by name.
     dirs: BTreeMap<String, PathBuf>,
+    /// The environment whose image the worker runs in (ADR 0061), by
+    /// `plugin.environment`: its commands run with the image's own software.
+    image: Option<String>,
 }
 
 /// The file `iki deploy build --workers` writes in `IKI_PLUGINS_DIR`.
@@ -183,6 +186,18 @@ impl Have {
             built,
             from_manifest: true,
             dirs,
+            image: None,
+        }
+    }
+
+    /// What a worker in an environment's image has: that plugin's code, and the image.
+    pub fn in_image(code: PluginCode, dir: PathBuf, environment: &str) -> Self {
+        Self {
+            dirs: BTreeMap::from([(code.name.clone(), dir)]),
+            code: vec![code],
+            built: BTreeMap::new(),
+            from_manifest: true,
+            image: Some(environment.to_owned()),
         }
     }
 
@@ -211,6 +226,9 @@ impl Have {
                 shown(plugin.sha.as_deref()),
                 shown(sha)
             ));
+        }
+        if self.image.as_deref() == Some(environment) {
+            return Ok(None);
         }
         match self.built.get(environment) {
             Some(built) => Ok(Some(built)),

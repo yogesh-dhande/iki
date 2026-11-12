@@ -122,6 +122,25 @@ On Kubernetes, the Iki chart runs a pool of them (`backendWorkers` in
 root filesystem, no Kubernetes or cloud credentials, a scratch volume for
 jobs, and egress only to the server and object storage.
 
+### In a plugin's image (the container tier)
+
+For container-tier runs, the chart's provisioner starts a pod with the
+environment's own image ([ADR 0061](../docs/adr/0061-container-tier-runs-get-pods-of-their-own.md)).
+An init container copies the worker in with `iki-worker install /iki/bin`.
+The binary is static, so it runs in any Linux image. The pod then runs
+`iki-worker start --once` with:
+
+- `IKI_WORKER_ENVIRONMENT`: the environment it runs (`plugin.environment`).
+  It fetches only that plugin's code and builds nothing, since the image is
+  the environment.
+- `IKI_WORKER_IMAGE`: the image, pinned by its digest. Each attempt records
+  that digest.
+- `IKI_REGISTRATION_TOKEN`: a token made for that pod alone (`iki_wlch_…`).
+  It works once, for that environment's runs only.
+- `IKI_WORKER_IDLE_EXIT`: how many seconds it waits for a job before it
+  stops. That covers runs another pod took first, and runs that were
+  cancelled.
+
 ### Stopping
 
 `iki-worker start --once` runs one job and exits. SIGTERM or SIGINT stops

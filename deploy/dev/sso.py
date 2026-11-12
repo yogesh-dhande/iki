@@ -903,12 +903,12 @@ def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
     ok("audit events reach the log stream for a SIEM; no OAuth codes in the logs")
 
 
-def followed(session: requests.Session, run: dict[str, Any]) -> dict[str, Any]:
+def followed(session: requests.Session, run: dict[str, Any], within: int = 120) -> dict[str, Any]:
     """The run, once it has ended, followed as its page does: its live updates through the
     ingress, then its attempts and log."""
     seen: list[str] = []
     found = run
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + within
     # Read timeout past the stream's 20-second heartbeat.
     with session.get(
         f"{IKI}/api/v1/runs/{run['id']}/events",
@@ -920,7 +920,7 @@ def followed(session: requests.Session, run: dict[str, Any]) -> dict[str, Any]:
             fail(f"{run['hrid']}'s live updates: HTTP {stream.status_code} {stream.text[:200]}")
         for raw in stream.iter_lines():
             if time.monotonic() > deadline:
-                fail(f"{run['hrid']} didn't finish in two minutes: {found['status']}")
+                fail(f"{run['hrid']} didn't finish in {within} seconds: {found['status']}")
             line = raw.decode()
             if not line.startswith("event: "):
                 continue
@@ -1002,6 +1002,78 @@ def actions() -> None:
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
 
 
+#: The plugin template's image (plugin-template/environments/tools.yaml): Python on Alpine,
+#: so iki-worker, copied in, must be static.
+TOOLS_IMAGE = (
+    "docker.io/library/python:3.13-alpine"
+    "@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca"
+)
+
+
+def containers() -> None:
+    """The plugin template's action on the container tier (ADR 0061): the provisioner starts
+    a pod of its own in iki-runs, running the environment's image with iki-worker copied in."""
+    alice = sign_in_as("alice")
+    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
+    project = next(p for p in mine if p["name"] == "Atlas")
+    action = "example.assign_storage"
+    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
+    if not listed.get(action, {}).get("available"):
+        fail(f"{action} isn't available to run: {listed.get(action)}")
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "example.Sample",
+            "project": project["id"],
+            "values": {"name": f"e2e-{secrets.token_hex(4)}", "kind": "dna"},
+        },
+    )
+    if made.status_code not in (200, 201):
+        fail(f"registering a sample answered HTTP {made.status_code}: {made.text[:300]}")
+    sample = made.json()
+    launched = api_call(
+        alice,
+        "POST",
+        f"/actions/{action}/runs",
+        {"project": project["id"], "inputs": {"sample": sample["id"]}},
+    )
+    if launched.status_code != 201:
+        fail(f"launching {action} answered HTTP {launched.status_code}: {launched.text[:300]}")
+    # Its pod pulls the image first.
+    run = followed(alice, launched.json(), within=300)
+    if run["status"] != "succeeded":
+        fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
+    got = api_call(alice, "GET", f"/entities/{sample['id']}").json()["values"]
+    if got.get("storage") != "-80 °C freezer":
+        fail(f"{run['hrid']} wrote {got}, not the plugin's default storage")
+    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    digest = TOOLS_IMAGE.rpartition("@")[2]
+    if attempt["template"] != "container-small" or attempt["environment_build"] != digest:
+        fail(f"{run['hrid']} didn't record its template and image: {attempt}")
+    if not attempt["worker"].startswith("iki-run-"):
+        fail(f"{run['hrid']} ran on {attempt['worker']}, not a pod started for it")
+    pods = json.loads(
+        subprocess.run(  # noqa: S603 - fixed argv
+            ["kubectl", "--context", CONTEXT, "-n", "iki-runs", "get", "pods", "-o", "json"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )["items"]
+    pod = next((p for p in pods if p["metadata"]["name"] == attempt["worker"]), None)
+    if pod is None:
+        fail(f"no pod {attempt['worker']} in iki-runs")
+    (container,) = pod["spec"]["containers"]
+    if container["image"] != TOOLS_IMAGE or pod["spec"]["automountServiceAccountToken"]:
+        fail(f"{attempt['worker']} isn't the environment's image without a Kubernetes token")
+    ok(
+        f"{action} ran in a pod of its own ({attempt['worker']}, {TOOLS_IMAGE.split('@')[0]}) "
+        f"on the container tier ({run['hrid']}) and wrote storage {got['storage']!r}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="also run end-to-end sign-in checks")
@@ -1025,6 +1097,7 @@ def main() -> None:
         rest_api(admin)
         webhooks(admin)
         actions()
+        containers()
         oauth(admin)
         saml()
 

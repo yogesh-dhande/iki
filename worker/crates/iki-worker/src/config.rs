@@ -2,6 +2,7 @@
 //! so the same image works anywhere a secret can be put in the environment.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use iki_protocol::Capacity;
 
@@ -34,6 +35,64 @@ pub struct Config {
     /// `IKI_ALLOW_HTTP`: plain http:// to any host, for a development cluster
     /// whose server has no TLS. The worker warns when it starts with it.
     pub allow_http: bool,
+    /// On a machine Iki started for runs (ADR 0061): the environment it was started for,
+    /// whose image it runs in. It fetches only that plugin's code, and builds nothing.
+    pub image: Option<InImage>,
+    /// `IKI_WORKER_IDLE_EXIT`: stop after this long without a job.
+    pub idle_exit: Option<Duration>,
+}
+
+/// The environment a worker runs in the image of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InImage {
+    /// `plugin.environment`.
+    pub environment: String,
+    /// The image, pinned by its digest.
+    pub image: String,
+}
+
+impl InImage {
+    pub fn plugin(&self) -> &str {
+        self.environment
+            .split_once('.')
+            .map_or("", |(plugin, _)| plugin)
+    }
+
+    pub fn name(&self) -> &str {
+        self.environment.split_once('.').map_or("", |(_, env)| env)
+    }
+
+    /// `sha256:…`.
+    pub fn digest(&self) -> &str {
+        self.image.rsplit_once('@').map_or("", |(_, digest)| digest)
+    }
+}
+
+fn in_image(environment: Option<String>, image: Option<String>) -> Result<Option<InImage>, String> {
+    match (environment, image) {
+        (None, None) => Ok(None),
+        (Some(environment), Some(image)) => {
+            let found = InImage { environment, image };
+            let digest = found.digest();
+            let pinned = digest.len() == 71
+                && digest.starts_with("sha256:")
+                && digest[7..].bytes().all(|b| b.is_ascii_hexdigit());
+            if !crate::plugins::is_plugin_name(found.plugin()) || found.name().is_empty() {
+                return Err(
+                    "IKI_WORKER_ENVIRONMENT must be plugin.environment, such as \
+                            protein.esmfold."
+                        .to_owned(),
+                );
+            }
+            if !pinned {
+                return Err("IKI_WORKER_IMAGE must be pinned by its digest \
+                            (registry/name@sha256:…)."
+                    .to_owned());
+            }
+            Ok(Some(found))
+        }
+        _ => Err("Set both IKI_WORKER_ENVIRONMENT and IKI_WORKER_IMAGE, or neither.".to_owned()),
+    }
 }
 
 /// What to do when the worker has no way to sign in.
@@ -242,6 +301,13 @@ impl Config {
             keep_job_dirs: flag("IKI_KEEP_JOB_DIRS"),
             auto_update: !get("IKI_WORKER_AUTO_UPDATE").is_some_and(|v| v == "0" || v == "false"),
             allow_http,
+            image: in_image(get("IKI_WORKER_ENVIRONMENT"), get("IKI_WORKER_IMAGE"))?,
+            idle_exit: match get("IKI_WORKER_IDLE_EXIT") {
+                None => None,
+                Some(raw) => Some(Duration::from_secs(raw.parse().map_err(
+                    |_| "IKI_WORKER_IDLE_EXIT must be a whole number of seconds, such as 300.",
+                )?)),
+            },
         })
     }
 }
@@ -378,5 +444,33 @@ mod tests {
         assert_eq!(bytes("1.5Gi"), None);
         assert_eq!(bytes("Gi"), None);
         assert_eq!(bytes("99999999999Ti"), None);
+    }
+
+    #[test]
+    fn a_worker_in_an_image_knows_its_environment_and_image() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let image = format!("ghcr.io/acme/fold@{digest}");
+        let mut pairs = BASE.to_vec();
+        pairs.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        pairs.push(("IKI_WORKER_IMAGE", &image));
+        pairs.push(("IKI_WORKER_IDLE_EXIT", "300"));
+        let config = Config::from_env(&env(&pairs)).unwrap();
+        let found = config.image.unwrap();
+        assert_eq!(
+            (found.plugin(), found.name(), found.digest()),
+            ("protein", "esmfold", digest.as_str())
+        );
+        assert_eq!(config.idle_exit, Some(Duration::from_secs(300)));
+        let mut unpinned = BASE.to_vec();
+        unpinned.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        unpinned.push(("IKI_WORKER_IMAGE", "ghcr.io/acme/fold:latest"));
+        assert!(
+            Config::from_env(&env(&unpinned))
+                .unwrap_err()
+                .contains("digest")
+        );
+        let mut half = BASE.to_vec();
+        half.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        assert!(Config::from_env(&env(&half)).unwrap_err().contains("both"));
     }
 }

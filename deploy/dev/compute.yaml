@@ -1,5 +1,6 @@
 # The dev cluster's compute: its backend worker pod (backendWorkers in
-# values-dev.yaml), sized as the pod is.
+# values-dev.yaml), sized as the pod is, and a pod for each container-tier run
+# (containerTier), in the iki-runs namespace.
 apiVersion: iki/v1
 kind: ComputeTemplate
 name: backend-small
@@ -10,3 +11,15 @@ apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: dna.sequence-tools
 templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-small
+provisioner: k8s_job
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: example.tools
+templates: [{ template: container-small }]

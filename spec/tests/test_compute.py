@@ -37,6 +37,13 @@ kubernetes: { runtime_class: gvisor }
 A100 = """\
 apiVersion: iki/v1
 kind: ComputeTemplate
+name: gpu-t4
+provisioner: k8s_job
+capacity: { cpu: 4, memory: 16Gi, gpu: { count: 1, memory: 16Gi, model: T4 } }
+kubernetes: { node_selector: { iki.ikisci.org/pool: gpu } }
+---
+apiVersion: iki/v1
+kind: ComputeTemplate
 name: a100-spot
 provisioner: aws_ec2
 capacity:
@@ -67,6 +74,11 @@ apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: structure_prediction.alphafold-gpu
 templates: [{ template: a100-spot }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: structure_prediction.colabfold
+templates: [{ template: gpu-t4 }]
 """
 
 
@@ -107,6 +119,7 @@ def test_without_compute_yaml_only_the_client_tier_runs(
     assert result.compute is not None
     assert result.compute.templates == {}
     assert [(p.code, p.severity) for p in result.problems] == [
+        ("unbound-environment", Severity.WARNING),
         ("unbound-environment", Severity.WARNING),
         ("unbound-environment", Severity.WARNING),
     ]

@@ -4311,6 +4311,11 @@ export interface components {
             started_at: string | null;
             state: components["schemas"]["JobState"];
             /**
+             * Template
+             * @description The compute template of the machine Iki started for it, if it did (ADR 0061).
+             */
+            template: string;
+            /**
              * Worker
              * @description The name of the worker that ran it.
              */
@@ -4600,7 +4605,7 @@ export interface components {
             via: string;
             /**
              * Waiting
-             * @description Why a queued run hasn't started, when a quota is holding it.
+             * @description Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
              */
             waiting: string | null;
         };

@@ -306,6 +306,51 @@ backendWorkers:
   affinity: {}
   podAnnotations: {}
 
+containerTier:
+  # The container tier (ADR 0061): the provisioner starts a Kubernetes Job
+  # for each queued container-tier run. Its pod runs the environment's image
+  # (pinned by digest) with iki-worker, copied in from workerImage by an init
+  # container, and holds only a token for that one run. The provisioner is the
+  # only part of Iki that talks to the Kubernetes API, and only in namespace.
+  enabled: false
+  # required with containerTier: the namespace run pods go in. Not this
+  # release's: plugins' images run there, and must never be able to reach
+  # Iki's own Secrets. Create it first, enforcing PodSecurity "restricted":
+  #   kubectl create namespace iki-runs
+  #   kubectl label namespace iki-runs pod-security.kubernetes.io/enforce=restricted
+  # The chart puts the provisioner's Role, the runs' service account and
+  # their NetworkPolicy in it.
+  namespace: ""
+  # Other namespaces templates may name (kubernetes.namespace in
+  # compute.yaml), each set up the same way.
+  extraNamespaces: []
+  # Iki's own worker image, which the binary is copied from. Its signature is
+  # checked like the server's; pin it by digest in production.
+  workerImage:
+    repository: ghcr.io/yogesh-dhande/iki-worker
+    # Defaults to the chart's appVersion.
+    tag: ""
+    digest: ""
+  # Where run pods reach the server. Defaults to backendWorkers.serverUrl,
+  # then publicUrl.
+  serverUrl: ""
+  # A plain http:// serverUrl, only for development: refused when https is true.
+  allowHttp: false
+  # Run pods reach the server's web pods directly in the cluster, rather than
+  # through the ingress (allowed by networkPolicy.ingressFrom and
+  # networkPolicy.egress.server).
+  serverInCluster: false
+  # Secrets in the runs namespace for pulling plugins' images.
+  imagePullSecrets: []
+  provisioner:
+    resources:
+      requests: { cpu: 50m, memory: 192Mi }
+      limits: { memory: 384Mi }
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    podAnnotations: {}
+
 runSecrets:
   # Secret holding the secrets plugins' actions declare (ADR 0054), one key
   # each, named for the plugin and the secret: dna.NCBI_API_KEY. Sync it from
@@ -401,10 +446,22 @@ networkPolicy:
               - fc00::/7
               - fe80::/10
               - ::1/128
-    # Only with backendWorkers: anything else actions' commands need, such as
-    # a licence server or an internal data store. Nothing by default. Each
-    # entry is a NetworkPolicy egress rule ({to: [...], ports: [...]}).
+    # Only with backendWorkers or containerTier: anything else actions'
+    # commands need, such as a licence server or an internal data store.
+    # Nothing by default. Each entry is a NetworkPolicy egress rule
+    # ({to: [...], ports: [...]}).
     workers: []
+    # Only with containerTier: the provisioner reaches the Kubernetes API.
+    # Its address depends on the cluster (often a control-plane IP on 443 or
+    # 6443), so the default allows those ports anywhere, for that pod alone.
+    # Narrow it to your API server's address (`kubectl get endpoints kubernetes`).
+    kubernetesApi:
+      ports: [443, 6443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+        - ipBlock:
+            cidr: ::/0
     database:
       ports: [5432]
       to: []

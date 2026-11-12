@@ -13,6 +13,10 @@ What's here:
   its own type and to `dna.DNASequence`.
 - `types/dna_sequence.yaml`: an extension adding two fields to
   `dna.DNASequence`. They live in this plugin's tables.
+- `actions/assign_storage.yaml` and `scripts/storage.py`: an action that sets
+  a sample's storage to the plugin's setting, and the command it runs.
+- `environments/tools.yaml`: where that command runs. On the container tier,
+  each run gets a pod with this image, pinned by its digest.
 - `migrations/`: the database migrations for those types, made by
   `iki plugin makemigrations` and reviewed in pull requests like code.
 - `.github/workflows/ci.yml`: checks every change, the way a deployment's

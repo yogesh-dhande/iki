@@ -5552,6 +5552,11 @@
           "state": {
             "$ref": "#/components/schemas/JobState"
           },
+          "template": {
+            "description": "The compute template of the machine Iki started for it, if it did (ADR 0061).",
+            "title": "Template",
+            "type": "string"
+          },
           "worker": {
             "anyOf": [
               {
@@ -5570,6 +5575,7 @@
           "state",
           "worker",
           "environment_build",
+          "template",
           "queued_at",
           "started_at",
           "finished_at",
@@ -6182,7 +6188,7 @@
                 "type": "null"
               }
             ],
-            "description": "Why a queued run hasn't started, when a quota is holding it.",
+            "description": "Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).",
             "title": "Waiting"
           }
         },

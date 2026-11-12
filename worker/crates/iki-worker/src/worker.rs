@@ -260,6 +260,52 @@ fn pause(wait: Duration, interrupted: &AtomicBool) {
     }
 }
 
+/// What the worker runs: its local plugins, the one plugin whose image it runs in, or
+/// the server's plugins, fetched and built. Returns what the server listed, too.
+fn plugins_for(
+    api: &Api,
+    config: &Config,
+    local: Option<plugins::Have>,
+) -> Result<(Vec<iki_protocol::AvailableOut>, plugins::Have), String> {
+    if let Some(have) = local {
+        return Ok((Vec::new(), have));
+    }
+    let listed = bundles::available(api).map_err(|e| unreachable_or_revoked(config, &e))?;
+    let have = match &config.image {
+        Some(image) => {
+            let have = bundles::sync_image(api, &config.cache_dir, &listed, image)?;
+            api::retrying(std::time::Instant::now() + Duration::from_secs(120), || {
+                tell(api, config, &have.code)
+            })
+            .map_err(|e| unreachable_or_revoked(config, &e))?;
+            have
+        }
+        None => {
+            fetch_plugins(api, config, &listed).map_err(|e| unreachable_or_revoked(config, &e))?
+        }
+    };
+    Ok((listed, have))
+}
+
+/// Warns about settings that work, but shouldn't be left that way.
+fn warn_about(config: &Config, local: Option<&plugins::Have>) {
+    if config.allow_http && config.url.starts_with("http://") {
+        say::warn(
+            "IKI_ALLOW_HTTP is set: this worker's token and every result travel unencrypted. \
+             Only for a development cluster.",
+            &[("server", &config.url)],
+        );
+    }
+    if let (Some(have), Some(dir)) = (local, &config.plugins_dir)
+        && have.code.is_empty()
+    {
+        say::warn(
+            "IKI_PLUGINS_DIR holds no plugins, so this worker can run nothing.",
+            &[("path", &dir.display())],
+        );
+    }
+}
+
 /// Runs until SIGTERM or SIGINT, or after one job with `once`. Stopping stops the job's
 /// command too (SIGTERM, then SIGKILL after 10 seconds) and reports it `interrupted`, so
 /// it can be retried elsewhere.
@@ -274,29 +320,9 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         .as_deref()
         .map(plugins::discover)
         .transpose()?;
-    if config.allow_http && config.url.starts_with("http://") {
-        say::warn(
-            "IKI_ALLOW_HTTP is set: this worker's token and every result travel unencrypted. \
-             Only for a development cluster.",
-            &[("server", &config.url)],
-        );
-    }
-    if let (Some(have), Some(dir)) = (&local, &config.plugins_dir)
-        && have.code.is_empty()
-    {
-        say::warn(
-            "IKI_PLUGINS_DIR holds no plugins, so this worker can run nothing.",
-            &[("path", &dir.display())],
-        );
-    }
+    warn_about(config, local.as_ref());
     let (api, ephemeral) = sign_in(config, local.as_ref().map(|h| h.code.as_slice()))?;
-    let mut listed = Vec::new();
-    let mut have = if let Some(have) = local {
-        have
-    } else {
-        listed = bundles::available(&api).map_err(|e| unreachable_or_revoked(config, &e))?;
-        fetch_plugins(&api, config, &listed).map_err(|e| unreachable_or_revoked(config, &e))?
-    };
+    let (mut listed, mut have) = plugins_for(&api, config, local)?;
     let mut synced = std::time::Instant::now();
     let mut tried = None;
     if let Some(failed) = self_update(config, told(&api).as_ref(), &mut tried) {
@@ -305,6 +331,7 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
     let lease = format!("{}?wait={LEASE_WAIT}", paths::LEASE);
     let mut failures = 0;
     let mut outcome = Ok(());
+    let mut idle_since = std::time::Instant::now();
     say::info("Waiting for jobs.", &[("server", &config.url)]);
     while !interrupted.load(Ordering::SeqCst) {
         match api.post::<_, serde_json::Value>(&lease, &serde_json::json!({})) {
@@ -317,12 +344,20 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
                 if once {
                     break;
                 }
+                idle_since = std::time::Instant::now();
             }
             Ok(None) => {
                 failures = 0;
+                if config
+                    .idle_exit
+                    .is_some_and(|wait| idle_since.elapsed() >= wait)
+                {
+                    say::info("No job came for a while; stopping.", &[]);
+                    break;
+                }
                 if synced.elapsed() >= RESYNC_EVERY {
                     synced = std::time::Instant::now();
-                    if config.plugins_dir.is_none() {
+                    if config.plugins_dir.is_none() && config.image.is_none() {
                         resync(&api, config, &mut listed, &mut have);
                     }
                     if let Some(failed) = self_update(config, told(&api).as_ref(), &mut tried) {

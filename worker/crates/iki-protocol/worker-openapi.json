@@ -1451,7 +1451,7 @@
     },
     "/worker/v1/plugins": {
       "get": {
-        "description": "The code of each plugin this deployment installs from a commit, for a worker on\nsomeone's computer to fetch and build (ADR 0059): it then runs what's launched now.",
+        "description": "The code of each plugin this deployment installs from a commit, for a worker on\nsomeone's computer to fetch and build (ADR 0059): it then runs what's launched now.\nA machine Iki started for runs gets only its own plugin's (ADR 0061): on a development\nserver, that may be one from a local directory, whose ``sha`` is ``local``.",
         "operationId": "iki_server_api_worker_available",
         "parameters": [],
         "responses": {

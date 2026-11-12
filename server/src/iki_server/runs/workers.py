@@ -119,6 +119,11 @@ def _token(prefix: str) -> str:
     return prefix + secrets.token_urlsafe(32)
 
 
+def new_worker_token() -> str:
+    """A worker's own token: shown to it once, only its hash kept."""
+    return _token(WORKER_PREFIX)
+
+
 def create_registration(
     *, label: str, tier: str, by: User | None, expires_at: datetime | None = None
 ) -> tuple[RegistrationToken, str]:
@@ -344,7 +349,7 @@ def authenticate(header: str) -> Worker | None:
     if value is None:
         return None
     worker = (
-        Worker.objects.select_related("owner")
+        Worker.objects.select_related("owner", "launch")
         .filter(token_hash=_hash(value), revoked_at__isnull=True)
         .first()
     )
@@ -371,4 +376,10 @@ def revoke_worker(worker: Worker, *, by: User | None) -> bool:
         locked.save(update_fields=["revoked_at"])
         audit.record("worker.revoked", actor=by, target=locked)
         queue.interrupt_worker(locked, code="worker_revoked")
+        if locked.launch_id is not None:
+            # Its machine is done with: the provisioner removes what's left of it.
+            from iki_server.runs import launches
+
+            assert locked.launch is not None  # noqa: S101 - launch_id is set
+            launches.end(locked.launch, "finished")
     return True

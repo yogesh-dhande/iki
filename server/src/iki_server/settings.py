@@ -94,6 +94,18 @@ IKI_WORKER_UPDATES: bool = env.bool("IKI_WORKER_UPDATES", default=True)
 IKI_WORKER_DOWNLOADS: str = env.str(
     "IKI_WORKER_DOWNLOADS", default="https://github.com/yogesh-dhande/iki/releases/download"
 ).rstrip("/")
+# The container tier (ADR 0061): `iki-server provision` starts a pod for runs in
+# IKI_RUNS_NAMESPACE, or in the namespace a template names, if it's one of
+# IKI_RUNS_NAMESPACES. Each pod runs its environment's image with iki-worker, copied in
+# from IKI_RUNS_WORKER_IMAGE, and reaches the server at IKI_RUNS_SERVER_URL.
+IKI_RUNS_NAMESPACE: str = env.str("IKI_RUNS_NAMESPACE", default="")
+IKI_RUNS_NAMESPACES: list[str] = env.list("IKI_RUNS_NAMESPACES", default=[])
+IKI_RUNS_WORKER_IMAGE: str = env.str("IKI_RUNS_WORKER_IMAGE", default="")
+IKI_RUNS_SERVER_URL: str = env.str("IKI_RUNS_SERVER_URL", default="")
+IKI_RUNS_SERVICE_ACCOUNT: str = env.str("IKI_RUNS_SERVICE_ACCOUNT", default="iki-run")
+IKI_RUNS_IMAGE_PULL_SECRETS: list[str] = env.list("IKI_RUNS_IMAGE_PULL_SECRETS", default=[])
+#: Plain http:// to the server, for a development cluster without TLS.
+IKI_RUNS_ALLOW_HTTP: bool = env.bool("IKI_RUNS_ALLOW_HTTP", default=False)
 if find_spec("iki_installed_plugins") is not None:
     import iki_installed_plugins as _plugins  # type: ignore[import-not-found]
 

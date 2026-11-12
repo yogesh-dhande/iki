@@ -25,7 +25,16 @@ from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import access, registry, schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
-from iki_server.runs import approvals, catalog, input_files, quotas, secrets, services, workers
+from iki_server.runs import (
+    approvals,
+    catalog,
+    input_files,
+    provisioner,
+    quotas,
+    secrets,
+    services,
+    workers,
+)
 from iki_server.runs.models import (
     FINISHED,
     ActionRun,
@@ -413,7 +422,8 @@ class RunOut(Schema):
     metrics: dict[str, float]
     messages: list[MessageOut]
     waiting: str | None = Field(
-        description="Why a queued run hasn't started, when a quota is holding it."
+        description="Why a queued run hasn't started: a quota is holding it, or the machine "
+        "being started for it is waiting (for a node with a GPU, say)."
     )
     needs_worker: Literal["yours", "theirs"] | None = Field(
         description="A queued client-tier run whose requester has no worker online on their "
@@ -435,6 +445,10 @@ class RunOut(Schema):
         description="Once a reproduction has its results: whether they match the original's."
     )
     can: RunCan
+
+
+def _qualified_environment(run: ActionRun) -> str:
+    return f"{run.action.partition('.')[0]}.{run.environment}"
 
 
 def _effect_out(effect: RunEffect) -> dict[str, Any]:
@@ -549,6 +563,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         r.requested_by_id for r in runs if r.status == RunStatus.QUEUED and r.tier == "client"
     }
     online = workers.online_owners(waiting_for_client) if waiting_for_client else set()
+    starting = provisioner.waiting(
+        {
+            _qualified_environment(r)
+            for r in runs
+            if r.status == RunStatus.QUEUED and r.tier == "container"
+        }
+    )
     held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})
     batches = {
         b["id"]: b
@@ -585,7 +606,9 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "metrics": outputs.get(run.pk, {}).get("metrics") or {},
             "messages": outputs.get(run.pk, {}).get("messages") or [],
             "waiting": (
-                holds[run.tier].why(run.project) if run.status == RunStatus.QUEUED else None
+                holds[run.tier].why(run.project) or starting.get(_qualified_environment(run))
+                if run.status == RunStatus.QUEUED
+                else None
             ),
             "needs_worker": (
                 ("yours" if run.requested_by_id == me.pk else "theirs")
@@ -1106,6 +1129,9 @@ class RunAttemptOut(Schema):
     environment_build: str = Field(
         description="The digest of the environment it ran in; empty for the host's own software."
     )
+    template: str = Field(
+        description="The compute template of the machine Iki started for it, if it did (ADR 0061)."
+    )
     queued_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -1154,6 +1180,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 "state": job.state,
                 "worker": held.worker.name if held.worker else None,
                 "environment_build": job.environment_build,
+                "template": job.template,
                 "queued_at": job.queued_at,
                 "started_at": job.started_at,
                 "finished_at": job.finished_at,

@@ -15,14 +15,23 @@ ARG DEBIAN_IMAGE=debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f5860
 FROM mambaorg/micromamba:2.3.3@sha256:800e7ade3ffe29c9a9ac2026163131495f8197c3852e572c5835beb4e8a33cd6 AS micromamba
 
 # --- Build ----------------------------------------------------------------------
+# A static (musl) binary, as releases are: the container tier copies it into plugins'
+# own images (ADR 0061), whatever C library they have, if any.
 FROM ${RUST_IMAGE} AS build
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends musl-tools file \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
+RUN rustup target add "$(uname -m)-unknown-linux-musl"
 COPY worker/crates crates
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked -p iki-worker \
- && install -m 0755 target/release/iki-worker /usr/local/bin/iki-worker
+    target="$(uname -m)-unknown-linux-musl" \
+ && cargo build --release --locked --target "$target" -p iki-worker \
+ && file "target/$target/release/iki-worker" | grep -Eq "static(-pie|ally) linked" \
+ && ! file "target/$target/release/iki-worker" | grep -q interpreter \
+ && install -m 0755 "target/$target/release/iki-worker" /usr/local/bin/iki-worker
 
 # --- Runtime --------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS runtime

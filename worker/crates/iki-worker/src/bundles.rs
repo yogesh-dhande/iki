@@ -21,6 +21,7 @@ use iki_protocol::{
 use sha2::{Digest, Sha256};
 
 use crate::api::{Api, Error};
+use crate::config::InImage;
 use crate::files::hex;
 use crate::plugins::{Built, Have, Kind};
 use crate::say;
@@ -66,7 +67,7 @@ pub fn sync(api: &Api, cache: &Path, listed: &[AvailableOut]) -> Have {
     let mut kept_code = BTreeSet::new();
     let mut kept_envs = BTreeSet::new();
     for plugin in listed {
-        let dir = match fetch(api, cache, plugin) {
+        let dir = match fetch(api, cache, plugin, false) {
             Ok(dir) => dir,
             Err(error) => {
                 say::warn(
@@ -105,6 +106,34 @@ pub fn sync(api: &Api, cache: &Path, listed: &[AvailableOut]) -> Have {
     Have::fetched(code, built, dirs)
 }
 
+/// What a worker in an environment's image needs (ADR 0061): that one plugin's code, at
+/// the commit the server installs (or, on a development server, from its local
+/// directory). The image is the environment, so nothing is built.
+pub fn sync_image(
+    api: &Api,
+    cache: &Path,
+    listed: &[AvailableOut],
+    image: &InImage,
+) -> Result<Have, String> {
+    let plugin = listed
+        .iter()
+        .find(|p| p.name == image.plugin())
+        .ok_or_else(|| format!("The server has no code for {} to fetch.", image.plugin()))?;
+    let local = plugin.sha == LOCAL;
+    let dir = fetch(api, cache, plugin, local)?;
+    let mut digests = serde_json::Map::new();
+    digests.insert(image.name().to_owned(), image.digest().to_owned().into());
+    let code = PluginCode {
+        name: plugin.name.clone(),
+        sha: (!local).then(|| plugin.sha.clone()),
+        environments: Some(digests),
+    };
+    Ok(Have::in_image(code, dir, &image.environment))
+}
+
+/// What a development server calls a plugin from a local directory, which has no commit.
+const LOCAL: &str = "local";
+
 fn is_sha(value: &str) -> bool {
     value.len() == 40
         && value
@@ -113,8 +142,9 @@ fn is_sha(value: &str) -> bool {
 }
 
 /// The plugin's code at its commit, from the cache or the server.
-fn fetch(api: &Api, cache: &Path, plugin: &AvailableOut) -> Result<PathBuf, String> {
-    if !crate::plugins::is_plugin_name(&plugin.name) || !is_sha(&plugin.sha) {
+fn fetch(api: &Api, cache: &Path, plugin: &AvailableOut, local: bool) -> Result<PathBuf, String> {
+    let named = is_sha(&plugin.sha) || (local && plugin.sha == LOCAL);
+    if !crate::plugins::is_plugin_name(&plugin.name) || !named {
         return Err("the server named it oddly".to_owned());
     }
     let dir = cache.join("plugins").join(&plugin.name).join(&plugin.sha);

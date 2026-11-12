@@ -277,6 +277,8 @@ def _compute(lock: Lock, fetched: list[_Fetched], err: TextIO) -> compute_spec.C
 
 #: In ``iki_installed_plugins``: each pinned plugin's code, for workers to fetch (ADR 0059).
 BUNDLES = "bundles"
+#: What a plugin from a local directory's bundle is named for, in place of its commit.
+LOCAL = "local"
 
 
 def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]:
@@ -284,12 +286,14 @@ def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]
     server tells workers of it, by plugin."""
     made: dict[str, dict[str, Any]] = {}
     for item in fetched:
-        if item.entry.sha is None or item.plugin is None:
-            continue  # a local directory, for development: workers there have it
+        if item.plugin is None:
+            continue
+        # A local directory (development only) has no commit: its bundle is ``local``, for
+        # the pods a development cluster starts for runs (ADR 0061).
         output.mkdir(exist_ok=True)
         try:
             packed = workers.bundle(
-                item.directory, output / f"{item.entry.name}-{item.entry.sha}.tar.gz"
+                item.directory, output / f"{item.entry.name}-{item.entry.sha or LOCAL}.tar.gz"
             )
         except ValueError as error:
             raise ValueError(f"{item.label}: {error}") from None

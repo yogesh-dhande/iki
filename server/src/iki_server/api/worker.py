@@ -37,8 +37,8 @@ from iki_server.files import storage
 from iki_server.files.models import Upload, UploadState
 from iki_server.org.services import Refused
 from iki_server.realtime.views import db
-from iki_server.runs import input_files, queue, uploads, wakeup, workers
-from iki_server.runs.models import RegistrationToken, Worker
+from iki_server.runs import catalog, input_files, launches, queue, uploads, wakeup, workers
+from iki_server.runs.models import Launch, RegistrationToken, Worker
 from iki_server.web.ratelimit import RateLimiter, client_key
 
 #: The longest a lease request waits for a job.
@@ -63,7 +63,14 @@ class RegistrationAuth(HttpBearer):
     """A registration token, or the access token ``iki-worker login`` got, to register
     with."""
 
-    def authenticate(self, request: HttpRequest, token: str) -> RegistrationToken | SignedIn | None:
+    def authenticate(
+        self, request: HttpRequest, token: str
+    ) -> RegistrationToken | SignedIn | Launch | None:
+        if token.startswith(launches.LAUNCH_PREFIX):
+            launch = launches.for_token(token)
+            if launch is None:
+                _refuse(request)
+            return launch
         if token.startswith(workers.REGISTRATION_PREFIX):
             found = workers.registration_for(f"Bearer {token}")
             if found is None:
@@ -248,6 +255,26 @@ def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
     }
     if isinstance(auth, SignedIn):
         worker, token = workers.register_client(auth.person, auth.access_token, **details)
+    elif isinstance(auth, Launch):
+        template = catalog.compute().templates.get(auth.template)
+        if template is None:
+            raise Problem(
+                409,
+                f"This deployment no longer has the compute template `{auth.template}` it was "
+                "launched for.",
+                code="template_gone",
+            )
+        try:
+            worker, token = launches.register(
+                auth,
+                name=payload.name,
+                version=payload.version,
+                capacity=details["capacity"],
+                template_capacity=launches.capacity_of(template),
+            )
+        except Launch.DoesNotExist:
+            _refuse(request)
+            raise Problem(401) from None
     else:
         assert isinstance(auth, RegistrationToken)  # noqa: S101 - RegistrationAuth set it
         worker, token = workers.register(auth, **details)
@@ -356,18 +383,23 @@ class AvailableListOut(Schema):
 @api.get("/plugins", response=AvailableListOut, summary="Plugin code to fetch")
 def available(request: HttpRequest) -> dict[str, Any]:
     """The code of each plugin this deployment installs from a commit, for a worker on
-    someone's computer to fetch and build (ADR 0059): it then runs what's launched now."""
-    _worker(request)
+    someone's computer to fetch and build (ADR 0059): it then runs what's launched now.
+    A machine Iki started for runs gets only its own plugin's (ADR 0061): on a development
+    server, that may be one from a local directory, whose ``sha`` is ``local``."""
+    worker = _worker(request)
+    mine = worker.launch.environment.partition(".")[0] if worker.launch is not None else None
     plugins = [
         {
             "name": entry["name"],
             "version": entry["version"],
-            "sha": entry["sha"],
+            "sha": entry.get("sha") or registry.LOCAL,
             "bundle": entry["bundle"],
             "environments": entry.get("environments") or {},
         }
         for entry in (registry.installed() or {}).get("plugins", ())
-        if entry.get("bundle") and entry.get("state", "active") == "active"
+        if entry.get("bundle")
+        and entry.get("state", "active") == "active"
+        and (entry["name"] == mine if mine is not None else bool(entry.get("sha")))
     ]
     return {"plugins": sorted(plugins, key=lambda p: p["name"])}
 
@@ -383,12 +415,17 @@ def available(request: HttpRequest) -> dict[str, Any]:
 def download_plugin(request: HttpRequest, name: str, sha: str) -> HttpResponseBase:
     """A gzipped tar of the plugin's code at that commit, which ``iki deploy build`` wrote.
     Check its SHA-256 against the list before unpacking it."""
-    _worker(request)
-    file = registry.bundle(name, sha) if re.fullmatch(r"[0-9a-f]{40}", sha) else None
+    worker = _worker(request)
+    local = sha == registry.LOCAL
+    # A local plugin's code goes only to the machines a development server starts for it.
+    mine = worker.launch is not None and worker.launch.environment.partition(".")[0] == name
+    named = re.fullmatch(r"[0-9a-f]{40}", sha) is not None or (local and mine)
+    file = registry.bundle(name, sha) if named else None
     if file is None:
         raise HttpError(404, "This deployment has no code for that plugin at that commit.")
     response = FileResponse(file.open("rb"), content_type="application/gzip")
-    response["Cache-Control"] = "private, max-age=31536000, immutable"
+    # A commit's code never changes; a local directory's may with each build.
+    response["Cache-Control"] = "no-store" if local else "private, max-age=31536000, immutable"
     return response
 
 

@@ -79,8 +79,9 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         "protein.import_proteins",
         RELAX,
         PREDICT,
+        "structure_prediction.predict_with_colabfold",
     ]
-    compute, _, _, _, predict = actions
+    compute, _, _, _, predict, _ = actions
     assert compute["tier"] == "backend"
     assert compute["available"] is True
     assert compute["needs"] == "Editor"
@@ -139,7 +140,11 @@ def test_lists_the_actions_that_take_a_type(world: World) -> None:
         assert found.status_code == 200, found.content
         return [a["name"] for a in found.json()]
 
-    assert taking("protein.Protein") == [COMPUTE, PREDICT]
+    assert taking("protein.Protein") == [
+        COMPUTE,
+        PREDICT,
+        "structure_prediction.predict_with_colabfold",
+    ]
     assert taking("protein.ProteinStructure") == [RELAX]
     assert taking("protein.Protein", "protein.ProteinStructure") == []
     assert taking("dna.DNASequence") == []

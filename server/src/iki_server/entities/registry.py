@@ -93,14 +93,20 @@ def settings(plugin: str) -> dict[str, Any]:
     return values
 
 
+#: What a plugin from a local directory's bundle is named for, in place of its commit:
+#: development builds only (ADR 0061).
+LOCAL = "local"
+
+
 def bundle(name: str, sha: str) -> Path | None:
-    """The bundle of `name`'s code at `sha` that ``iki deploy build`` wrote, for workers on
-    people's computers (ADR 0059), if this build installs that plugin at that commit."""
+    """The bundle of `name`'s code at `sha` that ``iki deploy build`` wrote, for workers to
+    fetch (ADR 0059), if this build installs that plugin at that commit. ``local`` names a
+    plugin from a local directory, in a development build."""
     directory = bundles()
     if directory is None:
         return None
     for entry in (installed() or {}).get("plugins", ()):
-        if entry.get("name") == name and entry.get("sha") == sha and entry.get("bundle"):
+        if entry.get("name") == name and (entry.get("sha") or LOCAL) == sha and entry.get("bundle"):
             found = directory / f"{name}-{sha}.tar.gz"
             return found if found.is_file() else None
     return None

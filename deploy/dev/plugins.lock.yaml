@@ -7,3 +7,5 @@ apiVersion: iki/v1
 kind: PluginLock
 plugins:
   - { name: dna, local: ../../plugins/dna, state: active }
+  # The plugin template, for its container-tier action (ADR 0061).
+  - { name: example, local: ../../plugin-template, state: active }

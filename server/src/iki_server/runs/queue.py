@@ -40,7 +40,7 @@ from django.utils import timezone
 
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
-from iki_server.runs import live, quotas, secrets, workers
+from iki_server.runs import launches, live, quotas, secrets, workers
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -96,6 +96,7 @@ _FINAL = {
     "timed_out": RunStatus.TIMED_OUT,
     "interrupted": RunStatus.FAILED,
     "worker_lost": RunStatus.FAILED,
+    "machine_unavailable": RunStatus.FAILED,
 }
 
 
@@ -187,6 +188,13 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         tier=worker.tier,
         queued_at__lte=Now(),
     )
+    if worker.launch_id is not None:
+        # A machine Iki started runs its own environment, and an ephemeral one only one
+        # job (ADR 0061).
+        assert worker.launch is not None  # noqa: S101 - launch_id is set
+        if not launches.may_lease(worker):
+            return None
+        candidates = candidates.filter(environment=worker.launch.environment)
     if worker.tier == "client":
         candidates = candidates.filter(owner=worker.owner_id)
         allowed = workers.allowed_projects(worker)
@@ -213,7 +221,9 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         run = ActionRun.objects.select_for_update().get(pk=job.run_id)
         members = _pack(job, run)
         build = _build(worker, job.environment)
+        template = worker.launch.template if worker.launch is not None else ""
         job.state = JobState.LEASED
+        job.template = template
         job.worker = worker
         job.lease_token = uuid.uuid4()
         job.lease_expires_at = now + LEASE_TTL
@@ -227,6 +237,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
                 "lease_expires_at",
                 "started_at",
                 "environment_build",
+                "template",
             ]
         )
         Job.objects.filter(pk__in=[m.pk for m in members]).update(
@@ -234,6 +245,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             worker=worker,
             started_at=now,
             environment_build=build,
+            template=template,
             packed_into=job,
         )
         runs = [
@@ -622,6 +634,12 @@ def _plugin_changed(run: ActionRun) -> bool:
     if installed is None:
         return True
     return installed.version != run.plugin_version or plugin_sha(plugin) != run.plugin_sha
+
+
+def fail_queued(job: Job, reason: str, message: str) -> ActionRun:
+    """Ends a queued attempt that can't run here (no machine for it can start), and its
+    run with it. Call inside a transaction, with the job locked."""
+    return _end_attempt(job, JobState.FAILED, reason, message)
 
 
 def interrupt_worker(worker: Worker, *, code: str) -> int:

@@ -7,6 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 ref="$1"
 docker build -f worker/Dockerfile -t iki-worker-base:dev .
+# Container-tier run pods copy iki-worker from it (containerTier.workerImage).
+kind load docker-image iki-worker-base:dev --name iki >/dev/null
 rm -rf build/dev/worker build/dev/worker-server
 uv run --frozen iki deploy build deploy/dev --output build/dev/worker-server/plugins \
   --workers build/dev/worker --allow-local
