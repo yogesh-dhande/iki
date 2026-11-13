@@ -81,6 +81,9 @@ VOLUME_TAG = "iki.ikisci.org/volume"
 REMOVAL_TAG = "iki.ikisci.org/removal"
 #: What it says on its console once it has.
 REMOVED = "IKI-REMOVED"
+#: What a setup build's machine says, with a volume's name, once it has copied the disk
+#: its script filled into the version's directory in a bucket (ADR 0078).
+PUBLISHED = "IKI-PUBLISHED"
 #: Its instance type, unless the template says.
 CLEANUP_INSTANCE_TYPE = "t3.small"
 
@@ -90,6 +93,11 @@ HOST_WORKER = f"{HOST}/bin/iki-worker"
 HOST_SCRATCH = "/var/lib/iki/scratch"
 #: Where the machine mounts each volume's disk, by the volume's name.
 HOST_VOLUMES = "/var/lib/iki/volumes"
+#: And each bucket a setup build's disk is copied into.
+HOST_BUCKETS = "/var/lib/iki/buckets"
+#: The file the worker writes in the scratch directory once the server has taken a setup
+#: build as succeeded, so the machine copies its disks into their bucket only then.
+SUCCEEDED = ".iki-setup-succeeded"
 #: The device names data disks are attached as, in order of their volumes' names. On
 #: Nitro instances the kernel names them nvme…; the image's udev rules (Amazon Linux's
 #: amazon-ec2-utils) link these names to them.
@@ -218,6 +226,9 @@ class Disk:
     #: with the machine. A setup build's gets an empty one, writable, kept when the
     #: machine ends so it can be snapshotted.
     snapshot: str | None = None
+    #: Or, for a volume in a bucket (ADR 0078), copied into the version's directory there
+    #: once the build has succeeded, by the machine before it shuts down.
+    publish: Shared | None = None
 
     @property
     def writable(self) -> bool:
@@ -246,16 +257,19 @@ def disks(volumes: dict[str, dict[str, Any]], *, setup: bool = False) -> list[Di
     for name, v in sorted(volumes.items()):
         if "filesystem" in v:
             given = v["filesystem"]
-            found.append(
-                Shared(
-                    name,
-                    str(v["mount"]),
-                    (str(given["type"]), str(given["source"])),
-                    str(v["root"]),
-                    str(v["directory"]),
-                    writable=setup,
-                )
+            version = Shared(
+                name,
+                str(v["mount"]),
+                (str(given["type"]), str(given["source"])),
+                str(v["root"]),
+                str(v["directory"]),
+                writable=setup,
             )
+            if setup and v.get("strategy") == "object_mount":
+                # A bucket can't be written in place: the script fills a disk first.
+                found.append(Disk(name, str(v["mount"]), int(v["size"]), publish=version))
+            else:
+                found.append(version)
         else:
             found.append(Disk(name, str(v["mount"]), int(v["size"]), v.get("snapshot")))
     return found
@@ -276,6 +290,15 @@ def _host_volumes(data: list[Disk | Shared]) -> list[dict[str, Any]]:
         if isinstance(each, Disk):
             given["device"] = DEVICES[attached]
             attached += 1
+            if each.publish is not None:
+                kind, source = each.publish.filesystem
+                given["publish"] = {
+                    "name": each.name,
+                    "filesystem": {"type": kind, "source": source},
+                    "root": each.publish.root,
+                    "directory": each.publish.directory,
+                    "path": f"{HOST_BUCKETS}/{each.name}",
+                }
         else:
             kind, source = each.filesystem
             given["filesystem"] = {"type": kind, "source": source}
@@ -323,6 +346,9 @@ def host_config(
         once=once,
     )
     env["IKI_WORKER_NAME"] = name
+    publishing = any(isinstance(each, Disk) and each.publish for each in data or [])
+    if publishing:
+        env["IKI_SETUP_SUCCEEDED_FILE"] = f"{SCRATCH}/{SUCCEEDED}"
     return {
         "name": name,
         "image": image,
@@ -341,6 +367,7 @@ def host_config(
         "stop_timeout": STOP,
         "spot_stop_timeout": SPOT_STOP,
         "volumes": _host_volumes(data or []),
+        **({"succeeded_file": f"{HOST_SCRATCH}/{SUCCEEDED}"} if publishing else {}),
     }
 
 

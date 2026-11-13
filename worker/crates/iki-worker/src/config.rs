@@ -45,6 +45,10 @@ pub struct Config {
     /// each, so the next starts clean (ADR 0062). If its cache is in there too, it
     /// fetches its plugin's code again.
     pub clean_dir: Option<PathBuf>,
+    /// `IKI_SETUP_SUCCEEDED_FILE`: on a cloud machine whose setup build's disks are then
+    /// copied into a bucket (ADR 0078), the file to write once the server has taken the
+    /// build as succeeded, so the machine copies them only then.
+    pub setup_succeeded_file: Option<PathBuf>,
 }
 
 /// The environment a worker runs in the image of.
@@ -322,6 +326,7 @@ impl Config {
             auto_update: !get("IKI_WORKER_AUTO_UPDATE").is_some_and(|v| v == "0" || v == "false"),
             allow_http,
             image,
+            setup_succeeded_file: get("IKI_SETUP_SUCCEEDED_FILE").map(PathBuf::from),
             idle_exit: match get("IKI_WORKER_IDLE_EXIT") {
                 None => None,
                 Some(raw) => Some(Duration::from_secs(raw.parse().map_err(

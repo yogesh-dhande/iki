@@ -149,7 +149,7 @@ pub fn run(
     };
     job.signals.output_read.store(true, Ordering::SeqCst);
     let _ = sending.join();
-    let ended = report(&job, finish);
+    let ended = report(&job, finish, config.setup_succeeded_file.as_deref());
     job.signals.finished.store(true, Ordering::SeqCst);
     let _ = beating.join();
     if !config.keep_job_dirs
@@ -478,7 +478,7 @@ fn ending(
 }
 
 /// Sends the rest of the log and how the build ended.
-fn report(job: &Job, finish: Option<Finish>) -> Ended {
+fn report(job: &Job, finish: Option<Finish>, succeeded_file: Option<&Path>) -> Ended {
     let deadline = Instant::now() + REPORT_FOR;
     let unauthorized = || {
         if job.signals.unauthorized.load(Ordering::SeqCst) {
@@ -519,15 +519,23 @@ fn report(job: &Job, finish: Option<Finish>) -> Ended {
         job.api
             .post::<_, SetupFinishOut>(&job.path(paths::SETUPS_FINISH), &body)
     }) {
-        Ok(out) => say::info(
-            "Reported how the setup build ended.",
-            &[
-                ("setup", &job.id),
-                ("outcome", &format!("{:?}", finish.outcome)),
-                ("detail", &finish.message),
-                ("state", &out.map(|o| o.state).unwrap_or_default()),
-            ],
-        ),
+        Ok(out) => {
+            let state = out.map(|o| o.state).unwrap_or_default();
+            say::info(
+                "Reported how the setup build ended.",
+                &[
+                    ("setup", &job.id),
+                    ("outcome", &format!("{:?}", finish.outcome)),
+                    ("detail", &finish.message),
+                    ("state", &state),
+                ],
+            );
+            if state == "snapshotting"
+                && let Some(path) = succeeded_file
+            {
+                said_it_succeeded(path);
+            }
+        }
         Err(error) => {
             job.note(&error);
             say::error(
@@ -537,6 +545,18 @@ fn report(job: &Job, finish: Option<Finish>) -> Ended {
         }
     }
     unauthorized()
+}
+
+/// On a cloud machine whose disks are then copied into a bucket (ADR 0078): tells the
+/// machine the server took the build as succeeded, by writing the file it names in
+/// `IKI_SETUP_SUCCEEDED_FILE`, so it copies them only then.
+fn said_it_succeeded(path: &Path) {
+    if let Err(error) = std::fs::write(path, "") {
+        say::error(
+            "Couldn't say the setup build succeeded; its disks won't be copied.",
+            &[("path", &path.display()), ("detail", &error)],
+        );
+    }
 }
 
 /// The server sent a setup build this worker can't read: say so, so it doesn't wait for
@@ -842,6 +862,7 @@ mod tests {
             image: None,
             idle_exit: None,
             clean_dir: None,
+            setup_succeeded_file: Some(dir.join("succeeded")),
         }
     }
 
@@ -893,6 +914,8 @@ mod tests {
         );
         // Its directory is gone.
         assert!(!dir.0.join("work/setups/s1").exists());
+        // The server took it as succeeded, so its machine may copy its disks.
+        assert!(dir.0.join("succeeded").is_file());
     }
 
     #[test]

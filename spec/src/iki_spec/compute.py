@@ -109,12 +109,14 @@ class TemplateVolume:
     #: system (FSx for Lustre, EFS, NFS), in the namespace runs go in; with
     #: `object_mount`, of a bucket, through Mountpoint for Amazon S3. On `aws_ec2`, what
     #: machines mount: an NFS export (`nfs`, such as EFS's) or a Lustre file system's
-    #: (`lustre`, such as FSx for Lustre's). Either way, `path` is the directory in it Iki
-    #: keeps versions under.
+    #: (`lustre`, such as FSx for Lustre's), or with `object_mount`, the S3 `bucket` they
+    #: mount with Mountpoint. Either way, `path` is the directory in it Iki keeps versions
+    #: under.
     claim: str | None = None
     path: str | None = None
     nfs: str | None = None
     lustre: str | None = None
+    bucket: str | None = None
 
     @property
     def root(self) -> str:
@@ -127,6 +129,8 @@ class TemplateVolume:
             return {"type": "nfs", "source": self.nfs}
         if self.lustre is not None:
             return {"type": "lustre", "source": self.lustre}
+        if self.bucket is not None:
+            return {"type": "s3", "source": self.bucket}
         return None
 
 
@@ -360,6 +364,7 @@ def _template(data: dict[str, Any]) -> Template:
                 path=v.get("path"),
                 nfs=v.get("nfs"),
                 lustre=v.get("lustre"),
+                bucket=v.get("bucket"),
             )
             for n, v in (data.get("volumes") or {}).items()
         },
@@ -547,9 +552,10 @@ class _Rules:
                 ),
                 ("nfs", "`shared_filesystem` on `aws_ec2`", shared),
                 ("lustre", "`shared_filesystem` on `aws_ec2`", shared),
+                ("bucket", "`object_mount` on `aws_ec2`", volume.strategy == "object_mount"),
                 ("path", "`shared_filesystem` or `object_mount`", mounted),
             ):
-                if option in ("nfs", "lustre"):
+                if option in ("nfs", "lustre", "bucket"):
                     fits = fits and template.provisioner == "aws_ec2"
                 if getattr(volume, option) is not None and not fits:
                     self.add(
@@ -587,6 +593,19 @@ class _Rules:
                     hint="Add `nfs: fs-0123.efs.us-east-1.amazonaws.com:/` for EFS, or "
                     "`lustre: fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh` for FSx for "
                     "Lustre.",
+                )
+            if (
+                volume.strategy == "object_mount"
+                and template.provisioner == "aws_ec2"
+                and volume.bucket is None
+            ):
+                self.add(
+                    "object-mount-bucket-missing",
+                    "`object_mount` on `aws_ec2` needs the S3 `bucket` machines mount.",
+                    document,
+                    (*path, "strategy"),
+                    hint="Add `bucket: <name>`, in the template's region, which its machines' "
+                    "role can read, and write and delete under `path`.",
                 )
             for option in ("iops", "throughput"):
                 if getattr(volume, option) is not None and template.provisioner != "aws_ec2":

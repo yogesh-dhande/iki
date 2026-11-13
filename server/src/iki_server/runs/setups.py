@@ -137,7 +137,7 @@ def fillable(template: Template, volume: str) -> bool:
     if given.strategy in FILLED_BY_SNAPSHOT:
         return True
     if given.strategy == OBJECTS:
-        return template.provisioner in KUBERNETES
+        return template.provisioner in KUBERNETES or given.filesystem is not None
     return given.strategy == SHARED and (
         template.provisioner in KUBERNETES or given.filesystem is not None
     )

@@ -24,6 +24,13 @@
 //! read-only for a run. For a setup build, runs' user makes that directory first
 //! (`iki-worker prepare`), and the script fills it.
 //!
+//! Or in an S3 bucket (ADR 0078), which the machine mounts with Mountpoint for Amazon S3
+//! (`mount-s3`): a run's container gets its version's directory read-only. A setup
+//! build's script fills a disk, as for a snapshot; once its container has ended, if the
+//! worker said the build succeeded (a file in the scratch directory), runs' user copies
+//! the disk into the version's own directory in the bucket (`iki-worker publish`), and
+//! the machine says `IKI-PUBLISHED <volume>` on its console, which the provisioner reads.
+//!
 //! A machine whose config says what to `remove` only mounts those file systems, removes
 //! the versions as runs' user (`iki-worker remove`), says `IKI-REMOVED` on its console,
 //! and shuts down.
@@ -77,6 +84,10 @@ pub struct Config {
     /// A disk for each of the environment's volumes.
     #[serde(default)]
     pub volumes: Vec<Volume>,
+    /// For a setup build whose disks are copied into a bucket: the file the worker writes
+    /// once the server has taken the build as succeeded, on the machine.
+    #[serde(default)]
+    pub succeeded_file: Option<PathBuf>,
 }
 
 /// One of the environment's volumes: a disk attached to the machine, or a version's
@@ -100,13 +111,16 @@ pub struct Volume {
     pub mount: String,
     /// A setup build's: to fill. Otherwise read-only.
     pub writable: bool,
+    /// A setup build's disk that's then copied into its version's directory in a bucket.
+    #[serde(default)]
+    pub publish: Option<Removal>,
 }
 
 /// A shared file system a machine mounts.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileSystem {
-    /// `nfs` or `lustre`.
+    /// `nfs`, `lustre`, or `s3` (a bucket).
     #[serde(rename = "type")]
     pub kind: String,
     /// Such as `fs-0123.efs.us-east-1.amazonaws.com:/`.
@@ -124,7 +138,8 @@ pub struct Cleanup {
     pub remove: Vec<Removal>,
 }
 
-/// A version to remove: `directory`, under `root` in the file system, mounted at `path`.
+/// A version to remove (or copy a disk into): `directory`, under `root` in the file
+/// system, mounted at `path`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Removal {
@@ -218,6 +233,16 @@ pub fn host(config_file: &Path) -> Result<(), String> {
         Err(message) => Err(Trouble::new("bad_config", message.clone())),
     };
     if let (Ok(config), Ok(Ended::Exited(_) | Ended::Reclaimed(_))) = (&config, &ended) {
+        match publish(config, &machine) {
+            Ok(published) => {
+                for name in published {
+                    let _ = std::io::stderr()
+                        .lock()
+                        .write_all(format!("{PUBLISHED} {name}\n").as_bytes());
+                }
+            }
+            Err(trouble) => tell(&trouble),
+        }
         release(config, &machine);
     }
     let outcome = match ended {
@@ -260,6 +285,68 @@ fn clean_up_and_shut_down(cleanup: &Cleanup, machine: &Machine) -> Result<(), St
 
 /// What a cleanup machine says on its console once it has removed them all.
 pub const REMOVED: &str = "IKI-REMOVED";
+/// What a setup build's machine says, with the volume's name, once it has copied its disk
+/// into the version's directory in a bucket.
+pub const PUBLISHED: &str = "IKI-PUBLISHED";
+
+/// Copies each setup build's disk that's to go into a bucket there, as runs' user, once
+/// its container has ended, if the worker said the build succeeded. Returns the volumes
+/// it copied.
+pub fn publish(config: &Config, machine: &Machine) -> Result<Vec<String>, Trouble> {
+    let wanted: Vec<(&Volume, &Removal)> = config
+        .volumes
+        .iter()
+        .filter_map(|v| v.publish.as_ref().map(|p| (v, p)))
+        .collect();
+    if wanted.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !config.succeeded_file.as_ref().is_some_and(|f| f.is_file()) {
+        say::info(
+            "The setup build didn't succeed: nothing to copy into its bucket.",
+            &[("machine", &config.name)],
+        );
+        return Ok(Vec::new());
+    }
+    let mut published = Vec::new();
+    let mut outcome = Ok(());
+    for (volume, to) in &wanted {
+        let trouble = |message: String| {
+            Trouble::new(
+                "publish_failed",
+                format!("{} ({}): {message}", volume.name, to.directory),
+            )
+        };
+        if !crate::shared::plain(&to.root) || !crate::shared::plain(&to.directory) {
+            outcome = Err(trouble("not a plain relative path".into()));
+            break;
+        }
+        if let Err(error) = mount_shared(machine, &to.filesystem, &to.path, true, &config.user) {
+            outcome = Err(trouble(error));
+            break;
+        }
+        say::info(
+            "Copying a volume's disk into its bucket.",
+            &[("volume", &volume.name), ("directory", &to.directory)],
+        );
+        let from = volume.path.to_string_lossy().into_owned();
+        let root = to.path.join(&to.root).to_string_lossy().into_owned();
+        if let Err(error) = as_user(
+            machine,
+            &config.user,
+            &config.worker,
+            &["publish", &from, &root, &to.directory],
+        ) {
+            outcome = Err(trouble(error));
+            break;
+        }
+        published.push(volume.name.clone());
+    }
+    for (_, to) in &wanted {
+        let _ = tool(machine, "umount", &[&to.path.to_string_lossy()]);
+    }
+    outcome.map(|()| published)
+}
 
 /// Mounts each version's file system, and removes the version as runs' user.
 pub fn clean_up(cleanup: &Cleanup, machine: &Machine) -> Result<(), Trouble> {
@@ -276,7 +363,8 @@ pub fn clean_up(cleanup: &Cleanup, machine: &Machine) -> Result<(), Trouble> {
             outcome = Err(trouble("not a plain relative path".into()));
             break;
         }
-        if let Err(error) = mount_shared(machine, &each.filesystem, &each.path, true) {
+        if let Err(error) = mount_shared(machine, &each.filesystem, &each.path, true, &cleanup.user)
+        {
             outcome = Err(trouble(error));
             break;
         }
@@ -304,16 +392,42 @@ pub fn clean_up(cleanup: &Cleanup, machine: &Machine) -> Result<(), Trouble> {
 
 /// Mounts a shared file system at `path`, unless it is already: NFS 4.1 as EFS advises,
 /// read-only unless `writable`, or Lustre as AWS advises (whose client the
-/// machine image needs). Either way, with no devices or set-user-ID programs.
+/// machine image needs), with no devices or set-user-ID programs. Or a bucket with
+/// Mountpoint for Amazon S3 (which the machine image needs), its files `user`'s, read-only
+/// unless `writable` (then they can be deleted too), and open to the container.
 fn mount_shared(
     machine: &Machine,
     filesystem: &FileSystem,
     path: &Path,
     writable: bool,
+    user: &str,
 ) -> Result<(), String> {
     let at = path.to_string_lossy().into_owned();
     if tool(machine, "mountpoint", &["-q", &at]).is_ok() {
         return Ok(()); // an earlier start of this service mounted it
+    }
+    if filesystem.kind == "s3" {
+        let (uid, gid) = user.split_once(':').unwrap_or((user, user));
+        std::fs::create_dir_all(path).map_err(|e| format!("couldn't make {at}: {e}"))?;
+        let access = if writable {
+            "--allow-delete"
+        } else {
+            "--read-only"
+        };
+        return tool(
+            machine,
+            "mount-s3",
+            &[
+                &filesystem.source,
+                &at,
+                "--allow-other",
+                "--uid",
+                uid,
+                "--gid",
+                gid,
+                access,
+            ],
+        );
     }
     let (kind, options) = match filesystem.kind.as_str() {
         "nfs" => (
@@ -497,7 +611,14 @@ fn attach_shared(
             format!("{}'s directory isn't a plain relative path", volume.name),
         ));
     }
-    mount_shared(machine, filesystem, &volume.path, volume.writable).map_err(&trouble)?;
+    mount_shared(
+        machine,
+        filesystem,
+        &volume.path,
+        volume.writable,
+        &config.user,
+    )
+    .map_err(&trouble)?;
     if volume.writable {
         let root = volume.path.join(root).to_string_lossy().into_owned();
         as_user(
@@ -1028,6 +1149,7 @@ esac
             ("mountpoint", "exit 1"),
             ("mount", "exit 0"),
             ("umount", "exit 0"),
+            ("mount-s3", "exit 0"),
             ("chown", "exit 0"),
             (
                 "setpriv",
@@ -1282,6 +1404,70 @@ esac
             dir.0.display()
         );
         assert!(create.contains(&mount), "{create}");
+    }
+
+    #[test]
+    fn a_setup_builds_disk_is_copied_into_its_bucket_only_once_it_succeeded() {
+        let dir = Dir::new("publish");
+        let (_, file, machine) = with_volume(&dir.0, true, true);
+        let mut json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        let succeeded = dir.0.join("scratch/.iki-setup-succeeded");
+        json["succeeded_file"] = serde_json::json!(succeeded);
+        json["volumes"][0]["publish"] = serde_json::json!({
+            "name": "af-db",
+            "filesystem": {"type": "s3", "source": "acme-reference"},
+            "root": "iki",
+            "directory": "sp.alphafold/af-db/SETUP-000001",
+            "path": dir.0.join("buckets/af-db"),
+        });
+        std::fs::write(&file, json.to_string()).unwrap();
+        let config = read(&file).unwrap();
+        // The worker didn't say it succeeded: nothing's copied.
+        assert_eq!(publish(&config, &machine), Ok(vec![]));
+        assert!(tools(&dir.0).is_empty());
+        std::fs::create_dir_all(dir.0.join("scratch")).unwrap();
+        std::fs::write(&succeeded, "").unwrap();
+        assert_eq!(publish(&config, &machine), Ok(vec!["af-db".to_owned()]));
+        assert_eq!(
+            tools(&dir.0),
+            [
+                "mountpoint -q <dir>/buckets/af-db",
+                "mount-s3 acme-reference <dir>/buckets/af-db --allow-other --uid 10001 \
+                 --gid 10001 --allow-delete",
+                "setpriv --reuid 10001 --regid 10001 --clear-groups -- /opt/iki/bin/iki-worker \
+                 publish <dir>/volumes/af-db <dir>/buckets/af-db/iki \
+                 sp.alphafold/af-db/SETUP-000001",
+                "umount <dir>/buckets/af-db",
+            ]
+        );
+        std::fs::write(dir.0.join("fail_setpriv"), "").unwrap();
+        let trouble = publish(&config, &machine).unwrap_err();
+        assert_eq!(trouble.reason, "publish_failed");
+        assert!(trouble.message.contains("Permission denied"), "{trouble:?}");
+    }
+
+    #[test]
+    fn a_run_mounts_its_bucket_read_only_for_the_container() {
+        let dir = Dir::new("s3-read");
+        let (config, file, machine) = with_shared(&dir.0, "s3", false);
+        std::fs::create_dir_all(
+            dir.0
+                .join("volumes/af-db/iki/sp.alphafold/af-db/SETUP-000001"),
+        )
+        .unwrap();
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended, Ok(Ended::Exited(0)));
+        let seen = tools(&dir.0);
+        assert!(
+            seen.contains(
+                &"mount-s3 fs-0123.example.com:/ <dir>/volumes/af-db --allow-other --uid 10001 \
+                  --gid 10001 --read-only"
+                    .to_owned()
+            ),
+            "{seen:?}"
+        );
     }
 
     #[test]

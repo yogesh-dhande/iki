@@ -26,10 +26,19 @@ mounts the file system and gives its container only the version's own directory,
 version is ready once the script succeeds and the machine has ended. Once a version isn't
 kept, a small on-demand machine of the build's template mounts the file system, removes
 it, says so on its console, and shuts down; one that didn't is started again later.
+
+A volume in an S3 bucket (ADR 0078) gets a disk, as for a snapshot, that the build's
+machine copies into the version's own directory in the bucket once its worker has said
+the build succeeded, and says so on its console (``IKI-PUBLISHED <volume>``) before it
+shuts down. The machine is left to finish though its launch has ended; the version is
+ready once its console says so, and the build fails if it says it couldn't, or takes
+longer than :data:`PUBLISH_WITHIN`. The disk is then deleted, and the version is removed
+as one on a shared file system is.
 """
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -43,12 +52,13 @@ from iki_server.runs.ec2 import (
     ENVIRONMENT_TAG,
     LAUNCH_TAG,
     OWNER_TAG,
+    PUBLISHED,
     REMOVAL_TAG,
     REMOVED,
     SETUP_TAG,
     VOLUME_TAG,
+    Disk,
     Ec2Error,
-    Shared,
     cleanup_request,
     disks,
     host_trouble,
@@ -86,6 +96,11 @@ FAST = ("enabling", "optimizing", "enabled")
 #: started again this long after the last one started, and stopped after the longest.
 CLEANUP_AGAIN = timedelta(minutes=15)
 CLEANUP_WITHIN = timedelta(hours=6)
+#: How long a setup build's machine may take to copy its disks into a bucket, once its
+#: worker has gone, before the build fails; and how long its console may take to say so
+#: once it has ended (EC2 keeps it for an hour).
+PUBLISH_WITHIN = timedelta(hours=24)
+CONSOLE_WITHIN = timedelta(minutes=30)
 #: Instance states that mean it has ended, or is ending.
 ENDED = ("shutting-down", "terminated", "stopping", "stopped")
 
@@ -219,7 +234,11 @@ def _record_disks(region: Region, build: SetupBuild) -> None:
         if (m.get("Ebs") or {}).get("VolumeId")
     }
     found: dict[str, dict[str, Any]] = {}
-    on_disks = [v for v in sorted(build.spec["volumes"]) if not setups.shared(build, v)]
+    on_disks = [
+        v
+        for v in sorted(build.spec["volumes"])
+        if not setups.shared(build, v) or setups.staged(build, v)
+    ]
     for n, volume in enumerate(on_disks):
         disk = attached.get(DEVICES[n])
         if disk is None:
@@ -227,8 +246,12 @@ def _record_disks(region: Region, build: SetupBuild) -> None:
         found[volume] = {"disk": disk}
     for volume, recorded in found.items():
         region.ec2.tag(region.name, recorded["disk"], {VOLUME_TAG: volume}, [])
+        if setups.staged(build, volume):
+            # Recorded before anything's copied into the bucket, so a failed build's
+            # partial copy is removed.
+            volumes.record_shared(build, volume)
     for volume, declared in build.spec["volumes"].items():
-        if setups.shared(build, volume):
+        if setups.shared(build, volume) and not setups.staged(build, volume):
             found[volume] = {
                 "filesystem": declared["filesystem"],
                 "directory": declared["directory"],
@@ -261,7 +284,14 @@ def _snapshot(region: Region, build: SetupBuild, now: datetime) -> int:
     recorded = dict(filler.volumes) if filler is not None else {}
     ready = 0
     failure = ""
+    copying = False
     for volume, declared in sorted(build.spec["volumes"].items()):
+        if setups.staged(build, volume):
+            published, why = _published(region, build, volume, filler, now)
+            ready += published
+            copying = copying or not (published or why)
+            failure = failure or why
+            continue
         if setups.shared(build, volume):
             volumes.shared_ready(build, volume, now)
             ready += 1
@@ -299,7 +329,13 @@ def _snapshot(region: Region, build: SetupBuild, now: datetime) -> int:
             record.message = ""
             record.save(update_fields=["state", "ready_at", "message"])
         ready += 1
-    if not failure and build.finished_at is None and volumes.stuck(build, now, SNAPSHOT_WITHIN):
+    if (
+        not failure
+        and not copying
+        and ready < len(build.spec["volumes"])
+        and build.finished_at is None
+        and volumes.stuck(build, now, SNAPSHOT_WITHIN)
+    ):
         failure = "Its snapshots didn't become ready in time."
     if failure:
         volumes.fail(build, SetupState.SNAPSHOTTING, "snapshot_failed", failure)
@@ -311,6 +347,50 @@ def _snapshot(region: Region, build: SetupBuild, now: datetime) -> int:
         if "disk" in disk:
             region.ec2.delete_volume(region.name, disk["disk"])
     return volumes.succeed(build)
+
+
+def copying(build_id: str | None) -> bool:
+    """Whether the setup build's machine may still be copying its disks into a bucket,
+    though its launch has ended: it's left to finish."""
+    if not build_id:
+        return False
+    try:
+        build = SetupBuild.objects.filter(pk=uuid.UUID(build_id)).first()
+    except ValueError:
+        return False
+    return (
+        build is not None
+        and build.state == SetupState.SNAPSHOTTING
+        and any(setups.staged(build, v) for v in build.spec["volumes"])
+    )
+
+
+def _published(
+    region: Region, build: SetupBuild, volume: str, filler: Launch | None, now: datetime
+) -> tuple[int, str]:
+    """Whether the build's machine copied its disk for the volume into the version's
+    directory in the bucket: 1 once its console says it has, or why it couldn't."""
+    if ManagedVolume.objects.filter(build=build, name=volume, state=VolumeState.READY).exists():
+        return 1, ""
+    if filler is None or not filler.machine:
+        return 0, f"Its machine didn't fill a disk for {volume}."
+    instance = next((i for i in region.instances if i["InstanceId"] == filler.machine), None)
+    if instance is not None and _state(instance) not in ENDED:
+        # Still copying, though its worker has gone.
+        if filler.ended_at is not None and now - filler.ended_at > PUBLISH_WITHIN:
+            return 0, f"Its machine took too long to copy {volume} into its bucket."
+        return 0, ""
+    said = region.ec2.console(region.name, filler.machine)
+    if re.search(rf"^{PUBLISHED} {re.escape(volume)}\r?$", said, re.MULTILINE):
+        volumes.shared_ready(build, volume, now)
+        logger.info("setup_published", build=build.hrid, volume=volume)
+        return 1, ""
+    trouble = host_trouble(said)
+    if trouble is not None:
+        return 0, f"Iki couldn't copy {volume} into its bucket: {trouble[1]}"
+    if filler.ended_at is not None and now - filler.ended_at < CONSOLE_WITHIN:
+        return 0, ""  # EC2 posts its console a little after it ends
+    return 0, f"Its machine didn't say it copied {volume} into its bucket."
 
 
 def _take(
@@ -539,9 +619,10 @@ def _clean_up(
         )
         return
     versions = [
-        each
+        version
         for each in disks({r.name: build.spec["volumes"][r.name] for r in records}, setup=True)
-        if isinstance(each, Shared)
+        for version in [each.publish if isinstance(each, Disk) else each]
+        if version is not None
     ]
     name = f"iki-cleanup-{build.hrid.lower()}"
     for subnet in template.aws["subnets"]:

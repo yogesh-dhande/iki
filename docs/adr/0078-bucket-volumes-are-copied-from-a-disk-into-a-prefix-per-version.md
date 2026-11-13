@@ -22,8 +22,8 @@ directly, and fail in ways their authors can't foresee.
 
 ## Decision
 
-**A template names the bucket's claim and a directory in it for Iki, as for
-a shared file system.** On Kubernetes, a volume with `strategy: object_mount`
+**A template names the bucket and a directory in it for Iki, as for a shared
+file system.** On Kubernetes, a volume with `strategy: object_mount`
 names the PersistentVolumeClaim (`claim`) of a PersistentVolume of the
 Mountpoint for Amazon S3 CSI driver, in the namespace its runs go in. It also
 names the directory (a prefix) Iki keeps versions under (`path`, `iki` unless
@@ -55,6 +55,34 @@ failure says which Job's log tells why, which Kubernetes keeps for ten
 minutes. While the copy is running, the build isn't timed out for its
 snapshots: the Job's own deadline bounds it.
 
+**On EC2, the build's machine copies its own disk before it shuts down.** A
+volume with `strategy: object_mount` on `aws_ec2` names the S3 `bucket`
+(in the template's region) and `path`. The machine image needs Mountpoint
+(`mount-s3`). The template's role must be able to read the bucket, and to
+write and delete under `path`. A setup build's machine gets an empty,
+encrypted disk for the volume, as for a snapshot (ADR 0076). Once the server
+has taken the build as succeeded, the worker writes a file in the scratch
+directory (`IKI_SETUP_SUCCEEDED_FILE`), so a failed build's disk is never
+copied. Once the container has ended, `iki-worker host` then mounts the
+bucket with `mount-s3` (files owned by runs' user, deletable, open to the
+container's user), runs `iki-worker publish` as runs' user, and says
+`IKI-PUBLISHED <volume>` on the machine's console, or why it couldn't
+(`IKI-HOST-ERROR publish_failed`), before it shuts down. The container
+can't write to the console, so a script can't claim a copy it didn't make.
+
+Copying on the build's own machine needs no new AWS permissions, reads the
+disk at full speed (a disk restored from a snapshot would load lazily from
+S3), and keeps the disk with nothing but that machine. Its worker has gone
+by then, so its launch has ended; the fleet leaves a machine whose build is
+still copying into a bucket, rather than ending it as a stray. The provisioner
+reads the console once the machine has ended: the version is ready when it
+says so, and the disk is deleted. The build fails if the console says it
+couldn't, says nothing within 30 minutes of the worker going (EC2 keeps the
+console for an hour), or the machine is still copying after 24 hours (then
+the fleet ends it). Runs' machines mount the bucket read-only and give the
+container only the version's directory. ADR 0077's small cleanup machine
+removes versions, mounting the bucket the same way.
+
 **Runs and removal work as on a shared file system.** Run pods mount the
 claim read-only, with the version's directory as the `subPath`. A version
 that isn't kept is removed by ADR 0077's removal Job, which waits for a copy
@@ -84,5 +112,7 @@ whose script has succeeded says its output is being copied into the bucket.
   disk, copy it, mount the copy in a run, and remove it. Mountpoint itself
   isn't exercised there: the worker's copy keeps to what Mountpoint allows
   (each file written once, in order, `fsync` before close).
-- On `aws_ec2`, `object_mount` isn't yet filled by setup builds; a template
-  can't yet name a bucket there.
+- On `aws_ec2`, a build's machine (often a large one) runs for as long as
+  the copy takes. The EC2 path hasn't yet run against AWS: its requests are
+  checked against EC2's API model, and the host against stand-ins for
+  `mount-s3` and `setpriv`.

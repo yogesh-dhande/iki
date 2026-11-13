@@ -540,6 +540,20 @@ volumes:
     path: iki
 ```
 
+On `aws_ec2`, name the `bucket` instead, in the template's region. The
+machine image needs Mountpoint for Amazon S3 (`mount-s3`), and the template's
+role must be able to read the bucket and to write and delete under `path`. A
+setup build's machine fills a disk, then copies it into the bucket before it
+shuts down:
+
+```yaml
+volumes:
+  af-db:
+    strategy: object_mount
+    bucket: acme-reference
+    path: iki
+```
+
 Until a version is ready, the environment's runs wait, saying why; bound to
 templates in several places, they go to the first where one is ready. Each
 attempt records the version it read.

@@ -363,6 +363,29 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     assert "volume-option-shared-filesystem-only" in codes(
         load(tmp_path, plugins, BACKEND, A100, BINDINGS, lustre_bucket)
     )
+    # On EC2, a bucket's name, never a claim.
+    vm_objects = vm.replace("shared_filesystem", "object_mount")
+    assert only(
+        load(tmp_path, plugins, BACKEND, vm_objects, BINDINGS), "object-mount-bucket-missing"
+    )
+    on_s3 = vm_objects.replace("object_mount", "object_mount, bucket: acme-reference, path: iki")
+    s3 = load(tmp_path, plugins, BACKEND, on_s3, BINDINGS)
+    assert codes(s3) == []
+    assert s3.compute is not None
+    given = s3.compute.templates["a100-spot"].volumes["af-db"]
+    assert given.filesystem == {"type": "s3", "source": "acme-reference"}
+    claimed_s3 = on_s3.replace("object_mount,", "object_mount, claim: s3,")
+    nfs_bucket = vm.replace("shared_filesystem", "shared_filesystem, nfs: e.com:/, bucket: acme")
+    for wrong in (claimed_s3, nfs_bucket):
+        assert "volume-option-shared-filesystem-only" in codes(
+            load(tmp_path, plugins, BACKEND, wrong, BINDINGS)
+        ), wrong
+    pods_bucket = bucket.replace("claim: s3-reference", "claim: s3-reference, bucket: acme")
+    assert "volume-option-shared-filesystem-only" in codes(
+        load(tmp_path, plugins, BACKEND, A100, BINDINGS, pods_bucket)
+    )
+    misnamed = on_s3.replace("acme-reference", "Acme_Ref")
+    assert not load(tmp_path, plugins, BACKEND, misnamed, BINDINGS).ok
     nfs_on_pods = shared.replace("shared_filesystem", "shared_filesystem, claim: f, nfs: e.com:/")
     assert "volume-option-shared-filesystem-only" in codes(
         load(tmp_path, plugins, BACKEND, A100, BINDINGS, nfs_on_pods)

@@ -43,6 +43,7 @@ from iki_server.runs import catalog, ec2_volumes, launches, setups
 from iki_server.runs.ec2 import (
     LAUNCH_TAG,
     REMOVAL_TAG,
+    SETUP_TAG,
     Disk,
     Ec2,
     Ec2Error,
@@ -317,6 +318,9 @@ class Ec2Fleet(Fleet):
                 # A machine removing versions from a shared file system has no launch: its
                 # own round ends it (ADR 0077).
                 and _tag(i, REMOVAL_TAG) is None
+                # Nor one copying its setup build's disks into a bucket once its worker
+                # has gone (ADR 0078): it shuts down when it's done.
+                and not ec2_volumes.copying(_tag(i, SETUP_TAG))
             ]
             if stray:
                 # Its launch ended, or it has none: nothing will ever lease from it.

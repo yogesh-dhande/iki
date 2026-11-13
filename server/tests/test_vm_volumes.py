@@ -6,6 +6,7 @@ snapshot, mounted read-only, and each job records the version. EC2 here is
 :class:`test_vm_tier.FakeEc2`; :mod:`test_ec2` checks the requests against EC2's model."""
 
 import json
+import uuid
 from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
@@ -674,3 +675,157 @@ def test_a_failed_builds_directory_is_removed_and_a_failed_removal_tried_again(
     provisioner.tick(machines, later(36))
     gone = ManagedVolume.objects.get(build_id=build["id"])
     assert (gone.state, gone.deleted_at is not None, gone.message) == (VolumeState.FAILED, True, "")
+
+
+# --- In an S3 bucket (ADR 0078) -----------------------------------------------------------------
+
+BUCKET = "acme-reference"
+
+
+def in_a_bucket() -> dict[str, Any]:
+    return a100(
+        volumes={"af-db": {"strategy": "object_mount", "bucket": BUCKET, "path": "reference"}}
+    )
+
+
+def copy_into_bucket(
+    world: World, ec2: FakeEc2, machines: Ec2Fleet
+) -> tuple[uuid.UUID, dict[str, Any]]:
+    """A build whose script succeeds and whose worker then goes, leaving its machine to copy
+    its disk into the bucket. Returns the build's ID and its machine."""
+    build = ask(world)
+    provisioner.tick(machines)
+    launch = setup_launch()
+    instance = live(ec2, launch)
+    instance["State"] = {"Name": "running"}
+    worker = WorkerClient(register(ec2.token(instance)).json()["token"])
+    provisioner.tick(machines)  # its disk is recorded now
+    given = worker.lease().json()
+    done = worker.post(
+        f"/setups/{given['setup']['id']}/finish",
+        {"lease_token": given["job"]["lease_token"], "outcome": "succeeded"},
+    )
+    assert done.json() == {"state": "snapshotting"}, done.content
+    assert worker.post("/deregister").status_code == 204
+    return uuid.UUID(build["id"]), instance
+
+
+def test_in_a_bucket_a_setup_fills_a_disk_its_machine_then_copies_there(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use(monkeypatch, tmp_path, in_a_bucket())
+    ec2 = FakeEc2()
+    machines = fleet(ec2)
+    build_id, instance = copy_into_bucket(world, ec2, machines)
+    hrid = SetupBuild.objects.get(pk=build_id).hrid
+    directory = f"{ALPHAFOLD}/af-db/{hrid}"
+    # An empty disk of its own, kept when it ends, which the machine copies into the
+    # version's directory in the bucket once the worker says the build succeeded.
+    _, data = instance["request"]["BlockDeviceMappings"]
+    assert data["DeviceName"] == "/dev/sdf"
+    assert data["Ebs"]["DeleteOnTermination"] is False
+    host = ec2.host(instance)
+    assert host["volumes"] == [
+        {
+            "name": "af-db",
+            "path": "/var/lib/iki/volumes/af-db",
+            "mount": "/data/af",
+            "writable": True,
+            "device": "/dev/sdf",
+            "publish": {
+                "name": "af-db",
+                "filesystem": {"type": "s3", "source": BUCKET},
+                "root": "reference",
+                "directory": directory,
+                "path": "/var/lib/iki/buckets/af-db",
+            },
+        }
+    ]
+    assert host["succeeded_file"] == "/var/lib/iki/scratch/.iki-setup-succeeded"
+    assert host["env"]["IKI_SETUP_SUCCEEDED_FILE"] == "/iki/scratch/.iki-setup-succeeded"
+    (disk,) = [d for d, v in ec2.disks.items() if v["ebs"].get("DeleteOnTermination") is False]
+    assert Launch.objects.get(setup_id=build_id).volumes == {"af-db": {"disk": disk}}
+    assert ManagedVolume.objects.get(build_id=build_id).handle == directory
+    # Its worker has gone, but the fleet leaves its machine to finish copying.
+    provisioner.tick(machines, later(1))
+    assert instance["InstanceId"] not in ec2.terminated
+    assert SetupBuild.objects.get(pk=build_id).state == SetupState.SNAPSHOTTING
+    # Once it's ended, saying it copied the disk, the version's ready and the disk goes.
+    ec2.consoles[instance["InstanceId"]] = "...\r\nIKI-PUBLISHED af-db\r\n"
+    ec2.end(instance["InstanceId"], "Client.InstanceInitiatedShutdown")
+    provisioner.tick(machines, later(2))
+    done = SetupBuild.objects.get(pk=build_id)
+    assert done.state == SetupState.SUCCEEDED, done.error
+    volume = ManagedVolume.objects.get(build=done)
+    assert (volume.state, volume.handle) == (VolumeState.READY, directory)
+    assert ec2.disks[disk]["State"] == "deleted"
+    assert not ec2.snaps
+    # Runs' machines mount the bucket, and get the version's directory read-only.
+    queue_run(world)
+    provisioner.tick(machines, later(3))
+    (run,) = Launch.objects.filter(setup=None)
+    run_machine = live(ec2, run)
+    (only_root,) = run_machine["request"]["BlockDeviceMappings"]
+    assert only_root["DeviceName"] == "/dev/xvda"
+    (given,) = ec2.host(run_machine)["volumes"]
+    assert given["filesystem"] == {"type": "s3", "source": BUCKET}
+    assert (given["directory"], given["writable"]) == (directory, False)
+    assert "succeeded_file" not in ec2.host(run_machine)
+
+
+def test_a_copy_into_a_bucket_that_failed_fails_the_build_and_is_removed(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use(monkeypatch, tmp_path, in_a_bucket())
+    ec2 = FakeEc2()
+    machines = fleet(ec2)
+    build_id, instance = copy_into_bucket(world, ec2, machines)
+    ec2.consoles[instance["InstanceId"]] = (
+        "IKI-HOST-ERROR publish_failed: af-db (x): Access Denied\r\n"
+    )
+    ec2.end(instance["InstanceId"], "Client.InstanceInitiatedShutdown")
+    provisioner.tick(machines, later(1))
+    build = SetupBuild.objects.get(pk=build_id)
+    assert build.state == SetupState.FAILED
+    assert build.error is not None
+    assert build.error["message"] == (
+        "Iki couldn't copy af-db into its bucket: af-db (x): Access Denied"
+    )
+    # Whatever it copied is removed by a small machine, mounting the bucket.
+    provisioner.tick(machines, later(7))
+    (cleaner,) = cleaners(ec2)
+    (removal,) = ec2.host(cleaner)["remove"]
+    assert removal["filesystem"] == {"type": "s3", "source": BUCKET}
+    assert removal["directory"] == f"{ALPHAFOLD}/af-db/{build.hrid}"
+    # Its disk is deleted.
+    (disk,) = [d for d in ec2.disks.values() if d["ebs"].get("DeleteOnTermination") is False]
+    assert disk["State"] == "deleted"
+
+
+def test_a_machine_that_copies_too_long_or_never_says_fails_the_build(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use(monkeypatch, tmp_path, in_a_bucket())
+    ec2 = FakeEc2()
+    machines = fleet(ec2)
+    build_id, instance = copy_into_bucket(world, ec2, machines)
+    provisioner.tick(machines, later(60 * 23))
+    assert SetupBuild.objects.get(pk=build_id).state == SetupState.SNAPSHOTTING
+    provisioner.tick(machines, later(60 * 25))
+    build = SetupBuild.objects.get(pk=build_id)
+    assert build.state == SetupState.FAILED
+    assert build.error is not None
+    assert "took too long to copy af-db" in build.error["message"]
+    # No longer copying for a build, it's a stray: terminated.
+    provisioner.tick(machines, later(60 * 25 + 1))
+    assert instance["InstanceId"] in ec2.terminated
+    # One that ended without saying, once EC2 has had time to post its console.
+    second_id, second = copy_into_bucket(world, ec2, machines)
+    ec2.end(second["InstanceId"], "Client.InstanceInitiatedShutdown")
+    provisioner.tick(machines, later(10))
+    assert SetupBuild.objects.get(pk=second_id).state == SetupState.SNAPSHOTTING
+    provisioner.tick(machines, later(45))
+    failed = SetupBuild.objects.get(pk=second_id)
+    assert failed.state == SetupState.FAILED
+    assert failed.error is not None
+    assert failed.error["message"] == "Its machine didn't say it copied af-db into its bucket."

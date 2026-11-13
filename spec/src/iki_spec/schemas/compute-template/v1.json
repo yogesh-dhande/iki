@@ -289,6 +289,13 @@
             "type": "string",
             "maxLength": 500,
             "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?@tcp[0-9]*:/[A-Za-z0-9]+$"
+          },
+          "bucket": {
+            "description": "With `object_mount` on `aws_ec2`: the S3 bucket machines mount with Mountpoint for Amazon S3, in the template's region. Its machines' role must be able to read it, and write and delete under `path`; the machine image needs Mountpoint (`mount-s3`).",
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9][a-z0-9.-]*[a-z0-9]$"
           }
         },
         "additionalProperties": false
