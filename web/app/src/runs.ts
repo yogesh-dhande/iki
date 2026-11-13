@@ -17,6 +17,8 @@ export type Attempt = Schemas["RunAttemptOut"];
 export type AttemptState = Attempt["state"];
 export type Action = Schemas["ActionOut"];
 export type Batch = Schemas["BatchOut"];
+export type WorkflowRun = Schemas["WorkflowRunOut"];
+export type StepState = WorkflowRun["steps"][number]["state"];
 
 export const RUNS = ["runs"] as const;
 
@@ -164,6 +166,24 @@ export function batchQuery(ref: string) {
   });
 }
 
+/** A workflow run, by ID or HRID (WF-000123) (ADR 0079). */
+export function workflowRunQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...RUNS, "workflow", ref.toUpperCase()],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/workflow-runs/{ref}", { params: { path: { ref } } })),
+  });
+}
+
+export const STEP_STATE: Record<StepState, string> = {
+  waiting: "Waiting",
+  running: "Running",
+  succeeded: "Succeeded",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  skipped: "Skipped",
+};
+
 /** A batch's runs, in the order it launched them, a page at a time. */
 export function batchRunsQuery(ref: string, status?: RunStatus) {
   return infiniteQueryOptions({
@@ -247,6 +267,10 @@ export function batchEventsUrl(ref: string): string {
   return `/api/v1/batches/${encodeURIComponent(ref)}/events`;
 }
 
+export function workflowEventsUrl(ref: string): string {
+  return `/api/v1/workflow-runs/${encodeURIComponent(ref)}/events`;
+}
+
 function parse(event: MessageEvent<string>): Record<string, unknown> {
   try {
     const data: unknown = JSON.parse(event.data);
@@ -316,6 +340,21 @@ export function useBatchUpdates(ref: string, enabled: boolean): void {
     }, BATCH_REFRESH_MS);
     return Promise.resolve();
   });
+}
+
+/**
+ * Keeps a workflow run's page current while it's going: each `workflow` event (it or one
+ * of its steps changed) reads it again.
+ */
+export function useWorkflowUpdates(ref: string, enabled: boolean): void {
+  const client = useQueryClient();
+  useStream(
+    workflowEventsUrl(ref),
+    enabled,
+    () => client.invalidateQueries({ queryKey: workflowRunQuery(ref).queryKey }),
+    undefined,
+    ["workflow"],
+  );
 }
 
 /** How long a batch's page gathers news of its runs before reading them again. */

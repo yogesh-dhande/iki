@@ -30,6 +30,7 @@ from iki_server.api import (
     teams,
     users,
     webhooks,
+    workflows,
 )
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import BearerAuth, SessionAuth
@@ -60,6 +61,7 @@ for module in (
     collections,
     searches,
     runs,
+    workflows,
     compute,
     setups,
     costs,

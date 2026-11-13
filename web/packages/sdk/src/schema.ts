@@ -2078,6 +2078,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workflow runs you can read
+         * @description Newest first. `GET /runs?workflow=` lists a workflow run's runs.
+         */
+        get: operations["iki_server_api_workflows_list_workflow_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A workflow run
+         * @description By its ID or HRID (WF-000123). Its live updates come from
+         *     `GET /workflow-runs/{ref}/events`: `workflow` when it or a step changes.
+         */
+        get: operations["iki_server_api_workflows_get_workflow_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/{ref}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a workflow run
+         * @description No further step starts, and its running steps' runs are cancelled, as
+         *     `POST /runs/{ref}/cancel` would. It ends cancelled once they have.
+         */
+        post: operations["iki_server_api_workflows_cancel_workflow_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Installed workflows
+         * @description Every workflow installed plugins provide, in name order.
+         */
+        get: operations["iki_server_api_workflows_list_workflows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A workflow */
+        get: operations["iki_server_api_workflows_get_workflow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflows/{name}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a workflow
+         * @description Start a run of the workflow. Everything it can be is checked first: your role for
+         *     each step's tier, that each step's action can run here, its inputs and its params. Its
+         *     first steps are launched before it answers; each later one once those it takes from
+         *     have succeeded.
+         */
+        post: operations["iki_server_api_workflows_start_workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4290,6 +4412,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[WorkflowRunOut] */
+        Page_WorkflowRunOut_: {
+            /** Items */
+            items: components["schemas"]["WorkflowRunOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /**
          * ParamOut
          * @description A param is a field, as entity types' are, with its default and limits.
@@ -5293,6 +5425,11 @@ export interface components {
              */
             project?: string | null;
             status?: components["schemas"]["RunStatus"] | null;
+            /**
+             * Workflow
+             * @description Only the runs of this workflow run (its ID or HRID), in launch order.
+             */
+            workflow?: string | null;
         };
         /** RunIn */
         RunIn: {
@@ -5486,6 +5623,8 @@ export interface components {
              * @description Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
              */
             waiting: string | null;
+            /** @description The workflow run it's a step of, if any (ADR 0079). */
+            workflow: components["schemas"]["WorkflowStepRefOut"] | null;
         };
         /** RunRefOut */
         RunRefOut: {
@@ -5969,6 +6108,31 @@ export interface components {
              * @enum {string}
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+        };
+        /** StepErrorOut */
+        StepErrorOut: {
+            /**
+             * Code
+             * @description `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start) or `skipped`.
+             */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /** StepRunOut */
+        StepRunOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
         };
         /** SummaryOut */
         SummaryOut: {
@@ -6541,6 +6705,278 @@ export interface components {
              * @description Workers registered with it and not revoked.
              */
             workers: number;
+        };
+        /** WorkflowErrorOut */
+        WorkflowErrorOut: {
+            /**
+             * Code
+             * @description `step_failed`.
+             */
+            code: string;
+            /** Message */
+            message: string;
+            /**
+             * Step
+             * @description The step that failed.
+             */
+            step: string;
+        };
+        /** WorkflowInputOut */
+        WorkflowInputOut: {
+            /**
+             * Entity
+             * Format: uuid
+             */
+            entity: string;
+            /** Hrid */
+            hrid: string;
+            /** Name */
+            name: string;
+            /**
+             * Revision
+             * @description Its revision when the workflow started.
+             */
+            revision: number;
+        };
+        /** WorkflowOut */
+        WorkflowOut: {
+            /**
+             * Available
+             * @description Whether every step's action can run on this deployment.
+             */
+            available: boolean;
+            /** Description */
+            description: string | null;
+            /** Inputs */
+            inputs: components["schemas"]["InputOut"][];
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description Qualified, such as `protein.translate_and_characterize`.
+             */
+            name: string;
+            /** Params */
+            params: components["schemas"]["ParamOut"][];
+            /**
+             * Params Schema
+             * @description The params as JSON Schema (2020-12).
+             */
+            params_schema: {
+                [key: string]: unknown;
+            };
+            /** Plugin */
+            plugin: string;
+            /**
+             * Steps
+             * @description In the order they start.
+             */
+            steps: components["schemas"]["WorkflowStepOut"][];
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+        };
+        /** WorkflowRunCan */
+        WorkflowRunCan: {
+            /**
+             * Cancel
+             * @description It hasn't finished, and you may cancel it.
+             */
+            cancel: boolean;
+        };
+        /** WorkflowRunFilters */
+        WorkflowRunFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Only workflow runs in this project.
+             */
+            project?: string | null;
+            /** Status */
+            status?: ("running" | "succeeded" | "failed" | "cancelled") | null;
+            /**
+             * Workflow
+             * @description Only runs of this workflow.
+             */
+            workflow?: string | null;
+        };
+        /** WorkflowRunIn */
+        WorkflowRunIn: {
+            /**
+             * Add To Project
+             * @description Its steps read only what's in its project (ADR 0066). Set true to add inputs from other projects to it first; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
+             * @default false
+             */
+            add_to_project: boolean;
+            /**
+             * Inputs
+             * @description Entity IDs for each input: one, or a list for inputs that take many.
+             */
+            inputs?: {
+                [key: string]: string | string[];
+            };
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Project
+             * Format: uuid
+             * @description Where its steps run. Entities they create belong to it.
+             */
+            project: string;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+        };
+        /** WorkflowRunOut */
+        WorkflowRunOut: {
+            /** @description The agent that started it, acting for requested_by, if one did (ADR 0072). */
+            agent: components["schemas"]["AgentOut"] | null;
+            can: components["schemas"]["WorkflowRunCan"];
+            /** Cancel Requested At */
+            cancel_requested_at: string | null;
+            /**
+             * Client
+             * @description The OAuth app it was started through, if any.
+             */
+            client: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** @description Why it failed. */
+            error: components["schemas"]["WorkflowErrorOut"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Hrid
+             * @description Such as WF-000123.
+             */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inputs */
+            inputs: components["schemas"]["WorkflowInputOut"][];
+            /** Label */
+            label: string;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /** Plugin Version */
+            plugin_version: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Reason */
+            reason: string;
+            requested_by: components["schemas"]["PersonRef"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed" | "cancelled";
+            /**
+             * Steps
+             * @description In the order they start.
+             */
+            steps: components["schemas"]["WorkflowRunStepOut"][];
+            /** Via */
+            via: string;
+            /** Workflow */
+            workflow: string;
+        };
+        /** WorkflowRunStepOut */
+        WorkflowRunStepOut: {
+            /** Action */
+            action: string;
+            /** After */
+            after: string[];
+            /** @description Why it failed or was skipped. */
+            error: components["schemas"]["StepErrorOut"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** @description Its run, once launched. */
+            run: components["schemas"]["StepRunOut"] | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "waiting" | "running" | "succeeded" | "failed" | "cancelled" | "skipped";
+        };
+        /** WorkflowStepOut */
+        WorkflowStepOut: {
+            /**
+             * Action
+             * @description The qualified name of the action it runs.
+             */
+            action: string;
+            /**
+             * After
+             * @description The steps it starts after, in name order.
+             */
+            after: string[];
+            /** Id */
+            id: string;
+            /**
+             * Inputs
+             * @description Where each input comes from: `$inputs.<name>`, `$steps.<id>.created.<Type>` or `$steps.<id>.inputs.<name>`.
+             */
+            inputs: {
+                [key: string]: string;
+            };
+            /** Label */
+            label: string;
+            /**
+             * Params
+             * @description Each param's value, or `$params.<name>` for the workflow's.
+             */
+            params: {
+                [key: string]: unknown;
+            };
+        };
+        /** WorkflowStepRefOut */
+        WorkflowStepRefOut: {
+            /**
+             * Hrid
+             * @description Such as WF-000123.
+             */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Step
+             * @description The step's ID in the workflow.
+             */
+            step: string;
         };
     };
     responses: never;
@@ -8504,6 +8940,8 @@ export interface operations {
                 /** @description Only runs of this action. */
                 action?: string | null;
                 status?: components["schemas"]["RunStatus"] | null;
+                /** @description Only the runs of this workflow run (its ID or HRID), in launch order. */
+                workflow?: string | null;
             };
             header?: never;
             path?: never;
@@ -9710,6 +10148,152 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SecretOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_list_workflow_runs: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only workflow runs in this project. */
+                project?: string | null;
+                /** @description Only runs of this workflow. */
+                workflow?: string | null;
+                status?: ("running" | "succeeded" | "failed" | "cancelled") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WorkflowRunOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_get_workflow_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_cancel_workflow_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_list_workflows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_get_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_start_workflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRunIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
         };

@@ -55,6 +55,7 @@ from iki_server.runs.models import (
     RunInput,
     RunOutput,
     RunStatus,
+    WorkflowRun,
 )
 from iki_server.runs.services import TIER_PERMISSIONS
 from iki_spec.model import Action
@@ -396,6 +397,12 @@ class BatchRefOut(Schema):
     hrid: str = Field(description="Such as BAT-000123.")
 
 
+class WorkflowStepRefOut(Schema):
+    id: UUID
+    hrid: str = Field(description="Such as WF-000123.")
+    step: str = Field(description="The step's ID in the workflow.")
+
+
 class RunCostOut(Schema):
     amount: float = Field(description="What it has cost so far, at its templates' prices.")
     currency: str | None = Field(description="Null while nothing it ran on has a price.")
@@ -423,6 +430,9 @@ class RunOut(Schema):
     )
     reason: str
     batch: BatchRefOut | None = Field(description="The batch it was launched in, if any.")
+    workflow: WorkflowStepRefOut | None = Field(
+        description="The workflow run it's a step of, if any (ADR 0079)."
+    )
     tier: Tier
     environment: str
     params: dict[str, Any]
@@ -627,6 +637,11 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             pk__in={r.batch_id for r in runs if r.batch_id is not None}
         ).values("id", "hrid")
     }
+    flows = dict(
+        WorkflowRun.objects.filter(
+            pk__in={r.workflow_id for r in runs if r.workflow_id is not None}
+        ).values_list("id", "hrid")
+    )
     projects.update({r.project_id: r.project for r in refs.values()})
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
@@ -640,6 +655,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "requested_by": run.requested_by,
             "approval": held.get(run.approval_id) if run.approval_id else None,
             "batch": batches.get(run.batch_id) if run.batch_id else None,
+            "workflow": {
+                "id": run.workflow_id,
+                "hrid": flows[run.workflow_id],
+                "step": run.workflow_step,
+            }
+            if run.workflow_id
+            else None,
             "network": run.spec.get("network") or [],
             "inputs": inputs.get(run.pk, []),
             "files": {
@@ -753,7 +775,7 @@ def _find(me: User, ref: str) -> ActionRun:
     return found
 
 
-def _outside(error: services.OutsideProject) -> Problem:
+def outside_problem(error: services.OutsideProject) -> Problem:
     return Problem(
         409,
         str(error),
@@ -764,7 +786,7 @@ def _outside(error: services.OutsideProject) -> Problem:
     )
 
 
-def _invalid(error: Invalid) -> Problem:
+def invalid_problem(error: Invalid) -> Problem:
     return Problem(
         422,
         "Some inputs or params are invalid.",
@@ -798,9 +820,9 @@ def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpRe
             add_to_project=payload.add_to_project,
         )
     except Invalid as error:
-        raise _invalid(error) from None
+        raise invalid_problem(error) from None
     except services.OutsideProject as error:
-        raise _outside(error) from None
+        raise outside_problem(error) from None
     response["Location"] = f"/api/v1/runs/{run.pk}"
     return Status(201, _runs_out(me, [_find(me, str(run.pk))])[0])
 
@@ -930,9 +952,9 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
             add_to_project=payload.add_to_project,
         )
     except Invalid as error:
-        raise _invalid(error) from None
+        raise invalid_problem(error) from None
     except services.OutsideProject as error:
-        raise _outside(error) from None
+        raise outside_problem(error) from None
     found = {
         r.pk: r
         for r in services.visible_runs(me)
@@ -1003,6 +1025,9 @@ class RunFilters(PageParams):
     )
     action: str | None = Field(None, description="Only runs of this action.")
     status: RunStatus | None = None
+    workflow: str | None = Field(
+        None, description="Only the runs of this workflow run (its ID or HRID), in launch order."
+    )
 
 
 @router.get("/runs", response=Page[RunOut], summary="Runs you can read")
@@ -1018,7 +1043,12 @@ def list_runs(request: HttpRequest, filters: Query[RunFilters]) -> dict[str, Any
         runs = runs.filter(status=filters.status)
     if filters.batch is not None:
         runs = runs.filter(batch=_find_batch(me, filters.batch))
-    result = page(runs, filters, newest_first=filters.batch is None)
+    if filters.workflow is not None:
+        from iki_server.api.workflows import find as find_workflow_run
+
+        runs = runs.filter(workflow=find_workflow_run(me, filters.workflow))
+    in_order = filters.batch is not None or filters.workflow is not None
+    result = page(runs, filters, newest_first=not in_order)
     result["items"] = _runs_out(me, result["items"])
     return result
 

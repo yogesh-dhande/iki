@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: Workflow
+name: relax_twice
+inputs:
+  structure: { type: ProteinStructure, schema: ">=1" }
+steps:
+  first:
+    action: relax_structure
+    inputs: { structure: $inputs.structure }
+  second:
+    action: relax_structure
+    inputs: { structure: $steps.first.created.ProteinStructure }

@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A workflow: steps that each run one of the plugin's actions, wired by
+# reference. `decode` takes the sample `assign` was given, so it runs after
+# `assign` has written its storage.
+apiVersion: iki/v1
+kind: Workflow
+name: store_sample
+label: Store a sample
+description: Gives a sample the default storage if it has none, then writes its storage in full.
+inputs:
+  sample: { type: Sample, schema: ">=1" }
+steps:
+  assign:
+    action: assign_storage
+    inputs: { sample: $inputs.sample }
+  decode:
+    action: decode_storage
+    inputs: { sample: $steps.assign.inputs.sample }

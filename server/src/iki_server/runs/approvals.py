@@ -27,7 +27,7 @@ from iki_server.notifications.services import notify
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
-from iki_server.runs import budgets, catalog, live, queue, quotas
+from iki_server.runs import budgets, catalog, endings, live, queue, quotas
 from iki_server.runs.models import (
     ActionRun,
     ApprovalState,
@@ -207,6 +207,7 @@ def _end(
         data=data,
     )
     for run in runs:
+        endings.ended(run)
         transaction.on_commit(partial(live.changed, run.pk, run.batch_id))
     return runs
 

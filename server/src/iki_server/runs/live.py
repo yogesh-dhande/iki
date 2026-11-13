@@ -39,3 +39,12 @@ def setup_topic(build_id: uuid.UUID) -> str:
 def setup_changed(build_id: uuid.UUID) -> None:
     """An environment setup build's state, progress or log changed (ADR 0075)."""
     events.publish_to(setup_topic(build_id), "setup", {"id": str(build_id)})
+
+
+def workflow_topic(workflow_id: uuid.UUID) -> str:
+    return f"workflow:{workflow_id}"
+
+
+def workflow_changed(workflow_id: uuid.UUID) -> None:
+    """A workflow run's status, or a step's, changed (ADR 0079)."""
+    events.publish_to(workflow_topic(workflow_id), "workflow", {"id": str(workflow_id)})

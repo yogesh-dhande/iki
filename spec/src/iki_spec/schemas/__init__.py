@@ -35,6 +35,7 @@ NAMES = (
     "plugin-lock",
     "action",
     "environment",
+    "workflow",
     "compute",
     "compute-template",
     "environment-binding",

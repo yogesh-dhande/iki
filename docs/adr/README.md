@@ -108,3 +108,4 @@ supersedes the old one, and update the old one's status.
 | [0076](0076-vm-tier-volumes-come-from-ebs-snapshots.md)                              | VM-tier machines get environment volumes from EBS snapshots                                         | Accepted |
 | [0077](0077-shared-filesystem-volumes-are-a-directory-per-version.md)                | Shared file system volumes are a directory per version                                              | Accepted |
 | [0078](0078-bucket-volumes-are-copied-from-a-disk-into-a-prefix-per-version.md)      | Bucket volumes are copied from a disk into a prefix per version                                     | Accepted |
+| [0079](0079-workflows-are-dags-of-ordinary-runs.md)                                  | Workflows are DAGs of ordinary runs                                                                 | Accepted |

@@ -21,7 +21,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from iki_spec import API_VERSION, actions, naming, schemas, titles, units
+from iki_spec import API_VERSION, actions, naming, schemas, titles, units, workflows
 from iki_spec.model import (
     BUILTIN_TYPES,
     Action,
@@ -30,6 +30,7 @@ from iki_spec.model import (
     Extension,
     Field,
     Plugin,
+    Workflow,
     matches_format,
     qualify,
 )
@@ -47,6 +48,7 @@ KINDS = {
     "EntityTypeExtension": "entity-type-extension",
     "Action": "action",
     "Environment": "environment",
+    "Workflow": "workflow",
 }
 
 #: Where each kind of manifest lives in a plugin.
@@ -55,6 +57,7 @@ DIRECTORIES = {
     "EntityTypeExtension": TYPES_DIR,
     "Action": "actions",
     "Environment": "environments",
+    "Workflow": "workflows",
 }
 
 MAX_IDENTIFIER = naming.MAX_IDENTIFIER
@@ -266,6 +269,7 @@ class _Loaded:
     extension_sources: list[Document] = field(default_factory=list)
     action_sources: dict[str, Document] = field(default_factory=dict)
     environment_sources: dict[str, Document] = field(default_factory=dict)
+    workflow_sources: dict[str, Document] = field(default_factory=dict)
     # The raw (schema-valid) documents, for checks on things the model drops.
     raw: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -382,6 +386,18 @@ def _read(root: FilePath) -> _Loaded:
             "duplicate-action", action.name, found, loaded.action_sources, document, checker
         ):
             found[action.name] = action
+    flows: dict[str, Workflow] = {}
+    for document in _manifests(root, "workflows", checker):
+        workflow = workflows.read_workflow(name, document.data, document)
+        if _unique(
+            "duplicate-workflow",
+            workflow.name,
+            flows,
+            loaded.workflow_sources,
+            document,
+            checker,
+        ):
+            flows[workflow.name] = workflow
 
     loaded.plugin = Plugin(
         name=name,
@@ -399,6 +415,7 @@ def _read(root: FilePath) -> _Loaded:
         extensions=tuple(extensions),
         actions=found,
         environments=environments,
+        workflows=flows,
     )
     return loaded
 
@@ -505,6 +522,7 @@ def _kind_phrase(document: Document) -> str:
         "EntityTypeExtension": "an extension",
         "Action": "an action",
         "Environment": "an environment",
+        "Workflow": "a workflow",
     }.get(kind or "", f"a {kind}")
 
 
@@ -514,6 +532,7 @@ def _kind_phrase_plural(kind: str) -> str:
         "EntityTypeExtension": "extensions",
         "Action": "actions",
         "Environment": "environments",
+        "Workflow": "workflows",
     }[kind]
 
 
@@ -634,6 +653,7 @@ class _Semantics:
             self.extension(extension, document, seen)
         self.settings()
         actions.check(self)
+        workflows.check(self)
         self.unpinned()
 
     # The plugin manifest ------------------------------------------------------------------------

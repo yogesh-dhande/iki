@@ -26,7 +26,14 @@ import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
 import { validateNewRunSearch } from "./pages/new-run-search";
-import { actionsQuery, batchQuery, runQuery, STATUS, type RunStatus } from "./runs";
+import {
+  actionsQuery,
+  batchQuery,
+  runQuery,
+  STATUS,
+  workflowRunQuery,
+  type RunStatus,
+} from "./runs";
 
 // Pages fetched when they're first opened, so the first page loads quickly.
 const entityPages = () => import("./pages/entity");
@@ -49,6 +56,10 @@ const ProjectRuns = lazyRouteComponent(runPages, "ProjectRuns");
 const RunPage = lazyRouteComponent(runPages, "RunPage");
 const NewRun = lazyRouteComponent(() => import("./pages/new-run"), "NewRun");
 const BatchPage = lazyRouteComponent(() => import("./pages/batches"), "BatchPage");
+const WorkflowRunPage = lazyRouteComponent(
+  () => import("./pages/workflow-runs"),
+  "WorkflowRunPage",
+);
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
@@ -278,6 +289,13 @@ const batchRoute = createRoute({
   component: BatchPage,
 });
 
+const workflowRunRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "workflow-runs/$ref",
+  loader: ({ context, params }) => context.queryClient.query(workflowRunQuery(params.ref)),
+  component: WorkflowRunPage,
+});
+
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "settings" });
 
 const orgWebhooksRoute = createRoute({ getParentRoute: () => settingsRoute, path: "webhooks" });
@@ -322,6 +340,7 @@ const routeTree = rootRoute.addChildren([
   ]),
   runRoute,
   batchRoute,
+  workflowRunRoute,
   settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);
 

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/workflow/v1",
+  "title": "Iki workflow (iki/v1)",
+  "description": "Steps that each run one of the plugin's actions, wired together by what they take and make. Steps run as soon as the steps they take from have succeeded.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "steps"],
+  "properties": {
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "Workflow"
+    },
+    "name": {
+      "description": "The workflow's name in snake_case. Elsewhere it is `plugin.name`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "label": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
+    "inputs": {
+      "description": "The entities it starts from, by name, as an action's inputs.",
+      "type": "object",
+      "maxProperties": 20,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "$ref": "https://ikisci.org/schemas/action/v1#/$defs/input"
+      }
+    },
+    "params": {
+      "description": "The values a person (or an agent) chooses when they start it, by name, as an action's params.",
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "$ref": "https://ikisci.org/schemas/action/v1#/$defs/param"
+      }
+    },
+    "steps": {
+      "description": "Each step, by an ID of its own.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 50,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "entityRef": {
+      "description": "Where a step's input comes from: the workflow's input (`$inputs.<name>`), what a step was given, once it has run (`$steps.<id>.inputs.<name>`), or the entities of a type a step created (`$steps.<id>.created.<Type>`).",
+      "type": "string",
+      "maxLength": 200,
+      "pattern": "^\\$(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|steps\\.[a-z][a-z0-9]*(_[a-z0-9]+)*\\.(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|created\\.([a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[A-Z][A-Za-z0-9]*))$"
+    },
+    "step": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "description": "The name of the plugin's action it runs.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "label": {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
+        "inputs": {
+          "description": "Where each of the action's inputs comes from, by the input's name.",
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/entityRef"
+          }
+        },
+        "params": {
+          "description": "The action's params, by name: a value, or the workflow's param (`$params.<name>`). A string starting with `$` is written `$$`. Those left out take their defaults.",
+          "type": "object",
+          "maxProperties": 100,
+          "propertyNames": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
+        },
+        "needs": {
+          "description": "Steps it runs after, besides those it takes from.",
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

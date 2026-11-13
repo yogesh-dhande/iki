@@ -242,6 +242,14 @@ export function ProjectRuns() {
                         {run.batch.hrid}
                       </Link>
                     </>
+                  ) : null}
+                  {run.workflow ? (
+                    <>
+                      {" in "}
+                      <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
+                        {run.workflow.hrid}
+                      </Link>
+                    </>
                   ) : null}{" "}
                   · {run.requested_by.name} · <RelativeTime value={run.created_at} />
                   {run.reason ? ` · “${run.reason}”` : ""}
@@ -1221,6 +1229,17 @@ export function RunPage() {
                 Launched with others in{" "}
                 <Link to="/batches/$ref/" params={{ ref: run.batch.hrid }}>
                   {run.batch.hrid}
+                </Link>
+              </dd>
+            </>
+          ) : null}
+          {run.workflow ? (
+            <>
+              <dt>Workflow</dt>
+              <dd>
+                Step <code>{run.workflow.step}</code> of{" "}
+                <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
+                  {run.workflow.hrid}
                 </Link>
               </dd>
             </>

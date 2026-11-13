@@ -22,6 +22,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     approval: null,
     reason: "",
     batch: null,
+    workflow: null,
     tier: "backend",
     environment: "sequence-tools",
     params: { ph: 7.4 },
@@ -195,3 +196,64 @@ export const ACTION = {
   needs: "editor",
   estimate: null,
 } satisfies Schemas["ActionOut"];
+
+export const WORKFLOW_ID = "00000000-0000-7000-8000-0000000000w1";
+
+/** WF-000001: protein.translate_and_characterize, translated, characterizing. */
+export function workflowRun(
+  overrides: Partial<Schemas["WorkflowRunOut"]> = {},
+): Schemas["WorkflowRunOut"] {
+  return {
+    id: WORKFLOW_ID,
+    hrid: "WF-000001",
+    workflow: "protein.translate_and_characterize",
+    label: "Translate and characterize",
+    plugin_version: "1.2.0",
+    project: KINASE.id,
+    requested_by: { id: ME.id, name: ME.name },
+    via: "web",
+    client: "",
+    agent: null,
+    reason: "The kinase panel",
+    inputs: [
+      {
+        name: "sequence",
+        entity: "00000000-0000-7000-8000-00000000d001",
+        hrid: "DNA-000001",
+        revision: 1,
+      },
+    ],
+    params: { frame: 1 },
+    status: "running",
+    steps: [
+      {
+        id: "translate",
+        label: "Translate",
+        action: "protein.translate",
+        after: [],
+        state: "succeeded",
+        started_at: "2026-03-14T09:00:00Z",
+        finished_at: "2026-03-14T09:00:30Z",
+        error: null,
+        run: { id: RUN_ID, hrid: "RUN-000001", status: "succeeded" },
+      },
+      {
+        id: "properties",
+        label: "Properties",
+        action: "protein.compute_properties",
+        after: ["translate"],
+        state: "running",
+        started_at: "2026-03-14T09:00:31Z",
+        finished_at: null,
+        error: null,
+        run: { id: "00000000-0000-7000-8000-0000000000r2", hrid: "RUN-000002", status: "queued" },
+      },
+    ],
+    created_at: "2026-03-14T09:00:00Z",
+    finished_at: null,
+    cancel_requested_at: null,
+    error: null,
+    can: { cancel: true },
+    ...overrides,
+  };
+}

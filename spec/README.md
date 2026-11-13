@@ -2,8 +2,8 @@
 
 The versioned specs for Iki plugins, and the Python package that reads and
 checks them. Version `iki/v1` covers plugins, entity types, extensions,
-fields, units, settings, actions and environments; the run protocol,
-workflows, triggers and components arrive in later versions of this document
+fields, units, settings, actions, environments and workflows; the run
+protocol, triggers and components arrive in later versions of this document
 as they land.
 
 - **JSON Schemas** (draft 2020-12), in [`src/iki_spec/schemas/`](src/iki_spec/schemas/).
@@ -29,6 +29,7 @@ types/               # kind: EntityType and EntityTypeExtension
   structure.yaml
 actions/             # kind: Action
 environments/        # kind: Environment
+workflows/           # kind: Workflow
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
@@ -347,6 +348,44 @@ exactly: images by digest, every Python package with `==` and its
 conda packages in an explicit lockfile with their hashes. Requirements can't
 include other files or editable packages. Volumes mount on the container and
 vm tiers only, at absolute paths that don't overlap.
+
+## Workflows
+
+A workflow runs several of the plugin's actions as one (ADR 0079). Each step
+runs an action, by its name in the plugin, and says where each of its inputs
+comes from: the workflow's input (`$inputs.<name>`), the entities a step
+created of a type (`$steps.<id>.created.<Type>`), or what a step was given
+(`$steps.<id>.inputs.<name>`), once that step has run. A param takes a value,
+or the workflow's param (`$params.<name>`); a value that starts with `$` is
+written `$$`.
+
+```yaml
+apiVersion: iki/v1
+kind: Workflow
+name: translate_and_characterize # snake_case; qualified as protein.translate_and_characterize
+label: Translate and characterize
+inputs:
+  sequence: { type: dna.DNASequence, schema: ">=1" } # as an action's inputs
+params:
+  frame: { type: int, min: 1, max: 3, default: 1 } # as an action's params
+steps:
+  translate:
+    action: translate
+    inputs: { sequence: $inputs.sequence }
+    params: { frame: $params.frame }
+  properties:
+    action: compute_properties
+    inputs: { protein: $steps.translate.created.Protein }
+    # needs: [other_step]  # wait for a step it doesn't take from
+```
+
+A step starts once the steps it takes from, and those it `needs`, have
+succeeded; steps that don't wait for each other run side by side. The build
+checks each step against its action: every input it needs comes from
+somewhere, of a type it takes and, where it takes one entity, not from
+something that can be many; every required param is given, each value fits,
+and a workflow param given to a step's param takes no value the step's
+doesn't. No step may come before itself.
 
 ## Dependencies
 
@@ -835,6 +874,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `creates-abstract`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                          | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`                                                                                                                       | Where actions run               |
 | `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                      | Reuse and retries               |
+| `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                   | Workflows                       |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                       | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                       | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                             | Volumes and setup               |

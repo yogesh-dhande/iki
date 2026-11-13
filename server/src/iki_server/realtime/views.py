@@ -239,6 +239,54 @@ async def batch_events(request: HttpRequest, ref: str) -> HttpResponseBase:
     )
 
 
+def _readable_workflow(user: User, ref: str) -> str:
+    """The workflow run's ID, if `user` can read it."""
+    from iki_server.runs import workflows
+
+    found = workflows.visible(user)
+    try:
+        run = found.filter(pk=UUID(ref)).values_list("pk", flat=True).first()
+    except ValueError:
+        run = found.filter(hrid=ref.upper()).values_list("pk", flat=True).first()
+    if run is None:
+        raise Problem(404, "No such workflow run, or you can't read its project.")
+    return str(run)
+
+
+def _can_read_workflow(user: User, workflow_id: str) -> bool:
+    from iki_server.runs import workflows
+
+    return workflows.visible(user).filter(pk=workflow_id).exists()
+
+
+async def workflow_events(request: HttpRequest, ref: str) -> HttpResponseBase:
+    """``GET /api/v1/workflow-runs/{ref}/events``: live updates about a workflow run, for
+    its page (ADR 0079).
+
+    Starts with ``ready``, then sends ``workflow`` when it or one of its steps changes, and
+    ``resync``. Each is checked against the caller's access to it.
+    """
+    try:
+        user, still_valid, streams = await _open(request)
+        workflow_id = await db(_readable_workflow, user, ref)
+    except Problem as problem:
+        return response(problem)
+    stream = streams.subscribe(user.pk, live.workflow_topic(UUID(workflow_id)))
+    ready = sse("ready", {"id": workflow_id})
+    return _streaming(
+        _run(streams, stream, user, still_valid, ready, partial(_prepare_workflow, workflow_id))
+    )
+
+
+async def _prepare_workflow(workflow_id: str, user: User, item: dict[str, Any]) -> bytes | None:
+    event, data = item["event"], item.get("data", {})
+    if event == "resync":
+        return sse(event, {})
+    if event == "workflow" and await db(_can_read_workflow, user, workflow_id):
+        return sse(event, data)
+    return None
+
+
 def _readable_setup(user: User, ref: str) -> str:
     """The setup build's ID, if `user` manages compute (ADR 0075)."""
     from iki_server.runs.models import SetupBuild

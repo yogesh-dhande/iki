@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Workflow
+name: translate_and_characterize
+label: Translate and characterize
+description: >-
+  Translates a DNA sequence into the protein it encodes, then computes that
+  protein's properties.
+inputs:
+  sequence: { type: dna.DNASequence, schema: ">=1" }
+params:
+  frame:
+    type: int
+    min: 1
+    max: 3
+    default: 1
+    description: The base translation starts at.
+  table:
+    type: int
+    label: Genetic code
+    min: 1
+    max: 33
+    default: 1
+    description: NCBI's translation table; 1 is the standard code.
+steps:
+  translate:
+    action: translate
+    inputs: { sequence: $inputs.sequence }
+    params: { frame: $params.frame, table: $params.table }
+  properties:
+    action: compute_properties
+    inputs: { protein: $steps.translate.created.Protein }

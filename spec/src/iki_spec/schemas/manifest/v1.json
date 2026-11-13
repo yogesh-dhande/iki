@@ -10,7 +10,9 @@
       "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
-    "kind": { "enum": ["Plugin", "EntityType", "EntityTypeExtension", "Action", "Environment"] }
+    "kind": {
+      "enum": ["Plugin", "EntityType", "EntityTypeExtension", "Action", "Environment", "Workflow"]
+    }
   },
   "allOf": [
     {
@@ -35,6 +37,10 @@
     {
       "if": { "properties": { "kind": { "const": "Environment" } }, "required": ["kind"] },
       "then": { "$ref": "https://ikisci.org/schemas/environment/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "Workflow" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/workflow/v1" }
     }
   ]
 }

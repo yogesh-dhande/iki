@@ -42,7 +42,7 @@ from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
-from iki_server.runs import checkpoints, costs, launches, live, quotas, secrets, workers
+from iki_server.runs import checkpoints, costs, endings, launches, live, quotas, secrets, workers
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -660,7 +660,7 @@ def finish(
     run.status, run.finished_at, run.error = status, now, error
     run.save(update_fields=["status", "finished_at", "error"])
     live.changed(run.pk, run.batch_id)
-    checkpoints.ended(run)
+    endings.ended(run)
     return run
 
 
@@ -764,7 +764,7 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
         run.status = RunStatus.CANCELLED
         run.finished_at = now
         run.save(update_fields=["status", "finished_at"])
-        checkpoints.ended(run)
+        endings.ended(run)
         return run
     if reason in run.retry_on and job.attempt < run.max_attempts:
         Job.objects.create(
@@ -788,5 +788,5 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
     run.finished_at = now
     run.error = {"code": reason, "message": message}
     run.save(update_fields=["status", "finished_at", "error"])
-    checkpoints.ended(run)
+    endings.ended(run)
     return run

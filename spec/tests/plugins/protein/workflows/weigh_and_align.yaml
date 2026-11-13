@@ -1,0 +1,18 @@
+apiVersion: iki/v1
+kind: Workflow
+name: weigh_and_align
+label: Weigh and align
+description: Weighs the query, then aligns it with the target.
+inputs:
+  query: { type: Protein, schema: ">=1" }
+  target: { type: Protein, schema: ">=1" }
+params:
+  mode: { type: enum, values: [global, local], default: local }
+steps:
+  weigh:
+    action: compute_properties
+    inputs: { protein: $inputs.query }
+  align:
+    action: align_pair
+    inputs: { query: $steps.weigh.inputs.protein, target: $inputs.target }
+    params: { mode: $params.mode }

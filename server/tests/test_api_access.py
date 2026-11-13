@@ -166,6 +166,27 @@ def launch_batch(w: World) -> tuple[str, Any]:
     return "/actions/protein.compute_properties/runs/batch", body
 
 
+def start_workflow(w: World) -> tuple[str, Any]:
+    kit = str(_protein(w).pk)
+    body = {"project": str(w.project.pk), "inputs": {"query": kit, "target": kit}}
+    return "/workflows/protein.weigh_and_align/runs", body
+
+
+def workflow_run(suffix: str = "", body: Any = None) -> Build:
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.runs import workflows
+
+        found = workflows.workflow("protein.weigh_and_align")
+        assert found is not None
+        kit = _protein(w).pk
+        made = workflows.start(
+            w.users["editor"], found, w.project, {"query": [kit], "target": [kit]}, {}
+        )
+        return f"/workflow-runs/{made.pk}{suffix}", body
+
+    return build
+
+
 def run(suffix: str = "", body: Any = None) -> Build:
     return lambda w: (f"/runs/{_run(w).pk}{suffix}", body)
 
@@ -577,6 +598,17 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/batches", fixed("/batches"), row(200)),
     ("GET", "/batches/{ref}", batch(), readers(200)),
     ("POST", "/batches/{ref}/cancel", batch("/cancel", {}), editors(200)),
+    ("GET", "/workflows", fixed("/workflows"), row(200)),
+    ("GET", "/workflows/{name}", fixed("/workflows/protein.weigh_and_align"), row(200)),
+    (
+        "POST",
+        "/workflows/{name}/runs",
+        start_workflow,
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
+    ),
+    ("GET", "/workflow-runs", fixed("/workflow-runs"), row(200)),
+    ("GET", "/workflow-runs/{ref}", workflow_run(), readers(200)),
+    ("POST", "/workflow-runs/{ref}/cancel", workflow_run("/cancel", {}), editors(200)),
     # Only the person an agent asked for decides (and never with a token: test_run_approvals).
     ("GET", "/run-approvals/{approval_id}", approval(), readers(200)),
     (

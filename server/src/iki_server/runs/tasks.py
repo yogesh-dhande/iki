@@ -23,3 +23,12 @@ def delete_checkpoints(run_id: str) -> int:
     from iki_server.runs import checkpoints
 
     return checkpoints.delete_for(run_id)
+
+
+@task(max_attempts=5)
+def advance_workflow(workflow_id: str) -> str:
+    """Moves a workflow run on once one of its runs has ended (ADR 0079). Safe to run twice:
+    it locks the workflow run, and only launches steps that haven't been."""
+    from iki_server.runs import workflows
+
+    return workflows.advance(workflow_id)

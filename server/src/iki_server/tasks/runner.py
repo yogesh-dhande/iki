@@ -40,6 +40,7 @@ from iki_server.runs import budgets as runs_budgets
 from iki_server.runs import imports as runs_imports
 from iki_server.runs import queue as runs_queue
 from iki_server.runs import setups as runs_setups
+from iki_server.runs import workflows as runs_workflows
 from iki_server.tasks.backend import CHANNEL, GiveUp, LeaseExpired, Retry, load_task, to_result
 from iki_server.tasks.models import TaskRecord
 
@@ -61,6 +62,8 @@ HOUSEKEEPING_EVERY = 15.0
 POLL_EVERY = 5.0
 #: How often budgets' spending is checked against their warning levels (ADR 0071).
 BUDGETS_EVERY = 60.0
+#: How often a runner looks for workflow runs nothing moved on (ADR 0079).
+WORKFLOWS_EVERY = 60.0
 #: How long the listener waits for a notification before checking for shutdown.
 LISTEN_TICK = 1.0
 FIRST_RETRY = timedelta(seconds=30)
@@ -93,6 +96,7 @@ class Runner:
     stopping: threading.Event = field(default_factory=threading.Event)
     last_housekeeping: float = field(default_factory=time.monotonic)
     last_budgets: float = 0.0
+    last_workflows: float = 0.0
     _wake: threading.Condition = field(default_factory=threading.Condition)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _threads: list[threading.Thread] = field(default_factory=list)
@@ -332,6 +336,17 @@ class Runner:
                 logger.exception("jobs_housekeeping_error")
             finally:
                 close_old_connections()
+            if time.monotonic() - self.last_workflows >= WORKFLOWS_EVERY:
+                self.last_workflows = time.monotonic()
+                try:
+                    # Workflow runs whose task to move them on was lost (ADR 0079).
+                    ended = runs_workflows.recover()
+                    if ended:
+                        logger.info("workflows_recovered", count=ended)
+                except Exception:
+                    logger.exception("workflows_housekeeping_error")
+                finally:
+                    close_old_connections()
             try:
                 # Bulk imports whose runner went away (ADR 0056).
                 moved = runs_imports.recover()

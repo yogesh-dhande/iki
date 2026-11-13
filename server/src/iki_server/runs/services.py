@@ -37,7 +37,16 @@ from iki_server.entities.values import Invalid, Refs, to_db
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
-from iki_server.runs import approvals, budgets, catalog, checkpoints, live, queue, quotas, reuse
+from iki_server.runs import (
+    approvals,
+    budgets,
+    catalog,
+    endings,
+    live,
+    queue,
+    quotas,
+    reuse,
+)
 from iki_server.runs.models import (
     BATCH_HRID_PREFIX,
     BATCH_HRID_SEQUENCE,
@@ -51,8 +60,9 @@ from iki_server.runs.models import (
     RunBatch,
     RunInput,
     RunStatus,
+    WorkflowRun,
 )
-from iki_spec.model import Action
+from iki_spec.model import Action, Workflow
 from iki_spec.validate import value_problems
 
 __all__ = [
@@ -60,8 +70,13 @@ __all__ = [
     "OutsideProject",
     "cancel",
     "cancel_batch",
+    "check_inputs",
+    "check_params",
     "launch",
     "launch_each",
+    "link_into_project",
+    "may_launch",
+    "outside_project",
     "reproduce",
     "visible_batches",
     "visible_runs",
@@ -88,7 +103,7 @@ class OutsideProject(Exception):  # noqa: N818 - reads as "they're outside the p
         )
 
 
-def _outside(
+def outside_project(
     user: User,
     project: Project,
     chosen: Mapping[str, Sequence[Entity]],
@@ -127,7 +142,7 @@ def _outside(
     return out
 
 
-def _add_to_project(user: User, project: Project, outside: Sequence[Entity]) -> None:
+def link_into_project(user: User, project: Project, outside: Sequence[Entity]) -> None:
     from iki_server.entities import services as entities
 
     for entity in outside:
@@ -154,34 +169,40 @@ def launch(
     reason: str = "",
     reuse_results: bool = True,
     add_to_project: bool = False,
+    workflow: WorkflowRun | None = None,
+    workflow_step: str = "",
 ) -> ActionRun:
     """Queue a run of `action` in `project`, or raise why it can't run. For a deterministic
     action, an identical earlier run's results are reused instead, unless `reuse_results`
     is off (ADR 0057). `add_to_project` links inputs from other projects into it first.
+    A workflow's step names its `workflow` run and `workflow_step` (ADR 0079).
 
     Raises :class:`PermissionDenied` if the caller can't run the action's tier in the project,
     :class:`Refused` if it can't run here now, :class:`Invalid` for inputs and params, and
     :class:`OutsideProject` for inputs that aren't in the project.
     """
-    _may_launch(user, action, project)
+    may_launch(user, action, project)
     errors: dict[str, list[str]] = {}
-    entities = _inputs(user, action, inputs, errors)
-    values = _params(user, action, project, params, errors)
+    entities = check_inputs(user, action, inputs, errors)
+    values = check_params(user, action, project, params, errors)
     if errors:
         raise Invalid(errors)
-    outside = _outside(user, project, entities, errors)
+    outside = outside_project(user, project, entities, errors)
     if errors:
         raise Invalid(errors)
     if outside and not add_to_project:
         raise OutsideProject(project, outside)
     with transaction.atomic():
-        _add_to_project(user, project, outside)
+        link_into_project(user, project, outside)
         made = _made(user, action, project, entities, values, reuse_results=reuse_results)
+        step = (workflow, workflow_step) if workflow is not None else None
         if made.original is not None:
-            return _reuse(user, action, project, entities, values, reason, made)
+            return _reuse(user, action, project, entities, values, reason, made, step=step)
         budgets.check_launch(project, action)
         approval = approvals.ask(user, action, project)
-        run = _queue(user, action, project, entities, values, reason, approval, made=made)
+        run = _queue(
+            user, action, project, entities, values, reason, approval, made=made, step=step
+        )
         if approval is not None:
             approvals.announce(
                 approval, 1, action.label or action.qualified_name, path=f"/runs/{run.hrid}/"
@@ -205,7 +226,7 @@ def launch_each(
     """Queue one run of `action` for each of `entity_ids` as its `each` input, the others the
     same for all, or none of them: raises as :func:`launch` does, with problems with the
     entities under ``entities``."""
-    _may_launch(user, action, project)
+    may_launch(user, action, project)
     errors: dict[str, list[str]] = {}
     put = action.inputs.get(each)
     if put is None:
@@ -218,20 +239,20 @@ def launch_each(
         errors["entities"] = ["Each entity can be given once."]
     if errors:
         raise Invalid(errors)
-    entities = _inputs(user, action, {**inputs, each: entity_ids}, errors, each=each)
-    values = _params(user, action, project, params, errors)
+    entities = check_inputs(user, action, {**inputs, each: entity_ids}, errors, each=each)
+    values = check_params(user, action, project, params, errors)
     if f"inputs/{each}" in errors:
         errors["entities"] = errors.pop(f"inputs/{each}")
     if errors:
         raise Invalid(errors)
-    outside = _outside(user, project, entities, errors, each=each)
+    outside = outside_project(user, project, entities, errors, each=each)
     if errors:
         raise Invalid(errors)
     if outside and not add_to_project:
         raise OutsideProject(project, outside)
     chosen = entities.pop(each)
     with transaction.atomic():
-        _add_to_project(user, project, outside)
+        link_into_project(user, project, outside)
         made = [
             _made(
                 user,
@@ -302,7 +323,7 @@ def input_taking(action: Action, types: Sequence[str]) -> str | None:
     return None
 
 
-def _may_launch(user: User, action: Action, project: Project) -> None:
+def may_launch(user: User, action: Action, project: Project) -> None:
     if not permissions.can(user, TIER_PERMISSIONS[action.tier], project):
         raise PermissionDenied
     if project.archived_at is not None:
@@ -336,6 +357,7 @@ def _queue(
     batch: RunBatch | None = None,
     made: _Made | None = None,
     copy_of: ActionRun | None = None,
+    step: tuple[WorkflowRun, str] | None = None,
 ) -> ActionRun:
     """Queues the run, or holds it for `approval`. Call inside a transaction, with its
     inputs and params checked. A reproduction is a `copy_of` the run it reproduces: its
@@ -351,6 +373,8 @@ def _queue(
         agent=audit.current_agent(),
         hrid=_next_hrid(),
         batch=batch,
+        workflow=step[0] if step else None,
+        workflow_step=step[1] if step else "",
         action=action.qualified_name,
         plugin_version=registry.plugins()[action.plugin].version,
         plugin_sha=made.sha,
@@ -410,6 +434,7 @@ def _queue(
             "inputs": sum(len(e) for e in entities.values()),
             **({"approval": str(approval.pk)} if approval else {}),
             **({"batch": batch.hrid} if batch else {}),
+            **({"workflow": step[0].hrid, "step": step[1]} if step else {}),
             **({"reproduces": copy_of.hrid} if copy_of else {}),
         },
     )
@@ -452,6 +477,8 @@ def _reuse(
     reason: str,
     made: _Made,
     batch: RunBatch | None = None,
+    *,
+    step: tuple[WorkflowRun, str] | None = None,
 ) -> ActionRun:
     assert made.original is not None  # noqa: S101 - only called with one
     return reuse.reuse(
@@ -465,6 +492,7 @@ def _reuse(
         made.original,
         hrid=_next_hrid(),
         batch=batch,
+        step=step,
     )
 
 
@@ -484,7 +512,7 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
     action = catalog.action(original.action)
     if action is None:
         raise Refused(f"{original.action} isn't installed now, so it can't run here.")
-    _may_launch(user, action, original.project)
+    may_launch(user, action, original.project)
     why = reuse.blocked(
         original, plugin_sha(action.plugin), registry.plugins()[action.plugin].version
     )
@@ -535,21 +563,24 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
         return reproduction
 
 
-def _inputs(
+def check_inputs(
     user: User,
-    action: Action,
+    action: Action | Workflow,
     given: Mapping[str, Sequence[UUID]],
     errors: dict[str, list[str]],
     *,
     each: str | None = None,
+    updated: set[str] | None = None,
 ) -> dict[str, list[Entity]]:
     """The entities for each input, checked; problems go in `errors`. The `each` input is
-    one entity per run: it may be given several."""
+    one entity per run: it may be given several. Those of `updated` inputs (by default, the
+    action's) must be ones the user can edit."""
     for name in sorted(given.keys() - action.inputs.keys()):
         errors[f"inputs/{name}"] = [f"`{action.qualified_name}` has no input `{name}`."]
     wanted = {i for name in action.inputs for i in given.get(name, ())}
     found = {e.pk: e for e in access.visible(user).filter(pk__in=wanted)}
-    updated = {u.input for u in action.updates}
+    if updated is None:
+        updated = {u.input for u in action.updates} if isinstance(action, Action) else set()
     out: dict[str, list[Entity]] = {}
     for name, put in action.inputs.items():
         key = f"inputs/{name}"
@@ -597,9 +628,9 @@ def is_a(entity_type: str, wanted: str) -> bool:
     return own is not None and any(t.qualified_name == wanted for t in registry.ancestors(own))
 
 
-def _params(
+def check_params(
     user: User,
-    action: Action,
+    action: Action | Workflow,
     project: Project,
     given: Mapping[str, Any],
     errors: dict[str, list[str]],
@@ -735,7 +766,7 @@ def cancel(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             )
             audit.record("run.cancelled", actor=user, target=run, project=run.project, data=data)
             # Queued again after an interruption, it may have saved progress (ADR 0069).
-            checkpoints.ended(run)
+            endings.ended(run)
             if run.approval_id is not None:
                 approvals.settle(
                     RunApproval.objects.select_for_update().get(pk=run.approval_id), user

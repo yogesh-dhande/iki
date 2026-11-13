@@ -83,17 +83,22 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 | 36b  | Managed volumes on the VM tier: EBS snapshots, fast snapshot restore                                              | done     | `cec4d88` `6718ea1`                     |
 | 36c  | ESMFold in the protein plugin, its weights in a volume its setup fills (its image is on `deferred/esmfold-image`) | deferred |                                         |
 | 36d  | Shared file systems (FSx, EFS, NFS): each version a directory, mounted read-only                                  | done     | `a45e10b` `3b82aca`                     |
-| 36e  | Object storage mounts (Mountpoint for S3): each version a prefix                                                  | done     | `ece5fc3`                               |
+| 36e  | Object storage mounts (Mountpoint for S3): each version a prefix                                                  | done     | `ece5fc3` `8da1cf0`                     |
 | 36f  | Disks one run at a time changes (`attach_exclusive`), runs queued behind each other                               | deferred |                                         |
 | 37   | The structure_prediction plugin: AlphaFold2, ColabFold, Boltz                                                     | deferred |                                         |
 
 ## Stage 6: Orchestration
 
-| Step | What                                                                                                              | Status  |
-| ---- | ----------------------------------------------------------------------------------------------------------------- | ------- |
-| 38   | Workflows: DAGs, fan-out and fan-in, conditions, approval gates, UI                                               | planned |
-| 39   | Triggers with loop protection, including scheduled ones run as a service account                                  | planned |
-| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back | planned |
+| Step | What                                                                                                              | Status      | Commits |
+| ---- | ----------------------------------------------------------------------------------------------------------------- | ----------- | ------- |
+| 38   | Workflows: DAGs, fan-out and fan-in, conditions, approval gates, UI                                               | in progress |         |
+| 38a  | Workflow manifests checked against their actions; steps run as ordinary runs; a workflow run's page               | done        |         |
+| 38b  | Fan-out over many entities, and fan-in                                                                            | planned     |         |
+| 38c  | Conditions: steps that run only when an earlier one's results say                                                 | planned     |         |
+| 38d  | Approval gates: a step waits for a person to approve                                                              | planned     |         |
+| 38e  | The workflow's graph, a launch form, and re-running from a failed step                                            | planned     |         |
+| 39   | Triggers with loop protection, including scheduled ones run as a service account                                  | planned     |         |
+| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back | planned     |         |
 
 ## Stage 7: Components, views and apps
 

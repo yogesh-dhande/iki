@@ -20,6 +20,8 @@ What's here:
   often can go to a pod that's kept warm, rather than wait for one of its own.
 - `environments/tools.yaml`: where that command runs. On the container tier,
   each run gets a pod with this image, pinned by its digest.
+- `workflows/store_sample.yaml`: a workflow that assigns a sample's storage,
+  then decodes it: two actions run one after the other, as one.
 - `migrations/`: the database migrations for those types, made by
   `iki plugin makemigrations` and reviewed in pull requests like code.
 - `.github/workflows/ci.yml`: checks every change, the way a deployment's

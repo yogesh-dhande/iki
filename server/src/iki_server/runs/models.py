@@ -36,6 +36,9 @@ HRID_SEQUENCE = "iki_hrid_run"
 BATCH_HRID_PREFIX = "BAT"
 BATCH_HRID_SEQUENCE = "iki_hrid_batch"
 #: And environment setup builds (SETUP-000001).
+WORKFLOW_HRID_PREFIX = "WF"
+WORKFLOW_HRID_SEQUENCE = "iki_hrid_workflow"
+
 SETUP_HRID_PREFIX = "SETUP"
 SETUP_HRID_SEQUENCE = "iki_hrid_setup"
 
@@ -193,6 +196,168 @@ class RunBatch(models.Model):
         return self.hrid
 
 
+class WorkflowStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    SUCCEEDED = "succeeded", "Succeeded"
+    FAILED = "failed", "Failed"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+WORKFLOW_FINISHED = frozenset(
+    {WorkflowStatus.SUCCEEDED, WorkflowStatus.FAILED, WorkflowStatus.CANCELLED}
+)
+
+
+class WorkflowRun(models.Model):
+    """One run of a workflow (ADR 0079): its steps are ordinary runs, launched as the person
+    who started it, in its project, each once the steps it takes from have succeeded."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    hrid = models.CharField(max_length=32, unique=True, db_comment="Such as WF-000123.")
+    #: The workflow's qualified name, such as ``protein.translate_and_characterize``.
+    workflow = models.CharField(max_length=200)
+    plugin_version = models.CharField(max_length=100)
+    plugin_sha = models.CharField(max_length=40, blank=True, default="")
+    #: The workflow as installed when it started: its steps run as it said then.
+    spec = models.JSONField()
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    via = models.CharField(max_length=16)
+    client = models.CharField(max_length=255, blank=True, default="")
+    #: The agent that asked for the person, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    reason = models.TextField(blank=True, default="")
+    #: Every workflow param's value, defaults filled in.
+    params = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=16, choices=WorkflowStatus.choices, default=WorkflowStatus.RUNNING
+    )
+    created_at = models.DateTimeField(db_default=Now())
+    finished_at = models.DateTimeField(null=True, blank=True)
+    cancel_requested_at = models.DateTimeField(null=True, blank=True)
+    cancel_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    #: Why it failed: ``code``, ``message``, and the ``step``.
+    error = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_workflow_run"
+        db_table_comment = "Every run of a workflow: who started it, where, on what, how it ended."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["project", "id"], name="iki_workflow_run_project"),
+            models.Index(fields=["workflow", "id"], name="iki_workflow_run_workflow"),
+            models.Index(
+                fields=["id"],
+                name="iki_workflow_run_running",
+                condition=Q(status="running"),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(status__in=WorkflowStatus.values), name="iki_workflow_run_status"
+            ),
+            models.CheckConstraint(
+                condition=Q(finished_at__isnull=True) | ~Q(status="running"),
+                name="iki_workflow_run_finished",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.hrid
+
+    @property
+    def finished(self) -> bool:
+        return self.status in WORKFLOW_FINISHED
+
+
+class WorkflowInput(models.Model):
+    """An entity a workflow run was given, at the revision it was then."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    workflow = models.ForeignKey(WorkflowRun, on_delete=models.PROTECT, related_name="inputs")
+    name = models.CharField(max_length=63)
+    position = models.PositiveIntegerField()
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "iki_workflow_input"
+        db_table_comment = "The entities each workflow run was given, and at which revision."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["workflow", "name", "position"], name="iki_workflow_input_position"
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["entity"], name="iki_workflow_input_entity"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.workflow_id} {self.name}[{self.position}]"
+
+
+class StepState(models.TextChoices):
+    #: For the steps it takes from.
+    WAITING = "waiting", "Waiting"
+    RUNNING = "running", "Running"
+    SUCCEEDED = "succeeded", "Succeeded"
+    FAILED = "failed", "Failed"
+    #: The workflow was cancelled while it ran.
+    CANCELLED = "cancelled", "Cancelled"
+    #: The workflow failed or was cancelled before it could start.
+    SKIPPED = "skipped", "Skipped"
+
+
+STEP_ENDED = frozenset(
+    {StepState.SUCCEEDED, StepState.FAILED, StepState.CANCELLED, StepState.SKIPPED}
+)
+
+
+class WorkflowStep(models.Model):
+    """A step of a workflow run: its state, and why it failed. Its run names it back
+    (:attr:`ActionRun.workflow_step`)."""
+
+    id = models.BigAutoField(primary_key=True)
+    workflow = models.ForeignKey(WorkflowRun, on_delete=models.PROTECT, related_name="steps")
+    #: Its ID in the workflow.
+    step = models.CharField(max_length=63)
+    #: Its place in the order the workflow runs its steps, from 0.
+    position = models.PositiveIntegerField()
+    state = models.CharField(max_length=16, choices=StepState.choices, default=StepState.WAITING)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    #: Why it failed or was skipped: ``code`` and ``message``.
+    error = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_workflow_step"
+        db_table_comment = "The steps of each workflow run, and how far each has got."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["workflow", "step"], name="iki_workflow_step_once"),
+            models.CheckConstraint(
+                condition=Q(state__in=StepState.values), name="iki_workflow_step_state"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.workflow_id} {self.step}"
+
+    @property
+    def ended(self) -> bool:
+        return self.state in STEP_ENDED
+
+
 class ActionRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     hrid = models.CharField(max_length=32, unique=True, db_comment="Such as RUN-000123.")
@@ -224,6 +389,11 @@ class ActionRun(models.Model):
     batch = models.ForeignKey(
         RunBatch, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
     )
+    #: The workflow run it's a step of, if any (ADR 0079), and the step's ID.
+    workflow = models.ForeignKey(
+        WorkflowRun, null=True, blank=True, on_delete=models.PROTECT, related_name="runs"
+    )
+    workflow_step = models.CharField(max_length=63, blank=True, default="")
     tier = models.CharField(max_length=16)
     environment = models.CharField(max_length=63)
     #: Every param's value, defaults filled in.
@@ -291,6 +461,11 @@ class ActionRun(models.Model):
                 condition=Q(batch__isnull=False),
             ),
             models.Index(
+                fields=["workflow", "workflow_step", "id"],
+                name="iki_action_run_workflow",
+                condition=Q(workflow__isnull=False),
+            ),
+            models.Index(
                 fields=["reuse_key", "-finished_at"],
                 name="iki_action_run_reusable",
                 condition=Q(status=RunStatus.SUCCEEDED)
@@ -326,6 +501,11 @@ class ActionRun(models.Model):
             models.CheckConstraint(
                 condition=Q(reused_from__isnull=True) | Q(reproduces__isnull=True),
                 name="iki_action_run_reused_or_reproduces",
+            ),
+            models.CheckConstraint(
+                condition=Q(workflow__isnull=True, workflow_step="")
+                | (Q(workflow__isnull=False) & ~Q(workflow_step="")),
+                name="iki_action_run_workflow_step",
             ),
             models.CheckConstraint(
                 condition=Q(finished_at__isnull=True)

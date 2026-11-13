@@ -24,6 +24,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("api/v1/events", realtime.events, name="events"),
     path("api/v1/runs/<str:ref>/events", realtime.run_events, name="run-events"),
     path("api/v1/batches/<str:ref>/events", realtime.batch_events, name="batch-events"),
+    path(
+        "api/v1/workflow-runs/<str:ref>/events",
+        realtime.workflow_events,
+        name="workflow-run-events",
+    ),
     path("api/v1/compute/setups/<str:ref>/events", realtime.setup_events, name="setup-events"),
     path("api/v1/", api_v1.urls),
     # AI agents' (ADR 0013): MCP over Streamable HTTP.
@@ -51,5 +56,6 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # Runs (a project's runs are in org.urls).
     path("runs/<str:ref>/", web.app, name="run"),
     path("batches/<str:ref>/", web.app, name="batch"),
+    path("workflow-runs/<str:ref>/", web.app, name="workflow_run"),
     path("csp-report/", web.csp_report, name="csp_report"),
 ]

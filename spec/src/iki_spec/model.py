@@ -29,9 +29,12 @@ __all__ = [
     "Resources",
     "Updates",
     "Volume",
+    "Workflow",
+    "WorkflowStep",
     "action_from_dict",
     "plugin_from_dict",
     "plugin_to_dict",
+    "workflow_from_dict",
 ]
 
 FIELD_TYPES = (
@@ -328,6 +331,64 @@ class Environment:
 
 
 @dataclass(frozen=True)
+class WorkflowStep:
+    """One step of a workflow: a run of one of the plugin's actions (ADR 0079)."""
+
+    id: str
+    action: str  # the action's name in the plugin
+    label: str = ""
+    #: The action's input → where it comes from: ``$inputs.<name>``,
+    #: ``$steps.<id>.inputs.<name>`` or ``$steps.<id>.created.<plugin.Type>``.
+    inputs: dict[str, str] = field(default_factory=dict)
+    #: The action's param → a value, or ``$params.<name>``.
+    params: dict[str, Any] = field(default_factory=dict)
+    needs: tuple[str, ...] = ()
+
+    def after(self) -> set[str]:
+        """The steps it runs after: those it takes from, and those it needs. Naming
+        itself is a mistake the build reports, not a cycle."""
+        found = set(self.needs)
+        for ref in self.inputs.values():
+            if ref.startswith("$steps."):
+                found.add(ref.split(".")[1])
+        return found - {self.id}
+
+
+@dataclass(frozen=True)
+class Workflow:
+    """Steps that each run one of the plugin's actions, wired together (ADR 0079)."""
+
+    plugin: str
+    name: str
+    label: str = ""
+    description: str | None = None
+    inputs: dict[str, Input] = field(default_factory=dict)
+    params: dict[str, Field] = field(default_factory=dict)
+    steps: dict[str, WorkflowStep] = field(default_factory=dict)
+    file: str | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
+
+    def order(self) -> list[str] | None:
+        """Its steps, each after those it runs after (by ID where that leaves a choice);
+        None if some come before themselves."""
+        done: list[str] = []
+        left = dict(self.steps)
+        while left:
+            ready = sorted(
+                i for i, step in left.items() if step.after() & self.steps.keys() <= set(done)
+            )
+            if not ready:
+                return None
+            done.extend(ready)
+            for i in ready:
+                del left[i]
+        return done
+
+
+@dataclass(frozen=True)
 class Plugin:
     name: str
     version: str
@@ -342,6 +403,7 @@ class Plugin:
     extensions: tuple[Extension, ...] = ()
     actions: dict[str, Action] = field(default_factory=dict)
     environments: dict[str, Environment] = field(default_factory=dict)
+    workflows: dict[str, Workflow] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -434,6 +496,8 @@ _DATACLASSES = (
     Resources,
     Environment,
     Volume,
+    Workflow,
+    WorkflowStep,
 )
 
 
@@ -473,6 +537,27 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             ),
             "actions": {k: _action(v) for k, v in data["actions"].items()},
             "environments": {k: _environment(v) for k, v in data["environments"].items()},
+            # Plugins built before workflows have none.
+            "workflows": {k: _workflow(v) for k, v in (data.get("workflows") or {}).items()},
+        }
+    )
+
+
+def workflow_from_dict(data: dict[str, Any]) -> Workflow:
+    """A workflow from its JSON form, as a workflow run keeps it."""
+    return _workflow(data)
+
+
+def _workflow(data: dict[str, Any]) -> Workflow:
+    return Workflow(
+        **{
+            **data,
+            "inputs": {n: Input(**i) for n, i in data["inputs"].items()},
+            "params": {n: _field(f) for n, f in data["params"].items()},
+            "steps": {
+                i: WorkflowStep(**{**step, "needs": tuple(step["needs"])})
+                for i, step in data["steps"].items()
+            },
         }
     )
 

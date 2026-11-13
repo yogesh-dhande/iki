@@ -40,7 +40,7 @@ from iki_server.runs.models import (
 if TYPE_CHECKING:
     from iki_server.accounts.models import User
     from iki_server.org.models import Project
-    from iki_server.runs.models import RunBatch
+    from iki_server.runs.models import RunBatch, WorkflowRun
     from iki_spec.model import Action
 
 __all__ = ["MAX_EFFECTS", "blocked", "compare", "find", "key", "reproducible", "reuse"]
@@ -145,6 +145,7 @@ def reuse(
     *,
     hrid: str,
     batch: RunBatch | None = None,
+    step: tuple[WorkflowRun, str] | None = None,
 ) -> ActionRun:
     """A run that ends at once with `original`'s results: the entities it made (or reused)
     are linked into `project` and listed as this run's, reused. Call inside a transaction,
@@ -156,6 +157,8 @@ def reuse(
         agent=audit.current_agent(),
         hrid=hrid,
         batch=batch,
+        workflow=step[0] if step else None,
+        workflow_step=step[1] if step else "",
         action=action.qualified_name,
         plugin_version=original.plugin_version,
         plugin_sha=original.plugin_sha,
@@ -212,6 +215,7 @@ def reuse(
             "inputs": sum(len(e) for e in entities.values()),
             "reused_from": original.hrid,
             **({"batch": batch.hrid} if batch else {}),
+            **({"workflow": step[0].hrid, "step": step[1]} if step else {}),
         },
     )
     live.changed(run.pk, run.batch_id)

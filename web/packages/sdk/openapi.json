@@ -4753,6 +4753,35 @@
         "title": "Page[WorkerRegistrationOut]",
         "type": "object"
       },
+      "Page_WorkflowRunOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowRunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[WorkflowRunOut]",
+        "type": "object"
+      },
       "ParamOut": {
         "description": "A param is a field, as entity types' are, with its default and limits.",
         "properties": {
@@ -6984,6 +7013,18 @@
                 "type": "null"
               }
             ]
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the runs of this workflow run (its ID or HRID), in launch order.",
+            "title": "Workflow"
           }
         },
         "title": "RunFilters",
@@ -7403,6 +7444,17 @@
             ],
             "description": "Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).",
             "title": "Waiting"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowStepRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The workflow run it's a step of, if any (ADR 0079)."
           }
         },
         "required": [
@@ -7419,6 +7471,7 @@
           "approval",
           "reason",
           "batch",
+          "workflow",
           "tier",
           "environment",
           "params",
@@ -8555,6 +8608,60 @@
           "parts"
         ],
         "title": "StartedOut",
+        "type": "object"
+      },
+      "StepErrorOut": {
+        "properties": {
+          "code": {
+            "description": "`run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start) or `skipped`.",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "StepErrorOut",
+        "type": "object"
+      },
+      "StepRunOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "awaiting_approval",
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out",
+              "rejected",
+              "declined"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "status"
+        ],
+        "title": "StepRunOut",
         "type": "object"
       },
       "SummaryOut": {
@@ -9909,6 +10016,606 @@
           "workers"
         ],
         "title": "WorkerRegistrationOut",
+        "type": "object"
+      },
+      "WorkflowErrorOut": {
+        "properties": {
+          "code": {
+            "description": "`step_failed`.",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "step": {
+            "description": "The step that failed.",
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "step"
+        ],
+        "title": "WorkflowErrorOut",
+        "type": "object"
+      },
+      "WorkflowInputOut": {
+        "properties": {
+          "entity": {
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revision": {
+            "description": "Its revision when the workflow started.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "entity",
+          "hrid",
+          "revision"
+        ],
+        "title": "WorkflowInputOut",
+        "type": "object"
+      },
+      "WorkflowOut": {
+        "properties": {
+          "available": {
+            "description": "Whether every step's action can run on this deployment.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/InputOut"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Qualified, such as `protein.translate_and_characterize`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamOut"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "params_schema": {
+            "additionalProperties": true,
+            "description": "The params as JSON Schema (2020-12).",
+            "title": "Params Schema",
+            "type": "object"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "steps": {
+            "description": "In the order they start.",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "name",
+          "plugin",
+          "label",
+          "description",
+          "inputs",
+          "params",
+          "params_schema",
+          "steps",
+          "available",
+          "unavailable_reason"
+        ],
+        "title": "WorkflowOut",
+        "type": "object"
+      },
+      "WorkflowRunCan": {
+        "properties": {
+          "cancel": {
+            "description": "It hasn't finished, and you may cancel it.",
+            "title": "Cancel",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cancel"
+        ],
+        "title": "WorkflowRunCan",
+        "type": "object"
+      },
+      "WorkflowRunFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only workflow runs in this project.",
+            "title": "Project"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only runs of this workflow.",
+            "title": "Workflow"
+          }
+        },
+        "title": "WorkflowRunFilters",
+        "type": "object"
+      },
+      "WorkflowRunIn": {
+        "properties": {
+          "add_to_project": {
+            "default": false,
+            "description": "Its steps read only what's in its project (ADR 0066). Set true to add inputs from other projects to it first; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.",
+            "title": "Add To Project",
+            "type": "boolean"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "description": "Entity IDs for each input: one, or a list for inputs that take many.",
+            "title": "Inputs",
+            "type": "object"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "project": {
+            "description": "Where its steps run. Entities they create belong to it.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "title": "WorkflowRunIn",
+        "type": "object"
+      },
+      "WorkflowRunOut": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that started it, acting for requested_by, if one did (ADR 0072)."
+          },
+          "can": {
+            "$ref": "#/components/schemas/WorkflowRunCan"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "client": {
+            "description": "The OAuth app it was started through, if any.",
+            "title": "Client",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it failed."
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "hrid": {
+            "description": "Such as WF-000123.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowInputOut"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "plugin_version": {
+            "title": "Plugin Version",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "description": "In the order they start.",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowRunStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "workflow",
+          "label",
+          "plugin_version",
+          "project",
+          "requested_by",
+          "via",
+          "client",
+          "agent",
+          "reason",
+          "inputs",
+          "params",
+          "status",
+          "steps",
+          "created_at",
+          "finished_at",
+          "cancel_requested_at",
+          "error",
+          "can"
+        ],
+        "title": "WorkflowRunOut",
+        "type": "object"
+      },
+      "WorkflowRunStepOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "after": {
+            "items": {
+              "type": "string"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it failed or was skipped."
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its run, once launched."
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "enum": [
+              "waiting",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "skipped"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "action",
+          "after",
+          "state",
+          "started_at",
+          "finished_at",
+          "error",
+          "run"
+        ],
+        "title": "WorkflowRunStepOut",
+        "type": "object"
+      },
+      "WorkflowStepOut": {
+        "properties": {
+          "action": {
+            "description": "The qualified name of the action it runs.",
+            "title": "Action",
+            "type": "string"
+          },
+          "after": {
+            "description": "The steps it starts after, in name order.",
+            "items": {
+              "type": "string"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Where each input comes from: `$inputs.<name>`, `$steps.<id>.created.<Type>` or `$steps.<id>.inputs.<name>`.",
+            "title": "Inputs",
+            "type": "object"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Each param's value, or `$params.<name>` for the workflow's.",
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "action",
+          "inputs",
+          "params",
+          "after"
+        ],
+        "title": "WorkflowStepOut",
+        "type": "object"
+      },
+      "WorkflowStepRefOut": {
+        "properties": {
+          "hrid": {
+            "description": "Such as WF-000123.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "step": {
+            "description": "The step's ID in the workflow.",
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "step"
+        ],
+        "title": "WorkflowStepRefOut",
         "type": "object"
       }
     },
@@ -14306,6 +15013,24 @@
                 }
               ]
             }
+          },
+          {
+            "description": "Only the runs of this workflow run (its ID or HRID), in launch order.",
+            "in": "query",
+            "name": "workflow",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the runs of this workflow run (its ID or HRID), in launch order.",
+              "title": "Workflow"
+            }
           }
         ],
         "responses": {
@@ -16847,6 +17572,347 @@
         "summary": "Rotate the secret",
         "tags": [
           "webhooks"
+        ]
+      }
+    },
+    "/api/v1/workflow-runs": {
+      "get": {
+        "description": "Newest first. `GET /runs?workflow=` lists a workflow run's runs.",
+        "operationId": "iki_server_api_workflows_list_workflow_runs",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only workflow runs in this project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only workflow runs in this project.",
+              "title": "Project"
+            }
+          },
+          {
+            "description": "Only runs of this workflow.",
+            "in": "query",
+            "name": "workflow",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs of this workflow.",
+              "title": "Workflow"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "running",
+                    "succeeded",
+                    "failed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WorkflowRunOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Workflow runs you can read",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflow-runs/{ref}": {
+      "get": {
+        "description": "By its ID or HRID (WF-000123). Its live updates come from\n`GET /workflow-runs/{ref}/events`: `workflow` when it or a step changes.",
+        "operationId": "iki_server_api_workflows_get_workflow_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRunOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A workflow run",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflow-runs/{ref}/cancel": {
+      "post": {
+        "description": "No further step starts, and its running steps' runs are cancelled, as\n`POST /runs/{ref}/cancel` would. It ends cancelled once they have.",
+        "operationId": "iki_server_api_workflows_cancel_workflow_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRunOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Cancel a workflow run",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflows": {
+      "get": {
+        "description": "Every workflow installed plugins provide, in name order.",
+        "operationId": "iki_server_api_workflows_list_workflows",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Installed workflows",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflows/{name}": {
+      "get": {
+        "operationId": "iki_server_api_workflows_get_workflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A workflow",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflows/{name}/runs": {
+      "post": {
+        "description": "Start a run of the workflow. Everything it can be is checked first: your role for\neach step's tier, that each step's action can run here, its inputs and its params. Its\nfirst steps are launched before it answers; each later one once those it takes from\nhave succeeded.",
+        "operationId": "iki_server_api_workflows_start_workflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowRunIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRunOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Start a workflow",
+        "tags": [
+          "workflows"
         ]
       }
     }

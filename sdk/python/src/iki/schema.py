@@ -1094,6 +1094,12 @@ class PageWorkerRegistrationOut(TypedDict):
     next_cursor: str | None
 
 
+class PageWorkflowRunOut(TypedDict):
+    items: list[WorkflowRunOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
 class ParamOut(TypedDict):
     """A param is a field, as entity types' are, with its default and limits."""
     #: Set only by actions.
@@ -1560,6 +1566,8 @@ class RunFilters(TypedDict):
     #: Only runs in this project.
     project: NotRequired[str | None]
     status: NotRequired[RunStatus | None]
+    #: Only the runs of this workflow run (its ID or HRID), in launch order.
+    workflow: NotRequired[str | None]
 
 
 class RunIn(TypedDict):
@@ -1645,6 +1653,8 @@ class RunOut(TypedDict):
     via: str
     #: Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
     waiting: str | None
+    #: The workflow run it's a step of, if any (ADR 0079).
+    workflow: WorkflowStepRefOut | None
 
 
 class RunRefOut(TypedDict):
@@ -1873,6 +1883,18 @@ class StartedOut(TypedDict):
     sha256: str
     size: int
     state: Literal['pending', 'checking', 'ready', 'failed', 'cancelled', 'expired']
+
+
+class StepErrorOut(TypedDict):
+    #: `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start) or `skipped`.
+    code: str
+    message: str
+
+
+class StepRunOut(TypedDict):
+    hrid: str
+    id: str
+    status: Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
 
 
 class SummaryOut(TypedDict):
@@ -2139,4 +2161,129 @@ class WorkerRegistrationOut(TypedDict):
     workers: int
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']
+class WorkflowErrorOut(TypedDict):
+    #: `step_failed`.
+    code: str
+    message: str
+    #: The step that failed.
+    step: str
+
+
+class WorkflowInputOut(TypedDict):
+    entity: str
+    hrid: str
+    name: str
+    #: Its revision when the workflow started.
+    revision: int
+
+
+class WorkflowOut(TypedDict):
+    #: Whether every step's action can run on this deployment.
+    available: bool
+    description: str | None
+    inputs: list[InputOut]
+    label: str
+    #: Qualified, such as `protein.translate_and_characterize`.
+    name: str
+    params: list[ParamOut]
+    #: The params as JSON Schema (2020-12).
+    params_schema: dict[str, Any]
+    plugin: str
+    #: In the order they start.
+    steps: list[WorkflowStepOut]
+    unavailable_reason: str | None
+
+
+class WorkflowRunCan(TypedDict):
+    #: It hasn't finished, and you may cancel it.
+    cancel: bool
+
+
+class WorkflowRunFilters(TypedDict):
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+    #: Only workflow runs in this project.
+    project: NotRequired[str | None]
+    status: NotRequired[Literal['running', 'succeeded', 'failed', 'cancelled'] | None]
+    #: Only runs of this workflow.
+    workflow: NotRequired[str | None]
+
+
+class WorkflowRunIn(TypedDict):
+    #: Its steps read only what's in its project (ADR 0066). Set true to add inputs from other projects to it first; each is audited as `entity.linked`. Without it, such inputs are refused with 409 `inputs_outside_project`, which lists them.
+    add_to_project: NotRequired[bool]
+    #: Entity IDs for each input: one, or a list for inputs that take many.
+    inputs: NotRequired[dict[str, str | list[str]]]
+    params: NotRequired[dict[str, Any]]
+    #: Where its steps run. Entities they create belong to it.
+    project: str
+    #: Why, for the record.
+    reason: NotRequired[str]
+
+
+class WorkflowRunOut(TypedDict):
+    #: The agent that started it, acting for requested_by, if one did (ADR 0072).
+    agent: AgentOut | None
+    can: WorkflowRunCan
+    cancel_requested_at: str | None
+    #: The OAuth app it was started through, if any.
+    client: str
+    created_at: str
+    #: Why it failed.
+    error: WorkflowErrorOut | None
+    finished_at: str | None
+    #: Such as WF-000123.
+    hrid: str
+    id: str
+    inputs: list[WorkflowInputOut]
+    label: str
+    params: dict[str, Any]
+    plugin_version: str
+    project: str
+    reason: str
+    requested_by: PersonRef
+    status: Literal['running', 'succeeded', 'failed', 'cancelled']
+    #: In the order they start.
+    steps: list[WorkflowRunStepOut]
+    via: str
+    workflow: str
+
+
+class WorkflowRunStepOut(TypedDict):
+    action: str
+    after: list[str]
+    #: Why it failed or was skipped.
+    error: StepErrorOut | None
+    finished_at: str | None
+    id: str
+    label: str
+    #: Its run, once launched.
+    run: StepRunOut | None
+    started_at: str | None
+    state: Literal['waiting', 'running', 'succeeded', 'failed', 'cancelled', 'skipped']
+
+
+class WorkflowStepOut(TypedDict):
+    #: The qualified name of the action it runs.
+    action: str
+    #: The steps it starts after, in name order.
+    after: list[str]
+    id: str
+    #: Where each input comes from: `$inputs.<name>`, `$steps.<id>.created.<Type>` or `$steps.<id>.inputs.<name>`.
+    inputs: dict[str, str]
+    label: str
+    #: Each param's value, or `$params.<name>` for the workflow's.
+    params: dict[str, Any]
+
+
+class WorkflowStepRefOut(TypedDict):
+    #: Such as WF-000123.
+    hrid: str
+    id: str
+    #: The step's ID in the workflow.
+    step: str
+
+
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SortIn', 'StartedOut', 'StepErrorOut', 'StepRunOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
