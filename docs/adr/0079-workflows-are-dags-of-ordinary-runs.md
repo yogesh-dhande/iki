@@ -59,6 +59,21 @@ created, and what it was given for that input, are then many, so a later step
 takes them all where its input takes many (fan-in), or runs for each in turn.
 The build allows many entities into an input that takes one only there.
 
+**A step can run only if conditions hold.** An action declares the numbers
+its runs report about themselves (`metrics`: an alignment's identity, a
+structure's confidence). A step's `when:` lists conditions that must all hold
+for it to run, each comparing the workflow's param or an earlier step's
+metric with a value or param, by `is`, `is_not`, `in`, `at_least`, `at_most`,
+`above` or `below`. They're data, not expressions: the build checks each
+names a metric the step's action declares, from a step that runs once, and
+compares it with something of its type, so nothing is evaluated that a
+reviewer can't read at a glance. A step whose conditions don't hold is
+skipped with the reason, and so are the steps after it, as in GitHub Actions;
+the workflow succeeds, since it did what it says. A metric its run didn't
+report fails the step rather than count as false: whether it should have run
+isn't known, and in a regulated lab a silent skip is worse than a stop. A
+reused run's metrics are those of the run it reused.
+
 **Each step is an ordinary run, launched as the person who started the
 workflow.** It's launched as if they had launched it themselves, in the
 workflow's project, with the same checks (their role on the tier, the
@@ -91,9 +106,11 @@ workflow on; the task runners also look every minute for any left behind.
 
 - A workflow is as reproducible as its runs: each records its inputs at
   the revisions it read, and the workflow records which run was which step.
-- Conditions, approval gates, and the web app's graph and launch form
-  follow (steps 38c to 38e), as do MCP tools for agents to start and follow
-  workflows.
+- Approval gates, and the web app's graph and launch form, follow (steps 38d
+  and 38e), as do MCP tools for agents to start and follow workflows.
+- Conditions read params and metrics only, not entities' values: a step that
+  should run only for entities with some value takes the entities a query
+  step gives it.
 - A step runs its own plugin's actions: a plugin's build sees only its own,
   and other plugins' types. Steps from other plugins, and workflows defined
   by a project rather than a plugin (`core.WorkflowDefinition`), come later.

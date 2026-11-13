@@ -2239,6 +2239,11 @@ export interface components {
             /** Label */
             label: string;
             /**
+             * Metrics
+             * @description The numbers its runs report about themselves, which a workflow step's `when` may read. A run may report others.
+             */
+            metrics: components["schemas"]["MetricOut"][];
+            /**
              * Name
              * @description The qualified name, such as `protein.compute_properties`.
              */
@@ -2865,6 +2870,24 @@ export interface components {
              * @description What to compare with, as the field takes it.
              */
             value?: unknown;
+        };
+        /** ConditionOut */
+        ConditionOut: {
+            /**
+             * Operand
+             * @description What it's compared with: a value, `$params.<name>`, or for `in` a list of them. A string starting `$$` stands for one starting `$`.
+             */
+            operand: unknown;
+            /**
+             * Operator
+             * @enum {string}
+             */
+            operator: "is" | "is_not" | "in" | "at_least" | "at_most" | "above" | "below";
+            /**
+             * Value
+             * @description What's compared: `$params.<name>`, or `$steps.<id>.metrics.<name>`, a number that step's run reported.
+             */
+            value: string;
         };
         /** CostGroupOut */
         CostGroupOut: {
@@ -4027,6 +4050,18 @@ export interface components {
             level: "info" | "warning" | "error";
             /** Text */
             text: string;
+        };
+        /** MetricOut */
+        MetricOut: {
+            /** Description */
+            description: string;
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description Its key in a run's `metrics`.
+             */
+            name: string;
         };
         /** NotificationActor */
         NotificationActor: {
@@ -6138,7 +6173,7 @@ export interface components {
         StepErrorOut: {
             /**
              * Code
-             * @description `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start) or `skipped`.
+             * @description `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).
              */
             code: string;
             /** Message */
@@ -6960,6 +6995,11 @@ export interface components {
              * @enum {string}
              */
             state: "waiting" | "running" | "succeeded" | "failed" | "cancelled" | "skipped";
+            /**
+             * When
+             * @description Conditions that must all hold for it to run.
+             */
+            when: components["schemas"]["ConditionOut"][];
         };
         /** WorkflowStepOut */
         WorkflowStepOut: {
@@ -6996,6 +7036,11 @@ export interface components {
             params: {
                 [key: string]: unknown;
             };
+            /**
+             * When
+             * @description Conditions that must all hold for it to run, checked once the steps it starts after have succeeded. If one doesn't, it's skipped, and so are the steps after it.
+             */
+            when: components["schemas"]["ConditionOut"][];
         };
         /** WorkflowStepRefOut */
         WorkflowStepRefOut: {

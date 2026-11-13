@@ -65,6 +65,40 @@
       "maxLength": 200,
       "pattern": "^\\$(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|steps\\.[a-z][a-z0-9]*(_[a-z0-9]+)*\\.(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|created\\.([a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[A-Z][A-Za-z0-9]*))$"
     },
+    "condition": {
+      "description": "A value compared with another: exactly one of `is`, `is_not`, `in`, `at_least`, `at_most`, `above` or `below`.",
+      "type": "object",
+      "required": ["value"],
+      "additionalProperties": false,
+      "minProperties": 2,
+      "maxProperties": 2,
+      "properties": {
+        "value": {
+          "description": "The workflow's param (`$params.<name>`), or a metric an earlier step's action declares (`$steps.<id>.metrics.<name>`).",
+          "type": "string",
+          "pattern": "^\\$(params\\.[a-z][a-z0-9_]{0,62}|steps\\.[a-z][a-z0-9_]{0,62}\\.metrics\\.[a-z][a-z0-9_]{0,62})$"
+        },
+        "is": { "description": "Equal to this, or to the workflow's param (`$params.<name>`)." },
+        "is_not": { "description": "Not equal to this, or to the workflow's param." },
+        "in": {
+          "description": "One of these.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100
+        },
+        "at_least": { "$ref": "#/$defs/bound" },
+        "at_most": { "$ref": "#/$defs/bound" },
+        "above": { "$ref": "#/$defs/bound" },
+        "below": { "$ref": "#/$defs/bound" }
+      }
+    },
+    "bound": {
+      "description": "A number, or the workflow's param (`$params.<name>`).",
+      "oneOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^\\$params\\.[a-z][a-z0-9_]{0,62}$" }
+      ]
+    },
     "step": {
       "type": "object",
       "required": ["action"],
@@ -79,6 +113,13 @@
         "each": {
           "description": "One of the action's inputs that takes one entity: the step runs once for each entity its source gives, as a batch. Its created entities, and what it was given for this input, are then many.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "when": {
+          "description": "What must hold for it to run, all of it. Otherwise it's skipped, and so are the steps that take from it.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/condition" }
         },
         "inputs": {
           "description": "Where each of the action's inputs comes from, by the input's name.",

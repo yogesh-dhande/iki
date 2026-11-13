@@ -22,4 +22,6 @@ effects:
 runs_on: { tier: backend, environment: protein-tools, resources: { memory: 2Gi } }
 command: [python, ./scripts/structures.py, file]
 deterministic: true
+metrics:
+  structures: { label: Structures, description: How many structures it read. }
 timeout: 30m

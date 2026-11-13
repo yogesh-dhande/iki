@@ -1,0 +1,20 @@
+apiVersion: iki/v1
+kind: Workflow
+name: align_then_weigh
+inputs:
+  query: { type: Protein, schema: ">=1" }
+  target: { type: Protein, schema: ">=1" }
+params:
+  min_score: { type: float, default: 10 }
+steps:
+  align:
+    action: align_pair
+    inputs: { query: $inputs.query, target: $inputs.target }
+  weigh:
+    action: compute_properties
+    inputs: { protein: $inputs.target }
+    when:
+      - { value: $steps.align.metrics.score, at_least: $params.min_score }
+  weigh_again:
+    action: compute_properties
+    inputs: { protein: $steps.weigh.inputs.protein }

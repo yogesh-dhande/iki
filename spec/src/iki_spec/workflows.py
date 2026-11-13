@@ -13,7 +13,17 @@ from typing import TYPE_CHECKING, Any
 
 from iki_spec import actions, schemas
 from iki_spec import validate as _validate
-from iki_spec.model import Action, Field, Input, Workflow, WorkflowStep, qualify
+from iki_spec.model import (
+    CONDITION_OPERATORS,
+    NUMERIC_OPERATORS,
+    Action,
+    Condition,
+    Field,
+    Input,
+    Workflow,
+    WorkflowStep,
+    qualify,
+)
 from iki_spec.problems import Path
 
 if TYPE_CHECKING:
@@ -57,11 +67,17 @@ def read_workflow(plugin: str, body: dict[str, Any], document: Document) -> Work
                 params=dict(step.get("params") or {}),
                 needs=tuple(step.get("needs") or ()),
                 each=step.get("each"),
+                when=tuple(_condition(c) for c in step.get("when") or ()),
             )
             for i, step in body["steps"].items()
         },
         file=document.file,
     )
+
+
+def _condition(given: dict[str, Any]) -> Condition:
+    operator = next((k for k in CONDITION_OPERATORS if k in given), "is")
+    return Condition(value=given["value"], operator=operator, operand=given.get(operator))
 
 
 def _qualified_ref(ref: str, plugin: str) -> str:
@@ -207,6 +223,8 @@ class _Rules:
                     (*path, "params") if step.params else path,
                     hint=f"Add `{name}:` with a value, or `$params.<name>` for the workflow's.",
                 )
+        for index, condition in enumerate(step.when):
+            self.condition(workflow, step, condition, source, (*path, "when", index))
         for index, other in enumerate(step.needs):
             if other == step.id or other not in workflow.steps:
                 self.add(
@@ -345,6 +363,110 @@ class _Rules:
             return
         for message in _validate.value_problems(wanted, literal(value)):
             self.add("workflow-invalid-param", f"The value {message}", source, path)
+
+    def condition(
+        self,
+        workflow: Workflow,
+        step: WorkflowStep,
+        condition: Condition,
+        source: Document,
+        path: Path,
+    ) -> None:
+        compared = self.compared(workflow, step, condition.value, source, (*path, "value"))
+        if compared is None:
+            return
+        at = (*path, condition.operator)
+        numeric = compared.type in ("int", "float", "quantity")
+        if condition.operator in NUMERIC_OPERATORS and not numeric:
+            self.add(
+                "workflow-condition-type",
+                f"`{condition.value}` isn't a number, so it can't be `{condition.operator}`.",
+                source,
+                at,
+                hint="Use `is`, `is_not` or `in`.",
+            )
+            return
+        operands = condition.operand if condition.operator == "in" else [condition.operand]
+        for index, operand in enumerate(operands):
+            where = (*at, index) if condition.operator == "in" else at
+            if isinstance(operand, str) and operand.startswith("$params."):
+                given = workflow.params.get(operand.removeprefix("$params."))
+                if given is None:
+                    self.add(
+                        "workflow-unknown-reference",
+                        f"`{operand}` isn't one of the workflow's params.",
+                        source,
+                        where,
+                    )
+                elif (given.type in ("int", "float", "quantity")) != numeric or (
+                    not numeric and given.type != compared.type
+                ):
+                    self.add(
+                        "workflow-condition-type",
+                        f"`{operand}` is {_kind(given)}, and `{condition.value}` is "
+                        f"{_kind(compared)}.",
+                        source,
+                        where,
+                    )
+                continue
+            problems = _validate.value_problems(_loose(compared), literal(operand))
+            for message in problems:
+                self.add("workflow-condition-type", f"The value {message}", source, where)
+
+    def compared(
+        self, workflow: Workflow, step: WorkflowStep, ref: str, source: Document, path: Path
+    ) -> Field | None:
+        """What a condition's value is, as a field; None (reported) if it names nothing."""
+        parts = ref.split(".")
+        if parts[0] == "$params":
+            found = workflow.params.get(parts[1])
+            if found is None:
+                self.add(
+                    "workflow-unknown-reference",
+                    f"`{ref}` isn't one of the workflow's params.",
+                    source,
+                    path,
+                )
+            return found
+        other = workflow.steps.get(parts[1])
+        if other is None or other.id == step.id:
+            self.add(
+                "workflow-unknown-step",
+                "A step can't read its own metrics."
+                if other is not None
+                else f"`{parts[1]}` isn't a step of this workflow.",
+                source,
+                path,
+            )
+            return None
+        action = self.plugin.actions.get(other.action)
+        if action is None:
+            return None  # reported where the step names it
+        if parts[3] not in action.metrics:
+            declared = ", ".join(f"`{m}`" for m in action.metrics) or "none"
+            self.add(
+                "workflow-unknown-metric",
+                f"`{other.action}` declares no metric `{parts[3]}` (it declares {declared}).",
+                source,
+                path,
+                hint="An action declares the metrics its runs report under `metrics`.",
+            )
+            return None
+        if other.each is not None:
+            self.add(
+                "workflow-condition-each",
+                f"Step `{other.id}` runs once for each `{other.each}`, so it has a "
+                f"`{parts[3]}` for each run, not one.",
+                source,
+                path,
+            )
+            return None
+        return Field(name=parts[3], type="float")
+
+
+def _loose(f: Field) -> Field:
+    """`f` as a condition compares with it: its type and values, not its bounds."""
+    return Field(name=f.name, type="float" if f.type == "quantity" else f.type, values=f.values)
 
 
 def _reachable_order(workflow: Workflow) -> list[str]:

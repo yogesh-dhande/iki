@@ -15,16 +15,20 @@ from iki_spec import naming
 
 __all__ = [
     "BUILTIN_TYPES",
+    "CONDITION_OPERATORS",
     "FIELD_TYPES",
     "FORMATS",
+    "NUMERIC_OPERATORS",
     "TIERS",
     "Action",
+    "Condition",
     "Creates",
     "EntityType",
     "Environment",
     "Extension",
     "Field",
     "Input",
+    "Metric",
     "Plugin",
     "Resources",
     "Updates",
@@ -269,6 +273,16 @@ class Secret:
 
 
 @dataclass(frozen=True)
+class Metric:
+    """A number an action's runs report about themselves (``metrics`` in their output), which
+    a workflow's conditions can read (ADR 0079)."""
+
+    name: str
+    label: str = ""
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class Action:
     plugin: str
     name: str
@@ -290,6 +304,7 @@ class Action:
     artifact_retention: int | None = None  # seconds
     network: tuple[str, ...] = ()
     secrets: tuple[Secret, ...] = ()
+    metrics: dict[str, Metric] = field(default_factory=dict)
     timeout: int = 3600  # seconds
     retry_max: int = 0
     retry_on: tuple[str, ...] = ()
@@ -330,6 +345,27 @@ class Environment:
     file: str | None = None
 
 
+#: A condition's operators: how its value compares with its operand.
+CONDITION_OPERATORS = ("is", "is_not", "in", "at_least", "at_most", "above", "below")
+NUMERIC_OPERATORS = ("at_least", "at_most", "above", "below")
+
+
+@dataclass(frozen=True)
+class Condition:
+    """Something a step's `when` says must hold for it to run (ADR 0079): its `value`
+    (``$params.<name>`` or ``$steps.<id>.metrics.<name>``) compared, by `operator`, with
+    `operand`: a value, a list of them for ``in``, or ``$params.<name>``."""
+
+    value: str
+    operator: str
+    operand: Any = None
+
+    def step(self) -> str | None:
+        """The step whose metric it reads, if it reads one."""
+        parts = self.value.split(".")
+        return parts[1] if parts[0] == "$steps" and len(parts) == 4 else None
+
+
 @dataclass(frozen=True)
 class WorkflowStep:
     """One step of a workflow: a run of one of the plugin's actions (ADR 0079)."""
@@ -345,6 +381,8 @@ class WorkflowStep:
     needs: tuple[str, ...] = ()
     #: The input it runs once for each entity of, as a batch (ADR 0079), if any.
     each: str | None = None
+    #: What must hold for it to run; otherwise it's skipped, and the steps after it.
+    when: tuple[Condition, ...] = ()
 
     def after(self) -> set[str]:
         """The steps it runs after: those it takes from, and those it needs. Naming
@@ -353,6 +391,7 @@ class WorkflowStep:
         for ref in self.inputs.values():
             if ref.startswith("$steps."):
                 found.add(ref.split(".")[1])
+        found.update(s for c in self.when if (s := c.step()) is not None)
         return found - {self.id}
 
 
@@ -491,6 +530,7 @@ _DATACLASSES = (
     Extension,
     Plugin,
     Action,
+    Metric,
     Secret,
     Input,
     Creates,
@@ -500,6 +540,7 @@ _DATACLASSES = (
     Volume,
     Workflow,
     WorkflowStep,
+    Condition,
 )
 
 
@@ -557,7 +598,13 @@ def _workflow(data: dict[str, Any]) -> Workflow:
             "inputs": {n: Input(**i) for n, i in data["inputs"].items()},
             "params": {n: _field(f) for n, f in data["params"].items()},
             "steps": {
-                i: WorkflowStep(**{**step, "needs": tuple(step["needs"])})
+                i: WorkflowStep(
+                    **{
+                        **step,
+                        "needs": tuple(step["needs"]),
+                        "when": tuple(Condition(**c) for c in step.get("when") or ()),
+                    }
+                )
                 for i, step in data["steps"].items()
             },
         }
@@ -588,6 +635,7 @@ def _action(data: dict[str, Any]) -> Action:
             "secrets": tuple(
                 Secret(**s) if isinstance(s, dict) else Secret(s) for s in data["secrets"]
             ),
+            "metrics": {n: Metric(**m) for n, m in (data.get("metrics") or {}).items()},
             "retry_on": tuple(data["retry_on"]),
         }
     )

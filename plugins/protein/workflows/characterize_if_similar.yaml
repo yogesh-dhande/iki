@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Workflow
+name: characterize_if_similar
+label: Characterize if similar
+description: >-
+  Aligns a protein with a reference, and computes its properties only if it's
+  at least as identical to the reference as asked.
+inputs:
+  protein: { type: Protein, schema: ">=1" }
+  reference: { type: Protein, schema: ">=1" }
+params:
+  min_identity:
+    type: float
+    label: Least identity (%)
+    min: 0
+    max: 100
+    default: 90
+steps:
+  align:
+    action: align_pair
+    inputs: { query: $inputs.protein, target: $inputs.reference }
+  properties:
+    action: compute_properties
+    inputs: { protein: $steps.align.inputs.query }
+    when:
+      - { value: $steps.align.metrics.identity_percent, at_least: $params.min_identity }

@@ -68,6 +68,8 @@ effects:
   creates: [{ type: Readout, derived_from: [assay] }]
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
+metrics:
+  score: { label: Score, description: How good the assay was. }
 ---
 apiVersion: iki/v1
 kind: Action
@@ -474,3 +476,114 @@ def test_a_param_reference_names_a_workflow_param(tmp_path: Path) -> None:
           params: { mode: $params.mode }
     """
     assert "`$$`" in only(make(tmp_path, flow(steps)), "workflow-unknown-reference")
+
+
+# --- Conditions --------------------------------------------------------------------------------
+
+
+CONDITIONAL = (
+    HEAD
+    + """\
+params:
+  threshold: { type: float, default: 0.5 }
+  mode: { type: enum, values: [fast, slow], default: fast }
+  label: { type: string, default: x }
+"""
+)
+
+MEASURE = "m: { action: measure, inputs: { assay: $inputs.assay }, params: { mode: fast } }\n"
+
+
+def when(*conditions: str) -> str:
+    listed = ", ".join(conditions)
+    return (
+        MEASURE
+        + "t: { action: total, inputs: { readout: $steps.m.created.Readout }, "
+        + f"when: [{listed}] }}\n"
+    )
+
+
+def test_a_step_runs_only_when_its_conditions_hold(tmp_path: Path) -> None:
+    result = make(
+        tmp_path,
+        flow(
+            when(
+                "{ value: $steps.m.metrics.score, at_least: $params.threshold }",
+                "{ value: $steps.m.metrics.score, below: 10 }",
+                "{ value: $params.mode, is: fast }",
+                "{ value: $params.mode, in: [fast, slow] }",
+                "{ value: $params.label, is_not: $$x }",
+            ),
+            CONDITIONAL,
+        ),
+    )
+    assert result.problems == []
+    assert result.plugin is not None
+    step = result.plugin.workflows["pipeline"].steps["t"]
+    assert [(c.value, c.operator, c.operand) for c in step.when[:2]] == [
+        ("$steps.m.metrics.score", "at_least", "$params.threshold"),
+        ("$steps.m.metrics.score", "below", 10),
+    ]
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+    assert result.plugin.actions["measure"].metrics["score"].label == "Score"
+
+
+def test_a_condition_on_a_metric_waits_for_its_step(tmp_path: Path) -> None:
+    steps = MEASURE + (
+        "s: { action: split, inputs: { assay: $inputs.assay }, "
+        "when: [{ value: $steps.m.metrics.score, above: 1 }] }\n"
+    )
+    result = make(tmp_path, flow(steps))
+    assert result.plugin is not None
+    assert result.plugin.workflows["pipeline"].order() == ["m", "s"]
+
+
+@pytest.mark.parametrize(
+    ("condition", "code", "says"),
+    [
+        ("{ value: $steps.m.metrics.nope, above: 1 }", "workflow-unknown-metric", "`score`"),
+        ("{ value: $steps.x.metrics.score, above: 1 }", "workflow-unknown-step", "`x`"),
+        ("{ value: $params.nope, is: 1 }", "workflow-unknown-reference", "$params.nope"),
+        ("{ value: $params.mode, above: 1 }", "workflow-condition-type", "isn't a number"),
+        ("{ value: $params.mode, is: medium }", "workflow-condition-type", "must be one of"),
+        ("{ value: $params.mode, in: [fast, medium] }", "workflow-condition-type", "one of"),
+        ("{ value: $steps.m.metrics.score, is: high }", "workflow-condition-type", "number"),
+        (
+            "{ value: $steps.m.metrics.score, at_least: $params.mode }",
+            "workflow-condition-type",
+            "one of",
+        ),
+        (
+            "{ value: $steps.m.metrics.score, at_least: $params.nope }",
+            "workflow-unknown-reference",
+            "nope",
+        ),
+    ],
+)
+def test_conditions_are_checked(tmp_path: Path, condition: str, code: str, says: str) -> None:
+    assert says in only(make(tmp_path, flow(when(condition), CONDITIONAL)), code)
+
+
+def test_a_condition_takes_one_operator(tmp_path: Path) -> None:
+    result = make(
+        tmp_path, flow(when("{ value: $params.mode, is: fast, is_not: slow }"), CONDITIONAL)
+    )
+    assert codes(result) == ["schema"]
+
+
+def test_a_condition_reads_one_metric_not_one_for_each_run(tmp_path: Path) -> None:
+    steps = (
+        "m: { action: measure, each: assay, inputs: { assay: $inputs.assay }, "
+        "params: { mode: fast } }\n"
+        "s: { action: split, inputs: { assay: $inputs.assay }, "
+        "when: [{ value: $steps.m.metrics.score, above: 1 }] }\n"
+    )
+    assert "for each run" in only(make(tmp_path, flow(steps)), "workflow-condition-each")
+
+
+def test_a_step_cant_read_its_own_metrics(tmp_path: Path) -> None:
+    steps = (
+        "m: { action: measure, inputs: { assay: $inputs.assay }, params: { mode: fast }, "
+        "when: [{ value: $steps.m.metrics.score, above: 1 }] }\n"
+    )
+    assert "its own" in only(make(tmp_path, flow(steps)), "workflow-unknown-step")

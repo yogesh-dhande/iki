@@ -21,6 +21,7 @@ from iki_spec.model import (
     Environment,
     Field,
     Input,
+    Metric,
     Resources,
     Secret,
     Updates,
@@ -138,6 +139,14 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
         else None,
         network=tuple(body.get("network", ())),
         secrets=tuple(_secret(given) for given in body.get("secrets", ())),
+        metrics={
+            n: Metric(
+                name=n,
+                label=m.get("label") or n.replace("_", " ").capitalize(),
+                description=m.get("description") or "",
+            )
+            for n, m in (body.get("metrics") or {}).items()
+        },
         timeout=parse_duration(body["timeout"]) if "timeout" in body else 3600,
         # Runs whose machine went away are retried, unless they reach the network: a retry
         # could repeat what they did elsewhere, such as placing an order.

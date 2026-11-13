@@ -97,6 +97,50 @@ describe("a workflow run's page", () => {
     );
   });
 
+  it("says what a step's condition is, and why it was skipped", async () => {
+    const [translate, properties] = workflowRun().steps;
+    if (!translate || !properties) throw new Error("The fixture has two steps");
+    onWorkflow(() =>
+      workflowRun({
+        status: "succeeded",
+        finished_at: "2026-03-14T09:02:00Z",
+        can: { cancel: false },
+        steps: [
+          translate,
+          {
+            ...properties,
+            state: "skipped",
+            run: null,
+            when: [
+              {
+                value: "$steps.translate.metrics.records",
+                operator: "at_least",
+                operand: "$params.min_records",
+              },
+              { value: "$params.mode", operator: "in", operand: ["fast", "$$cheap"] },
+            ],
+            error: {
+              code: "condition_false",
+              message:
+                "Its condition didn't hold: `$steps.translate.metrics.records` is 0, and it must be at least 1.",
+            },
+          },
+        ],
+      }),
+    );
+    await renderApp("/workflow-runs/WF-000001/");
+    const steps = screen.getByRole("region", { name: "Steps" });
+    expect(steps).toHaveTextContent(
+      'Runs if translate.records is at least min_records and mode is one of "fast", "$cheap"',
+    );
+    expect(steps).toHaveTextContent("Its condition didn't hold");
+    expect(within(steps).queryByRole("link", { name: "Properties" })).toBeNull();
+    const states = within(steps)
+      .getAllByRole("listitem")
+      .map((li) => li.querySelector(".badge")?.textContent);
+    expect(states).toEqual(["Succeeded", "Skipped"]);
+  });
+
   it("reads it again when it changes, until it ends", async () => {
     let current = workflowRun();
     onWorkflow(() => current);

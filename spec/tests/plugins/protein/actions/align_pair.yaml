@@ -12,4 +12,6 @@ runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/align.py]
 deterministic: true
 artifacts: { keep: ["alignment.txt", "alignment.fasta"] }
+metrics:
+  score: { label: Score }
 timeout: 10m

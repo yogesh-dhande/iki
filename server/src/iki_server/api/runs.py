@@ -108,6 +108,12 @@ class ActionSecretOut(Schema):
     set: bool = Field(description="Whether this deployment has set it. Its value is never shown.")
 
 
+class MetricOut(Schema):
+    name: str = Field(description="Its key in a run's `metrics`.")
+    label: str
+    description: str
+
+
 class EstimateOut(Schema):
     template: str = Field(description="The compute template a run would start on.")
     price_per_hour: float
@@ -136,6 +142,10 @@ class ActionOut(Schema):
     )
     creates: list[CreatesOut]
     updates: list[UpdatesOut]
+    metrics: list[MetricOut] = Field(
+        description="The numbers its runs report about themselves, which a workflow step's "
+        "`when` may read. A run may report others."
+    )
     deterministic: bool
     network: list[str] = Field(description="The hosts its runs may reach.")
     secrets: list[ActionSecretOut] = Field(description="The secrets its runs get, by name.")
@@ -194,6 +204,10 @@ def _action_out(action: Action) -> dict[str, Any]:
             for c in action.creates
         ],
         "updates": [{"input": u.input, "fields": list(u.fields)} for u in action.updates],
+        "metrics": [
+            {"name": n, "label": m.label, "description": m.description}
+            for n, m in action.metrics.items()
+        ],
         "deterministic": action.deterministic,
         "network": list(action.network),
         "secrets": [

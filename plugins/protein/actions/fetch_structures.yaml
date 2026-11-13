@@ -24,3 +24,5 @@ runs_on: { tier: backend, environment: protein-tools, resources: { memory: 2Gi }
 command: [python, ./scripts/structures.py, fetch]
 network: [files.rcsb.org]
 timeout: 1h
+metrics:
+  structures: { label: Structures, description: How many structures it read. }

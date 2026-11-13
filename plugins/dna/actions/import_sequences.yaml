@@ -25,4 +25,6 @@ effects:
 runs_on: { tier: backend, environment: sequence-tools }
 command: [python, ./scripts/imports.py]
 deterministic: true
+metrics:
+  records: { label: Records, description: How many records the file held. }
 timeout: 30m

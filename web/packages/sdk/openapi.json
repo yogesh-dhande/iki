@@ -75,6 +75,14 @@
             "title": "Label",
             "type": "string"
           },
+          "metrics": {
+            "description": "The numbers its runs report about themselves, which a workflow step's `when` may read. A run may report others.",
+            "items": {
+              "$ref": "#/components/schemas/MetricOut"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
           "name": {
             "description": "The qualified name, such as `protein.compute_properties`.",
             "title": "Name",
@@ -164,6 +172,7 @@
           "params_schema",
           "creates",
           "updates",
+          "metrics",
           "deterministic",
           "network",
           "secrets",
@@ -1307,6 +1316,39 @@
           }
         },
         "title": "Condition",
+        "type": "object"
+      },
+      "ConditionOut": {
+        "properties": {
+          "operand": {
+            "description": "What it's compared with: a value, `$params.<name>`, or for `in` a list of them. A string starting `$$` stands for one starting `$`.",
+            "title": "Operand"
+          },
+          "operator": {
+            "enum": [
+              "is",
+              "is_not",
+              "in",
+              "at_least",
+              "at_most",
+              "above",
+              "below"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "value": {
+            "description": "What's compared: `$params.<name>`, or `$steps.<id>.metrics.<name>`, a number that step's run reported.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "operator",
+          "operand"
+        ],
+        "title": "ConditionOut",
         "type": "object"
       },
       "CostGroupOut": {
@@ -3747,6 +3789,30 @@
           "text"
         ],
         "title": "MessageOut",
+        "type": "object"
+      },
+      "MetricOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its key in a run's `metrics`.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "description"
+        ],
+        "title": "MetricOut",
         "type": "object"
       },
       "NotificationActor": {
@@ -8648,7 +8714,7 @@
       "StepErrorOut": {
         "properties": {
           "code": {
-            "description": "`run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start) or `skipped`.",
+            "description": "`run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).",
             "title": "Code",
             "type": "string"
           },
@@ -10585,6 +10651,14 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "when": {
+            "description": "Conditions that must all hold for it to run.",
+            "items": {
+              "$ref": "#/components/schemas/ConditionOut"
+            },
+            "title": "When",
+            "type": "array"
           }
         },
         "required": [
@@ -10593,6 +10667,7 @@
           "action",
           "after",
           "each",
+          "when",
           "state",
           "started_at",
           "finished_at",
@@ -10651,6 +10726,14 @@
             "description": "Each param's value, or `$params.<name>` for the workflow's.",
             "title": "Params",
             "type": "object"
+          },
+          "when": {
+            "description": "Conditions that must all hold for it to run, checked once the steps it starts after have succeeded. If one doesn't, it's skipped, and so are the steps after it.",
+            "items": {
+              "$ref": "#/components/schemas/ConditionOut"
+            },
+            "title": "When",
+            "type": "array"
           }
         },
         "required": [
@@ -10660,7 +10743,8 @@
           "inputs",
           "params",
           "after",
-          "each"
+          "each",
+          "when"
         ],
         "title": "WorkflowStepOut",
         "type": "object"

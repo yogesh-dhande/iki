@@ -33,6 +33,7 @@ __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 WEIGH_AND_ALIGN = "protein.weigh_and_align"
 RELAX_TWICE = "protein.relax_twice"
 IMPORT_AND_WEIGH = "protein.import_and_weigh"
+ALIGN_THEN_WEIGH = "protein.align_then_weigh"
 
 
 def run_tasks() -> int:
@@ -95,9 +96,10 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 def test_lists_installed_workflows(world: World) -> None:
     viewer = api_as(world, "viewer")
     listed = viewer.get("/workflows").json()
-    assert [w["name"] for w in listed] == [IMPORT_AND_WEIGH, RELAX_TWICE, WEIGH_AND_ALIGN]
+    names = [ALIGN_THEN_WEIGH, IMPORT_AND_WEIGH, RELAX_TWICE, WEIGH_AND_ALIGN]
+    assert [w["name"] for w in listed] == names
     found = viewer.get(f"/workflows/{WEIGH_AND_ALIGN}").json()
-    assert found == listed[2]
+    assert found == listed[3]
     assert (found["label"], found["plugin"]) == ("Weigh and align", "protein")
     assert [i["name"] for i in found["inputs"]] == ["query", "target"]
     assert found["params"][0]["name"] == "mode"
@@ -112,6 +114,7 @@ def test_lists_installed_workflows(world: World) -> None:
             "params": {},
             "after": [],
             "each": None,
+            "when": [],
         },
         {
             "id": "align",
@@ -121,10 +124,20 @@ def test_lists_installed_workflows(world: World) -> None:
             "params": {"mode": "$params.mode"},
             "after": ["weigh"],
             "each": None,
+            "when": [],
         },
     ]
     assert found["available"] is True
     problem(viewer.get("/workflows/protein.nope"), 404, "not_found")
+    conditional = listed[0]["steps"][1]
+    assert (conditional["id"], conditional["after"]) == ("weigh", ["align"])
+    assert conditional["when"] == [
+        {
+            "value": "$steps.align.metrics.score",
+            "operator": "at_least",
+            "operand": "$params.min_score",
+        }
+    ]
 
 
 # --- Starting ----------------------------------------------------------------------------------
@@ -469,6 +482,95 @@ def _empty_file(world: World, name: str = "abl.pdb", media_type: str = "chemical
     )
     upload.refresh_from_db()
     return str(upload.file_id)
+
+
+# --- Conditions --------------------------------------------------------------------------------
+
+
+def aligned(world: World, pod: WorkerClient, score: float | None, **kw: Any) -> dict[str, Any]:
+    """A run of align_then_weigh whose alignment reported `score`, or no score: its weighing
+    runs if the score is at least `min_score` (10 unless given)."""
+    editor = api_as(world, "editor")
+    kit, met = protein(editor, world.project, "kit"), protein(editor, world.project, "met")
+    inputs = {"query": kit["id"], "target": met["id"]}
+    body: dict[str, Any] = start(editor, world, inputs, ALIGN_THEN_WEIGH, **kw).json()
+    assert steps(body) == {"align": "running", "weigh": "waiting", "weigh_again": "waiting"}
+    complete(pod, {} if score is None else {"metrics": {"score": score}})
+    run_tasks()
+    return get(world, body)
+
+
+def test_a_step_runs_when_its_condition_holds(world: World) -> None:
+    pod = worker(world)
+    body = aligned(world, pod, 12.5)
+    assert steps(body) == {"align": "succeeded", "weigh": "running", "weigh_again": "waiting"}
+    assert body["steps"][1]["error"] is None
+    weigh(pod)
+    run_tasks()
+    weigh(pod)
+    run_tasks()
+    assert get(world, body)["status"] == "succeeded"
+
+
+def test_a_step_whose_condition_doesnt_hold_is_skipped_and_so_are_those_after_it(
+    world: World,
+) -> None:
+    body = aligned(world, worker(world), 3)
+    # Skipping isn't failing: the workflow did what it says.
+    assert body["status"] == "succeeded"
+    assert body["error"] is None
+    assert steps(body) == {"align": "succeeded", "weigh": "skipped", "weigh_again": "skipped"}
+    _, weigh_step, again = body["steps"]
+    assert weigh_step["error"] == {
+        "code": "condition_false",
+        "message": "Its condition didn't hold: `$steps.align.metrics.score` is 3, and it must "
+        "be at least 10.",
+    }
+    assert (weigh_step["run"], weigh_step["started_at"]) == (None, None)
+    assert again["error"] == {
+        "code": "skipped",
+        "message": "It didn't start: step `weigh` was skipped.",
+    }
+    assert ActionRun.objects.filter(workflow_step__in=["weigh", "weigh_again"]).count() == 0
+
+
+def test_a_condition_reads_the_workflows_params(world: World) -> None:
+    body = aligned(world, worker(world), 3, params={"min_score": 2.5})
+    assert steps(body) == {"align": "succeeded", "weigh": "running", "weigh_again": "waiting"}
+
+
+def test_a_condition_on_a_metric_that_wasnt_reported_fails_the_step(world: World) -> None:
+    body = aligned(world, worker(world), None)
+    # Not taken as false: whether it should have run isn't known.
+    assert body["status"] == "failed"
+    assert steps(body) == {"align": "succeeded", "weigh": "failed", "weigh_again": "skipped"}
+    assert body["steps"][1]["error"] == {
+        "code": "condition_unknown",
+        "message": "Its condition couldn't be decided: step `align`'s run didn't report `score`.",
+    }
+    assert body["error"]["step"] == "weigh"
+
+
+def test_a_condition_reads_the_metrics_of_results_reused(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(services, "plugin_sha", lambda plugin: "a" * 40)
+    built = {"protein-tools": "sha256:" + "b" * 64}
+    pod = worker(world, plugins=[{"name": "protein", "sha": "a" * 40, "environments": built}])
+    first = aligned(world, pod, 3)
+    assert first["status"] == "succeeded"
+
+    # The same alignment again is reused, so it reports nothing itself: its score is the
+    # first's.
+    editor = api_as(world, "editor")
+    inputs = {i["name"]: i["entity"] for i in first["inputs"]}
+    again = start(editor, world, inputs, ALIGN_THEN_WEIGH, params={"min_score": 2}).json()
+    align = ActionRun.objects.get(pk=again["steps"][0]["run"]["id"])
+    assert align.reused_from_id == UUID(first["steps"][0]["run"]["id"])
+    assert steps(again) == {"align": "succeeded", "weigh": "running", "weigh_again": "waiting"}
+    stricter = start(editor, world, inputs, ALIGN_THEN_WEIGH, params={"min_score": 4}).json()
+    assert steps(stricter) == {"align": "succeeded", "weigh": "skipped", "weigh_again": "skipped"}
+    assert "is 3, and it must be at least 4." in stricter["steps"][1]["error"]["message"]
 
 
 # --- Agents ------------------------------------------------------------------------------------

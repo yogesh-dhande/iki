@@ -1031,6 +1031,7 @@ export function RunPage() {
   const paramLabels = new Map(action?.params.map((p) => [p.name, p.label]) ?? []);
   const paramTypes = new Map(action?.params.map((p) => [p.name, p.type]) ?? []);
   const inputLabels = new Map(action?.inputs.map((i) => [i.name, i.label]) ?? []);
+  const metricLabels = new Map(action?.metrics.map((m) => [m.name, m.label]) ?? []);
   const params = Object.entries(run.params);
   const metrics = Object.entries(run.metrics);
   const items = attempts.data ?? [];
@@ -1107,7 +1108,7 @@ export function RunPage() {
             <dl className="summary">
               {metrics.map(([name, value]) => (
                 <div key={name} className="value-row">
-                  <dt>{name}</dt>
+                  <dt>{metricLabels.get(name) ?? name}</dt>
                   <dd>{value}</dd>
                 </div>
               ))}

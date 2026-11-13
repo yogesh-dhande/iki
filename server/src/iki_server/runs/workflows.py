@@ -41,6 +41,7 @@ from iki_server.runs.models import (
     EffectKind,
     RunEffect,
     RunInput,
+    RunOutput,
     RunStatus,
     StepState,
     WorkflowInput,
@@ -48,7 +49,7 @@ from iki_server.runs.models import (
     WorkflowStatus,
     WorkflowStep,
 )
-from iki_spec.model import Action, Workflow, plugin_to_dict, workflow_from_dict
+from iki_spec.model import Action, Condition, Workflow, plugin_to_dict, workflow_from_dict
 from iki_spec.workflows import literal
 
 __all__ = [
@@ -306,22 +307,29 @@ def _advance(run: WorkflowRun) -> None:
             _ended(run, step, theirs, now)
             changed = True
     while not _stopping(run, steps):
-        ready = [
-            s
-            for s in steps.values()
-            if s.state == StepState.WAITING
-            and all(steps[o].state == StepState.SUCCEEDED for o in spec.steps[s.step].after())
-        ]
-        if not ready:
+        moved = False
+        for step in steps.values():
+            if step.state != StepState.WAITING or _stopping(run, steps):
+                continue
+            after = spec.steps[step.step].after()
+            skipped = sorted(o for o in after if steps[o].state == StepState.SKIPPED)
+            if skipped:
+                _skip(step, "skipped", f"It didn't start: step `{skipped[0]}` was skipped.", now)
+            elif all(steps[o].state == StepState.SUCCEEDED for o in after):
+                unmet = _unmet(run, spec.steps[step.step].when, runs)
+                if unmet is not None:
+                    _skip(step, *unmet, now)
+                else:
+                    launched = _launch(run, spec, step, runs)
+                    if launched is not None:
+                        runs[step.step] = launched
+                        if all(r.finished for r in launched):
+                            _ended(run, step, launched, now)  # it reused identical runs' results
+            else:
+                continue
+            moved = changed = True
+        if not moved:
             break
-        for step in ready:
-            changed = True
-            launched = _launch(run, spec, step, runs)
-            if launched is None:
-                break  # it failed: nothing more starts
-            runs[step.step] = launched
-            if all(r.finished for r in launched):
-                _ended(run, step, launched, now)  # it reused identical runs' results
     if _stopping(run, steps):
         for step in steps.values():
             if step.state == StepState.WAITING:
@@ -340,6 +348,14 @@ def _advance(run: WorkflowRun) -> None:
         changed = True
     if changed:
         transaction.on_commit(partial(live.workflow_changed, run.pk))
+
+
+def _skip(step: WorkflowStep, code: str, message: str, now: Any) -> None:  # noqa: ANN401 - a datetime
+    """Skip a step, or fail it if what decides whether it runs couldn't be read."""
+    step.state = StepState.FAILED if code == "condition_unknown" else StepState.SKIPPED
+    step.finished_at = now
+    step.error = {"code": code, "message": message}
+    step.save(update_fields=["state", "finished_at", "error"])
 
 
 def _stopping(run: WorkflowRun, steps: Mapping[str, WorkflowStep]) -> bool:
@@ -474,6 +490,109 @@ def _launch(
     step.state = StepState.RUNNING
     step.save(update_fields=["state", "started_at"])
     return launched
+
+
+_PHRASES = {
+    "is": "be {}",
+    "is_not": "not be {}",
+    "in": "be one of {}",
+    "at_least": "be at least {}",
+    "at_most": "be at most {}",
+    "above": "be above {}",
+    "below": "be below {}",
+}
+
+
+def _unmet(
+    run: WorkflowRun, conditions: Sequence[Condition], runs: Mapping[str, list[ActionRun]]
+) -> tuple[str, str] | None:
+    """None if every one of `conditions` holds. Otherwise a code and why: `condition_false`
+    for the first that doesn't, or `condition_unknown` for a metric its run didn't report,
+    which is never taken as false silently. A param left unset holds nothing."""
+    for condition in conditions:
+        value = _value(run, condition.value, runs)
+        if value is _MISSING:
+            step = condition.value.split(".")[1]
+            return (
+                "condition_unknown",
+                f"Its condition couldn't be decided: step `{step}`'s run didn't report "
+                f"`{condition.value.split('.')[-1]}`.",
+            )
+        operand = (
+            [_operand(run, o) for o in condition.operand]
+            if condition.operator == "in"
+            else _operand(run, condition.operand)
+        )
+        if not _holds(condition.operator, value, operand):
+            shown = "not set" if value is None else _show(value)
+            return (
+                "condition_false",
+                f"Its condition didn't hold: `{condition.value}` is {shown}, and it must "
+                + _PHRASES[condition.operator].format(
+                    "unset" if operand is None else _show(operand)
+                )
+                + ".",
+            )
+    return None
+
+
+class _Missing:
+    pass
+
+
+_MISSING = _Missing()
+
+
+def _value(run: WorkflowRun, ref: str, runs: Mapping[str, list[ActionRun]]) -> Any:  # noqa: ANN401 - a param's or a metric's value
+    """A param's value (None if unset), or a metric's from the step's run, or from the run
+    whose results it reused; :data:`_MISSING` if it didn't report it."""
+    parts = ref.split(".")
+    if parts[0] == "$params":
+        return run.params.get(parts[1])
+    sources = runs.get(parts[1], [])
+    if len(sources) != 1:  # a step whose metrics are read runs once
+        return _MISSING
+    origin = sources[0].reused_from_id or sources[0].pk
+    document = RunOutput.objects.filter(run_id=origin).values_list("document", flat=True).first()
+    metrics = (document or {}).get("metrics") or {}
+    return metrics.get(parts[3], _MISSING)
+
+
+def _operand(run: WorkflowRun, given: Any) -> Any:  # noqa: ANN401 - JSON-shaped
+    if isinstance(given, str) and given.startswith("$params."):
+        return run.params.get(given.removeprefix("$params."))
+    return literal(given)
+
+
+def _holds(operator: str, value: Any, operand: Any) -> bool:  # noqa: ANN401 - JSON-shaped
+    if value is None or operand is None:
+        return False  # an unset param holds nothing, `is_not` included
+    if isinstance(value, bool) != isinstance(operand, bool) and operator != "in":
+        return operator == "is_not"
+    if operator == "is":
+        return bool(value == operand)
+    if operator == "is_not":
+        return bool(value != operand)
+    if operator == "in":
+        return value in operand
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    if isinstance(operand, bool) or not isinstance(operand, int | float):
+        return False
+    return {
+        "at_least": value >= operand,
+        "at_most": value <= operand,
+        "above": value > operand,
+        "below": value < operand,
+    }[operator]
+
+
+def _show(value: Any) -> str:  # noqa: ANN401 - JSON-shaped
+    if isinstance(value, list):
+        return ", ".join(_show(v) for v in value)
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value) if isinstance(value, int | bool) else f"“{value}”"
 
 
 def _reason(run: WorkflowRun, step: WorkflowStep) -> str:

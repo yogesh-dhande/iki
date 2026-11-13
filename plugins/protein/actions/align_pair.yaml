@@ -40,4 +40,12 @@ runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/align.py]
 deterministic: true
 artifacts: { keep: ["alignment.txt", "alignment.fasta"] }
+metrics:
+  score: { label: Score, description: The alignment's score under the matrix and penalties chosen. }
+  length: { label: Length, description: "The alignment's length, gaps included." }
+  identity_percent:
+    { label: Identity (%), description: The share of the alignment's columns that are identical. }
+  similarity_percent:
+    { label: Similarity (%), description: The share of columns the matrix scores above zero. }
+  gaps_percent: { label: Gaps (%), description: The share of columns with a gap. }
 timeout: 10m

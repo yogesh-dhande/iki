@@ -111,6 +111,20 @@
         "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
       }
     },
+    "metrics": {
+      "description": "The numbers its runs report about themselves (`metrics` in their output), by name, such as a score. A workflow's conditions can read those declared here.",
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+          "description": { "type": "string", "maxLength": 2000 }
+        }
+      }
+    },
     "secrets": {
       "description": "Secrets a run needs, by name, such as `NCBI_API_KEY`. Each deployment keeps them in its secret manager, for this plugin alone; runs get them as environment variables, and their logs never show them.",
       "type": "array",

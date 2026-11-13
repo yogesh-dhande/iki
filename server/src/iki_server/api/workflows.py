@@ -34,6 +34,18 @@ router = Router(tags=["workflows"])
 # --- Workflows ---------------------------------------------------------------------------------
 
 
+class ConditionOut(Schema):
+    value: str = Field(
+        description="What's compared: `$params.<name>`, or `$steps.<id>.metrics.<name>`, a "
+        "number that step's run reported."
+    )
+    operator: Literal["is", "is_not", "in", "at_least", "at_most", "above", "below"]
+    operand: Any = Field(
+        description="What it's compared with: a value, `$params.<name>`, or for `in` a list "
+        "of them. A string starting `$$` stands for one starting `$`."
+    )
+
+
 class WorkflowStepOut(Schema):
     id: str
     label: str
@@ -48,6 +60,11 @@ class WorkflowStepOut(Schema):
     after: list[str] = Field(description="The steps it starts after, in name order.")
     each: str | None = Field(
         description="The input it runs once for each entity of, as a batch, if any."
+    )
+    when: list[ConditionOut] = Field(
+        description="Conditions that must all hold for it to run, checked once the steps it "
+        "starts after have succeeded. If one doesn't, it's skipped, and so are the steps "
+        "after it."
     )
 
 
@@ -121,6 +138,9 @@ def _step_out(of: Workflow, step_id: str) -> dict[str, Any]:
         "params": dict(step.params),
         "after": sorted(step.after()),
         "each": step.each,
+        "when": [
+            {"value": c.value, "operator": c.operator, "operand": c.operand} for c in step.when
+        ],
     }
 
 
@@ -173,7 +193,10 @@ class WorkflowInputOut(Schema):
 class StepErrorOut(Schema):
     code: str = Field(
         description="`run_failed` (its run didn't succeed), `launch_failed` (its run couldn't "
-        "start) or `skipped`."
+        "start), `condition_false` (skipped: its conditions didn't all hold), "
+        "`condition_unknown` (failed: a metric its conditions read wasn't reported) or "
+        "`skipped` (a step it starts after didn't succeed or was skipped, or the workflow "
+        "was cancelled)."
     )
     message: str
 
@@ -215,6 +238,7 @@ class WorkflowRunStepOut(Schema):
     action: str
     after: list[str]
     each: str | None = Field(description="The input it runs once for each entity of, if any.")
+    when: list[ConditionOut] = Field(description="Conditions that must all hold for it to run.")
     state: Literal["waiting", "running", "succeeded", "failed", "cancelled", "skipped"]
     started_at: datetime | None
     finished_at: datetime | None
