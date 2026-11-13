@@ -640,6 +640,142 @@ def test_a_removal_whose_build_is_gone_is_deleted(world: World) -> None:
     assert not removals(cluster)
 
 
+# --- In a bucket (ADR 0078) ------------------------------------------------------------------
+
+
+def in_a_bucket() -> None:
+    """Gives the template's volume from a bucket, mounted with Mountpoint for Amazon S3."""
+    file = Path(catalog._compute_file())  # type: ignore[arg-type]
+    compute = json.loads(file.read_text())
+    compute["templates"]["gpu-a100"]["volumes"] = {
+        "af-db": {
+            "strategy": "object_mount",
+            "claim": "iki-objects",
+            "path": "reference",
+            "storage_class": "gp3",
+        }
+    }
+    file.write_text(json.dumps(compute))
+    catalog.compute.cache_clear()
+
+
+def publishing(cluster: FakeCluster) -> dict[str, dict[str, Any]]:
+    return {n: j for n, j in removals(cluster).items() if n.startswith("iki-publish-")}
+
+
+def test_in_a_bucket_a_build_fills_a_disk_that_a_job_then_copies_there(world: World) -> None:
+    in_a_bucket()
+    build = ask(world)
+    approve(world, build)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, job = setup_pod(cluster)
+    # A bucket can't be written in place, so the script fills a disk of its own.
+    ((kind, namespace, disk), claim), *rest = cluster.objects.items()
+    assert (kind, namespace, rest) == ("pvc", "iki-runs", [])
+    assert claim["spec"]["storageClassName"] == "gp3"
+    assert claim["spec"]["resources"]["requests"]["storage"] == str(3 * TI)
+    pod = job["spec"]["template"]["spec"]
+    assert {"name": "fill-0", "persistentVolumeClaim": {"claimName": disk}} in pod["volumes"]
+    assert {"name": "fill-0", "mountPath": "/data/af"} in pod["containers"][0]["volumeMounts"]
+    assert len(pod["initContainers"]) == 1, "nothing to prepare"
+    directory = f"{ALPHAFOLD}/af-db/{build['hrid']}"
+    # Recorded before anything's copied, so a failed copy is removed.
+    assert ManagedVolume.objects.get(build_id=build["id"]).handle == directory
+    worker = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    given = worker.lease().json()
+    lease = {"lease_token": given["job"]["lease_token"]}
+    worker.post(f"/setups/{build['id']}/finish", {**lease, "outcome": "succeeded"})
+    cluster.finish(name)
+    provisioner.tick(cluster)
+    provisioner.tick(cluster)
+    # Once its pod has gone, a Job of the worker's image copies the disk into the version's
+    # own directory in the bucket, as runs' user, with the disk read-only.
+    ((publish, copy),) = publishing(cluster).items()
+    assert "iki.ikisci.org/launch" not in copy["metadata"]["labels"]
+    assert copy["metadata"]["labels"]["app.kubernetes.io/component"] == "volume-publish"
+    spec = copy["spec"]["template"]["spec"]
+    (container,) = spec["containers"]
+    assert container["image"] == WORKER_IMAGE
+    assert container["command"] == [
+        "iki-worker",
+        "publish",
+        "/iki/staging",
+        "/iki/shared",
+        directory,
+    ]
+    assert container["volumeMounts"] == [
+        {"name": "staging", "mountPath": "/iki/staging", "readOnly": True},
+        {"name": "shared", "mountPath": "/iki/shared", "subPath": "reference"},
+    ]
+    assert spec["volumes"] == [
+        {"name": "staging", "persistentVolumeClaim": {"claimName": disk, "readOnly": True}},
+        {"name": "shared", "persistentVolumeClaim": {"claimName": "iki-objects"}},
+    ]
+    assert spec["securityContext"]["runAsUser"] == 10001
+    assert copy["spec"]["activeDeadlineSeconds"] == 6 * 3600
+    # A long copy is given its own time: the build isn't failed for its snapshots' while.
+    SetupBuild.objects.filter(pk=build["id"]).update(started_at=timezone.now() - timedelta(days=2))
+    provisioner.tick(cluster)
+    waiting = SetupBuild.objects.get(pk=build["id"])
+    assert waiting.state == SetupState.SNAPSHOTTING, waiting.error
+    assert publishing(cluster) == {publish: copy}
+    copy["status"] = {"conditions": [{"type": "Complete", "status": "True"}], "succeeded": 1}
+    provisioner.tick(cluster)
+    assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SUCCEEDED
+    volume = ManagedVolume.objects.get(build_id=build["id"])
+    assert (volume.state, volume.handle) == (VolumeState.READY, directory)
+    provisioner.tick(cluster)
+    assert not cluster.objects, "its disk and Job are deleted"
+    (listed,) = (
+        api_as(world, "compute_admin").get(f"/compute/setups/{build['hrid']}").json()["volumes"]
+    )
+    assert (listed["kind"], listed["handle"]) == ("bucket", directory)
+    # Runs mount the version's directory read-only, as on a shared file system.
+    queue_run(world)
+    provisioner.tick(cluster)
+    (run,) = [n for (_, n) in cluster.made if n.startswith("iki-run-")]
+    mounts = cluster.made[("iki-runs", run)]["spec"]["template"]["spec"]["containers"][0]
+    assert {
+        "name": "volume-0",
+        "mountPath": "/data/af",
+        "subPath": f"reference/{directory}",
+        "readOnly": True,
+    } in mounts["volumeMounts"]
+
+
+def test_a_failed_copy_into_a_bucket_fails_the_build_and_is_removed(world: World) -> None:
+    in_a_bucket()
+    cluster = FakeCluster()
+    hrid = fill_shared(world, cluster)
+    ((publish, copy),) = publishing(cluster).items()
+    # Removing waits for a copy that's still going.
+    SetupBuild.objects.filter(hrid=hrid).update(state=SetupState.FAILED)
+    provisioner.tick(cluster)
+    assert set(removals(cluster)) == {publish}
+    SetupBuild.objects.filter(hrid=hrid).update(state=SetupState.SNAPSHOTTING)
+    copy["status"] = {"conditions": [{"type": "Failed", "status": "True"}]}
+    provisioner.tick(cluster)
+    build = SetupBuild.objects.get(hrid=hrid)
+    assert build.state == SetupState.FAILED
+    assert build.error is not None
+    assert build.error["code"] == "snapshot_failed"
+    assert (
+        f"couldn't copy af-db into its bucket. The log of the Job {publish}"
+        in (build.error["message"])
+    )
+    assert ManagedVolume.objects.get(build=build).state == VolumeState.FAILED
+    # What it copied is removed; its Job stays a while for its log; its disk goes.
+    provisioner.tick(cluster)
+    jobs = removals(cluster)
+    assert publish in jobs
+    (removal,) = [n for n in jobs if n.startswith("iki-remove-")]
+    assert jobs[removal]["spec"]["template"]["spec"]["containers"][0]["command"][-1] == (
+        f"{ALPHAFOLD}/af-db/{hrid}"
+    )
+    assert not [k for (k, _, _) in cluster.objects if k == "pvc"]
+
+
 def test_runs_go_where_a_version_is_ready(world: World, settings: Any) -> None:
     """Bound to templates in two namespaces, a build in each: runs go to the first whose
     version is ready, rather than waiting for the other's."""

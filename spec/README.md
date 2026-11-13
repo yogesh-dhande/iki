@@ -523,6 +523,23 @@ volumes:
     lustre: fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh
 ```
 
+On Kubernetes, with `object_mount`, each version is a directory (a prefix)
+of its own in a bucket that the Mountpoint for Amazon S3 CSI driver mounts
+(ADR 0078). `claim` and `path` are as for a shared file system. The bucket
+must be mounted with `uid=10001`, `gid=10001` and `allow-delete`. A bucket
+can't be written in place, so a setup build's script fills a disk
+(`storage_class`, the cluster's default unless set). Iki then copies the
+disk into the version's directory. Symbolic links can't be copied, and a
+build that leaves one fails, saying which.
+
+```yaml
+volumes:
+  af-db:
+    strategy: object_mount
+    claim: s3-reference
+    path: iki
+```
+
 Until a version is ready, the environment's runs wait, saying why; bound to
 templates in several places, they go to the first where one is ready. Each
 attempt records the version it read.

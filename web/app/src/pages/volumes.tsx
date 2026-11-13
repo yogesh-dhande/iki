@@ -43,7 +43,8 @@ import { NotFound } from "./errors";
 const INTRO =
   "Some environments read reference data, such as a sequence database, from a volume their " +
   "setup script fills. A setup build runs the script on a machine of its own and keeps what " +
-  "it wrote as a new version: a snapshot, or its own directory on a shared file system. Each " +
+  "it wrote as a new version: a snapshot, or its own directory on a shared file system or in a " +
+  "bucket. Each " +
   "run reads the newest version that isn’t retired, read-only, and records which it read.";
 
 export function ComputeVolumes() {
@@ -134,7 +135,7 @@ function EnvironmentCard({ environment, meId }: { environment: EnvironmentVolume
           {environment.places.length === 0 ? (
             <span className="muted">
               None of its machines can have its volumes yet: bind it to a template that gives them
-              from a snapshot or a shared file system.
+              from a snapshot, a shared file system or a bucket.
             </span>
           ) : (
             <ul className="value-list">
@@ -396,9 +397,11 @@ function BuildRow({
         ) : null}
         {build.state === "snapshotting" ? (
           <p className="row-meta">
-            {build.volumes.every((volume) => volume.kind === "directory")
-              ? "Its script succeeded; it’s ready once its machine has stopped."
-              : "Its script succeeded; its volumes are being snapshotted."}
+            {build.volumes.some((volume) => volume.kind === "snapshot")
+              ? "Its script succeeded; its volumes are being snapshotted."
+              : build.volumes.some((volume) => volume.kind === "bucket")
+                ? "Its script succeeded; what it wrote is being copied into the bucket."
+                : "Its script succeeded; it’s ready once its machine has stopped."}
             {build.volumes
               .filter((volume) => volume.state === "creating" && volume.message)
               .map((volume) => ` ${volume.name}: ${volume.message}.`)
@@ -532,20 +535,27 @@ function BuildDetails({ build }: { build: SetupBuild }) {
           {build.volumes.map((volume) => (
             <li key={volume.name}>
               <code>{volume.name}</code> · {formatSize(volume.size)} ·{" "}
-              {volume.kind === "directory"
+              {volume.kind === "bucket"
                 ? {
-                    creating: "being written",
+                    creating: "being written, then copied",
                     ready: "ready",
                     failed: "failed",
                     deleted: "removed",
                   }[volume.state]
-                : {
-                    creating: "being snapshotted",
-                    ready: "snapshot ready",
-                    failed: "snapshot failed",
-                    deleted: "snapshot deleted",
-                  }[volume.state]}
-              {volume.kind === "directory" ? (
+                : volume.kind === "directory"
+                  ? {
+                      creating: "being written",
+                      ready: "ready",
+                      failed: "failed",
+                      deleted: "removed",
+                    }[volume.state]
+                  : {
+                      creating: "being snapshotted",
+                      ready: "snapshot ready",
+                      failed: "snapshot failed",
+                      deleted: "snapshot deleted",
+                    }[volume.state]}
+              {volume.kind !== "snapshot" ? (
                 <>
                   {" "}
                   · <code>{volume.handle}</code>

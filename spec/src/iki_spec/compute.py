@@ -106,7 +106,8 @@ class TemplateVolume:
     iops: int | None = None
     throughput: int | None = None
     #: With `shared_filesystem` on Kubernetes: the PersistentVolumeClaim of the file
-    #: system (FSx for Lustre, EFS, NFS), in the namespace runs go in. On `aws_ec2`, what
+    #: system (FSx for Lustre, EFS, NFS), in the namespace runs go in; with
+    #: `object_mount`, of a bucket, through Mountpoint for Amazon S3. On `aws_ec2`, what
     #: machines mount: an NFS export (`nfs`, such as EFS's) or a Lustre file system's
     #: (`lustre`, such as FSx for Lustre's). Either way, `path` is the directory in it Iki
     #: keeps versions under.
@@ -537,28 +538,40 @@ class _Rules:
                         key=True,
                     )
             shared = volume.strategy == "shared_filesystem"
-            for option, where, fits in (
-                ("claim", "on the Kubernetes provisioners", template.provisioner in KUBERNETES),
-                ("nfs", "on `aws_ec2`", template.provisioner == "aws_ec2"),
-                ("lustre", "on `aws_ec2`", template.provisioner == "aws_ec2"),
-                ("path", "", True),
+            mounted = volume.strategy in ("shared_filesystem", "object_mount")
+            for option, given, fits in (
+                (
+                    "claim",
+                    "`shared_filesystem` or `object_mount` on the Kubernetes provisioners",
+                    mounted and template.provisioner in KUBERNETES,
+                ),
+                ("nfs", "`shared_filesystem` on `aws_ec2`", shared),
+                ("lustre", "`shared_filesystem` on `aws_ec2`", shared),
+                ("path", "`shared_filesystem` or `object_mount`", mounted),
             ):
-                if getattr(volume, option) is not None and not (shared and fits):
+                if option in ("nfs", "lustre"):
+                    fits = fits and template.provisioner == "aws_ec2"
+                if getattr(volume, option) is not None and not fits:
                     self.add(
                         "volume-option-shared-filesystem-only",
-                        f"`{option}` is for `shared_filesystem`{' ' + where if where else ''}.",
+                        f"`{option}` is for {given}.",
                         document,
                         (*path, option),
                         key=True,
                     )
-            if shared and template.provisioner in KUBERNETES and volume.claim is None:
+            if mounted and template.provisioner in KUBERNETES and volume.claim is None:
                 self.add(
                     "shared-filesystem-claim-missing",
-                    "A shared file system on Kubernetes needs the `claim` it's mounted from.",
+                    f"`{volume.strategy}` on Kubernetes needs the `claim` it's mounted from.",
                     document,
                     (*path, "strategy"),
                     hint="Add `claim: <PersistentVolumeClaim>`: one that many pods can mount "
-                    "(ReadWriteMany), in the namespace runs go in.",
+                    "(ReadWriteMany), in the namespace runs go in"
+                    + (
+                        ", of the Mountpoint for Amazon S3 CSI driver."
+                        if volume.strategy == "object_mount"
+                        else "."
+                    ),
                 )
             if (
                 shared

@@ -77,10 +77,14 @@ UNFINISHED = (
     SetupState.RUNNING,
     SetupState.SNAPSHOTTING,
 )
-#: The strategies a setup build fills: a disk it snapshots, or a directory on a shared
-#: file system (ADR 0077).
+#: The strategies a setup build fills: a disk it snapshots, a directory on a shared file
+#: system (ADR 0077), or a prefix in a bucket, which it fills a disk for that's then copied
+#: there (ADR 0078).
 FILLED_BY_SNAPSHOT = {"clone_from_snapshot"}
 SHARED = "shared_filesystem"
+OBJECTS = "object_mount"
+#: Those whose versions are a directory that machines mount, rather than a snapshot.
+MOUNTED = {SHARED, OBJECTS}
 #: A lease lasts this long unless a heartbeat renews it, as for runs' jobs.
 LEASE_TTL = timedelta(seconds=60)
 HEARTBEAT_EVERY = timedelta(seconds=20)
@@ -132,15 +136,23 @@ def fillable(template: Template, volume: str) -> bool:
         return False
     if given.strategy in FILLED_BY_SNAPSHOT:
         return True
+    if given.strategy == OBJECTS:
+        return template.provisioner in KUBERNETES
     return given.strategy == SHARED and (
         template.provisioner in KUBERNETES or given.filesystem is not None
     )
 
 
 def shared(build: SetupBuild, volume: str) -> bool:
-    """Whether the build fills the volume's directory on a shared file system, rather than
-    a disk it snapshots."""
-    return bool(build.spec["volumes"][volume].get("strategy") == SHARED)
+    """Whether the build's version of the volume is a directory machines mount, on a shared
+    file system or in a bucket, rather than a snapshot."""
+    return build.spec["volumes"][volume].get("strategy") in MOUNTED
+
+
+def staged(build: SetupBuild, volume: str) -> bool:
+    """Whether the build fills a disk for the volume that's then copied into its version's
+    directory in a bucket, as a bucket can't be written in place."""
+    return bool(build.spec["volumes"][volume].get("strategy") == OBJECTS)
 
 
 def place_of(template: Template) -> str | None:
@@ -160,8 +172,8 @@ def place_of(template: Template) -> str | None:
 
 def places(qualified: str) -> list[Place]:
     """Each place the environment's bound templates start machines in, with a volume a setup
-    build can fill (from a snapshot, or on a shared file system) for each volume its setup
-    fills, and the first such template there."""
+    build can fill (from a snapshot, on a shared file system or in a bucket) for each volume
+    its setup fills, and the first such template there."""
     environment = environment_of(qualified)
     deployment = catalog.compute()
     binding = deployment.bindings.get(qualified)
@@ -198,9 +210,9 @@ def current(qualified: str, place: str) -> SetupBuild | None:
 
 def volumes_for(qualified: str, place: str) -> dict[str, dict[str, Any]] | None:
     """What a machine for the environment's runs in `place` mounts, by volume name: the
-    snapshot it gets a copy of, or the claim and directory of a shared file system, and how
-    it's recorded. Empty when its setup fills none; None when it does but no version is
-    ready, so no machine can start for its runs there yet."""
+    snapshot it gets a copy of, or the claim and directory of a shared file system or
+    bucket, and how it's recorded. Empty when its setup fills none; None when it does but no
+    version is ready, so no machine can start for its runs there yet."""
     environment = environment_of(qualified)
     if environment is None or not filled(environment):
         return {}
@@ -253,7 +265,7 @@ def missing(qualified: str) -> str:
         return (
             f"Waiting for its reference data ({names}): none of its machines can have it yet. "
             "A Compute admin can bind it to a template that gives its volumes from a "
-            "snapshot or a shared file system."
+            "snapshot, a shared file system or a bucket."
         )
     return (
         f"Waiting for its reference data ({names}): no version is ready. A Compute admin "
@@ -297,9 +309,9 @@ def _spec(
             "size": environment.volumes[name].size,
             "strategy": given.strategy,
         }
-        if given.strategy == SHARED:
+        if given.strategy in MOUNTED:
             # Its own directory, which nothing else writes: the version's, under the
-            # directory Iki keeps versions in (ADR 0077).
+            # directory Iki keeps versions in (ADRs 0077, 0078).
             # A Kubernetes claim, or what an EC2 machine mounts.
             mounted = (
                 {"claim": given.claim}
@@ -341,8 +353,9 @@ def request(by: Any, qualified: str, reason: str = "") -> list[SetupBuild]:  # n
         raise Refused(
             f"No compute template bound to {qualified} gives its machines "
             + ", ".join(f"`{v}`" for v in filled(environment))
-            + " from a snapshot (`strategy: clone_from_snapshot`) or a shared file system "
-            "(`strategy: shared_filesystem`), so there's nowhere to build its volumes."
+            + " from a snapshot (`strategy: clone_from_snapshot`), a shared file system "
+            "(`strategy: shared_filesystem`) or a bucket (`strategy: object_mount`), so "
+            "there's nowhere to build its volumes."
         )
     plugin = qualified.partition(".")[0]
     installed = registry.plugins()[plugin]

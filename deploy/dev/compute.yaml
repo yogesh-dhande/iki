@@ -87,7 +87,27 @@ volumes:
     strategy: shared_filesystem
     claim: iki-shared
 ---
+# And in a bucket (ADR 0078), in a third namespace: a setup build fills a disk,
+# which a Job then copies into the version's own directory (a prefix) there;
+# run pods mount that read-only.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-reference-bucket
+provisioner: k8s_job
+kubernetes: { namespace: iki-runs-bucket }
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
+volumes:
+  storage-codes:
+    strategy: object_mount
+    claim: iki-bucket
+    storage_class: csi-hostpath-sc
+---
 apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: example.reference
-templates: [{ template: container-reference }, { template: container-reference-shared }]
+templates:
+  - { template: container-reference }
+  - { template: container-reference-shared }
+  - { template: container-reference-bucket }

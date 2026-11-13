@@ -1,0 +1,28 @@
+# A bucket, as Mountpoint for Amazon S3 would mount one for pods in production
+# (ADR 0078), stood in for by a directory on the kind node: Iki copies each
+# version into it with a Job once its setup build has filled a disk, and run
+# pods mount the version's directory read-only, as they would a bucket's
+# prefix. up.sh makes the directory Iki keeps versions under, `iki`, writable
+# by runs' user (10001), as a deployment's administrator would.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: iki-bucket
+spec:
+  capacity: { storage: 1Gi }
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef: { namespace: iki-runs-bucket, name: iki-bucket }
+  hostPath: { path: /var/local/iki-bucket, type: DirectoryOrCreate }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iki-bucket
+  namespace: iki-runs-bucket
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: iki-bucket
+  resources: { requests: { storage: 1Gi } }

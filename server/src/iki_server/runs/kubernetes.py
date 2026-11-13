@@ -85,11 +85,16 @@ class Cluster(Protocol):
 KINDS = {
     "pvc": "/api/v1/namespaces/{namespace}/persistentvolumeclaims",
     "snapshot": "/apis/snapshot.storage.k8s.io/v1/namespaces/{namespace}/volumesnapshots",
-    # Jobs that remove versions from a shared file system: they carry no launch label.
+    # Jobs that publish or remove versions on a shared file system or in a bucket: they
+    # carry no launch label.
     "job": "/apis/batch/v1/namespaces/{namespace}/jobs",
 }
-#: Where a removal Job mounts the shared file system's directory for Iki.
+#: Where Iki's own Jobs mount the shared file system's (or bucket's) directory for Iki.
 SHARED = "/iki/shared"
+#: And where a publish Job mounts the disk a setup build filled.
+STAGING = "/iki/staging"
+#: How long a publish or removal Job may take.
+WORKER_JOB_WITHIN = 6 * 3600
 
 
 @dataclass(frozen=True)
@@ -347,8 +352,74 @@ def removal_manifest(
     pods: RunPods,
     labels: dict[str, str],
 ) -> dict[str, Any]:
-    """A Job that removes versions of volumes from a shared file system: `directories`,
-    under `root` in it (ADR 0077). Iki's worker image does it, as runs' user."""
+    """A Job that removes versions of volumes from a shared file system or a bucket:
+    `directories`, under `root` in it (ADRs 0077, 0078). Iki's worker image does it, as
+    runs' user."""
+    return _worker_job(
+        name=name,
+        component="volume-removal",
+        command=["iki-worker", "remove", SHARED, *directories],
+        volumes=[{"name": "shared", "persistentVolumeClaim": {"claimName": claim}}],
+        mounts=[{"name": "shared", "mountPath": SHARED, "subPath": root}],
+        resources={
+            "requests": {"cpu": "50m", "memory": "32Mi"},
+            "limits": {"cpu": "500m", "memory": "128Mi"},
+        },
+        pods=pods,
+        labels=labels,
+    )
+
+
+def publish_manifest(
+    *,
+    name: str,
+    staging: str,
+    claim: str,
+    root: str,
+    directory: str,
+    pods: RunPods,
+    labels: dict[str, str],
+) -> dict[str, Any]:
+    """A Job that copies what a setup build wrote to its disk, `staging`, into the version's
+    own directory (a prefix) in a bucket, under `root` in it (ADR 0078). Iki's worker image
+    does it, as runs' user, with the disk read-only."""
+    return _worker_job(
+        name=name,
+        component="volume-publish",
+        command=["iki-worker", "publish", STAGING, SHARED, directory],
+        volumes=[
+            {
+                "name": "staging",
+                "persistentVolumeClaim": {"claimName": staging, "readOnly": True},
+            },
+            {"name": "shared", "persistentVolumeClaim": {"claimName": claim}},
+        ],
+        mounts=[
+            {"name": "staging", "mountPath": STAGING, "readOnly": True},
+            {"name": "shared", "mountPath": SHARED, "subPath": root},
+        ],
+        resources={
+            "requests": {"cpu": "250m", "memory": "64Mi"},
+            "limits": {"cpu": "2", "memory": "512Mi"},
+        },
+        pods=pods,
+        labels=labels,
+    )
+
+
+def _worker_job(
+    *,
+    name: str,
+    component: str,
+    command: list[str],
+    volumes: list[dict[str, Any]],
+    mounts: list[dict[str, Any]],
+    resources: dict[str, Any],
+    pods: RunPods,
+    labels: dict[str, str],
+) -> dict[str, Any]:
+    """A Job of Iki's worker image doing something to volumes' versions, which a pod
+    retries a few times: each is safe to repeat."""
     pod: dict[str, Any] = {
         "restartPolicy": "Never",
         "serviceAccountName": pods.service_account,
@@ -357,30 +428,27 @@ def removal_manifest(
         "securityContext": _pod_security(),
         "containers": [
             {
-                "name": "remove",
+                "name": component.removeprefix("volume-"),
                 "image": pods.worker_image,
                 "imagePullPolicy": "IfNotPresent",
-                "command": ["iki-worker", "remove", SHARED, *directories],
+                "command": command,
                 "securityContext": _container_security(),
-                "resources": {
-                    "requests": {"cpu": "50m", "memory": "32Mi"},
-                    "limits": {"cpu": "500m", "memory": "128Mi"},
-                },
-                "volumeMounts": [{"name": "shared", "mountPath": SHARED, "subPath": root}],
+                "resources": resources,
+                "volumeMounts": mounts,
             }
         ],
-        "volumes": [{"name": "shared", "persistentVolumeClaim": {"claimName": claim}}],
+        "volumes": volumes,
     }
     if pods.image_pull_secrets:
         pod["imagePullSecrets"] = [{"name": s} for s in pods.image_pull_secrets]
-    every = {**labels, **MANAGED, "app.kubernetes.io/component": "volume-removal"}
+    every = {**labels, **MANAGED, "app.kubernetes.io/component": component}
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
         "metadata": {"name": name, "labels": every},
         "spec": {
             "backoffLimit": 3,
-            "activeDeadlineSeconds": 6 * 3600,
+            "activeDeadlineSeconds": WORKER_JOB_WITHIN,
             "ttlSecondsAfterFinished": KEEP_FINISHED,
             "template": {"metadata": {"labels": every}, "spec": pod},
         },

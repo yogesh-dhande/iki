@@ -267,13 +267,13 @@
             "maximum": 2000
           },
           "claim": {
-            "description": "With `shared_filesystem` on Kubernetes: the PersistentVolumeClaim of the file system, which many pods can mount, in the namespace runs go in.",
+            "description": "With `shared_filesystem` on Kubernetes: the PersistentVolumeClaim of the file system, which many pods can mount, in the namespace runs go in. With `object_mount`: of a bucket, through the Mountpoint for Amazon S3 CSI driver.",
             "type": "string",
             "maxLength": 253,
             "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
           },
           "path": {
-            "description": "With `shared_filesystem`: the directory in the file system Iki keeps versions under (`iki` unless set). It must exist, writable by runs' user.",
+            "description": "With `shared_filesystem` or `object_mount`: the directory in the file system or bucket Iki keeps versions under (`iki` unless set). It must exist, writable by runs' user.",
             "type": "string",
             "maxLength": 500,
             "pattern": "^(?!.*//)(?!\\.\\.?(/|$))(?!.*/\\.\\.?(/|$))[A-Za-z0-9._-]([A-Za-z0-9._/-]*[A-Za-z0-9._-])?$"

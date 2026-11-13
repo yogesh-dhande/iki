@@ -283,7 +283,7 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     deployment = (
         "apiVersion: iki/v1\nkind: ComputeTemplate\nname: pool\nprovisioner: k8s_deployment\n"
         "capacity: { cpu: 8, memory: 64Gi }\n"
-        "volumes: { af-db: { strategy: object_mount, fast_snapshot_restore: true,"
+        "volumes: { af-db: { strategy: object_mount, claim: s3, fast_snapshot_restore: true,"
         " snapshot_class: ebs } }\n"
         "price: { per_hour: 0.4, currency: USD }\n"
     )
@@ -310,12 +310,14 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     )
     assert only(slow, "volume-throughput-above-iops")
     pods = deployment.replace(
-        "object_mount, fast_snapshot_restore: true, snapshot_class: ebs", "object_mount, iops: 4000"
+        "object_mount, claim: s3, fast_snapshot_restore: true, snapshot_class: ebs",
+        "object_mount, claim: s3, iops: 4000",
     )
     result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, pods)
     assert sorted(codes(result)) == ["unused-template", "volume-option-aws-only"]
     shared = deployment.replace(
-        "object_mount, fast_snapshot_restore: true, snapshot_class: ebs", "shared_filesystem"
+        "object_mount, claim: s3, fast_snapshot_restore: true, snapshot_class: ebs",
+        "shared_filesystem",
     )
     result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, shared)
     assert sorted(codes(result)) == ["shared-filesystem-claim-missing", "unused-template"]
@@ -352,6 +354,15 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     )
     efs = vm.replace("shared_filesystem", "shared_filesystem, nfs: fs-0123.efs.amazonaws.com:/")
     assert codes(load(tmp_path, plugins, BACKEND, efs, BINDINGS)) == []
+    objects = shared.replace("shared_filesystem", "object_mount")
+    result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, objects)
+    assert sorted(codes(result)) == ["shared-filesystem-claim-missing", "unused-template"]
+    bucket = objects.replace("object_mount", "object_mount, claim: s3-reference, path: iki")
+    assert codes(load(tmp_path, plugins, BACKEND, A100, BINDINGS, bucket)) == ["unused-template"]
+    lustre_bucket = bucket.replace("path: iki", "lustre: a@tcp:/b")
+    assert "volume-option-shared-filesystem-only" in codes(
+        load(tmp_path, plugins, BACKEND, A100, BINDINGS, lustre_bucket)
+    )
     nfs_on_pods = shared.replace("shared_filesystem", "shared_filesystem, claim: f, nfs: e.com:/")
     assert "volume-option-shared-filesystem-only" in codes(
         load(tmp_path, plugins, BACKEND, A100, BINDINGS, nfs_on_pods)

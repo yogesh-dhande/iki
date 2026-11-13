@@ -1836,10 +1836,10 @@ class SetupOut(TypedDict):
 
 
 class SetupVolumeOut(TypedDict):
-    #: Where it is: its snapshot's name or ID, or its directory on a shared file system.
+    #: Where it is: its snapshot's name or ID, or its directory on a shared file system or in a bucket.
     handle: str
-    #: `snapshot`: machines get a copy of it. `directory`: its own directory on a shared file system, which machines mount read-only.
-    kind: Literal['snapshot', 'directory']
+    #: `snapshot`: machines get a copy of it. `directory`: its own directory on a shared file system, which machines mount read-only. `bucket`: its own directory (a prefix) in a bucket, which machines mount read-only; what the script wrote is copied there once it's done.
+    kind: Literal['snapshot', 'directory', 'bucket']
     message: str
     name: str
     #: Bytes.

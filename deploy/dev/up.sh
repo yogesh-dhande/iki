@@ -52,11 +52,14 @@ kc apply --server-side --force-conflicts -f "$HERE/manifests/csi-hostpath.yaml" 
 kc -n kube-system rollout status statefulset/csi-hostpathplugin --timeout=180s >/dev/null
 kc -n kube-system rollout status deploy/snapshot-controller --timeout=180s >/dev/null
 
-# The shared file system's directory for Iki (manifests/shared-filesystem.yaml):
-# on the node, writable by runs' user, as a deployment's administrator makes it.
-log "Making the shared file system's directory for Iki"
-docker exec "${CLUSTER}-control-plane" sh -c \
-  'mkdir -p /var/local/iki-shared/iki && chown 10001:10001 /var/local/iki-shared/iki && chmod 0750 /var/local/iki-shared/iki'
+# The shared file system's and bucket's directories for Iki
+# (manifests/shared-filesystem.yaml, manifests/bucket.yaml): on the node,
+# writable by runs' user, as a deployment's administrator makes them.
+log "Making the shared file system's and bucket's directories for Iki"
+for d in iki-shared iki-bucket; do
+  docker exec "${CLUSTER}-control-plane" sh -c \
+    "mkdir -p /var/local/$d/iki && chown 10001:10001 /var/local/$d/iki && chmod 0750 /var/local/$d/iki"
+done
 
 # Keycloak's URL is http://keycloak.iki.localhost:8080 for browsers (which
 # resolve *.localhost to loopback, where Tilt forwards the port) and for pods

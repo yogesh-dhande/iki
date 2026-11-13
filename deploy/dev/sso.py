@@ -1555,16 +1555,17 @@ def _snapshots(build: str) -> list[dict[str, Any]]:
     return found
 
 
-def _on_shared_filesystem(path: str) -> list[str]:
-    """What's in `path` under the dev cluster's shared file system's directory for Iki
-    (deploy/dev/manifests/shared-filesystem.yaml), on the kind node; empty if it's gone."""
+def _on_shared_filesystem(path: str, mounted: str = "iki-shared") -> list[str]:
+    """What's in `path` under the dev cluster's shared file system's (or, with `mounted`
+    `iki-bucket`, the bucket's) directory for Iki (deploy/dev/manifests/), on the kind node;
+    empty if it's gone."""
     listed = subprocess.run(  # noqa: S603 - fixed argv
         [  # noqa: S607
             "docker",
             "exec",
             "iki-control-plane",
             "find",
-            f"/var/local/iki-shared/iki/{path}",
+            f"/var/local/{mounted}/iki/{path}",
             "-mindepth",
             "1",
             "-printf",
@@ -1589,13 +1590,15 @@ def _until_ended(session: requests.Session, ref: str) -> dict[str, Any]:
 
 
 def setup_builds(project: dict[str, Any]) -> None:
-    """An environment's reference data (ADR 0075, 0077): bob, a Compute admin, asks for a
-    setup build of the plugin template's `reference` environment, which runs in two
+    """An environment's reference data (ADRs 0075, 0077, 0078): bob, a Compute admin, asks
+    for a setup build of the plugin template's `reference` environment, which runs in three
     places; alice, another, approves each. In iki-runs its script fills a disk, which is
-    snapshotted; in iki-runs-shared, its own directory on a shared file system. A run of
+    snapshotted; in iki-runs-shared, its own directory on a shared file system; in
+    iki-runs-bucket, a disk that's then copied into its own directory in a bucket. A run of
     decode_storage reads a copy of the snapshot and records the version; with that
-    retired, the next reads the shared file system's. Retired, each version goes. Both are
-    made Compute admins for it, then put back as they were."""
+    retired, the next reads the shared file system's, and with that retired, the bucket's.
+    Retired, each version goes. Both are made Compute admins for it, then put back as they
+    were."""
     bob, alice = sign_in_as("bob"), sign_in_as("alice")
     restore = []
     for session in (bob, alice):
@@ -1620,7 +1623,7 @@ def setup_builds(project: dict[str, Any]) -> None:
         if made.status_code != 201:
             fail(f"asking for a setup build answered HTTP {made.status_code}: {made.text[:300]}")
         builds = {b["place"]: b for b in made.json()}
-        if sorted(builds) != ["iki-runs", "iki-runs-shared"]:
+        if sorted(builds) != ["iki-runs", "iki-runs-bucket", "iki-runs-shared"]:
             fail(f"asking for a setup build made builds in {sorted(builds)}")
         for build in builds.values():
             ref = f"/compute/setups/{build['hrid']}"
@@ -1643,6 +1646,7 @@ def setup_builds(project: dict[str, Any]) -> None:
                 said = build["data_version"]
                 fail(f"{build['hrid']} didn't say what it wrote: {said!r}, {log!r}")
         snapshots, shared = builds["iki-runs"], builds["iki-runs-shared"]
+        bucket = builds["iki-runs-bucket"]
         (snapshot,) = _snapshots(snapshots["id"])
         if not snapshot.get("status", {}).get("readyToUse"):
             fail(f"{snapshots['hrid']}'s snapshot isn't ready: {snapshot.get('status')}")
@@ -1659,6 +1663,15 @@ def setup_builds(project: dict[str, Any]) -> None:
         if _on_shared_filesystem(directory) != ["codes.json 10001"]:
             fail(f"{shared['hrid']} left {_on_shared_filesystem(directory)} in {directory}")
         ok(f"{shared['hrid']} filled its own directory on the shared file system, {directory}")
+        (copied,) = bucket["volumes"]
+        prefix = copied["handle"]
+        if copied["kind"] != "bucket" or copied["state"] != "ready":
+            fail(f"{bucket['hrid']}'s version isn't ready in the bucket: {copied}")
+        # A Job copied the disk its script filled into the version's own directory, as
+        # runs' user.
+        if _on_shared_filesystem(prefix, "iki-bucket") != ["codes.json 10001"]:
+            fail(f"{bucket['hrid']} left {_on_shared_filesystem(prefix, 'iki-bucket')} in {prefix}")
+        ok(f"{bucket['hrid']} filled a disk, which a Job copied into the bucket, {prefix}")
 
         sample = _sample(alice, project, storage="-80")
         run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
@@ -1698,6 +1711,25 @@ def setup_builds(project: dict[str, Any]) -> None:
         if _on_shared_filesystem(directory):
             fail(f"{shared['hrid']} says its directory was removed, but {directory} is there")
         ok(f"retired, {shared['hrid']}'s directory was removed once no pod had it mounted")
+
+        # And then to the bucket.
+        sample = _sample(alice, project, storage="4")
+        run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
+        read = (attempt.get("volumes") or {}).get("storage-codes") or {}
+        if storage != "4 °C fridge" or read.get("hrid") != bucket["hrid"]:
+            fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
+        ok(f"{run['hrid']} read {bucket['hrid']}'s directory in the bucket")
+        ref = f"/compute/setups/{bucket['hrid']}"
+        if api_call(bob, "POST", f"{ref}/retire").status_code != 200:
+            fail(f"bob couldn't retire {bucket['hrid']}")
+        deadline = time.monotonic() + 180
+        while api_call(bob, "GET", ref).json()["volumes"][0]["state"] != "deleted":
+            if time.monotonic() > deadline:
+                fail(f"{bucket['hrid']}'s directory outlived its retirement")
+            time.sleep(3)
+        if _on_shared_filesystem(prefix, "iki-bucket"):
+            fail(f"{bucket['hrid']} says its directory was removed, but {prefix} is there")
+        ok(f"retired, {bucket['hrid']}'s directory was removed from the bucket")
     finally:
         for path, roles in restore:
             api_call(bob, "PUT", path, {"roles": roles})

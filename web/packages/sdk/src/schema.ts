@@ -5879,15 +5879,15 @@ export interface components {
         SetupVolumeOut: {
             /**
              * Handle
-             * @description Where it is: its snapshot's name or ID, or its directory on a shared file system.
+             * @description Where it is: its snapshot's name or ID, or its directory on a shared file system or in a bucket.
              */
             handle: string;
             /**
              * Kind
-             * @description `snapshot`: machines get a copy of it. `directory`: its own directory on a shared file system, which machines mount read-only.
+             * @description `snapshot`: machines get a copy of it. `directory`: its own directory on a shared file system, which machines mount read-only. `bucket`: its own directory (a prefix) in a bucket, which machines mount read-only; what the script wrote is copied there once it's done.
              * @enum {string}
              */
-            kind: "snapshot" | "directory";
+            kind: "snapshot" | "directory" | "bucket";
             /** Message */
             message: string;
             /** Name */

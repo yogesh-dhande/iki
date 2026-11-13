@@ -55,6 +55,11 @@ enum Command {
         root: PathBuf,
         directories: Vec<String>,
     },
+    Publish {
+        from: PathBuf,
+        root: PathBuf,
+        directory: String,
+    },
     Host(PathBuf),
     Version,
     Help,
@@ -82,6 +87,14 @@ fn parse(args: &[String]) -> Command {
         ["remove", ..] => {
             Command::Unknown("remove needs a root and the directories under it to remove".into())
         }
+        ["publish", from, root, directory] => Command::Publish {
+            from: PathBuf::from(from),
+            root: PathBuf::from(root),
+            directory: (*directory).to_owned(),
+        },
+        ["publish", ..] => Command::Unknown(
+            "publish needs the disk to copy, a root, and the directory under it to copy to".into(),
+        ),
         ["host", config] if !config.starts_with('-') => Command::Host(PathBuf::from(config)),
         ["host", ..] => Command::Unknown("host needs the machine's config.json".into()),
         ["login", url] | ["login", url, "--no-browser"] | ["login", "--no-browser", url]
@@ -196,9 +209,14 @@ Usage: iki-worker login <server> [--no-browser]
        iki-worker prepare <root> <dir>...
                                    Make versions' directories on a shared file system,
                                    under <root> (a setup build's pod does this)
+       iki-worker publish <from> <root> <dir>
+                                   Copy a setup build's disk into its version's
+                                   directory in a bucket, under <root> (the provisioner
+                                   does this)
        iki-worker remove <root> <dir>...
                                    Delete versions of a volume from a shared file
-                                   system, under <root> (the provisioner does this)
+                                   system or bucket, under <root> (the provisioner
+                                   does this)
        iki-worker host <config.json>
                                    Run a cloud machine's run container from the config
                                    its boot script wrote, then shut the machine down
@@ -277,6 +295,11 @@ fn main() -> ExitCode {
         Command::Install(dir) => finish(install(&dir)),
         Command::Prepare { root, directories } => finish(shared::prepare(&root, &directories)),
         Command::Remove { root, directories } => finish(shared::remove(&root, &directories)),
+        Command::Publish {
+            from,
+            root,
+            directory,
+        } => finish(shared::publish(&from, &root, &directory)),
         Command::Host(config) => finish(host::host(&config)),
         Command::Version => write_or_fail(&mut io::stdout(), &version_line(), ExitCode::SUCCESS),
         Command::Help => write_or_fail(&mut io::stdout(), USAGE, ExitCode::SUCCESS),
@@ -387,6 +410,23 @@ mod tests {
         ));
         assert!(matches!(
             parse(&args(&["remove", "/iki/shared"])),
+            Command::Unknown(_)
+        ));
+        assert_eq!(
+            parse(&args(&[
+                "publish",
+                "/iki/staging",
+                "/iki/shared",
+                "env/v/SETUP-000001"
+            ])),
+            Command::Publish {
+                from: PathBuf::from("/iki/staging"),
+                root: PathBuf::from("/iki/shared"),
+                directory: "env/v/SETUP-000001".into(),
+            }
+        );
+        assert!(matches!(
+            parse(&args(&["publish", "/iki/staging", "/iki/shared"])),
             Command::Unknown(_)
         ));
         assert_eq!(parse(&args(&["--version"])), Command::Version);

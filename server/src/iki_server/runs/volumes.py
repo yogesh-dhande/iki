@@ -19,6 +19,12 @@ A volume on a shared file system (ADR 0077) has no disk or snapshot: the build's
 mounts only the version's own directory there, and the version is ready once the
 script succeeds and the pod has gone. A Job removes the directory once it isn't kept,
 and carries the same label.
+
+A volume in a bucket (ADR 0078), mounted with Mountpoint for Amazon S3, can't be
+written in place (no renames, nor writes but in order), so the build fills a disk, as
+for a snapshot. Once the pod has gone, a Job copies it into the version's own directory
+(a prefix) in the bucket, and the version is ready once it has. It's then removed as
+one on a shared file system is.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ from iki_server.runs.kubernetes import (
     RunPods,
     claim_manifest,
     job_manifest,
+    publish_manifest,
     removal_manifest,
     secret_manifest,
     snapshot_manifest,
@@ -102,6 +109,20 @@ def _removal(build: SetupBuild, volume: str) -> str:
     return f"iki-remove-{build.pk.hex}-{names.index(volume)}"
 
 
+def _publish(build: SetupBuild, volume: str) -> str:
+    names = sorted(build.spec["volumes"])
+    return f"iki-publish-{build.pk.hex}-{names.index(volume)}"
+
+
+def _ended(job: dict[str, Any]) -> str:
+    """How a Job ended: ``succeeded``, ``failed``, or empty while it hasn't."""
+    status = job.get("status") or {}
+    conditions = {c.get("type"): c.get("status") == "True" for c in status.get("conditions") or []}
+    if conditions.get("Complete") or status.get("succeeded"):
+        return "succeeded"
+    return "failed" if conditions.get("Failed") else ""
+
+
 def _labels(build: SetupBuild, volume: str) -> dict[str, str]:
     return {SETUP_LABEL: str(build.pk), VOLUME_LABEL: volume}
 
@@ -116,7 +137,7 @@ def tick(cluster: Cluster, pods: RunPods, namespaces: list[str], now: datetime) 
             if build.state == SetupState.QUEUED:
                 moved += _start(cluster, pods, build, now)
             else:
-                moved += _snapshot(cluster, build, now)
+                moved += _snapshot(cluster, pods, build, now)
         except (KubernetesError, OSError) as error:
             logger.warning("setup_tick_failed", build=build.hrid, error=str(error))
     for namespace in namespaces:
@@ -273,7 +294,7 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
         c["metadata"]["name"] for c in cluster.list(build.place, "pvc", f"{SETUP_LABEL}={build.pk}")
     }
     for volume, declared in sorted(build.spec["volumes"].items()):
-        if setups.shared(build, volume):
+        if setups.shared(build, volume) and not setups.staged(build, volume):
             # Its version's own directory on the file system, made before it starts.
             claims[volume] = {
                 "claim": declared["claim"],
@@ -299,6 +320,10 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
             )
         claims[volume] = {"claim": name, "mount": declared["mount"]}
         recorded[volume] = {"disk": name}
+        if setups.staged(build, volume):
+            # Recorded before anything's copied into the bucket, so a failed build's
+            # partial copy is removed.
+            record_shared(build, volume)
     launch, token = launches.create(
         template=template.name,
         provisioner=template.provisioner,
@@ -335,7 +360,7 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
 # --- Snapshotting what it filled ------------------------------------------------------------
 
 
-def _snapshot(cluster: Cluster, build: SetupBuild, now: datetime) -> int:
+def _snapshot(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) -> int:
     if Launch.objects.filter(setup=build).exclude(state=LaunchState.ENDED).exists():
         return 0  # its pod still has the disks mounted
     template = catalog.compute().templates.get(build.template)
@@ -345,7 +370,14 @@ def _snapshot(cluster: Cluster, build: SetupBuild, now: datetime) -> int:
     }
     ready = 0
     failure = ""
+    publishing = False
     for volume, declared in sorted(build.spec["volumes"].items()):
+        if setups.staged(build, volume):
+            published, failure_of = _published(cluster, pods, build, volume, now)
+            ready += published
+            publishing = publishing or not (published or failure_of)
+            failure = failure or failure_of
+            continue
         if setups.shared(build, volume):
             shared_ready(build, volume, now)
             ready += 1
@@ -387,7 +419,14 @@ def _snapshot(cluster: Cluster, build: SetupBuild, now: datetime) -> int:
             ready += 1
         elif (status.get("error") or {}).get("message"):
             failure = f"Its snapshot of {volume} failed: {status['error']['message']}"
-    if not failure and build.finished_at is None and stuck(build, now, SNAPSHOT_WITHIN):
+    # A copy into a bucket is given its own time, which ends it as failed when it's up.
+    if (
+        not failure
+        and not publishing
+        and ready < len(build.spec["volumes"])
+        and build.finished_at is None
+        and stuck(build, now, SNAPSHOT_WITHIN)
+    ):
         failure = "Its snapshots didn't become ready in time."
     if failure:
         fail(build, SetupState.SNAPSHOTTING, "snapshot_failed", failure)
@@ -395,6 +434,48 @@ def _snapshot(cluster: Cluster, build: SetupBuild, now: datetime) -> int:
     if ready < len(build.spec["volumes"]):
         return 0
     return succeed(build)
+
+
+def _published(
+    cluster: Cluster, pods: RunPods, build: SetupBuild, volume: str, now: datetime
+) -> tuple[int, str]:
+    """Copies what the build wrote to its disk for the volume into the version's directory
+    in the bucket, with a Job. Returns 1 once it has, or why it couldn't."""
+    if ManagedVolume.objects.filter(build=build, name=volume, state=VolumeState.READY).exists():
+        return 1, ""
+    name = _publish(build, volume)
+    found = cluster.list(build.place, "job", f"{SETUP_LABEL}={build.pk}")
+    job = next((j for j in found if j["metadata"]["name"] == name), None)
+    if job is None:
+        declared = build.spec["volumes"][volume]
+        cluster.create(
+            build.place,
+            "job",
+            publish_manifest(
+                name=name,
+                staging=_claim(build, volume),
+                claim=declared["claim"],
+                root=declared["root"],
+                directory=declared["directory"],
+                pods=pods,
+                labels=_labels(build, volume),
+            ),
+        )
+        logger.info("setup_publishing", build=build.hrid, volume=volume)
+        return 0, ""
+    ended = _ended(job)
+    if ended == "succeeded":
+        shared_ready(build, volume, now)
+        cluster.delete(build.place, "job", name)
+        logger.info("setup_published", build=build.hrid, volume=volume)
+        return 1, ""
+    if ended == "failed":
+        # The Job is kept until Kubernetes deletes it, so its pod's log can be read.
+        return 0, (
+            f"Iki couldn't copy {volume} into its bucket. The log of the Job {name}, in "
+            f"{build.place}, says why for a few minutes."
+        )
+    return 0, ""
 
 
 # --- Tidying up -------------------------------------------------------------------------------
@@ -469,6 +550,9 @@ def _remove_shared(
     wanted: set[str] = set()
     for build, records in to_remove(namespace).items():
         for record in records:
+            copying = jobs.get(_publish(build, record.name))
+            if copying is not None and not _ended(copying):
+                continue  # still writing there: removed once it's ended
             name = _removal(build, record.name)
             wanted.add(name)
             found = jobs.get(name)
@@ -488,16 +572,13 @@ def _remove_shared(
                 )
                 logger.info("setup_directory_removing", build=build.hrid, volume=record.name)
                 continue
-            status = found.get("status") or {}
-            if status.get("succeeded"):
+            ended = _ended(found)
+            if ended == "succeeded":
                 removed(build, [record])
                 cluster.delete(namespace, "job", name)
                 logger.info("setup_directory_removed", build=build.hrid, volume=record.name)
                 continue
-            failed = any(
-                c.get("type") == "Failed" and c.get("status") == "True"
-                for c in status.get("conditions") or []
-            )
+            failed = ended == "failed"
             # A failed Job is kept until Kubernetes deletes it (KEEP_FINISHED after it
             # ends), so its pod's log can be read; then it's started again, from the start.
             # Removing is safe to repeat, and one that keeps failing is tried only that often.

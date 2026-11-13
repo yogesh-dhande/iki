@@ -148,13 +148,15 @@ class SetupVolumeOut(Schema):
         description="`ready`: machines can get a copy of it, or mount it."
     )
     size: int = Field(description="Bytes.")
-    kind: Literal["snapshot", "directory"] = Field(
+    kind: Literal["snapshot", "directory", "bucket"] = Field(
         description="`snapshot`: machines get a copy of it. `directory`: its own directory on "
-        "a shared file system, which machines mount read-only."
+        "a shared file system, which machines mount read-only. `bucket`: its own directory "
+        "(a prefix) in a bucket, which machines mount read-only; what the script wrote is "
+        "copied there once it's done."
     )
     handle: str = Field(
         description="Where it is: its snapshot's name or ID, or its directory on a shared "
-        "file system."
+        "file system or in a bucket."
     )
     message: str
 
@@ -245,7 +247,11 @@ def _out(build: SetupBuild) -> dict[str, Any]:
                 "name": v.name,
                 "state": v.state,
                 "size": v.size,
-                "kind": "directory" if setups.shared(build, v.name) else "snapshot",
+                "kind": "bucket"
+                if setups.staged(build, v.name)
+                else "directory"
+                if setups.shared(build, v.name)
+                else "snapshot",
                 "handle": v.handle,
                 "message": v.message,
             }
