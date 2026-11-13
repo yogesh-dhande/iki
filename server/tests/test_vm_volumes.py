@@ -304,7 +304,7 @@ def test_fast_restore_ec2_wont_give_yet_is_asked_for_again(world: World) -> None
     assert record.message.startswith(
         "EC2 wouldn't yet make it fast to restore: FastSnapshotRestoreLimitExceeded"
     )
-    assert "retiring an old version frees its fast restores" in record.message
+    assert "only so many snapshots fast to restore in a region" in record.message
     assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SNAPSHOTTING
     ec2.no_fast = ""
     provisioner.tick(machines)
@@ -446,6 +446,35 @@ def test_a_retired_version_stops_being_fast_and_goes_once_no_machine_has_it(
     provisioner.tick(machines, later(18))
     assert ec2.snaps[old]["State"] == "deleted"
     assert ManagedVolume.objects.get(handle=old).state == VolumeState.DELETED
+
+
+def test_only_the_version_runs_get_stays_fast_to_restore(world: World) -> None:
+    ec2 = FakeEc2()
+    machines = fleet(ec2)
+    first = build_version(world, ec2, machines)
+    (old,) = ManagedVolume.objects.filter(build=first).values_list("handle", flat=True)
+    second = build_version(world, ec2, machines)
+    (new,) = ManagedVolume.objects.filter(build=second).values_list("handle", flat=True)
+    assert set(ec2.fast[old].values()) == {"enabled"}  # until the next tidy
+    provisioner.tick(machines, later(6))
+    # Superseded: kept to roll back to, but no longer costing by the hour to be fast.
+    assert ec2.fast[old] == dict.fromkeys(ZONES, "disabling")
+    assert set(ec2.fast[new].values()) == {"enabled"}
+    assert ec2.snaps[old]["State"] == "completed"
+    ec2.fast[old] = dict.fromkeys(ZONES, "disabled")
+    # Retiring the second makes the first the version runs get: fast again.
+    retired = api_as(world, "compute_admin").post(f"/compute/setups/{second.hrid}/retire")
+    assert retired.status_code == 200, retired.content
+    provisioner.tick(machines, later(12))
+    assert ec2.snaps[new]["State"] == "deleted"
+    assert ec2.fast[old] == dict.fromkeys(ZONES, "enabling")
+    record = ManagedVolume.objects.get(handle=old)
+    assert record.state == VolumeState.READY  # runs get it meanwhile, a little slower
+    assert record.message.startswith("Being made fast to restore: us-east-1a (enabling)")
+    ec2.fast[old] = dict.fromkeys(ZONES, "enabled")
+    provisioner.tick(machines, later(18))
+    record.refresh_from_db()
+    assert record.message == ""
 
 
 def test_disks_and_snapshots_with_no_build_are_deleted(world: World) -> None:

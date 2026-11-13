@@ -12,8 +12,10 @@ Each round, for each build in a region the deployment's EC2 templates use:
   restore, each completed snapshot is then made fast to restore in the template's zones.
   Once every snapshot is ready, the build has succeeded and its disks are deleted.
 - **Ended otherwise:** its disks, and any snapshots, are deleted.
-- **Retired:** its snapshots stop being fast to restore, which costs by the hour, and are
-  deleted once no live machine has a copy.
+- **Succeeded:** only the version machines get now is kept fast to restore, which costs
+  by the hour: an older one stops being, and one that's current again (its successor
+  retired) is made fast again. A retired version's snapshots are deleted once no live
+  machine has a copy.
 
 Disks and snapshots carry the tags ``iki.ikisci.org/setup`` (their build's ID) and
 ``iki.ikisci.org/volume``, besides the deployment's own; any whose build is gone are
@@ -29,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from django.utils import timezone
 
-from iki_server.runs import launches, queue, volumes
+from iki_server.runs import catalog, launches, queue, setups, volumes
 from iki_server.runs.ec2 import (
     DEVICES,
     ENVIRONMENT_TAG,
@@ -345,7 +347,8 @@ def _fast(region: Region, template: Template, volume: str, record: ManagedVolume
                 record,
                 "EC2 wouldn't yet make it fast to restore: "
                 + "; ".join(sorted(set(refused)))
-                + ". Iki keeps asking; retiring an old version frees its fast restores.",
+                + ". Iki keeps asking: an account can have only so many snapshots fast to "
+                "restore in a region.",
             )
             return False
         for zone in missing:
@@ -366,7 +369,7 @@ def _fast(region: Region, template: Template, volume: str, record: ManagedVolume
 
 def _tidy(region: Region) -> None:
     """Deletes disks once their build is done with them, and snapshots once nothing will
-    copy them again; stops retired snapshots being fast to restore."""
+    copy them again; keeps only the versions machines get now fast to restore."""
     builds: dict[str, SetupBuild | None] = {}
 
     def build_of(item: dict[str, Any]) -> SetupBuild | None:
@@ -393,7 +396,7 @@ def _tidy(region: Region) -> None:
                 continue
         region.ec2.delete_volume(region.name, disk)
         logger.info("setup_disk_deleted", disk=disk)
-    retired: list[str] = []
+    kept: list[tuple[SetupBuild, ManagedVolume]] = []
     for snapshot in region.snapshots():
         build = build_of(snapshot)
         handle = str(snapshot["SnapshotId"])
@@ -402,8 +405,7 @@ def _tidy(region: Region) -> None:
         if build is not None and volumes.kept(build):
             record = ManagedVolume.objects.filter(build=build, handle=handle).first()
             if record is not None:
-                if build.retired_at is not None:
-                    retired.append(handle)
+                kept.append((build, record))
                 continue
             # One it took twice: the other is the version's.
         region.ec2.delete_snapshot(region.name, handle)
@@ -417,11 +419,38 @@ def _tidy(region: Region) -> None:
                 else VolumeState.FAILED,
                 deleted_at=timezone.now(),
             )
-    # Being fast to restore costs by the hour; new machines no longer get these.
-    fast: dict[str, list[str]] = {}
-    for item in region.ec2.fast_restores(region.name, retired):
-        if item.get("State") in FAST:
-            fast.setdefault(str(item["SnapshotId"]), []).append(str(item["AvailabilityZone"]))
-    for handle, zones in sorted(fast.items()):
-        region.ec2.disable_fast_restores(region.name, handle, sorted(zones))
-        logger.info("setup_fast_restore_disabled", snapshot=handle, zones=zones)
+    _only_current_fast(region, kept)
+
+
+def _only_current_fast(region: Region, kept: list[tuple[SetupBuild, ManagedVolume]]) -> None:
+    """Keeps each version machines get now fast to restore, if its template asks, and no
+    other: being fast costs by the hour, and new machines get only the current version."""
+    if not kept:
+        return
+    states: dict[str, dict[str, str]] = {}
+    for item in region.ec2.fast_restores(region.name, [r.handle for _, r in kept]):
+        zones = states.setdefault(str(item["SnapshotId"]), {})
+        zones[str(item["AvailabilityZone"])] = str(item["State"])
+    current: dict[tuple[str, str], SetupBuild | None] = {}
+    for build, record in kept:
+        key = (build.environment, build.place)
+        if key not in current:
+            current[key] = setups.current(*key)
+        now = current[key]
+        template = catalog.compute().templates.get(build.template)
+        given = template.volumes.get(record.name) if template is not None else None
+        if (
+            template is not None
+            and given is not None
+            and given.fast_snapshot_restore
+            and now is not None
+            and now.pk == build.pk
+        ):
+            # Current again, its successor retired: fast again, saying so till it is.
+            if _fast(region, template, record.name, record):
+                _say(record, "")
+            continue
+        fast = sorted(z for z, state in states.get(record.handle, {}).items() if state in FAST)
+        if fast:
+            region.ec2.disable_fast_restores(region.name, record.handle, fast)
+            logger.info("setup_fast_restore_disabled", snapshot=record.handle, zones=fast)

@@ -53,8 +53,7 @@ has each completed snapshot made fast to restore in the zones of its
 subnets, and the build succeeds only once it is, in every zone: runs then
 start at full speed, while the previous version keeps serving them until
 then. If EC2 won't enable it yet (accounts can have five such snapshots
-per region by default), the build says why and Iki keeps asking; retiring
-an old version frees one. A build whose snapshots aren't ready within a
+per region by default), the build says why and Iki keeps asking. A build whose snapshots aren't ready within a
 day of its script's timeout fails. The build's disks are deleted once it
 succeeds.
 
@@ -69,8 +68,12 @@ once idle, and in each job's record, as on Kubernetes.
 `iops` (3,000 to 80,000) and `throughput` (125 to 2,000 MiB/s, at most a
 quarter of the IOPS) for both a build's disks and runs' copies.
 
-**Retired versions stop costing.** A retired version's snapshot stops being
-fast to restore at once, and is deleted once no machine has a copy. A
+**Only the version runs get is kept fast to restore.** Once a newer version
+is current, the older one's snapshot stops being fast to restore, which costs
+by the hour; it's kept, at the cost of its storage, to roll back to. If the
+newer one is retired, the older one is current again and is made fast again,
+saying so until it is (runs meanwhile get it, a little slower at first). A
+retired version's snapshot is deleted once no machine has a copy. A
 failed or cancelled build's disks and snapshots are deleted, as are any
 carrying the deployment's tag whose build is gone. Iki looks for these
 every five minutes in each region its templates use.
@@ -155,8 +158,9 @@ since disks made from its snapshots are encrypted with it.
   their own, at full speed from the start when the template asks, and every
   result says which version of the data it read.
 - Fast snapshot restore costs about $0.75 an hour for each snapshot and
-  zone it's enabled in: a template in three zones costs about $1,600 a
-  month for each version kept fast. Retiring old versions promptly matters.
+  zone it's enabled in: about $1,600 a month for a template in three zones.
+  Only the current version of each environment's volume is kept fast, so
+  older versions cost only their snapshots' storage.
 - Each run's machine has its own copy, so disks cost for as long as their
   machine runs, and a version uses its snapshot's storage until retired.
 - A machine image without udev rules naming EBS disks by device (Ubuntu's,
