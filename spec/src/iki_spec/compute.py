@@ -74,6 +74,11 @@ STRATEGIES = {
     "aws_ec2": {"clone_from_snapshot", "attach_exclusive", "shared_filesystem", "object_mount"},
 }
 
+#: What an EC2 instance's disk needs besides the scratch space runs get: at least this
+#: (and unless the template says, :data:`ROOT_DEFAULT`) for the system and the run's image.
+ROOT_SYSTEM = 8 * 1024**3
+ROOT_DEFAULT = 40 * 1024**3
+
 #: Strategies that give each machine its own copy or a shared read-only view, so many runs
 #: can read at once.
 SHARED_READ = {"clone_from_snapshot", "shared_filesystem", "object_mount"}
@@ -436,6 +441,19 @@ class _Rules:
                 document,
                 ("aws", "fallback"),
                 key=True,
+            )
+        root = template.aws.get("root_disk")
+        if (
+            root is not None
+            and (parse_quantity(root) or 0) < (template.capacity.scratch_disk or 0) + ROOT_SYSTEM
+        ):
+            self.add(
+                "root-disk-too-small",
+                "`root_disk` must hold `capacity.scratch_disk` and at least 8Gi more for the "
+                "system and the run's image.",
+                document,
+                ("aws", "root_disk"),
+                hint="Leave it out for `scratch_disk` and 40Gi.",
             )
         for name, volume in template.volumes.items():
             path: DocPath = ("volumes", name)

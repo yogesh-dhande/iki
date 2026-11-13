@@ -394,6 +394,37 @@ containerTier:
     affinity: {}
     podAnnotations: {}
 
+vmTier:
+  # The VM tier (ADR 0074): the provisioner starts an EC2 instance for each
+  # queued vm-tier run (templates with provisioner: aws_ec2), from the
+  # template's own image, subnets, security groups and instance profile. Each
+  # boots, copies iki-worker out of containerTier.workerImage (pinned by its
+  # digest), and runs the environment's image with it, locked down as the
+  # container tier's pods are. The machine holds only a token for that one
+  # run, has no public address, and terminates when the run's done. The
+  # provisioner's settings are containerTier.provisioner's.
+  enabled: false
+  # required with vmTier: the name this deployment's machines are tagged with
+  # (iki.ikisci.org/deployment), such as iki-production. The provisioner
+  # manages only the machines that carry it, and its IAM policy can require
+  # it, so deployments sharing an account never touch each other's.
+  owner: ""
+  # Where machines reach the server from their subnets: an https:// address,
+  # often an internal load balancer in their VPC. Defaults to publicUrl,
+  # reached through the subnets' NAT gateway.
+  serverUrl: ""
+  # Where machines' runs reach the egress proxy (egressProxy), from their
+  # subnets: http://iki-egress.internal.example.com:3128. Without it, their
+  # runs reach only the server and the URLs it signs.
+  egressProxyUrl: ""
+  # The AWS region the provisioner signs in to (its templates name their own).
+  region: ""
+  # The provisioner's IAM role, by EKS IAM roles for service accounts:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/iki-provisioner
+  # (EKS Pod Identity needs nothing here). docs/adr/0074 has the policy it
+  # needs: starting and terminating only machines tagged with owner.
+  serviceAccountAnnotations: {}
+
 runSecrets:
   # Secret holding the secrets plugins' actions declare (ADR 0054), one key
   # each, named for the plugin and the secret: dna.NCBI_API_KEY. Sync it from
@@ -505,6 +536,22 @@ networkPolicy:
             cidr: 0.0.0.0/0
         - ipBlock:
             cidr: ::/0
+    # Only with vmTier: the provisioner reaches AWS's APIs (EC2, STS, SSM),
+    # through their public endpoints or your VPC's interface endpoints. The
+    # default allows HTTPS anywhere but link-local addresses (the node's own
+    # metadata service), for that pod alone.
+    cloudApi:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fe80::/10
+              - fd00:ec2::254/128
     database:
       ports: [5432]
       to: []

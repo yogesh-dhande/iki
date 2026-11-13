@@ -664,6 +664,37 @@
           }
         }
       }
+    },
+    "vmTier": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^([A-Za-z0-9+=._:/@-]{1,128})?$"
+        },
+        "serverUrl": {
+          "type": "string",
+          "pattern": "^(https://.+)?$"
+        },
+        "egressProxyUrl": {
+          "type": "string",
+          "pattern": "^(https?://[^/@]+/?)?$"
+        },
+        "region": {
+          "type": "string",
+          "pattern": "^([a-z]{2}(-[a-z]+)+-[0-9])?$"
+        },
+        "serviceAccountAnnotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "allOf": [

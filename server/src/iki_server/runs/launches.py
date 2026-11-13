@@ -1,14 +1,14 @@
 """Machines Iki starts for runs, and how their workers register (ADR 0061).
 
-The provisioner (:mod:`iki_server.runs.provisioner`) starts a container-tier pod for an
-environment on a compute template, and records it as a :class:`Launch` with a token made
-for it alone (``iki_wlch_…``). The pod's worker registers with that token, once, before it
-expires. What the worker may run comes from the launch, not from what it says: the
-environment it was started for, in the image it was started with, at the plugin commit
-the runs were launched with, with the template's capacity. A launch for an ephemeral
-machine gives its worker one job; then it stops. A persistent one runs one job after
-another, until the provisioner stops it while it's idle (ADR 0062).
-"""
+The provisioner (:mod:`iki_server.runs.provisioner`) starts a container-tier pod or a
+vm-tier EC2 instance (ADR 0074) for an environment on a compute template, and records it as
+a :class:`Launch` with a token made for it alone (``iki_wlch_…``). The machine's worker
+registers with that token, once, before it expires. What the worker may run comes from the
+launch, not from what it says: the environment it was started for, in the image it was
+started with, at the plugin commit the runs were launched with, with the template's
+capacity. A launch for an ephemeral machine gives its worker one job; then it stops. A
+persistent one runs one job after another, until the provisioner stops it while it's idle
+(ADR 0062)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from django.utils import timezone
 
 from iki_server.audit import log as audit
 from iki_server.runs.models import Job, Launch, LaunchState, Worker
-from iki_spec.compute import Template
+from iki_spec.compute import TIER, Template
 
 __all__ = [
     "LAUNCH_PREFIX",
@@ -130,7 +130,7 @@ def register(
             raise Launch.DoesNotExist
         worker = Worker.objects.create(
             name=name,
-            tier="container",
+            tier=TIER.get(locked.provisioner, "container"),
             token_hash=_hash(value),
             hint=value[-4:],
             launch=locked,
@@ -153,7 +153,7 @@ def register(
             "worker.registered",
             target=worker,
             data={
-                "tier": "container",
+                "tier": worker.tier,
                 "launch": str(locked.pk),
                 "version": version,
                 "reported_capacity": capacity,

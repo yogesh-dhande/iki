@@ -86,6 +86,7 @@ ACTIONS: dict[str, str] = {
     "worker.revoked": "Revoked a worker",
     "worker.launched": "Started a machine for runs",
     "worker.launch_ended": "A machine started for runs ended",
+    "worker.machine_started": "A cloud machine started for runs",
     "quota.created": "Set a run quota",
     "quota.updated": "Changed a run quota",
     "quota.removed": "Removed a run quota",

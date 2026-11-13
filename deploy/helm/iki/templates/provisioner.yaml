@@ -1,13 +1,31 @@
-{{- if .Values.containerTier.enabled }}
 {{- $c := .Values.containerTier }}
-{{- $namespaces := include "iki.runNamespaces" . | fromJsonArray }}
-{{- $url := $c.serverUrl | default .Values.backendWorkers.serverUrl | default .Values.publicUrl }}
-{{- $plain := and $c.allowHttp (not .Values.https) (hasPrefix "http://" $url) }}
+{{- $v := .Values.vmTier }}
+{{- if or $c.enabled $v.enabled }}
+{{- $namespaces := list }}
+{{- $url := "" }}
+{{- $plain := false }}
+{{- if $c.enabled }}
+{{- $namespaces = include "iki.runNamespaces" . | fromJsonArray }}
+{{- $url = $c.serverUrl | default .Values.backendWorkers.serverUrl | default .Values.publicUrl }}
+{{- $plain = and $c.allowHttp (not .Values.https) (hasPrefix "http://" $url) }}
 {{- if not (or (hasPrefix "https://" $url) $plain) }}
 {{- fail "containerTier.serverUrl (or publicUrl) must be an https:// address: run pods send their token to it (http:// needs containerTier.allowHttp and https: false, for development only)" }}
 {{- end }}
-# The provisioner (ADR 0061): starts a Kubernetes Job for each queued
-# container-tier run, and tidies up after them. One acts at a time (it holds a
+{{- end }}
+{{- $vmUrl := "" }}
+{{- if $v.enabled }}
+{{- $owner := required "vmTier.owner is required: the name this deployment's machines are tagged with, such as iki-production" $v.owner }}
+{{- if not (regexMatch "^[A-Za-z0-9+=._:/@-]{1,128}$" $owner) }}
+{{- fail "vmTier.owner must be a name such as iki-production: letters, digits and +=._:/@-" }}
+{{- end }}
+{{- $vmUrl = $v.serverUrl | default .Values.publicUrl }}
+{{- if not (hasPrefix "https://" $vmUrl) }}
+{{- fail "vmTier.serverUrl (or publicUrl) must be an https:// address: machines send their token to it" }}
+{{- end }}
+{{- end }}
+# The provisioner (ADRs 0061 and 0074): starts a Kubernetes Job for each queued
+# container-tier run, and a cloud machine for each vm-tier one, and tidies up
+# after them. One acts at a time (it holds a
 # Postgres lock); a second waits, so a rollout never leaves runs without one.
 apiVersion: apps/v1
 kind: Deployment
@@ -38,8 +56,9 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "iki.fullname" . }}-provisioner
-      # The one Iki pod that talks to the Kubernetes API: its Role allows only
-      # Jobs, and creating Secrets, in the runs' namespaces.
+      # The one Iki pod that talks to the Kubernetes API (its Role allows only
+      # Jobs, and creating Secrets, in the runs' namespaces) or the cloud's
+      # (as the IAM role vmTier.serviceAccountAnnotations gives it).
       automountServiceAccountToken: true
       enableServiceLinks: false
       {{- with .Values.imagePullSecrets }}
@@ -56,12 +75,13 @@ spec:
           args: ["provision"]
           env:
             {{- include "iki.env" (dict "ctx" . "service" "iki-provisioner" "poolMaxSize" 4) | nindent 12 }}
+            - name: IKI_RUNS_WORKER_IMAGE
+              value: {{ include "iki.runsWorkerImage" . | quote }}
+            {{- if $c.enabled }}
             - name: IKI_RUNS_NAMESPACE
               value: {{ first $namespaces | quote }}
             - name: IKI_RUNS_NAMESPACES
               value: {{ rest $namespaces | join "," | quote }}
-            - name: IKI_RUNS_WORKER_IMAGE
-              value: {{ include "iki.runsWorkerImage" . | quote }}
             - name: IKI_RUNS_SERVER_URL
               value: {{ $url | quote }}
             - name: IKI_RUNS_SERVICE_ACCOUNT
@@ -73,6 +93,24 @@ spec:
             {{- if $plain }}
             - name: IKI_RUNS_ALLOW_HTTP
               value: "1"
+            {{- end }}
+            {{- end }}
+            {{- if $v.enabled }}
+            - name: IKI_RUNS_VM_OWNER
+              value: {{ $v.owner | quote }}
+            - name: IKI_RUNS_VM_SERVER_URL
+              value: {{ $vmUrl | quote }}
+            {{- with $v.egressProxyUrl }}
+            - name: IKI_RUNS_VM_EGRESS_PROXY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $v.region }}
+            # Where the AWS SDK signs in (STS); templates name their own regions.
+            - name: AWS_REGION
+              value: {{ . | quote }}
+            - name: AWS_STS_REGIONAL_ENDPOINTS
+              value: regional
+            {{- end }}
             {{- end }}
           ports:
             - name: health
@@ -119,6 +157,12 @@ metadata:
   name: {{ include "iki.fullname" . }}-provisioner
   labels:
     {{- include "iki.labels" . | nindent 4 }}
+  {{- with (and $v.enabled $v.serviceAccountAnnotations) }}
+  # The IAM role it acts as (EKS IAM roles for service accounts), such as
+  # eks.amazonaws.com/role-arn. docs/adr/0074 has the policy it needs.
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- range $namespace := $namespaces }}
 ---
 # What the provisioner may do where runs go: manage Jobs, see their pods and
@@ -234,7 +278,7 @@ spec:
     {{- end }}
 {{- end }}
 {{- end }}
-{{- if .Values.networkPolicy.enabled }}
+{{- if and .Values.networkPolicy.enabled $c.enabled }}
 ---
 # The provisioner reaches the Kubernetes API, and nothing else Iki pods don't.
 apiVersion: networking.k8s.io/v1
@@ -256,7 +300,30 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
 {{- end }}
-{{- if and .Values.networkPolicy.enabled $c.serverInCluster }}
+{{- if and .Values.networkPolicy.enabled $v.enabled }}
+---
+# The provisioner reaches AWS's APIs: EC2, STS (for its role) and SSM (for
+# images named by parameter).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" . }}-provisioner-cloud-api
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "iki.selectorLabels" (dict "ctx" . "component" "provisioner") | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- toYaml .Values.networkPolicy.egress.cloudApi.to | nindent 8 }}
+      ports:
+        {{- range .Values.networkPolicy.egress.cloudApi.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled $c.enabled $c.serverInCluster }}
 ---
 # Run pods reach the web pods directly.
 apiVersion: networking.k8s.io/v1
@@ -281,7 +348,7 @@ spec:
       ports:
         - { protocol: TCP, port: 8000 }
 {{- end }}
-{{- if and .Values.networkPolicy.enabled .Values.egressProxy.enabled }}
+{{- if and .Values.networkPolicy.enabled .Values.egressProxy.enabled $c.enabled }}
 ---
 # Run pods reach the internet only through the egress proxy.
 apiVersion: networking.k8s.io/v1

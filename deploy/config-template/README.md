@@ -116,6 +116,16 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   `network` lists them, so review it when you add a plugin. If all traffic
   must pass your corporate proxy, set `egressProxy.upstreamProxy` and point
   `networkPolicy.egress.egressProxy` at that proxy.
+- Runs that need machines the cluster doesn't have (eight GPUs, a terabyte
+  of memory) can get EC2 instances of their own, started for each run and
+  terminated after it: turn on `vmTier` in `values.yaml`, and add
+  `aws_ec2` templates to `compute.yaml`
+  ([ADR 0074](../../docs/adr/0074-vm-tier-runs-get-cloud-machines-of-their-own.md)).
+  Give the provisioner an IAM role (`vmTier.serviceAccountAnnotations`)
+  with the policy in that ADR, which lets it start and end only machines
+  tagged with `vmTier.owner`. The machines' subnets need a way to the
+  server (`vmTier.serverUrl`), object storage and the egress proxy
+  (`vmTier.egressProxyUrl`), and nothing else.
 - If your package index is a mirror, pass it to the worker image's build as
   a secret (see `worker.Dockerfile`).
 

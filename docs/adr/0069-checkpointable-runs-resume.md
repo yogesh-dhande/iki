@@ -77,5 +77,5 @@ a later attempt starts from the newest one.**
   place.
 - A checkpoint is as confidential as the run's inputs: it's kept in the same
   store, under the run's project, and only the run's later attempts read it.
-- Spot interruption notices, once the VM tier watches for them, stop the worker as
-  SIGTERM does, and so save a checkpoint the same way.
+- Spot interruption notices stop the worker as SIGTERM does, and so save a
+  checkpoint the same way: the VM tier watches for them (ADR 0074).

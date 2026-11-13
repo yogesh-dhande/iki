@@ -128,11 +128,24 @@
     "aws": {
       "description": "For `aws_ec2`: the instances and where they start.",
       "type": "object",
-      "required": ["instance_type", "region", "subnets", "instance_profile"],
+      "required": [
+        "instance_type",
+        "region",
+        "image",
+        "subnets",
+        "security_groups",
+        "instance_profile"
+      ],
       "properties": {
         "instance_type": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*\\.[a-z0-9]+$"
+        },
+        "image": {
+          "description": "The machine image instances boot: an AMI ID, or `resolve:ssm:` and a Systems Manager parameter that holds one, such as AWS's ECS-optimized Amazon Linux 2023 (`resolve:ssm:/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id`, or `.../amazon-linux-2023/gpu/recommended/image_id` for GPUs). It needs Docker, and for GPUs NVIDIA's drivers and container toolkit.",
+          "type": "string",
+          "maxLength": 300,
+          "pattern": "^(ami-[0-9a-f]{8,17}|resolve:ssm:/[A-Za-z0-9/_.-]+)$"
         },
         "spot": {
           "description": "Use spot instances, which cost less but can be taken back with two minutes' notice.",
@@ -157,7 +170,10 @@
           }
         },
         "security_groups": {
+          "description": "Security groups for the instances: none needs inbound rules, and outbound only to Iki, object storage, the egress proxy and the image registry.",
           "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -169,6 +185,36 @@
           "type": "string",
           "maxLength": 128,
           "pattern": "^[A-Za-z0-9+=,.@_-]+$"
+        },
+        "root_device": {
+          "description": "The image's root device, which gets the disk: `/dev/xvda` (Amazon Linux, the default) or `/dev/sda1` (Ubuntu, say).",
+          "type": "string",
+          "pattern": "^/dev/[a-z0-9]{2,12}$"
+        },
+        "root_disk": {
+          "description": "The size of each instance's disk, encrypted and deleted with it. Unless set, `capacity.scratch_disk` and 40Gi for the image and the system.",
+          "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
+        },
+        "kms_key": {
+          "description": "The KMS key that encrypts the disks, by ARN or alias; the account's default EBS key unless set.",
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^(arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:(key|alias)/[A-Za-z0-9/_-]+|alias/[A-Za-z0-9/_-]+)$"
+        },
+        "tags": {
+          "description": "More tags for the instances and their disks, such as a cost center. Iki's own tags (`iki.ikisci.org/\u2026`) and AWS's (`aws:\u2026`) are taken.",
+          "type": "object",
+          "maxProperties": 30,
+          "propertyNames": {
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?!aws:|iki\\.ikisci\\.org/)[A-Za-z0-9 +\\-=._:/@]+$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9 +\\-=._:/@]*$"
+          }
         }
       },
       "additionalProperties": false

@@ -1,6 +1,10 @@
-"""The provisioner: starts machines for container-tier runs, and tidies up after them
-(ADR 0061). ``iki-server provision`` runs it; it's the only part of Iki that may talk to
-the Kubernetes API.
+"""The provisioner: starts machines for container- and vm-tier runs, and tidies up after
+them (ADR 0061, ADR 0074). ``iki-server provision`` runs it; it's the only part of Iki that
+may talk to the Kubernetes API or start cloud machines.
+
+Each kind of machine is a :class:`Fleet`: Kubernetes pods (:class:`KubernetesFleet`, here)
+for the container tier, EC2 instances (:class:`iki_server.runs.ec2_fleet.Ec2Fleet`) for the
+vm tier. What to start, keep warm and stop is decided the same way for each.
 
 Each :func:`tick`:
 
@@ -30,7 +34,7 @@ import hashlib
 import json
 import uuid
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, TypeGuard
@@ -59,7 +63,9 @@ from iki_spec.model import Resources
 
 __all__ = [
     "PROVISIONERS",
+    "Fleet",
     "Group",
+    "KubernetesFleet",
     "Trouble",
     "demand",
     "namespaces",
@@ -77,7 +83,7 @@ __all__ = [
 
 logger = structlog.get_logger("iki.provisioner")
 
-#: The provisioners this process starts machines for: a pod per run, or persistent pods.
+#: The provisioners Kubernetes pods are started for: a pod per run, or persistent pods.
 PROVISIONERS = ("k8s_job", "k8s_deployment")
 #: How long a persistent machine may have nothing to do before it's stopped, unless its
 #: template's ``idle_shutdown`` says.
@@ -103,7 +109,9 @@ LIST_LAG = timedelta(seconds=60)
 IMAGE_TROUBLE = {"ErrImagePull", "ImagePullBackOff", "InvalidImageName", "ErrImageNeverPull"}
 #: And that it can't start for some other reason that won't go away by itself.
 START_TROUBLE = {"CreateContainerConfigError", "CreateContainerError", "RunContainerError"}
-FAILED_TO_START = ("image_unavailable", "refused", "never_started", "failed")
+FAILED_TO_START = ("image_unavailable", "refused", "never_started", "failed", "no_capacity")
+#: How long after a machine couldn't be had for want of capacity its runs say so.
+NO_CAPACITY_SHOWN = timedelta(minutes=15)
 #: Reasons no pod for an environment's runs can start until someone fixes something.
 HOPELESS = ("image_unavailable", "refused")
 
@@ -126,6 +134,42 @@ def namespaces() -> list[str]:
 
 def namespace_of(template: Template) -> str:
     return str(template.kubernetes.get("namespace") or settings.IKI_RUNS_NAMESPACE)
+
+
+class Fleet:
+    """One kind of machine the provisioner starts: what it asks its platform for, and how it
+    squares what the platform reports with what Iki launched."""
+
+    #: The tier its machines run, and the template provisioners it starts them for.
+    tier = "container"
+    provisioners: tuple[str, ...] = PROVISIONERS
+    #: What its machines are, for people.
+    kind = "run pods"
+
+    def place(self, template: Template) -> str | None:
+        """Where a template's machines go (a namespace, a region), or None if they may not."""
+        raise NotImplementedError
+
+    def spec(self, group: Group, place: str) -> str:
+        """A digest of the machine a launch for `group` gets, which changes when its template,
+        or how Iki starts them, does."""
+        raise NotImplementedError
+
+    def launch(self, group: Group, place: str) -> bool:
+        """Starts a machine for `group`, as a new launch. Returns whether it started."""
+        raise NotImplementedError
+
+    def reconcile(self, now: datetime) -> int:
+        """Brings launches and the platform into line. Returns how many launches it ended."""
+        raise NotImplementedError
+
+    def remove(self, launch: Launch) -> None:
+        """Stops the launch's machine, whatever it's doing; nothing if it's gone already."""
+        raise NotImplementedError
+
+    def check(self, launch: Launch, reason: str) -> str:
+        """What an administrator can check when no machine can start for an environment."""
+        raise NotImplementedError
 
 
 @dataclass
@@ -168,8 +212,10 @@ def _resources(job: Job) -> Resources:
     return Resources(**known)
 
 
-def template_for(job: Job) -> tuple[Template, str] | None:
-    """Which template the provisioner starts a pod on for `job`, and the image; None if
+def template_for(
+    job: Job, provisioners: tuple[str, ...] = PROVISIONERS
+) -> tuple[Template, str] | None:
+    """Which template the provisioner starts a machine on for `job`, and the image; None if
     none it starts fits (or the action is gone)."""
     action = catalog.action(job.run.action)
     if action is None:
@@ -179,7 +225,7 @@ def template_for(job: Job) -> tuple[Template, str] | None:
         return None
     wanted = _resources(job)
     for template in catalog.availability(action).templates:
-        if template.provisioner not in PROVISIONERS or not template.fits(wanted):
+        if template.provisioner not in provisioners or not template.fits(wanted):
             continue
         if action.lifecycle is not None and template.lifecycle != action.lifecycle:
             continue
@@ -187,14 +233,16 @@ def template_for(job: Job) -> tuple[Template, str] | None:
     return None
 
 
-def demand(now: datetime) -> dict[tuple[str, str, str], Group]:
-    """The queued container-tier jobs that need a pod, by what kind of pod."""
-    stop = quotas.blocked("container")
+def demand(now: datetime, fleet: Fleet | None = None) -> dict[tuple[str, str, str], Group]:
+    """The queued jobs on the fleet's tier that need a machine, by what kind of machine."""
+    tier = fleet.tier if fleet is not None else "container"
+    provisioners = fleet.provisioners if fleet is not None else PROVISIONERS
+    stop = quotas.blocked(tier)
     if stop.organization:
         return {}
     jobs = (
         Job.objects.filter(
-            state=JobState.QUEUED, tier="container", packed_into__isnull=True, queued_at__lte=now
+            state=JobState.QUEUED, tier=tier, packed_into__isnull=True, queued_at__lte=now
         )
         .exclude(project__in=list(stop.projects))
         .exclude(project__team__in=list(stop.teams))
@@ -203,7 +251,7 @@ def demand(now: datetime) -> dict[tuple[str, str, str], Group]:
     )
     groups: dict[tuple[str, str, str], Group] = {}
     for job in jobs:
-        chosen = template_for(job)
+        chosen = template_for(job, provisioners)
         if chosen is None:
             continue
         template, image = chosen
@@ -215,7 +263,7 @@ def demand(now: datetime) -> dict[tuple[str, str, str], Group]:
     return groups
 
 
-def warm() -> dict[tuple[str, str, str], Group]:
+def warm(provisioners: tuple[str, ...] = PROVISIONERS) -> dict[tuple[str, str, str], Group]:
     """The machines persistent templates keep running with nothing to do: ``min_warm`` of
     each, for each environment bound to it, at the plugin commit runs launch with now."""
     from iki_server.runs.services import plugin_sha
@@ -231,7 +279,7 @@ def warm() -> dict[tuple[str, str, str], Group]:
         sha = plugin_sha(plugin)
         for template_name, _ in binding.templates:
             template = deployment.templates.get(template_name)
-            if template is None or template.provisioner not in PROVISIONERS:
+            if template is None or template.provisioner not in provisioners:
                 continue
             if template.min_warm and template.lifecycle == "persistent":
                 group = Group(qualified, sha, template, environment.image)
@@ -239,14 +287,14 @@ def warm() -> dict[tuple[str, str, str], Group]:
     return found
 
 
-def _free() -> list[Launch]:
+def _free(provisioners: tuple[str, ...]) -> list[Launch]:
     """Machines that can take a job now or once they start: one starting, or a persistent
     one with nothing to do."""
     held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=queue.HELD)
     ever = Job.objects.filter(worker__launch=OuterRef("pk"))
     return list(
         Launch.objects.exclude(state=LaunchState.ENDED)
-        .filter(provisioner__in=PROVISIONERS)
+        .filter(provisioner__in=provisioners)
         .annotate(held=Exists(held), ever=Exists(ever))
         .filter(Q(once=False, held=False) | Q(once=True, ever=False))
         .order_by("created_at")
@@ -265,10 +313,12 @@ def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
     )
 
 
-def _unmet(groups: dict[tuple[str, str, str], Group]) -> Counter[tuple[str, str, str]]:
+def _unmet(
+    groups: dict[tuple[str, str, str], Group], provisioners: tuple[str, ...]
+) -> Counter[tuple[str, str, str]]:
     """How many of each group's jobs no free machine can take."""
     templates = catalog.compute().templates
-    spare = _free()
+    spare = _free(provisioners)
     unmet: Counter[tuple[str, str, str]] = Counter()
     for key, group in groups.items():
         for job in group.jobs:
@@ -299,17 +349,17 @@ def _backing_off(group: Group, now: datetime) -> bool:
 
 
 def start(
-    cluster: Cluster,
+    fleet: Fleet,
     now: datetime,
     groups: dict[tuple[str, str, str], Group],
     kept: dict[tuple[str, str, str], Group],
 ) -> int:
-    """Starts the pods queued runs need, and the warm ones persistent templates keep.
+    """Starts the machines queued runs need, and the warm ones persistent templates keep.
     Returns how many."""
     wanted = {**kept, **groups}
     if not wanted:
         return 0
-    unmet = _unmet(groups)
+    unmet = _unmet(groups, fleet.provisioners)
     live = Counter(
         Launch.objects.exclude(state=LaunchState.ENDED).values_list("template", flat=True)
     )
@@ -318,8 +368,6 @@ def start(
             "environment", "plugin_sha", "template"
         )
     )
-    allowed = set(namespaces())
-    pods = run_pods()
     started = 0
     for key, group in wanted.items():
         template = group.template
@@ -331,14 +379,11 @@ def start(
             want = min(want, template.max_concurrent - live[template.name])
         if want <= 0 or _backing_off(group, now):
             continue
-        namespace = namespace_of(template)
-        if namespace not in allowed:
-            logger.warning(
-                "template_namespace_not_allowed", template=template.name, namespace=namespace
-            )
+        place = fleet.place(template)
+        if place is None:
             continue
         for _ in range(want):
-            if not _launch(cluster, group, namespace, pods):
+            if not fleet.launch(group, place):
                 break
             started += 1
             live[template.name] += 1
@@ -376,7 +421,9 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
             # say (ADR 0063). It will say no again until someone changes something.
             message = _clip(f"The cluster refused to start it: {error.message}")
             launches.end(launch, "refused", message)
-            _give_up_if_hopeless(launch, "refused", message, timezone.now())
+            give_up_if_hopeless(
+                KubernetesFleet(cluster), launch, "refused", message, timezone.now()
+            )
         else:
             launches.end(launch, "failed", f"Kubernetes didn't start it: {error}")
         return False
@@ -540,7 +587,9 @@ def _reconcile_one(
             launches.end(launch, problem.reason, problem.message)
             _delete(cluster, launch.namespace, launch.name)
             if problem.reason == "image_unavailable":
-                _give_up_if_hopeless(launch, problem.reason, problem.message, now)
+                give_up_if_hopeless(
+                    KubernetesFleet(cluster), launch, problem.reason, problem.message, now
+                )
             return 1
     if launch.state == LaunchState.STARTING and launch.expires_at <= now:
         message = problem.message if problem is not None else "It didn't start in time."
@@ -596,9 +645,11 @@ def _delete(cluster: Cluster, namespace: str, name: str) -> None:
         logger.warning("delete_failed", namespace=namespace, job=name, error=str(error))
 
 
-def _give_up_if_hopeless(launch: Launch, reason: str, message: str, now: datetime) -> None:
-    """Fails the environment's queued runs once its image has failed, or the cluster has
-    refused its pods, again and again: none can start until someone fixes it."""
+def give_up_if_hopeless(
+    fleet: Fleet, launch: Launch, reason: str, message: str, now: datetime
+) -> None:
+    """Fails the environment's queued runs once its image has failed, or the platform has
+    refused its machines, again and again: none can start until someone fixes it."""
     failures = Launch.objects.filter(
         environment=launch.environment,
         plugin_sha=launch.plugin_sha,
@@ -607,22 +658,15 @@ def _give_up_if_hopeless(launch: Launch, reason: str, message: str, now: datetim
     ).count()
     if failures < GIVE_UP_AFTER:
         return
-    check = (
-        f"that the deployment's build approved `{launch.image}` (it signs each image "
-        "`iki deploy build --images` lists), and that the cluster's admission policy "
-        "admits it"
-        if reason == "refused"
-        else f"that `{launch.image}` exists and that the cluster may pull it"
-    )
-    # What to check comes first: what Kubernetes said can be long.
+    # What to check comes first: what the platform said can be long.
     text = (
         f"No machine could start for it, {failures} times. An administrator can check "
-        f"{check}. {message}"
+        f"{fleet.check(launch, reason)}. {message}"
     )
     with transaction.atomic():
         for job in Job.objects.select_for_update(skip_locked=True).filter(
             state=JobState.QUEUED,
-            tier="container",
+            tier=fleet.tier,
             environment=launch.environment,
             run__plugin_sha=launch.plugin_sha,
             packed_into__isnull=True,
@@ -634,12 +678,24 @@ def _give_up_if_hopeless(launch: Launch, reason: str, message: str, now: datetim
 
 
 def waiting(environments: Iterable[str]) -> dict[str, str]:
-    """What the pods being started for each environment are waiting for, for people."""
+    """What the machines being started for each environment are waiting for, for people:
+    and lately, that there was no capacity to start one."""
+    wanted = list(environments)
     found: dict[str, str] = {}
     for environment, message in (
-        Launch.objects.filter(environment__in=list(environments), state=LaunchState.STARTING)
+        Launch.objects.filter(environment__in=wanted, state=LaunchState.STARTING)
         .exclude(message="")
         .order_by("created_at")
+        .values_list("environment", "message")
+    ):
+        found.setdefault(environment, message)
+    for environment, message in (
+        Launch.objects.filter(
+            environment__in=[e for e in wanted if e not in found],
+            ended_reason="no_capacity",
+            ended_at__gt=timezone.now() - NO_CAPACITY_SHOWN,
+        )
+        .order_by("-ended_at")
         .values_list("environment", "message")
     ):
         found.setdefault(environment, message)
@@ -660,7 +716,7 @@ def _minutes(wait: timedelta) -> str:
 
 
 def stop_idle(
-    cluster: Cluster,
+    fleet: Fleet,
     now: datetime,
     groups: dict[tuple[str, str, str], Group],
     kept: dict[tuple[str, str, str], Group],
@@ -675,14 +731,15 @@ def stop_idle(
         .values("finished_at")[:1]
     )
     idle = list(
-        Launch.objects.filter(state=LaunchState.RUNNING, once=False, provisioner__in=PROVISIONERS)
+        Launch.objects.filter(
+            state=LaunchState.RUNNING, once=False, provisioner__in=fleet.provisioners
+        )
         .annotate(held=Exists(held), last=Subquery(last))
         .filter(held=False)
     )
     if not idle:
         return 0
     templates = catalog.compute().templates
-    pods = run_pods()
     running = Counter(
         Launch.objects.exclude(state=LaunchState.ENDED)
         .filter(once=False)
@@ -698,12 +755,11 @@ def stop_idle(
         reason = message = ""
         if template is None or not _bound(launch.environment, template.name):
             reason, message = "replaced", "Its template is no longer bound to its environment."
-        elif launch.spec != spec_of(
+        elif launch.spec != fleet.spec(
             Group(launch.environment, launch.plugin_sha, template, launch.image),
-            namespace_of(template),
-            pods,
+            fleet.place(template) or launch.namespace,
         ):
-            reason, message = "replaced", "Its template, or how Iki starts run pods, changed."
+            reason, message = "replaced", f"Its template, or how Iki starts {fleet.kind}, changed."
         elif key not in groups:
             wait = (
                 timedelta(seconds=template.idle_shutdown)
@@ -714,20 +770,71 @@ def stop_idle(
             if now - since >= wait and running[key] > keep:
                 reason, message = "idle", f"Nothing ran on it for {_minutes(wait)}."
         if reason and launches.stop_if_idle(launch, reason, message):
-            _delete(cluster, launch.namespace, launch.name)
+            fleet.remove(launch)
             running[key] -= 1
             stopped += 1
             logger.info("stopped", launch=str(launch.pk), reason=reason)
     return stopped
 
 
-def tick(cluster: Cluster, now: datetime | None = None) -> tuple[int, int]:
-    """One round: reconcile, stop idle machines that aren't needed, then start what is.
-    Returns (started, ended)."""
+def tick(
+    machines: Cluster | Fleet | Sequence[Fleet], now: datetime | None = None
+) -> tuple[int, int]:
+    """One round for each fleet: reconcile, stop idle machines that aren't needed, then
+    start what is. Returns (started, ended). A Kubernetes cluster stands for its fleet."""
     now = now or timezone.now()
-    ended = reconcile(cluster, now)
-    groups = demand(now)
-    kept = warm()
-    ended += stop_idle(cluster, now, groups, kept)
-    started = start(cluster, now, groups, kept)
+    if isinstance(machines, Fleet):
+        fleets: Sequence[Fleet] = [machines]
+    elif isinstance(machines, Sequence):
+        fleets = machines
+    else:
+        fleets = [KubernetesFleet(machines)]
+    started = ended = 0
+    for fleet in fleets:
+        ended += fleet.reconcile(now)
+        groups = demand(now, fleet)
+        kept = warm(fleet.provisioners)
+        ended += stop_idle(fleet, now, groups, kept)
+        started += start(fleet, now, groups, kept)
     return started, ended
+
+
+class KubernetesFleet(Fleet):
+    """Container-tier pods (ADR 0061, ADR 0062): a Kubernetes Job for each machine."""
+
+    tier = "container"
+    provisioners = PROVISIONERS
+
+    def __init__(self, cluster: Cluster) -> None:
+        self.cluster = cluster
+        self.pods = run_pods()
+
+    def place(self, template: Template) -> str | None:
+        namespace = namespace_of(template)
+        if namespace not in namespaces():
+            logger.warning(
+                "template_namespace_not_allowed", template=template.name, namespace=namespace
+            )
+            return None
+        return namespace
+
+    def spec(self, group: Group, place: str) -> str:
+        return spec_of(group, place, self.pods)
+
+    def launch(self, group: Group, place: str) -> bool:
+        return _launch(self.cluster, group, place, self.pods)
+
+    def reconcile(self, now: datetime) -> int:
+        return reconcile(self.cluster, now)
+
+    def remove(self, launch: Launch) -> None:
+        _delete(self.cluster, launch.namespace, launch.name)
+
+    def check(self, launch: Launch, reason: str) -> str:
+        if reason == "refused":
+            return (
+                f"that the deployment's build approved `{launch.image}` (it signs each image "
+                "`iki deploy build --images` lists), and that the cluster's admission policy "
+                "admits it"
+            )
+        return f"that `{launch.image}` exists and that the cluster may pull it"

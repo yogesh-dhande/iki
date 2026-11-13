@@ -5,6 +5,7 @@
 //! On someone's own computer, `iki-worker login <server>` signs it in as them instead
 //! (ADR 0058), and `iki-worker logout` signs it out.
 //! `iki-worker run --local input.json` runs one action's command offline, the same way.
+//! `iki-worker host config.json` runs a cloud machine's run container (ADR 0074).
 
 mod api;
 mod between;
@@ -13,6 +14,7 @@ mod checkpoint;
 mod config;
 mod files;
 mod globs;
+mod host;
 mod job;
 mod local;
 mod login;
@@ -44,6 +46,7 @@ enum Command {
     },
     RunLocal(local::Options),
     Install(PathBuf),
+    Host(PathBuf),
     Version,
     Help,
     Unknown(String),
@@ -56,6 +59,8 @@ fn parse(args: &[String]) -> Command {
         ["start", "--once"] => Command::Start { once: true },
         ["run", rest @ ..] => parse_run(rest),
         ["install", dir] => Command::Install(PathBuf::from(dir)),
+        ["host", config] if !config.starts_with('-') => Command::Host(PathBuf::from(config)),
+        ["host", ..] => Command::Unknown("host needs the machine's config.json".into()),
         ["login", url] | ["login", url, "--no-browser"] | ["login", "--no-browser", url]
             if !url.starts_with('-') =>
         {
@@ -165,6 +170,10 @@ Usage: iki-worker login <server> [--no-browser]
                                    it, so running again resumes from what it saved.
        iki-worker install <dir>    Copy this binary into <dir>, for a run's pod to run it
                                    in a plugin's image (the container tier does this)
+       iki-worker host <config.json>
+                                   Run a cloud machine's run container from the config
+                                   its boot script wrote, then shut the machine down
+                                   (the VM tier does this)
        iki-worker --version
 
 Set in the environment:
@@ -237,6 +246,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Install(dir) => finish(install(&dir)),
+        Command::Host(config) => finish(host::host(&config)),
         Command::Version => write_or_fail(&mut io::stdout(), &version_line(), ExitCode::SUCCESS),
         Command::Help => write_or_fail(&mut io::stdout(), USAGE, ExitCode::SUCCESS),
         Command::Unknown(arg) => write_or_fail(
@@ -321,6 +331,11 @@ mod tests {
             parse(&args(&["start", "--once"])),
             Command::Start { once: true }
         );
+        assert_eq!(
+            parse(&args(&["host", "/etc/iki/host.json"])),
+            Command::Host(PathBuf::from("/etc/iki/host.json"))
+        );
+        assert!(matches!(parse(&args(&["host"])), Command::Unknown(_)));
         assert_eq!(parse(&args(&["--version"])), Command::Version);
         assert_eq!(parse(&args(&["-V"])), Command::Version);
         assert_eq!(parse(&[]), Command::Help);

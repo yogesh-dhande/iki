@@ -62,6 +62,7 @@ capacity:
   scratch_disk: 8Ti
 aws:
   instance_type: p4d.24xlarge
+  image: resolve:ssm:/aws/service/ecs/optimized-ami/amazon-linux-2023/gpu/recommended/image_id
   spot: true
   fallback: on_demand
   region: us-east-1
@@ -148,6 +149,12 @@ def test_without_compute_yaml_only_the_client_tier_runs(
         (A100.replace("  instance_profile: iki-vm-worker\n", ""), "instance_profile"),
         (A100.replace("subnet-0a1b2c3d4e5f60718", "my-subnet"), "subnets"),
         (A100.replace("currency: USD", "currency: dollars"), "currency"),
+        # A VM needs an image, and security groups of its own.
+        (A100.replace("  image: resolve:ssm:", "  not_image: resolve:ssm:"), "image"),
+        (A100.replace("  security_groups: [sg-0a1b2c3d4e5f60718]\n", ""), "security_groups"),
+        (A100.replace("resolve:ssm:/aws", "https://example.com/aws"), "image"),
+        (A100.replace("  spot: true", "  tags: { iki.ikisci.org/run: x }\n  spot: true"), "tags"),
+        (A100.replace("  spot: true", "  tags: { 'aws:cost': x }\n  spot: true"), "tags"),
         ("apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: x\ntemplates: []\n", "x"),
     ],
 )
@@ -310,3 +317,13 @@ def test_unused_templates_are_mentioned(tmp_path: Path, plugins: list[Plugin]) -
     result = load(tmp_path, plugins, BACKEND, spare, A100, BINDINGS)
     assert only(result, "unused-template") == "No environment is bound to `backend-large`."
     assert result.ok
+
+
+def test_a_vms_disk_holds_its_scratch_space(tmp_path: Path, plugins: list[Plugin]) -> None:
+    small = A100.replace("  spot: true", "  root_disk: 8Ti\n  spot: true")
+    (problem,) = [
+        p for p in load(tmp_path, plugins, small).problems if p.code == "root-disk-too-small"
+    ]
+    assert "at least 8Gi more" in problem.message
+    big = A100.replace("  spot: true", "  root_disk: 9Ti\n  spot: true")
+    assert "root-disk-too-small" not in codes(load(tmp_path, plugins, big))

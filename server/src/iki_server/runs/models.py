@@ -412,9 +412,10 @@ class LaunchState(models.TextChoices):
 
 
 class Launch(models.Model):
-    """A machine Iki started for runs (ADR 0061): a container-tier pod, for one environment
-    on one compute template. Its worker registers with a token made for it alone, which
-    gives it only that environment's runs, with the image it was launched with."""
+    """A machine Iki started for runs (ADR 0061, ADR 0074): a container-tier pod or a
+    vm-tier EC2 instance, for one environment on one compute template. Its worker
+    registers with a token made for it alone, which gives it only that environment's
+    runs, with the image it was launched with."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     template = models.CharField(max_length=100)
@@ -422,9 +423,13 @@ class Launch(models.Model):
     environment = models.CharField(max_length=200, db_comment="plugin.environment")
     plugin_sha = models.CharField(max_length=64)
     image = models.CharField(max_length=500, db_comment="Pinned by its digest.")
-    #: Where it runs: a Kubernetes namespace and object name.
+    #: Where it runs: a Kubernetes namespace and object name, or an AWS region.
     namespace = models.CharField(max_length=63)
     name = models.CharField(max_length=63, unique=True)
+    #: For a VM (ADR 0074): its instance's ID, whether it's spot or on-demand, and its zone.
+    machine = models.CharField(max_length=64, blank=True, default="")
+    market = models.CharField(max_length=16, blank=True, default="")
+    zone = models.CharField(max_length=32, blank=True, default="")
     #: Whether its worker runs one job and stops (an ephemeral machine). A persistent one
     #: runs one after another until it's stopped (ADR 0062).
     once = models.BooleanField(default=True)
@@ -438,8 +443,9 @@ class Launch(models.Model):
     #: What it's doing or why it ended, for people: "Waiting for a node with 1 GPU", say.
     message = models.CharField(max_length=500, blank=True, default="")
     #: Why it ended, for code: ``finished``, ``image_unavailable``, ``never_started``,
-    #: ``gone``, ``removed``, ``failed``, ``refused`` (by the cluster's admission policy),
-    #: ``idle`` or ``replaced``.
+    #: ``gone``, ``removed``, ``failed``, ``refused`` (by the cluster's admission policy, or
+    #: EC2), ``idle``, ``replaced``, ``no_capacity`` (EC2 had none) or ``reclaimed`` (AWS
+    #: took its spot instance back).
     ended_reason = models.CharField(max_length=32, blank=True, default="")
     created_at = models.DateTimeField(db_default=Now())
     #: Its token works until then, or until its worker registers with it.
@@ -508,7 +514,7 @@ class Worker(models.Model):
             models.CheckConstraint(
                 condition=Q(tier="client", owner__isnull=False)
                 | Q(~Q(tier="client"), registration__isnull=False)
-                | Q(tier="container", launch__isnull=False),
+                | Q(tier__in=["container", "vm"], launch__isnull=False),
                 name="iki_worker_registered",
             ),
         ]

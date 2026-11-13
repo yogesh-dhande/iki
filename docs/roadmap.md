@@ -76,8 +76,8 @@ Status: **done**, **in progress**, or **planned**.
 | 34   | What runs cost, and budgets that warn and can stop spending                                                      | done    | `98b21ff` `a2f3304`                     |
 | 34b  | Tests run in parallel                                                                                            | done    | `34b2610`                               |
 | 34c  | An agent's changes name both the person and the agent                                                            | done    | `6ca056c`                               |
-| 34d  | Unattended agents act for a person by delegation (RFC 8693 token exchange)                                       | done    |                                         |
-| 35   | VM tier: AWS EC2, ephemeral and persistent; spot interruptions resume from checkpoints                           | planned |                                         |
+| 34d  | Unattended agents act for a person by delegation (RFC 8693 token exchange)                                       | done    | `c4ef170`                               |
+| 35   | VM tier: AWS EC2, ephemeral and persistent; spot interruptions resume from checkpoints                           | done    |                                         |
 | 36   | Managed volumes and environment setup builds (snapshots, FSx, data versions in provenance); ESMFold              | planned |                                         |
 | 37   | The structure_prediction plugin: AlphaFold2, ColabFold, Boltz                                                    | planned |                                         |
 

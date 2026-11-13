@@ -8,6 +8,7 @@ explicitly. Required values have no default and fail fast at startup.
 
 import ipaddress
 import os
+import re
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,22 @@ IKI_RUNS_SERVICE_ACCOUNT: str = env.str("IKI_RUNS_SERVICE_ACCOUNT", default="iki
 IKI_RUNS_IMAGE_PULL_SECRETS: list[str] = env.list("IKI_RUNS_IMAGE_PULL_SECRETS", default=[])
 #: Plain http:// to the server, for a development cluster without TLS.
 IKI_RUNS_ALLOW_HTTP: bool = env.bool("IKI_RUNS_ALLOW_HTTP", default=False)
+# The vm tier (ADR 0074): `iki-server provision` starts EC2 instances for runs, tagged
+# with IKI_RUNS_VM_OWNER (this deployment's name, which its IAM policy can require), that
+# reach the server at IKI_RUNS_VM_SERVER_URL: an address in their VPC, not the cluster's.
+IKI_RUNS_VM_OWNER: str = env.str("IKI_RUNS_VM_OWNER", default="")
+IKI_RUNS_VM_SERVER_URL: str = env.str("IKI_RUNS_VM_SERVER_URL", default="").rstrip("/")
+if IKI_RUNS_VM_OWNER and not re.fullmatch(r"[A-Za-z0-9+=._:/@-]{1,128}", IKI_RUNS_VM_OWNER):
+    raise environ.ImproperlyConfigured(
+        "IKI_RUNS_VM_OWNER must be a name such as iki-production: letters, digits and +=._:/@-."
+    )
+if IKI_RUNS_VM_SERVER_URL and not (
+    IKI_RUNS_VM_SERVER_URL.startswith("https://")
+    or (IKI_RUNS_ALLOW_HTTP and IKI_RUNS_VM_SERVER_URL.startswith("http://"))
+):
+    raise environ.ImproperlyConfigured(
+        "IKI_RUNS_VM_SERVER_URL must be an https:// address: machines send their token to it."
+    )
 if find_spec("iki_installed_plugins") is not None:
     import iki_installed_plugins as _plugins  # type: ignore[import-not-found]
 
@@ -490,6 +507,9 @@ def _proxy_url(name: str, *, credentials: bool) -> str:
 
 #: Where workers reach the egress proxy, such as http://iki-egress-proxy:3128.
 IKI_EGRESS_PROXY_URL: str = _proxy_url("IKI_EGRESS_PROXY_URL", credentials=False)
+#: Where vm-tier machines reach it: through an internal load balancer in their VPC, say.
+#: Without it, their runs reach no hosts.
+IKI_RUNS_VM_EGRESS_PROXY_URL: str = _proxy_url("IKI_RUNS_VM_EGRESS_PROXY_URL", credentials=False)
 #: The proxy's own way out, for networks where everything goes through a corporate proxy.
 #: The proxy still checks each host against what the action declares.
 IKI_EGRESS_UPSTREAM_PROXY: str = _proxy_url("IKI_EGRESS_UPSTREAM_PROXY", credentials=True)

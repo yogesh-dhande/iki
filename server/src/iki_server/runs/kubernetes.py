@@ -24,10 +24,12 @@ from typing import Any, Protocol
 
 import requests
 
+from iki_server.runs.machines import BIN, RUN_LABELS, SCRATCH, UID, worker_settings
 from iki_spec.compute import Template
 
 __all__ = [
     "LABEL",
+    "RUN_LABELS",
     "Cluster",
     "InCluster",
     "KubernetesError",
@@ -39,16 +41,6 @@ __all__ = [
 #: Every object the provisioner makes carries this label, with its launch's ID.
 LABEL = "iki.ikisci.org/launch"
 MANAGED = {"app.kubernetes.io/managed-by": "iki-provisioner", "app.kubernetes.io/component": "run"}
-#: Where the init container puts iki-worker, and the scratch space a run gets.
-BIN = "/iki/bin"
-SCRATCH = "/iki/scratch"
-#: The user run pods run as, as Iki's own images do.
-UID = 10001
-#: Seconds a run pod waits for a job before it stops.
-IDLE_EXIT = 300
-#: What a run pod is labelled with while it's a run's (ADR 0070), for tools that put
-#: clusters' costs down to projects, as Iki's own records do.
-RUN_LABELS = ("iki.ikisci.org/run", "iki.ikisci.org/project", "iki.ikisci.org/team")
 #: Seconds a finished Job is kept, for whoever is looking into it, before Kubernetes
 #: deletes it with its pod and Secret.
 KEEP_FINISHED = 600
@@ -114,34 +106,15 @@ def _resources(template: Template) -> dict[str, Any]:
 def _worker_env(
     template: Template, environment: str, image: str, pods: RunPods, *, once: bool
 ) -> list[dict[str, Any]]:
-    have = template.capacity
-    values = {
-        "IKI_URL": pods.server_url,
-        "IKI_WORKER_CPU": str(have.cpu),
-        "IKI_WORKER_MEMORY": str(have.memory),
-        "IKI_WORKER_GPUS": str(have.gpu_count),
-        "IKI_WORKER_GPU_MEMORY": str(have.gpu_memory) if have.gpu_memory else None,
-        "IKI_WORKER_SCRATCH_DISK": str(have.scratch_disk) if have.scratch_disk else None,
-        "IKI_WORKER_ENVIRONMENT": environment,
-        "IKI_WORKER_IMAGE": image,
-        "IKI_WORKER_CACHE": f"{SCRATCH}/cache",
-        "IKI_WORK_DIR": f"{SCRATCH}/jobs",
-        "IKI_WORKER_AUTO_UPDATE": "0",
-        # The root filesystem is read-only: the worker's own temporary files go in the
-        # scratch volume. Each run's command gets a home and temporary directory of its own.
-        "HOME": SCRATCH,
-        "TMPDIR": SCRATCH,
-        # A pod for one run that another took, or that was cancelled, stops rather than
-        # waits. A persistent one waits until the provisioner stops it (ADR 0062).
-        "IKI_WORKER_IDLE_EXIT": str(IDLE_EXIT) if once else None,
-        # It runs one job after another: the scratch volume, plugin code and all, is
-        # emptied after each, so the next starts clean.
-        "IKI_WORKER_CLEAN_DIR": None if once else SCRATCH,
-        "IKI_ALLOW_HTTP": "1" if pods.allow_http else None,
-    }
-    env: list[dict[str, Any]] = [
-        {"name": name, "value": value} for name, value in values.items() if value is not None
-    ]
+    values = worker_settings(
+        template,
+        environment,
+        image,
+        server_url=pods.server_url,
+        allow_http=pods.allow_http,
+        once=once,
+    )
+    env: list[dict[str, Any]] = [{"name": name, "value": value} for name, value in values.items()]
     env.append(
         {"name": "IKI_WORKER_NAME", "valueFrom": {"fieldRef": {"fieldPath": "metadata.name"}}}
     )

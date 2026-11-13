@@ -617,7 +617,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         {
             _qualified_environment(r)
             for r in runs
-            if r.status == RunStatus.QUEUED and r.tier == "container"
+            if r.status == RunStatus.QUEUED and r.tier in ("container", "vm")
         }
     )
     held = _approvals_out(me, {r.approval_id for r in runs if r.approval_id is not None})

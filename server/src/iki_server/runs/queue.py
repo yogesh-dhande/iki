@@ -406,9 +406,12 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
 def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
     """For an action that declares hosts: the egress proxy, with this attempt's job ID and
     lease token as its credentials (ADR 0053). They work while the attempt holds its lease."""
-    if not run.spec.get("network") or not settings.IKI_EGRESS_PROXY_URL:
+    # VMs reach the proxy from their VPC, not the cluster's network (ADR 0074).
+    vm = job.tier == "vm"
+    url = settings.IKI_RUNS_VM_EGRESS_PROXY_URL if vm else settings.IKI_EGRESS_PROXY_URL
+    if not run.spec.get("network") or not url:
         return {}
-    parts = urlsplit(settings.IKI_EGRESS_PROXY_URL)
+    parts = urlsplit(url)
     return {"proxy": f"http://{job.pk}:{job.lease_token}@{parts.netloc}"}
 
 

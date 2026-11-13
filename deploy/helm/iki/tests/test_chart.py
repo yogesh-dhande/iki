@@ -1210,3 +1210,76 @@ def test_the_image_policy_needs_its_controller_and_the_builds_identity(
     error = render(values, ok=False, api_versions=api_versions)
     assert isinstance(error, str)
     assert message in error
+
+
+# --- The VM tier (ADR 0074) ----------------------------------------------------------------
+
+ROLE = "arn:aws:iam::123456789012:role/iki-provisioner"
+VMS: dict[str, Any] = {
+    "vmTier": {
+        "enabled": True,
+        "owner": "iki-production",
+        "serverUrl": "https://iki.internal.example.com",
+        "egressProxyUrl": "http://iki-egress.internal.example.com:3128",
+        "region": "us-east-1",
+        "serviceAccountAnnotations": {"eks.amazonaws.com/role-arn": ROLE},
+    }
+}
+
+
+def test_the_vm_tier_runs_the_provisioner_with_no_kubernetes_access() -> None:
+    docs = manifests({**VMS, "networkPolicy": {"enabled": True}})
+    names = {where(d) for d in docs} - {
+        where(d) for d in manifests({"networkPolicy": {"enabled": True}})
+    }
+    assert names == {
+        "iki/Deployment/iki-provisioner",
+        "iki/ServiceAccount/iki-provisioner",
+        "iki/NetworkPolicy/iki-provisioner-cloud-api",
+    }
+    assert not by_kind(docs, "Role")
+    account = named(docs, "ServiceAccount", "iki-provisioner")
+    assert account["metadata"]["annotations"] == {"eks.amazonaws.com/role-arn": ROLE}
+    env = provisioner_env(docs)
+    assert env["IKI_RUNS_VM_OWNER"] == "iki-production"
+    assert env["IKI_RUNS_VM_SERVER_URL"] == "https://iki.internal.example.com"
+    assert env["IKI_RUNS_VM_EGRESS_PROXY_URL"] == "http://iki-egress.internal.example.com:3128"
+    assert env["AWS_REGION"] == "us-east-1"
+    assert env["IKI_RUNS_WORKER_IMAGE"].startswith("ghcr.io/yogesh-dhande/iki-worker:")
+    assert "IKI_RUNS_NAMESPACE" not in env
+    # It reaches AWS's APIs over HTTPS, but not the node's own metadata.
+    cloud = named(docs, "NetworkPolicy", "iki-provisioner-cloud-api")["spec"]
+    assert cloud["egress"][0]["ports"] == [{"protocol": "TCP", "port": 443}]
+    assert "169.254.0.0/16" in cloud["egress"][0]["to"][0]["ipBlock"]["except"]
+
+
+def test_both_tiers_share_one_provisioner() -> None:
+    docs = manifests({**CONTAINERS, **VMS})
+    assert (
+        len([d for d in by_kind(docs, "Deployment") if "provisioner" in d["metadata"]["name"]]) == 1
+    )
+    env = provisioner_env(docs)
+    assert env["IKI_RUNS_NAMESPACE"] == "iki-runs"
+    assert env["IKI_RUNS_VM_OWNER"] == "iki-production"
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"vmTier": {"enabled": True}}, "vmTier.owner is required"),
+        (
+            {"vmTier": {"enabled": True, "owner": "iki", "serverUrl": "http://iki.internal"}},
+            "/vmTier/serverUrl",
+        ),
+        (
+            {"publicUrl": "http://iki.example.com", "vmTier": {"enabled": True, "owner": "iki"}},
+            "must be an https:// address",
+        ),
+    ],
+)
+def test_machines_reach_the_server_over_https_and_are_tagged_as_this_deployments(
+    values: dict[str, Any], message: str
+) -> None:
+    error = render(values, ok=False)
+    assert isinstance(error, str)
+    assert message in error
