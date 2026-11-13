@@ -1,0 +1,26 @@
+# A file system many pods mount at once, as FSx for Lustre, EFS or NFS would
+# be in production (ADR 0077): a directory on the kind node. up.sh makes the
+# directory Iki keeps versions under, `iki`, writable by runs' user (10001),
+# as a deployment's administrator would.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: iki-shared
+spec:
+  capacity: { storage: 1Gi }
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef: { namespace: iki-runs-shared, name: iki-shared }
+  hostPath: { path: /var/local/iki-shared, type: DirectoryOrCreate }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iki-shared
+  namespace: iki-runs-shared
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: iki-shared
+  resources: { requests: { storage: 1Gi } }

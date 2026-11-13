@@ -85,7 +85,11 @@ class Cluster(Protocol):
 KINDS = {
     "pvc": "/api/v1/namespaces/{namespace}/persistentvolumeclaims",
     "snapshot": "/apis/snapshot.storage.k8s.io/v1/namespaces/{namespace}/volumesnapshots",
+    # Jobs that remove versions from a shared file system: they carry no launch label.
+    "job": "/apis/batch/v1/namespaces/{namespace}/jobs",
 }
+#: Where a removal Job mounts the shared file system's directory for Iki.
+SHARED = "/iki/shared"
 
 
 @dataclass(frozen=True)
@@ -167,14 +171,18 @@ def job_manifest(
     pods: RunPods,
     once: bool = True,
     volumes: dict[str, dict[str, Any]] | None = None,
-    claims: dict[str, tuple[str, str]] | None = None,
+    claims: dict[str, dict[str, str]] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """The Job for a launch, and the name of the Secret holding its token. Its worker runs
     one job, or with `once` false, one after another (ADR 0062).
 
-    `volumes` are the environment's volumes for its runs (ADR 0075): each a read-only copy
-    of a setup build's snapshot, made for this pod and deleted with it. `claims` are a
-    setup build's disks, by volume name: the claim and where it's mounted, writable."""
+    `volumes` are the environment's volumes for its runs: each a read-only copy of a setup
+    build's snapshot, made for this pod and deleted with it (ADR 0075), or its version's
+    directory on a shared file system, mounted read-only (ADR 0077). `claims` are what a
+    setup build fills, by volume name, each mounted writable at `mount`: its own disk
+    (`claim`), or its version's own directory on a shared file system (`claim`, and
+    `directory` under `root`, the file system's directory for Iki), which a container
+    of the worker's image makes first."""
     labels = {**pods.labels, **MANAGED, LABEL: launch_id}
     secret = name
     kube = template.kubernetes
@@ -263,11 +271,28 @@ def _mount_volumes(
     template: Template,
     labels: dict[str, str],
     volumes: dict[str, dict[str, Any]],
-    claims: dict[str, tuple[str, str]],
+    claims: dict[str, dict[str, str]],
 ) -> None:
     run = pod["containers"][0]
     for n, name in enumerate(sorted(volumes)):
         volume = volumes[name]
+        if "claim" in volume:
+            # Its version's directory on a shared file system, which nothing changes.
+            pod["volumes"].append(
+                {
+                    "name": f"volume-{n}",
+                    "persistentVolumeClaim": {"claimName": volume["claim"], "readOnly": True},
+                }
+            )
+            run["volumeMounts"].append(
+                {
+                    "name": f"volume-{n}",
+                    "mountPath": volume["mount"],
+                    "subPath": volume["directory"],
+                    "readOnly": True,
+                }
+            )
+            continue
         given = template.volumes.get(name)
         spec: dict[str, Any] = {
             "accessModes": ["ReadWriteOnce"],
@@ -292,9 +317,74 @@ def _mount_volumes(
             {"name": f"volume-{n}", "mountPath": volume["mount"], "readOnly": True}
         )
     for n, name in enumerate(sorted(claims)):
-        claim, mount = claims[name]
-        pod["volumes"].append({"name": f"fill-{n}", "persistentVolumeClaim": {"claimName": claim}})
-        run["volumeMounts"].append({"name": f"fill-{n}", "mountPath": mount})
+        fill = claims[name]
+        pod["volumes"].append(
+            {"name": f"fill-{n}", "persistentVolumeClaim": {"claimName": fill["claim"]}}
+        )
+        mount = {"name": f"fill-{n}", "mountPath": fill["mount"]}
+        if "directory" in fill:
+            # Only its version's directory: the build can't change any other version.
+            mount["subPath"] = f"{fill['root']}/{fill['directory']}"
+            pod["initContainers"].append(
+                {
+                    **pod["initContainers"][0],
+                    "name": f"prepare-{n}",
+                    "command": ["iki-worker", "prepare", SHARED, fill["directory"]],
+                    "volumeMounts": [
+                        {"name": f"fill-{n}", "mountPath": SHARED, "subPath": fill["root"]}
+                    ],
+                }
+            )
+        run["volumeMounts"].append(mount)
+
+
+def removal_manifest(
+    *,
+    name: str,
+    claim: str,
+    root: str,
+    directories: list[str],
+    pods: RunPods,
+    labels: dict[str, str],
+) -> dict[str, Any]:
+    """A Job that removes versions of volumes from a shared file system: `directories`,
+    under `root` in it (ADR 0077). Iki's worker image does it, as runs' user."""
+    pod: dict[str, Any] = {
+        "restartPolicy": "Never",
+        "serviceAccountName": pods.service_account,
+        "automountServiceAccountToken": False,
+        "enableServiceLinks": False,
+        "securityContext": _pod_security(),
+        "containers": [
+            {
+                "name": "remove",
+                "image": pods.worker_image,
+                "imagePullPolicy": "IfNotPresent",
+                "command": ["iki-worker", "remove", SHARED, *directories],
+                "securityContext": _container_security(),
+                "resources": {
+                    "requests": {"cpu": "50m", "memory": "32Mi"},
+                    "limits": {"cpu": "500m", "memory": "128Mi"},
+                },
+                "volumeMounts": [{"name": "shared", "mountPath": SHARED, "subPath": root}],
+            }
+        ],
+        "volumes": [{"name": "shared", "persistentVolumeClaim": {"claimName": claim}}],
+    }
+    if pods.image_pull_secrets:
+        pod["imagePullSecrets"] = [{"name": s} for s in pods.image_pull_secrets]
+    every = {**labels, **MANAGED, "app.kubernetes.io/component": "volume-removal"}
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {"name": name, "labels": every},
+        "spec": {
+            "backoffLimit": 3,
+            "activeDeadlineSeconds": 6 * 3600,
+            "ttlSecondsAfterFinished": KEEP_FINISHED,
+            "template": {"metadata": {"labels": every}, "spec": pod},
+        },
+    }
 
 
 def claim_manifest(

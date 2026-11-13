@@ -1555,12 +1555,47 @@ def _snapshots(build: str) -> list[dict[str, Any]]:
     return found
 
 
+def _on_shared_filesystem(path: str) -> list[str]:
+    """What's in `path` under the dev cluster's shared file system's directory for Iki
+    (deploy/dev/manifests/shared-filesystem.yaml), on the kind node; empty if it's gone."""
+    listed = subprocess.run(  # noqa: S603 - fixed argv
+        [  # noqa: S607
+            "docker",
+            "exec",
+            "iki-control-plane",
+            "find",
+            f"/var/local/iki-shared/iki/{path}",
+            "-mindepth",
+            "1",
+            "-printf",
+            "%P %u\n",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return sorted(listed.stdout.split("\n")[:-1]) if listed.returncode == 0 else []
+
+
+def _until_ended(session: requests.Session, ref: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 300
+    while True:
+        build: dict[str, Any] = api_call(session, "GET", ref).json()
+        if build["state"] in ("succeeded", "failed", "timed_out", "cancelled"):
+            return build
+        if time.monotonic() > deadline:
+            fail(f"{build['hrid']} is still {build['state']} after five minutes")
+        time.sleep(3)
+
+
 def setup_builds(project: dict[str, Any]) -> None:
-    """An environment's reference data (ADR 0075): bob, a Compute admin, asks for a setup
-    build of the plugin template's `reference` environment; alice, another, approves it.
-    Its script fills a disk on a machine of its own, which is snapshotted; a run of
-    decode_storage reads a copy and records the version. Retired, the snapshot goes. Both
-    are made Compute admins for it, then put back as they were."""
+    """An environment's reference data (ADR 0075, 0077): bob, a Compute admin, asks for a
+    setup build of the plugin template's `reference` environment, which runs in two
+    places; alice, another, approves each. In iki-runs its script fills a disk, which is
+    snapshotted; in iki-runs-shared, its own directory on a shared file system. A run of
+    decode_storage reads a copy of the snapshot and records the version; with that
+    retired, the next reads the shared file system's. Retired, each version goes. Both are
+    made Compute admins for it, then put back as they were."""
     bob, alice = sign_in_as("bob"), sign_in_as("alice")
     restore = []
     for session in (bob, alice):
@@ -1584,53 +1619,85 @@ def setup_builds(project: dict[str, Any]) -> None:
         )
         if made.status_code != 201:
             fail(f"asking for a setup build answered HTTP {made.status_code}: {made.text[:300]}")
-        (build,) = made.json()
-        ref = f"/compute/setups/{build['hrid']}"
-        if build["state"] != "awaiting_approval":
-            fail(f"{build['hrid']} didn't wait for approval: {build['state']}")
-        if api_call(bob, "POST", f"{ref}/approve").status_code != 409:
-            fail(f"bob approved the setup build he asked for, {build['hrid']}")
-        if api_call(alice, "POST", f"{ref}/approve").status_code != 200:
-            fail(f"alice couldn't approve {build['hrid']}")
-        deadline = time.monotonic() + 300
-        while True:
-            build = api_call(bob, "GET", ref).json()
-            if build["state"] in ("succeeded", "failed", "timed_out", "cancelled"):
-                break
-            if time.monotonic() > deadline:
-                fail(f"{build['hrid']} is still {build['state']} after five minutes")
-            time.sleep(3)
-        log = api_call(bob, "GET", f"{ref}/log").json()["text"]
-        if build["state"] != "succeeded":
-            fail(f"{build['hrid']} {build['state']}: {build['error']}\n{log[-2000:]}")
-        if build["data_version"] != "Storage codes 2026-11" or "bytes of storage codes" not in log:
-            fail(f"{build['hrid']} didn't say what it wrote: {build['data_version']!r}, {log!r}")
-        (snapshot,) = _snapshots(build["id"])
+        builds = {b["place"]: b for b in made.json()}
+        if sorted(builds) != ["iki-runs", "iki-runs-shared"]:
+            fail(f"asking for a setup build made builds in {sorted(builds)}")
+        for build in builds.values():
+            ref = f"/compute/setups/{build['hrid']}"
+            if build["state"] != "awaiting_approval":
+                fail(f"{build['hrid']} didn't wait for approval: {build['state']}")
+            if api_call(bob, "POST", f"{ref}/approve").status_code != 409:
+                fail(f"bob approved the setup build he asked for, {build['hrid']}")
+            if api_call(alice, "POST", f"{ref}/approve").status_code != 200:
+                fail(f"alice couldn't approve {build['hrid']}")
+        for place, build in builds.items():
+            ref = f"/compute/setups/{build['hrid']}"
+            build = builds[place] = _until_ended(bob, ref)
+            log = api_call(bob, "GET", f"{ref}/log").json()["text"]
+            if build["state"] != "succeeded":
+                fail(f"{build['hrid']} {build['state']}: {build['error']}\n{log[-2000:]}")
+            if (
+                build["data_version"] != "Storage codes 2026-11"
+                or "bytes of storage codes" not in log
+            ):
+                said = build["data_version"]
+                fail(f"{build['hrid']} didn't say what it wrote: {said!r}, {log!r}")
+        snapshots, shared = builds["iki-runs"], builds["iki-runs-shared"]
+        (snapshot,) = _snapshots(snapshots["id"])
         if not snapshot.get("status", {}).get("readyToUse"):
-            fail(f"{build['hrid']}'s snapshot isn't ready: {snapshot.get('status')}")
+            fail(f"{snapshots['hrid']}'s snapshot isn't ready: {snapshot.get('status')}")
         ok(
-            f"{build['hrid']}, asked for by bob and approved by alice, filled {environment}'s "
-            f"volume ({build['data_version']}) and left snapshot {snapshot['metadata']['name']}"
+            f"{snapshots['hrid']}, asked for by bob and approved by alice, filled {environment}'s "
+            f"volume ({snapshots['data_version']}) and left snapshot "
+            f"{snapshot['metadata']['name']}"
         )
+        (volume,) = shared["volumes"]
+        directory = volume["handle"]
+        if volume["kind"] != "directory" or volume["state"] != "ready":
+            fail(f"{shared['hrid']}'s version isn't a ready directory: {volume}")
+        # Its worker made the version's own directory, as runs' user, and the script filled it.
+        if _on_shared_filesystem(directory) != ["codes.json 10001"]:
+            fail(f"{shared['hrid']} left {_on_shared_filesystem(directory)} in {directory}")
+        ok(f"{shared['hrid']} filled its own directory on the shared file system, {directory}")
 
         sample = _sample(alice, project, storage="-80")
         run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
-        if storage != "-80 °C freezer" or read.get("hrid") != build["hrid"]:
+        if storage != "-80 °C freezer" or read.get("hrid") != snapshots["hrid"]:
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
         ok(
             f"{run['hrid']} read a copy of version {read['version']} ({read['data_version']}) "
             f"and wrote {storage!r}"
         )
 
-        if api_call(bob, "POST", f"{ref}/retire").status_code != 200:
-            fail(f"bob couldn't retire {build['hrid']}")
+        if api_call(bob, "POST", f"/compute/setups/{snapshots['hrid']}/retire").status_code != 200:
+            fail(f"bob couldn't retire {snapshots['hrid']}")
         deadline = time.monotonic() + 180
-        while _snapshots(build["id"]):
+        while _snapshots(snapshots["id"]):
             if time.monotonic() > deadline:
-                fail(f"{build['hrid']}'s snapshot outlived its retirement")
+                fail(f"{snapshots['hrid']}'s snapshot outlived its retirement")
             time.sleep(3)
-        ok(f"retired, {build['hrid']}'s snapshot was deleted once no pod had a copy")
+        ok(f"retired, {snapshots['hrid']}'s snapshot was deleted once no pod had a copy")
+
+        # With no version in iki-runs, runs go where one is ready, and mount it read-only.
+        sample = _sample(alice, project, storage="ln2")
+        run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
+        read = (attempt.get("volumes") or {}).get("storage-codes") or {}
+        if storage != "Liquid nitrogen dewar" or read.get("hrid") != shared["hrid"]:
+            fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
+        ok(f"{run['hrid']} read {shared['hrid']}'s directory on the shared file system")
+
+        ref = f"/compute/setups/{shared['hrid']}"
+        if api_call(bob, "POST", f"{ref}/retire").status_code != 200:
+            fail(f"bob couldn't retire {shared['hrid']}")
+        deadline = time.monotonic() + 180
+        while api_call(bob, "GET", ref).json()["volumes"][0]["state"] != "deleted":
+            if time.monotonic() > deadline:
+                fail(f"{shared['hrid']}'s directory outlived its retirement")
+            time.sleep(3)
+        if _on_shared_filesystem(directory):
+            fail(f"{shared['hrid']} says its directory was removed, but {directory} is there")
+        ok(f"retired, {shared['hrid']}'s directory was removed once no pod had it mounted")
     finally:
         for path, roles in restore:
             api_call(bob, "PUT", path, {"roles": roles})

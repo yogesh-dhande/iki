@@ -8385,8 +8385,17 @@
       "SetupVolumeOut": {
         "properties": {
           "handle": {
-            "description": "The snapshot's name in the cluster.",
+            "description": "Where it is: its snapshot's name or ID, or its directory on a shared file system.",
             "title": "Handle",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`snapshot`: machines get a copy of it. `directory`: its own directory on a shared file system, which machines mount read-only.",
+            "enum": [
+              "snapshot",
+              "directory"
+            ],
+            "title": "Kind",
             "type": "string"
           },
           "message": {
@@ -8403,7 +8412,7 @@
             "type": "integer"
           },
           "state": {
-            "description": "`ready`: machines can get a copy of it.",
+            "description": "`ready`: machines can get a copy of it, or mount it.",
             "enum": [
               "creating",
               "ready",
@@ -8418,6 +8427,7 @@
           "name",
           "state",
           "size",
+          "kind",
           "handle",
           "message"
         ],

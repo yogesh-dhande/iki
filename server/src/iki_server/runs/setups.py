@@ -77,8 +77,10 @@ UNFINISHED = (
     SetupState.RUNNING,
     SetupState.SNAPSHOTTING,
 )
-#: The strategies the provisioner fills from a setup build, by provisioner.
+#: The strategies a setup build fills: a disk it snapshots, or a directory on a shared
+#: file system (on Kubernetes so far; ADR 0077).
 FILLED_BY_SNAPSHOT = {"clone_from_snapshot"}
+SHARED = "shared_filesystem"
 #: A lease lasts this long unless a heartbeat renews it, as for runs' jobs.
 LEASE_TTL = timedelta(seconds=60)
 HEARTBEAT_EVERY = timedelta(seconds=20)
@@ -123,6 +125,22 @@ class Place:
     template: Template
 
 
+def fillable(template: Template, volume: str) -> bool:
+    """Whether a setup build can fill the volume for the template's machines."""
+    given = template.volumes.get(volume)
+    if given is None:
+        return False
+    if given.strategy in FILLED_BY_SNAPSHOT:
+        return True
+    return given.strategy == SHARED and template.provisioner in KUBERNETES
+
+
+def shared(build: SetupBuild, volume: str) -> bool:
+    """Whether the build fills the volume's directory on a shared file system, rather than
+    a disk it snapshots."""
+    return bool(build.spec["volumes"][volume].get("strategy") == SHARED)
+
+
 def place_of(template: Template) -> str | None:
     """Where the template's machines go, if this deployment starts them: its namespace, if
     the provisioner may start pods there, or its region, if it starts EC2 instances."""
@@ -139,8 +157,9 @@ def place_of(template: Template) -> str | None:
 
 
 def places(qualified: str) -> list[Place]:
-    """Each place the environment's bound templates start machines in, with a volume from a
-    snapshot for each volume its setup fills, and the first such template there."""
+    """Each place the environment's bound templates start machines in, with a volume a setup
+    build can fill (from a snapshot, or on a shared file system) for each volume its setup
+    fills, and the first such template there."""
     environment = environment_of(qualified)
     deployment = catalog.compute()
     binding = deployment.bindings.get(qualified)
@@ -152,10 +171,7 @@ def places(qualified: str) -> list[Place]:
         template = deployment.templates.get(name)
         if template is None:
             continue
-        given = template.volumes
-        if not wanted or any(
-            v not in given or given[v].strategy not in FILLED_BY_SNAPSHOT for v in wanted
-        ):
+        if not wanted or not all(fillable(template, v) for v in wanted):
             continue
         place = place_of(template)
         if place is not None:
@@ -180,8 +196,9 @@ def current(qualified: str, place: str) -> SetupBuild | None:
 
 def volumes_for(qualified: str, place: str) -> dict[str, dict[str, Any]] | None:
     """What a machine for the environment's runs in `place` mounts, by volume name: the
-    snapshot and how it's recorded. Empty when its setup fills none; None when it does
-    but no version is ready, so no machine can start for its runs there yet."""
+    snapshot it gets a copy of, or the claim and directory of a shared file system, and how
+    it's recorded. Empty when its setup fills none; None when it does but no version is
+    ready, so no machine can start for its runs there yet."""
     environment = environment_of(qualified)
     if environment is None or not filled(environment):
         return {}
@@ -193,12 +210,16 @@ def volumes_for(qualified: str, place: str) -> dict[str, dict[str, Any]] | None:
         declared = environment.volumes.get(volume.name)
         if declared is None:
             continue
+        where: dict[str, Any] = {"snapshot": volume.handle}
+        if shared(build, volume.name):
+            spec = build.spec["volumes"][volume.name]
+            where = {"claim": spec["claim"], "directory": f"{spec['root']}/{spec['directory']}"}
         found[volume.name] = {
             "build": str(build.pk),
             "hrid": build.hrid,
             "version": build.version,
             "data_version": build.data_version,
-            "snapshot": volume.handle,
+            **where,
             "mount": declared.mount,
             "size": declared.size,
         }
@@ -229,7 +250,7 @@ def missing(qualified: str) -> str:
         return (
             f"Waiting for its reference data ({names}): none of its machines can have it yet. "
             "A Compute admin can bind it to a template that gives its volumes from a "
-            "snapshot."
+            "snapshot or a shared file system."
         )
     return (
         f"Waiting for its reference data ({names}): no version is ready. A Compute admin "
@@ -262,19 +283,32 @@ def _lock(qualified: str, place: str) -> None:
         )
 
 
-def _spec(environment: Environment) -> dict[str, Any]:
+def _spec(
+    qualified: str, environment: Environment, template: Template, hrid: str
+) -> dict[str, Any]:
+    volumes: dict[str, dict[str, Any]] = {}
+    for name in filled(environment):
+        given = template.volumes[name]
+        volume: dict[str, Any] = {
+            "mount": environment.volumes[name].mount,
+            "size": environment.volumes[name].size,
+            "strategy": given.strategy,
+        }
+        if given.strategy == SHARED:
+            # Its own directory, which nothing else writes: the version's, under the
+            # directory Iki keeps versions in (ADR 0077).
+            volume |= {
+                "claim": given.claim,
+                "root": given.root,
+                "directory": f"{qualified}/{name}/{hrid}",
+            }
+        volumes[name] = volume
     return {
         "script": environment.setup_script,
         "timeout": environment.setup_timeout,
         "requires_approval": environment.setup_requires_approval,
         "network": list(environment.setup_network),
-        "volumes": {
-            name: {
-                "mount": environment.volumes[name].mount,
-                "size": environment.volumes[name].size,
-            }
-            for name in filled(environment)
-        },
+        "volumes": volumes,
     }
 
 
@@ -298,8 +332,8 @@ def request(by: Any, qualified: str, reason: str = "") -> list[SetupBuild]:  # n
         raise Refused(
             f"No compute template bound to {qualified} gives its machines "
             + ", ".join(f"`{v}`" for v in filled(environment))
-            + " from a snapshot (`strategy: clone_from_snapshot`), so there's nowhere to "
-            "build its volumes."
+            + " from a snapshot (`strategy: clone_from_snapshot`) or a shared file system "
+            "(`strategy: shared_filesystem`), so there's nowhere to build its volumes."
         )
     plugin = qualified.partition(".")[0]
     installed = registry.plugins()[plugin]
@@ -319,8 +353,9 @@ def request(by: Any, qualified: str, reason: str = "") -> list[SetupBuild]:  # n
             latest = SetupBuild.objects.filter(environment=qualified, place=place.name).aggregate(
                 n=Max("version")
             )["n"]
+            hrid = _next_hrid()
             build = SetupBuild.objects.create(
-                hrid=_next_hrid(),
+                hrid=hrid,
                 environment=qualified,
                 plugin_version=installed.version,
                 plugin_sha=plugin_sha(plugin),
@@ -328,7 +363,7 @@ def request(by: Any, qualified: str, reason: str = "") -> list[SetupBuild]:  # n
                 place=place.name,
                 template=place.template.name,
                 version=(latest or 0) + 1,
-                spec=_spec(environment),
+                spec=_spec(qualified, environment, place.template, hrid),
                 state=SetupState.AWAITING_APPROVAL if approval else SetupState.QUEUED,
                 reason=reason,
                 requested_by=by,
@@ -541,7 +576,10 @@ def payload(build: SetupBuild) -> dict[str, Any]:
             **proxy,
         },
         "script": build.spec["script"],
-        "volumes": build.spec["volumes"],
+        "volumes": {
+            name: {"mount": volume["mount"], "size": volume["size"]}
+            for name, volume in build.spec["volumes"].items()
+        },
         "settings": _settings(plugin),
     }
 

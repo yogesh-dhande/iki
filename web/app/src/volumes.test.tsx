@@ -256,6 +256,7 @@ describe("Compute → Volumes", () => {
           name: "af-db",
           state: "ready",
           size: 3 * 1024 ** 4,
+          kind: "snapshot",
           handle: "iki-setup-x-0",
           message: "",
         },
@@ -409,6 +410,7 @@ describe("Compute → Volumes", () => {
             name: "af-db",
             state: "creating",
             size: 3 * 1024 ** 4,
+            kind: "snapshot",
             handle: "snap-0123456789abcdef0",
             message: "Being made fast to restore: us-east-1a (optimizing)",
           },
@@ -425,6 +427,45 @@ describe("Compute → Volumes", () => {
     ).toBeInTheDocument();
     // What its script last said doesn't linger once it's done.
     expect(card().queryByText(/Indexed the databases/)).not.toBeInTheDocument();
+  });
+
+  it("says where a version on a shared file system is", async () => {
+    const directory = "structure_prediction.alphafold-gpu/af-db/SETUP-000001";
+    onVolumes(() => [
+      build({
+        approved_by: ADA,
+        approved_at: "2026-11-13T09:05:00Z",
+        started_at: "2026-11-13T09:06:00Z",
+        state: "snapshotting",
+        log_size: 0,
+        volumes: [
+          {
+            name: "af-db",
+            state: "ready",
+            size: 3 * 1024 ** 4,
+            kind: "directory",
+            handle: directory,
+            message: "",
+          },
+        ],
+      }),
+    ]);
+    answer(`GET /api/v1/compute/setups/${BUILD_ID}/log`, () => ({
+      offset: 0,
+      text: "",
+      size: 0,
+      finished: false,
+    }));
+    const { user } = await renderApp("/compute/volumes/");
+    await loaded();
+    expect(
+      card().getByText("Its script succeeded; it’s ready once its machine has stopped."),
+    ).toBeInTheDocument();
+    await user.click(card().getByRole("button", { name: "Show log of SETUP-000001" }));
+    const volumes = card().getByRole("list", { name: "Volumes of SETUP-000001" });
+    expect(within(volumes).getByRole("listitem")).toHaveTextContent(
+      `af-db · 3.0 TiB · ready · ${directory}`,
+    );
   });
 
   it("cancels a build, keeping it if you change your mind", async () => {

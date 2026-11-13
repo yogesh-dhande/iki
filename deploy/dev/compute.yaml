@@ -71,7 +71,23 @@ volumes:
     storage_class: csi-hostpath-sc
     snapshot_class: csi-hostpath-snapclass
 ---
+# The same reference data on a shared file system (ADR 0077), in a namespace
+# of its own: each version is a directory on it, which run pods mount
+# read-only. Runs go to the first template where a version is ready.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-reference-shared
+provisioner: k8s_job
+kubernetes: { namespace: iki-runs-shared }
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
+volumes:
+  storage-codes:
+    strategy: shared_filesystem
+    claim: iki-shared
+---
 apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: example.reference
-templates: [{ template: container-reference }]
+templates: [{ template: container-reference }, { template: container-reference-shared }]

@@ -14,14 +14,21 @@ Each tick, for each build in a namespace the provisioner manages:
 
 Disks and snapshots carry the label ``iki.ikisci.org/setup`` with their build's ID; any
 whose build is gone are deleted.
+
+A volume on a shared file system (ADR 0077) has no disk or snapshot: the build's pod
+mounts only the version's own directory there, and the version is ready once the
+script succeeds and the pod has gone. A Job removes the directory once it isn't kept,
+and carries the same label.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -32,6 +39,7 @@ from iki_server.runs.kubernetes import (
     RunPods,
     claim_manifest,
     job_manifest,
+    removal_manifest,
     secret_manifest,
     snapshot_manifest,
 )
@@ -78,6 +86,11 @@ def _claim(build: SetupBuild, volume: str) -> str:
     return f"iki-setup-{build.pk.hex}-{names.index(volume)}"
 
 
+def _removal(build: SetupBuild, volume: str) -> str:
+    names = sorted(build.spec["volumes"])
+    return f"iki-remove-{build.pk.hex}-{names.index(volume)}"
+
+
 def _labels(build: SetupBuild, volume: str) -> dict[str, str]:
     return {SETUP_LABEL: str(build.pk), VOLUME_LABEL: volume}
 
@@ -97,7 +110,7 @@ def tick(cluster: Cluster, pods: RunPods, namespaces: list[str], now: datetime) 
             logger.warning("setup_tick_failed", build=build.hrid, error=str(error))
     for namespace in namespaces:
         try:
-            _tidy(cluster, namespace)
+            _tidy(cluster, pods, namespace)
         except (KubernetesError, OSError) as error:
             logger.warning("setup_tidy_failed", namespace=namespace, error=str(error))
     return moved
@@ -190,11 +203,33 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
     template = template_of(build)
     if template is None:
         return 1
-    claims: dict[str, tuple[str, str]] = {}
+    claims: dict[str, dict[str, str]] = {}
+    recorded: dict[str, dict[str, Any]] = {}
     have = {
         c["metadata"]["name"] for c in cluster.list(build.place, "pvc", f"{SETUP_LABEL}={build.pk}")
     }
     for volume, declared in sorted(build.spec["volumes"].items()):
+        if setups.shared(build, volume):
+            # Its version's own directory on the file system, made before it starts.
+            claims[volume] = {
+                "claim": declared["claim"],
+                "mount": declared["mount"],
+                "root": declared["root"],
+                "directory": declared["directory"],
+            }
+            recorded[volume] = {"claim": declared["claim"], "directory": declared["directory"]}
+            # Recorded before anything is written there, so it's removed if the build fails.
+            ManagedVolume.objects.get_or_create(
+                build=build,
+                name=volume,
+                defaults={
+                    "environment": build.environment,
+                    "place": build.place,
+                    "handle": declared["directory"],
+                    "size": int(declared["size"]),
+                },
+            )
+            continue
         name = _claim(build, volume)
         if name not in have:
             cluster.create(
@@ -208,7 +243,8 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
                     labels={**pods.labels, **_labels(build, volume)},
                 ),
             )
-        claims[volume] = (name, declared["mount"])
+        claims[volume] = {"claim": name, "mount": declared["mount"]}
+        recorded[volume] = {"disk": name}
     launch, token = launches.create(
         template=template.name,
         provisioner=template.provisioner,
@@ -219,7 +255,7 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
         once=True,
         setup=build,
         # Its worker leases the build once every disk it fills is known.
-        volumes={volume: {"disk": claim} for volume, (claim, _) in claims.items()},
+        volumes=recorded,
     )
     job, secret = job_manifest(
         name=launch.name,
@@ -256,6 +292,13 @@ def _snapshot(cluster: Cluster, build: SetupBuild, now: datetime) -> int:
     ready = 0
     failure = ""
     for volume, declared in sorted(build.spec["volumes"].items()):
+        if setups.shared(build, volume):
+            # What the script wrote is the version: nothing to snapshot.
+            ManagedVolume.objects.filter(build=build, name=volume).exclude(
+                state=VolumeState.READY
+            ).update(state=VolumeState.READY, ready_at=now)
+            ready += 1
+            continue
         name = _claim(build, volume)
         record, _ = ManagedVolume.objects.get_or_create(
             build=build,
@@ -316,9 +359,10 @@ def in_use(build_id: str) -> bool:
     )
 
 
-def _tidy(cluster: Cluster, namespace: str) -> None:
-    """Deletes disks once their build is done with them, and snapshots once nothing will
-    copy them again."""
+def _tidy(cluster: Cluster, pods: RunPods, namespace: str) -> None:
+    """Deletes disks once their build is done with them, snapshots once nothing will copy
+    them again, and versions' directories on shared file systems once nothing will mount
+    them again."""
     builds: dict[str, Any] = {}
 
     def build_of(item: dict[str, Any]) -> SetupBuild | None:
@@ -326,7 +370,7 @@ def _tidy(cluster: Cluster, namespace: str) -> None:
         if key not in builds:
             try:
                 builds[key] = SetupBuild.objects.filter(pk=key).first()
-            except ValueError:
+            except (ValueError, ValidationError):  # not a build's ID
                 builds[key] = None
         found: SetupBuild | None = builds[key]
         return found
@@ -358,3 +402,84 @@ def _tidy(cluster: Cluster, namespace: str) -> None:
             else VolumeState.FAILED,
             deleted_at=timezone.now(),
         )
+    _remove_shared(cluster, pods, namespace, build_of)
+
+
+FINISHED = (
+    SetupState.SUCCEEDED,
+    SetupState.FAILED,
+    SetupState.TIMED_OUT,
+    SetupState.CANCELLED,
+)
+
+
+def _remove_shared(
+    cluster: Cluster,
+    pods: RunPods,
+    namespace: str,
+    build_of: Callable[[dict[str, Any]], SetupBuild | None],
+) -> None:
+    """Removes each version's directory on a shared file system once it isn't kept, with a
+    Job of the worker's image mounting the file system's directory for Iki. The version is
+    deleted once the Job has done it."""
+    jobs = {j["metadata"]["name"]: j for j in cluster.list(namespace, "job", SETUP_LABEL)}
+    going = ManagedVolume.objects.filter(
+        place=namespace, deleted_at__isnull=True, build__state__in=FINISHED
+    ).select_related("build")
+    wanted: set[str] = set()
+    for record in going:
+        build = record.build
+        if (
+            record.name not in build.spec["volumes"]
+            or not setups.shared(build, record.name)
+            or kept(build)
+            # A build's pod may still be writing, if the build ended without it.
+            or Launch.objects.filter(setup=build).exclude(state=LaunchState.ENDED).exists()
+        ):
+            continue
+        name = _removal(build, record.name)
+        wanted.add(name)
+        found = jobs.get(name)
+        if found is None:
+            declared = build.spec["volumes"][record.name]
+            cluster.create(
+                namespace,
+                "job",
+                removal_manifest(
+                    name=name,
+                    claim=declared["claim"],
+                    root=declared["root"],
+                    directories=[declared["directory"]],
+                    pods=pods,
+                    labels=_labels(build, record.name),
+                ),
+            )
+            logger.info("setup_directory_removing", build=build.hrid, volume=record.name)
+            continue
+        status = found.get("status") or {}
+        if status.get("succeeded"):
+            ManagedVolume.objects.filter(pk=record.pk).update(
+                state=VolumeState.DELETED
+                if build.state == SetupState.SUCCEEDED
+                else VolumeState.FAILED,
+                deleted_at=timezone.now(),
+                message="",
+            )
+            cluster.delete(namespace, "job", name)
+            logger.info("setup_directory_removed", build=build.hrid, volume=record.name)
+            continue
+        failed = any(
+            c.get("type") == "Failed" and c.get("status") == "True"
+            for c in status.get("conditions") or []
+        )
+        # A failed Job is kept until Kubernetes deletes it (KEEP_FINISHED after it ends),
+        # so its pod's log can be read; then it's started again, from the start. Removing
+        # is safe to repeat, and one that keeps failing is tried only that often.
+        if failed and not record.message:
+            ManagedVolume.objects.filter(pk=record.pk).update(
+                message="Iki couldn't remove its directory, and tries again shortly."
+            )
+            logger.warning("setup_directory_removal_failed", build=build.hrid, volume=record.name)
+    for name, job in jobs.items():
+        if name not in wanted and build_of(job) is None:
+            cluster.delete(namespace, "job", name)

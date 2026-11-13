@@ -1836,13 +1836,15 @@ class SetupOut(TypedDict):
 
 
 class SetupVolumeOut(TypedDict):
-    #: The snapshot's name in the cluster.
+    #: Where it is: its snapshot's name or ID, or its directory on a shared file system.
     handle: str
+    #: `snapshot`: machines get a copy of it. `directory`: its own directory on a shared file system, which machines mount read-only.
+    kind: Literal['snapshot', 'directory']
     message: str
     name: str
     #: Bytes.
     size: int
-    #: `ready`: machines can get a copy of it.
+    #: `ready`: machines can get a copy of it, or mount it.
     state: Literal['creating', 'ready', 'failed', 'deleted']
 
 

@@ -217,10 +217,15 @@ def _resources(job: Job) -> Resources:
 
 
 def template_for(
-    job: Job, provisioners: tuple[str, ...] = PROVISIONERS
+    job: Job,
+    provisioners: tuple[str, ...] = PROVISIONERS,
+    ready: dict[tuple[str, str], bool] | None = None,
 ) -> tuple[Template, str] | None:
     """Which template the provisioner starts a machine on for `job`, and the image; None if
-    none it starts fits (or the action is gone)."""
+    none it starts fits (or the action is gone). The first that fits, in the binding's
+    order, where a version of the environment's volumes is ready, if any is (ADR 0077):
+    runs don't wait for one place's data while another's is ready. `ready` remembers
+    which places have one, for a round."""
     action = catalog.action(job.run.action)
     if action is None:
         return None
@@ -228,13 +233,25 @@ def template_for(
     if image is None:
         return None
     wanted = _resources(job)
-    for template in catalog.availability(action).templates:
-        if template.provisioner not in provisioners or not template.fits(wanted):
-            continue
-        if action.lifecycle is not None and template.lifecycle != action.lifecycle:
-            continue
-        return template, image
-    return None
+    fitting = [
+        template
+        for template in catalog.availability(action).templates
+        if template.provisioner in provisioners
+        and template.fits(wanted)
+        and (action.lifecycle is None or template.lifecycle == action.lifecycle)
+    ]
+    if len(fitting) > 1:
+        known = ready if ready is not None else {}
+        for template in fitting:
+            place = setups.place_of(template)
+            if place is None:
+                continue
+            key = (job.environment, place)
+            if key not in known:
+                known[key] = setups.volumes_for(job.environment, place) is not None
+            if known[key]:
+                return template, image
+    return (fitting[0], image) if fitting else None
 
 
 def demand(now: datetime, fleet: Fleet | None = None) -> dict[tuple[str, str, str], Group]:
@@ -254,8 +271,9 @@ def demand(now: datetime, fleet: Fleet | None = None) -> dict[tuple[str, str, st
         .order_by("-priority", "queued_at")[:5000]
     )
     groups: dict[tuple[str, str, str], Group] = {}
+    ready: dict[tuple[str, str], bool] = {}
     for job in jobs:
-        chosen = template_for(job, provisioners)
+        chosen = template_for(job, provisioners, ready)
         if chosen is None:
             continue
         template, image = chosen

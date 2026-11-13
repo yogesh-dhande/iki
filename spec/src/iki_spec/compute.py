@@ -105,6 +105,15 @@ class TemplateVolume:
     #: baseline unless set).
     iops: int | None = None
     throughput: int | None = None
+    #: With `shared_filesystem` on Kubernetes: the PersistentVolumeClaim of the file
+    #: system (FSx for Lustre, EFS, NFS), in the namespace runs go in, and the directory in
+    #: it Iki keeps versions under.
+    claim: str | None = None
+    path: str | None = None
+
+    @property
+    def root(self) -> str:
+        return self.path or "iki"
 
 
 @dataclass(frozen=True)
@@ -333,6 +342,8 @@ def _template(data: dict[str, Any]) -> Template:
                 snapshot_class=v.get("snapshot_class"),
                 iops=v.get("iops"),
                 throughput=v.get("throughput"),
+                claim=v.get("claim"),
+                path=v.get("path"),
             )
             for n, v in (data.get("volumes") or {}).items()
         },
@@ -510,6 +521,30 @@ class _Rules:
                         (*path, option),
                         key=True,
                     )
+            for option in ("claim", "path"):
+                if getattr(volume, option) is not None and (
+                    volume.strategy != "shared_filesystem" or template.provisioner not in KUBERNETES
+                ):
+                    self.add(
+                        "volume-option-shared-filesystem-only",
+                        f"`{option}` is for `shared_filesystem` on the Kubernetes provisioners.",
+                        document,
+                        (*path, option),
+                        key=True,
+                    )
+            if (
+                volume.strategy == "shared_filesystem"
+                and template.provisioner in KUBERNETES
+                and volume.claim is None
+            ):
+                self.add(
+                    "shared-filesystem-claim-missing",
+                    "A shared file system on Kubernetes needs the `claim` it's mounted from.",
+                    document,
+                    (*path, "strategy"),
+                    hint="Add `claim: <PersistentVolumeClaim>`: one that many pods can mount "
+                    "(ReadWriteMany), in the namespace runs go in.",
+                )
             for option in ("iops", "throughput"):
                 if getattr(volume, option) is not None and template.provisioner != "aws_ec2":
                     self.add(

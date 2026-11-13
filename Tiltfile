@@ -17,6 +17,7 @@ k8s_yaml([
     'deploy/dev/manifests/otel-lgtm.yaml',
     'deploy/dev/manifests/mailpit.yaml',
     'deploy/dev/manifests/webhook-receiver.yaml',
+    'deploy/dev/manifests/shared-filesystem.yaml',
 ])
 
 k8s_kind('Cluster', api_version='postgresql.cnpg.io/v1', pod_readiness='wait')

@@ -494,7 +494,24 @@ volumes:
     throughput: 1000
 ```
 
-Until a version is ready, the environment's runs wait, saying why. Each
+On Kubernetes, with `shared_filesystem`, each version is a directory of its
+own on a file system many pods mount at once, such as FSx for Lustre, EFS or
+NFS (ADR 0077). `claim` names its PersistentVolumeClaim, in the namespace
+runs go in; Iki keeps versions under `path` in it (`iki` unless set), which
+must exist, writable by runs' user (UID 10001). A setup build writes its
+version's directory, nothing is copied, and each run pod mounts the newest
+version's directory read-only:
+
+```yaml
+volumes:
+  af-db:
+    strategy: shared_filesystem
+    claim: fsx-reference
+    path: iki
+```
+
+Until a version is ready, the environment's runs wait, saying why; bound to
+templates in several places, they go to the first where one is ready. Each
 attempt records the version it read.
 
 A template's `price` is what one of its machines costs an hour, up or idle

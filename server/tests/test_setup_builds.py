@@ -442,3 +442,257 @@ def test_a_setup_reaches_only_the_hosts_its_environment_lists(world: World) -> N
         ("example.com", True),
         ("storage.googleapis.com", False),
     ]
+
+
+# --- On a shared file system (ADR 0077) ----------------------------------------------------------
+
+
+def share(path: str | None = "reference") -> None:
+    """Gives the template's volume from a shared file system, not snapshots."""
+    file = Path(catalog._compute_file())  # type: ignore[arg-type]
+    compute = json.loads(file.read_text())
+    volume: dict[str, Any] = {"strategy": "shared_filesystem", "claim": "iki-shared"}
+    if path is not None:
+        volume["path"] = path
+    compute["templates"]["gpu-a100"]["volumes"] = {"af-db": volume}
+    file.write_text(json.dumps(compute))
+    catalog.compute.cache_clear()
+
+
+def fill_shared(world: World, cluster: FakeCluster, *, outcome: str = "succeeded") -> str:
+    """Asks for a build, approves it, and runs its script. Returns the build's HRID."""
+    build = ask(world)
+    approve(world, build)
+    provisioner.tick(cluster)
+    name, _ = setup_pod(cluster)
+    pod = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    given = pod.lease().json()
+    pod.post(
+        f"/setups/{given['setup']['id']}/finish",
+        {"lease_token": given["job"]["lease_token"], "outcome": outcome},
+    )
+    cluster.finish(name)
+    provisioner.tick(cluster)
+    provisioner.tick(cluster)
+    hrid: str = build["hrid"]
+    return hrid
+
+
+def removals(cluster: FakeCluster) -> dict[str, dict[str, Any]]:
+    return {name: job for (kind, _, name), job in cluster.objects.items() if kind == "job"}
+
+
+def test_on_a_shared_file_system_a_build_fills_its_own_directory(world: World) -> None:
+    share()
+    build = ask(world)
+    approve(world, build)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, job = setup_pod(cluster)
+    # No disk of its own: its version's own directory on the file system, writable, which
+    # the worker's image makes first in the directory for Iki.
+    assert not cluster.objects
+    directory = f"{ALPHAFOLD}/af-db/{build['hrid']}"
+    pod = job["spec"]["template"]["spec"]
+    assert {"name": "fill-0", "persistentVolumeClaim": {"claimName": "iki-shared"}} in pod[
+        "volumes"
+    ]
+    mounted = {"name": "fill-0", "mountPath": "/data/af", "subPath": f"reference/{directory}"}
+    assert mounted in pod["containers"][0]["volumeMounts"]
+    install, prepare = pod["initContainers"]
+    assert prepare["image"] == install["image"] == WORKER_IMAGE
+    assert prepare["securityContext"] == install["securityContext"]
+    assert prepare["command"] == ["iki-worker", "prepare", "/iki/shared", directory]
+    assert prepare["volumeMounts"] == [
+        {"name": "fill-0", "mountPath": "/iki/shared", "subPath": "reference"}
+    ]
+    assert Launch.objects.get().volumes == {
+        "af-db": {"claim": "iki-shared", "directory": directory}
+    }
+    worker = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    given = worker.lease().json()
+    assert given["volumes"] == {"af-db": {"mount": "/data/af", "size": 3 * TI}}
+    lease = {"lease_token": given["job"]["lease_token"]}
+    done = worker.post(f"/setups/{build['id']}/finish", {**lease, "outcome": "succeeded"})
+    assert done.json() == {"state": "snapshotting"}
+    # It's ready once its pod has gone: nothing to snapshot.
+    provisioner.tick(cluster)
+    assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SNAPSHOTTING
+    cluster.finish(name)
+    provisioner.tick(cluster)
+    provisioner.tick(cluster)
+    assert SetupBuild.objects.get(pk=build["id"]).state == SetupState.SUCCEEDED
+    volume = ManagedVolume.objects.get(build_id=build["id"])
+    assert (volume.state, volume.handle) == (VolumeState.READY, directory)
+    assert not cluster.objects
+
+
+def test_runs_mount_their_versions_directory_read_only(world: World) -> None:
+    share(path=None)
+    cluster = FakeCluster()
+    first = fill_shared(world, cluster)
+    queue_run(world)
+    provisioner.tick(cluster)
+    (name,) = [n for (_, n) in cluster.made if n.startswith("iki-run-")]
+    pod = cluster.made[("iki-runs", name)]["spec"]["template"]["spec"]
+    assert {
+        "name": "volume-0",
+        "persistentVolumeClaim": {"claimName": "iki-shared", "readOnly": True},
+    } in pod["volumes"]
+    assert {
+        "name": "volume-0",
+        "mountPath": "/data/af",
+        "subPath": f"iki/{ALPHAFOLD}/af-db/{first}",
+        "readOnly": True,
+    } in pod["containers"][0]["volumeMounts"]
+    worker = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    assert worker.lease().json()["volumes"]["af-db"]["hrid"] == first
+
+
+def test_a_retired_versions_directory_is_removed_once_unused(world: World) -> None:
+    share()
+    cluster = FakeCluster()
+    first = fill_shared(world, cluster)
+    second = fill_shared(world, cluster)
+    queue_run(world)
+    provisioner.tick(cluster)
+    launch = Launch.objects.get(setup=None)
+    assert launch.volumes["af-db"]["hrid"] == second
+    api_as(world, "compute_admin").post(f"/compute/setups/{second}/retire")
+    # A machine has it mounted, so it stays until that machine's gone.
+    provisioner.tick(cluster)
+    assert not removals(cluster)
+    cluster.finish(launch.name)
+    provisioner.tick(cluster)
+    provisioner.tick(cluster)
+    ((_, job),) = removals(cluster).items()
+    # The worker's image removes it, as runs' user, from the file system's directory for
+    # Iki; the Job isn't a launch.
+    assert "iki.ikisci.org/launch" not in job["metadata"]["labels"]
+    assert job["metadata"]["labels"]["iki.ikisci.org/setup"] == str(
+        SetupBuild.objects.get(hrid=second).pk
+    )
+    pod = job["spec"]["template"]["spec"]
+    (container,) = pod["containers"]
+    assert container["image"] == WORKER_IMAGE
+    assert container["command"] == [
+        "iki-worker",
+        "remove",
+        "/iki/shared",
+        f"{ALPHAFOLD}/af-db/{second}",
+    ]
+    assert container["volumeMounts"] == [
+        {"name": "shared", "mountPath": "/iki/shared", "subPath": "reference"}
+    ]
+    assert pod["securityContext"]["runAsUser"] == 10001
+    assert pod["volumes"] == [
+        {"name": "shared", "persistentVolumeClaim": {"claimName": "iki-shared"}}
+    ]
+    # Not done yet: the version's still there.
+    provisioner.tick(cluster)
+    assert ManagedVolume.objects.get(build__hrid=second).deleted_at is None
+    job["status"] = {"succeeded": 1}
+    provisioner.tick(cluster)
+    gone = ManagedVolume.objects.get(build__hrid=second)
+    assert (gone.state, gone.deleted_at is not None) == (VolumeState.DELETED, True)
+    assert not removals(cluster)
+    # The first is kept: new machines get it again.
+    assert ManagedVolume.objects.get(build__hrid=first).state == VolumeState.READY
+    assert setups.current(ALPHAFOLD, "iki-runs").hrid == first  # type: ignore[union-attr]
+    provisioner.tick(cluster)
+    assert not removals(cluster)
+
+
+def test_a_failed_builds_directory_is_removed_and_a_failed_removal_tried_again(
+    world: World,
+) -> None:
+    share()
+    cluster = FakeCluster()
+    hrid = fill_shared(world, cluster, outcome="failed")
+    assert SetupBuild.objects.get(hrid=hrid).state == SetupState.FAILED
+    ((name, job),) = removals(cluster).items()
+    job["status"] = {"conditions": [{"type": "Failed", "status": "True"}]}
+    provisioner.tick(cluster)
+    assert "tries again" in ManagedVolume.objects.get(build__hrid=hrid).message
+    # The failed Job stays, for its logs, until Kubernetes deletes it; then it's tried again.
+    provisioner.tick(cluster)
+    assert removals(cluster) == {name: job}
+    cluster.delete("iki-runs", "job", name)
+    provisioner.tick(cluster)
+    ((again, job),) = removals(cluster).items()
+    assert again == name
+    job["status"] = {"succeeded": 1}
+    provisioner.tick(cluster)
+    gone = ManagedVolume.objects.get(build__hrid=hrid)
+    assert (gone.state, gone.deleted_at is not None) == (VolumeState.FAILED, True)
+    assert not removals(cluster)
+
+
+def test_a_removal_whose_build_is_gone_is_deleted(world: World) -> None:
+    share()
+    cluster = FakeCluster()
+    cluster.create(
+        "iki-runs",
+        "job",
+        {"metadata": {"name": "iki-remove-x", "labels": {"iki.ikisci.org/setup": "nope"}}},
+    )
+    provisioner.tick(cluster)
+    assert not removals(cluster)
+
+
+def test_runs_go_where_a_version_is_ready(world: World, settings: Any) -> None:
+    """Bound to templates in two namespaces, a build in each: runs go to the first whose
+    version is ready, rather than waiting for the other's."""
+    settings.IKI_RUNS_NAMESPACES = ["iki-gpu"]
+    file = Path(catalog._compute_file())  # type: ignore[arg-type]
+    compute = json.loads(file.read_text())
+    compute["templates"]["gpu-shared"] = {
+        **compute["templates"]["gpu-a100"],
+        "name": "gpu-shared",
+        "kubernetes": {"namespace": "iki-gpu"},
+        "volumes": {"af-db": {"strategy": "shared_filesystem", "claim": "iki-shared"}},
+    }
+    compute["bindings"][ALPHAFOLD]["templates"] = [["gpu-a100", 0], ["gpu-shared", 1]]
+    file.write_text(json.dumps(compute))
+    catalog.compute.cache_clear()
+    made = api_as(world, "compute_admin").post(
+        "/compute/setups", {"environment": ALPHAFOLD, "reason": "both"}
+    )
+    shared, snapshots = sorted(made.json(), key=lambda b: str(b["place"]))
+    assert (shared["place"], snapshots["place"]) == ("iki-gpu", "iki-runs")
+    approve(world, shared)
+    approve(world, snapshots)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    for build in (snapshots, shared):
+        (launch,) = Launch.objects.filter(setup_id=build["id"])
+        pod = WorkerClient(
+            register(
+                cluster.token(launch.name, launch.namespace), name=f"{launch.name}-x1y2z"
+            ).json()["token"]
+        )
+        given = pod.lease().json()
+        pod.post(
+            f"/setups/{build['id']}/finish",
+            {"lease_token": given["job"]["lease_token"], "outcome": "succeeded"},
+        )
+        cluster.finish(launch.name, launch.namespace)
+    provisioner.tick(cluster)
+    provisioner.tick(cluster)
+    # The shared version is ready; the snapshot isn't yet.
+    assert SetupBuild.objects.get(pk=shared["id"]).state == SetupState.SUCCEEDED
+    assert SetupBuild.objects.get(pk=snapshots["id"]).state == SetupState.SNAPSHOTTING
+    queue_run(world)
+    provisioner.tick(cluster)
+    (run,) = Launch.objects.filter(setup=None)
+    assert (run.namespace, run.template) == ("iki-gpu", "gpu-shared")
+    assert run.volumes["af-db"]["hrid"] == shared["hrid"]
+    # Once the first's is ready too, runs go there again.
+    for (kind, _, _), item in cluster.objects.items():
+        if kind == "snapshot":
+            item["status"] = {"readyToUse": True}
+    provisioner.tick(cluster)
+    assert SetupBuild.objects.get(pk=snapshots["id"]).state == SetupState.SUCCEEDED
+    queue_run(world, name="FGHI")
+    provisioner.tick(cluster)
+    assert Launch.objects.filter(setup=None, namespace="iki-runs", template="gpu-a100").exists()

@@ -21,6 +21,7 @@ mod login;
 mod logs;
 mod plugins;
 mod say;
+mod shared;
 mod update;
 mod worker;
 
@@ -46,6 +47,14 @@ enum Command {
     },
     RunLocal(local::Options),
     Install(PathBuf),
+    Prepare {
+        root: PathBuf,
+        directories: Vec<String>,
+    },
+    Remove {
+        root: PathBuf,
+        directories: Vec<String>,
+    },
     Host(PathBuf),
     Version,
     Help,
@@ -59,6 +68,20 @@ fn parse(args: &[String]) -> Command {
         ["start", "--once"] => Command::Start { once: true },
         ["run", rest @ ..] => parse_run(rest),
         ["install", dir] => Command::Install(PathBuf::from(dir)),
+        ["prepare", root, directories @ ..] if !directories.is_empty() => Command::Prepare {
+            root: PathBuf::from(root),
+            directories: directories.iter().map(|d| (*d).to_owned()).collect(),
+        },
+        ["prepare", ..] => {
+            Command::Unknown("prepare needs a root and the directories under it to make".into())
+        }
+        ["remove", root, directories @ ..] if !directories.is_empty() => Command::Remove {
+            root: PathBuf::from(root),
+            directories: directories.iter().map(|d| (*d).to_owned()).collect(),
+        },
+        ["remove", ..] => {
+            Command::Unknown("remove needs a root and the directories under it to remove".into())
+        }
         ["host", config] if !config.starts_with('-') => Command::Host(PathBuf::from(config)),
         ["host", ..] => Command::Unknown("host needs the machine's config.json".into()),
         ["login", url] | ["login", url, "--no-browser"] | ["login", "--no-browser", url]
@@ -170,6 +193,12 @@ Usage: iki-worker login <server> [--no-browser]
                                    it, so running again resumes from what it saved.
        iki-worker install <dir>    Copy this binary into <dir>, for a run's pod to run it
                                    in a plugin's image (the container tier does this)
+       iki-worker prepare <root> <dir>...
+                                   Make versions' directories on a shared file system,
+                                   under <root> (a setup build's pod does this)
+       iki-worker remove <root> <dir>...
+                                   Delete versions of a volume from a shared file
+                                   system, under <root> (the provisioner does this)
        iki-worker host <config.json>
                                    Run a cloud machine's run container from the config
                                    its boot script wrote, then shut the machine down
@@ -246,6 +275,8 @@ fn main() -> ExitCode {
             }
         }
         Command::Install(dir) => finish(install(&dir)),
+        Command::Prepare { root, directories } => finish(shared::prepare(&root, &directories)),
+        Command::Remove { root, directories } => finish(shared::remove(&root, &directories)),
         Command::Host(config) => finish(host::host(&config)),
         Command::Version => write_or_fail(&mut io::stdout(), &version_line(), ExitCode::SUCCESS),
         Command::Help => write_or_fail(&mut io::stdout(), USAGE, ExitCode::SUCCESS),
@@ -336,6 +367,28 @@ mod tests {
             Command::Host(PathBuf::from("/etc/iki/host.json"))
         );
         assert!(matches!(parse(&args(&["host"])), Command::Unknown(_)));
+        assert_eq!(
+            parse(&args(&["prepare", "/iki/shared", "env/v/SETUP-000001"])),
+            Command::Prepare {
+                root: PathBuf::from("/iki/shared"),
+                directories: vec!["env/v/SETUP-000001".into()],
+            }
+        );
+        assert_eq!(
+            parse(&args(&["remove", "/iki/shared", "a", "b"])),
+            Command::Remove {
+                root: PathBuf::from("/iki/shared"),
+                directories: vec!["a".into(), "b".into()],
+            }
+        );
+        assert!(matches!(
+            parse(&args(&["prepare", "/iki/shared"])),
+            Command::Unknown(_)
+        ));
+        assert!(matches!(
+            parse(&args(&["remove", "/iki/shared"])),
+            Command::Unknown(_)
+        ));
         assert_eq!(parse(&args(&["--version"])), Command::Version);
         assert_eq!(parse(&args(&["-V"])), Command::Version);
         assert_eq!(parse(&[]), Command::Help);

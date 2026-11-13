@@ -107,5 +107,6 @@ snapshots; the development cluster uses the CSI host-path driver.
   disk made in advance.
 - VM-tier machines get these volumes from EBS snapshots, with fast snapshot
   restore when a template asks ([0076](0076-vm-tier-volumes-come-from-ebs-snapshots.md)).
-  Shared file systems, object storage mounts and disks one run at a time
-  changes come later (step 36d).
+  Shared file systems give each version a directory of its own
+  ([0077](0077-shared-filesystem-volumes-are-a-directory-per-version.md)).
+  Object storage mounts and disks one run at a time changes come later.

@@ -314,6 +314,24 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     )
     result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, pods)
     assert sorted(codes(result)) == ["unused-template", "volume-option-aws-only"]
+    shared = deployment.replace(
+        "object_mount, fast_snapshot_restore: true, snapshot_class: ebs", "shared_filesystem"
+    )
+    result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, shared)
+    assert sorted(codes(result)) == ["shared-filesystem-claim-missing", "unused-template"]
+    claimed = shared.replace("shared_filesystem", "shared_filesystem, claim: fsx, path: data/iki")
+    loaded = load(tmp_path, plugins, BACKEND, A100, BINDINGS, claimed)
+    assert codes(loaded) == ["unused-template"]
+    assert loaded.compute is not None
+    given = loaded.compute.templates["pool"].volumes["af-db"]
+    assert (given.claim, given.root) == ("fsx", "data/iki")
+    misplaced = A100.replace(
+        "fast_snapshot_restore: true", "fast_snapshot_restore: true, claim: fsx"
+    )
+    assert only(
+        load(tmp_path, plugins, BACKEND, misplaced, BINDINGS),
+        "volume-option-shared-filesystem-only",
+    )
 
 
 def test_a_pools_pods_each_get_a_clone_of_the_volume(tmp_path: Path, plugins: list[Plugin]) -> None:

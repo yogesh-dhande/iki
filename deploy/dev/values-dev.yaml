@@ -91,6 +91,8 @@ backendWorkers:
 containerTier:
   enabled: true
   namespace: iki-runs
+  # Where example.reference's runs read a shared file system (compute.yaml).
+  extraNamespaces: [iki-runs-shared]
   workerImage:
     # deploy/dev/build-worker.sh builds it and loads it into kind.
     repository: iki-worker-base

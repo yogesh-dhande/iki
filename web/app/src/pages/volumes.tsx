@@ -42,9 +42,9 @@ import { NotFound } from "./errors";
 
 const INTRO =
   "Some environments read reference data, such as a sequence database, from a volume their " +
-  "setup script fills. A setup build runs the script on a machine of its own and keeps a " +
-  "snapshot of what it wrote: a new version. Each run gets a read-only copy of the newest " +
-  "version that isn’t retired, and records which it read.";
+  "setup script fills. A setup build runs the script on a machine of its own and keeps what " +
+  "it wrote as a new version: a snapshot, or its own directory on a shared file system. Each " +
+  "run reads the newest version that isn’t retired, read-only, and records which it read.";
 
 export function ComputeVolumes() {
   usePageTitle("Volumes");
@@ -134,7 +134,7 @@ function EnvironmentCard({ environment, meId }: { environment: EnvironmentVolume
           {environment.places.length === 0 ? (
             <span className="muted">
               None of its machines can have its volumes yet: bind it to a template that gives them
-              from a snapshot.
+              from a snapshot or a shared file system.
             </span>
           ) : (
             <ul className="value-list">
@@ -259,9 +259,9 @@ function AskDialog({
           <form {...form.props} onSubmit={submit}>
             {form.alert}
             <p>
-              It runs <code>{environment.setup?.script}</code> on a machine of its own, then keeps a
-              snapshot of its volumes as a new version. Runs carry on with the current version until
-              it’s ready.
+              It runs <code>{environment.setup?.script}</code> on a machine of its own, then keeps
+              what it wrote as a new version. Runs carry on with the current version until it’s
+              ready.
               {approval ? " Another Compute admin approves it first." : ""}
             </p>
             <TextField
@@ -396,7 +396,9 @@ function BuildRow({
         ) : null}
         {build.state === "snapshotting" ? (
           <p className="row-meta">
-            Its script succeeded; its volumes are being snapshotted.
+            {build.volumes.every((volume) => volume.kind === "directory")
+              ? "Its script succeeded; it’s ready once its machine has stopped."
+              : "Its script succeeded; its volumes are being snapshotted."}
             {build.volumes
               .filter((volume) => volume.state === "creating" && volume.message)
               .map((volume) => ` ${volume.name}: ${volume.message}.`)
@@ -410,7 +412,7 @@ function BuildRow({
         {build.retired_at && build.retired_by ? (
           <p className="row-meta">
             Retired by {build.retired_by.name} <RelativeTime value={build.retired_at} />. Machines
-            that have it keep it; its snapshots go once none does.
+            that have it keep it; it’s deleted once none does.
           </p>
         ) : null}
         {open ? <BuildDetails build={build} /> : null}
@@ -501,7 +503,7 @@ function BuildRow({
           <p>
             New machines get the newest version that isn’t retired
             {build.current ? "; if there’s none, the environment’s runs wait for one" : ""}.
-            Machines that have this one keep it, and its snapshots are deleted once none does.
+            Machines that have this one keep it, and it’s deleted once none does.
           </p>
         ) : (
           <p>
@@ -526,18 +528,29 @@ function BuildDetails({ build }: { build: SetupBuild }) {
   return (
     <>
       {build.volumes.length ? (
-        <ul className="value-list" aria-label={`Snapshots of ${build.hrid}`}>
+        <ul className="value-list" aria-label={`Volumes of ${build.hrid}`}>
           {build.volumes.map((volume) => (
             <li key={volume.name}>
               <code>{volume.name}</code> · {formatSize(volume.size)} ·{" "}
-              {
-                {
-                  creating: "being snapshotted",
-                  ready: "snapshot ready",
-                  failed: "snapshot failed",
-                  deleted: "snapshot deleted",
-                }[volume.state]
-              }
+              {volume.kind === "directory"
+                ? {
+                    creating: "being written",
+                    ready: "ready",
+                    failed: "failed",
+                    deleted: "removed",
+                  }[volume.state]
+                : {
+                    creating: "being snapshotted",
+                    ready: "snapshot ready",
+                    failed: "snapshot failed",
+                    deleted: "snapshot deleted",
+                  }[volume.state]}
+              {volume.kind === "directory" ? (
+                <>
+                  {" "}
+                  · <code>{volume.handle}</code>
+                </>
+              ) : null}
               {volume.message ? `: ${volume.message}` : ""}
             </li>
           ))}

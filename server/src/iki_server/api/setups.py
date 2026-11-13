@@ -145,10 +145,17 @@ class SetupErrorOut(Schema):
 class SetupVolumeOut(Schema):
     name: str
     state: Literal["creating", "ready", "failed", "deleted"] = Field(
-        description="`ready`: machines can get a copy of it."
+        description="`ready`: machines can get a copy of it, or mount it."
     )
     size: int = Field(description="Bytes.")
-    handle: str = Field(description="The snapshot's name in the cluster.")
+    kind: Literal["snapshot", "directory"] = Field(
+        description="`snapshot`: machines get a copy of it. `directory`: its own directory on "
+        "a shared file system, which machines mount read-only."
+    )
+    handle: str = Field(
+        description="Where it is: its snapshot's name or ID, or its directory on a shared "
+        "file system."
+    )
     message: str
 
 
@@ -238,6 +245,7 @@ def _out(build: SetupBuild) -> dict[str, Any]:
                 "name": v.name,
                 "state": v.state,
                 "size": v.size,
+                "kind": "directory" if setups.shared(build, v.name) else "snapshot",
                 "handle": v.handle,
                 "message": v.message,
             }

@@ -5879,9 +5879,15 @@ export interface components {
         SetupVolumeOut: {
             /**
              * Handle
-             * @description The snapshot's name in the cluster.
+             * @description Where it is: its snapshot's name or ID, or its directory on a shared file system.
              */
             handle: string;
+            /**
+             * Kind
+             * @description `snapshot`: machines get a copy of it. `directory`: its own directory on a shared file system, which machines mount read-only.
+             * @enum {string}
+             */
+            kind: "snapshot" | "directory";
             /** Message */
             message: string;
             /** Name */
@@ -5893,7 +5899,7 @@ export interface components {
             size: number;
             /**
              * State
-             * @description `ready`: machines can get a copy of it.
+             * @description `ready`: machines can get a copy of it, or mount it.
              * @enum {string}
              */
             state: "creating" | "ready" | "failed" | "deleted";

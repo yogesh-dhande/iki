@@ -188,11 +188,11 @@ class FakeCluster:
             }
         }
 
-    def finish(self, name: str, *, ok: bool = True) -> None:
+    def finish(self, name: str, namespace: str = "iki-runs", *, ok: bool = True) -> None:
         condition = {"type": "Complete" if ok else "Failed", "status": "True"}
         if not ok:
             condition["message"] = "Pod failed: its worker exited 1."
-        self.made[("iki-runs", name)]["status"] = {"conditions": [condition]}
+        self.made[(namespace, name)]["status"] = {"conditions": [condition]}
 
 
 def queue_run(world: World, name: str = "ACDE") -> dict[str, Any]:

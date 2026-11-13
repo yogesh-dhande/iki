@@ -67,25 +67,25 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 
 ## Stage 5: All compute tiers
 
-| Step | What                                                                                                              | Status   | Commits                                 |
-| ---- | ----------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------- |
-| 30   | Client tier: workers on people's computers, running only their runs, updating themselves                          | done     | `7811654` `2de4fd7` `9b5cbb9`           |
-| 31   | Container tier: pods per run, warm pools, only signed or approved images admitted                                 | done     | `9c4ba09` `eafed8a` `254e391`           |
-| 32   | The protein plugin: translation, ProtParam, UniProt and PDB imports, structures, DSSP. ESMFold waits for step 36  | done     | `3a1d9b0` `316f1ce` `abd151d` `3d352ad` |
-| 32b  | Project isolation: a run reads only its project; a project can keep its entities to itself                        | done     | `a87a4b9` `25164bf`                     |
-| 33   | Run artifacts with retention; checkpointed runs resume                                                            | done     | `40e395e` `fefae69`                     |
-| 34   | What runs cost, and budgets that warn and can stop spending                                                       | done     | `98b21ff` `a2f3304`                     |
-| 34b  | Tests run in parallel                                                                                             | done     | `34b2610`                               |
-| 34c  | An agent's changes name both the person and the agent                                                             | done     | `6ca056c`                               |
-| 34d  | Unattended agents act for a person by delegation (RFC 8693 token exchange)                                        | done     | `c4ef170`                               |
-| 35   | VM tier: AWS EC2, ephemeral and persistent; spot interruptions resume from checkpoints                            | done     | `94b2a39`                               |
-| 36   | Managed volumes on Kubernetes: setup builds, snapshots, read-only copies for runs, data versions in provenance    | done     | `66eaeb7`                               |
-| 36b  | Managed volumes on the VM tier: EBS snapshots, fast snapshot restore                                              | done     | `cec4d88`                               |
-| 36c  | ESMFold in the protein plugin, its weights in a volume its setup fills (its image is on `deferred/esmfold-image`) | deferred |                                         |
-| 36d  | Shared file systems (FSx, EFS, NFS): each version a directory, mounted read-only                                  | planned  |                                         |
-| 36e  | Object storage mounts (Mountpoint for S3): each version a prefix                                                  | planned  |                                         |
-| 36f  | Disks one run at a time changes (`attach_exclusive`), runs queued behind each other                               | planned  |                                         |
-| 37   | The structure_prediction plugin: AlphaFold2, ColabFold, Boltz                                                     | deferred |                                         |
+| Step | What                                                                                                              | Status      | Commits                                 |
+| ---- | ----------------------------------------------------------------------------------------------------------------- | ----------- | --------------------------------------- |
+| 30   | Client tier: workers on people's computers, running only their runs, updating themselves                          | done        | `7811654` `2de4fd7` `9b5cbb9`           |
+| 31   | Container tier: pods per run, warm pools, only signed or approved images admitted                                 | done        | `9c4ba09` `eafed8a` `254e391`           |
+| 32   | The protein plugin: translation, ProtParam, UniProt and PDB imports, structures, DSSP. ESMFold waits for step 36  | done        | `3a1d9b0` `316f1ce` `abd151d` `3d352ad` |
+| 32b  | Project isolation: a run reads only its project; a project can keep its entities to itself                        | done        | `a87a4b9` `25164bf`                     |
+| 33   | Run artifacts with retention; checkpointed runs resume                                                            | done        | `40e395e` `fefae69`                     |
+| 34   | What runs cost, and budgets that warn and can stop spending                                                       | done        | `98b21ff` `a2f3304`                     |
+| 34b  | Tests run in parallel                                                                                             | done        | `34b2610`                               |
+| 34c  | An agent's changes name both the person and the agent                                                             | done        | `6ca056c`                               |
+| 34d  | Unattended agents act for a person by delegation (RFC 8693 token exchange)                                        | done        | `c4ef170`                               |
+| 35   | VM tier: AWS EC2, ephemeral and persistent; spot interruptions resume from checkpoints                            | done        | `94b2a39`                               |
+| 36   | Managed volumes on Kubernetes: setup builds, snapshots, read-only copies for runs, data versions in provenance    | done        | `66eaeb7`                               |
+| 36b  | Managed volumes on the VM tier: EBS snapshots, fast snapshot restore                                              | done        | `cec4d88` `6718ea1`                     |
+| 36c  | ESMFold in the protein plugin, its weights in a volume its setup fills (its image is on `deferred/esmfold-image`) | deferred    |                                         |
+| 36d  | Shared file systems (FSx, EFS, NFS): each version a directory, mounted read-only                                  | in progress |                                         |
+| 36e  | Object storage mounts (Mountpoint for S3): each version a prefix                                                  | planned     |                                         |
+| 36f  | Disks one run at a time changes (`attach_exclusive`), runs queued behind each other                               | planned     |                                         |
+| 37   | The structure_prediction plugin: AlphaFold2, ColabFold, Boltz                                                     | deferred    |                                         |
 
 ## Stage 6: Orchestration
 
