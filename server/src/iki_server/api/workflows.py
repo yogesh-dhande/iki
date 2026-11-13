@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+from django.db.models import Count
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema, Status
 
@@ -45,6 +46,9 @@ class WorkflowStepOut(Schema):
         description="Each param's value, or `$params.<name>` for the workflow's."
     )
     after: list[str] = Field(description="The steps it starts after, in name order.")
+    each: str | None = Field(
+        description="The input it runs once for each entity of, as a batch, if any."
+    )
 
 
 class WorkflowOut(Schema):
@@ -116,6 +120,7 @@ def _step_out(of: Workflow, step_id: str) -> dict[str, Any]:
         "inputs": dict(step.inputs),
         "params": dict(step.params),
         "after": sorted(step.after()),
+        "each": step.each,
     }
 
 
@@ -195,16 +200,30 @@ class StepRunOut(Schema):
     ]
 
 
+class StepBatchOut(Schema):
+    id: UUID
+    hrid: str = Field(description="Such as BAT-000123.")
+    size: int = Field(description="How many runs it launched.")
+    statuses: dict[str, int] = Field(
+        description="How many of its runs are in each status, for the statuses any are in."
+    )
+
+
 class WorkflowRunStepOut(Schema):
     id: str
     label: str
     action: str
     after: list[str]
+    each: str | None = Field(description="The input it runs once for each entity of, if any.")
     state: Literal["waiting", "running", "succeeded", "failed", "cancelled", "skipped"]
     started_at: datetime | None
     finished_at: datetime | None
     error: StepErrorOut | None = Field(description="Why it failed or was skipped.")
-    run: StepRunOut | None = Field(description="Its run, once launched.")
+    run: StepRunOut | None = Field(description="Its run, once launched, when it runs once.")
+    batch: StepBatchOut | None = Field(
+        description="When it runs once for each entity (`each`): their batch, once launched. "
+        "`GET /runs?batch=` lists them."
+    )
 
 
 class WorkflowRunCan(Schema):
@@ -240,9 +259,29 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
     steps: dict[Any, list[WorkflowStep]] = {}
     for step in WorkflowStep.objects.filter(workflow__in=found).order_by("workflow", "position"):
         steps.setdefault(step.workflow_id, []).append(step)
-    launched: dict[tuple[Any, str], ActionRun] = {}
-    for each_run in ActionRun.objects.filter(workflow__in=found).order_by("id"):
-        launched[(each_run.workflow_id, each_run.workflow_step)] = each_run
+    # A step run once has its run; one run for each entity, its batch's counts.
+    theirs = ActionRun.objects.filter(workflow__in=found)
+    launched: dict[tuple[Any, str], ActionRun] = {
+        (r.workflow_id, r.workflow_step): r
+        for r in theirs.filter(batch__isnull=True).only(
+            "id", "hrid", "status", "workflow_id", "workflow_step"
+        )
+    }
+    batches: dict[tuple[Any, str], dict[str, Any]] = {}
+    rows = theirs.filter(batch__isnull=False).values(
+        "workflow", "workflow_step", "batch", "batch__hrid", "batch__size", "status"
+    )
+    for row in rows.annotate(count=Count("id")).order_by():
+        made = batches.setdefault(
+            (row["workflow"], row["workflow_step"]),
+            {
+                "id": row["batch"],
+                "hrid": row["batch__hrid"],
+                "size": row["batch__size"],
+                "statuses": {},
+            },
+        )
+        made["statuses"][row["status"]] = row["count"]
     inputs: dict[Any, list[Any]] = {}
     for each in workflows.inputs_of(found):
         inputs.setdefault(each.workflow_id, []).append(each)
@@ -265,6 +304,7 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
                         "finished_at": s.finished_at,
                         "error": s.error,
                         "run": _ref(launched.get((run.pk, s.step))),
+                        "batch": batches.get((run.pk, s.step)),
                     }
                     for s in steps.get(run.pk, [])
                 ],

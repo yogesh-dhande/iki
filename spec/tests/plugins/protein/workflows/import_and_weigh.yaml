@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: Workflow
+name: import_and_weigh
+params:
+  file: { type: file, required: true, media_types: [chemical/seq-aa-fasta, text/plain] }
+steps:
+  import:
+    action: import_proteins
+    params: { file: $params.file }
+  weigh:
+    action: compute_properties
+    each: protein
+    inputs: { protein: $steps.import.created.Protein }

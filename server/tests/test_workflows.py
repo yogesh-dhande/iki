@@ -16,6 +16,8 @@ from iki_server.runs import services, workflows
 from iki_server.runs.models import (
     ActionRun,
     EffectKind,
+    Job,
+    JobState,
     RunEffect,
     RunStatus,
     WorkflowRun,
@@ -30,6 +32,7 @@ __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 
 WEIGH_AND_ALIGN = "protein.weigh_and_align"
 RELAX_TWICE = "protein.relax_twice"
+IMPORT_AND_WEIGH = "protein.import_and_weigh"
 
 
 def run_tasks() -> int:
@@ -92,9 +95,9 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 def test_lists_installed_workflows(world: World) -> None:
     viewer = api_as(world, "viewer")
     listed = viewer.get("/workflows").json()
-    assert [w["name"] for w in listed] == [RELAX_TWICE, WEIGH_AND_ALIGN]
+    assert [w["name"] for w in listed] == [IMPORT_AND_WEIGH, RELAX_TWICE, WEIGH_AND_ALIGN]
     found = viewer.get(f"/workflows/{WEIGH_AND_ALIGN}").json()
-    assert found == listed[1]
+    assert found == listed[2]
     assert (found["label"], found["plugin"]) == ("Weigh and align", "protein")
     assert [i["name"] for i in found["inputs"]] == ["query", "target"]
     assert found["params"][0]["name"] == "mode"
@@ -108,6 +111,7 @@ def test_lists_installed_workflows(world: World) -> None:
             "inputs": {"protein": "$inputs.query"},
             "params": {},
             "after": [],
+            "each": None,
         },
         {
             "id": "align",
@@ -116,6 +120,7 @@ def test_lists_installed_workflows(world: World) -> None:
             "inputs": {"query": "$steps.weigh.inputs.protein", "target": "$inputs.target"},
             "params": {"mode": "$params.mode"},
             "after": ["weigh"],
+            "each": None,
         },
     ]
     assert found["available"] is True
@@ -366,14 +371,99 @@ def test_a_step_with_nothing_created_to_take_fails(world: World, s3: Any) -> Non
     )
 
 
-def _empty_file(world: World) -> str:
+# --- Once for each entity ----------------------------------------------------------------------
+
+
+def imported(world: World, *names: str) -> dict[str, Any]:
+    """A run of import_and_weigh whose import "created" a protein for each of `names`."""
+    editor = api_as(world, "editor")
+    made = [protein(editor, world.project, name) for name in names]
+    fasta = _empty_file(world, "panel.fasta", "chemical/seq-aa-fasta")
+    body: dict[str, Any] = start(editor, world, {}, IMPORT_AND_WEIGH, params={"file": fasta}).json()
+    assert steps(body) == {"import": "running", "weigh": "waiting"}
+    first = ActionRun.objects.get(pk=body["steps"][0]["run"]["id"])
+    for each in made:
+        RunEffect.objects.create(run=first, entity_id=each["id"], kind=EffectKind.CREATED)
+    ActionRun.objects.filter(pk=first.pk).update(status=RunStatus.SUCCEEDED)
+    Job.objects.filter(run=first).update(state=JobState.SUCCEEDED)
+    workflows.advance(body["id"])
+    return body
+
+
+def test_a_step_runs_once_for_each_entity_an_earlier_one_created(world: World, s3: Any) -> None:
+    body = imported(world, "kit", "met")
+    now = get(world, body)
+    assert steps(now) == {"import": "succeeded", "weigh": "running"}
+    weigh_step = now["steps"][1]
+    assert weigh_step["each"] == "protein"
+    assert weigh_step["run"] is None
+    batch = weigh_step["batch"]
+    assert (batch["size"], batch["statuses"]) == (2, {"queued": 2})
+    runs = api_as(world, "viewer").get("/runs", batch=batch["hrid"]).json()["items"]
+    assert [r["workflow"]["step"] for r in runs] == ["weigh", "weigh"]
+
+    # The batch's runs go in one job (compute_properties is batchable).
+    pod = worker(world)
+    job = pod.lease().json()
+    document = {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "updates": {
+            "protein": [
+                {"entity": e["id"], "values": {"molecular_weight": 1.5}}
+                for e in job["inputs"]["protein"]
+            ]
+        },
+    }
+    assert pod.report(job, "complete", output=document).status_code == 200
+    run_tasks()
+    done = get(world, body)
+    assert done["status"] == "succeeded"
+    assert done["steps"][1]["batch"]["statuses"] == {"succeeded": 2}
+
+
+def test_a_step_run_for_each_fails_if_any_of_its_runs_does(world: World, s3: Any) -> None:
+    body = imported(world, "kit", "met")
+    first, second = ActionRun.objects.filter(workflow_step="weigh").order_by("id")
+    ActionRun.objects.filter(pk=first.pk).update(status=RunStatus.SUCCEEDED)
+    ActionRun.objects.filter(pk=second.pk).update(
+        status=RunStatus.FAILED, error={"code": "failed", "message": "Bad residue X"}
+    )
+    workflows.advance(body["id"])
+    failed = get(world, body)
+    assert failed["status"] == "failed"
+    assert failed["steps"][1]["error"] == {
+        "code": "run_failed",
+        "message": f"1 of its 2 runs didn't succeed. {second.hrid} failed. Bad residue X",
+    }
+
+
+def test_a_step_run_for_each_waits_for_all_its_runs(world: World, s3: Any) -> None:
+    body = imported(world, "kit", "met")
+    first = ActionRun.objects.filter(workflow_step="weigh").order_by("id").first()
+    assert first is not None
+    ActionRun.objects.filter(pk=first.pk).update(status=RunStatus.SUCCEEDED)
+    workflows.advance(body["id"])
+    assert steps(get(world, body)) == {"import": "succeeded", "weigh": "running"}
+
+
+def test_a_step_run_for_each_with_none_to_run_on_fails(world: World, s3: Any) -> None:
+    body = imported(world)
+    failed = get(world, body)
+    assert failed["status"] == "failed"
+    assert failed["steps"][1]["error"]["message"] == (
+        "Its run couldn't start: step `import` created no `protein.Protein` for it to take."
+    )
+
+
+def _empty_file(world: World, name: str = "abl.pdb", media_type: str = "chemical/x-pdb") -> str:
     from iki_server.files import services as files
 
     upload = files.start(
         world.users["editor"],
         world.project,
-        name="abl.pdb",
-        media_type="chemical/x-pdb",
+        name=name,
+        media_type=media_type,
         size=0,
         sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     )

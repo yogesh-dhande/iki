@@ -50,6 +50,15 @@ wrong type, and a step that comes before itself. Steps run in the order
 their references (and any `needs: [<id>]`) give: those that don't depend on
 each other run side by side.
 
+**A step can run once for each of many entities.** `each: <input>` names
+one of its action's inputs that takes one entity: the step is launched as a
+batch (ADR 0055), one run for each entity its source gives, up to 1,000, and
+succeeds once every run has. A run that fails doesn't stop its siblings:
+their results are as valid as if each had been launched alone. What the step
+created, and what it was given for that input, are then many, so a later step
+takes them all where its input takes many (fan-in), or runs for each in turn.
+The build allows many entities into an input that takes one only there.
+
 **Each step is an ordinary run, launched as the person who started the
 workflow.** It's launched as if they had launched it themselves, in the
 workflow's project, with the same checks (their role on the tier, the
@@ -82,9 +91,9 @@ workflow on; the task runners also look every minute for any left behind.
 
 - A workflow is as reproducible as its runs: each records its inputs at
   the revisions it read, and the workflow records which run was which step.
-- Fan-out over many entities, conditions, approval gates, and the web app's
-  graph and launch form follow (steps 38b to 38e), as do MCP tools for
-  agents to start and follow workflows.
+- Conditions, approval gates, and the web app's graph and launch form
+  follow (steps 38c to 38e), as do MCP tools for agents to start and follow
+  workflows.
 - A step runs its own plugin's actions: a plugin's build sees only its own,
   and other plugins' types. Steps from other plugins, and workflows defined
   by a project rather than a plugin (`core.WorkflowDefinition`), come later.

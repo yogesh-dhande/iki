@@ -13,10 +13,12 @@ import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
 import { ENTITIES } from "../entities";
 import { usePageTitle } from "../layout";
 import {
+  finished,
   RUNS,
   STEP_STATE,
   useWorkflowUpdates,
   workflowRunQuery,
+  type RunStatus,
   type StepState,
   type WorkflowRun,
 } from "../runs";
@@ -55,6 +57,17 @@ function stepTone(state: StepState): string {
 
 function StepBadge({ state }: { state: StepState }) {
   return <span className={`badge badge-${stepTone(state)}`}>{STEP_STATE[state]}</span>;
+}
+
+type StepBatch = NonNullable<WorkflowRun["steps"][number]["batch"]>;
+
+/** "3 of 12 runs finished", or "12 runs" once they all have. */
+function countRuns(batch: StepBatch): string {
+  const ended = Object.entries(batch.statuses)
+    .filter(([status]) => finished(status as RunStatus))
+    .reduce((sum, [, n]) => sum + n, 0);
+  const runs = `${String(batch.size)} run${batch.size === 1 ? "" : "s"}`;
+  return ended < batch.size ? `${String(ended)} of ${runs} finished` : runs;
 }
 
 function useWorkflowRun(): WorkflowRun {
@@ -260,12 +273,18 @@ export function WorkflowRunPage() {
                   <Link className="row-title" to="/runs/$ref/" params={{ ref: step.run.hrid }}>
                     {step.label}
                   </Link>
+                ) : step.batch ? (
+                  <Link className="row-title" to="/batches/$ref/" params={{ ref: step.batch.hrid }}>
+                    {step.label}
+                  </Link>
                 ) : (
                   <span className="row-title">{step.label}</span>
                 )}
                 <span className="row-meta">
                   <code>{step.action}</code>
+                  {step.each ? ` for each ${step.each}` : ""}
                   {step.run ? ` · ${step.run.hrid}` : ""}
+                  {step.batch ? ` · ${step.batch.hrid}, ${countRuns(step.batch)}` : ""}
                   {step.after.length ? ` · after ${step.after.join(", ")}` : ""}
                   {step.finished_at ? (
                     <>

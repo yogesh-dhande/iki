@@ -6109,6 +6109,31 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
+        /** StepBatchOut */
+        StepBatchOut: {
+            /**
+             * Hrid
+             * @description Such as BAT-000123.
+             */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Size
+             * @description How many runs it launched.
+             */
+            size: number;
+            /**
+             * Statuses
+             * @description How many of its runs are in each status, for the statuses any are in.
+             */
+            statuses: {
+                [key: string]: number;
+            };
+        };
         /** StepErrorOut */
         StepErrorOut: {
             /**
@@ -6911,6 +6936,13 @@ export interface components {
             action: string;
             /** After */
             after: string[];
+            /** @description When it runs once for each entity (`each`): their batch, once launched. `GET /runs?batch=` lists them. */
+            batch: components["schemas"]["StepBatchOut"] | null;
+            /**
+             * Each
+             * @description The input it runs once for each entity of, if any.
+             */
+            each: string | null;
             /** @description Why it failed or was skipped. */
             error: components["schemas"]["StepErrorOut"] | null;
             /** Finished At */
@@ -6919,7 +6951,7 @@ export interface components {
             id: string;
             /** Label */
             label: string;
-            /** @description Its run, once launched. */
+            /** @description Its run, once launched, when it runs once. */
             run: components["schemas"]["StepRunOut"] | null;
             /** Started At */
             started_at: string | null;
@@ -6941,6 +6973,11 @@ export interface components {
              * @description The steps it starts after, in name order.
              */
             after: string[];
+            /**
+             * Each
+             * @description The input it runs once for each entity of, as a batch, if any.
+             */
+            each: string | null;
             /** Id */
             id: string;
             /**

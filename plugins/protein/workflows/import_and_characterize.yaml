@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Workflow
+name: import_and_characterize
+label: Import and characterize
+description: >-
+  Imports the proteins in a FASTA file, then computes each one's properties, a
+  run for each.
+params:
+  file:
+    type: file
+    label: FASTA file
+    required: true
+    media_types: [chemical/seq-aa-fasta, text/plain]
+    max_size: 1GiB
+steps:
+  import:
+    action: import_proteins
+    params: { file: $params.file }
+  properties:
+    action: compute_properties
+    each: protein
+    inputs: { protein: $steps.import.created.Protein }

@@ -76,6 +76,10 @@
         "label": {
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
         },
+        "each": {
+          "description": "One of the action's inputs that takes one entity: the step runs once for each entity its source gives, as a batch. Its created entities, and what it was given for this input, are then many.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
         "inputs": {
           "description": "Where each of the action's inputs comes from, by the input's name.",
           "type": "object",

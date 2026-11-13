@@ -56,6 +56,7 @@ def read_workflow(plugin: str, body: dict[str, Any], document: Document) -> Work
                 },
                 params=dict(step.get("params") or {}),
                 needs=tuple(step.get("needs") or ()),
+                each=step.get("each"),
             )
             for i, step in body["steps"].items()
         },
@@ -102,7 +103,10 @@ def source_of(workflow: Workflow, actions_: dict[str, Action], ref: str) -> Sour
         return None
     if parts[2] == "created":
         made = next((c for c in action.creates if c.type == parts[3]), None)
-        return None if made is None else Source(made.type, made.cardinality, step.id)
+        if made is None:
+            return None
+        # A step run once for each entity makes many, however many each run makes.
+        return Source(made.type, "many" if step.each else made.cardinality, step.id)
     if parts[2] == "inputs" and parts[3] in step.inputs:
         # What it was given, once it has run: as it came, from wherever it came.
         upstream = source_of(workflow, actions_, step.inputs[parts[3]])
@@ -178,6 +182,8 @@ class _Rules:
                 hint=schemas._did_you_mean(step.action, list(self.plugin.actions)),
             )
             return
+        if step.each is not None:
+            self.step_each(step, action, source, (*path, "each"))
         for name, ref in step.inputs.items():
             self.step_input(workflow, step, action, name, ref, source, (*path, "inputs", name))
         for name, put in action.inputs.items():
@@ -209,6 +215,33 @@ class _Rules:
                     source,
                     (*path, "needs", index),
                 )
+
+    def step_each(self, step: WorkflowStep, action: Action, source: Document, path: Path) -> None:
+        put = action.inputs.get(step.each or "")
+        if put is None:
+            self.add(
+                "workflow-unknown-input",
+                f"`{step.action}` has no input `{step.each}`.",
+                source,
+                path,
+                hint=schemas._did_you_mean(step.each or "", list(action.inputs)),
+            )
+        elif put.cardinality != "one":
+            self.add(
+                "workflow-each-takes-many",
+                f"`{step.action}`'s `{step.each}` takes many entities, so one run takes them all.",
+                source,
+                path,
+                hint="Leave `each` out: the step runs once, on every entity.",
+            )
+        elif step.each not in step.inputs and put.optional:  # a required one is reported anyway
+            self.add(
+                "workflow-input-missing",
+                f"The step runs once for each `{step.each}`, and doesn't say where they come from.",
+                source,
+                path,
+                hint=f"Add `{step.each}:` under its `inputs`.",
+            )
 
     def step_input(
         self,
@@ -257,13 +290,13 @@ class _Rules:
                 source,
                 path,
             )
-        if found.cardinality == "many" and wanted.cardinality == "one":
+        if found.cardinality == "many" and wanted.cardinality == "one" and name != step.each:
             self.add(
                 "workflow-many-into-one",
                 f"`{ref}` can be many entities, and `{step.action}`'s `{name}` takes one.",
                 source,
                 path,
-                hint="Use an action whose input takes many (`cardinality: many`).",
+                hint=f"Add `each: {name}` to run the step once for each of them.",
             )
 
     def step_param(

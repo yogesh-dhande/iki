@@ -8610,6 +8610,41 @@
         "title": "StartedOut",
         "type": "object"
       },
+      "StepBatchOut": {
+        "properties": {
+          "hrid": {
+            "description": "Such as BAT-000123.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "size": {
+            "description": "How many runs it launched.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "statuses": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "How many of its runs are in each status, for the statuses any are in.",
+            "title": "Statuses",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "size",
+          "statuses"
+        ],
+        "title": "StepBatchOut",
+        "type": "object"
+      },
       "StepErrorOut": {
         "properties": {
           "code": {
@@ -10462,6 +10497,29 @@
             "title": "After",
             "type": "array"
           },
+          "batch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepBatchOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it runs once for each entity (`each`): their batch, once launched. `GET /runs?batch=` lists them."
+          },
+          "each": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The input it runs once for each entity of, if any.",
+            "title": "Each"
+          },
           "error": {
             "anyOf": [
               {
@@ -10502,7 +10560,7 @@
                 "type": "null"
               }
             ],
-            "description": "Its run, once launched."
+            "description": "Its run, once launched, when it runs once."
           },
           "started_at": {
             "anyOf": [
@@ -10534,11 +10592,13 @@
           "label",
           "action",
           "after",
+          "each",
           "state",
           "started_at",
           "finished_at",
           "error",
-          "run"
+          "run",
+          "batch"
         ],
         "title": "WorkflowRunStepOut",
         "type": "object"
@@ -10557,6 +10617,18 @@
             },
             "title": "After",
             "type": "array"
+          },
+          "each": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The input it runs once for each entity of, as a batch, if any.",
+            "title": "Each"
           },
           "id": {
             "title": "Id",
@@ -10587,7 +10659,8 @@
           "action",
           "inputs",
           "params",
-          "after"
+          "after",
+          "each"
         ],
         "title": "WorkflowStepOut",
         "type": "object"

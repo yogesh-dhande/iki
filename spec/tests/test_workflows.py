@@ -362,6 +362,50 @@ def test_many_cant_go_where_one_is_taken(tmp_path: Path) -> None:
     assert codes(make(tmp_path, flow(steps))) == ["workflow-many-into-one"]
 
 
+def test_each_runs_a_step_once_for_each_of_many(tmp_path: Path) -> None:
+    steps = """\
+        s: { action: split, inputs: { assay: $inputs.assay } }
+        t: { action: total, each: readout, inputs: { readout: $steps.s.created.Readout } }
+        a: { action: total_all, inputs: { readouts: $steps.t.inputs.readout } }
+        d: { action: describe, each: thing, inputs: { thing: $inputs.assay } }
+    """
+    result = make(tmp_path, flow(steps))
+    assert result.problems == []
+    assert result.plugin is not None
+    workflow = result.plugin.workflows["pipeline"]
+    assert workflow.steps["t"].each == "readout"
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+    # What a step run for each makes is many, however many each run makes.
+    steps = """\
+        d: { action: describe, each: thing, inputs: { thing: $inputs.assay } }
+        t: { action: total, inputs: { readout: $steps.d.created.Readout } }
+    """
+    assert codes(make(tmp_path, flow(steps))) == ["workflow-many-into-one"]
+    assert "each: readout" in (make(tmp_path, flow(steps)).problems[0].hint or "")
+
+
+@pytest.mark.parametrize(
+    ("step", "code"),
+    [
+        (
+            "{ action: total_all, each: readouts, inputs: { readouts: $inputs.r } }",
+            "workflow-each-takes-many",
+        ),
+        (
+            "{ action: total, each: nope, inputs: { readout: $inputs.one } }",
+            "workflow-unknown-input",
+        ),
+        (
+            "{ action: describe, each: note, inputs: { thing: $inputs.assay } }",
+            "workflow-input-missing",
+        ),
+    ],
+)
+def test_each_names_an_input_that_takes_one(tmp_path: Path, step: str, code: str) -> None:
+    head = HEAD + "  r: { type: Readout, cardinality: many }\n  one: { type: Readout }\n"
+    assert codes(make(tmp_path, flow(f"x: {step}", head))) == [code]
+
+
 def test_needs_names_another_step(tmp_path: Path) -> None:
     steps = """\
         s: { action: split, inputs: { assay: $inputs.assay }, needs: [s, nope] }

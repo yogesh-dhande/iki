@@ -65,6 +65,38 @@ describe("a workflow run's page", () => {
     expect(stream().init).toEqual({ withCredentials: true });
   });
 
+  it("links a step run for each entity to its batch", async () => {
+    const [translate, properties] = workflowRun().steps;
+    if (!translate || !properties) throw new Error("The fixture has two steps");
+    onWorkflow(() =>
+      workflowRun({
+        steps: [
+          translate,
+          {
+            ...properties,
+            each: "protein",
+            run: null,
+            batch: {
+              id: "00000000-0000-7000-8000-0000000000b1",
+              hrid: "BAT-000001",
+              size: 3,
+              statuses: { succeeded: 1, running: 2 },
+            },
+          },
+        ],
+      }),
+    );
+    await renderApp("/workflow-runs/WF-000001/");
+    const steps = screen.getByRole("region", { name: "Steps" });
+    expect(within(steps).getByRole("link", { name: "Properties" })).toHaveAttribute(
+      "href",
+      "/batches/BAT-000001/",
+    );
+    expect(steps).toHaveTextContent(
+      "protein.compute_properties for each protein · BAT-000001, 1 of 3 runs finished",
+    );
+  });
+
   it("reads it again when it changes, until it ends", async () => {
     let current = workflowRun();
     onWorkflow(() => current);

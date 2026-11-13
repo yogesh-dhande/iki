@@ -66,6 +66,9 @@ __all__ = [
     "workflows",
 ]
 
+#: The most runs a step run for each entity launches: as many as a batch takes.
+MAX_EACH = 1000
+
 #: The most workflow runs one housekeeping pass moves on.
 RECOVER_AT_MOST = 500
 
@@ -298,9 +301,9 @@ def _advance(run: WorkflowRun) -> None:
     now = timezone.now()
     changed = False
     for step in steps.values():
-        launched = runs.get(step.step)
-        if step.state == StepState.RUNNING and launched is not None and launched.finished:
-            _ended(run, step, launched, now)
+        theirs = runs.get(step.step, [])
+        if step.state == StepState.RUNNING and theirs and all(r.finished for r in theirs):
+            _ended(run, step, theirs, now)
             changed = True
     while not _stopping(run, steps):
         ready = [
@@ -317,8 +320,8 @@ def _advance(run: WorkflowRun) -> None:
             if launched is None:
                 break  # it failed: nothing more starts
             runs[step.step] = launched
-            if launched.finished:
-                _ended(run, step, launched, now)  # it reused an identical run's results
+            if all(r.finished for r in launched):
+                _ended(run, step, launched, now)  # it reused identical runs' results
     if _stopping(run, steps):
         for step in steps.values():
             if step.state == StepState.WAITING:
@@ -345,30 +348,45 @@ def _stopping(run: WorkflowRun, steps: Mapping[str, WorkflowStep]) -> bool:
     )
 
 
-def _step_runs(run: WorkflowRun) -> dict[str, ActionRun]:
-    """Each step's run: the last one launched for it."""
-    out: dict[str, ActionRun] = {}
+def _step_runs(run: WorkflowRun) -> dict[str, list[ActionRun]]:
+    """Each step's runs, in the order they were launched: one, or one for each entity."""
+    out: dict[str, list[ActionRun]] = {}
     for each in ActionRun.objects.filter(workflow=run).order_by("id"):
-        out[each.workflow_step] = each
+        out.setdefault(each.workflow_step, []).append(each)
     return out
 
 
-def _ended(run: WorkflowRun, step: WorkflowStep, launched: ActionRun, now: Any) -> None:  # noqa: ANN401 - a datetime
-    if launched.status == RunStatus.SUCCEEDED:
+def _ended(
+    run: WorkflowRun,
+    step: WorkflowStep,
+    launched: Sequence[ActionRun],
+    now: Any,  # noqa: ANN401 - a datetime
+) -> None:
+    """Every run of the step has ended: it succeeded if each of them did."""
+    unsuccessful = [r for r in launched if r.status != RunStatus.SUCCEEDED]
+    if not unsuccessful:
         step.state = StepState.SUCCEEDED
         step.error = None
-    elif launched.status == RunStatus.CANCELLED and run.cancel_requested_at is not None:
+    elif run.cancel_requested_at is not None and all(
+        r.status == RunStatus.CANCELLED for r in unsuccessful
+    ):
         step.state = StepState.CANCELLED
         step.error = None
     else:
         step.state = StepState.FAILED
-        message = (launched.error or {}).get("message") or ""
+        # The first that failed, rather than one cancelled because of it.
+        first = next((r for r in unsuccessful if r.status != RunStatus.CANCELLED), unsuccessful[0])
+        message = (first.error or {}).get("message") or ""
+        which = (
+            f"Its run, {first.hrid},"
+            if len(launched) == 1
+            else f"{len(unsuccessful)} of its {len(launched)} runs didn't succeed. {first.hrid}"
+        )
         step.error = {
-            "code": f"run_{launched.status}",
-            "message": f"Its run, {launched.hrid}, {_ended_as(launched)}."
-            + (f" {message}" if message else ""),
+            "code": f"run_{first.status}",
+            "message": f"{which} {_ended_as(first)}." + (f" {message}" if message else ""),
         }
-    step.finished_at = launched.finished_at or now
+    step.finished_at = max((r.finished_at for r in launched if r.finished_at), default=now)
     step.save(update_fields=["state", "finished_at", "error"])
 
 
@@ -401,10 +419,10 @@ def _end(run: WorkflowRun, steps: Mapping[str, WorkflowStep], now: Any) -> None:
 
 
 def _launch(
-    run: WorkflowRun, spec: Workflow, step: WorkflowStep, runs: Mapping[str, ActionRun]
-) -> ActionRun | None:
-    """Launch the step's run, as the person who started the workflow, as they started it.
-    On failure the step fails, and None is returned."""
+    run: WorkflowRun, spec: Workflow, step: WorkflowStep, runs: Mapping[str, list[ActionRun]]
+) -> list[ActionRun] | None:
+    """Launch the step's run, or a run for each entity, as the person who started the
+    workflow, as they started it. On failure the step fails, and None is returned."""
     declared = spec.steps[step.step]
     action = catalog.action(f"{spec.plugin}.{declared.action}")
     now = timezone.now()
@@ -415,16 +433,38 @@ def _launch(
         inputs = _inputs(run, spec, declared.inputs, action, runs)
         params = _params(run, declared.params)
         with audit.using(_context(run)):
-            launched = services.launch(
-                run.requested_by,
-                action,
-                run.project,
-                inputs,
-                params,
-                reason=_reason(run, step),
-                workflow=run,
-                workflow_step=step.step,
-            )
+            if declared.each is None:
+                launched = [
+                    services.launch(
+                        run.requested_by,
+                        action,
+                        run.project,
+                        inputs,
+                        params,
+                        reason=_reason(run, step),
+                        workflow=run,
+                        workflow_step=step.step,
+                    )
+                ]
+            else:
+                chosen = inputs.pop(declared.each)
+                if len(chosen) > MAX_EACH:
+                    raise Refused(
+                        f"it would run once for each of {len(chosen):,} entities, and a step "
+                        f"runs for at most {MAX_EACH:,}."
+                    )
+                launched = services.launch_each(
+                    run.requested_by,
+                    action,
+                    run.project,
+                    declared.each,
+                    chosen,
+                    inputs,
+                    params,
+                    reason=_reason(run, step),
+                    workflow=run,
+                    workflow_step=step.step,
+                )
     except (Refused, PermissionDenied, Invalid, services.OutsideProject, _NothingToTake) as error:
         step.state = StepState.FAILED
         step.finished_at = now
@@ -463,7 +503,7 @@ def _inputs(
     spec: Workflow,
     refs: Mapping[str, str],
     action: Action,
-    runs: Mapping[str, ActionRun],
+    runs: Mapping[str, list[ActionRun]],
 ) -> dict[str, list[UUID]]:
     out: dict[str, list[UUID]] = {}
     for name, ref in refs.items():
@@ -477,7 +517,9 @@ def _inputs(
     return out
 
 
-def _resolve(run: WorkflowRun, ref: str, runs: Mapping[str, ActionRun]) -> list[UUID]:
+def _resolve(run: WorkflowRun, ref: str, runs: Mapping[str, list[ActionRun]]) -> list[UUID]:
+    """The entities `ref` names, each once, in order: those a step's runs made or were
+    given, in the order the runs were launched."""
     parts = ref.split(".", 3)
     if parts[0] == "$inputs":
         return list(
@@ -485,21 +527,25 @@ def _resolve(run: WorkflowRun, ref: str, runs: Mapping[str, ActionRun]) -> list[
             .order_by("position")
             .values_list("entity_id", flat=True)
         )
-    source = runs.get(parts[1])
-    if source is None:
+    sources = runs.get(parts[1], [])
+    if not sources:
         return []
     if parts[2] == "created":
         made = (
-            RunEffect.objects.filter(run=source, kind__in=[EffectKind.CREATED, EffectKind.REUSED])
+            RunEffect.objects.filter(
+                run__in=sources, kind__in=[EffectKind.CREATED, EffectKind.REUSED]
+            )
             .select_related("entity")
-            .order_by("id")
+            .order_by("run_id", "id")
         )
-        return [e.entity_id for e in made if services.is_a(e.entity.type, parts[3])]
-    return list(
-        RunInput.objects.filter(run=source, name=parts[3])
-        .order_by("position")
-        .values_list("entity_id", flat=True)
-    )
+        found = [e.entity_id for e in made if services.is_a(e.entity.type, parts[3])]
+    else:
+        found = list(
+            RunInput.objects.filter(run__in=sources, name=parts[3])
+            .order_by("run_id", "position")
+            .values_list("entity_id", flat=True)
+        )
+    return list(dict.fromkeys(found))
 
 
 def _nothing(spec: Workflow, ref: str) -> str:

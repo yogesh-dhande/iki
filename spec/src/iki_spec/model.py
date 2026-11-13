@@ -343,6 +343,8 @@ class WorkflowStep:
     #: The action's param → a value, or ``$params.<name>``.
     params: dict[str, Any] = field(default_factory=dict)
     needs: tuple[str, ...] = ()
+    #: The input it runs once for each entity of, as a batch (ADR 0079), if any.
+    each: str | None = None
 
     def after(self) -> set[str]:
         """The steps it runs after: those it takes from, and those it needs. Naming

@@ -222,10 +222,13 @@ def launch_each(
     reason: str = "",
     reuse_results: bool = True,
     add_to_project: bool = False,
+    workflow: WorkflowRun | None = None,
+    workflow_step: str = "",
 ) -> list[ActionRun]:
     """Queue one run of `action` for each of `entity_ids` as its `each` input, the others the
     same for all, or none of them: raises as :func:`launch` does, with problems with the
-    entities under ``entities``."""
+    entities under ``entities``. A workflow's step names its `workflow` run and
+    `workflow_step` (ADR 0079)."""
     may_launch(user, action, project)
     errors: dict[str, list[str]] = {}
     put = action.inputs.get(each)
@@ -282,8 +285,19 @@ def launch_each(
             each=each,
             size=len(chosen),
         )
+        step = (workflow, workflow_step) if workflow is not None else None
         runs = [
-            _reuse(user, action, project, {**entities, each: [entity]}, values, reason, m, batch)
+            _reuse(
+                user,
+                action,
+                project,
+                {**entities, each: [entity]},
+                values,
+                reason,
+                m,
+                batch,
+                step=step,
+            )
             if m.original is not None
             else _queue(
                 user,
@@ -295,6 +309,7 @@ def launch_each(
                 approval,
                 batch=batch,
                 made=m,
+                step=step,
             )
             for entity, m in zip(chosen, made, strict=True)
         ]

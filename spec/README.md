@@ -380,7 +380,24 @@ steps:
 ```
 
 A step starts once the steps it takes from, and those it `needs`, have
-succeeded; steps that don't wait for each other run side by side. The build
+succeeded; steps that don't wait for each other run side by side.
+
+A step with `each: <input>` runs once for each entity its source gives that
+input, as a batch (up to 1,000 runs), and succeeds once every run has. What
+it then created, and what it was given for that input, are many: a later
+step takes them all where its input takes many (fan-in), or runs once for
+each of them in turn.
+
+````yaml
+steps:
+  import:
+    action: import_proteins # creates many proteins
+    params: { file: $params.file }
+  properties:
+    action: compute_properties # takes one protein
+    each: protein
+    inputs: { protein: $steps.import.created.Protein }
+``` The build
 checks each step against its action: every input it needs comes from
 somewhere, of a type it takes and, where it takes one entity, not from
 something that can be many; every required param is given, each value fits,
@@ -427,7 +444,7 @@ plugins:
     sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
     state: active
     settings: settings/dna.yaml # relative to the lockfile
-```
+````
 
 `sha` is a full commit, never a branch or tag, so the same lockfile always
 installs the same plugins. `git ls-remote <repository> <tag>` prints a
@@ -874,7 +891,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `creates-abstract`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                          | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`                                                                                                                       | Where actions run               |
 | `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                      | Reuse and retries               |
-| `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                   | Workflows                       |
+| `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                       | Workflows                       |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                       | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                       | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                             | Volumes and setup               |
