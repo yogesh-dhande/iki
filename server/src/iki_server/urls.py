@@ -24,6 +24,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("api/v1/events", realtime.events, name="events"),
     path("api/v1/runs/<str:ref>/events", realtime.run_events, name="run-events"),
     path("api/v1/batches/<str:ref>/events", realtime.batch_events, name="batch-events"),
+    path("api/v1/compute/setups/<str:ref>/events", realtime.setup_events, name="setup-events"),
     path("api/v1/", api_v1.urls),
     # AI agents' (ADR 0013): MCP over Streamable HTTP.
     path("mcp", mcp.endpoint, name="mcp"),
@@ -39,6 +40,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("notifications/", web.app, name="notifications"),
     # The web app's: the organization's webhooks (project ones are in org.urls).
     path("settings/webhooks/", web.app, name="webhook_settings"),
+    path("compute/volumes/", web.app, name="compute_volumes"),
     path("settings/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
     # Entities and their types (a project's entities are in org.urls).
     path("types/", web.app, name="entity_types"),

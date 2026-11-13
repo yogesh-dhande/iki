@@ -20,7 +20,7 @@ from test_runs import TEMPLATE, protein
 from test_workers import WorkerClient
 
 from iki_server.audit.models import AuditEvent
-from iki_server.runs import catalog, provisioner
+from iki_server.runs import catalog, provisioner, setups
 from iki_server.runs.ec2 import LAUNCH_TAG, OWNER_TAG, Ec2Error
 from iki_server.runs.ec2_fleet import Ec2Fleet
 from iki_server.runs.models import (
@@ -37,6 +37,7 @@ from iki_server.runs.models import (
 pytestmark = pytest.mark.django_db
 
 PREDICT = "structure_prediction.predict_structure"
+FILLED = setups.filled
 IMAGE = (
     "ghcr.io/acme/alphafold@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 )
@@ -99,6 +100,10 @@ def world(settings: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Ite
     settings.IKI_RUNS_VM_OWNER = "iki-test"
     settings.IKI_RUNS_VM_SERVER_URL = "https://iki.internal.example.com"
     use(monkeypatch, tmp_path, a100())
+    # These are about the machines: AlphaFold's databases (a volume its setup fills) come
+    # to vm-tier machines with EBS snapshots (step 36b). Until then its runs wait for them:
+    # test_vm_machines_wait_for_volumes_they_cant_have_yet.
+    monkeypatch.setattr(setups, "filled", lambda environment: [])
     yield build_world()
     catalog.compute.cache_clear()
 
@@ -326,6 +331,18 @@ def test_without_fallback_or_capacity_runs_wait_and_say_why(
     assert ActionRun.objects.get(pk=run["id"]).status == RunStatus.QUEUED
     ec2.no.clear()
     assert provisioner.tick(fleet(ec2), later(1)) == (1, 0)
+
+
+def test_vm_machines_wait_for_volumes_they_cant_have_yet(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setups, "filled", FILLED)
+    run = queue_run(world)
+    ec2 = FakeEc2()
+    assert provisioner.tick(fleet(ec2)) == (0, 0)
+    assert not ec2.requests  # no machine without AlphaFold's databases
+    shown = api_as(world, "runner").get(f"/runs/{run['hrid']}").json()
+    assert shown["waiting"].startswith("Waiting for its reference data (af-db)")
 
 
 def test_when_ec2_keeps_refusing_the_runs_fail_saying_what_to_check(world: World) -> None:

@@ -935,6 +935,18 @@ function AttemptRow({
             . They share its log, progress and network use.
           </p>
         ) : null}
+        {Object.keys(attempt.volumes).length ? (
+          <p className="row-meta">
+            Read{" "}
+            {Object.entries(attempt.volumes).map(([name, read], index) => (
+              <span key={name}>
+                {index ? ", " : ""}
+                <code>{name}</code> version {read.version} ({read.hrid}
+                {read.data_version ? `, ${read.data_version}` : ""})
+              </span>
+            ))}
+          </p>
+        ) : null}
         {attempt.secrets.length ? (
           <p className="row-meta">
             Given{" "}

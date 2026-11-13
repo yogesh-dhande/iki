@@ -67,10 +67,19 @@ TIER = {
     "aws_ec2": "vm",
 }
 
+#: The provisioners that start Kubernetes pods.
+KUBERNETES = {"k8s_job", "k8s_deployment"}
+
 #: Volume strategies each provisioner supports.
 STRATEGIES = {
     "k8s_job": {"clone_from_snapshot", "attach_exclusive", "shared_filesystem", "object_mount"},
-    "k8s_deployment": {"attach_exclusive", "shared_filesystem", "object_mount"},
+    # Each pod of a warm pool gets its own clone, as a run's pod does.
+    "k8s_deployment": {
+        "clone_from_snapshot",
+        "attach_exclusive",
+        "shared_filesystem",
+        "object_mount",
+    },
     "aws_ec2": {"clone_from_snapshot", "attach_exclusive", "shared_filesystem", "object_mount"},
 }
 
@@ -88,6 +97,10 @@ SHARED_READ = {"clone_from_snapshot", "shared_filesystem", "object_mount"}
 class TemplateVolume:
     strategy: str
     fast_snapshot_restore: bool = False
+    #: On Kubernetes: the StorageClass of its disks, and the VolumeSnapshotClass of its
+    #: snapshots (the cluster's defaults unless set).
+    storage_class: str | None = None
+    snapshot_class: str | None = None
 
 
 @dataclass(frozen=True)
@@ -309,7 +322,12 @@ def _template(data: dict[str, Any]) -> Template:
         kubernetes=dict(data.get("kubernetes") or {}),
         aws=dict(data.get("aws") or {}),
         volumes={
-            n: TemplateVolume(v["strategy"], bool(v.get("fast_snapshot_restore", False)))
+            n: TemplateVolume(
+                v["strategy"],
+                bool(v.get("fast_snapshot_restore", False)),
+                storage_class=v.get("storage_class"),
+                snapshot_class=v.get("snapshot_class"),
+            )
             for n, v in (data.get("volumes") or {}).items()
         },
         max_concurrent=limits.get("max_concurrent"),
@@ -475,6 +493,23 @@ class _Rules:
                     "Fast snapshot restore is for `clone_from_snapshot` on `aws_ec2`.",
                     document,
                     (*path, "fast_snapshot_restore"),
+                    key=True,
+                )
+            for option in ("storage_class", "snapshot_class"):
+                if getattr(volume, option) is not None and template.provisioner not in KUBERNETES:
+                    self.add(
+                        "volume-option-kubernetes-only",
+                        f"`{option}` is for the Kubernetes provisioners.",
+                        document,
+                        (*path, option),
+                        key=True,
+                    )
+            if volume.snapshot_class is not None and volume.strategy != "clone_from_snapshot":
+                self.add(
+                    "snapshot-class-wrong-strategy",
+                    "`snapshot_class` is for `clone_from_snapshot`.",
+                    document,
+                    (*path, "snapshot_class"),
                     key=True,
                 )
 

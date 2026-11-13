@@ -104,3 +104,4 @@ supersedes the old one, and update the old one's status.
 | [0072](0072-agents-changes-name-the-person-and-the-agent.md)                         | An agent's changes name the person and the agent                                                    | Accepted |
 | [0073](0073-unattended-agents-act-for-a-person-by-delegation.md)                     | Unattended agents act for a person by delegation                                                    | Accepted |
 | [0074](0074-vm-tier-runs-get-cloud-machines-of-their-own.md)                         | VM-tier runs get cloud machines of their own                                                        | Accepted |
+| [0075](0075-environment-setup-builds-and-managed-volumes.md)                         | Environment setup builds fill managed volumes, and runs read snapshots of them                      | Accepted |

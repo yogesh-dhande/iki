@@ -53,6 +53,7 @@ from iki_server.runs import (
     input_files,
     launches,
     queue,
+    setups,
     uploads,
     wakeup,
     workers,
@@ -165,8 +166,9 @@ def _missing(request: HttpRequest, exc: LookupError) -> HttpResponse:
     return response(Problem(404, str(exc)))
 
 
+@api.exception_handler(setups.Stale)
 @api.exception_handler(queue.Stale)
-def _stale(request: HttpRequest, exc: queue.Stale) -> HttpResponse:
+def _stale(request: HttpRequest, exc: queue.Stale | setups.Stale) -> HttpResponse:
     return response(
         Problem(
             409,
@@ -607,6 +609,80 @@ def complete(request: HttpRequest, job_id: UUID, payload: CompleteIn) -> dict[st
     }
 
 
+# --- An environment's setup build (ADR 0075) ---------------------------------------------------
+
+
+class SetupHeartbeatOut(Schema):
+    lease_expires_at: datetime
+    cancel_requested: bool = Field(
+        description="Someone cancelled the build: stop the script, then report `cancelled`."
+    )
+
+
+@api.post(
+    "/setups/{setup_id}/heartbeat", response=SetupHeartbeatOut, summary="Keep a setup's lease"
+)
+def setup_heartbeat(request: HttpRequest, setup_id: UUID, payload: LeaseIn) -> dict[str, Any]:
+    expires, cancelled = setups.heartbeat(_worker(request), setup_id, payload.lease_token)
+    return {"lease_expires_at": expires, "cancel_requested": cancelled}
+
+
+@api.post("/setups/{setup_id}/progress", response={204: None}, summary="Report a setup's progress")
+def setup_progress(request: HttpRequest, setup_id: UUID, payload: ProgressIn) -> Any:  # noqa: ANN401
+    setups.progress(
+        _worker(request), setup_id, payload.lease_token, payload.fraction, payload.message
+    )
+    return Status(204, None)
+
+
+@api.post("/setups/{setup_id}/logs", response=LogOut, summary="Send a setup's log output")
+def setup_logs(request: HttpRequest, setup_id: UUID, payload: LogIn) -> dict[str, int]:
+    """As for a job's log."""
+    try:
+        end = setups.append_log(
+            _worker(request), setup_id, payload.lease_token, payload.offset, payload.text
+        )
+    except setups.LogGap as gap:
+        raise Problem(
+            409,
+            str(gap),
+            code="log_gap",
+            errors=[{"pointer": "#/offset", "detail": f"Send from byte {gap.expected}."}],
+            extensions={"next_offset": gap.expected},
+        ) from None
+    return {"next_offset": end}
+
+
+class SetupFinishIn(LeaseIn):
+    outcome: Literal["succeeded", "failed", "timed_out", "interrupted", "cancelled"] = Field(
+        description="`succeeded`: the script exited 0, and its volumes are snapshotted next. "
+        "Otherwise as for a job's `fail`."
+    )
+    message: str = Field("", max_length=2000)
+    data_version: str = Field(
+        "",
+        max_length=200,
+        description="What the data is, as the script said in IKI_OUTPUT: `PDB 2026-10-01`, say.",
+    )
+
+
+class SetupFinishOut(Schema):
+    state: str = Field(description="`snapshotting` once it succeeded; otherwise how it ended.")
+
+
+@api.post("/setups/{setup_id}/finish", response=SetupFinishOut, summary="End a setup build")
+def setup_finish(request: HttpRequest, setup_id: UUID, payload: SetupFinishIn) -> dict[str, str]:
+    build = setups.finish(
+        _worker(request),
+        setup_id,
+        payload.lease_token,
+        payload.outcome,
+        payload.message,
+        payload.data_version,
+    )
+    return {"state": build.state}
+
+
 # --- Uploading result files --------------------------------------------------------------------
 
 
@@ -821,6 +897,10 @@ def _authenticate(request: HttpRequest) -> Worker:
 
 
 def _lease(worker: Worker) -> dict[str, Any] | None:
+    # A machine started for a setup build runs that, and nothing else (ADR 0075).
+    if worker.launch_id is not None and worker.launch is not None and worker.launch.setup_id:
+        setup = setups.lease(worker)
+        return setup[1] if setup is not None else None
     found = queue.lease(worker)
     return found[1] if found is not None else None
 
@@ -905,8 +985,9 @@ async def watch(request: HttpRequest, job_id: UUID) -> HttpResponseBase:
 async def lease(request: HttpRequest) -> HttpResponseBase:
     """``POST /worker/v1/lease?wait=30``: the next job this worker should run.
 
-    200 with the job's run input (``spec/…/run-input/v1``), or 204 if none came within
-    ``wait`` seconds; the worker then asks again.
+    200 with the job's run input (``spec/…/run-input/v1``), or, on a machine started for an
+    environment's setup, the build's setup input (``spec/…/setup-input/v1``); or 204 if none
+    came within ``wait`` seconds, and the worker asks again.
     """
     if request.method != "POST":
         return response(Problem(405, headers={"Allow": "POST"}))

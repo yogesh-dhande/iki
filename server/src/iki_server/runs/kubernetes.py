@@ -34,8 +34,10 @@ __all__ = [
     "InCluster",
     "KubernetesError",
     "RunPods",
+    "claim_manifest",
     "job_manifest",
     "quantity",
+    "snapshot_manifest",
 ]
 
 #: Every object the provisioner makes carries this label, with its launch's ID.
@@ -68,6 +70,22 @@ class Cluster(Protocol):
 
     def label_pod(self, namespace: str, name: str, labels: dict[str, str | None]) -> None:
         """Sets the pod's labels, removing those given as None."""
+
+    def create(self, namespace: str, kind: str, manifest: dict[str, Any]) -> None:
+        """Creates a PersistentVolumeClaim (``pvc``) or VolumeSnapshot (``snapshot``)."""
+
+    def list(self, namespace: str, kind: str, selector: str) -> list[dict[str, Any]]:
+        """The PVCs or VolumeSnapshots in `namespace` with the label `selector` names."""
+
+    def delete(self, namespace: str, kind: str, name: str) -> None:
+        """Deletes a PVC or VolumeSnapshot; nothing if it's gone already."""
+
+
+#: Where each kind of object :meth:`Cluster.create` makes lives in the API.
+KINDS = {
+    "pvc": "/api/v1/namespaces/{namespace}/persistentvolumeclaims",
+    "snapshot": "/apis/snapshot.storage.k8s.io/v1/namespaces/{namespace}/volumesnapshots",
+}
 
 
 @dataclass(frozen=True)
@@ -148,9 +166,15 @@ def job_manifest(
     image: str,
     pods: RunPods,
     once: bool = True,
+    volumes: dict[str, dict[str, Any]] | None = None,
+    claims: dict[str, tuple[str, str]] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """The Job for a launch, and the name of the Secret holding its token. Its worker runs
-    one job, or with `once` false, one after another (ADR 0062)."""
+    one job, or with `once` false, one after another (ADR 0062).
+
+    `volumes` are the environment's volumes for its runs (ADR 0075): each a read-only copy
+    of a setup build's snapshot, made for this pod and deleted with it. `claims` are a
+    setup build's disks, by volume name: the claim and where it's mounted, writable."""
     labels = {**pods.labels, **MANAGED, LABEL: launch_id}
     secret = name
     kube = template.kubernetes
@@ -207,6 +231,7 @@ def job_manifest(
             {"name": "scratch", "emptyDir": scratch},
         ],
     }
+    _mount_volumes(pod, template, labels, volumes or {}, claims or {})
     if kube.get("node_selector"):
         pod["nodeSelector"] = dict(kube["node_selector"])
     if kube.get("tolerations"):
@@ -231,6 +256,80 @@ def job_manifest(
         },
     }
     return job, secret
+
+
+def _mount_volumes(
+    pod: dict[str, Any],
+    template: Template,
+    labels: dict[str, str],
+    volumes: dict[str, dict[str, Any]],
+    claims: dict[str, tuple[str, str]],
+) -> None:
+    run = pod["containers"][0]
+    for n, name in enumerate(sorted(volumes)):
+        volume = volumes[name]
+        given = template.volumes.get(name)
+        spec: dict[str, Any] = {
+            "accessModes": ["ReadWriteOnce"],
+            "resources": {"requests": {"storage": str(volume["size"])}},
+            "dataSource": {
+                "apiGroup": "snapshot.storage.k8s.io",
+                "kind": "VolumeSnapshot",
+                "name": volume["snapshot"],
+            },
+        }
+        if given is not None and given.storage_class:
+            spec["storageClassName"] = given.storage_class
+        pod["volumes"].append(
+            {
+                "name": f"volume-{n}",
+                "ephemeral": {
+                    "volumeClaimTemplate": {"metadata": {"labels": labels}, "spec": spec}
+                },
+            }
+        )
+        run["volumeMounts"].append(
+            {"name": f"volume-{n}", "mountPath": volume["mount"], "readOnly": True}
+        )
+    for n, name in enumerate(sorted(claims)):
+        claim, mount = claims[name]
+        pod["volumes"].append({"name": f"fill-{n}", "persistentVolumeClaim": {"claimName": claim}})
+        run["volumeMounts"].append({"name": f"fill-{n}", "mountPath": mount})
+
+
+def claim_manifest(
+    *, name: str, template: Template, volume: str, size: int, labels: dict[str, str]
+) -> dict[str, Any]:
+    """A setup build's disk for one volume: it fills it, then it's snapshotted."""
+    spec: dict[str, Any] = {
+        "accessModes": ["ReadWriteOnce"],
+        "resources": {"requests": {"storage": str(size)}},
+    }
+    given = template.volumes.get(volume)
+    if given is not None and given.storage_class:
+        spec["storageClassName"] = given.storage_class
+    return {
+        "apiVersion": "v1",
+        "kind": "PersistentVolumeClaim",
+        "metadata": {"name": name, "labels": {**labels, **MANAGED}},
+        "spec": spec,
+    }
+
+
+def snapshot_manifest(
+    *, name: str, claim: str, template: Template, volume: str, labels: dict[str, str]
+) -> dict[str, Any]:
+    """A snapshot of a setup build's disk: a version of the volume runs get copies of."""
+    spec: dict[str, Any] = {"source": {"persistentVolumeClaimName": claim}}
+    given = template.volumes.get(volume)
+    if given is not None and given.snapshot_class:
+        spec["volumeSnapshotClassName"] = given.snapshot_class
+    return {
+        "apiVersion": "snapshot.storage.k8s.io/v1",
+        "kind": "VolumeSnapshot",
+        "metadata": {"name": name, "labels": {**labels, **MANAGED}},
+        "spec": spec,
+    }
 
 
 def secret_manifest(
@@ -338,3 +437,13 @@ class InCluster:
 
     def label_pod(self, namespace: str, name: str, labels: dict[str, str | None]) -> None:
         self._patch(f"/api/v1/namespaces/{namespace}/pods/{name}", {"metadata": {"labels": labels}})
+
+    def create(self, namespace: str, kind: str, manifest: dict[str, Any]) -> None:
+        self._call("POST", KINDS[kind].format(namespace=namespace), manifest)
+
+    def list(self, namespace: str, kind: str, selector: str) -> list[dict[str, Any]]:
+        found = self._call("GET", KINDS[kind].format(namespace=namespace), labelSelector=selector)
+        return list(found.get("items") or [])
+
+    def delete(self, namespace: str, kind: str, name: str) -> None:
+        self._delete(f"{KINDS[kind].format(namespace=namespace)}/{name}")

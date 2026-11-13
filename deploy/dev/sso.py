@@ -1527,6 +1527,113 @@ def containers() -> None:
         f"({tidied['runs']} runs, {tidied['seconds']:.0f} s of machine time)"
     )
     budget_warns(project)
+    setup_builds(project)
+
+
+def _snapshots(build: str) -> list[dict[str, Any]]:
+    """The VolumeSnapshots of setup build `build`'s disks, in iki-runs."""
+    found: list[dict[str, Any]] = json.loads(
+        subprocess.run(  # noqa: S603 - fixed argv
+            [  # noqa: S607
+                "kubectl",
+                "--context",
+                CONTEXT,
+                "-n",
+                "iki-runs",
+                "get",
+                "volumesnapshots",
+                "-l",
+                f"iki.ikisci.org/setup={build}",
+                "-o",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )["items"]
+    return found
+
+
+def setup_builds(project: dict[str, Any]) -> None:
+    """An environment's reference data (ADR 0075): bob, a Compute admin, asks for a setup
+    build of the plugin template's `reference` environment; alice, another, approves it.
+    Its script fills a disk on a machine of its own, which is snapshotted; a run of
+    decode_storage reads a copy and records the version. Retired, the snapshot goes. Both
+    are made Compute admins for it, then put back as they were."""
+    bob, alice = sign_in_as("bob"), sign_in_as("alice")
+    restore = []
+    for session in (bob, alice):
+        me = api_call(session, "GET", "/me").json()
+        path = f"/users/{me['id']}/org-roles"
+        restore.append((path, me["org_roles"]))
+        granted = api_call(bob, "PUT", path, {"roles": [*me["org_roles"], "compute_admin"]})
+        if granted.status_code != 200:
+            fail(f"{me['email']} couldn't be made a Compute Admin")
+    try:
+        environment = "example.reference"
+        (listed,) = [
+            e
+            for e in api_call(bob, "GET", "/compute/volumes").json()
+            if e["environment"] == environment
+        ]
+        if [v["name"] for v in listed["volumes"]] != ["storage-codes"]:
+            fail(f"{environment}'s volumes aren't listed: {listed}")
+        made = api_call(
+            bob, "POST", "/compute/setups", {"environment": environment, "reason": "e2e"}
+        )
+        if made.status_code != 201:
+            fail(f"asking for a setup build answered HTTP {made.status_code}: {made.text[:300]}")
+        (build,) = made.json()
+        ref = f"/compute/setups/{build['hrid']}"
+        if build["state"] != "awaiting_approval":
+            fail(f"{build['hrid']} didn't wait for approval: {build['state']}")
+        if api_call(bob, "POST", f"{ref}/approve").status_code != 409:
+            fail(f"bob approved the setup build he asked for, {build['hrid']}")
+        if api_call(alice, "POST", f"{ref}/approve").status_code != 200:
+            fail(f"alice couldn't approve {build['hrid']}")
+        deadline = time.monotonic() + 300
+        while True:
+            build = api_call(bob, "GET", ref).json()
+            if build["state"] in ("succeeded", "failed", "timed_out", "cancelled"):
+                break
+            if time.monotonic() > deadline:
+                fail(f"{build['hrid']} is still {build['state']} after five minutes")
+            time.sleep(3)
+        log = api_call(bob, "GET", f"{ref}/log").json()["text"]
+        if build["state"] != "succeeded":
+            fail(f"{build['hrid']} {build['state']}: {build['error']}\n{log[-2000:]}")
+        if build["data_version"] != "Storage codes 2026-11" or "bytes of storage codes" not in log:
+            fail(f"{build['hrid']} didn't say what it wrote: {build['data_version']!r}, {log!r}")
+        (snapshot,) = _snapshots(build["id"])
+        if not snapshot.get("status", {}).get("readyToUse"):
+            fail(f"{build['hrid']}'s snapshot isn't ready: {snapshot.get('status')}")
+        ok(
+            f"{build['hrid']}, asked for by bob and approved by alice, filled {environment}'s "
+            f"volume ({build['data_version']}) and left snapshot {snapshot['metadata']['name']}"
+        )
+
+        sample = _sample(alice, project, storage="-80")
+        run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
+        read = (attempt.get("volumes") or {}).get("storage-codes") or {}
+        if storage != "-80 °C freezer" or read.get("hrid") != build["hrid"]:
+            fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
+        ok(
+            f"{run['hrid']} read a copy of version {read['version']} ({read['data_version']}) "
+            f"and wrote {storage!r}"
+        )
+
+        if api_call(bob, "POST", f"{ref}/retire").status_code != 200:
+            fail(f"bob couldn't retire {build['hrid']}")
+        deadline = time.monotonic() + 180
+        while _snapshots(build["id"]):
+            if time.monotonic() > deadline:
+                fail(f"{build['hrid']}'s snapshot outlived its retirement")
+            time.sleep(3)
+        ok(f"retired, {build['hrid']}'s snapshot was deleted once no pod had a copy")
+    finally:
+        for path, roles in restore:
+            api_call(bob, "PUT", path, {"roles": roles})
 
 
 def budget_warns(project: dict[str, Any]) -> None:

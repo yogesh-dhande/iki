@@ -1217,6 +1217,13 @@ class CheckpointOut(Schema):
     )
 
 
+class AttemptVolumeOut(Schema):
+    build: UUID = Field(description="The setup build that made this version.")
+    hrid: str = Field(description="Such as SETUP-000012.")
+    version: int
+    data_version: str = Field(description="What the data is, as its setup said.")
+
+
 class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
@@ -1226,6 +1233,9 @@ class RunAttemptOut(Schema):
     )
     template: str = Field(
         description="The compute template of the machine Iki started for it, if it did (ADR 0061)."
+    )
+    volumes: dict[str, AttemptVolumeOut] = Field(
+        description="The versions of its environment's volumes it read, by name (ADR 0075)."
     )
     queued_at: datetime
     started_at: datetime | None
@@ -1283,6 +1293,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 "worker": held.worker.name if held.worker else None,
                 "environment_build": job.environment_build,
                 "template": job.template,
+                "volumes": job.volumes,
                 "queued_at": job.queued_at,
                 "started_at": job.started_at,
                 "finished_at": job.finished_at,

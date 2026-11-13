@@ -78,10 +78,6 @@ spec:
             - name: IKI_RUNS_WORKER_IMAGE
               value: {{ include "iki.runsWorkerImage" . | quote }}
             {{- if $c.enabled }}
-            - name: IKI_RUNS_NAMESPACE
-              value: {{ first $namespaces | quote }}
-            - name: IKI_RUNS_NAMESPACES
-              value: {{ rest $namespaces | join "," | quote }}
             - name: IKI_RUNS_SERVER_URL
               value: {{ $url | quote }}
             - name: IKI_RUNS_SERVICE_ACCOUNT
@@ -185,6 +181,14 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     verbs: [create]
+  # Environment setup builds (ADR 0075): a disk for each volume a setup fills, and the
+  # snapshot of it that run pods get a read-only copy of.
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create, get, list, delete]
+  - apiGroups: [snapshot.storage.k8s.io]
+    resources: [volumesnapshots]
+    verbs: [create, get, list, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -1040,6 +1040,17 @@ def test_the_provisioner_manages_only_jobs_where_runs_go() -> None:
             },
             # Never read, change or delete a Secret: only make each Job's own.
             {"apiGroups": [""], "resources": ["secrets"], "verbs": ["create"]},
+            # Setup builds' disks, and their snapshots (ADR 0075).
+            {
+                "apiGroups": [""],
+                "resources": ["persistentvolumeclaims"],
+                "verbs": ["create", "get", "list", "delete"],
+            },
+            {
+                "apiGroups": ["snapshot.storage.k8s.io"],
+                "resources": ["volumesnapshots"],
+                "verbs": ["create", "get", "list", "delete"],
+            },
         ]
     for binding in by_kind(docs, "RoleBinding"):
         assert binding["subjects"] == [
@@ -1057,6 +1068,12 @@ def test_the_provisioner_manages_only_jobs_where_runs_go() -> None:
     env = provisioner_env(docs)
     assert env["IKI_RUNS_NAMESPACE"] == "iki-runs"
     assert env["IKI_RUNS_NAMESPACES"] == "gpu"
+    # The API and tasks know where runs go too: which version of an environment's
+    # volumes machines there get (ADR 0075).
+    for name in ("iki-web", "iki-tasks"):
+        pod = named(docs, "Deployment", name)["spec"]["template"]["spec"]
+        theirs = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
+        assert (theirs["IKI_RUNS_NAMESPACE"], theirs["IKI_RUNS_NAMESPACES"]) == ("iki-runs", "gpu")
     assert env["IKI_RUNS_SERVER_URL"] == "https://iki.example.com"
     assert env["IKI_RUNS_SERVICE_ACCOUNT"] == "iki-run"
     assert "IKI_RUNS_ALLOW_HTTP" not in env

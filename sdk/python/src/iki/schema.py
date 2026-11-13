@@ -141,6 +141,16 @@ class AttemptPackOut(TypedDict):
     runs: int
 
 
+class AttemptVolumeOut(TypedDict):
+    #: The setup build that made this version.
+    build: str
+    #: What the data is, as its setup said.
+    data_version: str
+    #: Such as SETUP-000012.
+    hrid: str
+    version: int
+
+
 class BatchCan(TypedDict):
     #: Some of its runs haven't finished, and you may cancel them.
     cancel: bool
@@ -581,6 +591,18 @@ class EntityTypeOut(TypedDict):
     values_schema: dict[str, Any]
 
 
+class EnvironmentVolumesOut(TypedDict):
+    #: plugin.environment
+    environment: str
+    label: str
+    #: Where its runs go, and the version machines there get.
+    places: list[VersionOut]
+    setup: SetupOut | None
+    volumes: list[VolumeOut]
+    #: Why its runs can't start for want of its volumes, if so.
+    waiting: str
+
+
 class ErrorOut(TypedDict):
     code: str
     #: For `invalid_output` and `schema_changed`.
@@ -1014,6 +1036,12 @@ class PageRunOut(TypedDict):
 
 class PageServiceAccountOut(TypedDict):
     items: list[ServiceAccountOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
+class PageSetupBuildOut(TypedDict):
+    items: list[SetupBuildOut]
     #: Pass as cursor for the next page; null at the end.
     next_cursor: str | None
 
@@ -1465,6 +1493,8 @@ class RunAttemptOut(TypedDict):
     state: JobState
     #: The compute template of the machine Iki started for it, if it did (ADR 0061).
     template: str
+    #: The versions of its environment's volumes it read, by name (ADR 0075).
+    volumes: dict[str, AttemptVolumeOut]
     #: The name of the worker that ran it.
     worker: str | None
 
@@ -1717,6 +1747,105 @@ class ServiceAccountPatch(TypedDict):
     name: NotRequired[str | None]
 
 
+class SetupBuildOut(TypedDict):
+    approved_at: str | None
+    approved_by: PersonRef | None
+    cancel_requested_at: str | None
+    created_at: str
+    #: Whether machines for its environment's runs get it now.
+    current: bool
+    data_version: str
+    #: The hosts its script reached, or was refused, through the egress proxy.
+    egress: list[SetupEgressOut]
+    environment: str
+    error: SetupErrorOut | None
+    finished_at: str | None
+    hrid: str
+    id: str
+    image: str
+    #: Bytes of log its script wrote.
+    log_size: int
+    place: str
+    plugin_sha: str
+    plugin_version: str
+    progress: float | None
+    progress_message: str
+    reason: str
+    requested_by: PersonRef
+    retired_at: str | None
+    retired_by: PersonRef | None
+    started_at: str | None
+    state: Literal['awaiting_approval', 'queued', 'running', 'snapshotting', 'succeeded', 'failed', 'timed_out', 'cancelled']
+    template: str
+    #: Seconds its script may run.
+    timeout: int
+    version: int
+    #: The snapshot of each volume it filled.
+    volumes: list[SetupVolumeOut]
+
+
+class SetupEgressOut(TypedDict):
+    bytes_received: int
+    connections: int
+    host: str
+    port: int
+    #: Why the proxy refused it; empty if it was allowed.
+    refused: str
+
+
+class SetupErrorOut(TypedDict):
+    #: `failed`, `timed_out`, `interrupted`, `cancelled`, `worker_lost`, `machine_unavailable`, `template_gone` or `snapshot_failed`.
+    code: str
+    message: str
+
+
+class SetupFilters(TypedDict):
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: plugin.environment
+    environment: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+    state: NotRequired[Literal['awaiting_approval', 'queued', 'running', 'snapshotting', 'succeeded', 'failed', 'timed_out', 'cancelled'] | None]
+
+
+class SetupIn(TypedDict):
+    #: plugin.environment
+    environment: str
+    #: Why: a new database release, say.
+    reason: NotRequired[str]
+
+
+class SetupLogOut(TypedDict):
+    #: Whether the build has ended: there'll be no more.
+    finished: bool
+    #: Where `text` starts, in bytes.
+    offset: int
+    #: Bytes of log so far.
+    size: int
+    text: str
+
+
+class SetupOut(TypedDict):
+    #: The hosts the setup may reach.
+    network: list[str]
+    requires_approval: bool
+    script: str
+    #: Seconds.
+    timeout: int | None
+
+
+class SetupVolumeOut(TypedDict):
+    #: The snapshot's name in the cluster.
+    handle: str
+    message: str
+    name: str
+    #: Bytes.
+    size: int
+    #: `ready`: machines can get a copy of it.
+    state: Literal['creating', 'ready', 'failed', 'deleted']
+
+
 class SortIn(TypedDict):
     descending: NotRequired[bool]
     #: A field to sort by: text, numbers, dates or yes/no.
@@ -1859,6 +1988,26 @@ class UserPatch(TypedDict):
     active: NotRequired[bool | None]
 
 
+class VersionOut(TypedDict):
+    #: The setup build whose version runs get there now.
+    build: str | None
+    data_version: str | None
+    hrid: str | None
+    #: The Kubernetes namespace its runs go in.
+    place: str
+    ready_at: str | None
+    version: int | None
+
+
+class VolumeOut(TypedDict):
+    access: str
+    filled_by_setup: bool
+    mount: str
+    name: str
+    #: Bytes.
+    size: int
+
+
 class WebhookCreated(TypedDict):
     active: bool
     created_at: str
@@ -1988,4 +2137,4 @@ class WorkerRegistrationOut(TypedDict):
     workers: int
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SortIn', 'StartedOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut']

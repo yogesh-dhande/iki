@@ -54,3 +54,24 @@ apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: protein.structure-tools
 templates: [{ template: container-structures }]
+---
+# The plugin template's reference data (ADR 0075): a setup build fills a disk
+# from the CSI host-path driver, which is snapshotted; each run pod gets a
+# read-only copy of the newest snapshot.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-reference
+provisioner: k8s_job
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
+volumes:
+  storage-codes:
+    strategy: clone_from_snapshot
+    storage_class: csi-hostpath-sc
+    snapshot_class: csi-hostpath-snapclass
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: example.reference
+templates: [{ template: container-reference }]

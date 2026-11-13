@@ -236,6 +236,18 @@
           "fast_snapshot_restore": {
             "description": "With `clone_from_snapshot` on AWS: disks start at full speed, at extra cost.",
             "type": "boolean"
+          },
+          "storage_class": {
+            "description": "On Kubernetes: the StorageClass of the disks made for the volume (the cluster's default unless set).",
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "snapshot_class": {
+            "description": "On Kubernetes, with `clone_from_snapshot`: the VolumeSnapshotClass its snapshots are taken with (the cluster's default unless set).",
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
           }
         },
         "additionalProperties": false

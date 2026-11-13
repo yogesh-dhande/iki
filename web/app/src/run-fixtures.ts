@@ -109,6 +109,7 @@ export function attempt(
     error: null,
     network: [],
     secrets: [],
+    volumes: {},
     pack: null,
     bulk_import: null,
     checkpoint: null,

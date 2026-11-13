@@ -46,7 +46,7 @@ from django.db.models import Exists, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from iki_server.entities import registry
-from iki_server.runs import catalog, launches, queue, quotas
+from iki_server.runs import catalog, launches, queue, quotas, setups, volumes
 from iki_server.runs.kubernetes import (
     KEEP_FINISHED,
     LABEL,
@@ -191,9 +191,12 @@ class Group:
         return self.template.lifecycle == "ephemeral"
 
 
-def spec_of(group: Group, namespace: str, pods: RunPods) -> str:
-    """A digest of the pod a launch for `group` gets: it changes when its template, or how
-    Iki starts run pods (the worker's image, say), does."""
+def spec_of(
+    group: Group, namespace: str, pods: RunPods, volumes: dict[str, Any] | None = None
+) -> str:
+    """A digest of the pod a launch for `group` gets: it changes when its template, how
+    Iki starts run pods (the worker's image, say), or the version of the environment's
+    volumes it gets (ADR 0075) does."""
     job, _ = job_manifest(
         name="-",
         launch_id="-",
@@ -202,6 +205,7 @@ def spec_of(group: Group, namespace: str, pods: RunPods) -> str:
         image=group.image,
         pods=pods,
         once=group.once,
+        volumes=volumes,
     )
     canonical = json.dumps([namespace, job], sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
@@ -294,7 +298,8 @@ def _free(provisioners: tuple[str, ...]) -> list[Launch]:
     ever = Job.objects.filter(worker__launch=OuterRef("pk"))
     return list(
         Launch.objects.exclude(state=LaunchState.ENDED)
-        .filter(provisioner__in=provisioners)
+        # A machine started for a setup build runs nothing else (ADR 0075).
+        .filter(provisioner__in=provisioners, setup__isnull=True)
         .annotate(held=Exists(held), ever=Exists(ever))
         .filter(Q(once=False, held=False) | Q(once=True, ever=False))
         .order_by("created_at")
@@ -364,9 +369,9 @@ def start(
         Launch.objects.exclude(state=LaunchState.ENDED).values_list("template", flat=True)
     )
     running = Counter(
-        Launch.objects.exclude(state=LaunchState.ENDED).values_list(
-            "environment", "plugin_sha", "template"
-        )
+        Launch.objects.exclude(state=LaunchState.ENDED)
+        .filter(setup__isnull=True)
+        .values_list("environment", "plugin_sha", "template")
     )
     started = 0
     for key, group in wanted.items():
@@ -391,6 +396,10 @@ def start(
 
 
 def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bool:
+    volumes = setups.volumes_for(group.environment, namespace)
+    if volumes is None:
+        # Its setup fills volumes, and no version is ready here: its runs say so.
+        return False
     launch, token = launches.create(
         template=group.template.name,
         provisioner=group.template.provisioner,
@@ -399,7 +408,8 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         image=group.image,
         namespace=namespace,
         once=group.once,
-        spec=spec_of(group, namespace, pods),
+        spec=spec_of(group, namespace, pods, volumes),
+        volumes=setups.provenance(volumes),
     )
     job, secret = job_manifest(
         name=launch.name,
@@ -409,6 +419,7 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         image=group.image,
         pods=pods,
         once=group.once,
+        volumes=volumes,
     )
     try:
         cluster.create_job(
@@ -682,6 +693,10 @@ def waiting(environments: Iterable[str]) -> dict[str, str]:
     and lately, that there was no capacity to start one."""
     wanted = list(environments)
     found: dict[str, str] = {}
+    for environment in wanted:
+        # No machine starts until its volumes have a version (ADR 0075).
+        if why := setups.missing(environment):
+            found[environment] = why
     for environment, message in (
         Launch.objects.filter(environment__in=wanted, state=LaunchState.STARTING)
         .exclude(message="")
@@ -819,13 +834,16 @@ class KubernetesFleet(Fleet):
         return namespace
 
     def spec(self, group: Group, place: str) -> str:
-        return spec_of(group, place, self.pods)
+        return spec_of(group, place, self.pods, setups.volumes_for(group.environment, place))
 
     def launch(self, group: Group, place: str) -> bool:
         return _launch(self.cluster, group, place, self.pods)
 
     def reconcile(self, now: datetime) -> int:
-        return reconcile(self.cluster, now)
+        ended = reconcile(self.cluster, now)
+        # Environment setup builds, and the snapshots they leave (ADR 0075).
+        volumes.tick(self.cluster, self.pods, namespaces(), now)
+        return ended
 
     def remove(self, launch: Launch) -> None:
         _delete(self.cluster, launch.namespace, launch.name)

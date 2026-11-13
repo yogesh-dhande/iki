@@ -493,6 +493,38 @@
         "title": "AttemptPackOut",
         "type": "object"
       },
+      "AttemptVolumeOut": {
+        "properties": {
+          "build": {
+            "description": "The setup build that made this version.",
+            "format": "uuid",
+            "title": "Build",
+            "type": "string"
+          },
+          "data_version": {
+            "description": "What the data is, as its setup said.",
+            "title": "Data Version",
+            "type": "string"
+          },
+          "hrid": {
+            "description": "Such as SETUP-000012.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "build",
+          "hrid",
+          "version",
+          "data_version"
+        ],
+        "title": "AttemptVolumeOut",
+        "type": "object"
+      },
       "BatchCan": {
         "properties": {
           "cancel": {
@@ -2504,6 +2536,59 @@
         "title": "EntityTypeOut",
         "type": "object"
       },
+      "EnvironmentVolumesOut": {
+        "properties": {
+          "environment": {
+            "description": "plugin.environment",
+            "title": "Environment",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "places": {
+            "description": "Where its runs go, and the version machines there get.",
+            "items": {
+              "$ref": "#/components/schemas/VersionOut"
+            },
+            "title": "Places",
+            "type": "array"
+          },
+          "setup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volumes": {
+            "items": {
+              "$ref": "#/components/schemas/VolumeOut"
+            },
+            "title": "Volumes",
+            "type": "array"
+          },
+          "waiting": {
+            "description": "Why its runs can't start for want of its volumes, if so.",
+            "title": "Waiting",
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "label",
+          "volumes",
+          "setup",
+          "places",
+          "waiting"
+        ],
+        "title": "EnvironmentVolumesOut",
+        "type": "object"
+      },
       "ErrorOut": {
         "properties": {
           "code": {
@@ -4405,6 +4490,35 @@
           "next_cursor"
         ],
         "title": "Page[ServiceAccountOut]",
+        "type": "object"
+      },
+      "Page_SetupBuildOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SetupBuildOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[SetupBuildOut]",
         "type": "object"
       },
       "Page_TeamMemberOut_": {
@@ -6572,6 +6686,14 @@
             "title": "Template",
             "type": "string"
           },
+          "volumes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AttemptVolumeOut"
+            },
+            "description": "The versions of its environment's volumes it read, by name (ADR 0075).",
+            "title": "Volumes",
+            "type": "object"
+          },
           "worker": {
             "anyOf": [
               {
@@ -6591,6 +6713,7 @@
           "worker",
           "environment_build",
           "template",
+          "volumes",
           "queued_at",
           "started_at",
           "finished_at",
@@ -7815,6 +7938,492 @@
         "title": "ServiceAccountPatch",
         "type": "object"
       },
+      "SetupBuildOut": {
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current": {
+            "description": "Whether machines for its environment's runs get it now.",
+            "title": "Current",
+            "type": "boolean"
+          },
+          "data_version": {
+            "title": "Data Version",
+            "type": "string"
+          },
+          "egress": {
+            "description": "The hosts its script reached, or was refused, through the egress proxy.",
+            "items": {
+              "$ref": "#/components/schemas/SetupEgressOut"
+            },
+            "title": "Egress",
+            "type": "array"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SetupErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image": {
+            "title": "Image",
+            "type": "string"
+          },
+          "log_size": {
+            "description": "Bytes of log its script wrote.",
+            "title": "Log Size",
+            "type": "integer"
+          },
+          "place": {
+            "title": "Place",
+            "type": "string"
+          },
+          "plugin_sha": {
+            "title": "Plugin Sha",
+            "type": "string"
+          },
+          "plugin_version": {
+            "title": "Plugin Version",
+            "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "progress_message": {
+            "title": "Progress Message",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "retired_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "enum": [
+              "awaiting_approval",
+              "queued",
+              "running",
+              "snapshotting",
+              "succeeded",
+              "failed",
+              "timed_out",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "timeout": {
+            "description": "Seconds its script may run.",
+            "title": "Timeout",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "volumes": {
+            "description": "The snapshot of each volume it filled.",
+            "items": {
+              "$ref": "#/components/schemas/SetupVolumeOut"
+            },
+            "title": "Volumes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "environment",
+          "place",
+          "template",
+          "version",
+          "state",
+          "reason",
+          "image",
+          "plugin_version",
+          "plugin_sha",
+          "requested_by",
+          "approved_by",
+          "approved_at",
+          "cancel_requested_at",
+          "data_version",
+          "retired_at",
+          "retired_by",
+          "current",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "timeout",
+          "progress",
+          "progress_message",
+          "log_size",
+          "error",
+          "volumes",
+          "egress"
+        ],
+        "title": "SetupBuildOut",
+        "type": "object"
+      },
+      "SetupEgressOut": {
+        "properties": {
+          "bytes_received": {
+            "title": "Bytes Received",
+            "type": "integer"
+          },
+          "connections": {
+            "title": "Connections",
+            "type": "integer"
+          },
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          },
+          "refused": {
+            "description": "Why the proxy refused it; empty if it was allowed.",
+            "title": "Refused",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "refused",
+          "connections",
+          "bytes_received"
+        ],
+        "title": "SetupEgressOut",
+        "type": "object"
+      },
+      "SetupErrorOut": {
+        "properties": {
+          "code": {
+            "description": "`failed`, `timed_out`, `interrupted`, `cancelled`, `worker_lost`, `machine_unavailable`, `template_gone` or `snapshot_failed`.",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "SetupErrorOut",
+        "type": "object"
+      },
+      "SetupFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "plugin.environment",
+            "title": "Environment"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "awaiting_approval",
+                  "queued",
+                  "running",
+                  "snapshotting",
+                  "succeeded",
+                  "failed",
+                  "timed_out",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          }
+        },
+        "title": "SetupFilters",
+        "type": "object"
+      },
+      "SetupIn": {
+        "properties": {
+          "environment": {
+            "description": "plugin.environment",
+            "title": "Environment",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why: a new database release, say.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment"
+        ],
+        "title": "SetupIn",
+        "type": "object"
+      },
+      "SetupLogOut": {
+        "properties": {
+          "finished": {
+            "description": "Whether the build has ended: there'll be no more.",
+            "title": "Finished",
+            "type": "boolean"
+          },
+          "offset": {
+            "description": "Where `text` starts, in bytes.",
+            "title": "Offset",
+            "type": "integer"
+          },
+          "size": {
+            "description": "Bytes of log so far.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset",
+          "text",
+          "size",
+          "finished"
+        ],
+        "title": "SetupLogOut",
+        "type": "object"
+      },
+      "SetupOut": {
+        "properties": {
+          "network": {
+            "description": "The hosts the setup may reach.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Network",
+            "type": "array"
+          },
+          "requires_approval": {
+            "title": "Requires Approval",
+            "type": "boolean"
+          },
+          "script": {
+            "title": "Script",
+            "type": "string"
+          },
+          "timeout": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds.",
+            "title": "Timeout"
+          }
+        },
+        "required": [
+          "script",
+          "timeout",
+          "requires_approval",
+          "network"
+        ],
+        "title": "SetupOut",
+        "type": "object"
+      },
+      "SetupVolumeOut": {
+        "properties": {
+          "handle": {
+            "description": "The snapshot's name in the cluster.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "description": "`ready`: machines can get a copy of it.",
+            "enum": [
+              "creating",
+              "ready",
+              "failed",
+              "deleted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "size",
+          "handle",
+          "message"
+        ],
+        "title": "SetupVolumeOut",
+        "type": "object"
+      },
       "SortIn": {
         "properties": {
           "descending": {
@@ -8450,6 +9059,117 @@
           }
         },
         "title": "UserPatch",
+        "type": "object"
+      },
+      "VersionOut": {
+        "properties": {
+          "build": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The setup build whose version runs get there now.",
+            "title": "Build"
+          },
+          "data_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Version"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
+          },
+          "place": {
+            "description": "The Kubernetes namespace its runs go in.",
+            "title": "Place",
+            "type": "string"
+          },
+          "ready_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready At"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "place",
+          "build",
+          "hrid",
+          "version",
+          "data_version",
+          "ready_at"
+        ],
+        "title": "VersionOut",
+        "type": "object"
+      },
+      "VolumeOut": {
+        "properties": {
+          "access": {
+            "title": "Access",
+            "type": "string"
+          },
+          "filled_by_setup": {
+            "title": "Filled By Setup",
+            "type": "boolean"
+          },
+          "mount": {
+            "title": "Mount",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size",
+          "mount",
+          "access",
+          "filled_by_setup"
+        ],
+        "title": "VolumeOut",
         "type": "object"
       },
       "WebhookCreated": {
@@ -10311,6 +11031,407 @@
           }
         ],
         "summary": "Revoke a worker registration token",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/setups": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "iki_server_api_setups_list_setups",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "plugin.environment",
+            "in": "query",
+            "name": "environment",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "plugin.environment",
+              "title": "Environment"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "awaiting_approval",
+                    "queued",
+                    "running",
+                    "snapshotting",
+                    "succeeded",
+                    "failed",
+                    "timed_out",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SetupBuildOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Setup builds",
+        "tags": [
+          "compute"
+        ]
+      },
+      "post": {
+        "description": "One build for each place the environment's runs go. Each waits for another Compute\nadmin's approval if its setup asks for it, and is queued otherwise. 409 while one is\nstill going there.",
+        "operationId": "iki_server_api_setups_create_setup",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SetupBuildOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Ask for a setup build",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/setups/{ref}": {
+      "get": {
+        "description": "By its ID or HRID (SETUP-000012).",
+        "operationId": "iki_server_api_setups_get_setup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupBuildOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A setup build",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/setups/{ref}/approve": {
+      "post": {
+        "description": "By a Compute admin other than whoever asked for it.",
+        "operationId": "iki_server_api_setups_approve_setup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupBuildOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Approve a setup build",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/setups/{ref}/cancel": {
+      "post": {
+        "description": "At once unless its script is running; then once its worker has stopped it.",
+        "operationId": "iki_server_api_setups_cancel_setup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupBuildOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Cancel a setup build",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/setups/{ref}/log": {
+      "get": {
+        "description": "What its script wrote, from byte `offset` on (the `size` you have), up to 1 MiB at\na time.",
+        "operationId": "iki_server_api_setups_setup_log",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupLogOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A setup build's log",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/setups/{ref}/retire": {
+      "post": {
+        "description": "New machines get the newest version that isn't retired (or none, and its runs wait).\nMachines that have it keep it; its snapshots are deleted once none does.",
+        "operationId": "iki_server_api_setups_retire_setup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupBuildOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Retire a version of an environment's volumes",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/volumes": {
+      "get": {
+        "description": "Each installed environment that declares volumes.",
+        "operationId": "iki_server_api_setups_list_volumes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EnvironmentVolumesOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Environments' volumes and their versions",
         "tags": [
           "compute"
         ]

@@ -126,6 +126,14 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   tagged with `vmTier.owner`. The machines' subnets need a way to the
   server (`vmTier.serverUrl`), object storage and the egress proxy
   (`vmTier.egressProxyUrl`), and nothing else.
+- Environments with reference data (AlphaFold's databases, say) fill it
+  with a setup build, which a Compute admin asks for under Compute →
+  Volumes, and another approves if the environment asks for that
+  ([ADR 0075](../../docs/adr/0075-environment-setup-builds-and-managed-volumes.md)).
+  On Kubernetes, the cluster needs a CSI driver with snapshots (the EBS CSI
+  driver and the snapshot controller on EKS), and each template the
+  environment is bound to names a `storage_class` and `snapshot_class` for
+  its volumes in `compute.yaml`.
 - If your package index is a mirror, pass it to the worker image's build as
   a secret (see `worker.Dockerfile`).
 

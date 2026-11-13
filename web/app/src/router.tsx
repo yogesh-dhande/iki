@@ -33,6 +33,7 @@ const entityPages = () => import("./pages/entity");
 const typePages = () => import("./pages/types");
 const webhookPages = () => import("./pages/webhooks");
 const OrgCosts = lazyRouteComponent(() => import("./pages/costs"), "OrgCosts");
+const ComputeVolumes = lazyRouteComponent(() => import("./pages/volumes"), "ComputeVolumes");
 const Notifications = lazyRouteComponent(() => import("./pages/notifications"), "Notifications");
 const ProjectMembers = lazyRouteComponent(
   () => import("./pages/project-members"),
@@ -86,6 +87,14 @@ const costsRoute = createRoute({
   // ?month=2026-11&by=team: another month, grouped another way.
   validateSearch: validateCostsSearch,
   component: OrgCosts,
+});
+
+const computeRoute = createRoute({ getParentRoute: () => rootRoute, path: "compute" });
+
+const computeVolumesRoute = createRoute({
+  getParentRoute: () => computeRoute,
+  path: "volumes",
+  component: ComputeVolumes,
 });
 
 const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "projects" });
@@ -289,6 +298,7 @@ const routeTree = rootRoute.addChildren([
   homeRoute,
   notificationsRoute,
   costsRoute,
+  computeRoute.addChildren([computeVolumesRoute]),
   projectsRoute.addChildren([
     projectListRoute,
     projectNewRoute,

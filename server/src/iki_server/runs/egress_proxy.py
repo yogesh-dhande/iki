@@ -179,6 +179,8 @@ class Tunnel:
     job_id: uuid.UUID
     host: str
     port: int
+    #: Whether `job_id` is a setup build's (ADR 0075).
+    setup: bool = False
     sent: int = 0
     received: int = 0
     active_at: float = field(default_factory=time.monotonic)
@@ -268,13 +270,22 @@ class Proxy:
             await self._refuse(writer, refusal)
             return
         assert decision.job_id is not None  # noqa: S101 - an allowed decision names it
-        await self._tunnel(reader, writer, Tunnel(decision.job_id, host, port), authorization)
+        await self._tunnel(
+            reader, writer, Tunnel(decision.job_id, host, port, setup=decision.setup), authorization
+        )
 
     async def _refuse(
         self, writer: asyncio.StreamWriter, refusal: Refused, tunnel: Tunnel | None = None
     ) -> None:
         if tunnel is not None:
-            await _db(egress.record, tunnel.job_id, tunnel.host, tunnel.port, refusal.why)
+            await _db(
+                egress.record,
+                tunnel.job_id,
+                tunnel.host,
+                tunnel.port,
+                refusal.why,
+                setup=tunnel.setup,
+            )
         logger.info(
             "egress.refused",
             status=refusal.status,
@@ -313,10 +324,12 @@ class Proxy:
                 why = f"The connection to {tunnel.host} didn't start a TLS handshake for it" + (
                     f" (it named {named})." if named else "."
                 )
-                await _db(egress.record, tunnel.job_id, tunnel.host, tunnel.port, why)
+                await _db(
+                    egress.record, tunnel.job_id, tunnel.host, tunnel.port, why, setup=tunnel.setup
+                )
                 logger.info("egress.refused", job_id=str(tunnel.job_id), reason=why)
                 return
-            await _db(egress.record, tunnel.job_id, tunnel.host, tunnel.port)
+            await _db(egress.record, tunnel.job_id, tunnel.host, tunnel.port, setup=tunnel.setup)
             logger.info("egress.connected", job_id=str(tunnel.job_id), host=tunnel.host)
             remote.write(raw)
             await remote.drain()
@@ -335,6 +348,7 @@ class Proxy:
                     tunnel.port,
                     tunnel.sent,
                     tunnel.received,
+                    setup=tunnel.setup,
                 )
 
     async def _pipe(
@@ -374,7 +388,7 @@ class Proxy:
             await asyncio.sleep(CHECK_EVERY)
             if time.monotonic() - tunnel.active_at > IDLE_TIMEOUT:
                 return
-            held = await _db(egress.still_held, tunnel.job_id, authorization)
+            held = await _db(egress.still_held, tunnel.job_id, authorization, setup=tunnel.setup)
             if not held:
                 return
 

@@ -670,8 +670,16 @@ esac
         let (config, file, machine) = setup(&dir.0, false);
         let interrupted = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&interrupted);
+        let watched = dir.0.clone();
+        // Once the container is running (its `docker wait` has begun), however long that
+        // took on a busy machine.
         let stopper = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(500));
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !calls(&watched).iter().any(|c| c.starts_with("wait"))
+                && Instant::now() < deadline
+            {
+                std::thread::sleep(Duration::from_millis(20));
+            }
             flag.store(true, Ordering::SeqCst);
         });
         let ended = run(&config, &file, &machine, &interrupted);

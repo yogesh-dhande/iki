@@ -759,6 +759,80 @@
         "title": "RegisteredOut",
         "type": "object"
       },
+      "SetupFinishIn": {
+        "properties": {
+          "data_version": {
+            "default": "",
+            "description": "What the data is, as the script said in IKI_OUTPUT: `PDB 2026-10-01`, say.",
+            "maxLength": 200,
+            "title": "Data Version",
+            "type": "string"
+          },
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "message": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Message",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "`succeeded`: the script exited 0, and its volumes are snapshotted next. Otherwise as for a job's `fail`.",
+            "enum": [
+              "succeeded",
+              "failed",
+              "timed_out",
+              "interrupted",
+              "cancelled"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_token",
+          "outcome"
+        ],
+        "title": "SetupFinishIn",
+        "type": "object"
+      },
+      "SetupFinishOut": {
+        "properties": {
+          "state": {
+            "description": "`snapshotting` once it succeeded; otherwise how it ended.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "SetupFinishOut",
+        "type": "object"
+      },
+      "SetupHeartbeatOut": {
+        "properties": {
+          "cancel_requested": {
+            "description": "Someone cancelled the build: stop the script, then report `cancelled`.",
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "title": "Lease Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_expires_at",
+          "cancel_requested"
+        ],
+        "title": "SetupHeartbeatOut",
+        "type": "object"
+      },
       "StartedOut": {
         "properties": {
           "error": {
@@ -1842,6 +1916,180 @@
           }
         ],
         "summary": "Register a worker"
+      }
+    },
+    "/worker/v1/setups/{setup_id}/finish": {
+      "post": {
+        "operationId": "iki_server_api_worker_setup_finish",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setup_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Setup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupFinishIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupFinishOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "End a setup build"
+      }
+    },
+    "/worker/v1/setups/{setup_id}/heartbeat": {
+      "post": {
+        "operationId": "iki_server_api_worker_setup_heartbeat",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setup_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Setup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupHeartbeatOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Keep a setup's lease"
+      }
+    },
+    "/worker/v1/setups/{setup_id}/logs": {
+      "post": {
+        "description": "As for a job's log.",
+        "operationId": "iki_server_api_worker_setup_logs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setup_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Setup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Send a setup's log output"
+      }
+    },
+    "/worker/v1/setups/{setup_id}/progress": {
+      "post": {
+        "operationId": "iki_server_api_worker_setup_progress",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setup_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Setup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProgressIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "WorkerAuth": []
+          }
+        ],
+        "summary": "Report a setup's progress"
       }
     }
   },

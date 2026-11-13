@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# An environment with reference data: a volume its setup script fills, which
+# every run reads. Iki runs the script on a machine of its own when a Compute
+# admin asks for a setup build (and, with `requires_approval`, another approves
+# it), then snapshots the volume. Each run gets a read-only copy of the newest
+# version, and records which version it read. A real setup downloads its data:
+# list the hosts it may reach under `setup.network`.
+apiVersion: iki/v1
+kind: Environment
+name: reference
+tiers: [container]
+resources: { cpu: 0.25, memory: 256Mi }
+image: docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
+volumes:
+  storage-codes:
+    size: 16Mi
+    populated_by: setup
+    mount: /data/storage-codes
+setup:
+  script: setup/storage_codes.sh
+  timeout: 10m
+  requires_approval: true

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Creates (or reuses) the local kind cluster and installs what Tilt doesn't
-# manage: the CloudNativePG operator and generated development secrets.
+# manage: the CloudNativePG operator, the CSI snapshot driver, and generated
+# development secrets.
 # Safe to run repeatedly.
 set -euo pipefail
 
@@ -37,6 +38,19 @@ helm upgrade --install cnpg "$CNPG_CHART" \
   --wait --timeout 5m >/dev/null
 
 kc apply -f "$HERE/manifests/namespace.yaml" >/dev/null
+
+# Volume snapshots (the CSI host-path driver), for managed volumes: server-side
+# apply, since the CRDs are too big for the last-applied annotation.
+log "Installing the CSI host-path driver and snapshot controller"
+# The snapshot class needs its CRD established first: apply, wait, apply again.
+kc apply --server-side --force-conflicts -f "$HERE/manifests/csi-hostpath.yaml" >/dev/null 2>&1 || true
+kc wait --for=condition=Established --timeout=60s \
+  crd/volumesnapshotclasses.snapshot.storage.k8s.io \
+  crd/volumesnapshots.snapshot.storage.k8s.io \
+  crd/volumesnapshotcontents.snapshot.storage.k8s.io >/dev/null
+kc apply --server-side --force-conflicts -f "$HERE/manifests/csi-hostpath.yaml" >/dev/null
+kc -n kube-system rollout status statefulset/csi-hostpathplugin --timeout=180s >/dev/null
+kc -n kube-system rollout status deploy/snapshot-controller --timeout=180s >/dev/null
 
 # Keycloak's URL is http://keycloak.iki.localhost:8080 for browsers (which
 # resolve *.localhost to loopback, where Tilt forwards the port) and for pods

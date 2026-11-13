@@ -40,6 +40,7 @@ NAMES = (
     "environment-binding",
     "run-input",
     "run-output",
+    "setup-input",
 )
 
 BASE_URL = "https://ikisci.org/schemas"

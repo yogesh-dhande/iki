@@ -30,3 +30,12 @@ def changed(run_id: uuid.UUID, batch_id: uuid.UUID | None = None) -> None:
 def logged(run_id: uuid.UUID, attempt: int, size: int) -> None:
     """Attempt number `attempt`'s log grew to `size` bytes."""
     events.publish_to(topic(run_id), "log", {"attempt": attempt, "size": size})
+
+
+def setup_topic(build_id: uuid.UUID) -> str:
+    return f"setup:{build_id}"
+
+
+def setup_changed(build_id: uuid.UUID) -> None:
+    """An environment setup build's state, progress or log changed (ADR 0075)."""
+    events.publish_to(setup_topic(build_id), "setup", {"id": str(build_id)})

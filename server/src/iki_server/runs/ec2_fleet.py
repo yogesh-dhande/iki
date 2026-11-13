@@ -33,7 +33,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.runs import catalog, launches
+from iki_server.runs import catalog, launches, setups
 from iki_server.runs.ec2 import (
     LAUNCH_TAG,
     Ec2,
@@ -138,6 +138,11 @@ class Ec2Fleet(Fleet):
 
     def launch(self, group: Group, place: str) -> bool:
         template = group.template
+        environment = setups.environment_of(group.environment)
+        if environment is not None and setups.filled(environment):
+            # Volumes on vm-tier machines come with EBS snapshots (ADR 0075, step 36b):
+            # until then its runs say they're waiting for their data.
+            return False
         launch, token = launches.create(
             template=template.name,
             provisioner=template.provisioner,

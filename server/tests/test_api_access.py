@@ -223,6 +223,25 @@ def _budget(w: World) -> Any:
     )
 
 
+def _setup(w: World, state: str = "awaiting_approval") -> Any:
+    """A setup build someone other than the Compute admin asked for."""
+    from iki_server.runs.models import SetupBuild
+
+    return SetupBuild.objects.create(
+        hrid="SETUP-000099",
+        environment="structure_prediction.alphafold-gpu",
+        plugin_version="1.0.0",
+        image="ghcr.io/acme/alphafold@sha256:" + "a" * 64,
+        place="iki-runs",
+        template="gpu-a100",
+        version=1,
+        spec={"script": "setup/download_dbs.sh", "volumes": {}, "network": []},
+        state=state,
+        requested_by=w.users["org_admin"],
+        timeout=3600,
+    )
+
+
 def _quota(w: World) -> Any:
     from iki_server.runs.models import RunQuota
 
@@ -589,6 +608,46 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         COMPUTE_ONLY,
     ),
     ("GET", "/compute/workers", fixed("/compute/workers"), COMPUTE_ONLY),
+    # Environments' volumes and the setup builds that fill them (ADR 0075).
+    ("GET", "/compute/volumes", fixed("/compute/volumes"), COMPUTE_ONLY),
+    ("GET", "/compute/setups", fixed("/compute/setups"), COMPUTE_ONLY),
+    # No template here gives alphafold-gpu's volumes from a snapshot: nowhere to build.
+    (
+        "POST",
+        "/compute/setups",
+        fixed("/compute/setups", {"environment": "structure_prediction.alphafold-gpu"}),
+        row(403, compute_admin=409),
+    ),
+    (
+        "GET",
+        "/compute/setups/{ref}",
+        lambda w: (f"/compute/setups/{_setup(w).hrid}", None),
+        COMPUTE_ONLY,
+    ),
+    (
+        "GET",
+        "/compute/setups/{ref}/log",
+        lambda w: (f"/compute/setups/{_setup(w).hrid}/log", None),
+        COMPUTE_ONLY,
+    ),
+    (
+        "POST",
+        "/compute/setups/{ref}/approve",
+        lambda w: (f"/compute/setups/{_setup(w).hrid}/approve", {}),
+        COMPUTE_ONLY,
+    ),
+    (
+        "POST",
+        "/compute/setups/{ref}/cancel",
+        lambda w: (f"/compute/setups/{_setup(w).hrid}/cancel", {}),
+        COMPUTE_ONLY,
+    ),
+    (
+        "POST",
+        "/compute/setups/{ref}/retire",
+        lambda w: (f"/compute/setups/{_setup(w, 'succeeded').hrid}/retire", {}),
+        COMPUTE_ONLY,
+    ),
     ("GET", "/compute/quotas", fixed("/compute/quotas"), COMPUTE_ONLY),
     # What runs cost: for those who answer for it (ADR 0070).
     (

@@ -252,6 +252,8 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         members = _pack(job, run)
         build = _build(worker, job.environment)
         template = worker.launch.template if worker.launch is not None else ""
+        # The versions of the environment's volumes its machine has (ADR 0075).
+        volumes = dict(worker.launch.volumes) if worker.launch is not None else {}
         job.state = JobState.LEASED
         job.template = template
         job.worker = worker
@@ -259,6 +261,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         job.lease_expires_at = now + LEASE_TTL
         job.started_at = now
         job.environment_build = build
+        job.volumes = volumes
         job.save(
             update_fields=[
                 "state",
@@ -268,6 +271,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
                 "started_at",
                 "environment_build",
                 "template",
+                "volumes",
             ]
         )
         Job.objects.filter(pk__in=[m.pk for m in members]).update(
@@ -276,6 +280,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             started_at=now,
             environment_build=build,
             template=template,
+            volumes=volumes,
             packed_into=job,
         )
         runs = [
@@ -399,6 +404,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "settings": run.plugin_settings,
         "inputs": inputs,
         "files": input_files.describe(files),
+        **({"volumes": job.volumes} if job.volumes else {}),
         **({"pack": pack} if members else {}),
     }
 

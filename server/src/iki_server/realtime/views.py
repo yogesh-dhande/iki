@@ -239,6 +239,48 @@ async def batch_events(request: HttpRequest, ref: str) -> HttpResponseBase:
     )
 
 
+def _readable_setup(user: User, ref: str) -> str:
+    """The setup build's ID, if `user` manages compute (ADR 0075)."""
+    from iki_server.runs.models import SetupBuild
+
+    if not permissions.can(user, permissions.Action.COMPUTE_MANAGE):
+        raise Problem(404, "No such setup build.")
+    try:
+        found = SetupBuild.objects.filter(pk=UUID(ref)).values_list("pk", flat=True).first()
+    except ValueError:
+        found = SetupBuild.objects.filter(hrid=ref.upper()).values_list("pk", flat=True).first()
+    if found is None:
+        raise Problem(404, "No such setup build.")
+    return str(found)
+
+
+def _can_manage_compute(user: User) -> bool:
+    return permissions.can(user, permissions.Action.COMPUTE_MANAGE)
+
+
+async def setup_events(request: HttpRequest, ref: str) -> HttpResponseBase:
+    """``GET /api/v1/compute/setups/{ref}/events``: live updates about an environment setup
+    build, for its page: ``ready``, then ``setup`` when its state, progress or log changes,
+    and ``resync``. Only for Compute admins, checked again before each is sent."""
+    try:
+        user, still_valid, streams = await _open(request)
+        setup_id = await db(_readable_setup, user, ref)
+    except Problem as problem:
+        return response(problem)
+    stream = streams.subscribe(user.pk, live.setup_topic(UUID(setup_id)))
+    ready = sse("ready", {"id": setup_id})
+    return _streaming(_run(streams, stream, user, still_valid, ready, _prepare_setup))
+
+
+async def _prepare_setup(user: User, item: dict[str, Any]) -> bytes | None:
+    event, data = item["event"], item.get("data", {})
+    if event == "resync":
+        return sse(event, {})
+    if event == "setup" and await db(_can_manage_compute, user):
+        return sse(event, data)
+    return None
+
+
 async def _prepare_batch(batch_id: str, user: User, item: dict[str, Any]) -> bytes | None:
     event, data = item["event"], item.get("data", {})
     if event == "resync":

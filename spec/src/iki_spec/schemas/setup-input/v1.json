@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/setup-input/v1",
+  "title": "Iki setup input (iki/v1)",
+  "description": "What iki-worker gets when it leases an environment's setup build (ADR 0075): the script to run, the volumes it fills (each already mounted, writable, where the environment says), and the lease it holds. The script writes its volumes; it may write `{\"data_version\": \"\u2026\"}` to IKI_OUTPUT to say what the data is.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "setup", "job", "script", "volumes"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "SetupInput"
+    },
+    "setup": {
+      "type": "object",
+      "required": ["id", "hrid", "version", "environment", "plugin"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "hrid": {
+          "type": "string",
+          "description": "Such as SETUP-000012."
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The version of the environment's volumes it makes."
+        },
+        "environment": {
+          "type": "string",
+          "description": "plugin.environment"
+        },
+        "plugin": {
+          "type": "object",
+          "required": ["name", "version", "sha"],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "sha": {
+              "type": ["string", "null"],
+              "description": "The plugin's commit, when the deployment was built from a lockfile."
+            }
+          }
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "description": "For iki-worker: the lease it holds, and its limits.",
+      "required": ["id", "lease_token", "lease_expires_at", "heartbeat_every", "timeout"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "lease_token": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "lease_expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "heartbeat_every": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Seconds the script may run."
+        },
+        "proxy": {
+          "type": "string",
+          "pattern": "^http://",
+          "description": "For a setup that declares hosts under `setup.network`: the egress proxy, with this build's credentials. The worker gives it to the script as HTTPS_PROXY."
+        }
+      }
+    },
+    "script": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The setup script, a path in the plugin. The worker runs it with `sh`."
+    },
+    "volumes": {
+      "type": "object",
+      "description": "The volumes the script fills, by name.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["mount", "size"],
+        "additionalProperties": false,
+        "properties": {
+          "mount": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Bytes."
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "description": "The deployment's values for the plugin's settings, as its runs get them."
+    }
+  }
+}

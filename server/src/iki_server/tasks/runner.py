@@ -39,6 +39,7 @@ from iki_server import health
 from iki_server.runs import budgets as runs_budgets
 from iki_server.runs import imports as runs_imports
 from iki_server.runs import queue as runs_queue
+from iki_server.runs import setups as runs_setups
 from iki_server.tasks.backend import CHANNEL, GiveUp, LeaseExpired, Retry, load_task, to_result
 from iki_server.tasks.models import TaskRecord
 
@@ -323,6 +324,10 @@ class Runner:
                 ended = runs_queue.recover_expired()
                 if ended:
                     logger.info("jobs_recovered", count=ended)
+                # And setup builds' (ADR 0075).
+                ended = runs_setups.recover_expired()
+                if ended:
+                    logger.info("setups_recovered", count=ended)
             except Exception:
                 logger.exception("jobs_housekeeping_error")
             finally:

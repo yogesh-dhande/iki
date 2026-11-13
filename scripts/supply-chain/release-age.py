@@ -33,10 +33,7 @@ INDEX = "https://index.crates.io"
 #: ``exclude-newer-package`` entry (pyproject.toml) in step. Once a release is 3 days old
 #: the check says its exception can go; once it isn't locked, the check fails until it
 #: goes, so a stale exception can't hold a package back.
-EXCEPTIONS: dict[tuple[str, str], str] = {
-    ("playwright", "1.65.0"): "test tool, never shipped: 1.64's WebKit reports spurious "
-    "style-src-attr CSP violations against the document",
-}
+EXCEPTIONS: dict[tuple[str, str], str] = {}
 
 
 def _when(text: str) -> datetime:

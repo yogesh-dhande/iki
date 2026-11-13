@@ -35,6 +35,9 @@ HRID_SEQUENCE = "iki_hrid_run"
 #: And batches (BAT-000001).
 BATCH_HRID_PREFIX = "BAT"
 BATCH_HRID_SEQUENCE = "iki_hrid_batch"
+#: And environment setup builds (SETUP-000001).
+SETUP_HRID_PREFIX = "SETUP"
+SETUP_HRID_SEQUENCE = "iki_hrid_setup"
 
 
 class RunStatus(models.TextChoices):
@@ -403,6 +406,201 @@ class RegistrationToken(models.Model):
         return f"{self.label} (…{self.hint})"
 
 
+class SetupState(models.TextChoices):
+    #: Its environment's setup asks for a Compute admin's approval, other than whoever
+    #: asked for it.
+    AWAITING_APPROVAL = "awaiting_approval", "Awaiting approval"
+    QUEUED = "queued", "Queued"
+    #: Its machine's worker is running the setup script.
+    RUNNING = "running", "Running"
+    #: The script finished; its volumes are being snapshotted.
+    SNAPSHOTTING = "snapshotting", "Snapshotting"
+    SUCCEEDED = "succeeded", "Succeeded"
+    FAILED = "failed", "Failed"
+    TIMED_OUT = "timed_out", "Timed out"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+SETUP_FINISHED = frozenset(
+    {SetupState.SUCCEEDED, SetupState.FAILED, SetupState.TIMED_OUT, SetupState.CANCELLED}
+)
+
+
+class SetupBuild(models.Model):
+    """A run of an environment's setup script that fills its volumes, in one place (a
+    Kubernetes namespace), then snapshots them: a new version of each (ADR 0075). It
+    belongs to the deployment, not to a project: Compute admins ask for it, and approve
+    it when the environment says to. Runs then read the newest version that isn't
+    retired, and record which."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    hrid = models.CharField(max_length=32, unique=True, db_comment="Such as SETUP-000123.")
+    environment = models.CharField(max_length=200, db_comment="plugin.environment")
+    plugin_version = models.CharField(max_length=100)
+    plugin_sha = models.CharField(max_length=64, blank=True, default="")
+    image = models.CharField(max_length=500, db_comment="Pinned by its digest.")
+    #: Where its volumes are, and runs that read them run: a Kubernetes namespace.
+    place = models.CharField(max_length=63)
+    #: The compute template its machine was started on.
+    template = models.CharField(max_length=100)
+    #: 1 for the environment's first in its place, then 2, 3, ...
+    version = models.PositiveIntegerField()
+    #: The setup as installed when it was asked for: its script, timeout, hosts it
+    #: reaches, and the volumes it fills.
+    spec = models.JSONField()
+    state = models.CharField(max_length=32, choices=SetupState.choices)
+    reason = models.TextField(blank=True, default="")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    cancel_requested_at = models.DateTimeField(null=True, blank=True)
+    cancel_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: What the data is, as the setup said (``data_version`` in its output), such as
+    #: ``PDB 2026-10-01``. Runs record it with the version they read.
+    data_version = models.CharField(max_length=200, blank=True, default="")
+    #: Once retired, runs no longer start with it; its snapshots are deleted once no
+    #: machine holds a copy.
+    retired_at = models.DateTimeField(null=True, blank=True)
+    retired_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(db_default=Now())
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    #: Why it ended badly: ``code`` and ``message``.
+    error = models.JSONField(null=True, blank=True)
+    #: Seconds the script may run.
+    timeout = models.PositiveIntegerField()
+    #: The worker running it, and its lease, as for a run's job.
+    worker = models.ForeignKey(
+        "Worker", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    lease_token = models.UUIDField(null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    progress = models.FloatField(null=True, blank=True)
+    progress_message = models.CharField(max_length=500, blank=True, default="")
+    log_size = models.BigIntegerField(default=0)
+
+    class Meta:
+        db_table = "iki_setup_build"
+        db_table_comment = (
+            "Each run of an environment's setup: who asked, who approved, what it filled, "
+            "and how it ended."
+        )
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["environment", "place", "-version"], name="iki_setup_build_versions"
+            ),
+            models.Index(
+                fields=["state"],
+                name="iki_setup_build_unfinished",
+                condition=Q(state__in=["awaiting_approval", "queued", "running", "snapshotting"]),
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["environment", "place", "version"], name="iki_setup_build_version"
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=SetupState.values), name="iki_setup_build_state"
+            ),
+            models.CheckConstraint(condition=Q(version__gte=1), name="iki_setup_build_version_min"),
+            models.CheckConstraint(
+                condition=Q(finished_at__isnull=True)
+                | Q(state__in=sorted(s.value for s in SETUP_FINISHED)),
+                name="iki_setup_build_finished",
+            ),
+            # Only a build that succeeded is ever used, so only one can be retired.
+            models.CheckConstraint(
+                condition=Q(retired_at__isnull=True) | Q(state="succeeded"),
+                name="iki_setup_build_retired",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.hrid
+
+    @property
+    def finished(self) -> bool:
+        return self.state in SETUP_FINISHED
+
+
+class SetupLog(models.Model):
+    """A chunk of what a setup script wrote, at its byte offset in the build's log."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    build = models.ForeignKey(SetupBuild, on_delete=models.PROTECT, related_name="logs")
+    offset = models.BigIntegerField()
+    text = models.TextField()
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_setup_log"
+        db_table_comment = "What each setup build's script wrote, in chunks, in order."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["build", "offset"], name="iki_setup_log_offset"),
+            models.CheckConstraint(condition=Q(offset__gte=0), name="iki_setup_log_offset_min"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.build_id} @{self.offset}"
+
+
+class VolumeState(models.TextChoices):
+    #: Its snapshot is being taken.
+    CREATING = "creating", "Creating"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+    #: Its snapshot was deleted: its build was retired, and nothing held a copy.
+    DELETED = "deleted", "Deleted"
+
+
+class ManagedVolume(models.Model):
+    """One version of an environment's volume in one place: the snapshot a setup build
+    made of it, which each machine that runs the environment there gets a copy of (ADR
+    0075)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    build = models.ForeignKey(SetupBuild, on_delete=models.PROTECT, related_name="volumes")
+    environment = models.CharField(max_length=200, db_comment="plugin.environment")
+    name = models.CharField(max_length=63, db_comment="The volume's name in its environment.")
+    place = models.CharField(max_length=63)
+    #: The VolumeSnapshot's name in its namespace.
+    handle = models.CharField(max_length=253)
+    #: Bytes, as the environment declares it.
+    size = models.BigIntegerField()
+    state = models.CharField(
+        max_length=16, choices=VolumeState.choices, default=VolumeState.CREATING
+    )
+    #: What the platform said when it couldn't be made.
+    message = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+    ready_at = models.DateTimeField(null=True, blank=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_managed_volume"
+        db_table_comment = "Each version of each environment volume, in each place."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["build", "name"], name="iki_managed_volume_name"),
+            models.UniqueConstraint(fields=["place", "handle"], name="iki_managed_volume_handle"),
+            models.CheckConstraint(
+                condition=Q(state__in=VolumeState.values), name="iki_managed_volume_state"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.environment}/{self.name} ({self.build_id})"
+
+
 class LaunchState(models.TextChoices):
     #: Asked for: its pod is being scheduled, pulling its image or starting.
     STARTING = "starting", "Starting"
@@ -430,6 +628,14 @@ class Launch(models.Model):
     machine = models.CharField(max_length=64, blank=True, default="")
     market = models.CharField(max_length=16, blank=True, default="")
     zone = models.CharField(max_length=32, blank=True, default="")
+    #: For a machine started to run an environment's setup (ADR 0075): that build. Its
+    #: worker runs nothing else.
+    setup = models.ForeignKey(
+        SetupBuild, null=True, blank=True, on_delete=models.PROTECT, related_name="launches"
+    )
+    #: The versions of the environment's volumes it got a copy of: by name, the build,
+    #: its version and its ``data_version``. Each job it runs records them.
+    volumes = models.JSONField(default=dict, blank=True)
     #: Whether its worker runs one job and stops (an ephemeral machine). A persistent one
     #: runs one after another until it's stopped (ADR 0062).
     once = models.BooleanField(default=True)
@@ -573,6 +779,9 @@ class Job(models.Model):
     packed_into = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.RESTRICT, related_name="packed"
     )
+    #: The versions of its environment's volumes its machine had (ADR 0075): by name, the
+    #: setup build, its version and ``data_version``, for provenance.
+    volumes = models.JSONField(default=dict, blank=True)
     #: For an action that's ``checkpointable``: the checkpoint an earlier attempt saved that
     #: this one resumed from, once its worker restored it (ADR 0069).
     resumed_from = models.ForeignKey(
@@ -776,6 +985,34 @@ class JobEgress(models.Model):
 
     def __str__(self) -> str:
         return f"{self.job_id} {self.host}:{self.port}"
+
+
+class SetupEgress(models.Model):
+    """The hosts a setup build's script reached, or tried to, through the egress proxy, as
+    :class:`JobEgress` keeps for runs: where its reference data came from."""
+
+    id = models.BigAutoField(primary_key=True)
+    build = models.ForeignKey(SetupBuild, on_delete=models.CASCADE, related_name="egress")
+    host = models.CharField(max_length=253)
+    port = models.PositiveIntegerField()
+    refused = models.CharField(max_length=300, blank=True, default="")
+    connections = models.PositiveIntegerField(default=0)
+    bytes_sent = models.BigIntegerField(default=0)
+    bytes_received = models.BigIntegerField(default=0)
+    first_at = models.DateTimeField(db_default=Now())
+    last_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_setup_egress"
+        db_table_comment = "Hosts each setup build reached, or was refused, through the proxy."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["build", "host", "port", "refused"], name="iki_setup_egress_once"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.build_id} {self.host}:{self.port}"
 
 
 class Lineage(models.Model):

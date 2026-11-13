@@ -21,7 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.runs.models import Job, Launch, LaunchState, Worker
+from iki_server.runs.models import Job, Launch, LaunchState, SetupBuild, Worker
 from iki_spec.compute import TIER, Template
 
 __all__ = [
@@ -61,8 +61,12 @@ def create(
     namespace: str,
     once: bool,
     spec: str = "",
+    setup: SetupBuild | None = None,
+    volumes: dict[str, Any] | None = None,
 ) -> tuple[Launch, str]:
-    """A new launch, and its token (given to the pod only)."""
+    """A new launch, and its token (given to the pod only). With `setup`, its machine runs
+    that environment setup build, and nothing else (ADR 0075); `volumes` are the versions
+    of the environment's volumes it gets."""
     value = LAUNCH_PREFIX + secrets.token_urlsafe(32)
     now = timezone.now()
     with transaction.atomic():
@@ -75,11 +79,13 @@ def create(
             namespace=namespace,
             once=once,
             spec=spec,
+            setup=setup,
+            volumes=volumes or {},
             token_hash=_hash(value),
             created_at=now,
             expires_at=now + START_WITHIN,
         )
-        launch.name = f"iki-run-{launch.pk.hex}"
+        launch.name = f"iki-{'setup' if setup is not None else 'run'}-{launch.pk.hex}"
         launch.save(force_insert=True)
         audit.record(
             "worker.launched",
@@ -93,6 +99,8 @@ def create(
                 "namespace": namespace,
                 "name": launch.name,
                 "lifecycle": "ephemeral" if once else "persistent",
+                **({"setup": setup.hrid} if setup is not None else {}),
+                **({"volumes": volumes} if volumes else {}),
             },
         )
     return launch, value

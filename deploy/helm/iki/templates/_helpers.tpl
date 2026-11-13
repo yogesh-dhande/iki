@@ -125,6 +125,15 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ $ctx.Values.api.rateLimitPerMinute | quote }}
 - name: IKI_RUNS_CHECKPOINT_INTERVAL
   value: {{ $ctx.Values.checkpoints.interval | quote }}
+{{- if $ctx.Values.containerTier.enabled }}
+{{- $namespaces := include "iki.runNamespaces" $ctx | fromJsonArray }}
+{{- /* Where run pods go: the provisioner starts them there, and the API and tasks say
+which version of an environment's volumes machines there get (ADR 0075). */}}
+- name: IKI_RUNS_NAMESPACE
+  value: {{ first $namespaces | quote }}
+- name: IKI_RUNS_NAMESPACES
+  value: {{ rest $namespaces | join "," | quote }}
+{{- end }}
 {{- with $ctx.Values.clientWorkers.version }}
 - name: IKI_WORKER_VERSION
   value: {{ . | quote }}

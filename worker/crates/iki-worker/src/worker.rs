@@ -363,7 +363,15 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
         match api.post::<_, serde_json::Value>(&lease, &serde_json::json!({})) {
             Ok(Some(raw)) => {
                 failures = 0;
-                if job::run(&api, config, &have, &interrupted, &raw) == Ended::Unauthorized {
+                // A machine started for an environment's setup build leases that, and
+                // nothing else (ADR 0075).
+                let run =
+                    if raw.get("kind").and_then(serde_json::Value::as_str) == Some("SetupInput") {
+                        job::setup::run
+                    } else {
+                        job::run
+                    };
+                if run(&api, config, &have, &interrupted, &raw) == Ended::Unauthorized {
                     outcome = Err(revoked(config));
                     break;
                 }

@@ -13,9 +13,7 @@ required-version = ">=0.13.7"
 exclude-newer = "3 days"
 # Exceptions, each for one release, which scripts/supply-chain/release-age.py also lists:
 # remove each once it's 3 days old (the check says when).
-# - playwright 1.65.0 (test tool, never shipped): 1.64's WebKit reports spurious
-#   style-src-attr CSP violations against the document, which the browser tests catch.
-exclude-newer-package = { playwright = "2026-11-10T00:00:00Z" }
+# (None now.)
 
 [tool.uv.workspace]
 members = ["server", "cli", "spec", "codegen", "sdk/python"]

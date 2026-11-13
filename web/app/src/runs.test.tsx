@@ -246,6 +246,26 @@ describe("a run's page", () => {
     );
   });
 
+  it("says which version of its environment's reference data each attempt read", async () => {
+    onRun(run, () => [
+      attempt({
+        volumes: {
+          "af-db": {
+            build: "00000000-0000-7000-8000-0000000000s1",
+            hrid: "SETUP-000003",
+            version: 2,
+            data_version: "AlphaFold DBs 2026-10",
+          },
+        },
+      }),
+    ]);
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    expect((await screen.findByText("af-db")).closest("p")).toHaveTextContent(
+      "Read af-db version 2 (SETUP-000003, AlphaFold DBs 2026-10)",
+    );
+  });
+
   it("says when a run couldn't reach the internet", async () => {
     onRun(
       () => run(),

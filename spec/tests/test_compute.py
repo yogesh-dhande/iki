@@ -283,15 +283,36 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     deployment = (
         "apiVersion: iki/v1\nkind: ComputeTemplate\nname: pool\nprovisioner: k8s_deployment\n"
         "capacity: { cpu: 8, memory: 64Gi }\n"
-        "volumes: { af-db: { strategy: clone_from_snapshot, fast_snapshot_restore: true } }\n"
+        "volumes: { af-db: { strategy: object_mount, fast_snapshot_restore: true,"
+        " snapshot_class: ebs } }\n"
         "price: { per_hour: 0.4, currency: USD }\n"
     )
     result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, deployment)
     assert sorted(codes(result)) == [
         "fast-restore-wrong-strategy",
+        "snapshot-class-wrong-strategy",
         "unused-template",
-        "volume-strategy-unsupported",
     ]
+    classes = A100.replace(
+        "fast_snapshot_restore: true", "fast_snapshot_restore: true, storage_class: gp3"
+    )
+    loaded = load(tmp_path, plugins, BACKEND, classes, BINDINGS)
+    assert only(loaded, "volume-option-kubernetes-only")
+
+
+def test_a_pools_pods_each_get_a_clone_of_the_volume(tmp_path: Path, plugins: list[Plugin]) -> None:
+    pool = (
+        "apiVersion: iki/v1\nkind: ComputeTemplate\nname: pool\nprovisioner: k8s_deployment\n"
+        "capacity: { cpu: 96, memory: 1152Gi, gpu: { count: 8, memory: 40Gi, model: A100 },"
+        " scratch_disk: 500Gi }\n"
+        "volumes: { af-db: { strategy: clone_from_snapshot, storage_class: ebs-gp3,"
+        " snapshot_class: ebs } }\n"
+        "price: { per_hour: 0.4, currency: USD }\n"
+    )
+    result = load(tmp_path, plugins, BACKEND, pool)
+    assert "volume-strategy-unsupported" not in codes(result)
+    assert result.compute is not None
+    assert result.compute.templates["pool"].volumes["af-db"].snapshot_class == "ebs"
 
 
 def test_costs_are_in_one_currency(tmp_path: Path, plugins: list[Plugin]) -> None:

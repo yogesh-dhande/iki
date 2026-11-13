@@ -367,6 +367,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/setups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setup builds
+         * @description Newest first.
+         */
+        get: operations["iki_server_api_setups_list_setups"];
+        put?: never;
+        /**
+         * Ask for a setup build
+         * @description One build for each place the environment's runs go. Each waits for another Compute
+         *     admin's approval if its setup asks for it, and is queued otherwise. 409 while one is
+         *     still going there.
+         */
+        post: operations["iki_server_api_setups_create_setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/setups/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A setup build
+         * @description By its ID or HRID (SETUP-000012).
+         */
+        get: operations["iki_server_api_setups_get_setup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/setups/{ref}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a setup build
+         * @description By a Compute admin other than whoever asked for it.
+         */
+        post: operations["iki_server_api_setups_approve_setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/setups/{ref}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a setup build
+         * @description At once unless its script is running; then once its worker has stopped it.
+         */
+        post: operations["iki_server_api_setups_cancel_setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/setups/{ref}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A setup build's log
+         * @description What its script wrote, from byte `offset` on (the `size` you have), up to 1 MiB at
+         *     a time.
+         */
+        get: operations["iki_server_api_setups_setup_log"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/setups/{ref}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire a version of an environment's volumes
+         * @description New machines get the newest version that isn't retired (or none, and its runs wait).
+         *     Machines that have it keep it; its snapshots are deleted once none does.
+         */
+        post: operations["iki_server_api_setups_retire_setup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/volumes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Environments' volumes and their versions
+         * @description Each installed environment that declares volumes.
+         */
+        get: operations["iki_server_api_setups_list_volumes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/workers": {
         parameters: {
             query?: never;
@@ -2191,6 +2339,27 @@ export interface components {
              */
             runs: number;
         };
+        /** AttemptVolumeOut */
+        AttemptVolumeOut: {
+            /**
+             * Build
+             * Format: uuid
+             * @description The setup build that made this version.
+             */
+            build: string;
+            /**
+             * Data Version
+             * @description What the data is, as its setup said.
+             */
+            data_version: string;
+            /**
+             * Hrid
+             * @description Such as SETUP-000012.
+             */
+            hrid: string;
+            /** Version */
+            version: number;
+        };
         /** BatchCan */
         BatchCan: {
             /**
@@ -3162,6 +3331,29 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** EnvironmentVolumesOut */
+        EnvironmentVolumesOut: {
+            /**
+             * Environment
+             * @description plugin.environment
+             */
+            environment: string;
+            /** Label */
+            label: string;
+            /**
+             * Places
+             * @description Where its runs go, and the version machines there get.
+             */
+            places: components["schemas"]["VersionOut"][];
+            setup: components["schemas"]["SetupOut"] | null;
+            /** Volumes */
+            volumes: components["schemas"]["VolumeOut"][];
+            /**
+             * Waiting
+             * @description Why its runs can't start for want of its volumes, if so.
+             */
+            waiting: string;
+        };
         /** ErrorOut */
         ErrorOut: {
             /** Code */
@@ -4002,6 +4194,16 @@ export interface components {
         Page_ServiceAccountOut_: {
             /** Items */
             items: components["schemas"]["ServiceAccountOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[SetupBuildOut] */
+        Page_SetupBuildOut_: {
+            /** Items */
+            items: components["schemas"]["SetupBuildOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -4946,6 +5148,13 @@ export interface components {
              */
             template: string;
             /**
+             * Volumes
+             * @description The versions of its environment's volumes it read, by name (ADR 0075).
+             */
+            volumes: {
+                [key: string]: components["schemas"]["AttemptVolumeOut"];
+            };
+            /**
              * Worker
              * @description The name of the worker that ran it.
              */
@@ -5487,6 +5696,208 @@ export interface components {
             /** Name */
             name?: string | null;
         };
+        /** SetupBuildOut */
+        SetupBuildOut: {
+            /** Approved At */
+            approved_at: string | null;
+            approved_by: components["schemas"]["PersonRef"] | null;
+            /** Cancel Requested At */
+            cancel_requested_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Current
+             * @description Whether machines for its environment's runs get it now.
+             */
+            current: boolean;
+            /** Data Version */
+            data_version: string;
+            /**
+             * Egress
+             * @description The hosts its script reached, or was refused, through the egress proxy.
+             */
+            egress: components["schemas"]["SetupEgressOut"][];
+            /** Environment */
+            environment: string;
+            error: components["schemas"]["SetupErrorOut"] | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Image */
+            image: string;
+            /**
+             * Log Size
+             * @description Bytes of log its script wrote.
+             */
+            log_size: number;
+            /** Place */
+            place: string;
+            /** Plugin Sha */
+            plugin_sha: string;
+            /** Plugin Version */
+            plugin_version: string;
+            /** Progress */
+            progress: number | null;
+            /** Progress Message */
+            progress_message: string;
+            /** Reason */
+            reason: string;
+            requested_by: components["schemas"]["PersonRef"];
+            /** Retired At */
+            retired_at: string | null;
+            retired_by: components["schemas"]["PersonRef"] | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "awaiting_approval" | "queued" | "running" | "snapshotting" | "succeeded" | "failed" | "timed_out" | "cancelled";
+            /** Template */
+            template: string;
+            /**
+             * Timeout
+             * @description Seconds its script may run.
+             */
+            timeout: number;
+            /** Version */
+            version: number;
+            /**
+             * Volumes
+             * @description The snapshot of each volume it filled.
+             */
+            volumes: components["schemas"]["SetupVolumeOut"][];
+        };
+        /** SetupEgressOut */
+        SetupEgressOut: {
+            /** Bytes Received */
+            bytes_received: number;
+            /** Connections */
+            connections: number;
+            /** Host */
+            host: string;
+            /** Port */
+            port: number;
+            /**
+             * Refused
+             * @description Why the proxy refused it; empty if it was allowed.
+             */
+            refused: string;
+        };
+        /** SetupErrorOut */
+        SetupErrorOut: {
+            /**
+             * Code
+             * @description `failed`, `timed_out`, `interrupted`, `cancelled`, `worker_lost`, `machine_unavailable`, `template_gone` or `snapshot_failed`.
+             */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /** SetupFilters */
+        SetupFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Environment
+             * @description plugin.environment
+             */
+            environment?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /** State */
+            state?: ("awaiting_approval" | "queued" | "running" | "snapshotting" | "succeeded" | "failed" | "timed_out" | "cancelled") | null;
+        };
+        /** SetupIn */
+        SetupIn: {
+            /**
+             * Environment
+             * @description plugin.environment
+             */
+            environment: string;
+            /**
+             * Reason
+             * @description Why: a new database release, say.
+             * @default
+             */
+            reason: string;
+        };
+        /** SetupLogOut */
+        SetupLogOut: {
+            /**
+             * Finished
+             * @description Whether the build has ended: there'll be no more.
+             */
+            finished: boolean;
+            /**
+             * Offset
+             * @description Where `text` starts, in bytes.
+             */
+            offset: number;
+            /**
+             * Size
+             * @description Bytes of log so far.
+             */
+            size: number;
+            /** Text */
+            text: string;
+        };
+        /** SetupOut */
+        SetupOut: {
+            /**
+             * Network
+             * @description The hosts the setup may reach.
+             */
+            network: string[];
+            /** Requires Approval */
+            requires_approval: boolean;
+            /** Script */
+            script: string;
+            /**
+             * Timeout
+             * @description Seconds.
+             */
+            timeout: number | null;
+        };
+        /** SetupVolumeOut */
+        SetupVolumeOut: {
+            /**
+             * Handle
+             * @description The snapshot's name in the cluster.
+             */
+            handle: string;
+            /** Message */
+            message: string;
+            /** Name */
+            name: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+            /**
+             * State
+             * @description `ready`: machines can get a copy of it.
+             * @enum {string}
+             */
+            state: "creating" | "ready" | "failed" | "deleted";
+        };
         /** SortIn */
         SortIn: {
             /**
@@ -5791,6 +6202,43 @@ export interface components {
         UserPatch: {
             /** Active */
             active?: boolean | null;
+        };
+        /** VersionOut */
+        VersionOut: {
+            /**
+             * Build
+             * @description The setup build whose version runs get there now.
+             */
+            build: string | null;
+            /** Data Version */
+            data_version: string | null;
+            /** Hrid */
+            hrid: string | null;
+            /**
+             * Place
+             * @description The Kubernetes namespace its runs go in.
+             */
+            place: string;
+            /** Ready At */
+            ready_at: string | null;
+            /** Version */
+            version: number | null;
+        };
+        /** VolumeOut */
+        VolumeOut: {
+            /** Access */
+            access: string;
+            /** Filled By Setup */
+            filled_by_setup: boolean;
+            /** Mount */
+            mount: string;
+            /** Name */
+            name: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
         };
         /** WebhookCreated */
         WebhookCreated: {
@@ -6625,6 +7073,190 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkerRegistrationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_list_setups: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description plugin.environment */
+                environment?: string | null;
+                state?: ("awaiting_approval" | "queued" | "running" | "snapshotting" | "succeeded" | "failed" | "timed_out" | "cancelled") | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SetupBuildOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_create_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupBuildOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_get_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupBuildOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_approve_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupBuildOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_cancel_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupBuildOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_setup_log: {
+        parameters: {
+            query?: {
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupLogOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_retire_setup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupBuildOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_setups_list_volumes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvironmentVolumesOut"][];
                 };
             };
         };

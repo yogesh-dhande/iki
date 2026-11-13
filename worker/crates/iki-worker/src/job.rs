@@ -29,10 +29,13 @@ use std::time::{Duration, Instant};
 
 use iki_protocol::{
     CompleteIn, CompleteOut, FailIn, FailInReason, FailOut, HeartbeatIn, HeartbeatInState,
-    HeartbeatOut, LogIn, LogOut, ProgressIn, RunInput, RunInputFile,
-    RunInputJobCheckpointSaveOnItem as SaveOn, RunInputJobCheckpointSaved, fill, paths,
+    HeartbeatOut, LeaseIn, LogIn, LogOut, ProgressIn, RunInput, RunInputFile,
+    RunInputJobCheckpointSaveOnItem as SaveOn, RunInputJobCheckpointSaved, SetupHeartbeatOut, fill,
+    paths,
 };
 use rustix::process::{Pid, Signal, kill_process_group};
+
+pub mod setup;
 
 use crate::api::{self, Api, Error};
 use crate::checkpoint;
@@ -143,6 +146,9 @@ struct Job {
     api: Api,
     id: String,
     lease_token: String,
+    /// Whether it's an environment's setup build (ADR 0075), whose lease, log and
+    /// progress go to `/setups/…` rather than `/jobs/…`.
+    setup: bool,
     state: Mutex<HeartbeatInState>,
     signals: Signals,
     log: Log,
@@ -165,7 +171,19 @@ impl Job {
         }
     }
 
-    fn heartbeat(&self) -> Result<HeartbeatOut, Error> {
+    /// Renews the lease. Returns whether someone asked for it to stop.
+    fn heartbeat(&self) -> Result<bool, Error> {
+        let none = || Error::Transient("The heartbeat had no answer.".into());
+        if self.setup {
+            let body = LeaseIn {
+                lease_token: self.lease_token.clone(),
+            };
+            return self
+                .api
+                .post::<_, SetupHeartbeatOut>(&self.path(paths::SETUPS_HEARTBEAT), &body)?
+                .map(|beat| beat.cancel_requested)
+                .ok_or_else(none);
+        }
         let state = *self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let body = HeartbeatIn {
             lease_token: self.lease_token.clone(),
@@ -173,7 +191,24 @@ impl Job {
         };
         self.api
             .post::<_, HeartbeatOut>(&self.path(paths::JOBS_HEARTBEAT), &body)?
-            .ok_or_else(|| Error::Transient("The heartbeat had no answer.".into()))
+            .map(|beat| beat.cancel_requested)
+            .ok_or_else(none)
+    }
+
+    fn logs_path(&self) -> String {
+        self.path(if self.setup {
+            paths::SETUPS_LOGS
+        } else {
+            paths::JOBS_LOGS
+        })
+    }
+
+    fn progress_path(&self) -> String {
+        self.path(if self.setup {
+            paths::SETUPS_PROGRESS
+        } else {
+            paths::JOBS_PROGRESS
+        })
     }
 
     /// Sends what's waiting in the log, chunk by chunk. False if it should stop trying.
@@ -185,10 +220,7 @@ impl Job {
                 offset: i64::try_from(offset).unwrap_or(i64::MAX),
                 text,
             };
-            match self
-                .api
-                .post::<_, LogOut>(&self.path(paths::JOBS_LOGS), &body)
-            {
+            match self.api.post::<_, LogOut>(&self.logs_path(), &body) {
                 Ok(Some(LogOut { next_offset })) => {
                     self.log
                         .acknowledge(u64::try_from(next_offset).unwrap_or_default());
@@ -229,7 +261,7 @@ impl Job {
             };
             if let Err(error) = self
                 .api
-                .post::<_, serde_json::Value>(&self.path(paths::JOBS_PROGRESS), &body)
+                .post::<_, serde_json::Value>(&self.progress_path(), &body)
             {
                 self.note(&error);
             }
@@ -345,8 +377,8 @@ fn heartbeats(job: &Job, every: Duration) {
     while !job.signals.finished.load(Ordering::SeqCst) {
         if Instant::now() >= next {
             match job.heartbeat() {
-                Ok(beat) => {
-                    if beat.cancel_requested {
+                Ok(cancel_requested) => {
+                    if cancel_requested {
                         job.signals.cancel.store(true, Ordering::SeqCst);
                     }
                     next = Instant::now() + every;
@@ -496,6 +528,49 @@ pub struct Plan<'a> {
 
 /// The command's environment: nothing of the worker's but what programs need to run.
 fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(String, String)> {
+    let mut env = base_environment(built);
+    let path = |p: &Path| p.to_string_lossy().into_owned();
+    env.extend([
+        ("HOME".into(), path(&dirs.home)),
+        ("TMPDIR".into(), path(&dirs.tmp)),
+        ("IKI_INPUT".into(), path(&dirs.input)),
+        ("IKI_OUTPUT".into(), path(&dirs.output)),
+        ("IKI_OUT_DIR".into(), path(&dirs.out)),
+        ("IKI_RUN_ID".into(), input.run.id.clone()),
+        ("IKI_RUN_ATTEMPT".into(), input.run.attempt.to_string()),
+        // Output reaches the log as it's written, not when a buffer fills.
+        ("PYTHONUNBUFFERED".into(), "1".into()),
+    ]);
+    if input.job.checkpoint.is_some() {
+        env.push(("IKI_CHECKPOINT_DIR".into(), path(&dirs.checkpoint)));
+    }
+    // For its random numbers: the same again when the run is reproduced (ADR 0057).
+    if let Some(seed) = input.run.seed {
+        env.push(("IKI_SEED".into(), seed.to_string()));
+    }
+    // An action that declares hosts reaches them through the egress proxy, with this
+    // attempt's credentials (ADR 0053). Plain-HTTP requests go there too, to be refused
+    // with a reason rather than time out.
+    if let Some(proxy) = &input.job.proxy {
+        env.extend(proxy_environment(proxy));
+    }
+    // The secrets the action declares, for this command alone (ADR 0054).
+    if let Some(secrets) = &input.job.secrets {
+        env.extend(secrets.iter().map(|(n, v)| (n.clone(), v.clone())));
+    }
+    env
+}
+
+/// The proxy, as programs look for it.
+fn proxy_environment(proxy: &str) -> impl Iterator<Item = (String, String)> + '_ {
+    ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]
+        .into_iter()
+        .map(move |name| (name.to_owned(), proxy.to_owned()))
+}
+
+/// What any command the worker starts gets of its environment: what programs need to
+/// run, with the built environment's programs first.
+fn base_environment(built: Option<&Built>) -> Vec<(String, String)> {
     const PASSED: &[&str] = &[
         "PATH",
         "LANG",
@@ -531,36 +606,6 @@ fn environment(dirs: &Dirs, input: &RunInput, built: Option<&Built>) -> Vec<(Str
             Kind::Conda => "CONDA_PREFIX",
         };
         env.push((variable.into(), path(&built.prefix)));
-    }
-    env.extend([
-        ("HOME".into(), path(&dirs.home)),
-        ("TMPDIR".into(), path(&dirs.tmp)),
-        ("IKI_INPUT".into(), path(&dirs.input)),
-        ("IKI_OUTPUT".into(), path(&dirs.output)),
-        ("IKI_OUT_DIR".into(), path(&dirs.out)),
-        ("IKI_RUN_ID".into(), input.run.id.clone()),
-        ("IKI_RUN_ATTEMPT".into(), input.run.attempt.to_string()),
-        // Output reaches the log as it's written, not when a buffer fills.
-        ("PYTHONUNBUFFERED".into(), "1".into()),
-    ]);
-    if input.job.checkpoint.is_some() {
-        env.push(("IKI_CHECKPOINT_DIR".into(), path(&dirs.checkpoint)));
-    }
-    // For its random numbers: the same again when the run is reproduced (ADR 0057).
-    if let Some(seed) = input.run.seed {
-        env.push(("IKI_SEED".into(), seed.to_string()));
-    }
-    // An action that declares hosts reaches them through the egress proxy, with this
-    // attempt's credentials (ADR 0053). Plain-HTTP requests go there too, to be refused
-    // with a reason rather than time out.
-    if let Some(proxy) = &input.job.proxy {
-        for name in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
-            env.push((name.into(), proxy.clone()));
-        }
-    }
-    // The secrets the action declares, for this command alone (ADR 0054).
-    if let Some(secrets) = &input.job.secrets {
-        env.extend(secrets.iter().map(|(n, v)| (n.clone(), v.clone())));
     }
     env
 }
@@ -708,6 +753,7 @@ pub fn run(
         api: api.clone(),
         id: input.job.id.clone(),
         lease_token: input.job.lease_token.clone(),
+        setup: false,
         state: Mutex::new(HeartbeatInState::Staging),
         signals: Signals::default(),
         log: Log::default(),

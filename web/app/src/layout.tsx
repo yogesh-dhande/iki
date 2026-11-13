@@ -122,6 +122,11 @@ export function Layout() {
                   Costs
                 </Link>
               ) : null}
+              {me.can.manage_compute ? (
+                <Link to="/compute/volumes/" activeProps={{ "aria-current": "page" }}>
+                  Compute
+                </Link>
+              ) : null}
               {me.can.read_audit ? <a href="/audit/">Audit</a> : null}
             </nav>
             <form className="header-actions" method="post" action="/logout/">

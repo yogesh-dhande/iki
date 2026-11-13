@@ -330,16 +330,20 @@ export const BATCH_REFRESH_MS = 500;
  * - Like the app's own stream, a tab hidden for a while closes it, and one the
  *   server refused tries again later.
  */
-function useStream(
+export function useStream(
   url: string,
   enabled: boolean,
   refresh: () => Promise<unknown>,
   onEvent?: (event: string, data: Record<string, unknown>) => void,
+  /** The events that call `refresh`, besides `resync`. */
+  changes: readonly string[] = ["run"],
 ): void {
   const handlers = useRef({ refresh, onEvent });
   useEffect(() => {
     handlers.current = { refresh, onEvent };
   });
+  // A string, so a new array each render doesn't open the stream again.
+  const kinds = changes.join(" ");
   useEffect(() => {
     if (!enabled || typeof EventSource === "undefined") return;
     let source: EventSource | undefined;
@@ -361,7 +365,7 @@ function useStream(
         if (readyBefore) reread();
         readyBefore = true;
       });
-      stream.addEventListener("run", reread);
+      for (const change of kinds.split(" ")) stream.addEventListener(change, reread);
       stream.addEventListener("resync", reread);
       stream.addEventListener("log", (event: MessageEvent<string>) => {
         handlers.current.onEvent?.("log", parse(event));
@@ -398,5 +402,5 @@ function useStream(
       clearTimeout(retryTimer);
       close();
     };
-  }, [url, enabled]);
+  }, [url, enabled, kinds]);
 }

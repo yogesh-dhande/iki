@@ -197,6 +197,7 @@ describe("a run in a batch", () => {
         error: null,
         network: [],
         secrets: [],
+        volumes: {},
         pack: { runs: 3, reported_as: "RUN-000001" },
       },
     ]);

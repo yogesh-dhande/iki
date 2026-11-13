@@ -159,6 +159,21 @@
         "items": { "$ref": "#/$defs/entity" }
       }
     },
+    "volumes": {
+      "type": "object",
+      "description": "The environment's volumes its machine has (ADR 0075), by name: the setup build that made the version, its number, and what its setup said the data is. Each is mounted read-only where the environment says.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["build", "hrid", "version", "data_version"],
+        "additionalProperties": false,
+        "properties": {
+          "build": { "type": "string", "format": "uuid" },
+          "hrid": { "type": "string", "pattern": "^SETUP-[0-9]{6,}$" },
+          "version": { "type": "integer", "minimum": 1 },
+          "data_version": { "type": "string" }
+        }
+      }
+    },
     "pack": {
       "type": "array",
       "description": "When the job runs several runs of a batch at once (a `batchable` action): each run, and the entity its input holds, in the order the input lists them. `run` is the first. Each update, new entity (by `derived_from`) and message (by `entity`) is kept with its entity's run, so a new entity must say which it was derived from.",

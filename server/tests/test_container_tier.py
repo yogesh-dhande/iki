@@ -91,6 +91,8 @@ class FakeCluster:
         self.refuse: str | None = None
         self.deleted: list[str] = []
         self.labelled: dict[tuple[str, str], dict[str, str]] = {}
+        #: PVCs and VolumeSnapshots, by kind, namespace and name (ADR 0075).
+        self.objects: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     def create_job(self, namespace: str, job: dict[str, Any], secret: dict[str, Any]) -> None:
         if self.refuse:
@@ -131,6 +133,26 @@ class FakeCluster:
                 mine.pop(key, None)
             else:
                 mine[key] = value
+
+    def create(self, namespace: str, kind: str, manifest: dict[str, Any]) -> None:
+        key = (kind, namespace, manifest["metadata"]["name"])
+        if key in self.objects:
+            raise KubernetesError(409, "already exists")
+        self.objects[key] = {**manifest, "status": {}}
+
+    def list(self, namespace: str, kind: str, selector: str) -> list[dict[str, Any]]:
+        label, _, value = selector.partition("=")
+        return [
+            item
+            for (k, ns, _), item in self.objects.items()
+            if k == kind
+            and ns == namespace
+            and label in item["metadata"].get("labels", {})
+            and (not value or item["metadata"]["labels"][label] == value)
+        ]
+
+    def delete(self, namespace: str, kind: str, name: str) -> None:
+        self.objects.pop((kind, namespace, name), None)
 
     # What happens to the pods.
 
