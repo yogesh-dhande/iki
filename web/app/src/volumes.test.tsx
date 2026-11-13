@@ -387,6 +387,46 @@ describe("Compute → Volumes", () => {
     );
   });
 
+  it("says what a build waits for before and after its script", async () => {
+    const approved = { approved_by: ADA, approved_at: "2026-11-13T09:05:00Z" };
+    onVolumes(() => [
+      build({
+        ...approved,
+        state: "queued",
+        place: "us-east-1",
+        template: "a100-spot",
+        progress_message:
+          "Waiting for a machine: EC2 has no p4d.24xlarge free (on_demand in subnet-0a1b: InsufficientInstanceCapacity). Iki tries again shortly.",
+      }),
+      build({
+        ...approved,
+        id: "00000000-0000-7000-8000-0000000000s0",
+        hrid: "SETUP-000000",
+        state: "snapshotting",
+        progress_message: "Indexed the databases",
+        volumes: [
+          {
+            name: "af-db",
+            state: "creating",
+            size: 3 * 1024 ** 4,
+            handle: "snap-0123456789abcdef0",
+            message: "Being made fast to restore: us-east-1a (optimizing)",
+          },
+        ],
+      }),
+    ]);
+    await renderApp("/compute/volumes/");
+    await loaded();
+    expect(card().getByText(/EC2 has no p4d.24xlarge free/)).toBeInTheDocument();
+    expect(
+      card().getByText(
+        "Its script succeeded; its volumes are being snapshotted. af-db: Being made fast to restore: us-east-1a (optimizing).",
+      ),
+    ).toBeInTheDocument();
+    // What its script last said doesn't linger once it's done.
+    expect(card().queryByText(/Indexed the databases/)).not.toBeInTheDocument();
+  });
+
   it("cancels a build, keeping it if you change your mind", async () => {
     let current = build({ state: "queued", approved_by: ADA, approved_at: "2026-11-13T09:05:00Z" });
     onVolumes(() => [current]);

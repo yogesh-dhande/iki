@@ -298,6 +298,22 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
     )
     loaded = load(tmp_path, plugins, BACKEND, classes, BINDINGS)
     assert only(loaded, "volume-option-kubernetes-only")
+    fast = A100.replace("fast_snapshot_restore: true", "fast_snapshot_restore: true, iops: 16000")
+    quick = fast.replace("16000", "16000, throughput: 1000")
+    disks = load(tmp_path, plugins, BACKEND, quick, BINDINGS)
+    assert codes(disks) == []
+    assert disks.compute is not None
+    assert disks.compute.templates["a100-spot"].volumes["af-db"].iops == 16000
+    assert disks.compute.templates["a100-spot"].volumes["af-db"].throughput == 1000
+    slow = load(
+        tmp_path, plugins, BACKEND, fast.replace("16000", "3000, throughput: 1000"), BINDINGS
+    )
+    assert only(slow, "volume-throughput-above-iops")
+    pods = deployment.replace(
+        "object_mount, fast_snapshot_restore: true, snapshot_class: ebs", "object_mount, iops: 4000"
+    )
+    result = load(tmp_path, plugins, BACKEND, A100, BINDINGS, pods)
+    assert sorted(codes(result)) == ["unused-template", "volume-option-aws-only"]
 
 
 def test_a_pools_pods_each_get_a_clone_of_the_volume(tmp_path: Path, plugins: list[Plugin]) -> None:

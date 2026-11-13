@@ -248,6 +248,18 @@
             "type": "string",
             "maxLength": 253,
             "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "iops": {
+            "description": "On AWS: each disk's provisioned IOPS (gp3's 3,000 unless set).",
+            "type": "integer",
+            "minimum": 3000,
+            "maximum": 80000
+          },
+          "throughput": {
+            "description": "On AWS: each disk's throughput, in MiB/s (gp3's 125 unless set). At most a quarter of its IOPS.",
+            "type": "integer",
+            "minimum": 125,
+            "maximum": 2000
           }
         },
         "additionalProperties": false

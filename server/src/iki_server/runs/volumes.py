@@ -43,8 +43,19 @@ from iki_server.runs.models import (
     SetupState,
     VolumeState,
 )
+from iki_spec.compute import Template
 
-__all__ = ["SETUP_LABEL", "tick"]
+__all__ = [
+    "SETUP_LABEL",
+    "fail",
+    "in_use",
+    "kept",
+    "ready_to_start",
+    "stuck",
+    "succeed",
+    "template_of",
+    "tick",
+]
 
 logger = structlog.get_logger("iki.provisioner")
 
@@ -54,6 +65,10 @@ SETUP_LABEL = "iki.ikisci.org/setup"
 VOLUME_LABEL = "iki.ikisci.org/volume"
 #: A machine for a build that couldn't start this many times ends the build.
 START_TRIES = 3
+#: After a platform had no machine to give, the wait before trying again, doubling each
+#: time, up to the most. Those tries don't count towards :data:`START_TRIES`.
+BACKOFF = timedelta(seconds=30)
+MAX_BACKOFF = timedelta(minutes=10)
 #: How long a snapshot may take to become ready before the build fails.
 SNAPSHOT_WITHIN = timedelta(hours=6)
 
@@ -91,38 +106,89 @@ def tick(cluster: Cluster, pods: RunPods, namespaces: list[str], now: datetime) 
 # --- Starting a build's machine -------------------------------------------------------------
 
 
-def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) -> int:
+def ready_to_start(build: SetupBuild, now: datetime) -> bool:
+    """Whether to start a machine for the build now: none is starting, and fewer than
+    :data:`START_TRIES` failed to (it fails when they have). A platform with no machine to
+    give is waited for, longer each time."""
     tries = list(Launch.objects.filter(setup=build).order_by("-created_at"))
     if any(each.state != LaunchState.ENDED for each in tries):
-        return 0  # its machine is starting, or its worker is about to lease it
+        return False  # its machine is starting, or its worker is about to lease it
     # One whose worker didn't lease it counts too: it'd go the same way again.
-    failed = tries
+    failed = [each for each in tries if each.ended_reason != "no_capacity"]
     if len(failed) >= START_TRIES:
-        with transaction.atomic():
-            locked = SetupBuild.objects.select_for_update().get(pk=build.pk)
-            if locked.state == SetupState.QUEUED:
-                setups.end(
-                    locked,
-                    SetupState.FAILED,
-                    {
-                        "code": "machine_unavailable",
-                        "message": f"No machine could start for it, {len(failed)} times: "
-                        f"{failed[0].message or failed[0].ended_reason}",
-                    },
-                )
-        return 1
+        fail(
+            build,
+            SetupState.QUEUED,
+            "machine_unavailable",
+            f"No machine could start for it, {len(failed)} times: "
+            f"{failed[0].message or failed[0].ended_reason}",
+        )
+        return False
+    waited = [each for each in tries if each.ended_reason == "no_capacity"]
+    if waited and tries[0].ended_reason == "no_capacity" and tries[0].ended_at is not None:
+        wait = min(BACKOFF * 2 ** (len(waited) - 1), MAX_BACKOFF)
+        if tries[0].ended_at + wait > now:
+            return False
+    return True
+
+
+def template_of(build: SetupBuild) -> Template | None:
+    """The build's compute template; when it's gone, the build fails."""
     template = catalog.compute().templates.get(build.template)
     if template is None:
-        with transaction.atomic():
-            locked = SetupBuild.objects.select_for_update().get(pk=build.pk)
-            setups.end(
-                locked,
-                SetupState.FAILED,
-                {
-                    "code": "template_gone",
-                    "message": f"Its compute template, {build.template}, is gone.",
-                },
+        fail(
+            build,
+            build.state,
+            "template_gone",
+            f"Its compute template, {build.template}, is gone.",
+        )
+    return template
+
+
+def fail(build: SetupBuild, was: str, code: str, message: str) -> None:
+    """Ends the build failed, if it's still `was`."""
+    with transaction.atomic():
+        locked = SetupBuild.objects.select_for_update().get(pk=build.pk)
+        if locked.state != was:
+            return
+        if was == SetupState.SNAPSHOTTING:
+            ManagedVolume.objects.filter(build=locked).exclude(state=VolumeState.READY).update(
+                state=VolumeState.FAILED, message=message[:500]
             )
+        setups.end(locked, SetupState.FAILED, {"code": code, "message": message})
+
+
+def succeed(build: SetupBuild) -> int:
+    """Ends the build succeeded, once every volume's snapshot is ready."""
+    with transaction.atomic():
+        locked = SetupBuild.objects.select_for_update().get(pk=build.pk)
+        if locked.state != SetupState.SNAPSHOTTING:
+            return 0
+        setups.end(locked, SetupState.SUCCEEDED)
+    logger.info("setup_succeeded", build=build.hrid, version=build.version)
+    return 1
+
+
+def stuck(build: SetupBuild, now: datetime, within: timedelta) -> bool:
+    """Whether its snapshots have taken longer than `within` past its script's timeout."""
+    began = build.started_at or build.created_at
+    return now - began > timedelta(seconds=build.timeout) + within
+
+
+def kept(build: SetupBuild) -> bool:
+    """Whether a finished build's snapshots are kept: it succeeded, and it isn't retired or
+    a live machine still has a copy."""
+    return build.state == SetupState.SUCCEEDED and (
+        build.retired_at is None or in_use(str(build.pk))
+    )
+
+
+def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) -> int:
+    if not ready_to_start(build, now):
+        build.refresh_from_db(fields=["state"])
+        return int(build.state != SetupState.QUEUED)
+    template = template_of(build)
+    if template is None:
         return 1
     claims: dict[str, tuple[str, str]] = {}
     have = {
@@ -152,6 +218,8 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
         namespace=build.place,
         once=True,
         setup=build,
+        # Its worker leases the build once every disk it fills is known.
+        volumes={volume: {"disk": claim} for volume, (claim, _) in claims.items()},
     )
     job, secret = job_manifest(
         name=launch.name,
@@ -225,36 +293,20 @@ def _snapshot(cluster: Cluster, build: SetupBuild, now: datetime) -> int:
             ready += 1
         elif (status.get("error") or {}).get("message"):
             failure = f"Its snapshot of {volume} failed: {status['error']['message']}"
-    stuck = build.finished_at is None and (now - (build.started_at or build.created_at)) > (
-        timedelta(seconds=build.timeout) + SNAPSHOT_WITHIN
-    )
-    if failure or stuck:
-        message = failure or "Its snapshots didn't become ready in time."
-        with transaction.atomic():
-            locked = SetupBuild.objects.select_for_update().get(pk=build.pk)
-            if locked.state == SetupState.SNAPSHOTTING:
-                ManagedVolume.objects.filter(build=locked).exclude(state=VolumeState.READY).update(
-                    state=VolumeState.FAILED, message=message[:500]
-                )
-                setups.end(
-                    locked, SetupState.FAILED, {"code": "snapshot_failed", "message": message}
-                )
+    if not failure and build.finished_at is None and stuck(build, now, SNAPSHOT_WITHIN):
+        failure = "Its snapshots didn't become ready in time."
+    if failure:
+        fail(build, SetupState.SNAPSHOTTING, "snapshot_failed", failure)
         return 1
     if ready < len(build.spec["volumes"]):
         return 0
-    with transaction.atomic():
-        locked = SetupBuild.objects.select_for_update().get(pk=build.pk)
-        if locked.state != SetupState.SNAPSHOTTING:
-            return 0
-        setups.end(locked, SetupState.SUCCEEDED)
-    logger.info("setup_succeeded", build=build.hrid, version=build.version)
-    return 1
+    return succeed(build)
 
 
 # --- Tidying up -------------------------------------------------------------------------------
 
 
-def _in_use(build_id: str) -> bool:
+def in_use(build_id: str) -> bool:
     """Whether a live machine has a copy of the build's volumes."""
     live = Launch.objects.exclude(state=LaunchState.ENDED).exclude(volumes={})
     return any(
@@ -295,10 +347,7 @@ def _tidy(cluster: Cluster, namespace: str) -> None:
             continue
         if build.state in (SetupState.SNAPSHOTTING, SetupState.RUNNING, SetupState.QUEUED):
             continue
-        keep = build.state == SetupState.SUCCEEDED and (
-            build.retired_at is None or _in_use(str(build.pk))
-        )
-        if keep:
+        if kept(build):
             continue
         cluster.delete(namespace, "snapshot", name)
         ManagedVolume.objects.filter(build=build, handle=name).exclude(

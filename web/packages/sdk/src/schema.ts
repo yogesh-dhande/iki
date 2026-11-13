@@ -6216,7 +6216,7 @@ export interface components {
             hrid: string | null;
             /**
              * Place
-             * @description The Kubernetes namespace its runs go in.
+             * @description Where its runs go: a Kubernetes namespace, or an AWS region.
              */
             place: string;
             /** Ready At */

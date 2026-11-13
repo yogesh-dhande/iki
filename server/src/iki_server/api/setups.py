@@ -56,7 +56,7 @@ class SetupOut(Schema):
 
 
 class VersionOut(Schema):
-    place: str = Field(description="The Kubernetes namespace its runs go in.")
+    place: str = Field(description="Where its runs go: a Kubernetes namespace, or an AWS region.")
     build: UUID | None = Field(description="The setup build whose version runs get there now.")
     hrid: str | None
     version: int | None

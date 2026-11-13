@@ -78,8 +78,8 @@ Status: **done**, **in progress**, or **planned**.
 | 34c  | An agent's changes name both the person and the agent                                                            | done    | `6ca056c`                               |
 | 34d  | Unattended agents act for a person by delegation (RFC 8693 token exchange)                                       | done    | `c4ef170`                               |
 | 35   | VM tier: AWS EC2, ephemeral and persistent; spot interruptions resume from checkpoints                           | done    | `94b2a39`                               |
-| 36   | Managed volumes on Kubernetes: setup builds, snapshots, read-only copies for runs, data versions in provenance   | done    |                                         |
-| 36b  | Managed volumes on the VM tier: EBS snapshots, fast snapshot restore                                             | planned |                                         |
+| 36   | Managed volumes on Kubernetes: setup builds, snapshots, read-only copies for runs, data versions in provenance   | done    | `66eaeb7`                               |
+| 36b  | Managed volumes on the VM tier: EBS snapshots, fast snapshot restore                                             | done    |                                         |
 | 36c  | ESMFold in the protein plugin, its weights in a volume its setup fills                                           | planned |                                         |
 | 36d  | Shared file systems (FSx), object storage mounts, disks one run at a time changes                                | planned |                                         |
 | 37   | The structure_prediction plugin: AlphaFold2, ColabFold, Boltz                                                    | planned |                                         |

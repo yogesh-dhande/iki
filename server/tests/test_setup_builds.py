@@ -83,8 +83,8 @@ def world(settings: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Ite
     file.write_text(json.dumps(compute))
     monkeypatch.setenv("IKI_COMPUTE_FILE", str(file))
     catalog.compute.cache_clear()
-    # AlphaFold's environment has both tiers; its action asks for VM machines, which get
-    # their volumes in step 36b. Here it runs on pods.
+    # AlphaFold's environment has both tiers; its action asks for VM machines, whose
+    # volumes are test_vm_volumes'. Here it runs on pods.
     predict = catalog.action(PREDICT)
     assert predict is not None
     monkeypatch.setitem(

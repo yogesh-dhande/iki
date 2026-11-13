@@ -9099,7 +9099,7 @@
             "title": "Hrid"
           },
           "place": {
-            "description": "The Kubernetes namespace its runs go in.",
+            "description": "Where its runs go: a Kubernetes namespace, or an AWS region.",
             "title": "Place",
             "type": "string"
           },

@@ -3,10 +3,11 @@
 An environment can declare volumes its setup script fills: AlphaFold's databases, say. A
 Compute admin asks for a build. If the environment's setup asks for approval, another
 Compute admin gives it. The provisioner then starts a machine for the build in each
-place the environment's runs go (a Kubernetes namespace), with a fresh, writable disk for
-each volume. The machine's worker leases the build (not a run), runs the script with the
-setup's network, and reports how it ended. The provisioner snapshots the disks, and once
-every snapshot is ready, the build has succeeded: a new version of each volume.
+place the environment's runs go (a Kubernetes namespace, or an AWS region for the vm
+tier), with a fresh, writable disk for each volume. The machine's worker leases the build
+(not a run), runs the script with the setup's network, and reports how it ended. The
+provisioner snapshots the disks, and once every snapshot is ready, the build has
+succeeded: a new version of each volume.
 
 Machines started for the environment's runs then get a read-only copy of the newest
 version that isn't retired, and each job records which it read (its build, version and
@@ -46,7 +47,7 @@ from iki_server.runs.models import (
     VolumeState,
     Worker,
 )
-from iki_spec.compute import KUBERNETES, Template
+from iki_spec.compute import KUBERNETES, TIER, Template
 from iki_spec.model import Environment
 
 __all__ = [
@@ -61,6 +62,7 @@ __all__ = [
     "heartbeat",
     "lease",
     "missing",
+    "place_of",
     "places",
     "progress",
     "recover_expired",
@@ -114,43 +116,49 @@ def filled(environment: Environment) -> list[str]:
 
 @dataclass(frozen=True)
 class Place:
-    """Where an environment's runs go that its setup fills volumes for: a Kubernetes
-    namespace, and the template a build's machine there is started on."""
+    """Where an environment's runs go that its setup fills volumes for (a Kubernetes
+    namespace, or an AWS region), and the template a build's machine there is started on."""
 
     name: str
     template: Template
 
 
-def _namespace(template: Template) -> str:
-    from iki_server.runs.provisioner import namespace_of
+def place_of(template: Template) -> str | None:
+    """Where the template's machines go, if this deployment starts them: its namespace, if
+    the provisioner may start pods there, or its region, if it starts EC2 instances."""
+    from django.conf import settings
 
-    return namespace_of(template)
+    from iki_server.runs.provisioner import namespace_of, namespaces
+
+    if template.provisioner in KUBERNETES:
+        namespace = namespace_of(template)
+        return namespace if namespace in namespaces() else None
+    if template.provisioner == "aws_ec2" and settings.IKI_RUNS_VM_OWNER:
+        return str(template.aws["region"])
+    return None
 
 
 def places(qualified: str) -> list[Place]:
-    """Each namespace the environment's bound templates start machines in, with a volume
-    from a snapshot for each volume its setup fills, and the first such template there."""
-    from iki_server.runs.provisioner import namespaces
-
+    """Each place the environment's bound templates start machines in, with a volume from a
+    snapshot for each volume its setup fills, and the first such template there."""
     environment = environment_of(qualified)
     deployment = catalog.compute()
     binding = deployment.bindings.get(qualified)
     if environment is None or binding is None:
         return []
     wanted = filled(environment)
-    allowed = set(namespaces())
     found: dict[str, Place] = {}
     for name, _ in binding.templates:
         template = deployment.templates.get(name)
-        if template is None or template.provisioner not in KUBERNETES:
+        if template is None:
             continue
         given = template.volumes
         if not wanted or any(
             v not in given or given[v].strategy not in FILLED_BY_SNAPSHOT for v in wanted
         ):
             continue
-        place = _namespace(template)
-        if place in allowed:
+        place = place_of(template)
+        if place is not None:
             found.setdefault(place, Place(place, template))
     return list(found.values())
 
@@ -220,8 +228,8 @@ def missing(qualified: str) -> str:
     if not found:
         return (
             f"Waiting for its reference data ({names}): none of its machines can have it yet. "
-            "A Compute admin can bind it to a Kubernetes template that gives its volumes "
-            "from a snapshot."
+            "A Compute admin can bind it to a template that gives its volumes from a "
+            "snapshot."
         )
     return (
         f"Waiting for its reference data ({names}): no version is ready. A Compute admin "
@@ -344,7 +352,7 @@ def request(by: Any, qualified: str, reason: str = "") -> list[SetupBuild]:  # n
             )
             made.append(build)
         if not approval:
-            queue.notify("container")
+            queue.notify(tier(build))
     return made
 
 
@@ -463,16 +471,34 @@ def lease(worker: Worker) -> tuple[SetupBuild, dict[str, Any]] | None:
         build = _locked(launch.setup_id)
         if build.state != SetupState.QUEUED or build.cancel_requested_at is not None:
             return None
+        if set(locked.volumes) != set(build.spec["volumes"]):
+            # The provisioner hasn't yet seen which disk is which volume's, so it couldn't
+            # snapshot them: the worker asks again shortly.
+            return None
         build.state = SetupState.RUNNING
+        build.progress_message = ""
         build.worker = worker
         build.lease_token = uuid.uuid4()
         build.lease_expires_at = now + LEASE_TTL
         build.started_at = now
         build.save(
-            update_fields=["state", "worker", "lease_token", "lease_expires_at", "started_at"]
+            update_fields=[
+                "state",
+                "worker",
+                "lease_token",
+                "lease_expires_at",
+                "started_at",
+                "progress_message",
+            ]
         )
         live.setup_changed(build.pk)
         return build, payload(build)
+
+
+def tier(build: SetupBuild) -> str:
+    """The tier of the machine the build runs on."""
+    template = catalog.compute().templates.get(build.template)
+    return TIER.get(template.provisioner, "container") if template is not None else "container"
 
 
 def payload(build: SetupBuild) -> dict[str, Any]:
@@ -482,11 +508,16 @@ def payload(build: SetupBuild) -> dict[str, Any]:
     assert build.lease_token is not None and build.lease_expires_at is not None  # noqa: S101
     plugin = build.environment.partition(".")[0]
     proxy = {}
-    if build.spec.get("network") and settings.IKI_EGRESS_PROXY_URL:
+    # VMs reach the proxy from their VPC, not the cluster's network (ADR 0074).
+    url = (
+        settings.IKI_RUNS_VM_EGRESS_PROXY_URL
+        if tier(build) == "vm"
+        else settings.IKI_EGRESS_PROXY_URL
+    )
+    if build.spec.get("network") and url:
         from urllib.parse import urlsplit
 
-        netloc = urlsplit(settings.IKI_EGRESS_PROXY_URL).netloc
-        proxy = {"proxy": f"http://{build.pk}:{build.lease_token}@{netloc}"}
+        proxy = {"proxy": f"http://{build.pk}:{build.lease_token}@{urlsplit(url).netloc}"}
     return {
         "apiVersion": "iki/v1",
         "kind": "SetupInput",
@@ -620,7 +651,7 @@ def finish(
             # Its machine is done: the provisioner snapshots its disks and ends it.
             from iki_server.runs import queue
 
-            queue.notify("container")
+            queue.notify(tier(build))
         else:
             _end(build, OUTCOMES[outcome], {"code": outcome, "message": message[:2000]}, now)
         return build

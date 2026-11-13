@@ -13,6 +13,9 @@ security groups, with:
 - Tags naming the deployment, the launch, its template and environment, so the
   provisioner finds its own instances and nobody else's, and an IAM policy can say so.
 - ``terminate`` when it shuts itself down: an ephemeral machine does once its run is done.
+- A disk for each of the environment's volumes its setup fills (ADR 0076): a new one from
+  the version's EBS snapshot, mounted read-only, for a run's machine; an empty one, kept
+  when the machine ends so it can be snapshotted, for a setup build's.
 
 Its user data (:func:`user_data`) copies ``iki-worker`` out of Iki's signed worker image,
 pinned by its digest, and starts ``iki-worker host``. That pulls the environment's image,
@@ -36,12 +39,17 @@ from iki_spec.compute import ROOT_DEFAULT, Template
 from iki_spec.model import parse_quantity
 
 __all__ = [
+    "DEVICES",
     "LAUNCH_TAG",
     "OWNER_TAG",
+    "SETUP_TAG",
+    "VOLUME_TAG",
     "Boto3Ec2",
+    "Disk",
     "Ec2",
     "Ec2Error",
     "VmMachines",
+    "disks",
     "host_config",
     "host_trouble",
     "instance_request",
@@ -56,11 +64,20 @@ OWNER_TAG = "iki.ikisci.org/deployment"
 LAUNCH_TAG = "iki.ikisci.org/launch"
 TEMPLATE_TAG = "iki.ikisci.org/template"
 ENVIRONMENT_TAG = "iki.ikisci.org/environment"
+#: A setup build's disks and snapshots carry its ID, and the volume's name (ADR 0076).
+SETUP_TAG = "iki.ikisci.org/setup"
+VOLUME_TAG = "iki.ikisci.org/volume"
 
 #: Where things live on a run machine.
 HOST = "/opt/iki"
 HOST_WORKER = f"{HOST}/bin/iki-worker"
 HOST_SCRATCH = "/var/lib/iki/scratch"
+#: Where the machine mounts each volume's disk, by the volume's name.
+HOST_VOLUMES = "/var/lib/iki/volumes"
+#: The device names data disks are attached as, in order of their volumes' names. On
+#: Nitro instances the kernel names them nvme…; the image's udev rules (Amazon Linux's
+#: amazon-ec2-utils) link these names to them.
+DEVICES = tuple(f"/dev/sd{letter}" for letter in "fghijklmnopqrstuvwxyz")
 CONFIG = "/etc/iki/host.json"
 TOKEN = "/etc/iki/token"  # noqa: S105 - where it's kept, not a token
 #: Seconds the worker gets to stop when AWS takes a spot instance back: it warns two
@@ -127,6 +144,39 @@ class Ec2(Protocol):
     def console(self, region: str, instance_id: str) -> str:
         """What the instance last wrote to its serial console, if EC2 has it."""
 
+    # Setup builds' disks and snapshots (ADR 0076).
+
+    def volumes(self, region: str, owner: str) -> list[dict[str, Any]]:
+        """The deployment's setup builds' disks in `region`, as EC2 describes them."""
+
+    def delete_volume(self, region: str, volume_id: str) -> None:
+        """Deletes the disk; nothing if it's gone already."""
+
+    def create_snapshot(
+        self, region: str, volume_id: str, description: str, tags: dict[str, str]
+    ) -> dict[str, Any]:
+        """Starts a snapshot of the disk; returns it, as EC2 describes it."""
+
+    def snapshots(self, region: str, owner: str) -> list[dict[str, Any]]:
+        """The deployment's setup builds' snapshots in `region`, as EC2 describes them."""
+
+    def delete_snapshot(self, region: str, snapshot_id: str) -> None:
+        """Deletes the snapshot; nothing if it's gone already."""
+
+    def zones(self, region: str, subnet_ids: list[str]) -> dict[str, str]:
+        """Each subnet's availability zone."""
+
+    def fast_restores(self, region: str, snapshot_ids: list[str]) -> list[dict[str, Any]]:
+        """Each zone the snapshots are, or are being made, fast to restore in, and its
+        state, as EC2 describes them."""
+
+    def enable_fast_restores(self, region: str, snapshot_id: str, zones: list[str]) -> list[str]:
+        """Makes the snapshot fast to restore in the zones. Returns why EC2 wouldn't, for
+        any it wouldn't."""
+
+    def disable_fast_restores(self, region: str, snapshot_id: str, zones: list[str]) -> None:
+        """Stops the snapshot being fast to restore in the zones."""
+
 
 @dataclass(frozen=True)
 class VmMachines:
@@ -140,6 +190,37 @@ class VmMachines:
     allow_http: bool = False
 
 
+@dataclass(frozen=True)
+class Disk:
+    """A data disk a machine gets for one of its environment's volumes (ADR 0076)."""
+
+    #: The volume's name, where the run's container sees it, and its size in bytes.
+    name: str
+    mount: str
+    size: int
+    #: A run's machine gets a new disk from this snapshot, mounted read-only, and deleted
+    #: with the machine. A setup build's gets an empty one, writable, kept when the
+    #: machine ends so it can be snapshotted.
+    snapshot: str | None = None
+
+    @property
+    def writable(self) -> bool:
+        return self.snapshot is None
+
+
+def disks(volumes: dict[str, dict[str, Any]]) -> list[Disk]:
+    """The disks for the environment's volumes, in the order they're attached: for a run's
+    machine, from :func:`setups.volumes_for`; for a setup build's, from its spec."""
+    return [
+        Disk(name, str(v["mount"]), int(v["size"]), v.get("snapshot"))
+        for name, v in sorted(volumes.items())
+    ]
+
+
+def gib(size: int) -> int:
+    return max(1, -(-int(size) // 1024**3))
+
+
 def root_disk(template: Template) -> int:
     """The instance's disk, in GiB: what the template says, or its scratch space and room
     for the system and the run's image."""
@@ -149,7 +230,7 @@ def root_disk(template: Template) -> int:
         if wanted is not None
         else (template.capacity.scratch_disk or 0) + ROOT_DEFAULT
     )
-    return max(1, -(-int(size or 0) // 1024**3))
+    return gib(int(size or 0))
 
 
 def host_config(
@@ -161,8 +242,10 @@ def host_config(
     machines: VmMachines,
     once: bool,
     spot: bool,
+    data: list[Disk] | None = None,
 ) -> dict[str, Any]:
-    """What ``iki-worker host`` reads: the run's container, and how to stop it."""
+    """What ``iki-worker host`` reads: the run's container, its disks, and how to stop
+    it."""
     have = template.capacity
     env = worker_settings(
         template,
@@ -190,6 +273,16 @@ def host_config(
         "gpus": have.gpu_count,
         "stop_timeout": STOP,
         "spot_stop_timeout": SPOT_STOP,
+        "volumes": [
+            {
+                "name": disk.name,
+                "device": DEVICES[n],
+                "path": f"{HOST_VOLUMES}/{disk.name}",
+                "mount": disk.mount,
+                "writable": disk.writable,
+            }
+            for n, disk in enumerate(data or [])
+        ],
     }
 
 
@@ -275,6 +368,7 @@ def user_data(
     once: bool,
     spot: bool,
     token: str,
+    data: list[Disk] | None = None,
 ) -> str:
     config = host_config(
         name=name,
@@ -284,6 +378,7 @@ def user_data(
         machines=machines,
         once=once,
         spot=spot,
+        data=data,
     )
     return _SCRIPT.format(
         name=name,
@@ -326,11 +421,16 @@ def instance_request(
     subnet: str,
     spot: bool,
     attempt: int,
+    data: list[Disk] | None = None,
+    setup: str | None = None,
 ) -> dict[str, Any]:
     """A ``RunInstances`` request for one of the launch's tries: a market (spot or
     on-demand) in a subnet. Each try has a client token of its own, so EC2 starts at most
-    one instance for it however often it's sent."""
+    one instance for it however often it's sent. `data` are the disks for its
+    environment's volumes; `setup`, the setup build it's for, whose ID its disks carry."""
     aws = template.aws
+    if len(data or []) > len(DEVICES):
+        raise ValueError(f"A machine can have at most {len(DEVICES)} volumes.")
     disk: dict[str, Any] = {
         "VolumeSize": root_disk(template),
         "VolumeType": "gp3",
@@ -339,7 +439,8 @@ def instance_request(
     }
     if aws.get("kms_key"):
         disk["KmsKeyId"] = aws["kms_key"]
-    tags = _tags(machines, template, environment, Name=name, **{LAUNCH_TAG: launch_id})
+    ours = {LAUNCH_TAG: launch_id, **({SETUP_TAG: setup} if setup else {})}
+    tags = _tags(machines, template, environment, Name=name, **ours)
     request: dict[str, Any] = {
         "ImageId": aws["image"],
         "InstanceType": aws["instance_type"],
@@ -356,7 +457,13 @@ def instance_request(
                 "DeleteOnTermination": True,
             }
         ],
-        "BlockDeviceMappings": [{"DeviceName": aws.get("root_device") or "/dev/xvda", "Ebs": disk}],
+        "BlockDeviceMappings": [
+            {"DeviceName": aws.get("root_device") or "/dev/xvda", "Ebs": disk},
+            *(
+                {"DeviceName": DEVICES[n], "Ebs": _data_disk(template, each)}
+                for n, each in enumerate(data or [])
+            ),
+        ],
         "MetadataOptions": {
             "HttpTokens": "required",
             "HttpPutResponseHopLimit": 1,
@@ -373,6 +480,7 @@ def instance_request(
             once=once,
             spot=spot,
             token=token,
+            data=data,
         ),
         "TagSpecifications": [
             {"ResourceType": "instance", "Tags": tags},
@@ -389,6 +497,26 @@ def instance_request(
             },
         }
     return request
+
+
+def _data_disk(template: Template, disk: Disk) -> dict[str, Any]:
+    """A volume's disk: encrypted, of gp3 with the template's IOPS and throughput."""
+    given = template.volumes.get(disk.name)
+    ebs: dict[str, Any] = {
+        "VolumeSize": gib(disk.size),
+        "VolumeType": "gp3",
+        "Encrypted": True,
+        "DeleteOnTermination": not disk.writable,
+    }
+    if disk.snapshot:
+        ebs["SnapshotId"] = disk.snapshot
+    if given is not None and given.iops:
+        ebs["Iops"] = given.iops
+    if given is not None and given.throughput:
+        ebs["Throughput"] = given.throughput
+    if template.aws.get("kms_key"):
+        ebs["KmsKeyId"] = template.aws["kms_key"]
+    return ebs
 
 
 def host_trouble(console: str) -> tuple[str, str] | None:
@@ -502,3 +630,117 @@ class Boto3Ec2:
             return base64.b64decode(output).decode("utf-8", "replace")
         except ValueError:
             return str(output)
+
+    def _pages(
+        self,
+        region: str,
+        operation: str,
+        key: str,
+        **params: Any,  # noqa: ANN401 - boto3's parameters
+    ) -> list[dict[str, Any]]:
+        found: list[dict[str, Any]] = []
+        token = None
+        while True:
+            page = self._call(
+                region, operation, **params, **({"NextToken": token} if token else {})
+            )
+            found.extend(page.get(key) or [])
+            token = page.get("NextToken")
+            if not token:
+                return found
+
+    def volumes(self, region: str, owner: str) -> list[dict[str, Any]]:
+        return self._pages(
+            region,
+            "describe_volumes",
+            "Volumes",
+            Filters=[
+                {"Name": f"tag:{OWNER_TAG}", "Values": [owner]},
+                {"Name": "tag-key", "Values": [SETUP_TAG]},
+            ],
+            MaxResults=500,
+        )
+
+    def delete_volume(self, region: str, volume_id: str) -> None:
+        try:
+            self._call(region, "delete_volume", VolumeId=volume_id)
+        except Ec2Error as error:
+            if error.code != "InvalidVolume.NotFound":
+                raise
+
+    def create_snapshot(
+        self, region: str, volume_id: str, description: str, tags: dict[str, str]
+    ) -> dict[str, Any]:
+        made: dict[str, Any] = self._call(
+            region,
+            "create_snapshot",
+            VolumeId=volume_id,
+            Description=description[:255],
+            TagSpecifications=[
+                {
+                    "ResourceType": "snapshot",
+                    "Tags": [{"Key": k, "Value": v} for k, v in tags.items()],
+                }
+            ],
+        )
+        return made
+
+    def snapshots(self, region: str, owner: str) -> list[dict[str, Any]]:
+        return self._pages(
+            region,
+            "describe_snapshots",
+            "Snapshots",
+            OwnerIds=["self"],
+            Filters=[
+                {"Name": f"tag:{OWNER_TAG}", "Values": [owner]},
+                {"Name": "tag-key", "Values": [SETUP_TAG]},
+            ],
+            MaxResults=1000,
+        )
+
+    def delete_snapshot(self, region: str, snapshot_id: str) -> None:
+        try:
+            self._call(region, "delete_snapshot", SnapshotId=snapshot_id)
+        except Ec2Error as error:
+            if error.code != "InvalidSnapshot.NotFound":
+                raise
+
+    def zones(self, region: str, subnet_ids: list[str]) -> dict[str, str]:
+        found = self._call(region, "describe_subnets", SubnetIds=subnet_ids)
+        return {
+            str(subnet["SubnetId"]): str(subnet["AvailabilityZone"])
+            for subnet in found.get("Subnets") or []
+        }
+
+    def fast_restores(self, region: str, snapshot_ids: list[str]) -> list[dict[str, Any]]:
+        if not snapshot_ids:
+            return []
+        return self._pages(
+            region,
+            "describe_fast_snapshot_restores",
+            "FastSnapshotRestores",
+            Filters=[{"Name": "snapshot-id", "Values": snapshot_ids}],
+            MaxResults=200,
+        )
+
+    def enable_fast_restores(self, region: str, snapshot_id: str, zones: list[str]) -> list[str]:
+        made = self._call(
+            region,
+            "enable_fast_snapshot_restores",
+            AvailabilityZones=zones,
+            SourceSnapshotIds=[snapshot_id],
+        )
+        return [
+            f"{error.get('Code', 'Unknown')}: {error.get('Message', '')}"
+            for item in made.get("Unsuccessful") or []
+            for each in item.get("FastSnapshotRestoreStateErrors") or []
+            for error in [each.get("Error") or {}]
+        ]
+
+    def disable_fast_restores(self, region: str, snapshot_id: str, zones: list[str]) -> None:
+        self._call(
+            region,
+            "disable_fast_snapshot_restores",
+            AvailabilityZones=zones,
+            SourceSnapshotIds=[snapshot_id],
+        )

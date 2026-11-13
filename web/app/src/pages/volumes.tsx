@@ -391,8 +391,17 @@ function BuildRow({
             </span>
           </div>
         ) : null}
+        {build.state === "queued" && build.progress_message ? (
+          <p className="row-meta">{build.progress_message}</p>
+        ) : null}
         {build.state === "snapshotting" ? (
-          <p className="row-meta">Its script succeeded; its volumes are being snapshotted.</p>
+          <p className="row-meta">
+            Its script succeeded; its volumes are being snapshotted.
+            {build.volumes
+              .filter((volume) => volume.state === "creating" && volume.message)
+              .map((volume) => ` ${volume.name}: ${volume.message}.`)
+              .join("")}
+          </p>
         ) : null}
         {build.cancel_requested_at && !finished ? (
           <p className="row-meta">Cancelling: its script is being stopped.</p>

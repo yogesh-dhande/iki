@@ -21,7 +21,7 @@ from test_workers import WorkerClient
 
 from iki_server.audit.models import AuditEvent
 from iki_server.runs import catalog, provisioner, setups
-from iki_server.runs.ec2 import LAUNCH_TAG, OWNER_TAG, Ec2Error
+from iki_server.runs.ec2 import LAUNCH_TAG, OWNER_TAG, SETUP_TAG, Ec2Error
 from iki_server.runs.ec2_fleet import Ec2Fleet
 from iki_server.runs.models import (
     ActionRun,
@@ -100,9 +100,9 @@ def world(settings: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Ite
     settings.IKI_RUNS_VM_OWNER = "iki-test"
     settings.IKI_RUNS_VM_SERVER_URL = "https://iki.internal.example.com"
     use(monkeypatch, tmp_path, a100())
-    # These are about the machines: AlphaFold's databases (a volume its setup fills) come
-    # to vm-tier machines with EBS snapshots (step 36b). Until then its runs wait for them:
-    # test_vm_machines_wait_for_volumes_they_cant_have_yet.
+    # These are about the machines: AlphaFold's databases (a volume its setup fills) are
+    # test_vm_volumes', and this template gives none (see
+    # test_vm_machines_wait_for_volumes_they_cant_have_yet).
     monkeypatch.setattr(setups, "filled", lambda environment: [])
     yield build_world()
     catalog.compute.cache_clear()
@@ -120,7 +120,8 @@ def tag(instance: dict[str, Any], key: str) -> str | None:
 
 
 class FakeEc2:
-    """Keeps the instances the provisioner starts, as EC2 would."""
+    """Keeps the instances the provisioner starts, their disks, and snapshots of them, as
+    EC2 would."""
 
     def __init__(self) -> None:
         self.made: dict[str, dict[str, Any]] = {}
@@ -129,6 +130,12 @@ class FakeEc2:
         self.no: dict[Any, str] = {}
         self.terminated: list[str] = []
         self.consoles: dict[str, str] = {}
+        self.disks: dict[str, dict[str, Any]] = {}
+        self.snaps: dict[str, dict[str, Any]] = {}
+        #: Each snapshot's fast restore state, by zone.
+        self.fast: dict[str, dict[str, str]] = {}
+        #: Why EC2 won't make a snapshot fast to restore, if it won't.
+        self.no_fast = ""
 
     def run_instance(self, region: str, request: dict[str, Any]) -> dict[str, Any]:
         self.requests.append(request)
@@ -140,6 +147,23 @@ class FakeEc2:
         (tags,) = [
             t["Tags"] for t in request["TagSpecifications"] if t["ResourceType"] == "instance"
         ]
+        (disk_tags,) = [
+            t["Tags"] for t in request["TagSpecifications"] if t["ResourceType"] == "volume"
+        ]
+        attached = []
+        for mapping in request["BlockDeviceMappings"]:
+            disk = {
+                "VolumeId": f"vol-{len(self.disks) + 1:017x}",
+                "State": "in-use",
+                "Size": mapping["Ebs"]["VolumeSize"],
+                "Tags": list(disk_tags),
+                "ebs": mapping["Ebs"],
+                "region": region,
+            }
+            self.disks[disk["VolumeId"]] = disk
+            attached.append(
+                {"DeviceName": mapping["DeviceName"], "Ebs": {"VolumeId": disk["VolumeId"]}}
+            )
         instance = {
             "InstanceId": f"i-{len(self.made) + 1:017x}",
             "ImageId": "ami-0123456789abcdef0",
@@ -147,6 +171,7 @@ class FakeEc2:
             "Placement": {"AvailabilityZone": ZONES[subnet]},
             "State": {"Name": "pending"},
             "Tags": list(tags),
+            "BlockDeviceMappings": attached,
             "region": region,
             "request": request,
         }
@@ -164,12 +189,87 @@ class FakeEc2:
             self.terminated.append(each)
 
     def tag(self, region: str, instance_id: str, tags: dict[str, str], remove: list[str]) -> None:
+        if instance_id in self.disks:
+            self.tag_disk(self.disks[instance_id], tags)
+            return
         instance = self.made[instance_id]
         kept = [t for t in instance["Tags"] if t["Key"] not in tags and t["Key"] not in remove]
         instance["Tags"] = kept + [{"Key": k, "Value": v} for k, v in tags.items()]
 
     def console(self, region: str, instance_id: str) -> str:
         return self.consoles.get(instance_id, "")
+
+    def volumes(self, region: str, owner: str) -> list[dict[str, Any]]:
+        return [
+            d
+            for d in self.disks.values()
+            if d["region"] == region
+            and d["State"] != "deleted"
+            and tag(d, OWNER_TAG) == owner
+            and tag(d, SETUP_TAG) is not None
+        ]
+
+    def tag_disk(self, disk: dict[str, Any], tags: dict[str, str]) -> None:
+        kept = [t for t in disk["Tags"] if t["Key"] not in tags]
+        disk["Tags"] = kept + [{"Key": k, "Value": v} for k, v in tags.items()]
+
+    def delete_volume(self, region: str, volume_id: str) -> None:
+        if volume_id in self.disks:
+            assert self.disks[volume_id]["State"] != "in-use", volume_id
+            self.disks[volume_id]["State"] = "deleted"
+
+    def create_snapshot(
+        self, region: str, volume_id: str, description: str, tags: dict[str, str]
+    ) -> dict[str, Any]:
+        assert self.disks[volume_id]["State"] == "available", "snapshot of a disk in use"
+        snapshot: dict[str, Any] = {
+            "SnapshotId": f"snap-{len(self.snaps) + 1:017x}",
+            "VolumeId": volume_id,
+            "State": "pending",
+            "Progress": "0%",
+            "Description": description,
+            "StartTime": f"2026-11-13T00:00:{len(self.snaps):02d}Z",
+            "Tags": [{"Key": k, "Value": v} for k, v in tags.items()],
+            "region": region,
+        }
+        self.snaps[snapshot["SnapshotId"]] = snapshot
+        return snapshot
+
+    def snapshots(self, region: str, owner: str) -> list[dict[str, Any]]:
+        return [
+            s
+            for s in self.snaps.values()
+            if s["region"] == region
+            and s["State"] != "deleted"
+            and tag(s, OWNER_TAG) == owner
+            and tag(s, SETUP_TAG) is not None
+        ]
+
+    def delete_snapshot(self, region: str, snapshot_id: str) -> None:
+        if snapshot_id in self.snaps:
+            self.snaps[snapshot_id]["State"] = "deleted"
+            self.fast.pop(snapshot_id, None)
+
+    def zones(self, region: str, subnet_ids: list[str]) -> dict[str, str]:
+        return {each: ZONES[each] for each in subnet_ids}
+
+    def fast_restores(self, region: str, snapshot_ids: list[str]) -> list[dict[str, Any]]:
+        return [
+            {"SnapshotId": snapshot, "AvailabilityZone": zone, "State": state}
+            for snapshot in snapshot_ids
+            for zone, state in sorted(self.fast.get(snapshot, {}).items())
+        ]
+
+    def enable_fast_restores(self, region: str, snapshot_id: str, zones: list[str]) -> list[str]:
+        if self.no_fast:
+            return [self.no_fast for _ in zones]
+        for zone in zones:
+            self.fast.setdefault(snapshot_id, {})[zone] = "enabling"
+        return []
+
+    def disable_fast_restores(self, region: str, snapshot_id: str, zones: list[str]) -> None:
+        for zone in zones:
+            self.fast.setdefault(snapshot_id, {})[zone] = "disabling"
 
     # What happens to the instances.
 
@@ -182,6 +282,10 @@ class FakeEc2:
         instance = self.made[instance_id]
         instance["State"] = {"Name": state}
         instance["StateReason"] = {"Code": code, "Message": f"{code}: it ended"}
+        if state == "terminated":
+            for mapping in instance.pop("BlockDeviceMappings", []):
+                disk = self.disks[mapping["Ebs"]["VolumeId"]]
+                disk["State"] = "deleted" if disk["ebs"]["DeleteOnTermination"] else "available"
 
     def token(self, instance: dict[str, Any]) -> str:
         found = re.search(r"IKI_HOST_TOKEN'\n(.+)\nIKI_HOST_TOKEN", instance["request"]["UserData"])

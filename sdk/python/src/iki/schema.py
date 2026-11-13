@@ -1993,7 +1993,7 @@ class VersionOut(TypedDict):
     build: str | None
     data_version: str | None
     hrid: str | None
-    #: The Kubernetes namespace its runs go in.
+    #: Where its runs go: a Kubernetes namespace, or an AWS region.
     place: str
     ready_at: str | None
     version: int | None

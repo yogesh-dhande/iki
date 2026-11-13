@@ -101,6 +101,10 @@ class TemplateVolume:
     #: snapshots (the cluster's defaults unless set).
     storage_class: str | None = None
     snapshot_class: str | None = None
+    #: On AWS: each disk's provisioned IOPS and throughput (MiB/s), as gp3 allows (EBS's
+    #: baseline unless set).
+    iops: int | None = None
+    throughput: int | None = None
 
 
 @dataclass(frozen=True)
@@ -327,6 +331,8 @@ def _template(data: dict[str, Any]) -> Template:
                 bool(v.get("fast_snapshot_restore", False)),
                 storage_class=v.get("storage_class"),
                 snapshot_class=v.get("snapshot_class"),
+                iops=v.get("iops"),
+                throughput=v.get("throughput"),
             )
             for n, v in (data.get("volumes") or {}).items()
         },
@@ -504,6 +510,28 @@ class _Rules:
                         (*path, option),
                         key=True,
                     )
+            for option in ("iops", "throughput"):
+                if getattr(volume, option) is not None and template.provisioner != "aws_ec2":
+                    self.add(
+                        "volume-option-aws-only",
+                        f"`{option}` is for `aws_ec2`.",
+                        document,
+                        (*path, option),
+                        key=True,
+                    )
+            if (
+                volume.iops is not None
+                and volume.throughput is not None
+                and volume.throughput * 4 > volume.iops
+            ):
+                # gp3 gives at most 0.25 MiB/s for each IOPS provisioned.
+                self.add(
+                    "volume-throughput-above-iops",
+                    f"A disk with {volume.iops} IOPS gives at most {volume.iops // 4} MiB/s.",
+                    document,
+                    (*path, "throughput"),
+                    hint=f"Raise `iops` to at least {volume.throughput * 4}.",
+                )
             if volume.snapshot_class is not None and volume.strategy != "clone_from_snapshot":
                 self.add(
                     "snapshot-class-wrong-strategy",

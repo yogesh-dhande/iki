@@ -105,7 +105,7 @@ snapshots; the development cluster uses the CSI host-path driver.
 - Each run pod's disk is a clone of the snapshot. Most CSI drivers make
   these quickly and lazily, but the first reads may be slower than from a
   disk made in advance.
-- VM-tier machines can't have these volumes yet: their runs wait, saying so.
-  EBS snapshots, with fast snapshot restore, come next (step 36b), then
-  shared file systems, object storage mounts and disks one run at a time
-  changes (36d).
+- VM-tier machines get these volumes from EBS snapshots, with fast snapshot
+  restore when a template asks ([0076](0076-vm-tier-volumes-come-from-ebs-snapshots.md)).
+  Shared file systems, object storage mounts and disks one run at a time
+  changes come later (step 36d).

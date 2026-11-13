@@ -13,6 +13,11 @@
 //!
 //! When it gives up before the worker could start, it says why on the machine's console
 //! as `IKI-HOST-ERROR <reason>: <message>`, which the provisioner reads back.
+//!
+//! An environment's volumes come as disks attached to the machine (ADR 0076): for a run,
+//! each a new copy of the version's snapshot, mounted read-only; for a setup build, each
+//! empty, formatted here, mounted writable for the script to fill, and unmounted once the
+//! container ends so the provisioner can snapshot it whole.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -60,6 +65,23 @@ pub struct Config {
     pub stop_timeout: u64,
     /// Seconds it has when the machine is being reclaimed: under EC2's two minutes.
     pub spot_stop_timeout: u64,
+    /// A disk for each of the environment's volumes.
+    #[serde(default)]
+    pub volumes: Vec<Volume>,
+}
+
+/// One of the environment's volumes, on a disk attached to the machine.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Volume {
+    pub name: String,
+    /// The device it's attached as, such as `/dev/sdf`.
+    pub device: String,
+    /// Where it's mounted on the machine, and where the container sees it.
+    pub path: PathBuf,
+    pub mount: String,
+    /// A setup build's: empty, to format and fill. Otherwise a copy of a snapshot, read-only.
+    pub writable: bool,
 }
 
 /// How it reaches the machine: Docker, its metadata, and its own shutdown. Tests swap
@@ -70,6 +92,11 @@ pub struct Machine {
     pub metadata: String,
     /// The first wait between pulls; each one after waits longer.
     pub pause: Duration,
+    /// Where `blkid`, `mkfs.ext4`, `mountpoint`, `mount`, `umount` and `chown` are: on the
+    /// `PATH` when empty.
+    pub tools: PathBuf,
+    /// How long a volume's disk may take to be attached.
+    pub attach_within: Duration,
 }
 
 impl Default for Machine {
@@ -79,6 +106,8 @@ impl Default for Machine {
             shutdown: ["shutdown", "-h", "now"].map(str::to_owned).to_vec(),
             metadata: "http://169.254.169.254".to_owned(),
             pause: Duration::from_secs(10),
+            tools: PathBuf::new(),
+            attach_within: Duration::from_secs(300),
         }
     }
 }
@@ -119,9 +148,14 @@ pub fn host(config_file: &Path) -> Result<(), String> {
             .map_err(|error| format!("Couldn't watch for signals: {error}"))?;
     }
     let machine = Machine::default();
-    let ended = read(config_file)
-        .map_err(|message| Trouble::new("bad_config", message))
-        .and_then(|config| run(&config, config_file, &machine, &interrupted));
+    let config = read(config_file);
+    let ended = match &config {
+        Ok(config) => run(config, config_file, &machine, &interrupted),
+        Err(message) => Err(Trouble::new("bad_config", message.clone())),
+    };
+    if let (Ok(config), Ok(Ended::Exited(_) | Ended::Reclaimed(_))) = (&config, &ended) {
+        release(config, &machine);
+    }
     let outcome = match ended {
         Ok(Ended::Stopped) => return Ok(()),
         Ok(Ended::Exited(code) | Ended::Reclaimed(code)) if code != 0 => {
@@ -155,6 +189,7 @@ pub fn run(
         "Starting the run's container.",
         &[("machine", &config.name), ("image", &config.image)],
     );
+    attach(config, machine, interrupted)?;
     pull(config, machine, interrupted)?;
     if interrupted.load(Ordering::SeqCst) {
         return Ok(Ended::Stopped);
@@ -169,6 +204,141 @@ pub fn run(
         .map_err(|e| Trouble::new("start_failed", format!("Couldn't start the container: {e}")))?;
     say::info("The run's container started.", &[("machine", &config.name)]);
     watch(config, machine, interrupted)
+}
+
+/// Mounts each volume's disk: a setup build's formatted first if it's empty, writable by
+/// the run's user; a run's read-only.
+fn attach(config: &Config, machine: &Machine, interrupted: &AtomicBool) -> Result<(), Trouble> {
+    for volume in &config.volumes {
+        let trouble = |message: String| {
+            Trouble::new(
+                "volume_unavailable",
+                format!("its disk for {}: {message}", volume.name),
+            )
+        };
+        let Some(device) = device(volume, machine, interrupted) else {
+            if interrupted.load(Ordering::SeqCst) {
+                return Ok(());
+            }
+            return Err(trouble(format!(
+                "{} wasn't attached within {}s (the machine image needs udev rules that \
+                 name EBS disks by their device, as Amazon Linux's do)",
+                volume.device,
+                machine.attach_within.as_secs()
+            )));
+        };
+        let device = device.to_string_lossy().into_owned();
+        let path = volume.path.to_string_lossy().into_owned();
+        if tool(machine, "mountpoint", &["-q", &path]).is_ok() {
+            continue; // an earlier start of this service mounted it
+        }
+        let formatted = tool(machine, "blkid", &["-p", &device]).is_ok();
+        if !formatted {
+            if !volume.writable {
+                return Err(trouble(format!("{device} has no file system")));
+            }
+            say::info(
+                "Formatting a volume's disk.",
+                &[("volume", &volume.name), ("device", &device)],
+            );
+            tool(
+                machine,
+                "mkfs.ext4",
+                &[
+                    "-q",
+                    "-m",
+                    "0",
+                    "-E",
+                    "lazy_itable_init=1,lazy_journal_init=1",
+                    &device,
+                ],
+            )
+            .map_err(&trouble)?;
+        }
+        std::fs::create_dir_all(&volume.path)
+            .map_err(|e| trouble(format!("couldn't make {path}: {e}")))?;
+        // A copy of a snapshot was unmounted cleanly: its journal needn't be replayed, and
+        // it can't be, read-only.
+        let options = if volume.writable {
+            "rw,nodev,nosuid"
+        } else {
+            "ro,noload,nodev,nosuid"
+        };
+        tool(
+            machine,
+            "mount",
+            &["-t", "ext4", "-o", options, &device, &path],
+        )
+        .map_err(&trouble)?;
+        if volume.writable {
+            tool(machine, "chown", &[&config.user, &path]).map_err(&trouble)?;
+        }
+        say::info(
+            "Mounted a volume's disk.",
+            &[
+                ("volume", &volume.name),
+                ("path", &path),
+                ("writable", &volume.writable),
+            ],
+        );
+    }
+    Ok(())
+}
+
+/// The volume's disk, once it's attached: its device, or the `xvd` name some images give
+/// it.
+fn device(volume: &Volume, machine: &Machine, interrupted: &AtomicBool) -> Option<PathBuf> {
+    let named = PathBuf::from(&volume.device);
+    let other = PathBuf::from(volume.device.replacen("/sd", "/xvd", 1));
+    let until = Instant::now() + machine.attach_within;
+    loop {
+        for each in [&named, &other] {
+            if each.exists() {
+                return Some(std::fs::canonicalize(each).unwrap_or_else(|_| each.clone()));
+            }
+        }
+        if Instant::now() >= until || pause(Duration::from_millis(500), interrupted) {
+            return None;
+        }
+    }
+}
+
+/// Unmounts a setup build's disks once its container has ended, so each is whole when
+/// the provisioner snapshots it.
+fn release(config: &Config, machine: &Machine) {
+    for volume in config.volumes.iter().filter(|v| v.writable) {
+        let path = volume.path.to_string_lossy();
+        if let Err(error) = tool(machine, "umount", &[&path]) {
+            say::error(
+                "Couldn't unmount a volume's disk.",
+                &[("volume", &volume.name), ("error", &error)],
+            );
+        }
+    }
+}
+
+/// Runs one of the machine's tools, with what it printed to stderr as the error.
+fn tool(machine: &Machine, name: &str, args: &[&str]) -> Result<(), String> {
+    let program = if machine.tools.as_os_str().is_empty() {
+        PathBuf::from(name)
+    } else {
+        machine.tools.join(name)
+    };
+    let output = Command::new(&program)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("couldn't run {name}: {e}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let said = String::from_utf8_lossy(&output.stderr);
+    let said = said.trim();
+    Err(if said.is_empty() {
+        format!("{name} failed ({})", output.status)
+    } else {
+        format!("{name}: {}", said.chars().take(500).collect::<String>())
+    })
 }
 
 fn pull(config: &Config, machine: &Machine, interrupted: &AtomicBool) -> Result<(), Trouble> {
@@ -283,6 +453,17 @@ pub fn create_args(config: &Config, env_file: &Path) -> Vec<String> {
     ]
     .map(str::to_owned)
     .to_vec();
+    for volume in &config.volumes {
+        let mut mount = format!(
+            "type=bind,src={},dst={}",
+            volume.path.display(),
+            volume.mount
+        );
+        if !volume.writable {
+            mount.push_str(",readonly");
+        }
+        args.extend(["--mount".into(), mount]);
+    }
     if let Some(cpus) = config.cpus {
         args.extend(["--cpus".into(), cpus.to_string()]);
     }
@@ -591,8 +772,69 @@ esac
             shutdown: vec![],
             metadata: "http://127.0.0.1:9".into(),
             pause: Duration::ZERO,
+            tools: fake_tools(dir),
+            attach_within: Duration::from_secs(5),
         };
         (config, config_file, machine)
+    }
+
+    /// Disk tools that log what they're asked to `tools`: `blkid` finds a file system
+    /// only once `formatted` exists (as `mkfs.ext4` makes it), and `mountpoint` says no.
+    fn fake_tools(dir: &Path) -> PathBuf {
+        let tools = dir.join("bin");
+        std::fs::create_dir_all(&tools).unwrap();
+        for (name, body) in [
+            ("blkid", "[ -e \"$d/formatted\" ]"),
+            ("mkfs.ext4", "touch \"$d/formatted\""),
+            ("mountpoint", "exit 1"),
+            ("mount", "exit 0"),
+            ("umount", "exit 0"),
+            ("chown", "exit 0"),
+        ] {
+            let script = tools.join(name);
+            std::fs::write(
+                &script,
+                format!(
+                    "#!/bin/sh\nd='{}'\necho \"{name} $*\" >> \"$d/tools\"\n{body}\n",
+                    dir.display()
+                ),
+            )
+            .unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        tools
+    }
+
+    fn tools(dir: &Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("tools"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| line.replace(&dir.display().to_string(), "<dir>"))
+            .collect()
+    }
+
+    /// A config whose machine has a disk attached for `af-db`, as `device` (made here).
+    fn with_volume(dir: &Path, writable: bool, attached: bool) -> (Config, PathBuf, Machine) {
+        let (_, file, machine) = setup(dir, false);
+        let device = dir.join("sdf");
+        if attached {
+            std::fs::write(&device, "").unwrap();
+        }
+        let mut json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        json["volumes"] = serde_json::json!([{
+            "name": "af-db",
+            "device": device,
+            "path": dir.join("volumes/af-db"),
+            "mount": "/data/af-db",
+            "writable": writable,
+        }]);
+        std::fs::write(&file, json.to_string()).unwrap();
+        (read(&file).unwrap(), file, machine)
     }
 
     fn calls(dir: &Path) -> Vec<String> {
@@ -643,6 +885,89 @@ esac
         // Neither the token nor the env file is left on the machine.
         assert!(!config.token_file.exists());
         assert!(!file.with_file_name("run.env").exists());
+    }
+
+    #[test]
+    fn a_setup_builds_disk_is_formatted_mounted_writable_and_released() {
+        let dir = Dir::new("fill");
+        let (config, file, machine) = with_volume(&dir.0, true, true);
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended, Ok(Ended::Exited(0)));
+        release(&config, &machine);
+        let device = std::fs::canonicalize(dir.0.join("sdf")).unwrap();
+        let device = device
+            .display()
+            .to_string()
+            .replace(&dir.0.display().to_string(), "<dir>");
+        assert_eq!(
+            tools(&dir.0),
+            [
+                "mountpoint -q <dir>/volumes/af-db".to_owned(),
+                format!("blkid -p {device}"),
+                format!("mkfs.ext4 -q -m 0 -E lazy_itable_init=1,lazy_journal_init=1 {device}"),
+                format!("mount -t ext4 -o rw,nodev,nosuid {device} <dir>/volumes/af-db"),
+                "chown 10001:10001 <dir>/volumes/af-db".to_owned(),
+                "umount <dir>/volumes/af-db".to_owned(),
+            ]
+        );
+        let create = calls(&dir.0)
+            .into_iter()
+            .find(|c| c.starts_with("create"))
+            .expect("no create");
+        let mount = format!(
+            "--mount type=bind,src={}/volumes/af-db,dst=/data/af-db ",
+            dir.0.display()
+        );
+        assert!(create.contains(&mount), "{create}");
+    }
+
+    #[test]
+    fn a_runs_copy_of_a_snapshot_is_mounted_read_only_as_it_is() {
+        let dir = Dir::new("copy");
+        let (config, file, machine) = with_volume(&dir.0, false, true);
+        std::fs::write(dir.0.join("formatted"), "").unwrap();
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended, Ok(Ended::Exited(0)));
+        release(&config, &machine);
+        let seen = tools(&dir.0);
+        assert!(!seen.iter().any(|c| c.starts_with("mkfs")), "{seen:?}");
+        assert!(!seen.iter().any(|c| c.starts_with("chown")), "{seen:?}");
+        assert!(!seen.iter().any(|c| c.starts_with("umount")), "{seen:?}");
+        assert!(
+            seen.iter()
+                .any(|c| c.starts_with("mount -t ext4 -o ro,noload,nodev,nosuid ")),
+            "{seen:?}"
+        );
+        let create = calls(&dir.0)
+            .into_iter()
+            .find(|c| c.starts_with("create"))
+            .expect("no create");
+        let mount = format!(
+            "--mount type=bind,src={}/volumes/af-db,dst=/data/af-db,readonly",
+            dir.0.display()
+        );
+        assert!(create.contains(&mount), "{create}");
+    }
+
+    #[test]
+    fn a_disk_never_attached_or_unformatted_is_why_it_gave_up() {
+        let dir = Dir::new("detached");
+        let (config, file, mut machine) = with_volume(&dir.0, false, false);
+        machine.attach_within = Duration::from_millis(100);
+        let trouble = run(&config, &file, &machine, &AtomicBool::new(false)).unwrap_err();
+        assert_eq!(trouble.reason, "volume_unavailable");
+        assert!(trouble.message.contains("wasn't attached"), "{trouble:?}");
+        assert!(!calls(&dir.0).iter().any(|c| c.starts_with("pull")));
+        // A copy with no file system isn't formatted: it isn't the snapshot.
+        std::fs::write(dir.0.join("sdf"), "").unwrap();
+        let trouble = run(&config, &file, &machine, &AtomicBool::new(false)).unwrap_err();
+        assert!(
+            trouble.message.contains("has no file system"),
+            "{trouble:?}"
+        );
+        assert!(!tools(&dir.0).iter().any(|c| c.starts_with("mkfs")));
     }
 
     #[test]

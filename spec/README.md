@@ -479,6 +479,21 @@ volumes:
     snapshot_class: ebs-snapshots
 ```
 
+On `aws_ec2`, each instance gets a new EBS disk from the snapshot, mounted
+read-only (ADR 0076). With `fast_snapshot_restore`, a version is ready only
+once its snapshot starts disks at full speed in each of the template's
+zones, at an hourly cost for each; `iops` and `throughput` (MiB/s) set its
+disks' performance, gp3's baseline unless set:
+
+```yaml
+volumes:
+  af-db:
+    strategy: clone_from_snapshot
+    fast_snapshot_restore: true
+    iops: 16000
+    throughput: 1000
+```
+
 Until a version is ready, the environment's runs wait, saying why. Each
 attempt records the version it read.
 

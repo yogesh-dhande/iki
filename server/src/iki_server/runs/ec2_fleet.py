@@ -18,6 +18,12 @@ use, by their tags:
 - One still not registered when its token expires is terminated.
 - One whose launch ended, or that has none, is terminated.
 - One running a run is tagged with the run, its project and team, for AWS's cost reports.
+
+Then setup builds' machines, disks and snapshots move on (:mod:`ec2_volumes`).
+
+**Volumes.** A machine for an environment whose setup fills volumes gets a new disk for
+each, from the newest version's EBS snapshot, mounted read-only (ADR 0076). Until a
+version is ready, no machine starts, and its runs say why.
 """
 
 from __future__ import annotations
@@ -33,12 +39,14 @@ from django.db import transaction
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.runs import catalog, launches, setups
+from iki_server.runs import catalog, ec2_volumes, launches, setups
 from iki_server.runs.ec2 import (
     LAUNCH_TAG,
+    Disk,
     Ec2,
     Ec2Error,
     VmMachines,
+    disks,
     host_trouble,
     instance_request,
     is_capacity,
@@ -114,6 +122,16 @@ class Ec2Fleet(Fleet):
     def __init__(self, ec2: Ec2, machines: VmMachines | None = None) -> None:
         self.ec2 = ec2
         self.machines = machines or vm_machines()
+        #: When each region's setup disks and snapshots were last tidied.
+        self.tidied: dict[str, datetime] = {}
+        self._zones: dict[tuple[str, ...], dict[str, str]] = {}
+
+    def zones(self, template: Template) -> dict[str, str]:
+        """Each of the template's subnets' zones."""
+        key = (str(template.aws["region"]), *template.aws["subnets"])
+        if key not in self._zones:
+            self._zones[key] = self.ec2.zones(key[0], list(key[1:]))
+        return self._zones[key]
 
     def place(self, template: Template) -> str | None:
         return str(template.aws["region"])
@@ -132,16 +150,17 @@ class Ec2Fleet(Fleet):
             subnet=template.aws["subnets"][0],
             spot=bool(template.aws.get("spot")),
             attempt=0,
+            # A new version of its volumes makes a new machine (ADR 0076).
+            data=disks(setups.volumes_for(group.environment, place) or {}),
         )
         canonical = json.dumps([place, request], sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()
 
     def launch(self, group: Group, place: str) -> bool:
         template = group.template
-        environment = setups.environment_of(group.environment)
-        if environment is not None and setups.filled(environment):
-            # Volumes on vm-tier machines come with EBS snapshots (ADR 0075, step 36b):
-            # until then its runs say they're waiting for their data.
+        volumes = setups.volumes_for(group.environment, place)
+        if volumes is None:
+            # Its setup fills volumes, and no version is ready here: its runs say so.
             return False
         launch, token = launches.create(
             template=template.name,
@@ -152,27 +171,54 @@ class Ec2Fleet(Fleet):
             namespace=place,
             once=group.once,
             spec=self.spec(group, place),
+            volumes=setups.provenance(volumes),
         )
+        return self.start(
+            launch,
+            template,
+            image=group.image,
+            once=group.once,
+            token=token,
+            markets=_markets(template),
+            data=disks(volumes),
+        )
+
+    def start(
+        self,
+        launch: Launch,
+        template: Template,
+        *,
+        image: str,
+        once: bool,
+        token: str,
+        markets: list[bool],
+        data: list[Disk],
+        setup: str | None = None,
+    ) -> bool:
+        """Starts the launch's instance: each market in turn, in each subnet. Returns whether
+        one started; if none did, the launch has ended saying why."""
         missing: list[str] = []
         attempt = 0
-        for spot in _markets(template):
+        for spot in markets:
             for subnet in _subnets(template):
                 request = instance_request(
                     launch_id=str(launch.pk),
                     name=launch.name,
                     template=template,
-                    environment=group.environment,
-                    image=group.image,
+                    environment=launch.environment,
+                    image=image,
                     machines=self.machines,
-                    once=group.once,
+                    once=once,
                     token=token,
                     subnet=subnet,
                     spot=spot,
                     attempt=attempt,
+                    data=data,
+                    setup=setup,
                 )
                 attempt += 1
                 try:
-                    instance = self.ec2.run_instance(place, request)
+                    instance = self.ec2.run_instance(launch.namespace, request)
                 except Ec2Error as error:
                     if is_capacity(error):
                         missing.append(f"{_market(spot)} in {subnet}: {error.code}")
@@ -194,7 +240,8 @@ class Ec2Fleet(Fleet):
         if is_refused(error):
             message = _clip(f"EC2 refused to start it: {error.code}: {error.message}")
             launches.end(launch, "refused", message)
-            give_up_if_hopeless(self, launch, "refused", message, timezone.now())
+            if launch.setup_id is None:
+                give_up_if_hopeless(self, launch, "refused", message, timezone.now())
         else:
             launches.end(launch, "failed", _clip(f"EC2 didn't start it: {error}"))
 
@@ -247,12 +294,14 @@ class Ec2Fleet(Fleet):
             if t.provisioner in PROVISIONERS
         }
         ended = 0
+        listed: dict[str, list[dict[str, Any]]] = {}
         for region in sorted(regions):
             try:
                 instances = self.ec2.instances(region, self.machines.owner)
             except Ec2Error as error:
                 logger.warning("reconcile_list_failed", region=region, error=str(error))
                 continue
+            listed[region] = instances
             mine = _by_launch(instances)
             here = [each for each in live if each.namespace == region]
             for launch in here:
@@ -266,6 +315,8 @@ class Ec2Fleet(Fleet):
             if stray:
                 # Its launch ended, or it has none: nothing will ever lease from it.
                 self._terminate(region, stray)
+        # Environment setup builds, and the snapshots they leave (ADR 0076).
+        ec2_volumes.tick(self, listed, now)
         return ended
 
     def _reconcile_one(self, launch: Launch, instance: dict[str, Any] | None, now: datetime) -> int:

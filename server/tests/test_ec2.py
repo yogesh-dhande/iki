@@ -2,6 +2,7 @@
 botocore's Stubber, and the script each run machine boots with."""
 
 import base64
+import dataclasses
 import json
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ from botocore.stub import Stubber
 
 from iki_server.runs.ec2 import (
     Boto3Ec2,
+    Disk,
     Ec2Error,
     VmMachines,
     host_trouble,
@@ -23,7 +25,7 @@ from iki_server.runs.ec2 import (
     root_disk,
     user_data,
 )
-from iki_spec.compute import Template
+from iki_spec.compute import Template, TemplateVolume
 from iki_spec.model import Resources
 
 GI = 1024**3
@@ -91,6 +93,152 @@ def test_the_instance_request_is_one_ec2_takes() -> None:
     stub.assert_no_pending_responses()
     assert len(sent["ClientToken"]) <= 64
     assert len(sent["UserData"].encode()) < 16 * 1024  # EC2's limit
+
+
+def test_a_machine_with_volumes_gets_a_disk_for_each_that_ec2_takes() -> None:
+    ec2, stub = stubbed()
+    disks = dataclasses.replace(
+        template(kms_key="alias/iki-runs"),
+        volumes={"af-db": TemplateVolume("clone_from_snapshot", True, iops=16000)},
+    )
+    common: dict[str, Any] = {
+        "launch_id": "01a1d3a1-04c4-7657-86e7-9bdd0aa33e57",
+        "name": "iki-setup-01a1d3a104c4765786e79bdd0aa33e57",
+        "template": disks,
+        "environment": "structure_prediction.alphafold-gpu",
+        "image": IMAGE,
+        "machines": MACHINES,
+        "once": True,
+        "token": "iki_wlch_secret",
+        "subnet": "subnet-0a1b2c3d4e5f60718",
+        "attempt": 0,
+    }
+    setup = instance_request(
+        **common,
+        spot=False,
+        data=[Disk("af-db", "/data/af", 3 * 1024 * GI), Disk("pdb", "/data/pdb", 300 * GI)],
+        setup="01a1d3a1-04c4-7657-86e7-9bdd0aa33e58",
+    )
+    run = instance_request(
+        **common,
+        spot=True,
+        data=[Disk("af-db", "/data/af", 3 * 1024 * GI, "snap-0123456789abcdef0")],
+    )
+    for _ in (setup, run):
+        stub.add_response("run_instances", {"Instances": [INSTANCE]}, None)
+    with stub:
+        for each in (setup, run):
+            ec2.run_instance("us-east-1", each)
+    stub.assert_no_pending_responses()
+    assert [m["DeviceName"] for m in setup["BlockDeviceMappings"]] == [
+        "/dev/xvda",
+        "/dev/sdf",
+        "/dev/sdg",
+    ]
+    assert setup["BlockDeviceMappings"][2]["Ebs"] == {
+        "VolumeSize": 300,
+        "VolumeType": "gp3",
+        "Encrypted": True,
+        "DeleteOnTermination": False,
+        "KmsKeyId": "alias/iki-runs",
+    }
+    assert run["BlockDeviceMappings"][1]["Ebs"]["SnapshotId"] == "snap-0123456789abcdef0"
+    assert run["BlockDeviceMappings"][1]["Ebs"]["DeleteOnTermination"] is True
+    assert len(setup["UserData"].encode()) < 16 * 1024
+
+
+def test_it_snapshots_disks_and_makes_them_fast_to_restore_as_ec2_takes() -> None:
+    ec2, stub = stubbed()
+    ours = [
+        {"Name": "tag:iki.ikisci.org/deployment", "Values": ["iki"]},
+        {"Name": "tag-key", "Values": ["iki.ikisci.org/setup"]},
+    ]
+    disk = {"VolumeId": "vol-0123456789abcdef0", "State": "available"}
+    snapshot = {"SnapshotId": "snap-0123456789abcdef0", "State": "pending"}
+    stub.add_response("describe_volumes", {"Volumes": [disk]}, {"Filters": ours, "MaxResults": 500})
+    stub.add_response(
+        "create_snapshot",
+        snapshot,
+        {
+            "VolumeId": disk["VolumeId"],
+            "Description": "af-db, version 2",
+            "TagSpecifications": [
+                {
+                    "ResourceType": "snapshot",
+                    "Tags": [{"Key": "iki.ikisci.org/setup", "Value": "b"}],
+                }
+            ],
+        },
+    )
+    stub.add_response(
+        "describe_snapshots",
+        {"Snapshots": [snapshot]},
+        {"OwnerIds": ["self"], "Filters": ours, "MaxResults": 1000},
+    )
+    stub.add_response(
+        "describe_subnets",
+        {"Subnets": [{"SubnetId": "subnet-0a1b2c3d4e5f60718", "AvailabilityZone": "us-east-1a"}]},
+        {"SubnetIds": ["subnet-0a1b2c3d4e5f60718"]},
+    )
+    stub.add_response(
+        "enable_fast_snapshot_restores",
+        {
+            "Unsuccessful": [
+                {
+                    "SnapshotId": snapshot["SnapshotId"],
+                    "FastSnapshotRestoreStateErrors": [
+                        {
+                            "AvailabilityZone": "us-east-1a",
+                            "Error": {"Code": "LimitExceeded", "Message": "Too many."},
+                        }
+                    ],
+                }
+            ]
+        },
+        {"AvailabilityZones": ["us-east-1a"], "SourceSnapshotIds": [snapshot["SnapshotId"]]},
+    )
+    stub.add_response(
+        "describe_fast_snapshot_restores",
+        {
+            "FastSnapshotRestores": [
+                {
+                    "SnapshotId": snapshot["SnapshotId"],
+                    "AvailabilityZone": "us-east-1a",
+                    "State": "optimizing",
+                }
+            ]
+        },
+        {
+            "Filters": [{"Name": "snapshot-id", "Values": [snapshot["SnapshotId"]]}],
+            "MaxResults": 200,
+        },
+    )
+    stub.add_response(
+        "disable_fast_snapshot_restores",
+        {},
+        {"AvailabilityZones": ["us-east-1a"], "SourceSnapshotIds": [snapshot["SnapshotId"]]},
+    )
+    stub.add_client_error("delete_snapshot", "InvalidSnapshot.NotFound", "Gone.")
+    stub.add_client_error("delete_volume", "InvalidVolume.NotFound", "Gone.")
+    with stub:
+        assert ec2.volumes("us-east-1", "iki") == [disk]
+        made = ec2.create_snapshot(
+            "us-east-1", disk["VolumeId"], "af-db, version 2", {"iki.ikisci.org/setup": "b"}
+        )
+        assert made["SnapshotId"] == snapshot["SnapshotId"]
+        assert ec2.snapshots("us-east-1", "iki") == [snapshot]
+        assert ec2.zones("us-east-1", ["subnet-0a1b2c3d4e5f60718"]) == {
+            "subnet-0a1b2c3d4e5f60718": "us-east-1a"
+        }
+        refused = ec2.enable_fast_restores("us-east-1", snapshot["SnapshotId"], ["us-east-1a"])
+        assert refused == ["LimitExceeded: Too many."]
+        (state,) = ec2.fast_restores("us-east-1", [snapshot["SnapshotId"]])
+        assert state["State"] == "optimizing"
+        assert ec2.fast_restores("us-east-1", []) == []
+        ec2.disable_fast_restores("us-east-1", snapshot["SnapshotId"], ["us-east-1a"])
+        ec2.delete_snapshot("us-east-1", snapshot["SnapshotId"])
+        ec2.delete_volume("us-east-1", disk["VolumeId"])
+    stub.assert_no_pending_responses()
 
 
 def test_the_disk_holds_the_scratch_space_and_the_system() -> None:
