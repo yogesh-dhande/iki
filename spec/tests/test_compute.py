@@ -332,6 +332,30 @@ def test_template_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
         load(tmp_path, plugins, BACKEND, misplaced, BINDINGS),
         "volume-option-shared-filesystem-only",
     )
+    # On EC2: what machines mount, NFS or Lustre, never a claim.
+    vm = A100.replace("clone_from_snapshot, fast_snapshot_restore: true", "shared_filesystem")
+    assert only(load(tmp_path, plugins, BACKEND, vm, BINDINGS), "shared-filesystem-source-missing")
+    lustre = "fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh"
+    on_fsx = vm.replace("shared_filesystem", f"shared_filesystem, lustre: {lustre}")
+    fsx = load(tmp_path, plugins, BACKEND, on_fsx, BINDINGS)
+    assert codes(fsx) == []
+    assert fsx.compute is not None
+    given = fsx.compute.templates["a100-spot"].volumes["af-db"]
+    assert given.filesystem == {"type": "lustre", "source": lustre}
+    both = on_fsx.replace("shared_filesystem,", "shared_filesystem, nfs: efs.example.com:/,")
+    assert only(
+        load(tmp_path, plugins, BACKEND, both, BINDINGS), "shared-filesystem-source-missing"
+    )
+    claimed = on_fsx.replace("shared_filesystem,", "shared_filesystem, claim: fsx,")
+    assert only(
+        load(tmp_path, plugins, BACKEND, claimed, BINDINGS), "volume-option-shared-filesystem-only"
+    )
+    efs = vm.replace("shared_filesystem", "shared_filesystem, nfs: fs-0123.efs.amazonaws.com:/")
+    assert codes(load(tmp_path, plugins, BACKEND, efs, BINDINGS)) == []
+    nfs_on_pods = shared.replace("shared_filesystem", "shared_filesystem, claim: f, nfs: e.com:/")
+    assert "volume-option-shared-filesystem-only" in codes(
+        load(tmp_path, plugins, BACKEND, A100, BINDINGS, nfs_on_pods)
+    )
 
 
 def test_a_pools_pods_each_get_a_clone_of_the_volume(tmp_path: Path, plugins: list[Plugin]) -> None:

@@ -78,7 +78,7 @@ UNFINISHED = (
     SetupState.SNAPSHOTTING,
 )
 #: The strategies a setup build fills: a disk it snapshots, or a directory on a shared
-#: file system (on Kubernetes so far; ADR 0077).
+#: file system (ADR 0077).
 FILLED_BY_SNAPSHOT = {"clone_from_snapshot"}
 SHARED = "shared_filesystem"
 #: A lease lasts this long unless a heartbeat renews it, as for runs' jobs.
@@ -132,7 +132,9 @@ def fillable(template: Template, volume: str) -> bool:
         return False
     if given.strategy in FILLED_BY_SNAPSHOT:
         return True
-    return given.strategy == SHARED and template.provisioner in KUBERNETES
+    return given.strategy == SHARED and (
+        template.provisioner in KUBERNETES or given.filesystem is not None
+    )
 
 
 def shared(build: SetupBuild, volume: str) -> bool:
@@ -213,7 +215,8 @@ def volumes_for(qualified: str, place: str) -> dict[str, dict[str, Any]] | None:
         where: dict[str, Any] = {"snapshot": volume.handle}
         if shared(build, volume.name):
             spec = build.spec["volumes"][volume.name]
-            where = {"claim": spec["claim"], "directory": f"{spec['root']}/{spec['directory']}"}
+            keep = ("claim", "filesystem", "root", "directory")
+            where = {k: spec[k] for k in keep if k in spec}
         found[volume.name] = {
             "build": str(build.pk),
             "hrid": build.hrid,
@@ -297,8 +300,14 @@ def _spec(
         if given.strategy == SHARED:
             # Its own directory, which nothing else writes: the version's, under the
             # directory Iki keeps versions in (ADR 0077).
+            # A Kubernetes claim, or what an EC2 machine mounts.
+            mounted = (
+                {"claim": given.claim}
+                if template.provisioner in KUBERNETES
+                else {"filesystem": given.filesystem}
+            )
             volume |= {
-                "claim": given.claim,
+                **mounted,
                 "root": given.root,
                 "directory": f"{qualified}/{name}/{hrid}",
             }

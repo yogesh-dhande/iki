@@ -20,6 +20,12 @@ Each round, for each build in a region the deployment's EC2 templates use:
 Disks and snapshots carry the tags ``iki.ikisci.org/setup`` (their build's ID) and
 ``iki.ikisci.org/volume``, besides the deployment's own; any whose build is gone are
 deleted.
+
+A volume on a shared file system (ADR 0077) has no disk or snapshot: the build's machine
+mounts the file system and gives its container only the version's own directory, and the
+version is ready once the script succeeds and the machine has ended. Once a version isn't
+kept, a small on-demand machine of the build's template mounts the file system, removes
+it, says so on its console, and shuts down; one that didn't is started again later.
 """
 
 from __future__ import annotations
@@ -37,10 +43,16 @@ from iki_server.runs.ec2 import (
     ENVIRONMENT_TAG,
     LAUNCH_TAG,
     OWNER_TAG,
+    REMOVAL_TAG,
+    REMOVED,
     SETUP_TAG,
     VOLUME_TAG,
     Ec2Error,
+    Shared,
+    cleanup_request,
     disks,
+    host_trouble,
+    is_capacity,
 )
 from iki_server.runs.models import (
     Launch,
@@ -70,6 +82,12 @@ TIDY_EVERY = timedelta(minutes=5)
 UNFINISHED = (SetupState.QUEUED, SetupState.RUNNING, SetupState.SNAPSHOTTING)
 #: Fast snapshot restore states that mean it is, or will be, fast to restore in a zone.
 FAST = ("enabling", "optimizing", "enabled")
+#: A machine removing versions from a shared file system that hasn't said it did is
+#: started again this long after the last one started, and stopped after the longest.
+CLEANUP_AGAIN = timedelta(minutes=15)
+CLEANUP_WITHIN = timedelta(hours=6)
+#: Instance states that mean it has ended, or is ending.
+ENDED = ("shutting-down", "terminated", "stopping", "stopped")
 
 
 def _tag(item: dict[str, Any], key: str) -> str | None:
@@ -138,7 +156,7 @@ def tick(fleet: Ec2Fleet, listed: dict[str, list[dict[str, Any]]], now: datetime
         last = fleet.tidied.get(name)
         if last is None or now - last >= TIDY_EVERY:
             try:
-                _tidy(region)
+                _tidy(region, now)
                 fleet.tidied[name] = now
             except Ec2Error as error:
                 logger.warning("setup_tidy_failed", region=name, error=str(error))
@@ -173,7 +191,7 @@ def _start(fleet: Ec2Fleet, build: SetupBuild, region: str, now: datetime) -> in
         once=True,
         token=token,
         markets=[False],
-        data=disks(build.spec["volumes"]),
+        data=disks(build.spec["volumes"], setup=True),
         setup=str(build.pk),
     )
     if not started:
@@ -190,8 +208,7 @@ def _record_disks(region: Region, build: SetupBuild) -> None:
     """Records which disk is each volume's on the build's machine, once EC2 lists them, and
     tags each with its volume."""
     launch = Launch.objects.filter(setup=build).exclude(state=LaunchState.ENDED).first()
-    wanted = sorted(build.spec["volumes"])
-    if launch is None or sorted(launch.volumes) == wanted:
+    if launch is None or sorted(launch.volumes) == sorted(build.spec["volumes"]):
         return
     instance = next((i for i in region.instances if _tag(i, LAUNCH_TAG) == str(launch.pk)), None)
     if instance is None:
@@ -201,14 +218,22 @@ def _record_disks(region: Region, build: SetupBuild) -> None:
         for m in instance.get("BlockDeviceMappings") or []
         if (m.get("Ebs") or {}).get("VolumeId")
     }
-    found: dict[str, dict[str, str]] = {}
-    for n, volume in enumerate(wanted):
+    found: dict[str, dict[str, Any]] = {}
+    on_disks = [v for v in sorted(build.spec["volumes"]) if not setups.shared(build, v)]
+    for n, volume in enumerate(on_disks):
         disk = attached.get(DEVICES[n])
         if disk is None:
             return  # not attached yet
         found[volume] = {"disk": disk}
     for volume, recorded in found.items():
         region.ec2.tag(region.name, recorded["disk"], {VOLUME_TAG: volume}, [])
+    for volume, declared in build.spec["volumes"].items():
+        if setups.shared(build, volume):
+            found[volume] = {
+                "filesystem": declared["filesystem"],
+                "directory": declared["directory"],
+            }
+            volumes.record_shared(build, volume)
     Launch.objects.filter(pk=launch.pk).update(volumes=found)
     # Its worker may lease the build now.
     queue.notify("vm")
@@ -237,6 +262,10 @@ def _snapshot(region: Region, build: SetupBuild, now: datetime) -> int:
     ready = 0
     failure = ""
     for volume, declared in sorted(build.spec["volumes"].items()):
+        if setups.shared(build, volume):
+            volumes.shared_ready(build, volume, now)
+            ready += 1
+            continue
         record = ManagedVolume.objects.filter(build=build, name=volume).first()
         snapshot = region.snapshot_of(build, volume)
         if snapshot is None:
@@ -279,7 +308,8 @@ def _snapshot(region: Region, build: SetupBuild, now: datetime) -> int:
         return 0
     # Its disks have served their purpose.
     for disk in recorded.values():
-        region.ec2.delete_volume(region.name, disk["disk"])
+        if "disk" in disk:
+            region.ec2.delete_volume(region.name, disk["disk"])
     return volumes.succeed(build)
 
 
@@ -367,9 +397,10 @@ def _fast(region: Region, template: Template, volume: str, record: ManagedVolume
 # --- Tidying up -------------------------------------------------------------------------------
 
 
-def _tidy(region: Region) -> None:
+def _tidy(region: Region, now: datetime) -> None:
     """Deletes disks once their build is done with them, and snapshots once nothing will
-    copy them again; keeps only the versions machines get now fast to restore."""
+    copy them again; keeps only the versions machines get now fast to restore; and removes
+    versions from shared file systems once nothing will mount them again."""
     builds: dict[str, SetupBuild | None] = {}
 
     def build_of(item: dict[str, Any]) -> SetupBuild | None:
@@ -420,6 +451,7 @@ def _tidy(region: Region) -> None:
                 deleted_at=timezone.now(),
             )
     _only_current_fast(region, kept)
+    _remove_shared(region, now)
 
 
 def _only_current_fast(region: Region, kept: list[tuple[SetupBuild, ManagedVolume]]) -> None:
@@ -454,3 +486,83 @@ def _only_current_fast(region: Region, kept: list[tuple[SetupBuild, ManagedVolum
         if fast:
             region.ec2.disable_fast_restores(region.name, record.handle, fast)
             logger.info("setup_fast_restore_disabled", snapshot=record.handle, zones=fast)
+
+
+def _state(instance: dict[str, Any]) -> str:
+    return str((instance.get("State") or {}).get("Name", ""))
+
+
+def _remove_shared(region: Region, now: datetime) -> None:
+    """For each build with versions on shared file systems to remove, a small machine that
+    removes them and says so on its console (ADR 0077). Once one has, they're deleted; one
+    that didn't is started again :data:`CLEANUP_AGAIN` after the last."""
+    for build, records in volumes.to_remove(region.name).items():
+        mine = sorted(
+            (i for i in region.instances if _tag(i, REMOVAL_TAG) == str(build.pk)),
+            key=lambda i: i["LaunchTime"],
+        )
+        live = [i for i in mine if _state(i) not in ENDED]
+        if live:
+            late = [i["InstanceId"] for i in live if now - i["LaunchTime"] > CLEANUP_WITHIN]
+            if late:
+                region.ec2.terminate(region.name, late)
+                _tell(records, "Its machine to remove them took too long. Iki tries again.")
+            continue
+        if mine:
+            said = region.ec2.console(region.name, mine[-1]["InstanceId"])
+            if REMOVED in said:
+                volumes.removed(build, records)
+                logger.info("setup_directories_removed", build=build.hrid)
+                continue
+            trouble = host_trouble(said)
+            if trouble is not None:
+                _tell(records, f"Iki couldn't remove its directory: {trouble[1]}. It tries again.")
+            if now - mine[-1]["LaunchTime"] < CLEANUP_AGAIN:
+                continue  # its console may say yet
+        _clean_up(region, build, records, now)
+
+
+def _tell(records: list[ManagedVolume], message: str) -> None:
+    for record in records:
+        _say(record, message)
+
+
+def _clean_up(
+    region: Region, build: SetupBuild, records: list[ManagedVolume], now: datetime
+) -> None:
+    template = catalog.compute().templates.get(build.template)
+    if template is None:
+        _tell(
+            records,
+            f"Its compute template, {build.template}, is gone, so Iki can't start a machine "
+            "to remove its directory. Restore the template, or remove the directory yourself.",
+        )
+        return
+    versions = [
+        each
+        for each in disks({r.name: build.spec["volumes"][r.name] for r in records}, setup=True)
+        if isinstance(each, Shared)
+    ]
+    name = f"iki-cleanup-{build.hrid.lower()}"
+    for subnet in template.aws["subnets"]:
+        request = cleanup_request(
+            build_id=str(build.pk),
+            name=name,
+            template=template,
+            environment=build.environment,
+            machines=region.fleet.machines,
+            subnet=subnet,
+            # A new try every so often; EC2 starts one machine for each, however often asked.
+            attempt=int(now.timestamp()) // int(CLEANUP_AGAIN.total_seconds()),
+            versions=versions,
+        )
+        try:
+            started = region.ec2.run_instance(region.name, request)
+        except Ec2Error as error:
+            if is_capacity(error):
+                continue  # another zone may have one
+            _tell(records, f"EC2 wouldn't start a machine to remove its directory: {error}")
+            return
+        logger.info("setup_cleanup_started", build=build.hrid, instance=started.get("InstanceId"))
+        return
+    _tell(records, "EC2 had no machine to remove its directory with. Iki tries again.")

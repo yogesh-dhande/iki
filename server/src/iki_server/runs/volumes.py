@@ -59,10 +59,14 @@ __all__ = [
     "in_use",
     "kept",
     "ready_to_start",
+    "record_shared",
+    "removed",
+    "shared_ready",
     "stuck",
     "succeed",
     "template_of",
     "tick",
+    "to_remove",
 ]
 
 logger = structlog.get_logger("iki.provisioner")
@@ -77,6 +81,13 @@ START_TRIES = 3
 #: time, up to the most. Those tries don't count towards :data:`START_TRIES`.
 BACKOFF = timedelta(seconds=30)
 MAX_BACKOFF = timedelta(minutes=10)
+#: A build in these states has ended.
+FINISHED = (
+    SetupState.SUCCEEDED,
+    SetupState.FAILED,
+    SetupState.TIMED_OUT,
+    SetupState.CANCELLED,
+)
 #: How long a snapshot may take to become ready before the build fails.
 SNAPSHOT_WITHIN = timedelta(hours=6)
 
@@ -196,6 +207,59 @@ def kept(build: SetupBuild) -> bool:
     )
 
 
+def record_shared(build: SetupBuild, volume: str) -> None:
+    """Records the build's version of a volume on a shared file system before anything is
+    written there, so it's removed if the build fails."""
+    declared = build.spec["volumes"][volume]
+    ManagedVolume.objects.get_or_create(
+        build=build,
+        name=volume,
+        defaults={
+            "environment": build.environment,
+            "place": build.place,
+            "handle": declared["directory"],
+            "size": int(declared["size"]),
+        },
+    )
+
+
+def shared_ready(build: SetupBuild, volume: str, now: datetime) -> None:
+    """What the script wrote is the version: nothing to snapshot."""
+    ManagedVolume.objects.filter(build=build, name=volume).exclude(state=VolumeState.READY).update(
+        state=VolumeState.READY, ready_at=now
+    )
+
+
+def to_remove(place: str) -> dict[SetupBuild, list[ManagedVolume]]:
+    """The versions on shared file systems in `place` to remove now, by build: no longer
+    kept, and no machine of their build still writing."""
+    found: dict[SetupBuild, list[ManagedVolume]] = {}
+    going = ManagedVolume.objects.filter(
+        place=place, deleted_at__isnull=True, build__state__in=FINISHED
+    ).select_related("build")
+    for record in going.order_by("created_at"):
+        build = record.build
+        if (
+            record.name not in build.spec["volumes"]
+            or not setups.shared(build, record.name)
+            or kept(build)
+            # A build's machine may still be writing, if the build ended without it.
+            or Launch.objects.filter(setup=build).exclude(state=LaunchState.ENDED).exists()
+        ):
+            continue
+        found.setdefault(build, []).append(record)
+    return found
+
+
+def removed(build: SetupBuild, records: list[ManagedVolume]) -> None:
+    """Deletes versions once their directories are gone."""
+    ManagedVolume.objects.filter(pk__in=[r.pk for r in records]).update(
+        state=VolumeState.DELETED if build.state == SetupState.SUCCEEDED else VolumeState.FAILED,
+        deleted_at=timezone.now(),
+        message="",
+    )
+
+
 def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) -> int:
     if not ready_to_start(build, now):
         build.refresh_from_db(fields=["state"])
@@ -218,17 +282,7 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
                 "directory": declared["directory"],
             }
             recorded[volume] = {"claim": declared["claim"], "directory": declared["directory"]}
-            # Recorded before anything is written there, so it's removed if the build fails.
-            ManagedVolume.objects.get_or_create(
-                build=build,
-                name=volume,
-                defaults={
-                    "environment": build.environment,
-                    "place": build.place,
-                    "handle": declared["directory"],
-                    "size": int(declared["size"]),
-                },
-            )
+            record_shared(build, volume)
             continue
         name = _claim(build, volume)
         if name not in have:
@@ -293,10 +347,7 @@ def _snapshot(cluster: Cluster, build: SetupBuild, now: datetime) -> int:
     failure = ""
     for volume, declared in sorted(build.spec["volumes"].items()):
         if setups.shared(build, volume):
-            # What the script wrote is the version: nothing to snapshot.
-            ManagedVolume.objects.filter(build=build, name=volume).exclude(
-                state=VolumeState.READY
-            ).update(state=VolumeState.READY, ready_at=now)
+            shared_ready(build, volume, now)
             ready += 1
             continue
         name = _claim(build, volume)
@@ -405,14 +456,6 @@ def _tidy(cluster: Cluster, pods: RunPods, namespace: str) -> None:
     _remove_shared(cluster, pods, namespace, build_of)
 
 
-FINISHED = (
-    SetupState.SUCCEEDED,
-    SetupState.FAILED,
-    SetupState.TIMED_OUT,
-    SetupState.CANCELLED,
-)
-
-
 def _remove_shared(
     cluster: Cluster,
     pods: RunPods,
@@ -423,63 +466,48 @@ def _remove_shared(
     Job of the worker's image mounting the file system's directory for Iki. The version is
     deleted once the Job has done it."""
     jobs = {j["metadata"]["name"]: j for j in cluster.list(namespace, "job", SETUP_LABEL)}
-    going = ManagedVolume.objects.filter(
-        place=namespace, deleted_at__isnull=True, build__state__in=FINISHED
-    ).select_related("build")
     wanted: set[str] = set()
-    for record in going:
-        build = record.build
-        if (
-            record.name not in build.spec["volumes"]
-            or not setups.shared(build, record.name)
-            or kept(build)
-            # A build's pod may still be writing, if the build ended without it.
-            or Launch.objects.filter(setup=build).exclude(state=LaunchState.ENDED).exists()
-        ):
-            continue
-        name = _removal(build, record.name)
-        wanted.add(name)
-        found = jobs.get(name)
-        if found is None:
-            declared = build.spec["volumes"][record.name]
-            cluster.create(
-                namespace,
-                "job",
-                removal_manifest(
-                    name=name,
-                    claim=declared["claim"],
-                    root=declared["root"],
-                    directories=[declared["directory"]],
-                    pods=pods,
-                    labels=_labels(build, record.name),
-                ),
+    for build, records in to_remove(namespace).items():
+        for record in records:
+            name = _removal(build, record.name)
+            wanted.add(name)
+            found = jobs.get(name)
+            if found is None:
+                declared = build.spec["volumes"][record.name]
+                cluster.create(
+                    namespace,
+                    "job",
+                    removal_manifest(
+                        name=name,
+                        claim=declared["claim"],
+                        root=declared["root"],
+                        directories=[declared["directory"]],
+                        pods=pods,
+                        labels=_labels(build, record.name),
+                    ),
+                )
+                logger.info("setup_directory_removing", build=build.hrid, volume=record.name)
+                continue
+            status = found.get("status") or {}
+            if status.get("succeeded"):
+                removed(build, [record])
+                cluster.delete(namespace, "job", name)
+                logger.info("setup_directory_removed", build=build.hrid, volume=record.name)
+                continue
+            failed = any(
+                c.get("type") == "Failed" and c.get("status") == "True"
+                for c in status.get("conditions") or []
             )
-            logger.info("setup_directory_removing", build=build.hrid, volume=record.name)
-            continue
-        status = found.get("status") or {}
-        if status.get("succeeded"):
-            ManagedVolume.objects.filter(pk=record.pk).update(
-                state=VolumeState.DELETED
-                if build.state == SetupState.SUCCEEDED
-                else VolumeState.FAILED,
-                deleted_at=timezone.now(),
-                message="",
-            )
-            cluster.delete(namespace, "job", name)
-            logger.info("setup_directory_removed", build=build.hrid, volume=record.name)
-            continue
-        failed = any(
-            c.get("type") == "Failed" and c.get("status") == "True"
-            for c in status.get("conditions") or []
-        )
-        # A failed Job is kept until Kubernetes deletes it (KEEP_FINISHED after it ends),
-        # so its pod's log can be read; then it's started again, from the start. Removing
-        # is safe to repeat, and one that keeps failing is tried only that often.
-        if failed and not record.message:
-            ManagedVolume.objects.filter(pk=record.pk).update(
-                message="Iki couldn't remove its directory, and tries again shortly."
-            )
-            logger.warning("setup_directory_removal_failed", build=build.hrid, volume=record.name)
+            # A failed Job is kept until Kubernetes deletes it (KEEP_FINISHED after it
+            # ends), so its pod's log can be read; then it's started again, from the start.
+            # Removing is safe to repeat, and one that keeps failing is tried only that often.
+            if failed and not record.message:
+                ManagedVolume.objects.filter(pk=record.pk).update(
+                    message="Iki couldn't remove its directory, and tries again shortly."
+                )
+                logger.warning(
+                    "setup_directory_removal_failed", build=build.hrid, volume=record.name
+                )
     for name, job in jobs.items():
         if name not in wanted and build_of(job) is None:
             cluster.delete(namespace, "job", name)

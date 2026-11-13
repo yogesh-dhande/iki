@@ -288,7 +288,7 @@ def _mount_volumes(
                 {
                     "name": f"volume-{n}",
                     "mountPath": volume["mount"],
-                    "subPath": volume["directory"],
+                    "subPath": f"{volume['root']}/{volume['directory']}",
                     "readOnly": True,
                 }
             )

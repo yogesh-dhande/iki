@@ -18,6 +18,15 @@
 //! each a new copy of the version's snapshot, mounted read-only; for a setup build, each
 //! empty, formatted here, mounted writable for the script to fill, and unmounted once the
 //! container ends so the provisioner can snapshot it whole.
+//!
+//! Or on a shared file system (ADR 0077), NFS (such as EFS) or Lustre (such as AWS's managed
+//! Lustre), which the machine mounts: the container gets only its version's directory,
+//! read-only for a run. For a setup build, runs' user makes that directory first
+//! (`iki-worker prepare`), and the script fills it.
+//!
+//! A machine whose config says what to `remove` only mounts those file systems, removes
+//! the versions as runs' user (`iki-worker remove`), says `IKI-REMOVED` on its console,
+//! and shuts down.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -70,18 +79,70 @@ pub struct Config {
     pub volumes: Vec<Volume>,
 }
 
-/// One of the environment's volumes, on a disk attached to the machine.
+/// One of the environment's volumes: a disk attached to the machine, or a version's
+/// directory on a shared file system.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Volume {
     pub name: String,
-    /// The device it's attached as, such as `/dev/sdf`.
-    pub device: String,
+    /// A disk's: the device it's attached as, such as `/dev/sdf`.
+    #[serde(default)]
+    pub device: Option<String>,
+    /// Or the shared file system it's on, and the version's directory, under `root` in it.
+    #[serde(default)]
+    pub filesystem: Option<FileSystem>,
+    #[serde(default)]
+    pub root: Option<String>,
+    #[serde(default)]
+    pub directory: Option<String>,
     /// Where it's mounted on the machine, and where the container sees it.
     pub path: PathBuf,
     pub mount: String,
-    /// A setup build's: empty, to format and fill. Otherwise a copy of a snapshot, read-only.
+    /// A setup build's: to fill. Otherwise read-only.
     pub writable: bool,
+}
+
+/// A shared file system a machine mounts.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileSystem {
+    /// `nfs` or `lustre`.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// Such as `fs-0123.efs.us-east-1.amazonaws.com:/`.
+    pub source: String,
+}
+
+/// What a machine that only removes versions from shared file systems reads.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cleanup {
+    pub name: String,
+    pub user: String,
+    /// This binary, on the machine.
+    pub worker: PathBuf,
+    pub remove: Vec<Removal>,
+}
+
+/// A version to remove: `directory`, under `root` in the file system, mounted at `path`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Removal {
+    pub name: String,
+    pub filesystem: FileSystem,
+    pub root: String,
+    pub directory: String,
+    pub path: PathBuf,
+}
+
+impl Volume {
+    /// What the container gets: the disk's mount, or the version's own directory.
+    fn source(&self) -> PathBuf {
+        match (&self.root, &self.directory) {
+            (Some(root), Some(directory)) => self.path.join(root).join(directory),
+            _ => self.path.clone(),
+        }
+    }
 }
 
 /// How it reaches the machine: Docker, its metadata, and its own shutdown. Tests swap
@@ -92,8 +153,8 @@ pub struct Machine {
     pub metadata: String,
     /// The first wait between pulls; each one after waits longer.
     pub pause: Duration,
-    /// Where `blkid`, `mkfs.ext4`, `mountpoint`, `mount`, `umount` and `chown` are: on the
-    /// `PATH` when empty.
+    /// Where `blkid`, `mkfs.ext4`, `mountpoint`, `mount`, `umount`, `chown` and `setpriv`
+    /// are: on the `PATH` when empty.
     pub tools: PathBuf,
     /// How long a volume's disk may take to be attached.
     pub attach_within: Duration,
@@ -148,6 +209,9 @@ pub fn host(config_file: &Path) -> Result<(), String> {
             .map_err(|error| format!("Couldn't watch for signals: {error}"))?;
     }
     let machine = Machine::default();
+    if let Ok(cleanup) = read_cleanup(config_file) {
+        return clean_up_and_shut_down(&cleanup, &machine);
+    }
     let config = read(config_file);
     let ended = match &config {
         Ok(config) => run(config, config_file, &machine, &interrupted),
@@ -169,6 +233,124 @@ pub fn host(config_file: &Path) -> Result<(), String> {
     };
     shut_down(&machine);
     outcome
+}
+
+/// Reads a cleanup machine's config: one that says what to `remove`.
+pub fn read_cleanup(path: &Path) -> Result<Cleanup, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Couldn't read {}: {e}", path.display()))?;
+    serde_json::from_str(&text)
+        .map_err(|e| format!("{} isn't a cleanup config: {e}", path.display()))
+}
+
+/// Removes the versions, says how it went on the console, and shuts the machine down.
+fn clean_up_and_shut_down(cleanup: &Cleanup, machine: &Machine) -> Result<(), String> {
+    let outcome = clean_up(cleanup, machine);
+    match &outcome {
+        Ok(()) => {
+            let _ = std::io::stderr()
+                .lock()
+                .write_all(format!("{REMOVED}\n").as_bytes());
+        }
+        Err(trouble) => tell(trouble),
+    }
+    shut_down(machine);
+    outcome.map_err(|trouble| trouble.message)
+}
+
+/// What a cleanup machine says on its console once it has removed them all.
+pub const REMOVED: &str = "IKI-REMOVED";
+
+/// Mounts each version's file system, and removes the version as runs' user.
+pub fn clean_up(cleanup: &Cleanup, machine: &Machine) -> Result<(), Trouble> {
+    say::info("Removing versions.", &[("machine", &cleanup.name)]);
+    let mut outcome = Ok(());
+    for each in &cleanup.remove {
+        let trouble = |message: String| {
+            Trouble::new(
+                "removal_failed",
+                format!("{} ({}): {message}", each.name, each.directory),
+            )
+        };
+        if !crate::shared::plain(&each.root) || !crate::shared::plain(&each.directory) {
+            outcome = Err(trouble("not a plain relative path".into()));
+            break;
+        }
+        if let Err(error) = mount_shared(machine, &each.filesystem, &each.path, true) {
+            outcome = Err(trouble(error));
+            break;
+        }
+        let root = each.path.join(&each.root).to_string_lossy().into_owned();
+        let removed = as_user(
+            machine,
+            &cleanup.user,
+            &cleanup.worker,
+            &["remove", &root, &each.directory],
+        );
+        if let Err(error) = removed {
+            outcome = Err(trouble(error));
+            break;
+        }
+        say::info(
+            "Removed a version.",
+            &[("volume", &each.name), ("directory", &each.directory)],
+        );
+    }
+    for each in &cleanup.remove {
+        let _ = tool(machine, "umount", &[&each.path.to_string_lossy()]);
+    }
+    outcome
+}
+
+/// Mounts a shared file system at `path`, unless it is already: NFS 4.1 as EFS advises,
+/// read-only unless `writable`, or Lustre as AWS advises (whose client the
+/// machine image needs). Either way, with no devices or set-user-ID programs.
+fn mount_shared(
+    machine: &Machine,
+    filesystem: &FileSystem,
+    path: &Path,
+    writable: bool,
+) -> Result<(), String> {
+    let at = path.to_string_lossy().into_owned();
+    if tool(machine, "mountpoint", &["-q", &at]).is_ok() {
+        return Ok(()); // an earlier start of this service mounted it
+    }
+    let (kind, options) = match filesystem.kind.as_str() {
+        "nfs" => (
+            "nfs4",
+            format!(
+                "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport,\
+                 nodev,nosuid,{}",
+                if writable { "rw" } else { "ro" }
+            ),
+        ),
+        "lustre" => ("lustre", "relatime,flock,nodev,nosuid".to_owned()),
+        other => return Err(format!("{other} isn't a file system Iki mounts")),
+    };
+    std::fs::create_dir_all(path).map_err(|e| format!("couldn't make {at}: {e}"))?;
+    tool(
+        machine,
+        "mount",
+        &["-t", kind, "-o", &options, &filesystem.source, &at],
+    )
+}
+
+/// Runs this binary as `user` (`uid:gid`), with no other groups: what runs' user may do,
+/// on a file system that may not trust the machine's root.
+fn as_user(machine: &Machine, user: &str, worker: &Path, args: &[&str]) -> Result<(), String> {
+    let (uid, gid) = user.split_once(':').unwrap_or((user, user));
+    let worker = worker.to_string_lossy();
+    let mut all = vec![
+        "--reuid",
+        uid,
+        "--regid",
+        gid,
+        "--clear-groups",
+        "--",
+        &worker,
+    ];
+    all.extend_from_slice(args);
+    tool(machine, "setpriv", &all)
 }
 
 /// Reads the machine's config.
@@ -210,6 +392,10 @@ pub fn run(
 /// the run's user; a run's read-only.
 fn attach(config: &Config, machine: &Machine, interrupted: &AtomicBool) -> Result<(), Trouble> {
     for volume in &config.volumes {
+        if let Some(filesystem) = &volume.filesystem {
+            attach_shared(config, machine, volume, filesystem)?;
+            continue;
+        }
         let trouble = |message: String| {
             Trouble::new(
                 "volume_unavailable",
@@ -223,7 +409,7 @@ fn attach(config: &Config, machine: &Machine, interrupted: &AtomicBool) -> Resul
             return Err(trouble(format!(
                 "{} wasn't attached within {}s (the machine image needs udev rules that \
                  name EBS disks by their device, as Amazon Linux's do)",
-                volume.device,
+                volume.device.as_deref().unwrap_or_default(),
                 machine.attach_within.as_secs()
             )));
         };
@@ -285,11 +471,64 @@ fn attach(config: &Config, machine: &Machine, interrupted: &AtomicBool) -> Resul
     Ok(())
 }
 
+/// Mounts a volume's shared file system, and for a setup build makes the version's own
+/// directory as runs' user; a run's must be there.
+fn attach_shared(
+    config: &Config,
+    machine: &Machine,
+    volume: &Volume,
+    filesystem: &FileSystem,
+) -> Result<(), Trouble> {
+    let trouble = |message: String| {
+        Trouble::new(
+            "volume_unavailable",
+            format!("its file system for {}: {message}", volume.name),
+        )
+    };
+    let (Some(root), Some(directory)) = (&volume.root, &volume.directory) else {
+        return Err(Trouble::new(
+            "bad_config",
+            format!("{} has no directory on its file system", volume.name),
+        ));
+    };
+    if !crate::shared::plain(root) || !crate::shared::plain(directory) {
+        return Err(Trouble::new(
+            "bad_config",
+            format!("{}'s directory isn't a plain relative path", volume.name),
+        ));
+    }
+    mount_shared(machine, filesystem, &volume.path, volume.writable).map_err(&trouble)?;
+    if volume.writable {
+        let root = volume.path.join(root).to_string_lossy().into_owned();
+        as_user(
+            machine,
+            &config.user,
+            &config.worker,
+            &["prepare", &root, directory],
+        )
+        .map_err(&trouble)?;
+    } else if !volume.source().is_dir() {
+        return Err(trouble(format!(
+            "its version's directory, {root}/{directory}, isn't there"
+        )));
+    }
+    say::info(
+        "Mounted a volume's file system.",
+        &[
+            ("volume", &volume.name),
+            ("directory", directory),
+            ("writable", &volume.writable),
+        ],
+    );
+    Ok(())
+}
+
 /// The volume's disk, once it's attached: its device, or the `xvd` name some images give
 /// it.
 fn device(volume: &Volume, machine: &Machine, interrupted: &AtomicBool) -> Option<PathBuf> {
-    let named = PathBuf::from(&volume.device);
-    let other = PathBuf::from(volume.device.replacen("/sd", "/xvd", 1));
+    let given = volume.device.as_deref().unwrap_or_default();
+    let named = PathBuf::from(given);
+    let other = PathBuf::from(given.replacen("/sd", "/xvd", 1));
     let until = Instant::now() + machine.attach_within;
     loop {
         for each in [&named, &other] {
@@ -456,7 +695,7 @@ pub fn create_args(config: &Config, env_file: &Path) -> Vec<String> {
     for volume in &config.volumes {
         let mut mount = format!(
             "type=bind,src={},dst={}",
-            volume.path.display(),
+            volume.source().display(),
             volume.mount
         );
         if !volume.writable {
@@ -790,6 +1029,10 @@ esac
             ("mount", "exit 0"),
             ("umount", "exit 0"),
             ("chown", "exit 0"),
+            (
+                "setpriv",
+                "[ -e \"$d/fail_setpriv\" ] && { echo 'Permission denied' >&2; exit 1; }; exit 0",
+            ),
         ] {
             let script = tools.join(name);
             std::fs::write(
@@ -829,6 +1072,24 @@ esac
         json["volumes"] = serde_json::json!([{
             "name": "af-db",
             "device": device,
+            "path": dir.join("volumes/af-db"),
+            "mount": "/data/af-db",
+            "writable": writable,
+        }]);
+        std::fs::write(&file, json.to_string()).unwrap();
+        (read(&file).unwrap(), file, machine)
+    }
+
+    /// A config whose `af-db` is a version's directory on a shared file system.
+    fn with_shared(dir: &Path, kind: &str, writable: bool) -> (Config, PathBuf, Machine) {
+        let (_, file, machine) = setup(dir, false);
+        let mut json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        json["volumes"] = serde_json::json!([{
+            "name": "af-db",
+            "filesystem": {"type": kind, "source": "fs-0123.example.com:/"},
+            "root": "iki",
+            "directory": "sp.alphafold/af-db/SETUP-000001",
             "path": dir.join("volumes/af-db"),
             "mount": "/data/af-db",
             "writable": writable,
@@ -949,6 +1210,122 @@ esac
             dir.0.display()
         );
         assert!(create.contains(&mount), "{create}");
+    }
+
+    #[test]
+    fn a_setup_build_fills_its_versions_own_directory_on_a_shared_file_system() {
+        let dir = Dir::new("shared-fill");
+        let (config, file, machine) = with_shared(&dir.0, "nfs", true);
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended, Ok(Ended::Exited(0)));
+        release(&config, &machine);
+        assert_eq!(
+            tools(&dir.0),
+            [
+                "mountpoint -q <dir>/volumes/af-db",
+                "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,\
+                 retrans=2,noresvport,nodev,nosuid,rw fs-0123.example.com:/ <dir>/volumes/af-db",
+                "setpriv --reuid 10001 --regid 10001 --clear-groups -- /opt/iki/bin/iki-worker \
+                 prepare <dir>/volumes/af-db/iki sp.alphafold/af-db/SETUP-000001",
+                "umount <dir>/volumes/af-db",
+            ]
+        );
+        let create = calls(&dir.0)
+            .into_iter()
+            .find(|c| c.starts_with("create"))
+            .expect("no create");
+        // Only its own directory, writable.
+        let mount = format!(
+            "--mount type=bind,src={}/volumes/af-db/iki/sp.alphafold/af-db/SETUP-000001,\
+             dst=/data/af-db ",
+            dir.0.display()
+        );
+        assert!(create.contains(&mount), "{create}");
+    }
+
+    #[test]
+    fn a_run_reads_its_versions_directory_read_only() {
+        let dir = Dir::new("shared-read");
+        let (config, file, machine) = with_shared(&dir.0, "lustre", false);
+        // Not there: it gives up, saying so.
+        let trouble = run(&config, &file, &machine, &AtomicBool::new(false)).unwrap_err();
+        assert_eq!(trouble.reason, "volume_unavailable");
+        assert!(trouble.message.contains("isn't there"), "{trouble:?}");
+        std::fs::create_dir_all(
+            dir.0
+                .join("volumes/af-db/iki/sp.alphafold/af-db/SETUP-000001"),
+        )
+        .unwrap();
+        std::fs::write(dir.0.join("exit"), "0\n").unwrap();
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended, Ok(Ended::Exited(0)));
+        release(&config, &machine);
+        let seen = tools(&dir.0);
+        assert!(
+            seen.contains(
+                &"mount -t lustre -o relatime,flock,nodev,nosuid fs-0123.example.com:/ \
+                  <dir>/volumes/af-db"
+                    .to_owned()
+            ),
+            "{seen:?}"
+        );
+        assert!(!seen.iter().any(|c| c.starts_with("setpriv")), "{seen:?}");
+        assert!(!seen.iter().any(|c| c.starts_with("umount")), "{seen:?}");
+        let create = calls(&dir.0)
+            .into_iter()
+            .find(|c| c.starts_with("create"))
+            .expect("no create");
+        let mount = format!(
+            "--mount type=bind,src={}/volumes/af-db/iki/sp.alphafold/af-db/SETUP-000001,\
+             dst=/data/af-db,readonly",
+            dir.0.display()
+        );
+        assert!(create.contains(&mount), "{create}");
+    }
+
+    #[test]
+    fn a_cleanup_machine_removes_versions_as_runs_user() {
+        let dir = Dir::new("cleanup");
+        let file = dir.0.join("cleanup.json");
+        std::fs::write(
+            &file,
+            serde_json::json!({
+                "name": "iki-cleanup-setup-000001",
+                "user": "10001:10001",
+                "worker": "/opt/iki/bin/iki-worker",
+                "remove": [{
+                    "name": "af-db",
+                    "filesystem": {"type": "nfs", "source": "fs-0123.example.com:/"},
+                    "root": "iki",
+                    "directory": "sp.alphafold/af-db/SETUP-000001",
+                    "path": dir.0.join("volumes/af-db"),
+                }],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        // It isn't a run machine's config, and a run machine's isn't a cleanup's.
+        assert!(read(&file).is_err());
+        let (_, run_file, machine) = setup(&dir.0, false);
+        assert!(read_cleanup(&run_file).is_err());
+        let cleanup = read_cleanup(&file).unwrap();
+        assert_eq!(clean_up(&cleanup, &machine), Ok(()));
+        assert_eq!(
+            tools(&dir.0),
+            [
+                "mountpoint -q <dir>/volumes/af-db",
+                "mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,\
+                 retrans=2,noresvport,nodev,nosuid,rw fs-0123.example.com:/ <dir>/volumes/af-db",
+                "setpriv --reuid 10001 --regid 10001 --clear-groups -- /opt/iki/bin/iki-worker \
+                 remove <dir>/volumes/af-db/iki sp.alphafold/af-db/SETUP-000001",
+                "umount <dir>/volumes/af-db",
+            ]
+        );
+        std::fs::write(dir.0.join("fail_setpriv"), "").unwrap();
+        let trouble = clean_up(&cleanup, &machine).unwrap_err();
+        assert_eq!(trouble.reason, "removal_failed");
+        assert!(trouble.message.contains("Permission denied"), "{trouble:?}");
     }
 
     #[test]

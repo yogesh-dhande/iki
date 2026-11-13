@@ -31,7 +31,7 @@ from test_workers import WorkerClient
 from iki_server.accounts.models import User
 from iki_server.org.models import OrgRole, OrgRoleAssignment
 from iki_server.runs import catalog, provisioner
-from iki_server.runs.ec2 import LAUNCH_TAG, SETUP_TAG, VOLUME_TAG
+from iki_server.runs.ec2 import LAUNCH_TAG, REMOVAL_TAG, SETUP_TAG, VOLUME_TAG
 from iki_server.runs.ec2_fleet import Ec2Fleet
 from iki_server.runs.models import (
     Job,
@@ -502,3 +502,175 @@ def test_disks_and_snapshots_with_no_build_are_deleted(world: World) -> None:
     provisioner.tick(machines, timezone.now())
     assert ec2.disks["vol-0stray"]["State"] == "deleted"
     assert ec2.snaps["snap-0stray"]["State"] == "deleted"
+
+
+# --- On a shared file system (ADR 0077) ----------------------------------------------------------
+
+LUSTRE = "fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh"
+
+
+def on_lustre(**aws: Any) -> dict[str, Any]:
+    template = a100(
+        volumes={"af-db": {"strategy": "shared_filesystem", "lustre": LUSTRE, "path": "reference"}}
+    )
+    template["aws"] = {**template["aws"], **aws}
+    return template
+
+
+def shared_version(world: World, ec2: FakeEc2, machines: Ec2Fleet) -> SetupBuild:
+    """A build on the shared file system, through to its version being ready."""
+    build = ask(world)
+    provisioner.tick(machines)
+    run_script(ec2, machines)
+    provisioner.tick(machines)
+    done = SetupBuild.objects.get(hrid=build["hrid"])
+    assert done.state == SetupState.SUCCEEDED, done.error
+    return done
+
+
+def cleaners(ec2: FakeEc2) -> list[dict[str, Any]]:
+    return [i for i in ec2.made.values() if tag(i, REMOVAL_TAG)]
+
+
+def test_on_a_shared_file_system_a_setup_fills_its_versions_own_directory(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use(monkeypatch, tmp_path, on_lustre())
+    ec2 = FakeEc2()
+    machines = fleet(ec2)
+    build = ask(world)
+    provisioner.tick(machines)
+    launch = setup_launch()
+    instance = live(ec2, launch)
+    # No disk of its own: the machine mounts the file system.
+    (root,) = instance["request"]["BlockDeviceMappings"]
+    assert root["DeviceName"] == "/dev/xvda"
+    directory = f"{ALPHAFOLD}/af-db/{build['hrid']}"
+    assert ec2.host(instance)["volumes"] == [
+        {
+            "name": "af-db",
+            "filesystem": {"type": "lustre", "source": LUSTRE},
+            "root": "reference",
+            "directory": directory,
+            "path": "/var/lib/iki/volumes/af-db",
+            "mount": "/data/af",
+            "writable": True,
+        }
+    ]
+    run_script(ec2, machines)
+    assert Launch.objects.get(pk=launch.pk).volumes == {
+        "af-db": {"filesystem": {"type": "lustre", "source": LUSTRE}, "directory": directory}
+    }
+    provisioner.tick(machines)
+    done = SetupBuild.objects.get(pk=build["id"])
+    assert done.state == SetupState.SUCCEEDED, done.error
+    volume = ManagedVolume.objects.get(build=done)
+    assert (volume.state, volume.handle) == (VolumeState.READY, directory)
+    assert not ec2.snaps
+    # Runs' machines mount it, and get the version's directory read-only.
+    queue_run(world)
+    provisioner.tick(machines)
+    (run,) = Launch.objects.filter(setup=None)
+    (given,) = ec2.host(live(ec2, run))["volumes"]
+    assert (given["directory"], given["writable"]) == (directory, False)
+    assert run.volumes["af-db"]["hrid"] == done.hrid
+
+
+def test_a_retired_version_is_removed_by_a_small_machine_once_unused(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use(monkeypatch, tmp_path, on_lustre())
+    ec2 = FakeEc2()
+    machines = fleet(ec2)
+    version = shared_version(world, ec2, machines)
+    queue_run(world)
+    provisioner.tick(machines)
+    holder = Launch.objects.get(setup=None)
+    api_as(world, "compute_admin").post(f"/compute/setups/{version.hrid}/retire")
+    provisioner.tick(machines, later(6))
+    assert not cleaners(ec2)  # a machine has it mounted
+    ec2.end(live(ec2, holder)["InstanceId"], "Client.UserInitiatedShutdown")
+    provisioner.tick(machines, later(12))
+    (cleaner,) = cleaners(ec2)
+    request = cleaner["request"]
+    # Small, on demand, in the template's network, with its image and role; no launch.
+    assert request["InstanceType"] == "t3.small"
+    assert "InstanceMarketOptions" not in request
+    assert request["ImageId"] == on_lustre()["aws"]["image"]
+    assert request["NetworkInterfaces"][0]["AssociatePublicIpAddress"] is False
+    assert request["MetadataOptions"]["HttpTokens"] == "required"
+    (root,) = request["BlockDeviceMappings"]
+    assert root["Ebs"]["Encrypted"] is True
+    assert tag(cleaner, LAUNCH_TAG) is None
+    assert tag(cleaner, SETUP_TAG) == str(version.pk)
+    assert ec2.host(cleaner) == {
+        "name": f"iki-cleanup-{version.hrid.lower()}",
+        "user": "10001:10001",
+        "worker": "/opt/iki/bin/iki-worker",
+        "remove": [
+            {
+                "name": "af-db",
+                "filesystem": {"type": "lustre", "source": LUSTRE},
+                "root": "reference",
+                "directory": f"{ALPHAFOLD}/af-db/{version.hrid}",
+                "path": "/var/lib/iki/volumes/af-db",
+            }
+        ],
+    }
+    # The fleet leaves it be: it isn't a stray run machine.
+    cleaner["State"] = {"Name": "running"}
+    provisioner.tick(machines, later(13))
+    assert cleaner["InstanceId"] not in ec2.terminated
+    # Once it says it removed the version, the version's deleted.
+    ec2.consoles[cleaner["InstanceId"]] = "...\nIKI-REMOVED\n"
+    ec2.end(cleaner["InstanceId"], "Client.InstanceInitiatedShutdown")
+    provisioner.tick(machines, later(18))
+    gone = ManagedVolume.objects.get(build=version)
+    assert (gone.state, gone.deleted_at is not None) == (VolumeState.DELETED, True)
+    provisioner.tick(machines, later(24))
+    assert len(cleaners(ec2)) == 1
+
+
+def test_a_failed_builds_directory_is_removed_and_a_failed_removal_tried_again(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    use(monkeypatch, tmp_path, on_lustre(cleanup_instance_type="t4g.small"))
+    ec2 = FakeEc2()
+    machines = fleet(ec2)
+    build = ask(world)
+    provisioner.tick(machines)
+    launch = setup_launch()
+    instance = live(ec2, launch)
+    instance["State"] = {"Name": "running"}
+    worker = WorkerClient(register(ec2.token(instance)).json()["token"])
+    provisioner.tick(machines)
+    given = worker.lease().json()
+    worker.post(
+        f"/setups/{given['setup']['id']}/finish",
+        {"lease_token": given["job"]["lease_token"], "outcome": "failed", "message": "exit 1"},
+    )
+    # Not while its machine may still be writing.
+    provisioner.tick(machines, later(6))
+    assert not cleaners(ec2)
+    ec2.end(instance["InstanceId"], "Client.InstanceInitiatedShutdown")
+    provisioner.tick(machines, later(12))
+    (first,) = cleaners(ec2)
+    first["LaunchTime"] = later(12)  # when that round started it
+    assert first["request"]["InstanceType"] == "t4g.small"
+    ec2.consoles[first["InstanceId"]] = (
+        "IKI-HOST-ERROR removal_failed: af-db: mount.lustre: mount failed\n"
+    )
+    ec2.end(first["InstanceId"], "Client.InstanceInitiatedShutdown")
+    provisioner.tick(machines, later(18))
+    record = ManagedVolume.objects.get(build_id=build["id"])
+    assert "mount.lustre: mount failed" in record.message
+    assert len(cleaners(ec2)) == 1  # not again at once
+    provisioner.tick(machines, later(30))
+    assert len(cleaners(ec2)) == 2
+    second = cleaners(ec2)[-1]
+    second["LaunchTime"] = later(30)
+    ec2.consoles[second["InstanceId"]] = "IKI-REMOVED\n"
+    ec2.end(second["InstanceId"], "Client.InstanceInitiatedShutdown")
+    provisioner.tick(machines, later(36))
+    gone = ManagedVolume.objects.get(build_id=build["id"])
+    assert (gone.state, gone.deleted_at is not None, gone.message) == (VolumeState.FAILED, True, "")

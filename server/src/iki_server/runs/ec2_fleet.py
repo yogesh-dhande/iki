@@ -42,9 +42,11 @@ from iki_server.audit import log as audit
 from iki_server.runs import catalog, ec2_volumes, launches, setups
 from iki_server.runs.ec2 import (
     LAUNCH_TAG,
+    REMOVAL_TAG,
     Disk,
     Ec2,
     Ec2Error,
+    Shared,
     VmMachines,
     disks,
     host_trouble,
@@ -192,7 +194,7 @@ class Ec2Fleet(Fleet):
         once: bool,
         token: str,
         markets: list[bool],
-        data: list[Disk],
+        data: list[Disk | Shared],
         setup: str | None = None,
     ) -> bool:
         """Starts the launch's instance: each market in turn, in each subnet. Returns whether
@@ -310,7 +312,11 @@ class Ec2Fleet(Fleet):
             stray = [
                 i["InstanceId"]
                 for i in instances
-                if _state(i) not in ENDED and _tag(i, LAUNCH_TAG) not in known
+                if _state(i) not in ENDED
+                and _tag(i, LAUNCH_TAG) not in known
+                # A machine removing versions from a shared file system has no launch: its
+                # own round ends it (ADR 0077).
+                and _tag(i, REMOVAL_TAG) is None
             ]
             if stray:
                 # Its launch ended, or it has none: nothing will ever lease from it.

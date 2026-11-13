@@ -15,7 +15,12 @@ security groups, with:
 - ``terminate`` when it shuts itself down: an ephemeral machine does once its run is done.
 - A disk for each of the environment's volumes its setup fills (ADR 0076): a new one from
   the version's EBS snapshot, mounted read-only, for a run's machine; an empty one, kept
-  when the machine ends so it can be snapshotted, for a setup build's.
+  when the machine ends so it can be snapshotted, for a setup build's. A volume on a
+  shared file system has no disk: the machine mounts the file system, and gives the
+  container only the version's directory (ADR 0077).
+
+:func:`cleanup_request` is a small machine's, which removes retired versions from a
+shared file system and shuts down, saying so on its console.
 
 Its user data (:func:`user_data`) copies ``iki-worker`` out of Iki's signed worker image,
 pinned by its digest, and starts ``iki-worker host``. That pulls the environment's image,
@@ -42,13 +47,17 @@ __all__ = [
     "DEVICES",
     "LAUNCH_TAG",
     "OWNER_TAG",
+    "REMOVAL_TAG",
+    "REMOVED",
     "SETUP_TAG",
     "VOLUME_TAG",
     "Boto3Ec2",
     "Disk",
     "Ec2",
     "Ec2Error",
+    "Shared",
     "VmMachines",
+    "cleanup_request",
     "disks",
     "host_config",
     "host_trouble",
@@ -67,6 +76,13 @@ ENVIRONMENT_TAG = "iki.ikisci.org/environment"
 #: A setup build's disks and snapshots carry its ID, and the volume's name (ADR 0076).
 SETUP_TAG = "iki.ikisci.org/setup"
 VOLUME_TAG = "iki.ikisci.org/volume"
+#: A machine that removes a setup build's versions from shared file systems carries its
+#: ID (ADR 0077), and no launch's.
+REMOVAL_TAG = "iki.ikisci.org/removal"
+#: What it says on its console once it has.
+REMOVED = "IKI-REMOVED"
+#: Its instance type, unless the template says.
+CLEANUP_INSTANCE_TYPE = "t3.small"
 
 #: Where things live on a run machine.
 HOST = "/opt/iki"
@@ -208,13 +224,64 @@ class Disk:
         return self.snapshot is None
 
 
-def disks(volumes: dict[str, dict[str, Any]]) -> list[Disk]:
-    """The disks for the environment's volumes, in the order they're attached: for a run's
-    machine, from :func:`setups.volumes_for`; for a setup build's, from its spec."""
-    return [
-        Disk(name, str(v["mount"]), int(v["size"]), v.get("snapshot"))
-        for name, v in sorted(volumes.items())
-    ]
+@dataclass(frozen=True)
+class Shared:
+    """A volume's version on a shared file system (ADR 0077): its own directory, under
+    `root` in the file system the machine mounts. A setup build's makes it, writable."""
+
+    name: str
+    mount: str
+    #: Its type (``nfs`` or ``lustre``) and source.
+    filesystem: tuple[str, str]
+    root: str
+    directory: str
+    writable: bool
+
+
+def disks(volumes: dict[str, dict[str, Any]], *, setup: bool = False) -> list[Disk | Shared]:
+    """What the machine gets for the environment's volumes, disks in the order they're
+    attached: for a run's machine, from :func:`setups.volumes_for`; for a setup build's,
+    from its spec."""
+    found: list[Disk | Shared] = []
+    for name, v in sorted(volumes.items()):
+        if "filesystem" in v:
+            given = v["filesystem"]
+            found.append(
+                Shared(
+                    name,
+                    str(v["mount"]),
+                    (str(given["type"]), str(given["source"])),
+                    str(v["root"]),
+                    str(v["directory"]),
+                    writable=setup,
+                )
+            )
+        else:
+            found.append(Disk(name, str(v["mount"]), int(v["size"]), v.get("snapshot")))
+    return found
+
+
+def _host_volumes(data: list[Disk | Shared]) -> list[dict[str, Any]]:
+    """Each volume as ``iki-worker host`` reads it: a disk by its device, or a version's
+    directory on a shared file system."""
+    found: list[dict[str, Any]] = []
+    attached = 0
+    for each in data:
+        given: dict[str, Any] = {
+            "name": each.name,
+            "path": f"{HOST_VOLUMES}/{each.name}",
+            "mount": each.mount,
+            "writable": each.writable,
+        }
+        if isinstance(each, Disk):
+            given["device"] = DEVICES[attached]
+            attached += 1
+        else:
+            kind, source = each.filesystem
+            given["filesystem"] = {"type": kind, "source": source}
+            given |= {"root": each.root, "directory": each.directory}
+        found.append(given)
+    return found
 
 
 def gib(size: int) -> int:
@@ -242,9 +309,9 @@ def host_config(
     machines: VmMachines,
     once: bool,
     spot: bool,
-    data: list[Disk] | None = None,
+    data: list[Disk | Shared] | None = None,
 ) -> dict[str, Any]:
-    """What ``iki-worker host`` reads: the run's container, its disks, and how to stop
+    """What ``iki-worker host`` reads: the run's container, its volumes, and how to stop
     it."""
     have = template.capacity
     env = worker_settings(
@@ -273,22 +340,13 @@ def host_config(
         "gpus": have.gpu_count,
         "stop_timeout": STOP,
         "spot_stop_timeout": SPOT_STOP,
-        "volumes": [
-            {
-                "name": disk.name,
-                "device": DEVICES[n],
-                "path": f"{HOST_VOLUMES}/{disk.name}",
-                "mount": disk.mount,
-                "writable": disk.writable,
-            }
-            for n, disk in enumerate(data or [])
-        ],
+        "volumes": _host_volumes(data or []),
     }
 
 
 _SCRIPT = """\
 #!/bin/sh
-# An Iki run machine (ADR 0074): {name}, for {environment} on {template}.
+# An Iki machine (ADR 0074): {name}, for {environment} on {template}.
 # It copies iki-worker out of Iki's worker image, pinned by its digest, and starts
 # `iki-worker host`, which runs the environment's image with the worker in it.
 set -eu
@@ -368,7 +426,7 @@ def user_data(
     once: bool,
     spot: bool,
     token: str,
-    data: list[Disk] | None = None,
+    data: list[Disk | Shared] | None = None,
 ) -> str:
     config = host_config(
         name=name,
@@ -380,6 +438,18 @@ def user_data(
         spot=spot,
         data=data,
     )
+    return _script(name, template, environment, config, token, machines, image)
+
+
+def _script(
+    name: str,
+    template: Template,
+    environment: str,
+    config: dict[str, Any],
+    token: str,
+    machines: VmMachines,
+    *images: str,
+) -> str:
     return _SCRIPT.format(
         name=name,
         environment=environment,
@@ -390,7 +460,7 @@ def user_data(
         config_json=json.dumps(config, sort_keys=True),
         token_file=TOKEN,
         token=token,
-        logins=_logins(machines.worker_image, image),
+        logins=_logins(machines.worker_image, *images),
         worker_image=shlex.quote(machines.worker_image),
         uid=UID,
         stop_within=STOP + 30,
@@ -421,7 +491,7 @@ def instance_request(
     subnet: str,
     spot: bool,
     attempt: int,
-    data: list[Disk] | None = None,
+    data: list[Disk | Shared] | None = None,
     setup: str | None = None,
 ) -> dict[str, Any]:
     """A ``RunInstances`` request for one of the launch's tries: a market (spot or
@@ -429,48 +499,22 @@ def instance_request(
     one instance for it however often it's sent. `data` are the disks for its
     environment's volumes; `setup`, the setup build it's for, whose ID its disks carry."""
     aws = template.aws
-    if len(data or []) > len(DEVICES):
-        raise ValueError(f"A machine can have at most {len(DEVICES)} volumes.")
-    disk: dict[str, Any] = {
-        "VolumeSize": root_disk(template),
-        "VolumeType": "gp3",
-        "Encrypted": True,
-        "DeleteOnTermination": True,
-    }
-    if aws.get("kms_key"):
-        disk["KmsKeyId"] = aws["kms_key"]
+    attached = [each for each in data or [] if isinstance(each, Disk)]
+    if len(attached) > len(DEVICES):
+        raise ValueError(f"A machine can have at most {len(DEVICES)} disks for volumes.")
     ours = {LAUNCH_TAG: launch_id, **({SETUP_TAG: setup} if setup else {})}
     tags = _tags(machines, template, environment, Name=name, **ours)
     request: dict[str, Any] = {
-        "ImageId": aws["image"],
+        **_machine(template, subnet, root_disk(template)),
         "InstanceType": aws["instance_type"],
-        "MinCount": 1,
-        "MaxCount": 1,
         "ClientToken": f"{launch_id}-{attempt}",
-        "IamInstanceProfile": {"Name": aws["instance_profile"]},
-        "NetworkInterfaces": [
-            {
-                "DeviceIndex": 0,
-                "SubnetId": subnet,
-                "Groups": list(aws["security_groups"]),
-                "AssociatePublicIpAddress": False,
-                "DeleteOnTermination": True,
-            }
-        ],
         "BlockDeviceMappings": [
-            {"DeviceName": aws.get("root_device") or "/dev/xvda", "Ebs": disk},
+            _root(template, root_disk(template)),
             *(
                 {"DeviceName": DEVICES[n], "Ebs": _data_disk(template, each)}
-                for n, each in enumerate(data or [])
+                for n, each in enumerate(attached)
             ),
         ],
-        "MetadataOptions": {
-            "HttpTokens": "required",
-            "HttpPutResponseHopLimit": 1,
-            "HttpEndpoint": "enabled",
-            "InstanceMetadataTags": "disabled",
-        },
-        "InstanceInitiatedShutdownBehavior": "terminate",
         "UserData": user_data(
             name=name,
             template=template,
@@ -497,6 +541,101 @@ def instance_request(
             },
         }
     return request
+
+
+def _root(template: Template, size: int | None) -> dict[str, Any]:
+    """The instance's own disk: encrypted, deleted with it, of `size` GiB (its image's
+    unless set)."""
+    disk: dict[str, Any] = {"VolumeType": "gp3", "Encrypted": True, "DeleteOnTermination": True}
+    if size is not None:
+        disk["VolumeSize"] = size
+    if template.aws.get("kms_key"):
+        disk["KmsKeyId"] = template.aws["kms_key"]
+    return {"DeviceName": template.aws.get("root_device") or "/dev/xvda", "Ebs": disk}
+
+
+def _machine(template: Template, subnet: str, size: int | None) -> dict[str, Any]:
+    """What every instance the provisioner starts has, whatever it's for."""
+    aws = template.aws
+    return {
+        "ImageId": aws["image"],
+        "MinCount": 1,
+        "MaxCount": 1,
+        "IamInstanceProfile": {"Name": aws["instance_profile"]},
+        "NetworkInterfaces": [
+            {
+                "DeviceIndex": 0,
+                "SubnetId": subnet,
+                "Groups": list(aws["security_groups"]),
+                "AssociatePublicIpAddress": False,
+                "DeleteOnTermination": True,
+            }
+        ],
+        "BlockDeviceMappings": [_root(template, size)],
+        "MetadataOptions": {
+            "HttpTokens": "required",
+            "HttpPutResponseHopLimit": 1,
+            "HttpEndpoint": "enabled",
+            "InstanceMetadataTags": "disabled",
+        },
+        "InstanceInitiatedShutdownBehavior": "terminate",
+    }
+
+
+def cleanup_config(name: str, versions: list[Shared]) -> dict[str, Any]:
+    """What ``iki-worker host`` reads on a cleanup machine: the versions to remove, each
+    from the file system it mounts."""
+    return {
+        "name": name,
+        "user": f"{UID}:{UID}",
+        "worker": HOST_WORKER,
+        "remove": [
+            {
+                "name": each.name,
+                "filesystem": {"type": each.filesystem[0], "source": each.filesystem[1]},
+                "root": each.root,
+                "directory": each.directory,
+                "path": f"{HOST_VOLUMES}/{each.name}",
+            }
+            for each in versions
+        ],
+    }
+
+
+def cleanup_request(
+    *,
+    build_id: str,
+    name: str,
+    template: Template,
+    environment: str,
+    machines: VmMachines,
+    subnet: str,
+    attempt: int,
+    versions: list[Shared],
+) -> dict[str, Any]:
+    """A ``RunInstances`` request for a small on-demand machine that removes a setup
+    build's `versions` from their shared file systems and shuts down (ADR 0077). It boots
+    the template's image, in its network, with its role, on its cleanup instance type."""
+    tags = _tags(
+        machines,
+        template,
+        environment,
+        Name=name,
+        **{SETUP_TAG: build_id, REMOVAL_TAG: build_id},
+    )
+    config = cleanup_config(name, versions)
+    return {
+        **_machine(template, subnet, None),
+        "InstanceType": template.aws.get("cleanup_instance_type") or CLEANUP_INSTANCE_TYPE,
+        "ClientToken": f"cleanup-{build_id}-{attempt}",
+        # No token: it registers with nothing, and only says on its console how it went.
+        "UserData": _script(name, template, environment, config, "", machines),
+        "TagSpecifications": [
+            {"ResourceType": "instance", "Tags": tags},
+            {"ResourceType": "volume", "Tags": tags},
+            {"ResourceType": "network-interface", "Tags": tags},
+        ],
+    }
 
 
 def _data_disk(template: Template, disk: Disk) -> dict[str, Any]:

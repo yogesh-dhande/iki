@@ -106,14 +106,27 @@ class TemplateVolume:
     iops: int | None = None
     throughput: int | None = None
     #: With `shared_filesystem` on Kubernetes: the PersistentVolumeClaim of the file
-    #: system (FSx for Lustre, EFS, NFS), in the namespace runs go in, and the directory in
-    #: it Iki keeps versions under.
+    #: system (FSx for Lustre, EFS, NFS), in the namespace runs go in. On `aws_ec2`, what
+    #: machines mount: an NFS export (`nfs`, such as EFS's) or a Lustre file system's
+    #: (`lustre`, such as FSx for Lustre's). Either way, `path` is the directory in it Iki
+    #: keeps versions under.
     claim: str | None = None
     path: str | None = None
+    nfs: str | None = None
+    lustre: str | None = None
 
     @property
     def root(self) -> str:
         return self.path or "iki"
+
+    @property
+    def filesystem(self) -> dict[str, str] | None:
+        """What an EC2 machine mounts: its type and source."""
+        if self.nfs is not None:
+            return {"type": "nfs", "source": self.nfs}
+        if self.lustre is not None:
+            return {"type": "lustre", "source": self.lustre}
+        return None
 
 
 @dataclass(frozen=True)
@@ -344,6 +357,8 @@ def _template(data: dict[str, Any]) -> Template:
                 throughput=v.get("throughput"),
                 claim=v.get("claim"),
                 path=v.get("path"),
+                nfs=v.get("nfs"),
+                lustre=v.get("lustre"),
             )
             for n, v in (data.get("volumes") or {}).items()
         },
@@ -521,22 +536,22 @@ class _Rules:
                         (*path, option),
                         key=True,
                     )
-            for option in ("claim", "path"):
-                if getattr(volume, option) is not None and (
-                    volume.strategy != "shared_filesystem" or template.provisioner not in KUBERNETES
-                ):
+            shared = volume.strategy == "shared_filesystem"
+            for option, where, fits in (
+                ("claim", "on the Kubernetes provisioners", template.provisioner in KUBERNETES),
+                ("nfs", "on `aws_ec2`", template.provisioner == "aws_ec2"),
+                ("lustre", "on `aws_ec2`", template.provisioner == "aws_ec2"),
+                ("path", "", True),
+            ):
+                if getattr(volume, option) is not None and not (shared and fits):
                     self.add(
                         "volume-option-shared-filesystem-only",
-                        f"`{option}` is for `shared_filesystem` on the Kubernetes provisioners.",
+                        f"`{option}` is for `shared_filesystem`{' ' + where if where else ''}.",
                         document,
                         (*path, option),
                         key=True,
                     )
-            if (
-                volume.strategy == "shared_filesystem"
-                and template.provisioner in KUBERNETES
-                and volume.claim is None
-            ):
+            if shared and template.provisioner in KUBERNETES and volume.claim is None:
                 self.add(
                     "shared-filesystem-claim-missing",
                     "A shared file system on Kubernetes needs the `claim` it's mounted from.",
@@ -544,6 +559,21 @@ class _Rules:
                     (*path, "strategy"),
                     hint="Add `claim: <PersistentVolumeClaim>`: one that many pods can mount "
                     "(ReadWriteMany), in the namespace runs go in.",
+                )
+            if (
+                shared
+                and template.provisioner == "aws_ec2"
+                and (volume.nfs is None) == (volume.lustre is None)
+            ):
+                self.add(
+                    "shared-filesystem-source-missing",
+                    "A shared file system on `aws_ec2` needs what machines mount: `nfs` or "
+                    "`lustre`, not both.",
+                    document,
+                    (*path, "strategy"),
+                    hint="Add `nfs: fs-0123.efs.us-east-1.amazonaws.com:/` for EFS, or "
+                    "`lustre: fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh` for FSx for "
+                    "Lustre.",
                 )
             for option in ("iops", "throughput"):
                 if getattr(volume, option) is not None and template.provisioner != "aws_ec2":

@@ -510,6 +510,19 @@ volumes:
     path: iki
 ```
 
+On `aws_ec2`, machines mount the file system themselves: name an NFS export
+(`nfs`, such as EFS's) or a Lustre file system (`lustre`, such as FSx for
+Lustre's, whose client the machine image needs). A small on-demand machine
+(`aws.cleanup_instance_type`, `t3.small` unless set) removes retired
+versions:
+
+```yaml
+volumes:
+  af-db:
+    strategy: shared_filesystem
+    lustre: fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh
+```
+
 Until a version is ready, the environment's runs wait, saying why; bound to
 templates in several places, they go to the first where one is ready. Each
 attempt records the version it read.

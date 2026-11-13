@@ -13,7 +13,8 @@ use std::path::{Component, Path};
 
 use crate::say;
 
-fn plain(directory: &str) -> bool {
+/// Whether `directory` is a plain relative path: no `..`, not absolute, not empty.
+pub fn plain(directory: &str) -> bool {
     !directory.is_empty()
         && Path::new(directory)
             .components()

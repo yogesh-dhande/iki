@@ -17,7 +17,9 @@ from iki_server.runs.ec2 import (
     Boto3Ec2,
     Disk,
     Ec2Error,
+    Shared,
     VmMachines,
+    cleanup_request,
     host_trouble,
     instance_request,
     is_capacity,
@@ -145,6 +147,73 @@ def test_a_machine_with_volumes_gets_a_disk_for_each_that_ec2_takes() -> None:
     assert run["BlockDeviceMappings"][1]["Ebs"]["SnapshotId"] == "snap-0123456789abcdef0"
     assert run["BlockDeviceMappings"][1]["Ebs"]["DeleteOnTermination"] is True
     assert len(setup["UserData"].encode()) < 16 * 1024
+
+
+def test_a_machine_on_a_shared_file_system_and_one_cleaning_it_up_are_ones_ec2_takes(
+    tmp_path: Path,
+) -> None:
+    ec2, stub = stubbed()
+    version = Shared(
+        "af-db",
+        "/data/af",
+        ("lustre", "fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh"),
+        "iki",
+        "structure_prediction.alphafold-gpu/af-db/SETUP-000001",
+        writable=False,
+    )
+    run = instance_request(
+        launch_id="01a1d3a1-04c4-7657-86e7-9bdd0aa33e57",
+        name="iki-run-01a1d3a104c4765786e79bdd0aa33e57",
+        template=template(kms_key="alias/iki-runs"),
+        environment="structure_prediction.alphafold-gpu",
+        image=IMAGE,
+        machines=MACHINES,
+        once=True,
+        token="iki_wlch_secret",
+        subnet="subnet-0a1b2c3d4e5f60718",
+        spot=True,
+        attempt=0,
+        data=[version, Disk("pdb", "/data/pdb", 300 * GI, "snap-0123456789abcdef0")],
+    )
+    # Only the disk is attached: the file system is mounted.
+    assert [m["DeviceName"] for m in run["BlockDeviceMappings"]] == ["/dev/xvda", "/dev/sdf"]
+    cleanup = cleanup_request(
+        build_id="01a1d3a1-04c4-7657-86e7-9bdd0aa33e58",
+        name="iki-cleanup-setup-000001",
+        template=template(kms_key="alias/iki-runs"),
+        environment="structure_prediction.alphafold-gpu",
+        machines=MACHINES,
+        subnet="subnet-0a1b2c3d4e5f60718",
+        attempt=1_960_000,
+        versions=[version],
+    )
+    for _ in (run, cleanup):
+        stub.add_response("run_instances", {"Instances": [INSTANCE]}, None)
+    with stub:
+        for each in (run, cleanup):
+            ec2.run_instance("us-east-1", each)
+    stub.assert_no_pending_responses()
+    assert len(cleanup["ClientToken"]) <= 64
+    assert cleanup["InstanceType"] == "t3.small"
+    (root,) = cleanup["BlockDeviceMappings"]
+    # Its image's own size: a small machine needs no scratch space.
+    assert root["Ebs"] == {
+        "VolumeType": "gp3",
+        "Encrypted": True,
+        "DeleteOnTermination": True,
+        "KmsKeyId": "alias/iki-runs",
+    }
+    text = cleanup["UserData"]
+    file = tmp_path / "cleanup.sh"
+    file.write_text(text)
+    checked = subprocess.run(  # noqa: S603 - our own script
+        ["/bin/sh", "-n", str(file)], capture_output=True, text=True, check=False
+    )
+    assert checked.returncode == 0, checked.stderr
+    config = json.loads(text.split("IKI_HOST_JSON'\n")[1].split("\nIKI_HOST_JSON")[0])
+    assert config["remove"][0]["directory"] == version.directory
+    # It registers with nothing: it has no token.
+    assert "IKI_HOST_TOKEN'\n\nIKI_HOST_TOKEN" in text
 
 
 def test_it_snapshots_disks_and_makes_them_fast_to_restore_as_ec2_takes() -> None:

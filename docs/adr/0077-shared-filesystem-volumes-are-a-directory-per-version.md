@@ -24,8 +24,10 @@ own place on it, never changed once its build is done.
 **A template names the file system and a directory in it for Iki.** On
 Kubernetes, a volume with `strategy: shared_filesystem` names the file
 system's PersistentVolumeClaim (`claim`), in the namespace its runs go in,
-which pods must be able to mount at once (ReadWriteMany), and the directory
-Iki keeps versions under (`path`, `iki` unless set). The deployment's
+which pods must be able to mount at once (ReadWriteMany). On `aws_ec2`, it
+names what machines mount: an NFS export (`nfs`, such as EFS's) or a Lustre
+file system (`lustre`, such as FSx for Lustre's). Either way, it names the
+directory Iki keeps versions under (`path`, `iki` unless set). The deployment's
 administrator makes that directory and lets runs' user (UID 10001) write it:
 Iki never writes anywhere else on the file system.
 
@@ -65,8 +67,30 @@ but not a launch's, so it's never mistaken for a run's machine, and Jobs
 whose build is gone are deleted. The provisioner's Role already lets it
 manage Jobs where runs go.
 
-**EC2 instances come next.** Templates for the `aws_ec2` provisioner can't
-fill a `shared_filesystem` volume yet; their builds aren't offered there.
+**On EC2, the machine mounts the file system and gives the container only
+the version's directory.** `iki-worker host` mounts it (NFS 4.1 with EFS's
+recommended options, read-only for a run's machine; Lustre with FSx's), with
+no devices or set-user-ID programs. For a setup build it then makes the
+version's directory as runs' user (`setpriv`, so a file system that doesn't
+trust machines' root still works) and binds only that into the container,
+writable; for a run, read-only. A machine image for Lustre needs its client.
+The template's security groups must let machines reach the file system
+(NFS on port 2049, Lustre on 988).
+
+**On EC2, a small machine removes versions.** Nothing else Iki runs there has
+the file system mounted. Once a build's versions aren't kept, the provisioner
+starts an on-demand instance of the template's image, network, role and
+encrypted disk, of the template's `cleanup_instance_type` (`t3.small` unless
+set; an Arm image needs an Arm type). It carries the build's ID
+(`iki.ikisci.org/removal`) and no launch, registers with nothing, mounts
+each file system, removes the versions as runs' user, says `IKI-REMOVED` on
+its console, and shuts down, which terminates it. The provisioner reads its
+console: once it says so, the versions are deleted. One that says why it
+couldn't puts that on the versions; any that didn't say it did is started
+again 15 minutes after the last started, and one still running after six
+hours is terminated. Each costs a few minutes of a small instance, once per
+retired version. It needs no permissions beyond ADR 0074's and 0076's: it
+starts, ends and reads the console of instances with the deployment's tag.
 
 ## Consequences
 
@@ -83,4 +107,6 @@ fill a `shared_filesystem` volume yet; their builds aren't offered there.
   provisioner names must be bound, and readable and writable by UID 10001.
 - The dev cluster has a second namespace for runs, `iki-runs-shared`, with a
   host-path volume standing in for the file system; its end-to-end checks
-  fill, mount, and remove a version there.
+  fill, mount, and remove a version there. The EC2 path hasn't yet run
+  against AWS: its requests are checked against EC2's API model, and the host
+  against stand-ins for `mount` and `setpriv`.

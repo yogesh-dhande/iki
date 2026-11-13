@@ -155,7 +155,7 @@ class FakeEc2:
             disk = {
                 "VolumeId": f"vol-{len(self.disks) + 1:017x}",
                 "State": "in-use",
-                "Size": mapping["Ebs"]["VolumeSize"],
+                "Size": mapping["Ebs"].get("VolumeSize", 8),
                 "Tags": list(disk_tags),
                 "ebs": mapping["Ebs"],
                 "region": region,
@@ -170,6 +170,7 @@ class FakeEc2:
             "SubnetId": subnet,
             "Placement": {"AvailabilityZone": ZONES[subnet]},
             "State": {"Name": "pending"},
+            "LaunchTime": timezone.now(),
             "Tags": list(tags),
             "BlockDeviceMappings": attached,
             "region": region,

@@ -186,6 +186,11 @@
           "maxLength": 128,
           "pattern": "^[A-Za-z0-9+=,.@_-]+$"
         },
+        "cleanup_instance_type": {
+          "description": "With a `shared_filesystem` volume: the instance type of the small machine that removes a retired version from the file system (`t3.small` unless set). It boots the template's image, so its architecture must match: `t4g.small` for an Arm image.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.[a-z0-9]+$"
+        },
         "root_device": {
           "description": "The image's root device, which gets the disk: `/dev/xvda` (Amazon Linux, the default) or `/dev/sda1` (Ubuntu, say).",
           "type": "string",
@@ -272,6 +277,18 @@
             "type": "string",
             "maxLength": 500,
             "pattern": "^(?!.*//)(?!\\.\\.?(/|$))(?!.*/\\.\\.?(/|$))[A-Za-z0-9._-]([A-Za-z0-9._/-]*[A-Za-z0-9._-])?$"
+          },
+          "nfs": {
+            "description": "With `shared_filesystem` on `aws_ec2`: the NFS export machines mount (NFS 4.1), such as an EFS file system's `fs-0123.efs.us-east-1.amazonaws.com:/`.",
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?:/[A-Za-z0-9._/-]*$"
+          },
+          "lustre": {
+            "description": "With `shared_filesystem` on `aws_ec2`: the Lustre file system machines mount, such as FSx for Lustre's `fs-0123.fsx.us-east-1.amazonaws.com@tcp:/abcdefgh`. The machine image needs a Lustre client.",
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?@tcp[0-9]*:/[A-Za-z0-9]+$"
           }
         },
         "additionalProperties": false
