@@ -136,7 +136,8 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
         if validator == "enum" and isinstance(parent, dict) and isinstance(parent.get("type"), str):
             allowed = [str(v) for v in _values(error)]
             if path[:1] == ("settings",):
-                allowed = [a for a in allowed if a not in ("immutable", "computed", "indexed")]
+                fields_only = ("immutable", "computed", "indexed", "unique")
+                allowed = [a for a in allowed if a not in fields_only]
             yield SchemaIssue(
                 key_path,
                 f"`{name}` isn't an option for {parent['type']} fields.",

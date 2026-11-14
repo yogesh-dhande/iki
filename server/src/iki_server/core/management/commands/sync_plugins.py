@@ -9,6 +9,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import connection, transaction
 
+from iki_server.entities import unique
 from iki_server.plugins import sync
 
 
@@ -28,10 +29,15 @@ class Command(BaseCommand):
                 cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [analyst])
                 if cursor.fetchone() is None:
                     raise CommandError(f"Postgres has no role {analyst!r}. Create it first.")
-        with transaction.atomic():
-            report = sync.sync(analyst)
+        try:
+            with transaction.atomic():
+                report = sync.sync(analyst)
+        except unique.Clash as error:
+            raise CommandError(str(error)) from None
         for name in report.sequences:
             self.stdout.write(f"  HRID sequence {name}")
+        for key in report.unique:
+            self.stdout.write(f"  unique {key}")
         for name in report.views:
             self.stdout.write(f"  view {name}")
         if report.analyst:

@@ -31,18 +31,19 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Model
 from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
-from iki_server.entities import access, identity, registry, rules
+from iki_server.entities import access, identity, registry, rules, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Part, Refs, Shape, read_value, shape, to_db
 from iki_server.entities.values import is_list_table as _is_list
@@ -124,7 +125,7 @@ def create(
     entity_type = form.entity_type
     fields = form.fields()
 
-    with transaction.atomic():
+    with transaction.atomic(), _unique_values():
         instance = form.model(owner_project=project, created_by=user)
         chain = [p for p in form.parts if not p.extension]
         for part in chain:
@@ -136,6 +137,9 @@ def create(
         found = _duplicate(user, project, instance, entity_type, policy, allow_duplicate)
         if found is not None:
             return _reuse(user, found, project)
+        clashes = unique.taken(project, form, given)
+        if clashes:
+            raise Invalid(clashes)
         instance.save()
         touched = list(chain)
         for part in form.parts:
@@ -157,6 +161,20 @@ def create(
         _use_files(fields, instance.pk, given, revision.number)
         ProjectLink.objects.create(entity_id=instance.pk, project=project, linked_by=user)
     return Saved(_specific(instance), revision)
+
+
+@contextmanager
+def _unique_values() -> Iterator[None]:
+    """Two people writing the same unique value at once: the second is told, as if it had
+    been there all along (ADR 0082)."""
+    try:
+        yield
+    except IntegrityError as error:
+        if not unique.is_clash(error):
+            raise
+        raise Invalid(
+            {"unique": ["Another entity in the project has just been given one of these values."]}
+        ) from None
 
 
 def prepare(
@@ -271,7 +289,7 @@ def update(
 
     ``by_run``: as for :func:`create`.
     """
-    with transaction.atomic():
+    with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
         if locked.revision != expected_revision:
             raise Stale(locked.revision)
@@ -307,6 +325,8 @@ def update(
                 errors[name] = ["is required."]
             else:
                 new[name] = converted
+        if not errors and new:
+            errors = unique.taken(locked.owner_project, form, new, entity=locked.pk)
         if not errors and new:
             errors = rules.check(
                 user,

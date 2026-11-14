@@ -15,6 +15,10 @@ build installed (:mod:`iki_server.entities.registry`):
   extension. Lists of references or files appear as arrays. The views use
   ``security_invoker``, so whoever queries one needs the right to read what
   it reads.
+- **Unique fields' triggers** (ADR 0082): each keeps ``iki_unique_value`` in
+  step with a unique column, so the database refuses a second entity in a
+  project with the same value. Values already there are filled in, and if
+  entities already share one, the sync stops, saying which.
 - **An analyst role**, if ``IKI_DB_ANALYST_ROLE`` names one. It gets
   read-only access to the views and the tables behind them, current values
   and history, and nothing else.
@@ -31,7 +35,7 @@ from django.apps import apps
 from django.db import connection, models
 from psycopg import sql
 
-from iki_server.entities import hrids, registry
+from iki_server.entities import hrids, registry, unique
 from iki_spec import naming
 from iki_spec.model import EntityType, Extension, Field
 
@@ -54,6 +58,7 @@ class Report:
     sequences: list[str] = field(default_factory=list)
     views: list[str] = field(default_factory=list)
     comments: int = 0
+    unique: list[str] = field(default_factory=list)
     analyst: str | None = None
 
 
@@ -78,6 +83,9 @@ def sync(analyst_role: str | None = None) -> Report:
         for statement in _comments():
             cursor.execute(statement)
             report.comments += 1
+        report.unique = unique.install(
+            cursor, unique.columns((model, fields) for _, model, fields, _ in _tables())
+        )
         report.views = _views(cursor)
         if analyst_role:
             for statement in _analyst_grants(analyst_role):

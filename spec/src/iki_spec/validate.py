@@ -1203,6 +1203,16 @@ class _Semantics:
                 )
             if f.indexed:
                 self.index(f, source, path)
+            if f.unique and not f.indexed:
+                self.add(
+                    "unique-needs-index",
+                    "Unique fields must be indexed, so a value is found, and checked, with one "
+                    "lookup.",
+                    source,
+                    (*path, "unique"),
+                    key=True,
+                    hint="Add `indexed: true` and a `max_length`.",
+                )
         self.options(f, source, path)
         if f.type == "quantity":
             self.quantity(f, source, path)

@@ -2948,6 +2948,11 @@
             "title": "Type",
             "type": "string"
           },
+          "unique": {
+            "description": "No two entities in a project have the same value, such as a LIMS record's ID.",
+            "title": "Unique",
+            "type": "boolean"
+          },
           "unit": {
             "anyOf": [
               {
@@ -2990,6 +2995,7 @@
           "required",
           "immutable",
           "computed",
+          "unique",
           "unit",
           "unit_symbol",
           "display_unit",
@@ -5367,6 +5373,11 @@
             "title": "Type",
             "type": "string"
           },
+          "unique": {
+            "description": "No two entities in a project have the same value, such as a LIMS record's ID.",
+            "title": "Unique",
+            "type": "boolean"
+          },
           "unit": {
             "anyOf": [
               {
@@ -5409,6 +5420,7 @@
           "required",
           "immutable",
           "computed",
+          "unique",
           "unit",
           "unit_symbol",
           "display_unit",

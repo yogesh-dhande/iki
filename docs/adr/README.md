@@ -111,3 +111,4 @@ supersedes the old one, and update the old one's status.
 | [0079](0079-workflows-are-dags-of-ordinary-runs.md)                                  | Workflows are DAGs of ordinary runs                                                                 | Accepted |
 | [0080](0080-triggers-run-actions-when-entities-change.md)                            | Triggers run actions when entities change                                                           | Accepted |
 | [0081](0081-scheduled-triggers-run-as-a-service-account.md)                          | Scheduled triggers run as a service account                                                         | Accepted |
+| [0082](0082-unique-fields-link-records-in-other-systems.md)                          | Unique fields link records in other systems                                                         | Accepted |

@@ -45,6 +45,7 @@
             "schema": null,
             "to": null,
             "type": "text",
+            "unique": false,
             "unit": null,
             "values": []
           },
@@ -83,6 +84,7 @@
               "schema": null,
               "to": "core.Entity",
               "type": "ref",
+              "unique": false,
               "unit": null,
               "values": []
             },
@@ -102,6 +104,7 @@
             "schema": null,
             "to": null,
             "type": "list",
+            "unique": false,
             "unit": null,
             "values": []
           },
@@ -131,6 +134,7 @@
             "schema": null,
             "to": null,
             "type": "string",
+            "unique": false,
             "unit": null,
             "values": []
           },
@@ -194,6 +198,7 @@
             },
             "to": null,
             "type": "json",
+            "unique": false,
             "unit": null,
             "values": []
           }
@@ -258,6 +263,7 @@
             "schema": null,
             "to": null,
             "type": "text",
+            "unique": false,
             "unit": null,
             "values": []
           },
@@ -287,6 +293,7 @@
             "schema": null,
             "to": null,
             "type": "string",
+            "unique": false,
             "unit": null,
             "values": []
           },
@@ -316,6 +323,7 @@
             "schema": null,
             "to": null,
             "type": "string",
+            "unique": false,
             "unit": null,
             "values": []
           }

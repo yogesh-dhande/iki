@@ -54,6 +54,7 @@ function builtIn(name: string, label: string, type: string): FieldDef {
     required: true,
     immutable: true,
     computed: false,
+    unique: false,
     unit: null,
     unit_symbol: null,
     display_unit: null,

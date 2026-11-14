@@ -89,6 +89,8 @@ class Field:
     immutable: bool = False
     computed: bool = False
     indexed: bool = False
+    #: No two entities in a project share a value (ADR 0082).
+    unique: bool = False
     #: Gone from the type, but kept in its history (removed fields are never deleted).
     removed: bool = False
     has_default: bool = False
@@ -123,6 +125,7 @@ class Field:
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
             indexed=bool(data.get("indexed", False)),
+            unique=bool(data.get("unique", False)),
             removed=bool(data.get("removed", False)),
             has_default="default" in data,
             default=data.get("default"),

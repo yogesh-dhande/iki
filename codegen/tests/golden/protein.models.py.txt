@@ -39,6 +39,7 @@ class Protein(iki_plugin_dna.models.Sequence):
     sequence = models.TextField()
     molecular_weight = QuantityField(unit='u', null=True, db_index=True)
     organism = models.CharField(max_length=200, null=True, db_index=True)
+    lims_id = models.CharField(max_length=64, null=True, db_index=True)
     source = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
     encoded_by = models.ForeignKey('dna.DNASequence', models.PROTECT, related_name='+', null=True)
     temperature_optimum = QuantityField(unit='Cel', null=True)
@@ -75,6 +76,14 @@ class Protein(iki_plugin_dna.models.Sequence):
                 name='protein_protein__organism__one_line',
             ),
             models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('lims_id'), 1),
+                name='protein_protein__lims_id__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(lims_id__regex='[\\r\\n]'),
+                name='protein_protein__lims_id__one_line',
+            ),
+            models.CheckConstraint(
                 condition=Q(
                     temperature_optimum__gt=float('-inf'),
                     temperature_optimum__lt=float('inf'),
@@ -109,6 +118,11 @@ class Protein(iki_plugin_dna.models.Sequence):
                 name='organism_trgm_e955a4eb7aca66c4',
             ),
             GinIndex(
+                fields=['lims_id'],
+                opclasses=['gin_trgm_ops'],
+                name='lims_id_trgm_c0829a6007d56ad23',
+            ),
+            GinIndex(
                 SearchVector('summary', config='simple'),
                 name='summary_fts_8f966f390fa0b0f37b',
             ),
@@ -127,6 +141,7 @@ class Protein_History(models.Model):
     sequence = models.TextField(null=True)
     molecular_weight = QuantityField(unit='u', null=True)
     organism = models.TextField(null=True)
+    lims_id = models.TextField(null=True)
     source = models.UUIDField(db_column='source_id', null=True)
     encoded_by = models.UUIDField(db_column='encoded_by_id', null=True)
     temperature_optimum = QuantityField(unit='Cel', null=True)

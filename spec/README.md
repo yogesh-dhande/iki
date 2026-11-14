@@ -135,6 +135,18 @@ Every field has a `type`, and may have `label`, `description`, `required`,
 are also fast to search for text they contain), `default` and
 `removed`.
 
+A string field that's indexed may also be `unique`: no two entities in a
+project have the same value, such as the ID a LIMS or ELN gives the record
+it keeps for an entity (ADR 0082). The database refuses a second one,
+whatever writes it. Another project may have an entity with the same value,
+since projects are kept apart. A field can be made unique after entities
+have values: the deploy fills them in, and stops, naming them, if any in a
+project share one.
+
+```yaml
+lims_id: { type: string, max_length: 64, indexed: true, unique: true }
+```
+
 A field is never deleted, because its history is kept. To stop using one,
 mark it `removed: true`: its column is dropped, and its values stay in the
 type's history. Identity fields can't be removed.
@@ -981,7 +993,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                         | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                                                                                                                                                                                                                                                                         | Identities                      |
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                 | Field options                   |
-| `unsupported-index`, `index-needs-max-length`                                                                                                                                                                                                                                                                                                                                                                                                                                       | Indexes                         |
+| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`                                                                                                                                                                                                                                                                                                                                                                                                                 | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                             | Units                           |
 | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                            | Files, JSON fields and titles   |
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                           | Extensions                      |

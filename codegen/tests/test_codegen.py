@@ -134,6 +134,7 @@ def test_plugins_that_cant_be_installed_together(plugins: list[Plugin], tmp_path
         "folding.Model and protein.Protein both use the HRID prefix PRT",
         "folding and structure_prediction both add the field `plddt_mean` to "
         "protein.ProteinStructure",
+        "folding and structure_prediction both add the field `job_id` to protein.ProteinStructure",
         "folding and structure_prediction both add the field `pae` to protein.ProteinStructure",
         "folding and structure_prediction both add the field `ranking` to protein.ProteinStructure",
     ]

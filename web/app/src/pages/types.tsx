@@ -216,6 +216,7 @@ export function TypeDetail() {
                       {f.required ? <Badge>Required</Badge> : null}
                       {f.immutable ? <Badge muted>Set once</Badge> : null}
                       {f.computed ? <Badge muted>Computed</Badge> : null}
+                      {f.unique ? <Badge muted>Unique</Badge> : null}
                       {type.identity.includes(f.name) ? <Badge muted>Identity</Badge> : null}
                     </span>
                   </td>

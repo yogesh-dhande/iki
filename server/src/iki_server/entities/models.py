@@ -25,6 +25,8 @@ from iki_server.org.models import Project
 
 #: A qualified type name, ``plugin.Type``.
 TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$"
+#: The constraint a second entity in a project with a unique field's value breaks.
+UNIQUE_CONSTRAINT = "iki_unique_value_once"
 #: ``PRT-000123``: a type's prefix and a number, zero-padded to the type's digits.
 HRID_PATTERN = r"^[A-Z0-9]{2,8}-[0-9]{3,}$"
 
@@ -119,6 +121,40 @@ class ProjectLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.entity_id} in {self.project_id}"
+
+
+class UniqueValue(models.Model):
+    """A value of a unique field (ADR 0082), held once per project.
+
+    Triggers on the plugin tables keep these rows, so whatever writes a value,
+    a person, a run, a bulk import or SQL, a second entity in the project with
+    the same value is refused by the database. ``iki-server sync_plugins``
+    installs the triggers and fills in values already there.
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    #: The entity's owner project: values are unique within it.
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    #: The field, as ``table.column``, such as ``lims_protein.lims_id``.
+    key = models.CharField(max_length=127)
+    value = models.CharField(max_length=600)
+    entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="+")
+
+    class Meta:
+        db_table = "iki_unique_value"
+        db_table_comment = (
+            "Each unique field's values, once per project. Kept by triggers on the plugin tables."
+        )
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["project", "key", "value"], name=UNIQUE_CONSTRAINT),
+            models.UniqueConstraint(fields=["entity", "key"], name="iki_unique_value_entity"),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["key", "value"], name="iki_unique_value_lookup"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.key}={self.value}"
 
 
 class RevisionKind(models.TextChoices):

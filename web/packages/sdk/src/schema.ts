@@ -3818,6 +3818,11 @@ export interface components {
             /** Type */
             type: string;
             /**
+             * Unique
+             * @description No two entities in a project have the same value, such as a LIMS record's ID.
+             */
+            unique: boolean;
+            /**
              * Unit
              * @description Quantities: the UCUM unit values are in.
              */
@@ -4837,6 +4842,11 @@ export interface components {
             to: string | null;
             /** Type */
             type: string;
+            /**
+             * Unique
+             * @description No two entities in a project have the same value, such as a LIMS record's ID.
+             */
+            unique: boolean;
             /**
              * Unit
              * @description Quantities: the UCUM unit values are in.

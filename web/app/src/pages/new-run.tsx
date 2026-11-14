@@ -129,6 +129,7 @@ export function inputField(input: Input): FieldDef {
     required: !input.optional,
     immutable: false,
     computed: false,
+    unique: false,
     unit: null,
     unit_symbol: null,
     display_unit: null,

@@ -48,7 +48,14 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
   },
   fields: [
     field({ name: "name", label: "Name", type: "string", required: true }),
-    field({ name: "code", label: "Code", type: "string", required: true, immutable: true }),
+    field({
+      name: "code",
+      label: "Code",
+      type: "string",
+      required: true,
+      immutable: true,
+      unique: true,
+    }),
     field({ name: "count", label: "Count", type: "int" }),
     field({
       name: "volume",
@@ -151,6 +158,9 @@ describe("creating an entity", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Check the highlighted fields.");
     const name = screen.getByRole("textbox", { name: "Name" });
     expect(name).toHaveAccessibleDescription("Enter name.");
+    expect(screen.getByRole("textbox", { name: "Code" })).toHaveAccessibleDescription(
+      /No two samples in a project have the same one\./,
+    );
     expect(name).toHaveFocus();
     expect(screen.getByRole("textbox", { name: /^Count/ })).toHaveAccessibleDescription(
       "It must be at least 0.",
@@ -264,7 +274,9 @@ describe("editing an entity", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Edit Plasma A" })).toBeInTheDocument();
     const code = screen.getByRole("textbox", { name: "Code" });
     expect(code).toBeDisabled();
-    expect(code).toHaveAccessibleDescription("Set once: it can’t change.");
+    expect(code).toHaveAccessibleDescription(
+      "Set once: it can’t change. No two samples in a project have the same one.",
+    );
     const name = screen.getByRole("textbox", { name: "Name" });
     await user.clear(name);
     await user.type(name, "Plasma B");

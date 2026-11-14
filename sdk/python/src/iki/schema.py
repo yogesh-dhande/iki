@@ -691,6 +691,8 @@ class FieldOut(TypedDict):
     #: References: the type they refer to.
     to: str | None
     type: str
+    #: No two entities in a project have the same value, such as a LIMS record's ID.
+    unique: bool
     #: Quantities: the UCUM unit values are in.
     unit: str | None
     #: The unit as people write it, such as Å for Ao.
@@ -1222,6 +1224,8 @@ class ParamOut(TypedDict):
     #: References: the type they refer to.
     to: str | None
     type: str
+    #: No two entities in a project have the same value, such as a LIMS record's ID.
+    unique: bool
     #: Quantities: the UCUM unit values are in.
     unit: str | None
     #: The unit as people write it, such as Å for Ao.

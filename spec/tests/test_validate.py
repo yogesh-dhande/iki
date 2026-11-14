@@ -387,6 +387,28 @@ def test_indexes(tmp_path: Path, spec: str, code: str) -> None:
     only(make(tmp_path, fields(f"x: {spec}\n")), code)
 
 
+@pytest.mark.parametrize(
+    ("spec", "code"),
+    [
+        ("{ type: string, max_length: 64, unique: true }", "unique-needs-index"),
+        # A list's items, and other types, can't be: the schema says so.
+        ("{ type: list, items: { type: string, unique: true } }", "schema"),
+        ("{ type: int, indexed: true, unique: true }", "schema"),
+    ],
+)
+def test_unique_fields(tmp_path: Path, spec: str, code: str) -> None:
+    only(make(tmp_path, fields(f"x: {spec}\n")), code)
+
+
+def test_a_unique_external_id(tmp_path: Path) -> None:
+    result = make(
+        tmp_path, fields("lims_id: { type: string, max_length: 64, indexed: true, unique: true }\n")
+    )
+    assert result.problems == []
+    assert result.plugin is not None
+    assert result.plugin.types["acme.Assay"].fields["lims_id"].unique
+
+
 def test_indexable_fields(tmp_path: Path) -> None:
     result = make(
         tmp_path,

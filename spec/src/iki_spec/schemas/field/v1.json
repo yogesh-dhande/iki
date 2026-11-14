@@ -28,6 +28,10 @@
       "type": "boolean",
       "description": "Keep a database index on this field, for fast filtering and sorting. Indexed strings are also fast to search for text they contain."
     },
+    "unique": {
+      "type": "boolean",
+      "description": "No two entities in a project have the same value, such as a LIMS or ELN record's ID. Strings only, and they must be indexed."
+    },
     "removed": {
       "type": "boolean",
       "description": "The field is gone from the type: its column is dropped, but its values stay in the type's history. Removed fields are never deleted, so history is kept."
@@ -211,6 +215,7 @@
                 "immutable",
                 "computed",
                 "indexed",
+                "unique",
                 "removed",
                 "default",
                 "format",

@@ -140,7 +140,7 @@ function Reason({
   );
 }
 
-/** Rules people should know before typing: set once, and identity. */
+/** Rules people should know before typing: set once, unique, and identity. */
 function notesFor(type: EntityType, editing: boolean, drafts: Drafts): Record<string, string> {
   const notes: Record<string, string> = {};
   for (const f of formFields(type)) {
@@ -151,6 +151,9 @@ function notesFor(type: EntityType, editing: boolean, drafts: Drafts): Record<st
           ? "Set once: it can’t change."
           : "It can be set once, and can’t change after.",
       );
+    }
+    if (f.unique) {
+      parts.push(`No two ${type.label_plural.toLowerCase()} in a project have the same one.`);
     }
     if (!editing && type.identity.includes(f.name) && type.on_duplicate === "reuse") {
       parts.push(`If ${inSentence(type.label)} with the same one exists, that one is used.`);

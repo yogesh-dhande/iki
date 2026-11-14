@@ -3,5 +3,6 @@ kind: EntityTypeExtension
 extends_type: protein.ProteinStructure
 fields:
   plddt_mean: { type: float, computed: true, indexed: true, min: 0, max: 100 }
+  job_id: { type: string, max_length: 64, indexed: true, unique: true }
   pae: { type: file, media_types: [application/json] }
   ranking: { type: json, schema: { type: object, properties: { rank: { type: integer } } } }

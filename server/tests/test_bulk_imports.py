@@ -272,6 +272,26 @@ def test_a_line_that_doesnt_fit_fails_the_run_and_writes_nothing(world: World) -
     assert not _staged_tables()
 
 
+def test_two_lines_with_one_unique_value_fail_the_import(world: World) -> None:
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f, lims_id="LIMS-1"),
+            protein(KINASES[1], "B", f, lims_id="LIMS-1"),
+        ),
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed"
+    assert body["error"]["errors"] == [
+        {
+            "pointer": "#/creates_file",
+            "detail": "An entity in the project has `protein_protein.lims_id` “LIMS-1” already, "
+            "or two lines do.",
+        }
+    ]
+    assert not Entity.objects.filter(type="protein.Protein").exists()
+
+
 def test_a_creates_files_lines_cant_refer_to_one_another(world: World) -> None:
     run, _ = started(
         world,

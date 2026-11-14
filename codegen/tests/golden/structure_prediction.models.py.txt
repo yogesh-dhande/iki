@@ -34,6 +34,7 @@ class Ext_protein_ProteinStructure(models.Model):
         related_name='structure_prediction_Ext',
     )
     plddt_mean = models.FloatField(null=True, db_index=True)
+    job_id = models.CharField(max_length=64, null=True, db_index=True)
     pae = models.ForeignKey(File, models.PROTECT, related_name='+', null=True)
     ranking = models.JSONField(null=True)
 
@@ -52,6 +53,21 @@ class Ext_protein_ProteinStructure(models.Model):
                 condition=Q(plddt_mean__lte=100),
                 name='structure_prediction__protein_proteinstructure__plddt_mean__max',
             ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('job_id'), 1),
+                name='structure_prediction__protein_proteinstructure__job__e4a7198c4a',
+            ),
+            models.CheckConstraint(
+                condition=~Q(job_id__regex='[\\r\\n]'),
+                name='structure_prediction__protein_proteinstructure__job__cac702bec4',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['job_id'],
+                opclasses=['gin_trgm_ops'],
+                name='job_id_trgm_f5f2c52eed844afcf7',
+            ),
         ]
 
 
@@ -65,6 +81,7 @@ class Ext_protein_ProteinStructure_History(models.Model):
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
     plddt_mean = models.FloatField(null=True)
+    job_id = models.TextField(null=True)
     pae = models.UUIDField(db_column='pae_id', null=True)
     ranking = models.JSONField(null=True)
 

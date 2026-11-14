@@ -47,7 +47,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.entities import access, registry
+from iki_server.entities import access, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.access import readable_projects
 from iki_server.entities.hrids import sequence_name
@@ -678,8 +678,13 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
     except (IntegrityError, DatabaseError) as error:
         if not isinstance(error, IntegrityError) and "violates" not in str(error):
             raise
+        detail = (
+            unique.clash_message(error)
+            if isinstance(error, IntegrityError) and unique.is_clash(error)
+            else _first_line(error)
+        )
         raise results.InvalidOutput(
-            [{"pointer": results.pointer("creates_file"), "detail": _first_line(error)}]
+            [{"pointer": results.pointer("creates_file"), "detail": detail}]
         ) from error
     imported.created, imported.reused, imported.linked = counts
     data = {

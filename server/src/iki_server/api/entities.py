@@ -62,6 +62,9 @@ class FieldOut(Schema):
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
     computed: bool = Field(description="Set only by actions.")
+    unique: bool = Field(
+        description="No two entities in a project have the same value, such as a LIMS record's ID."
+    )
     unit: str | None = Field(description="Quantities: the UCUM unit values are in.")
     unit_symbol: str | None = Field(description="The unit as people write it, such as Å for Ao.")
     display_unit: str | None
@@ -304,6 +307,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "plugin": plugin,
         "required": f.required,
         "immutable": f.immutable,
+        "unique": f.unique,
         "computed": f.computed,
         "unit": f.unit,
         "unit_symbol": units.symbol(f.unit) if f.unit else None,
