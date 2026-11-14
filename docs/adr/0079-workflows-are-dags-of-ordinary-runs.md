@@ -101,6 +101,16 @@ succeed, fails the workflow: no further step starts, those running finish,
 and the workflow then ends failed. Cancelling a workflow cancels its running
 steps' runs.
 
+**A workflow that failed is re-run from its failed steps.** As GitHub
+re-runs failed jobs, re-running a workflow run that failed or was cancelled
+starts a new workflow run (`rerun_of` the first), by whoever re-runs it and
+may start it, of the workflow as it was then, on the same inputs, at their
+revisions now, and params. Its steps that succeeded are carried over: they
+succeeded, with the runs and results they had, which later steps take as
+they would have. The rest run again, approvals asked again. A new run
+rather than another attempt of the first keeps every run's record as it
+was: who started what, when, and why, each re-run with its own reason.
+
 **Steps run as the workflow was started.** A later step is launched by the
 server, not in the starter's request, so it's launched in the audit context
 the workflow was started in: through the web app, the API, or an agent over
@@ -125,8 +135,8 @@ workflow on; the task runners also look every minute for any left behind.
 - A project's Workflows tab lists its workflow runs and starts one, as
   GitHub's Actions tab runs a workflow by hand, and a workflow run's page
   draws its steps as a graph, laid out as an entity's lineage is, that
-  follows it live. Re-running from a failed step, and MCP tools for agents,
-  follow (steps 38g and 38h).
+  follows it live. MCP tools for agents to start and follow workflows follow
+  (step 38h).
 - Conditions read params and metrics only, not entities' values: a step that
   should run only for entities with some value takes the entities a query
   step gives it.

@@ -266,6 +266,11 @@ class StepBatchOut(Schema):
     )
 
 
+class WorkflowRunRef(Schema):
+    id: UUID
+    hrid: str
+
+
 class DecisionOut(Schema):
     approved: bool
     by: PersonRef
@@ -303,6 +308,10 @@ class WorkflowRunStepOut(Schema):
         description="When it's declined if nobody has decided: 30 days after it began to wait."
     )
     decision: DecisionOut | None = Field(description="Who approved or declined it, if anyone.")
+    carried_from: WorkflowRunRef | None = Field(
+        description="In a re-run, the workflow run whose step it is: it succeeded there, and "
+        "its run and results are that one's."
+    )
     can: StepCan
     run: StepRunOut | None = Field(description="Its run, once launched, when it runs once.")
     batch: StepBatchOut | None = Field(
@@ -313,6 +322,7 @@ class WorkflowRunStepOut(Schema):
 
 class WorkflowRunCan(Schema):
     cancel: bool = Field(description="It hasn't finished, and you may cancel it.")
+    rerun: bool = Field(description="It failed or was cancelled, and you may start it again.")
 
 
 class WorkflowRunOut(Schema):
@@ -337,16 +347,26 @@ class WorkflowRunOut(Schema):
     finished_at: datetime | None
     cancel_requested_at: datetime | None
     error: WorkflowErrorOut | None = Field(description="Why it failed.")
+    rerun_of: WorkflowRunRef | None = Field(description="The workflow run it re-runs, if any.")
+    reruns: list[WorkflowRunRef] = Field(
+        description="The workflow runs that re-run it, oldest first."
+    )
     can: WorkflowRunCan
 
 
 def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
     steps: dict[Any, list[WorkflowStep]] = {}
-    listed = WorkflowStep.objects.filter(workflow__in=found).select_related("decided_by")
+    listed = WorkflowStep.objects.filter(workflow__in=found).select_related(
+        "decided_by", "carried_from"
+    )
     for step in listed.order_by("workflow", "position"):
         steps.setdefault(step.workflow_id, []).append(step)
-    # A step run once has its run; one run for each entity, its batch's counts.
-    theirs = ActionRun.objects.filter(workflow__in=found)
+    # A step run once has its run; one run for each entity, its batch's counts. A step
+    # carried over into a re-run has those of the workflow run it came from.
+    sources = {run.pk for run in found} | {
+        s.carried_from_id for each in steps.values() for s in each if s.carried_from_id
+    }
+    theirs = ActionRun.objects.filter(workflow__in=sources)
     launched: dict[tuple[Any, str], ActionRun] = {
         (r.workflow_id, r.workflow_step): r
         for r in theirs.filter(batch__isnull=True).only(
@@ -371,6 +391,14 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
     inputs: dict[Any, list[Any]] = {}
     for each in workflows.inputs_of(found):
         inputs.setdefault(each.workflow_id, []).append(each)
+    reruns: dict[Any, list[dict[str, Any]]] = {}
+    later = WorkflowRun.objects.filter(rerun_of__in=found).order_by("id")
+    for again in later.values("id", "hrid", "rerun_of"):
+        reruns.setdefault(again["rerun_of"], []).append({"id": again["id"], "hrid": again["hrid"]})
+    earlier = {
+        r.pk: {"id": r.pk, "hrid": r.hrid}
+        for r in WorkflowRun.objects.filter(pk__in=[r.rerun_of_id for r in found if r.rerun_of_id])
+    }
     out = []
     for run in found:
         spec = workflows.spec_of(run)
@@ -393,12 +421,20 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
                         "approval_expires_at": s.approval_expires_at,
                         "decision": _decision(s),
                         "can": {"decide": workflows.why_not_decide(me, run, s, spec) is None},
-                        "run": _ref(launched.get((run.pk, s.step))),
-                        "batch": batches.get((run.pk, s.step)),
+                        "run": _ref(launched.get((s.carried_from_id or run.pk, s.step))),
+                        "batch": batches.get((s.carried_from_id or run.pk, s.step)),
+                        "carried_from": None
+                        if s.carried_from is None
+                        else {"id": s.carried_from.pk, "hrid": s.carried_from.hrid},
                     }
                     for s in steps.get(run.pk, [])
                 ],
-                "can": {"cancel": not run.finished and workflows.may_cancel(me, run)},
+                "rerun_of": earlier.get(run.rerun_of_id) if run.rerun_of_id else None,
+                "reruns": reruns.get(run.pk, []),
+                "can": {
+                    "cancel": not run.finished and workflows.may_cancel(me, run),
+                    "rerun": workflows.may_rerun(me, run),
+                },
             }
         )
     return out
@@ -588,3 +624,31 @@ def decline_workflow_step(
     except PermissionDenied as error:
         raise Problem(403, str(error) or None) from None
     return _runs_out(me, [find(me, ref)])[0]
+
+
+class RerunIn(Schema):
+    reason: str = Field("", max_length=2000, description="Why, for the record.")
+
+
+@router.post(
+    "/workflow-runs/{ref}/rerun",
+    response={201: WorkflowRunOut},
+    summary="Re-run a workflow run from its failed steps",
+)
+def rerun_workflow_run(
+    request: HttpRequest, ref: str, payload: RerunIn, response: HttpResponse
+) -> Any:  # noqa: ANN401 - a Status
+    """A new workflow run, started by you, of the workflow as it was, on the same inputs (as
+    they are now) and params, as GitHub re-runs failed jobs. Steps that succeeded are carried
+    over with their runs and results; the rest run again, and approvals are asked again. Only
+    a workflow run that failed or was cancelled is re-run, by whoever may start it."""
+    me = caller(request)
+    original = find(me, ref)
+    try:
+        run = workflows.rerun(me, original, reason=payload.reason.strip())
+    except Invalid as error:
+        raise invalid_problem(error) from None
+    except services.OutsideProject as error:
+        raise outside_problem(error) from None
+    response["Location"] = f"/api/v1/workflow-runs/{run.pk}"
+    return Status(201, _runs_out(me, [find(me, str(run.pk))])[0])

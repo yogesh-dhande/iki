@@ -187,6 +187,21 @@ def workflow_run(suffix: str = "", body: Any = None) -> Build:
     return build
 
 
+def cancelled_workflow_run() -> Build:
+    """The editor's run of weigh_and_align, cancelled: so it may be re-run."""
+
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.runs import workflows
+        from iki_server.runs.models import WorkflowRun
+
+        path, _ = workflow_run()(w)
+        made = WorkflowRun.objects.get(pk=path.rsplit("/", 1)[-1])
+        workflows.cancel(w.users["editor"], made)
+        return f"{path}/rerun", {}
+
+    return build
+
+
 def gated_step(verb: str, body: Any) -> Build:
     """The editor's run of review_then_weigh, its weighing waiting for a Runner's approval."""
 
@@ -629,6 +644,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/workflow-runs", fixed("/workflow-runs"), row(200)),
     ("GET", "/workflow-runs/{ref}", workflow_run(), readers(200)),
     ("POST", "/workflow-runs/{ref}/cancel", workflow_run("/cancel", {}), editors(200)),
+    ("POST", "/workflow-runs/{ref}/rerun", cancelled_workflow_run(), editors(201)),
     # A Runner or above approves, other than whoever started it (never with a token:
     # test_workflows).
     (

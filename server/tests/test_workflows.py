@@ -168,7 +168,7 @@ def test_starting_a_workflow_launches_its_first_steps(world: World) -> None:
     weigh_run = body["steps"][0]["run"]
     assert weigh_run["status"] == "queued"
     assert body["steps"][1]["run"] is None
-    assert body["can"] == {"cancel": True}
+    assert body["can"] == {"cancel": True, "rerun": False}
 
     run = ActionRun.objects.get(pk=weigh_run["id"])
     assert (run.workflow_id, run.workflow_step) == (WorkflowRun.objects.get().pk, "weigh")
@@ -181,7 +181,7 @@ def test_starting_a_workflow_launches_its_first_steps(world: World) -> None:
     assert (launched.data["workflow"], launched.data["step"]) == (body["hrid"], "weigh")
 
     viewer = api_as(world, "viewer")
-    assert get(world, body, "viewer") == {**body, "can": {"cancel": False}}
+    assert get(world, body, "viewer") == {**body, "can": {"cancel": False, "rerun": False}}
     runs = viewer.get("/runs", workflow=body["hrid"]).json()["items"]
     assert [r["id"] for r in runs] == [weigh_run["id"]]
     assert runs[0]["workflow"] == {"id": body["id"], "hrid": body["hrid"], "step": "weigh"}
@@ -217,7 +217,7 @@ def test_a_workflow_moves_on_as_its_steps_succeed(world: World) -> None:
     assert done["status"] == "succeeded"
     assert done["finished_at"] is not None
     assert steps(done) == {"weigh": "succeeded", "align": "succeeded"}
-    assert done["can"] == {"cancel": False}
+    assert done["can"] == {"cancel": False, "rerun": False}
     assert done["error"] is None
 
 
@@ -731,6 +731,86 @@ def test_an_unknown_step_isnt_found(world: World) -> None:
     body = reviewing(world)
     path = f"/workflow-runs/{body['hrid']}/steps/nope/approve"
     problem(api_as(world, "runner").post(path, {}), 404, "not_found")
+
+
+# --- Re-running ----------------------------------------------------------------------------------
+
+
+def failed_at_align(world: World) -> tuple[dict[str, Any], WorkerClient]:
+    """A run of weigh_and_align whose weighing succeeded and whose alignment failed."""
+    body = started(world)
+    pod = worker(world)
+    weigh(pod)
+    run_tasks()
+    job = pod.lease().json()
+    pod.report(job, "fail", reason="failed", message="ValueError: no overlap")
+    run_tasks()
+    failed = get(world, body)
+    assert failed["status"] == "failed"
+    return failed, pod
+
+
+def test_rerunning_carries_over_the_steps_that_succeeded(world: World) -> None:
+    failed, _ = failed_at_align(world)
+    assert failed["can"]["rerun"] is True
+    assert get(world, failed, "viewer")["can"]["rerun"] is False
+    problem(
+        api_as(world, "viewer").post(f"/workflow-runs/{failed['hrid']}/rerun", {}), 403, "forbidden"
+    )
+
+    made = api_as(world, "runner").post(
+        f"/workflow-runs/{failed['hrid']}/rerun", {"reason": "  After fixing the target  "}
+    )
+    assert made.status_code == 201, made.content
+    again = made.json()
+    assert again["hrid"] != failed["hrid"]
+    assert again["rerun_of"] == {"id": failed["id"], "hrid": failed["hrid"]}
+    assert again["requested_by"]["name"] == "Runner"
+    assert again["reason"] == "After fixing the target"
+    assert (again["params"], again["workflow"]) == (failed["params"], failed["workflow"])
+    assert steps(again) == {"weigh": "succeeded", "align": "running"}
+    weigh_step, align_step = again["steps"]
+    # The weighing is the first run's: carried over, with its run.
+    assert weigh_step["carried_from"] == {"id": failed["id"], "hrid": failed["hrid"]}
+    assert weigh_step["run"] == failed["steps"][0]["run"]
+    assert align_step["carried_from"] is None
+    align = ActionRun.objects.get(pk=align_step["run"]["id"])
+    assert align.requested_by == world.users["runner"]
+    assert str(align.workflow_id) == again["id"]
+    query = ActionRun.objects.get(pk=weigh_step["run"]["id"]).inputs.get().entity_id
+    assert align.inputs.get(name="query").entity_id == query
+    assert get(world, failed)["reruns"] == [{"id": again["id"], "hrid": again["hrid"]}]
+    event = AuditEvent.objects.filter(action="workflow.started").order_by("id").last()
+    assert event is not None
+    assert event.data["rerun_of"] == failed["hrid"]
+    assert event.data["carried"] == ["weigh"]
+
+
+def test_a_rerun_of_a_rerun_carries_from_where_steps_ran(world: World) -> None:
+    failed, pod = failed_at_align(world)
+    again = api_as(world, "editor").post(f"/workflow-runs/{failed['hrid']}/rerun", {}).json()
+    job = pod.lease().json()
+    pod.report(job, "fail", reason="failed", message="ValueError: still no overlap")
+    run_tasks()
+    assert get(world, again)["status"] == "failed"
+    third = api_as(world, "editor").post(f"/workflow-runs/{again['hrid']}/rerun", {}).json()
+    assert third["rerun_of"]["hrid"] == again["hrid"]
+    assert third["steps"][0]["carried_from"]["hrid"] == failed["hrid"]
+    assert third["steps"][0]["run"] == failed["steps"][0]["run"]
+
+
+def test_only_a_failed_or_cancelled_run_is_rerun(world: World) -> None:
+    body = started(world)
+    assert body["can"]["rerun"] is False
+    refused = problem(
+        api_as(world, "editor").post(f"/workflow-runs/{body['hrid']}/rerun", {}), 409, "refused"
+    )
+    assert "only a workflow run that failed or was cancelled is re-run" in refused["detail"]
+    cancelled = api_as(world, "editor").post(f"/workflow-runs/{body['hrid']}/cancel", {}).json()
+    assert cancelled["can"]["rerun"] is True
+    again = api_as(world, "editor").post(f"/workflow-runs/{body['hrid']}/rerun", {}).json()
+    # Nothing succeeded, so nothing's carried over.
+    assert steps(again) == {"weigh": "running", "align": "waiting"}
 
 
 # --- Agents ------------------------------------------------------------------------------------

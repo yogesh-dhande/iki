@@ -5,7 +5,7 @@
 
 import { unwrap } from "@ikisci/sdk";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
@@ -262,7 +262,11 @@ function graphSteps(run: WorkflowRun): GraphStep[] {
     tone: step.run && step.state === "running" ? tone(step.run.status) : stepTone(step.state),
     meta:
       (step.run && step.state === "running" ? STATUS[step.run.status] : STEP_STATE[step.state]) +
-      (step.run ? ` · ${step.run.hrid}` : "") +
+      (step.carried_from
+        ? ` · from ${step.carried_from.hrid}`
+        : step.run
+          ? ` · ${step.run.hrid}`
+          : "") +
       (step.batch ? ` · ${countRuns(step.batch)}` : ""),
     link: step.run
       ? { to: "/runs/$ref/" as const, ref: step.run.hrid }
@@ -358,6 +362,81 @@ function CancelWorkflow({ run }: { run: WorkflowRun }) {
   );
 }
 
+/** Re-run a workflow that failed or was cancelled, from its steps that didn't succeed. */
+function RerunWorkflow({ run }: { run: WorkflowRun }) {
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
+  const { say } = useMessages();
+  const navigate = useNavigate();
+  const rerun = useApiMutation(
+    async () =>
+      unwrap(
+        await iki.POST("/api/v1/workflow-runs/{ref}/rerun", {
+          params: { path: { ref: run.id } },
+          body: { reason: reason.trim() },
+        }),
+      ),
+    [RUNS],
+  );
+  if (!run.can.rerun) return null;
+  const kept = run.steps.filter((s) => s.state === "succeeded").map((s) => s.label);
+  const close = () => {
+    setAsking(false);
+    setReason("");
+    rerun.reset();
+  };
+  return (
+    <div className="actions">
+      <Button
+        variant="primary"
+        onClick={() => {
+          setAsking(true);
+        }}
+      >
+        Re-run failed steps
+      </Button>
+      <ConfirmDialog
+        isOpen={asking}
+        title={`Re-run ${run.hrid}?`}
+        confirmLabel="Re-run"
+        cancelLabel="Keep it"
+        confirmVariant="primary"
+        busy={rerun.isPending}
+        problem={rerun.error ? problemOf(rerun.error) : undefined}
+        onCancel={close}
+        onConfirm={() => {
+          rerun.mutate(undefined, {
+            onSuccess: (made) => {
+              close();
+              void navigate({ to: "/workflow-runs/$ref/", params: { ref: made.hrid } }).then(() => {
+                say(`Started ${made.hrid}, re-running ${run.hrid}.`);
+              });
+            },
+          });
+        }}
+      >
+        <p>
+          A new workflow run, started by you, of the workflow as it was, on the same inputs and
+          params.{" "}
+          {kept.length
+            ? `${kept.join(", ")} succeeded, so ${kept.length > 1 ? "they’re" : "it’s"} carried over with ${kept.length > 1 ? "their" : "its"} results; the other steps run again.`
+            : "No step succeeded, so every step runs again."}{" "}
+          Steps that need approval ask again.
+        </p>
+        <TextField
+          label="Reason"
+          value={reason}
+          onChange={setReason}
+          maxLength={2000}
+          optional
+          multiline
+          help="Why, for the record. It’s kept with the new workflow run and its runs."
+        />
+      </ConfirmDialog>
+    </div>
+  );
+}
+
 export function WorkflowRunPage() {
   const run = useWorkflowRun();
   usePageTitle(`${run.label} (${run.hrid})`);
@@ -395,7 +474,12 @@ export function WorkflowRunPage() {
         }
         title={run.label}
         badge={<Badge>{run.hrid}</Badge>}
-        actions={<CancelWorkflow run={run} />}
+        actions={
+          <>
+            <CancelWorkflow run={run} />
+            <RerunWorkflow run={run} />
+          </>
+        }
       />
 
       <section className="card" aria-labelledby="workflow-summary-title">
@@ -438,6 +522,32 @@ export function WorkflowRunPage() {
           <dd>
             <code>{run.workflow}</code> {run.plugin_version}
           </dd>
+          {run.rerun_of ? (
+            <>
+              <dt>Re-runs</dt>
+              <dd>
+                <Link to="/workflow-runs/$ref/" params={{ ref: run.rerun_of.hrid }}>
+                  {run.rerun_of.hrid}
+                </Link>
+                : steps that succeeded there are carried over.
+              </dd>
+            </>
+          ) : null}
+          {run.reruns.length ? (
+            <>
+              <dt>Re-run as</dt>
+              <dd>
+                {run.reruns.map((r, i) => (
+                  <span key={r.id}>
+                    {i ? ", " : ""}
+                    <Link to="/workflow-runs/$ref/" params={{ ref: r.hrid }}>
+                      {r.hrid}
+                    </Link>
+                  </span>
+                ))}
+              </dd>
+            </>
+          ) : null}
           {run.inputs.length ? (
             <>
               <dt>Inputs</dt>
@@ -507,6 +617,7 @@ export function WorkflowRunPage() {
                   <code>{step.action}</code>
                   {step.each ? ` for each ${step.each}` : ""}
                   {step.run ? ` · ${step.run.hrid}` : ""}
+                  {step.carried_from ? ` · carried over from ${step.carried_from.hrid}` : ""}
                   {step.batch ? ` · ${step.batch.hrid}, ${countRuns(step.batch)}` : ""}
                   {step.after.length ? ` · after ${step.after.join(", ")}` : ""}
                   {step.finished_at ? (

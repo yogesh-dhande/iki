@@ -249,6 +249,11 @@ class WorkflowRun(models.Model):
     )
     #: Why it failed: ``code``, ``message``, and the ``step``.
     error = models.JSONField(null=True, blank=True)
+    #: The workflow run it re-runs: its steps that succeeded are carried over, the rest run
+    #: again (as GitHub's "Re-run failed jobs").
+    rerun_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="reruns"
+    )
 
     class Meta:
         db_table = "iki_workflow_run"
@@ -362,6 +367,11 @@ class WorkflowStep(models.Model):
     )
     decided_at = models.DateTimeField(null=True, blank=True)
     decision_note = models.TextField(blank=True, default="")
+    #: For a step carried over into a re-run: the workflow run whose runs it is. Its runs
+    #: name that one (:attr:`ActionRun.workflow`), not this.
+    carried_from = models.ForeignKey(
+        WorkflowRun, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
 
     class Meta:
         db_table = "iki_workflow_step"

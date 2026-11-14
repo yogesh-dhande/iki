@@ -97,8 +97,8 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 | 38c  | Conditions: steps that run only when an earlier one's results say                                                 | done        | `6529ee9` |
 | 38d  | Approval gates: a step waits for a person to approve                                                              | done        | `a284e9a` |
 | 38e  | A project's workflow runs, and a form to start one                                                                | done        | `c7721fb` |
-| 38f  | The workflow's graph, live as its steps go                                                                        | done        |           |
-| 38g  | Re-running a workflow from a failed step                                                                          | planned     |           |
+| 38f  | The workflow's graph, live as its steps go                                                                        | done        | `05906ce` |
+| 38g  | Re-running a workflow from a failed step                                                                          | done        |           |
 | 38h  | MCP tools for agents to start and follow workflows                                                                | planned     |           |
 | 39   | Triggers with loop protection, including scheduled ones run as a service account                                  | planned     |           |
 | 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back | planned     |           |

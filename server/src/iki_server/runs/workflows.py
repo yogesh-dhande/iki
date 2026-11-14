@@ -63,8 +63,10 @@ __all__ = [
     "decline",
     "inputs_of",
     "may_cancel",
+    "may_rerun",
     "may_start",
     "recover",
+    "rerun",
     "spec_of",
     "start",
     "visible",
@@ -171,54 +173,152 @@ def start(
         raise Invalid(errors)
     if outside and not add_to_project:
         raise services.OutsideProject(project, outside)
-    order = of.order()
-    assert order is not None  # noqa: S101 - the plugin's build refuses cycles
     with transaction.atomic():
         services.link_into_project(user, project, outside)
-        run = WorkflowRun.objects.create(
-            hrid=_next_hrid(),
-            workflow=of.qualified_name,
-            plugin_version=registry.plugins()[of.plugin].version,
-            plugin_sha=services.plugin_sha(of.plugin),
-            spec={
-                "workflow": _as_json(of),
-                "tiers": {
-                    i: {"action": a.qualified_name, "tier": a.tier}
-                    for i, a in steps.items()
-                    if a is not None
-                },
+        spec = {
+            "workflow": _as_json(of),
+            "tiers": {
+                i: {"action": a.qualified_name, "tier": a.tier}
+                for i, a in steps.items()
+                if a is not None
             },
-            project=project,
-            requested_by=user,
-            via=audit.current_via(),
-            client=audit.current_oauth_client(),
-            agent=audit.current_agent(),
+        }
+        run = _create(user, of, project, spec, entities, values, reason=reason)
+        _advance(run)
+    return run
+
+
+def may_rerun(user: User, run: WorkflowRun) -> bool:
+    """A run that failed or was cancelled is re-run by whoever may start it again."""
+    if run.status not in (WorkflowStatus.FAILED, WorkflowStatus.CANCELLED):
+        return False
+    try:
+        may_start(user, spec_of(run), run.project)
+    except (PermissionDenied, Refused):
+        return False
+    return True
+
+
+def rerun(user: User, original: WorkflowRun, *, reason: str = "") -> WorkflowRun:
+    """Run `original` again, as GitHub re-runs failed jobs: a new workflow run, by `user`, of
+    the workflow as it was then, on the same inputs (as they are now) and params. Its steps
+    that succeeded are carried over, their runs and results with them; the rest run again,
+    approvals asked again. Raises as :func:`start` would."""
+    if original.status not in (WorkflowStatus.FAILED, WorkflowStatus.CANCELLED):
+        raise Refused(
+            f"{original.hrid} is {original.get_status_display().lower()}: only a workflow run "
+            "that failed or was cancelled is re-run."
+        )
+    of = spec_of(original)
+    project = original.project
+    may_start(user, of, project)
+    steps = actions(of)
+    given: dict[str, list[UUID]] = {}
+    for each in WorkflowInput.objects.filter(workflow=original).order_by("name", "position"):
+        given.setdefault(each.name, []).append(each.entity_id)
+    errors: dict[str, list[str]] = {}
+    entities = services.check_inputs(user, of, given, errors, updated=_updated_inputs(of, steps))
+    values = services.check_params(user, of, project, original.params, errors)
+    if errors:
+        raise Invalid(errors)
+    outside = services.outside_project(user, project, entities, errors)
+    if errors:
+        raise Invalid(errors)
+    if outside:
+        raise services.OutsideProject(project, outside)
+    before = {
+        s.step: s for s in WorkflowStep.objects.filter(workflow=original, state=StepState.SUCCEEDED)
+    }
+    with transaction.atomic():
+        run = _create(
+            user,
+            of,
+            project,
+            original.spec,
+            entities,
+            values,
             reason=reason,
-            params=values,
-        )
-        WorkflowInput.objects.bulk_create(
-            WorkflowInput(
-                workflow=run, name=name, position=i, entity=entity, revision=entity.revision
-            )
-            for name, chosen in entities.items()
-            for i, entity in enumerate(chosen)
-        )
-        WorkflowStep.objects.bulk_create(
-            WorkflowStep(workflow=run, step=step_id, position=i) for i, step_id in enumerate(order)
-        )
-        audit.record(
-            "workflow.started",
-            actor=user,
-            target=run,
-            project=project,
-            data={
-                "workflow": of.qualified_name,
-                "inputs": sum(len(e) for e in entities.values()),
-                "steps": len(order),
-            },
+            rerun_of=original,
+            carried=before,
         )
         _advance(run)
     return run
+
+
+def _create(
+    user: User,
+    of: Workflow,
+    project: Project,
+    spec: dict[str, Any],
+    entities: Mapping[str, Sequence[Any]],
+    values: dict[str, Any],
+    *,
+    reason: str,
+    rerun_of: WorkflowRun | None = None,
+    carried: Mapping[str, WorkflowStep] | None = None,
+) -> WorkflowRun:
+    """The workflow run, its inputs and its steps, audited. Call inside a transaction."""
+    order = of.order()
+    assert order is not None  # noqa: S101 - the plugin's build refuses cycles
+    carried = carried or {}
+    run = WorkflowRun.objects.create(
+        hrid=_next_hrid(),
+        workflow=of.qualified_name,
+        plugin_version=registry.plugins()[of.plugin].version,
+        plugin_sha=services.plugin_sha(of.plugin),
+        spec=spec,
+        project=project,
+        requested_by=user,
+        via=audit.current_via(),
+        client=audit.current_oauth_client(),
+        agent=audit.current_agent(),
+        reason=reason,
+        params=values,
+        rerun_of=rerun_of,
+    )
+    WorkflowInput.objects.bulk_create(
+        WorkflowInput(workflow=run, name=name, position=i, entity=entity, revision=entity.revision)
+        for name, chosen in entities.items()
+        for i, entity in enumerate(chosen)
+    )
+    WorkflowStep.objects.bulk_create(
+        _carried(run, step_id, i, carried[step_id], rerun_of)
+        if step_id in carried and rerun_of is not None
+        else WorkflowStep(workflow=run, step=step_id, position=i)
+        for i, step_id in enumerate(order)
+    )
+    audit.record(
+        "workflow.started",
+        actor=user,
+        target=run,
+        project=project,
+        data={
+            "workflow": of.qualified_name,
+            "inputs": sum(len(e) for e in entities.values()),
+            "steps": len(order),
+            **({"rerun_of": rerun_of.hrid, "carried": sorted(carried)} if rerun_of else {}),
+        },
+    )
+    return run
+
+
+def _carried(
+    run: WorkflowRun, step_id: str, position: int, before: WorkflowStep, original: WorkflowRun
+) -> WorkflowStep:
+    """A step that succeeded in the run re-run: it succeeded here, with the same runs."""
+    return WorkflowStep(
+        workflow=run,
+        step=step_id,
+        position=position,
+        state=StepState.SUCCEEDED,
+        started_at=before.started_at,
+        finished_at=before.finished_at,
+        approval_requested_at=before.approval_requested_at,
+        decided_by_id=before.decided_by_id,
+        decided_at=before.decided_at,
+        decision_note=before.decision_note,
+        carried_from_id=before.carried_from_id or original.pk,
+    )
 
 
 def _as_json(of: Workflow) -> dict[str, Any]:
@@ -380,10 +480,18 @@ def _stopping(run: WorkflowRun, steps: Mapping[str, WorkflowStep]) -> bool:
 
 
 def _step_runs(run: WorkflowRun) -> dict[str, list[ActionRun]]:
-    """Each step's runs, in the order they were launched: one, or one for each entity."""
+    """Each step's runs, in the order they were launched: one, or one for each entity. A
+    step carried over into a re-run has the runs it had in the run it came from."""
     out: dict[str, list[ActionRun]] = {}
     for each in ActionRun.objects.filter(workflow=run).order_by("id"):
         out.setdefault(each.workflow_step, []).append(each)
+    carried = WorkflowStep.objects.filter(workflow=run, carried_from__isnull=False)
+    for step in carried:
+        out[step.step] = list(
+            ActionRun.objects.filter(
+                workflow=step.carried_from_id, workflow_step=step.step
+            ).order_by("id")
+        )
     return out
 
 

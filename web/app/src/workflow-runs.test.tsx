@@ -115,7 +115,7 @@ describe("a workflow run's page", () => {
       workflowRun({
         status: "succeeded",
         finished_at: "2026-03-14T09:02:00Z",
-        can: { cancel: false },
+        can: { cancel: false, rerun: false },
         steps: [
           translate,
           {
@@ -159,7 +159,7 @@ describe("a workflow run's page", () => {
     current = workflowRun({
       status: "failed",
       finished_at: "2026-03-14T09:02:00Z",
-      can: { cancel: false },
+      can: { cancel: false, rerun: false },
       error: {
         code: "step_failed",
         step: "properties",
@@ -194,7 +194,10 @@ describe("a workflow run's page", () => {
   it("cancels it, with a reason for the record", async () => {
     onWorkflow(workflowRun);
     answer(`POST /api/v1/workflow-runs/${WORKFLOW_ID}/cancel`, () =>
-      workflowRun({ cancel_requested_at: "2026-03-14T09:01:00Z", can: { cancel: false } }),
+      workflowRun({
+        cancel_requested_at: "2026-03-14T09:01:00Z",
+        can: { cancel: false, rerun: false },
+      }),
     );
     const { user } = await renderApp("/workflow-runs/WF-000001/");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -276,6 +279,49 @@ describe("a workflow run's page", () => {
     const asking = screen.getByRole("region", { name: "“Properties” waits for approval" });
     expect(asking).toHaveTextContent("It needs an Admin or above in the project, other than");
     expect(within(asking).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
+
+  it("re-runs one that failed, carrying over the steps that succeeded", async () => {
+    const [translate, properties] = workflowRun().steps;
+    if (!translate || !properties) throw new Error("The fixture has two steps");
+    const failed = workflowRun({
+      status: "failed",
+      finished_at: "2026-03-14T09:02:00Z",
+      can: { cancel: false, rerun: true },
+      steps: [translate, { ...properties, state: "failed" }],
+    });
+    onWorkflow(() => failed);
+    const again = workflowRun({
+      id: "00000000-0000-7000-8000-0000000000w2",
+      hrid: "WF-000002",
+      rerun_of: { id: WORKFLOW_ID, hrid: "WF-000001" },
+      steps: [
+        { ...translate, carried_from: { id: WORKFLOW_ID, hrid: "WF-000001" } },
+        { ...properties, run: null, state: "running" },
+      ],
+    });
+    answer(`POST /api/v1/workflow-runs/${WORKFLOW_ID}/rerun`, () => again);
+    answer("GET /api/v1/workflow-runs/WF-000002", again);
+    const { user, router } = await renderApp("/workflow-runs/WF-000001/");
+    await user.click(screen.getByRole("button", { name: "Re-run failed steps" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Re-run WF-000001?" });
+    expect(dialog).toHaveTextContent(
+      "Translate succeeded, so it’s carried over with its results; the other steps run again.",
+    );
+    await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "Frame fixed");
+    await user.click(within(dialog).getByRole("button", { name: "Re-run" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/workflow-runs/WF-000002/");
+    });
+    expect(calls("POST").at(-1)?.body).toEqual({ reason: "Frame fixed" });
+    expect(await screen.findByText("Started WF-000002, re-running WF-000001.")).toBeVisible();
+    expect(screen.getByRole("link", { name: "WF-000001" })).toHaveAttribute(
+      "href",
+      "/workflow-runs/WF-000001/",
+    );
+    expect(screen.getByRole("list", { name: "Steps in order" })).toHaveTextContent(
+      "carried over from WF-000001",
+    );
   });
 
   it("says when there's no such workflow run", async () => {

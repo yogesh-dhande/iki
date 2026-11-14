@@ -6289,6 +6289,19 @@
         "title": "ReproductionOut",
         "type": "object"
       },
+      "RerunIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "RerunIn",
+        "type": "object"
+      },
       "RevisionDetailOut": {
         "properties": {
           "agent": {
@@ -10378,10 +10391,16 @@
             "description": "It hasn't finished, and you may cancel it.",
             "title": "Cancel",
             "type": "boolean"
+          },
+          "rerun": {
+            "description": "It failed or was cancelled, and you may start it again.",
+            "title": "Rerun",
+            "type": "boolean"
           }
         },
         "required": [
-          "cancel"
+          "cancel",
+          "rerun"
         ],
         "title": "WorkflowRunCan",
         "type": "object"
@@ -10610,6 +10629,25 @@
           "requested_by": {
             "$ref": "#/components/schemas/PersonRef"
           },
+          "rerun_of": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowRunRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The workflow run it re-runs, if any."
+          },
+          "reruns": {
+            "description": "The workflow runs that re-run it, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowRunRef"
+            },
+            "title": "Reruns",
+            "type": "array"
+          },
           "status": {
             "enum": [
               "running",
@@ -10657,9 +10695,30 @@
           "finished_at",
           "cancel_requested_at",
           "error",
+          "rerun_of",
+          "reruns",
           "can"
         ],
         "title": "WorkflowRunOut",
+        "type": "object"
+      },
+      "WorkflowRunRef": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid"
+        ],
+        "title": "WorkflowRunRef",
         "type": "object"
       },
       "WorkflowRunStepOut": {
@@ -10725,6 +10784,17 @@
           },
           "can": {
             "$ref": "#/components/schemas/StepCan"
+          },
+          "carried_from": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowRunRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "In a re-run, the workflow run whose step it is: it succeeded there, and its run and results are that one's."
           },
           "decision": {
             "anyOf": [
@@ -10841,6 +10911,7 @@
           "approval_requested_at",
           "approval_expires_at",
           "decision",
+          "carried_from",
           "can",
           "run",
           "batch"
@@ -18124,6 +18195,57 @@
           }
         ],
         "summary": "Cancel a workflow run",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflow-runs/{ref}/rerun": {
+      "post": {
+        "description": "A new workflow run, started by you, of the workflow as it was, on the same inputs (as\nthey are now) and params, as GitHub re-runs failed jobs. Steps that succeeded are carried\nover with their runs and results; the rest run again, and approvals are asked again. Only\na workflow run that failed or was cancelled is re-run, by whoever may start it.",
+        "operationId": "iki_server_api_workflows_rerun_workflow_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RerunIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRunOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Re-run a workflow run from its failed steps",
         "tags": [
           "workflows"
         ]

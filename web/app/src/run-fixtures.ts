@@ -276,6 +276,7 @@ export function workflowRun(
         approval_requested_at: null,
         approval_expires_at: null,
         decision: null,
+        carried_from: null,
         can: { decide: false },
         state: "succeeded",
         started_at: "2026-03-14T09:00:00Z",
@@ -295,6 +296,7 @@ export function workflowRun(
         approval_requested_at: null,
         approval_expires_at: null,
         decision: null,
+        carried_from: null,
         can: { decide: false },
         state: "running",
         started_at: "2026-03-14T09:00:31Z",
@@ -308,7 +310,9 @@ export function workflowRun(
     finished_at: null,
     cancel_requested_at: null,
     error: null,
-    can: { cancel: true },
+    rerun_of: null,
+    reruns: [],
+    can: { cancel: true, rerun: false },
     ...overrides,
   };
 }

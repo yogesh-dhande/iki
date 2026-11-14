@@ -2140,6 +2140,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-runs/{ref}/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-run a workflow run from its failed steps
+         * @description A new workflow run, started by you, of the workflow as it was, on the same inputs (as
+         *     they are now) and params, as GitHub re-runs failed jobs. Steps that succeeded are carried
+         *     over with their runs and results; the rest run again, and approvals are asked again. Only
+         *     a workflow run that failed or was cancelled is re-run, by whoever may start it.
+         */
+        post: operations["iki_server_api_workflows_rerun_workflow_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow-runs/{ref}/steps/{step}/approve": {
         parameters: {
             query?: never;
@@ -5127,6 +5150,15 @@ export interface components {
              */
             more_differences: number;
         };
+        /** RerunIn */
+        RerunIn: {
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+        };
         /** RevisionDetailOut */
         RevisionDetailOut: {
             /** @description The agent that made it, acting for user, if one did (ADR 0072). */
@@ -6941,6 +6973,11 @@ export interface components {
              * @description It hasn't finished, and you may cancel it.
              */
             cancel: boolean;
+            /**
+             * Rerun
+             * @description It failed or was cancelled, and you may start it again.
+             */
+            rerun: boolean;
         };
         /** WorkflowRunFilters */
         WorkflowRunFilters: {
@@ -7049,6 +7086,13 @@ export interface components {
             /** Reason */
             reason: string;
             requested_by: components["schemas"]["PersonRef"];
+            /** @description The workflow run it re-runs, if any. */
+            rerun_of: components["schemas"]["WorkflowRunRef"] | null;
+            /**
+             * Reruns
+             * @description The workflow runs that re-run it, oldest first.
+             */
+            reruns: components["schemas"]["WorkflowRunRef"][];
             /**
              * Status
              * @enum {string}
@@ -7063,6 +7107,16 @@ export interface components {
             via: string;
             /** Workflow */
             workflow: string;
+        };
+        /** WorkflowRunRef */
+        WorkflowRunRef: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /** WorkflowRunStepOut */
         WorkflowRunStepOut: {
@@ -7085,6 +7139,8 @@ export interface components {
             /** @description When it runs once for each entity (`each`): their batch, once launched. `GET /runs?batch=` lists them. */
             batch: components["schemas"]["StepBatchOut"] | null;
             can: components["schemas"]["StepCan"];
+            /** @description In a re-run, the workflow run whose step it is: it succeeded there, and its run and results are that one's. */
+            carried_from: components["schemas"]["WorkflowRunRef"] | null;
             /** @description Who approved or declined it, if anyone. */
             decision: components["schemas"]["DecisionOut"] | null;
             /**
@@ -10419,6 +10475,32 @@ export interface operations {
         responses: {
             /** @description OK */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_rerun_workflow_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RerunIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
