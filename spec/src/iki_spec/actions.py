@@ -776,6 +776,9 @@ class _Rules:
                     ("secrets", index),
                     hint="Choose another name, such as `NCBI_API_KEY`.",
                 )
+        for index, host in enumerate(action.network):
+            if host.startswith("{settings."):
+                self.network_setting(host.removeprefix("{settings.")[:-1], source, index)
         if action.deterministic and action.network:
             self.add(
                 "deterministic-with-network",
@@ -786,6 +789,27 @@ class _Rules:
                 key=True,
                 severity=Severity.WARNING,
                 hint="Drop `deterministic`, unless what it fetches is pinned by version.",
+            )
+
+    def network_setting(self, name: str, source: Document, index: int) -> None:
+        """A host in `network` the deployment gives: a plugin setting that holds a hostname."""
+        setting = self.plugin.settings.get(name)
+        if setting is None:
+            self.add(
+                "network-unknown-setting",
+                f"The plugin has no setting `{name}`.",
+                source,
+                ("network", index),
+                hint=schemas._did_you_mean(name, list(self.plugin.settings))
+                or "Declare it under `settings:` in plugin.yaml, with `format: hostname`.",
+            )
+        elif setting.type != "string" or setting.format != "hostname":
+            self.add(
+                "network-setting-not-hostname",
+                f"`{name}` isn't a host name, so a run can't reach it.",
+                source,
+                ("network", index),
+                hint=f"Give `{name}` `type: string` and `format: hostname`.",
             )
 
     def retries(self, action: Action, source: Document) -> None:

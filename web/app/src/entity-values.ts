@@ -147,6 +147,7 @@ const FORMAT_HELP: Record<string, string> = {
   protein_sequence: "Use one-letter amino acid codes only, such as MKV.",
   email: "Enter an email address, such as name@example.com.",
   uri: "Enter an address with its scheme, such as https://example.com.",
+  hostname: "Enter a host name in lower case, such as lims.example.com.",
 };
 
 function patterns(schema: PropertySchema): string[] {

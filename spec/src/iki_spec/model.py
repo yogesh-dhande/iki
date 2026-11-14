@@ -68,6 +68,9 @@ FORMATS: dict[str, str] = {
     "protein_sequence": r"^[ACDEFGHIKLMNPQRSTVWYBZXUOJacdefghiklmnpqrstvwybzxuoj*]*$",
     "email": r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
     "uri": r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$",
+    # A DNS name in lower case, such as lims.example.com: what an action's `network`
+    # can name through a setting.
+    "hostname": r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$",
 }
 
 _FORMAT_RE = {name: re.compile(pattern) for name, pattern in FORMATS.items()}

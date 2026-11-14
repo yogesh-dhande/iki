@@ -4,7 +4,9 @@ For each plugin, a package ``iki_plugin_<name>``:
 
 - ``apps.py``: the app, labelled with the plugin's name;
 - ``models.py``: see :mod:`iki_codegen.models`;
-- ``manifest.json``: the plugin as Iki read it, for the server;
+- ``manifest.json``: the plugin as Iki read it, for the server, with the
+  hosts its actions name through settings (``{settings.lims_host}``) filled
+  in from the deployment's values;
 - ``settings.json``: the deployment's values for its settings, when built
   for a deployment;
 - ``migrations/``: the plugin repository's migrations, copied unchanged.
@@ -18,7 +20,9 @@ The same inputs always give the same bytes, so a build can be checked.
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import re
 import shutil
 from collections.abc import Mapping, Sequence
 from importlib.metadata import version
@@ -87,6 +91,30 @@ def conflicts(plugins: Sequence[Plugin]) -> list[str]:
     return problems
 
 
+#: A host in an action's ``network`` that a setting gives.
+SETTING_HOST = re.compile(r"\{settings\.([a-z][a-z0-9_]*)\}")
+
+
+def with_hosts(plugin: Plugin, values: Mapping[str, Any]) -> Plugin:
+    """`plugin` with each ``{settings.<name>}`` in its actions' ``network`` replaced by the
+    host the deployment set. One left unset is dropped: its runs reach nothing there."""
+
+    def hosts(network: tuple[str, ...]) -> tuple[str, ...]:
+        out: list[str] = []
+        for entry in network:
+            match = SETTING_HOST.fullmatch(entry)
+            host = values.get(match.group(1)) if match else entry
+            if isinstance(host, str) and host and host not in out:
+                out.append(host)
+        return tuple(out)
+
+    actions = {
+        name: dataclasses.replace(action, network=hosts(action.network))
+        for name, action in plugin.actions.items()
+    }
+    return dataclasses.replace(plugin, actions=actions)
+
+
 def build(
     plugins: Sequence[Plugin],
     output: Path,
@@ -125,7 +153,9 @@ def build(
         (package / "__init__.py").write_text(f'"""The {plugin.name} plugin. {GENERATED}"""\n')
         (package / "apps.py").write_text(_apps(plugin))
         (package / "models.py").write_text(render_models(plugin, types))
-        manifest = {"apiVersion": API_VERSION, "plugin": plugin_to_dict(plugin)}
+        given = settings.get(plugin.name) if settings is not None else None
+        resolved = plugin if given is None else with_hosts(plugin, given)
+        manifest = {"apiVersion": API_VERSION, "plugin": plugin_to_dict(resolved)}
         (package / "manifest.json").write_text(_json(manifest))
         if settings is not None and plugin.name in settings:
             (package / "settings.json").write_text(_json(dict(settings[plugin.name])))

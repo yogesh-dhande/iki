@@ -639,6 +639,32 @@ def test_batches_take_one_input(tmp_path: Path) -> None:
     assert only(make(tmp_path, saving), "batch-checkpoints")
 
 
+def test_a_setting_can_give_a_host(tmp_path: Path) -> None:
+    plugin = PLUGIN + (
+        "settings:\n"
+        "  lims_host: { type: string, format: hostname, default: lims.example.org }\n"
+        "  lims_url: { type: string, format: uri }\n"
+    )
+    reaching = action(network='["{settings.lims_host}", api.example.org]')
+    result = make(tmp_path, reaching, files={"plugin.yaml": plugin})
+    assert result.problems == []
+    assert result.plugin is not None
+    (found,) = result.plugin.actions.values()
+    assert found.network == ("{settings.lims_host}", "api.example.org")
+    unknown = make(
+        tmp_path, action(network='["{settings.lims_hots}"]'), files={"plugin.yaml": plugin}
+    )
+    assert only(unknown, "network-unknown-setting")
+    assert unknown.problems[0].hint == "Did you mean `lims_host`?"
+    not_host = make(
+        tmp_path, action(network='["{settings.lims_url}"]'), files={"plugin.yaml": plugin}
+    )
+    assert only(not_host, "network-setting-not-hostname")
+    # Only a whole entry: a setting can't be part of a host.
+    part = make(tmp_path, action(network='["{settings.lims_host}.org"]'))
+    assert only(part, "schema")
+
+
 def test_deterministic_warnings(tmp_path: Path) -> None:
     result = make(tmp_path, action(deterministic="true", network="[example.org]"))
     assert only(result, "deterministic-with-network")

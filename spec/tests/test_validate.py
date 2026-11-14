@@ -979,6 +979,9 @@ def test_formats() -> None:
     assert matches_format("a@b.co", "email")
     assert matches_format("https://ikisci.org/x", "uri")
     assert not matches_format("no scheme", "uri")
+    assert matches_format("lims.acme-pharma.example", "hostname")
+    for host in ("LIMS.example.org", "lims.example.org:8443", "https://lims.example.org", "lims"):
+        assert not matches_format(host, "hostname")
     # The same patterns go into database CHECK constraints.
     for pattern in FORMATS.values():
         assert pattern_problems(pattern) == []

@@ -180,8 +180,8 @@ type's history. Identity fields can't be removed.
 | `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.     |
 
 String formats, checked by the database too: `dna_sequence`,
-`rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email` and
-`uri`. A `pattern` must work in both Python and PostgreSQL, so it can't use
+`rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email`,
+`uri` and `hostname` (a DNS name in lower case, such as `lims.example.org`). A `pattern` must work in both Python and PostgreSQL, so it can't use
 lookarounds, named groups, backreferences, inline flags or possessive
 quantifiers.
 
@@ -335,6 +335,12 @@ which Python's `urllib`, `requests`, `httpx` and `curl` use as they are.
 Hosts it doesn't name, plain HTTP and private addresses are refused, and the
 run's page lists each host an attempt reached or was refused. On a deployment
 without the proxy, such actions can't run.
+
+When the host differs between deployments, as a LIMS's does, name a setting
+instead: `network: ["{settings.lims_host}"]`, where `lims_host` is a string
+setting with `format: hostname`. A deployment's build fills in the host it
+sets, so the manifest the server reads, and what the run's page shows, names
+the real host; a setting left unset reaches nothing.
 
 Runs whose machine went away (`worker_lost`, `interrupted`) are retried twice
 by default. Actions that reach the network aren't retried unless they say so,
@@ -1030,7 +1036,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`                                                                                                                                                                                                                                                                       | Actions                         |
 | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                               | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`                                                                                                                                                                                                                                             | Where actions run               |
-| `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                            | Reuse and retries               |
+| `network-unknown-setting`, `network-setting-not-hostname`, `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                 | Reuse and retries               |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                            | Workflows                       |
 | `trigger-unknown-action`, `trigger-client-tier`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` | Triggers                        |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                             | Environments                    |

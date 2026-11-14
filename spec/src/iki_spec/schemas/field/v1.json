@@ -122,7 +122,7 @@
         },
         "format": {
           "description": "A built-in format the value must match, checked by the database.",
-          "enum": ["dna_sequence", "rna_sequence", "protein_sequence", "email", "uri"]
+          "enum": ["dna_sequence", "rna_sequence", "protein_sequence", "email", "uri", "hostname"]
         },
         "pattern": {
           "description": "A regular expression the whole value must match, checked by the database.",

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from iki_codegen import REGISTRY, build, conflicts, in_dependency_order, render_models
+from iki_codegen.build import with_hosts
 from iki_spec import naming
 from iki_spec.model import BUILTIN_TYPES, Plugin, plugin_from_dict
 from iki_spec.validate import load_plugin
@@ -82,6 +83,30 @@ def test_build_writes_a_package_per_plugin(plugins: list[Plugin], tmp_path: Path
         "    'iki_plugin_structure_prediction.apps.PluginConfig',\n"
         "]\n"
     )
+
+
+def test_hosts_from_settings_are_filled_in(plugins: list[Plugin], tmp_path: Path) -> None:
+    prediction = plugins[2]
+    action = prediction.actions["predict_structure"]
+    network = ("{settings.lims_host}", "example.org", "{settings.unset}")
+    reaching = replace(
+        prediction, actions={**prediction.actions, action.name: replace(action, network=network)}
+    )
+    values = {"lims_host": "lims.acme.example", "unset": None}
+    assert with_hosts(reaching, values).actions[action.name].network == (
+        "lims.acme.example",
+        "example.org",
+    )
+    # A deployment's build writes the hosts it gives into the manifest the server reads.
+    build(
+        [*plugins[:2], reaching],
+        tmp_path,
+        settings={"structure_prediction": {"jobs_url": "https://x.example", **values}},
+    )
+    package = tmp_path / "iki_plugin_structure_prediction"
+    manifest = json.loads((package / "manifest.json").read_text())
+    by_name = {a["name"]: a for a in manifest["plugin"]["actions"].values()}
+    assert by_name[action.name]["network"] == ["lims.acme.example", "example.org"]
 
 
 def test_build_replaces_earlier_builds(plugins: list[Plugin], tmp_path: Path) -> None:
