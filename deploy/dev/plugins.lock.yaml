@@ -8,5 +8,10 @@ kind: PluginLock
 plugins:
   - { name: dna, local: ../../plugins/dna, state: active }
   - { name: protein, local: ../../plugins/protein, state: active }
+  # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
+  - name: example_lims
+    local: ../../plugins/example_lims
+    state: active
+    settings: settings/example_lims.yaml
   # The plugin template, for its container-tier action (ADR 0061).
   - { name: example, local: ../../plugin-template, state: active }

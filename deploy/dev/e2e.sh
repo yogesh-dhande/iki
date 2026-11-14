@@ -46,6 +46,7 @@ if ! nc -z 127.0.0.1 8333 2>/dev/null; then forward svc/seaweedfs 8333 8333; fi
 forward svc/otel-lgtm 13200 3200
 forward svc/mailpit 18025 8025
 forward svc/webhook-receiver 18090 8080
+forward svc/fake-lims 18091 8080
 
 # --- Iki web ------------------------------------------------------------------
 ready=$(curl -fsS http://127.0.0.1:18000/healthz/ready)
@@ -143,7 +144,7 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
 uv run --quiet python "$(dirname "${BASH_SOURCE[0]}")/sso.py" --check \
-  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --web "pod/$web_pod"
+  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --lims-port 18091 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------
 anon=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18333/)

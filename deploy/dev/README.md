@@ -40,18 +40,27 @@ worker pod, so their backend actions run there.
 
 ## What runs
 
-| Component                        | Local URL                            | Notes                                                                             |
-| -------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------- |
-| Iki web (`iki-web`)              | <http://localhost:8000>              | Helm chart with `values-dev.yaml`                                                 |
-| Task runner (`iki-tasks`)        | n/a                                  | `iki-server tasks`: sends email and other background work                         |
-| Migrations (`iki-migrate`)       | n/a                                  | Job; web pods turn ready only once it has finished                                |
-| Backend worker (`iki-worker`)    | n/a                                  | Runs backend actions; reaches the web Service over plain HTTP (dev only)          |
-| Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                       |
-| SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                     |
-| Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` with users `alice` and `bob`; OIDC client `iki-web` and a SAML client |
-| Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki sends; nothing leaves the cluster                         |
-| Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks          |
-| Grafana, Tempo, Loki, Prometheus | <http://localhost:3300>              | `grafana/otel-lgtm`; Iki sends OTLP traces and metrics                            |
+| Component                        | Local URL                            | Notes                                                                                  |
+| -------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------- |
+| Iki web (`iki-web`)              | <http://localhost:8000>              | Helm chart with `values-dev.yaml`                                                      |
+| Task runner (`iki-tasks`)        | n/a                                  | `iki-server tasks`: sends email and other background work                              |
+| Migrations (`iki-migrate`)       | n/a                                  | Job; web pods turn ready only once it has finished                                     |
+| Backend worker (`iki-worker`)    | n/a                                  | Runs backend actions; reaches the web Service over plain HTTP (dev only)               |
+| Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                            |
+| SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                          |
+| Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` with users `alice` and `bob`; OIDC client `iki-web` and a SAML client      |
+| Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki sends; nothing leaves the cluster                              |
+| Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks               |
+| Fake LIMS                        | <http://localhost:8091/requests>     | `https://fake-lims.iki.svc`, for the example LIMS plugin; lists the requests runs made |
+| Grafana, Tempo, Loki, Prometheus | <http://localhost:3300>              | `grafana/otel-lgtm`; Iki sends OTLP traces and metrics                                 |
+
+The example LIMS plugin (`plugins/example_lims`) imports from the fake LIMS
+as it would from a lab's: over HTTPS, through the egress proxy, to the host
+its `lims_host` setting gives (`settings/example_lims.yaml`). The LIMS's
+certificate comes from a dev CA that `up.sh` makes; the backend worker
+trusts it, with the public CAs, through `backendWorkers.caSecret`, as a
+deployment would trust its internal CA. Its token is in `iki-run-secrets`
+(`runSecrets`), which the fake LIMS checks.
 
 ## Signing in
 

@@ -119,4 +119,36 @@ if ! kc -n "$NAMESPACE" get secret seaweedfs-s3 >/dev/null 2>&1; then
     --from-literal=s3.json="$s3_json"
 fi
 
+# A certificate authority for the dev cluster's fake services that runs reach
+# over HTTPS (the fake LIMS, manifests/fake-lims.yaml): runs check TLS end to
+# end, through the egress proxy, as they would a lab's LIMS with a certificate
+# from its internal CA. Workers trust iki-dev-ca's bundle: the public CAs
+# (certifi's, from the project's environment) and this one.
+if ! kc -n "$NAMESPACE" get secret fake-lims-tls >/dev/null 2>&1; then
+  log "Generating the dev CA and the fake LIMS's certificate"
+  certs=$(mktemp -d)
+  trap 'rm -rf "$certs"' EXIT
+  printf 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n' >"$certs/ca.ext"
+  printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:fake-lims.iki.svc\nauthorityKeyIdentifier=keyid\n' >"$certs/leaf.ext"
+  openssl req -new -newkey rsa:2048 -nodes -subj "/CN=Iki dev CA" \
+    -keyout "$certs/ca.key" -out "$certs/ca.csr" 2>/dev/null
+  openssl x509 -req -in "$certs/ca.csr" -signkey "$certs/ca.key" -days 3650 \
+    -extfile "$certs/ca.ext" -out "$certs/ca.crt" 2>/dev/null
+  openssl req -new -newkey rsa:2048 -nodes -subj "/CN=fake-lims.iki.svc" \
+    -keyout "$certs/tls.key" -out "$certs/tls.csr" 2>/dev/null
+  openssl x509 -req -in "$certs/tls.csr" -CA "$certs/ca.crt" -CAkey "$certs/ca.key" \
+    -CAcreateserial -days 825 -extfile "$certs/leaf.ext" -out "$certs/tls.crt" 2>/dev/null
+  public=$(cd "$HERE/../.." && uv run --quiet python -c "import certifi; print(certifi.where())")
+  cat "$public" "$certs/ca.crt" >"$certs/bundle.pem"
+  # Created, not applied: the bundle is too big for apply's annotation.
+  kc -n "$NAMESPACE" delete secret iki-dev-ca --ignore-not-found >/dev/null
+  kc -n "$NAMESPACE" create secret generic iki-dev-ca \
+    --from-file=bundle.pem="$certs/bundle.pem" >/dev/null
+  kc -n "$NAMESPACE" create secret tls fake-lims-tls \
+    --cert="$certs/tls.crt" --key="$certs/tls.key" >/dev/null
+fi
+# The secrets plugins' actions declare (runSecrets): the example LIMS plugin's
+# token, which the fake LIMS checks too.
+ensure_secret iki-run-secrets --from-literal=example_lims.LIMS_TOKEN="$(rand 32 32)"
+
 log "Cluster ready. Next: 'tilt up' (interactive) or 'tilt ci' (headless)."

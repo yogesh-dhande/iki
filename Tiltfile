@@ -17,6 +17,7 @@ k8s_yaml([
     'deploy/dev/manifests/otel-lgtm.yaml',
     'deploy/dev/manifests/mailpit.yaml',
     'deploy/dev/manifests/webhook-receiver.yaml',
+    'deploy/dev/manifests/fake-lims.yaml',
     'deploy/dev/manifests/shared-filesystem.yaml',
     'deploy/dev/manifests/bucket.yaml',
 ])
@@ -47,6 +48,13 @@ k8s_resource(
     port_forwards=['8090:8080'],
     labels=['deps'],
     links=[link('http://localhost:8090/requests', 'Webhooks received')],
+)
+k8s_resource(
+    'fake-lims',
+    objects=['fake-lims:configmap'],
+    port_forwards=['8091:8080'],
+    labels=['deps'],
+    links=[link('http://localhost:8091/requests', 'Fake LIMS requests')],
 )
 k8s_resource(
     'otel-lgtm',

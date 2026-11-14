@@ -87,6 +87,11 @@ backendWorkers:
     limits: { memory: 2Gi }
   scratch:
     sizeLimit: 2Gi
+  # The public CAs and the dev CA up.sh made, which signed the fake LIMS's
+  # certificate. Runs' commands trust it too (SSL_CERT_FILE).
+  caSecret:
+    name: iki-dev-ca
+    key: bundle.pem
 # A pod for each container-tier run, in iki-runs (deploy/dev/manifests/namespace.yaml).
 containerTier:
   enabled: true
@@ -105,6 +110,8 @@ containerTier:
 egressProxy:
   enabled: true
   replicas: 1
+  # The fake LIMS, at a Service address.
+  allowedNetworks: ["10.96.0.0/16"]
   podDisruptionBudget:
     enabled: false
 
@@ -149,3 +156,22 @@ networkPolicy:
       to:
         - podSelector:
             matchLabels: { app.kubernetes.io/name: webhook-receiver }
+    # The internet, as by default, and the fake LIMS.
+    egressProxy:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: fake-lims }
+# The secrets plugins' actions declare, which up.sh made: the example LIMS
+# plugin's token.
+runSecrets:
+  existingSecret: iki-run-secrets

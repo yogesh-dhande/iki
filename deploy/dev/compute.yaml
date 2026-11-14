@@ -20,6 +20,11 @@ environment: protein.protein-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: example_lims.lims-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
 kind: ComputeTemplate
 name: container-small
 provisioner: k8s_job

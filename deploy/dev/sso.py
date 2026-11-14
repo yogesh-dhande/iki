@@ -47,6 +47,8 @@ MAILPIT = {"url": "http://127.0.0.1:8025"}
 RECEIVER = {"url": "http://127.0.0.1:8090"}
 #: Its address inside the cluster, where task runners send.
 RECEIVER_IN_CLUSTER = "http://webhook-receiver.iki.svc:8080"
+#: The fake LIMS's list of the requests it took (Tilt's port-forward).
+LIMS = {"url": "http://127.0.0.1:8091"}
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
 
@@ -1090,6 +1092,65 @@ def actions() -> None:
     proteins(alice, project)
 
 
+#: The fake LIMS's records (deploy/dev/manifests/fake-lims.yaml).
+LIMS_RECORDS = ("LIMS-0001", "LIMS-0002", "LIMS-0003")
+
+
+def lims() -> None:
+    """The example LIMS plugin against the fake LIMS: an import that reaches it over HTTPS,
+    through the egress proxy, at the host the deployment's settings give, then again,
+    matching each record to its protein, and a write-back."""
+    alice = sign_in_as("alice")
+    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
+    project = next(p for p in mine if p["name"] == "Atlas")
+    action = "example_lims.import_from_lims"
+    run = launch(alice, project, action, {})
+    if run["network"] != ["fake-lims.iki.svc"]:
+        fail(f"{run['hrid']} may reach {run['network']}, not the host lims_host gives")
+    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    reached = [(e["host"], e["port"], e["refused"]) for e in attempt["network"]]
+    if reached != [("fake-lims.iki.svc", 443, None)]:
+        fail(f"{run['hrid']} reached {reached}, not the fake LIMS alone")
+    if sorted(e["type"] for e in run["effects"]) != ["protein.Protein"] * 3:
+        fail(f"{run['hrid']} wrote {run['effects']}, not the LIMS's three proteins")
+    found = {}
+    for record in LIMS_RECORDS:
+        query = f"type=protein.Protein&field=lims_id&value={record}&project={project['id']}"
+        matches = api_call(alice, "GET", f"/entities/lookup?{query}").json()
+        if len(matches) != 1:
+            fail(f"looking {record} up found {matches}, not one protein")
+        found[record] = matches[0]
+    ok(
+        f"{action} reached the fake LIMS over HTTPS through the egress proxy ({run['hrid']}): "
+        + ", ".join(f"{r} is {e['hrid']}" for r, e in found.items())
+    )
+    again = launch(alice, project, action, {})
+    kinds = sorted(e["kind"] for e in again["effects"])
+    if kinds != ["reused"] * 3 or {e["entity"] for e in again["effects"]} != {
+        e["id"] for e in found.values()
+    }:
+        fail(f"importing again ({again['hrid']}) gave {again['effects']}, not the same three")
+    ok(f"importing again matched each record to its protein, unchanged ({again['hrid']})")
+    first = found[LIMS_RECORDS[0]]
+    sent = launch(alice, project, "example_lims.send_to_lims", {"proteins": [first["id"]]})
+    deadline = time.monotonic() + 30
+    while True:
+        patched = [
+            r
+            for r in requests.get(f"{LIMS['url']}/requests", timeout=5).json()
+            if r["method"] == "PATCH" and r["path"] == f"/api/v1/proteins/{LIMS_RECORDS[0]}"
+        ]
+        if patched and patched[-1]["body"].get("iki_id") == first["hrid"]:
+            break
+        if time.monotonic() > deadline:
+            fail(f"{sent['hrid']} didn't write {first['hrid']} to {LIMS_RECORDS[0]}: {patched}")
+        time.sleep(1)
+    kept = api_call(alice, "GET", f"/runs/{sent['hrid']}/artifacts").json()
+    if [a["path"] for a in kept] != ["sent.json"]:
+        fail(f"{sent['hrid']} kept {kept}, not what it sent")
+    ok(f"example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
+
+
 #: Codons for amino acids alone (no stops), to make DNA that translates whole.
 SENSE = [a + b + c for a in "ACGT" for b in "ACGT" for c in "ACGT"]
 SENSE = [codon for codon in SENSE if codon not in ("TAA", "TAG", "TGA")]
@@ -1099,7 +1160,7 @@ def launch(
     alice: requests.Session,
     project: dict[str, Any],
     action: str,
-    inputs: dict[str, str],
+    inputs: dict[str, str | list[str]],
     params: dict[str, Any] | None = None,
     within: int = 120,
 ) -> dict[str, Any]:
@@ -1783,6 +1844,7 @@ def main() -> None:
     parser.add_argument("--keycloak-port", type=int, default=8080)
     parser.add_argument("--mailpit-port", type=int, default=8025)
     parser.add_argument("--webhook-port", type=int, default=8090)
+    parser.add_argument("--lims-port", type=int, default=8091)
     parser.add_argument(
         "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
     )
@@ -1790,6 +1852,7 @@ def main() -> None:
     WEB["target"] = args.web
     MAILPIT["url"] = f"http://127.0.0.1:{args.mailpit_port}"
     RECEIVER["url"] = f"http://127.0.0.1:{args.webhook_port}"
+    LIMS["url"] = f"http://127.0.0.1:{args.lims_port}"
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:
@@ -1798,6 +1861,7 @@ def main() -> None:
         rest_api(admin)
         webhooks(admin)
         actions()
+        lims()
         containers()
         oauth(admin)
         saml()

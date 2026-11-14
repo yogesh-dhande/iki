@@ -89,19 +89,19 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 
 ## Stage 6: Orchestration
 
-| Step | What                                                                                                                                                         | Status      | Commits                                    |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- | ------------------------------------------ |
-| 38   | Workflows: DAGs, fan-out and fan-in, conditions, approval gates, UI                                                                                          | done        |                                            |
-| 38a  | Workflow manifests checked against their actions; steps run as ordinary runs; a workflow run's page                                                          | done        | `311bb91`                                  |
-| 38b  | Fan-out over many entities, and fan-in                                                                                                                       | done        | `10cf90a`                                  |
-| 38c  | Conditions: steps that run only when an earlier one's results say                                                                                            | done        | `6529ee9`                                  |
-| 38d  | Approval gates: a step waits for a person to approve                                                                                                         | done        | `a284e9a`                                  |
-| 38e  | A project's workflow runs, and a form to start one                                                                                                           | done        | `c7721fb`                                  |
-| 38f  | The workflow's graph, live as its steps go                                                                                                                   | done        | `05906ce`                                  |
-| 38g  | Re-running a workflow from a failed step                                                                                                                     | done        | `7f016d8`                                  |
-| 38h  | MCP tools for agents to start and follow workflows                                                                                                           | done        | `09c3b4d`                                  |
-| 39   | Triggers with loop protection, including scheduled ones run as a service account: event triggers turned on per project (ADR 0080); scheduled ones (ADR 0081) | done        | `8716951`, `ef6da23`                       |
-| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back                                            | in progress | `b5a9120`, `c655e98`, `80e4aab`, `ed633ce` |
+| Step | What                                                                                                                                                         | Status | Commits                                               |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ----------------------------------------------------- |
+| 38   | Workflows: DAGs, fan-out and fan-in, conditions, approval gates, UI                                                                                          | done   |                                                       |
+| 38a  | Workflow manifests checked against their actions; steps run as ordinary runs; a workflow run's page                                                          | done   | `311bb91`                                             |
+| 38b  | Fan-out over many entities, and fan-in                                                                                                                       | done   | `10cf90a`                                             |
+| 38c  | Conditions: steps that run only when an earlier one's results say                                                                                            | done   | `6529ee9`                                             |
+| 38d  | Approval gates: a step waits for a person to approve                                                                                                         | done   | `a284e9a`                                             |
+| 38e  | A project's workflow runs, and a form to start one                                                                                                           | done   | `c7721fb`                                             |
+| 38f  | The workflow's graph, live as its steps go                                                                                                                   | done   | `05906ce`                                             |
+| 38g  | Re-running a workflow from a failed step                                                                                                                     | done   | `7f016d8`                                             |
+| 38h  | MCP tools for agents to start and follow workflows                                                                                                           | done   | `09c3b4d`                                             |
+| 39   | Triggers with loop protection, including scheduled ones run as a service account: event triggers turned on per project (ADR 0080); scheduled ones (ADR 0081) | done   | `8716951`, `ef6da23`                                  |
+| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back                                            | done   | `b5a9120`, `c655e98`, `80e4aab`, `ed633ce`, `6d27b72` |
 
 ## Stage 7: Components, views and apps
 
