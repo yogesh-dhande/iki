@@ -1218,6 +1218,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/trigger-firings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a project's triggers fired
+         * @description Newest first. `trigger` narrows it to one trigger's.
+         */
+        get: operations["iki_server_api_triggers_trigger_firings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Triggers in a project
+         * @description Every installed trigger, and whether it's on in the project, as whom.
+         */
+        get: operations["iki_server_api_triggers_project_triggers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/triggers/{name}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a trigger off in a project
+         * @description Changes after this fire nothing; runs it already launched carry on.
+         */
+        post: operations["iki_server_api_triggers_disable_trigger"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/triggers/{name}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a trigger on in a project
+         * @description From now on its runs are launched as you, so you must be able to run its action here.
+         *     Only in the web app: no token, and so no agent, can turn one on.
+         */
+        post: operations["iki_server_api_triggers_enable_trigger"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/webhooks": {
         parameters: {
             query?: never;
@@ -1734,6 +1815,23 @@ export interface paths {
         post?: never;
         /** Remove someone from a team */
         delete: operations["iki_server_api_teams_remove_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/triggers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Installed triggers */
+        get: operations["iki_server_api_triggers_list_triggers"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3794,6 +3892,78 @@ export interface components {
              */
             size: number;
         };
+        /** FiredEntityOut */
+        FiredEntityOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Type */
+            type: string;
+        };
+        /** FiredRunOut */
+        FiredRunOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+        };
+        /** FiringErrorOut */
+        FiringErrorOut: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /** FiringOut */
+        FiringOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            entity: components["schemas"]["FiredEntityOut"];
+            error: components["schemas"]["FiringErrorOut"] | null;
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "entity.created" | "entity.updated";
+            /** Fired At */
+            fired_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Revision
+             * @description The revision the change made.
+             */
+            revision: number;
+            run: components["schemas"]["FiredRunOut"] | null;
+            /**
+             * State
+             * @description `pending` until its run is launched, just after the change; `failed` if it couldn't be; `skipped` if the trigger was turned off or the entity archived first.
+             * @enum {string}
+             */
+            state: "pending" | "launched" | "failed" | "skipped";
+            /**
+             * Trigger
+             * @description The trigger's qualified name.
+             */
+            trigger: string;
+        };
         /** FreezeIn */
         FreezeIn: {
             /**
@@ -4386,6 +4556,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[FiringOut] */
+        Page_FiringOut_: {
+            /** Items */
+            items: components["schemas"]["FiringOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[InventoryOut] */
         Page_InventoryOut_: {
             /** Items */
@@ -4934,6 +5114,93 @@ export interface components {
              */
             name: "viewer" | "editor" | "runner" | "admin";
         };
+        /** ProjectTriggerCan */
+        ProjectTriggerCan: {
+            /**
+             * Disable
+             * @description You may turn it off: you're one of the project's Admins.
+             */
+            disable: boolean;
+            /**
+             * Enable
+             * @description You may turn it on, or on as you: you're an Admin who can run its action here, in the web app.
+             */
+            enable: boolean;
+        };
+        /** ProjectTriggerOut */
+        ProjectTriggerOut: {
+            /**
+             * Action
+             * @description The qualified name of the action it runs on the entity.
+             */
+            action: string;
+            /** Action Label */
+            action_label: string;
+            can: components["schemas"]["ProjectTriggerCan"];
+            /** Description */
+            description: string | null;
+            /** Disabled At */
+            disabled_at: string | null;
+            /** @description Who turned it off. Null while it's on, or when Iki did (see `disabled_reason`). */
+            disabled_by: components["schemas"]["PersonRef"] | null;
+            /**
+             * Disabled Reason
+             * @description Why Iki turned it off, if it did: its runs could no longer be launched as the Admin who turned it on.
+             */
+            disabled_reason: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Enabled At */
+            enabled_at: string | null;
+            /** @description Who its runs are launched as: whoever turned it on last. Null if nobody ever has. */
+            enabled_by: components["schemas"]["PersonRef"] | null;
+            /**
+             * Fields
+             * @description For `entity.updated`: it fires only when one of these changed. Empty for any change.
+             */
+            fields: string[];
+            /**
+             * Input
+             * @description The action's input that takes the entity.
+             */
+            input: string;
+            /** Label */
+            label: string;
+            /** Last Fired At */
+            last_fired_at: string | null;
+            /**
+             * Name
+             * @description Its qualified name, such as `protein.weigh_new_proteins`.
+             */
+            name: string;
+            /**
+             * On
+             * @description What fires it: an entity of its type created, or changed.
+             * @enum {string}
+             */
+            on: "entity.created" | "entity.updated";
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /** Plugin */
+            plugin: string;
+            /**
+             * Tier
+             * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
+             */
+            tier: ("client" | "backend" | "container" | "vm") | null;
+            /**
+             * Type
+             * @description The entity type it fires for, with its subtypes.
+             */
+            type: string;
+            /**
+             * Why Not Enable
+             * @description Why you can't turn it on, for one of the project's Admins who can't.
+             */
+            why_not_enable: string | null;
+        };
         /**
          * QueryIn
          * @description A search, as ``POST /entities/search`` takes it, without its project or paging.
@@ -5307,7 +5574,7 @@ export interface components {
              * @description Why it was declined, if they said.
              */
             note: string;
-            /** @description Who the app acted for: who decides. */
+            /** @description Who the app or trigger acted for: who decides. */
             requested_by: components["schemas"]["PersonRef"];
             /**
              * Runs
@@ -5319,6 +5586,8 @@ export interface components {
              * @enum {string}
              */
             state: "pending" | "approved" | "declined" | "expired";
+            /** @description The project's trigger that asked, if one did, for requested_by: the Admin who turned it on (ADR 0080). */
+            trigger: components["schemas"]["TriggerRefOut"] | null;
         };
         /** RunArtifactOut */
         RunArtifactOut: {
@@ -5769,6 +6038,8 @@ export interface components {
              * @enum {string}
              */
             tier: "client" | "backend" | "container" | "vm";
+            /** @description The project's trigger that launched it, if one did, and the change that fired it (ADR 0080). It runs as requested_by, who turned the trigger on. */
+            trigger: components["schemas"]["TriggerFiredOut"] | null;
             /** Via */
             via: string;
             /**
@@ -6411,6 +6682,99 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** TriggerFiredOut */
+        TriggerFiredOut: {
+            /**
+             * Entity
+             * Format: uuid
+             * @description The entity whose change fired it.
+             */
+            entity: string;
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "entity.created" | "entity.updated";
+            /**
+             * Label
+             * @description Its label, or its name once it's no longer installed.
+             */
+            label: string;
+            /**
+             * Name
+             * @description The trigger's qualified name, such as `protein.weigh_new`.
+             */
+            name: string;
+            /**
+             * Revision
+             * @description The revision the change made.
+             */
+            revision: number;
+        };
+        /** TriggerOut */
+        TriggerOut: {
+            /**
+             * Action
+             * @description The qualified name of the action it runs on the entity.
+             */
+            action: string;
+            /** Action Label */
+            action_label: string;
+            /** Description */
+            description: string | null;
+            /**
+             * Fields
+             * @description For `entity.updated`: it fires only when one of these changed. Empty for any change.
+             */
+            fields: string[];
+            /**
+             * Input
+             * @description The action's input that takes the entity.
+             */
+            input: string;
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description Its qualified name, such as `protein.weigh_new_proteins`.
+             */
+            name: string;
+            /**
+             * On
+             * @description What fires it: an entity of its type created, or changed.
+             * @enum {string}
+             */
+            on: "entity.created" | "entity.updated";
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /** Plugin */
+            plugin: string;
+            /**
+             * Tier
+             * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
+             */
+            tier: ("client" | "backend" | "container" | "vm") | null;
+            /**
+             * Type
+             * @description The entity type it fires for, with its subtypes.
+             */
+            type: string;
+        };
+        /** TriggerRefOut */
+        TriggerRefOut: {
+            /**
+             * Label
+             * @description Its label, or its name once it's no longer installed.
+             */
+            label: string;
+            /**
+             * Name
+             * @description The trigger's qualified name, such as `protein.weigh_new`.
+             */
+            name: string;
         };
         /** UnitOption */
         UnitOption: {
@@ -8957,6 +9321,102 @@ export interface operations {
             };
         };
     };
+    iki_server_api_triggers_trigger_firings: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                trigger?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_FiringOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_triggers_project_triggers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTriggerOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_triggers_disable_trigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTriggerOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_triggers_enable_trigger: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTriggerOut"];
+                };
+            };
+        };
+    };
     iki_server_api_webhooks_project_webhooks: {
         parameters: {
             query?: {
@@ -9809,6 +10269,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_triggers_list_triggers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerOut"][];
+                };
             };
         };
     };

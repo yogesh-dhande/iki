@@ -93,9 +93,9 @@ APP_AWAITING_APPROVAL = register(
 RUN_APPROVAL_REQUESTED = register(
     Kind(
         "run.approval_requested",
-        "An AI agent asks to run something",
-        "An app acting for you, such as an AI agent, asks to start runs that need your "
-        "approval: on the container or VM tier.",
+        "An AI agent or a trigger asks to run something",
+        "An app acting for you, such as an AI agent, or a trigger you turned on, asks to start "
+        "runs that need your approval: on the container or VM tier.",
         group="Runs",
     )
 )
@@ -105,6 +105,15 @@ WORKFLOW_APPROVAL_REQUESTED = register(
         "A workflow step waits for approval",
         "A step of a workflow someone else started waits for a person with your role in its "
         "project to approve it.",
+        group="Runs",
+    )
+)
+TRIGGER_TURNED_OFF = register(
+    Kind(
+        "trigger.turned_off",
+        "A trigger was turned off",
+        "A trigger in a project you're an Admin of is turned off because its runs can no longer "
+        "be launched as the Admin who turned it on.",
         group="Runs",
     )
 )

@@ -40,6 +40,7 @@ from iki_server.runs import budgets as runs_budgets
 from iki_server.runs import imports as runs_imports
 from iki_server.runs import queue as runs_queue
 from iki_server.runs import setups as runs_setups
+from iki_server.runs import triggers as runs_triggers
 from iki_server.runs import workflows as runs_workflows
 from iki_server.tasks.backend import CHANNEL, GiveUp, LeaseExpired, Retry, load_task, to_result
 from iki_server.tasks.models import TaskRecord
@@ -345,6 +346,15 @@ class Runner:
                         logger.info("workflows_recovered", count=ended)
                 except Exception:
                     logger.exception("workflows_housekeeping_error")
+                finally:
+                    close_old_connections()
+                try:
+                    # Trigger firings whose task to launch their run was lost (ADR 0080).
+                    fired = runs_triggers.recover()
+                    if fired:
+                        logger.info("triggers_recovered", count=fired)
+                except Exception:
+                    logger.exception("triggers_housekeeping_error")
                 finally:
                     close_old_connections()
             try:

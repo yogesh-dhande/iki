@@ -22,6 +22,8 @@ class Via(models.TextChoices):
     MCP = "mcp", "MCP"
     CLI = "cli", "Command line"
     SCIM = "scim", "SCIM provisioning"
+    #: A run a project's trigger started (ADR 0080).
+    TRIGGER = "trigger", "Trigger"
     SYSTEM = "system", "System"
 
 

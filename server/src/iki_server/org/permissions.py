@@ -79,6 +79,8 @@ class Action(StrEnum):
     PROJECT_MEMBERS_MANAGE = "project.members.manage"
     PROJECT_WEBHOOKS_MANAGE = "project.webhooks.manage"
     """The project's webhooks, which send its changes to other systems."""
+    PROJECT_TRIGGERS_MANAGE = "project.triggers.manage"
+    """Turn plugins' triggers on and off in the project: their runs are launched as you."""
 
 
 ORG_ACTIONS = frozenset(
@@ -116,6 +118,7 @@ ACTION_SCOPES: dict[Action, str] = {
     # Webhooks send data out of Iki: a scope of their own, as GitHub's admin:*_hook.
     Action.ORG_WEBHOOKS_MANAGE: "webhooks",
     Action.PROJECT_WEBHOOKS_MANAGE: "webhooks",
+    Action.PROJECT_TRIGGERS_MANAGE: "write",
 }
 
 
@@ -173,6 +176,7 @@ _PROJECT_ACTION_ROLE = {
     Action.PROJECT_MANAGE: ProjectRole.ADMIN,
     Action.PROJECT_MEMBERS_MANAGE: ProjectRole.ADMIN,
     Action.PROJECT_WEBHOOKS_MANAGE: ProjectRole.ADMIN,
+    Action.PROJECT_TRIGGERS_MANAGE: ProjectRole.ADMIN,
 }
 
 #: Project actions an Org Admin may take without a project role.

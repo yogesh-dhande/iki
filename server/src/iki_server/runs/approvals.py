@@ -3,7 +3,8 @@
 An agent acting for someone through MCP may start runs on the client and backend
 tiers itself. On the container and VM tiers, which cost real money, its runs wait,
 with their jobs held where no worker leases them, until that person approves them in
-the web app. Approving is refused to any OAuth token, so an agent can't approve its
+the web app. So do a trigger's runs on those tiers, for the Admin who turned it on
+(ADR 0080). Approving is refused to any OAuth token, so an agent can't approve its
 own request. One request is one decision: a batch is approved or declined together,
 and a request nobody decides within a week expires.
 
@@ -11,6 +12,9 @@ Approving checks again that the person may run the tier in the project, and the
 quotas on waiting runs; the jobs then join the queue as if just launched.
 """
 
+import contextlib
+from collections.abc import Iterator
+from contextvars import ContextVar
 from datetime import timedelta
 from functools import partial
 from typing import Any
@@ -33,6 +37,7 @@ from iki_server.runs.models import (
     ApprovalState,
     Job,
     JobState,
+    ProjectTrigger,
     RunApproval,
     RunStatus,
 )
@@ -42,11 +47,26 @@ from iki_spec.model import Action
 APPROVAL_TIERS = frozenset({"container", "vm"})
 #: How long a request waits for a decision.
 EXPIRES_AFTER = timedelta(days=7)
+#: Who asks for a run without a person deciding to start it there and then.
+UNATTENDED = frozenset({Via.MCP, Via.TRIGGER})
+
+#: The project's trigger launching runs, while it is.
+_trigger: ContextVar[ProjectTrigger | None] = ContextVar("iki_approval_trigger", default=None)
+
+
+@contextlib.contextmanager
+def for_trigger(trigger: ProjectTrigger) -> Iterator[None]:
+    """Marks runs launched inside as the trigger's: those that wait, wait for it."""
+    token = _trigger.set(trigger)
+    try:
+        yield
+    finally:
+        _trigger.reset(token)
 
 
 def needed(action: Action) -> bool:
     """Whether a run of `action`, launched now, waits for approval."""
-    return audit.current_via() == Via.MCP and action.tier in APPROVAL_TIERS
+    return audit.current_via() in UNATTENDED and action.tier in APPROVAL_TIERS
 
 
 def ask(user: User, action: Action, project: Project, *, runs: int = 1) -> RunApproval | None:
@@ -59,6 +79,7 @@ def ask(user: User, action: Action, project: Project, *, runs: int = 1) -> RunAp
         requested_by=user,
         client=audit.current_oauth_client(),
         agent=audit.current_agent(),
+        trigger=_trigger.get(),
         expires_at=timezone.now() + EXPIRES_AFTER,
     )
     audit.record(
@@ -72,17 +93,26 @@ def ask(user: User, action: Action, project: Project, *, runs: int = 1) -> RunAp
 
 
 def announce(approval: RunApproval, runs: int, label: str, *, path: str) -> None:
-    """Tells the person their agent is asking, with a link to decide."""
+    """Tells the person their agent, or their trigger, is asking, with a link to decide."""
     what = f"{runs} runs of {label}" if runs > 1 else f"a run of {label}"
     notify(
         [approval.requested_by],
         kinds.RUN_APPROVAL_REQUESTED,
-        title=f"{approval.client or 'An app'} asks to start {what} in {approval.project.name}",
+        title=f"{asker(approval)} asks to start {what} in {approval.project.name}",
         body="It runs on a tier that needs your approval. Approve or decline it in Iki; "
         f"it expires in {EXPIRES_AFTER.days} days.",
         path=path,
         project=approval.project,
     )
+
+
+def asker(approval: RunApproval) -> str:
+    """Who asks, as people read it: the trigger, the agent, or the app."""
+    if approval.trigger_id is not None:
+        from iki_server.runs import triggers
+
+        return f"The trigger “{triggers.label(approval.trigger)}”"  # type: ignore[arg-type]
+    return approval.client or "An app"
 
 
 def _may_decide(user: User, approval: RunApproval) -> None:

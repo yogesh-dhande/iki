@@ -36,6 +36,7 @@ NAMES = (
     "action",
     "environment",
     "workflow",
+    "trigger",
     "compute",
     "compute-template",
     "environment-binding",

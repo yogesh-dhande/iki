@@ -63,6 +63,7 @@ const WorkflowRunPage = lazyRouteComponent(
 const workflowPages = () => import("./pages/workflows");
 const ProjectWorkflows = lazyRouteComponent(workflowPages, "ProjectWorkflows");
 const NewWorkflowRun = lazyRouteComponent(workflowPages, "NewWorkflowRun");
+const ProjectTriggers = lazyRouteComponent(() => import("./pages/triggers"), "ProjectTriggers");
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
@@ -218,6 +219,17 @@ const projectWorkflowNewRoute = createRoute({
   component: NewWorkflowRun,
 });
 
+const projectTriggersRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "triggers",
+  // ?trigger=protein.compute_new_protein_properties: only what that trigger fired.
+  validateSearch: (search: Record<string, unknown>): { trigger?: string | undefined } =>
+    typeof search["trigger"] === "string" && search["trigger"]
+      ? { trigger: search["trigger"] }
+      : {},
+  component: ProjectTriggers,
+});
+
 const projectSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
@@ -359,6 +371,7 @@ const routeTree = rootRoute.addChildren([
       projectRunNewRoute,
       projectWorkflowsRoute,
       projectWorkflowNewRoute,
+      projectTriggersRoute,
       projectSettingsRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),

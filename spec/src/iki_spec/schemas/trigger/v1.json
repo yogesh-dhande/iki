@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/trigger/v1",
+  "title": "Iki trigger (iki/v1)",
+  "description": "Runs one of the plugin's actions by itself when an entity of a type is created or changed. It runs in a project only after the project's Admins turn it on, and runs as the Admin who did.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "on", "type", "run"],
+  "properties": {
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "Trigger"
+    },
+    "name": {
+      "description": "The trigger's name in snake_case. Elsewhere it is `plugin.name`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "label": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
+    "on": {
+      "description": "What fires it: an entity of its type created (`entity.created`), or changed (`entity.updated`). Changes a triggered run makes never fire a trigger.",
+      "enum": ["entity.created", "entity.updated"]
+    },
+    "type": {
+      "description": "The entities it fires for, with their subtypes.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+    },
+    "fields": {
+      "description": "For `entity.updated`: it fires only when one of these fields changed. Without them, any change fires it.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      }
+    },
+    "run": {
+      "description": "The name of the plugin's action it runs, on the entity. It can't be one that runs on the client tier: nobody is at their computer for it.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "input": {
+      "description": "The action's input that takes the entity. It can be left out when only one input takes the trigger's type.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "params": {
+      "description": "The action's params, by name. A string starting with `$` is written `$$`. Those left out take their defaults.",
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      }
+    }
+  },
+  "additionalProperties": false
+}

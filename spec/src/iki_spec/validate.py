@@ -11,6 +11,7 @@ be checked when they are there.
 
 from __future__ import annotations
 
+import dataclasses
 import keyword
 import re
 from collections.abc import Iterable, Sequence
@@ -21,7 +22,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from iki_spec import API_VERSION, actions, naming, schemas, titles, units, workflows
+from iki_spec import API_VERSION, actions, naming, schemas, titles, triggers, units, workflows
 from iki_spec.model import (
     BUILTIN_TYPES,
     Action,
@@ -30,6 +31,7 @@ from iki_spec.model import (
     Extension,
     Field,
     Plugin,
+    Trigger,
     Workflow,
     matches_format,
     qualify,
@@ -49,6 +51,7 @@ KINDS = {
     "Action": "action",
     "Environment": "environment",
     "Workflow": "workflow",
+    "Trigger": "trigger",
 }
 
 #: Where each kind of manifest lives in a plugin.
@@ -58,6 +61,7 @@ DIRECTORIES = {
     "Action": "actions",
     "Environment": "environments",
     "Workflow": "workflows",
+    "Trigger": "triggers",
 }
 
 MAX_IDENTIFIER = naming.MAX_IDENTIFIER
@@ -270,6 +274,7 @@ class _Loaded:
     action_sources: dict[str, Document] = field(default_factory=dict)
     environment_sources: dict[str, Document] = field(default_factory=dict)
     workflow_sources: dict[str, Document] = field(default_factory=dict)
+    trigger_sources: dict[str, Document] = field(default_factory=dict)
     # The raw (schema-valid) documents, for checks on things the model drops.
     raw: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -398,6 +403,18 @@ def _read(root: FilePath) -> _Loaded:
             checker,
         ):
             flows[workflow.name] = workflow
+    fires: dict[str, Trigger] = {}
+    for document in _manifests(root, "triggers", checker):
+        trigger = triggers.read_trigger(name, document.data, document)
+        if _unique(
+            "duplicate-trigger",
+            trigger.name,
+            fires,
+            loaded.trigger_sources,
+            document,
+            checker,
+        ):
+            fires[trigger.name] = trigger
 
     loaded.plugin = Plugin(
         name=name,
@@ -416,6 +433,7 @@ def _read(root: FilePath) -> _Loaded:
         actions=found,
         environments=environments,
         workflows=flows,
+        triggers=fires,
     )
     return loaded
 
@@ -523,6 +541,7 @@ def _kind_phrase(document: Document) -> str:
         "Action": "an action",
         "Environment": "an environment",
         "Workflow": "a workflow",
+        "Trigger": "a trigger",
     }.get(kind or "", f"a {kind}")
 
 
@@ -533,6 +552,7 @@ def _kind_phrase_plural(kind: str) -> str:
         "Action": "actions",
         "Environment": "environments",
         "Workflow": "workflows",
+        "Trigger": "triggers",
     }[kind]
 
 
@@ -654,6 +674,8 @@ class _Semantics:
         self.settings()
         actions.check(self)
         workflows.check(self)
+        # With the input each gives its entity, where it was left out and only one fits.
+        self.loaded.plugin = dataclasses.replace(self.plugin, triggers=triggers.check(self))
         self.unpinned()
 
     # The plugin manifest ------------------------------------------------------------------------

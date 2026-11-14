@@ -594,7 +594,8 @@ _EVENTS = {
 
 
 def _announce(entity_id: Any, revision: Revision, user: User) -> None:  # noqa: ANN401 - a UUID
-    """Tells the owner project's and the organization's webhooks, in the change's transaction."""
+    """Tells the owner project's and the organization's webhooks, and fires its triggers,
+    in the change's transaction."""
     from iki_server.webhooks import events
     from iki_server.webhooks.services import emit
 
@@ -612,6 +613,10 @@ def _announce(entity_id: Any, revision: Revision, user: User) -> None:  # noqa: 
         "agent": agent_data(revision.agent),
     }
     emit(_EVENTS[RevisionKind(revision.kind)], data, project=entity.owner_project)
+    # And the project's triggers that it fires (ADR 0080).
+    from iki_server.runs import triggers
+
+    triggers.noticed(entity, revision)
 
 
 def _write_history(

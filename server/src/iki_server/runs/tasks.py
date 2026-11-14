@@ -26,6 +26,15 @@ def delete_checkpoints(run_id: str) -> int:
 
 
 @task(max_attempts=5)
+def fire_trigger(firing_id: str) -> str:
+    """Launches the run a change that fired a project's trigger asks for (ADR 0080). Safe
+    to run twice: it locks the firing, and fires only one that hasn't been."""
+    from iki_server.runs import triggers
+
+    return triggers.fire(firing_id)
+
+
+@task(max_attempts=5)
 def advance_workflow(workflow_id: str) -> str:
     """Moves a workflow run on once one of its runs has ended (ADR 0079). Safe to run twice:
     it locks the workflow run, and only launches steps that haven't been."""

@@ -171,8 +171,10 @@ def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
 def write(done: Checked) -> None:
     """Writes what :func:`checked` checked. Raises :class:`InvalidOutput` (writing nothing)
     for values that don't fit the entities' types as installed now."""
+    from iki_server.runs import triggers
+
     check = done.check
-    with transaction.atomic():
+    with transaction.atomic(), triggers.writing(check.run):
         _write_updates(check, done.updates)
         _write_creates(check, done.creates)
         if check.errors:

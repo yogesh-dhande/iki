@@ -22,6 +22,8 @@ What's here:
   each run gets a pod with this image, pinned by its digest.
 - `workflows/store_sample.yaml`: a workflow that assigns a sample's storage,
   then decodes it: two actions run one after the other, as one.
+- `triggers/store_new_samples.yaml`: a trigger that assigns each new sample's
+  storage by itself, in projects whose Admins turn it on.
 - `migrations/`: the database migrations for those types, made by
   `iki plugin makemigrations` and reviewed in pull requests like code.
 - `.github/workflows/ci.yml`: checks every change, the way a deployment's

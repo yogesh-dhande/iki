@@ -3135,6 +3135,169 @@
         "title": "FileRef",
         "type": "object"
       },
+      "FiredEntityOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type"
+        ],
+        "title": "FiredEntityOut",
+        "type": "object"
+      },
+      "FiredRunOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "status"
+        ],
+        "title": "FiredRunOut",
+        "type": "object"
+      },
+      "FiringErrorOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "FiringErrorOut",
+        "type": "object"
+      },
+      "FiringOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/FiredEntityOut"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FiringErrorOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event": {
+            "enum": [
+              "entity.created",
+              "entity.updated"
+            ],
+            "title": "Event",
+            "type": "string"
+          },
+          "fired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fired At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The revision the change made.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FiredRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "description": "`pending` until its run is launched, just after the change; `failed` if it couldn't be; `skipped` if the trigger was turned off or the entity archived first.",
+            "enum": [
+              "pending",
+              "launched",
+              "failed",
+              "skipped"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "trigger": {
+            "description": "The trigger's qualified name.",
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trigger",
+          "label",
+          "event",
+          "entity",
+          "revision",
+          "state",
+          "run",
+          "error",
+          "created_at",
+          "fired_at"
+        ],
+        "title": "FiringOut",
+        "type": "object"
+      },
       "FreezeIn": {
         "properties": {
           "reason": {
@@ -4407,6 +4570,35 @@
           "next_cursor"
         ],
         "title": "Page[FileOut]",
+        "type": "object"
+      },
+      "Page_FiringOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FiringOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[FiringOut]",
         "type": "object"
       },
       "Page_InventoryOut_": {
@@ -5795,6 +5987,220 @@
         "title": "ProjectRoleOut",
         "type": "object"
       },
+      "ProjectTriggerCan": {
+        "properties": {
+          "disable": {
+            "description": "You may turn it off: you're one of the project's Admins.",
+            "title": "Disable",
+            "type": "boolean"
+          },
+          "enable": {
+            "description": "You may turn it on, or on as you: you're an Admin who can run its action here, in the web app.",
+            "title": "Enable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enable",
+          "disable"
+        ],
+        "title": "ProjectTriggerCan",
+        "type": "object"
+      },
+      "ProjectTriggerOut": {
+        "properties": {
+          "action": {
+            "description": "The qualified name of the action it runs on the entity.",
+            "title": "Action",
+            "type": "string"
+          },
+          "action_label": {
+            "title": "Action Label",
+            "type": "string"
+          },
+          "can": {
+            "$ref": "#/components/schemas/ProjectTriggerCan"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "disabled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who turned it off. Null while it's on, or when Iki did (see `disabled_reason`)."
+          },
+          "disabled_reason": {
+            "description": "Why Iki turned it off, if it did: its runs could no longer be launched as the Admin who turned it on.",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "enabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled At"
+          },
+          "enabled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who its runs are launched as: whoever turned it on last. Null if nobody ever has."
+          },
+          "fields": {
+            "description": "For `entity.updated`: it fires only when one of these changed. Empty for any change.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "input": {
+            "description": "The action's input that takes the entity.",
+            "title": "Input",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_fired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Fired At"
+          },
+          "name": {
+            "description": "Its qualified name, such as `protein.weigh_new_proteins`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "on": {
+            "description": "What fires it: an entity of its type created, or changed.",
+            "enum": [
+              "entity.created",
+              "entity.updated"
+            ],
+            "title": "On",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client",
+                  "backend",
+                  "container",
+                  "vm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.",
+            "title": "Tier"
+          },
+          "type": {
+            "description": "The entity type it fires for, with its subtypes.",
+            "title": "Type",
+            "type": "string"
+          },
+          "why_not_enable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why you can't turn it on, for one of the project's Admins who can't.",
+            "title": "Why Not Enable"
+          }
+        },
+        "required": [
+          "name",
+          "plugin",
+          "label",
+          "description",
+          "on",
+          "type",
+          "fields",
+          "action",
+          "action_label",
+          "input",
+          "params",
+          "tier",
+          "enabled",
+          "enabled_by",
+          "enabled_at",
+          "disabled_by",
+          "disabled_at",
+          "disabled_reason",
+          "last_fired_at",
+          "why_not_enable",
+          "can"
+        ],
+        "title": "ProjectTriggerOut",
+        "type": "object"
+      },
       "QueryIn": {
         "description": "A search, as ``POST /entities/search`` takes it, without its project or paging.",
         "properties": {
@@ -6612,7 +7018,7 @@
           },
           "requested_by": {
             "$ref": "#/components/schemas/PersonRef",
-            "description": "Who the app acted for: who decides."
+            "description": "Who the app or trigger acted for: who decides."
           },
           "runs": {
             "description": "The runs it holds, all decided together.",
@@ -6631,6 +7037,17 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TriggerRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project's trigger that asked, if one did, for requested_by: the Admin who turned it on (ADR 0080)."
           }
         },
         "required": [
@@ -6638,6 +7055,7 @@
           "state",
           "client",
           "agent",
+          "trigger",
           "requested_by",
           "created_at",
           "expires_at",
@@ -7591,6 +8009,17 @@
             "title": "Tier",
             "type": "string"
           },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TriggerFiredOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project's trigger that launched it, if one did, and the change that fired it (ADR 0080). It runs as requested_by, who turned the trigger on."
+          },
           "via": {
             "title": "Via",
             "type": "string"
@@ -7634,6 +8063,7 @@
           "reason",
           "batch",
           "workflow",
+          "trigger",
           "tier",
           "environment",
           "params",
@@ -9089,6 +9519,171 @@
           "slug"
         ],
         "title": "TeamRef",
+        "type": "object"
+      },
+      "TriggerFiredOut": {
+        "properties": {
+          "entity": {
+            "description": "The entity whose change fired it.",
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "event": {
+            "enum": [
+              "entity.created",
+              "entity.updated"
+            ],
+            "title": "Event",
+            "type": "string"
+          },
+          "label": {
+            "description": "Its label, or its name once it's no longer installed.",
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "The trigger's qualified name, such as `protein.weigh_new`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The revision the change made.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "event",
+          "entity",
+          "revision"
+        ],
+        "title": "TriggerFiredOut",
+        "type": "object"
+      },
+      "TriggerOut": {
+        "properties": {
+          "action": {
+            "description": "The qualified name of the action it runs on the entity.",
+            "title": "Action",
+            "type": "string"
+          },
+          "action_label": {
+            "title": "Action Label",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "fields": {
+            "description": "For `entity.updated`: it fires only when one of these changed. Empty for any change.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "input": {
+            "description": "The action's input that takes the entity.",
+            "title": "Input",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its qualified name, such as `protein.weigh_new_proteins`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "on": {
+            "description": "What fires it: an entity of its type created, or changed.",
+            "enum": [
+              "entity.created",
+              "entity.updated"
+            ],
+            "title": "On",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client",
+                  "backend",
+                  "container",
+                  "vm"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.",
+            "title": "Tier"
+          },
+          "type": {
+            "description": "The entity type it fires for, with its subtypes.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "plugin",
+          "label",
+          "description",
+          "on",
+          "type",
+          "fields",
+          "action",
+          "action_label",
+          "input",
+          "params",
+          "tier"
+        ],
+        "title": "TriggerOut",
+        "type": "object"
+      },
+      "TriggerRefOut": {
+        "properties": {
+          "label": {
+            "description": "Its label, or its name once it's no longer installed.",
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "The trigger's qualified name, such as `protein.weigh_new`.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label"
+        ],
+        "title": "TriggerRefOut",
         "type": "object"
       },
       "UnitOption": {
@@ -14873,6 +15468,244 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/trigger-firings": {
+      "get": {
+        "description": "Newest first. `trigger` narrows it to one trigger's.",
+        "operationId": "iki_server_api_triggers_trigger_firings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "trigger",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trigger"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_FiringOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What a project's triggers fired",
+        "tags": [
+          "triggers"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/triggers": {
+      "get": {
+        "description": "Every installed trigger, and whether it's on in the project, as whom.",
+        "operationId": "iki_server_api_triggers_project_triggers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectTriggerOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Triggers in a project",
+        "tags": [
+          "triggers"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/triggers/{name}/disable": {
+      "post": {
+        "description": "Changes after this fire nothing; runs it already launched carry on.",
+        "operationId": "iki_server_api_triggers_disable_trigger",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectTriggerOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Turn a trigger off in a project",
+        "tags": [
+          "triggers"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/triggers/{name}/enable": {
+      "post": {
+        "description": "From now on its runs are launched as you, so you must be able to run its action here.\nOnly in the web app: no token, and so no agent, can turn one on.",
+        "operationId": "iki_server_api_triggers_enable_trigger",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectTriggerOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Turn a trigger on in a project",
+        "tags": [
+          "triggers"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/webhooks": {
       "get": {
         "operationId": "iki_server_api_webhooks_project_webhooks",
@@ -16740,6 +17573,40 @@
         "summary": "Add someone to a team",
         "tags": [
           "teams"
+        ]
+      }
+    },
+    "/api/v1/triggers": {
+      "get": {
+        "operationId": "iki_server_api_triggers_list_triggers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TriggerOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Installed triggers",
+        "tags": [
+          "triggers"
         ]
       }
     },

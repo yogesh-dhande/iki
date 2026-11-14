@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_new_protein_properties
+label: Compute each new protein's properties
+description: >-
+  Computes a protein's length, molecular weight and other ProtParam
+  properties as soon as it's added. Runs that compute them only fill in
+  fields, so they never fire a trigger again.
+on: entity.created
+type: Protein
+run: compute_properties

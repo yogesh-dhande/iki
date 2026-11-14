@@ -937,6 +937,43 @@ describe("a run's page", () => {
       expect(within(request).queryByRole("button")).not.toBeInTheDocument();
     });
 
+    it("says when a trigger asked, for the Admin who turned it on", async () => {
+      const trigger = {
+        name: "protein.relax_new_structures",
+        label: "Relax new structures",
+        event: "entity.created" as const,
+        entity: "00000000-0000-7000-8000-0000000000e1",
+        revision: 1,
+      };
+      onRun(
+        () =>
+          run({
+            ...waiting,
+            via: "trigger",
+            client: "",
+            agent: null,
+            reason: "Trigger “Relax new structures”: PRT-000001 was created.",
+            trigger,
+            approval: approval({
+              client: "",
+              agent: null,
+              trigger: { name: trigger.name, label: trigger.label },
+            }),
+          }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      const request = screen.getByRole("region", { name: "Waiting for your approval" });
+      expect(request).toHaveTextContent(
+        /The trigger “Relax new structures” asked to start this run for .*container tier, which a trigger can’t start by itself, so it waits for you\./,
+      );
+      expect(screen.getByText(/by a trigger/)).toBeInTheDocument();
+      expect(screen.getByText(/Relax new structures, when/)).toHaveTextContent(
+        /when its entity was created \(revision 1\)\. It runs as .*, who turned the trigger on\./,
+      );
+    });
+
     it("says when nobody approved it in time", async () => {
       onRun(
         () => run({ ...waiting, status: "declined", approval: approval({ state: "expired" }) }),

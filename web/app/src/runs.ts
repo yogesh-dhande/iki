@@ -21,6 +21,8 @@ export type Workflow = Schemas["WorkflowOut"];
 export type WorkflowRun = Schemas["WorkflowRunOut"];
 export type WorkflowStatus = WorkflowRun["status"];
 export type StepState = WorkflowRun["steps"][number]["state"];
+export type ProjectTrigger = Schemas["ProjectTriggerOut"];
+export type Firing = Schemas["FiringOut"];
 
 export const RUNS = ["runs"] as const;
 
@@ -157,6 +159,41 @@ export const workflowsQuery = queryOptions({
   queryFn: async () => unwrap(await iki.GET("/api/v1/workflows")),
   staleTime: 5 * 60_000,
 });
+
+/** Every installed trigger, and whether it's on in the project, as whom (ADR 0080). */
+export function projectTriggersQuery(projectId: string) {
+  return queryOptions({
+    queryKey: [...RUNS, "triggers", projectId],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/projects/{project_id}/triggers", {
+          params: { path: { project_id: projectId } },
+        }),
+      ),
+  });
+}
+
+/** What a project's triggers fired, newest first, a page at a time. */
+export function triggerFiringsQuery(projectId: string, trigger: string | undefined) {
+  return infiniteQueryOptions({
+    queryKey: [...RUNS, "list", "firings", projectId, trigger ?? "all"],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await iki.GET("/api/v1/projects/{project_id}/trigger-firings", {
+          params: {
+            path: { project_id: projectId },
+            query: {
+              limit: 25,
+              ...(trigger ? { trigger } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
 
 /** A project's workflow runs, newest first, a page at a time. */
 export function projectWorkflowRunsQuery(projectId: string, status: WorkflowStatus | undefined) {

@@ -11,7 +11,15 @@
       "const": "iki/v1"
     },
     "kind": {
-      "enum": ["Plugin", "EntityType", "EntityTypeExtension", "Action", "Environment", "Workflow"]
+      "enum": [
+        "Plugin",
+        "EntityType",
+        "EntityTypeExtension",
+        "Action",
+        "Environment",
+        "Workflow",
+        "Trigger"
+      ]
     }
   },
   "allOf": [
@@ -41,6 +49,10 @@
     {
       "if": { "properties": { "kind": { "const": "Workflow" } }, "required": ["kind"] },
       "then": { "$ref": "https://ikisci.org/schemas/workflow/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "Trigger" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/trigger/v1" }
     }
   ]
 }

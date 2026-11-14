@@ -446,6 +446,37 @@ class Workflow:
         return done
 
 
+#: What fires a trigger: an entity of its type created, or changed.
+TRIGGER_EVENTS = ("entity.created", "entity.updated")
+
+
+@dataclass(frozen=True)
+class Trigger:
+    """Runs one of the plugin's actions by itself when an entity of a type is created or
+    changed, in projects whose Admins turn it on (ADR 0080)."""
+
+    plugin: str
+    name: str
+    label: str = ""
+    description: str | None = None
+    #: One of :data:`TRIGGER_EVENTS`.
+    on: str = "entity.created"
+    #: The entities it fires for, with their subtypes, qualified.
+    type: str = ""
+    #: For entity.updated: it fires only when one of these changed; empty for any change.
+    fields: tuple[str, ...] = ()
+    #: The plugin's action it runs.
+    run: str = ""
+    #: The action's input that takes the entity: given, or the only one that takes its type.
+    input: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
+    file: str | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
+
+
 @dataclass(frozen=True)
 class Plugin:
     name: str
@@ -462,6 +493,7 @@ class Plugin:
     actions: dict[str, Action] = field(default_factory=dict)
     environments: dict[str, Environment] = field(default_factory=dict)
     workflows: dict[str, Workflow] = field(default_factory=dict)
+    triggers: dict[str, Trigger] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -559,6 +591,7 @@ _DATACLASSES = (
     WorkflowStep,
     Condition,
     Approval,
+    Trigger,
 )
 
 
@@ -600,6 +633,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "environments": {k: _environment(v) for k, v in data["environments"].items()},
             # Plugins built before workflows have none.
             "workflows": {k: _workflow(v) for k, v in (data.get("workflows") or {}).items()},
+            # ...or triggers.
+            "triggers": {
+                k: Trigger(**{**v, "fields": tuple(v["fields"])})
+                for k, v in (data.get("triggers") or {}).items()
+            },
         }
     )
 

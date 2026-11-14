@@ -22,6 +22,7 @@ from iki_server.api.entities import FieldOut, RunRefOut, field_out
 from iki_server.api.pagination import PageParams, cursor_after, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, PersonRef, agent_out
+from iki_server.audit.models import Via
 from iki_server.entities import access, registry, schema
 from iki_server.entities.values import Invalid
 from iki_server.files import storage
@@ -36,6 +37,7 @@ from iki_server.runs import (
     quotas,
     secrets,
     services,
+    triggers,
     workers,
 )
 from iki_server.runs.models import (
@@ -46,6 +48,7 @@ from iki_server.runs.models import (
     Job,
     JobLog,
     JobState,
+    ProjectTrigger,
     RunApproval,
     RunArtifact,
     RunBatch,
@@ -55,6 +58,7 @@ from iki_server.runs.models import (
     RunInput,
     RunOutput,
     RunStatus,
+    TriggerFiring,
     WorkflowRun,
 )
 from iki_server.runs.services import TIER_PERMISSIONS
@@ -389,6 +393,11 @@ class ApprovalCan(Schema):
     )
 
 
+class TriggerRefOut(Schema):
+    name: str = Field(description="The trigger's qualified name, such as `protein.weigh_new`.")
+    label: str = Field(description="Its label, or its name once it's no longer installed.")
+
+
 class RunApprovalOut(Schema):
     id: UUID
     state: Literal["pending", "approved", "declined", "expired"]
@@ -396,7 +405,11 @@ class RunApprovalOut(Schema):
     agent: AgentOut | None = Field(
         description="The agent that asked, acting for requested_by, if one did (ADR 0072)."
     )
-    requested_by: PersonRef = Field(description="Who the app acted for: who decides.")
+    trigger: TriggerRefOut | None = Field(
+        description="The project's trigger that asked, if one did, for requested_by: the Admin "
+        "who turned it on (ADR 0080)."
+    )
+    requested_by: PersonRef = Field(description="Who the app or trigger acted for: who decides.")
     created_at: datetime
     expires_at: datetime
     decided_by: PersonRef | None
@@ -415,6 +428,12 @@ class WorkflowStepRefOut(Schema):
     id: UUID
     hrid: str = Field(description="Such as WF-000123.")
     step: str = Field(description="The step's ID in the workflow.")
+
+
+class TriggerFiredOut(TriggerRefOut):
+    event: Literal["entity.created", "entity.updated"]
+    entity: UUID = Field(description="The entity whose change fired it.")
+    revision: int = Field(description="The revision the change made.")
 
 
 class RunCostOut(Schema):
@@ -446,6 +465,10 @@ class RunOut(Schema):
     batch: BatchRefOut | None = Field(description="The batch it was launched in, if any.")
     workflow: WorkflowStepRefOut | None = Field(
         description="The workflow run it's a step of, if any (ADR 0079)."
+    )
+    trigger: TriggerFiredOut | None = Field(
+        description="The project's trigger that launched it, if one did, and the change that "
+        "fired it (ADR 0080). It runs as requested_by, who turned the trigger on."
     )
     tier: Tier
     environment: str
@@ -656,6 +679,17 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             pk__in={r.workflow_id for r in runs if r.workflow_id is not None}
         ).values_list("id", "hrid")
     )
+    fired = {
+        f.run_id: {
+            **trigger_ref(f.trigger),
+            "event": f.event,
+            "entity": f.entity_id,
+            "revision": f.revision,
+        }
+        for f in TriggerFiring.objects.filter(
+            run__in=[r for r in runs if r.via == Via.TRIGGER]
+        ).select_related("trigger")
+    }
     projects.update({r.project_id: r.project for r in refs.values()})
     may_cancel = {
         (pid, tier): permissions.can(me, TIER_PERMISSIONS[tier], projects[pid])
@@ -676,6 +710,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             }
             if run.workflow_id
             else None,
+            "trigger": fired.get(run.pk),
             "network": run.spec.get("network") or [],
             "inputs": inputs.get(run.pk, []),
             "files": {
@@ -1111,11 +1146,15 @@ def reproduce_run(
 # --- Approvals -----------------------------------------------------------------------------------
 
 
+def trigger_ref(row: ProjectTrigger) -> dict[str, str]:
+    return {"name": row.trigger, "label": triggers.label(row)}
+
+
 def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
     if not ids:
         return {}
     found = RunApproval.objects.filter(pk__in=ids).select_related(
-        "requested_by", "decided_by", "agent"
+        "requested_by", "decided_by", "agent", "trigger"
     )
     held: dict[Any, list[dict[str, Any]]] = {}
     for run_id, hrid, approval_id in (
@@ -1131,6 +1170,7 @@ def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
             "state": a.state,
             "client": a.client,
             "agent": agent_out(a.agent, a.client),
+            "trigger": trigger_ref(a.trigger) if a.trigger is not None else None,
             "requested_by": a.requested_by,
             "created_at": a.created_at,
             "expires_at": a.expires_at,

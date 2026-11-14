@@ -29,7 +29,7 @@ def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 0
     assert capsys.readouterr().out == (
         "✓ protein 3.0.0 is valid: 2 entity types, 0 extensions, 0 settings, 5 actions, "
-        "1 environment, 5 workflows.\n"
+        "1 environment, 5 workflows, 2 triggers.\n"
     )
 
 
@@ -40,7 +40,7 @@ def test_validates_the_current_directory_by_default(
     assert main(["plugin", "validate"]) == 0
     assert (
         "✓ dna 1.2.0 is valid: 2 entity types, 0 extensions, 2 settings, 0 actions, "
-        "0 environments, 0 workflows." in capsys.readouterr().out
+        "0 environments, 0 workflows, 0 triggers." in capsys.readouterr().out
     )
 
 
@@ -89,7 +89,7 @@ def test_warnings_pass_unless_strict(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "warning: `api_key` looks like a secret." in out
     assert out.endswith(
         "✓ acme 1.0.0 is valid: 0 entity types, 0 extensions, 1 setting, 0 actions, "
-        "0 environments, 0 workflows, with 1 warning.\n"
+        "0 environments, 0 workflows, 0 triggers, with 1 warning.\n"
     )
     assert main(["plugin", "validate", str(plugin), "--strict"]) == 1
 
@@ -138,6 +138,7 @@ def test_json_output(broken: Path, capsys: pytest.CaptureFixture[str]) -> None:
         "actions": [],
         "environments": [],
         "workflows": [],
+        "triggers": [],
     }
 
 

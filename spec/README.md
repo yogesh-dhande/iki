@@ -30,6 +30,7 @@ types/               # kind: EntityType and EntityTypeExtension
 actions/             # kind: Action
 environments/        # kind: Environment
 workflows/           # kind: Workflow
+triggers/            # kind: Trigger
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
@@ -446,6 +447,42 @@ and a workflow param given to a step's param takes no value the step's
 doesn't. A condition reads a metric its step's action declares, and compares
 it, or a param, with a value of its type, or a param of the same type; the
 ordering comparisons take numbers. No step may come before itself.
+
+## Triggers
+
+A trigger runs one of the plugin's actions by itself when an entity of a type
+(or a subtype) is created (`entity.created`) or changed (`entity.updated`),
+on that entity (ADR 0080). Installing the plugin doesn't turn it on: a
+project's Admins do, project by project, and its runs are theirs. They're
+launched as the Admin who turned it on, recorded as started by the trigger,
+and a run on the container or VM tier waits for that Admin's approval first.
+
+```yaml
+apiVersion: iki/v1
+kind: Trigger
+name: compute_new_protein_properties
+label: Compute each new protein's properties
+on: entity.created
+type: Protein
+run: compute_properties # the plugin's action
+input: protein # which input takes the entity; left out when only one can
+params: {} # values; a string starting with `$` is written `$$`
+```
+
+On `entity.updated`, `fields` narrows it to changes of those fields. A
+change a triggered run makes never fires a trigger, so a trigger can't fire
+itself, or another that fires it back: chain actions in a workflow instead.
+
+```yaml
+on: entity.updated
+type: Protein
+fields: [sequence, organism]
+```
+
+The build checks that the type exists and has the fields, that the action
+takes an entity of the type in one input and needs no other, that its params
+fit, and that it doesn't run on the client tier, where nobody may be at their
+computer when the trigger fires.
 
 ## Dependencies
 
@@ -935,6 +972,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`                                                                                                                                                                                  | Where actions run               |
 | `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                 | Reuse and retries               |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow` | Workflows                       |
+| `trigger-unknown-action`, `trigger-client-tier`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `duplicate-trigger`                                                                                                                                         | Triggers                        |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                  | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                                                                                  | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                        | Volumes and setup               |

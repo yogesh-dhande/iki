@@ -854,6 +854,28 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         fixed("/webhook-policy", {"project_webhooks": True}),
         ORG_ADMIN_ONLY,
     ),
+    # Triggers: read with the project; turned on and off by its Admins (in the web app
+    # only: test_triggers).
+    ("GET", "/triggers", fixed("/triggers"), row(200)),
+    ("GET", "/projects/{project_id}/triggers", project("/triggers"), readers(200, org_admin=403)),
+    (
+        "POST",
+        "/projects/{project_id}/triggers/{name}/enable",
+        project("/triggers/protein.weigh_new_proteins/enable", {}),
+        visible(403, admin=200),
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/triggers/{name}/disable",
+        project("/triggers/protein.weigh_new_proteins/disable", {}),
+        visible(403, admin=200),
+    ),
+    (
+        "GET",
+        "/projects/{project_id}/trigger-firings",
+        project("/trigger-firings"),
+        readers(200, org_admin=403),
+    ),
     ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),
     (
         "POST",

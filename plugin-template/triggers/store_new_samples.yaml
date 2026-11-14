@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A trigger: runs an action by itself when an entity is created or changed.
+# It does nothing until a project's Admin turns it on, and then runs as that
+# Admin. assign_storage runs on the container tier, so each run it starts
+# waits for that Admin's approval first.
+apiVersion: iki/v1
+kind: Trigger
+name: store_new_samples
+label: Assign storage to new samples
+description: Gives each new sample the default storage, unless someone already said where it is.
+on: entity.created
+type: Sample
+run: assign_storage

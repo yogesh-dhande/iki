@@ -1,0 +1,6 @@
+apiVersion: iki/v1
+kind: Trigger
+name: weigh_new_proteins
+on: entity.created
+type: Protein
+run: compute_properties

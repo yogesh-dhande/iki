@@ -102,10 +102,53 @@ class ApprovalState(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
+class ProjectTrigger(models.Model):
+    """A plugin's trigger in a project (ADR 0080): off until one of the project's Admins
+    turns it on, and then run as whoever turned it on last."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    #: The trigger's qualified name, such as ``protein.compute_new_protein_properties``.
+    trigger = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=True)
+    #: Who its runs are launched as: whoever turned it on last.
+    enabled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    enabled_at = models.DateTimeField()
+    #: Who turned it off last, or None if Iki did (see ``disabled_reason``).
+    disabled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    disabled_at = models.DateTimeField(null=True, blank=True)
+    #: Why Iki turned it off, if it did: its runs could no longer be launched as that Admin.
+    disabled_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "iki_project_trigger"
+        db_table_comment = "Plugins' triggers, turned on or off in each project."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["project"], name="iki_project_trigger_on", condition=Q(enabled=True)
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["project", "trigger"], name="iki_project_trigger_once"),
+            models.CheckConstraint(
+                condition=Q(enabled=True) | Q(disabled_at__isnull=False),
+                name="iki_project_trigger_disabled",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.trigger
+
+
 class RunApproval(models.Model):
     """Runs an agent asked for, through MCP, that wait for the person it acts for to
-    approve them in the web app (ADR 0013). One request, one decision: a batch is approved
-    or declined together."""
+    approve them in the web app (ADR 0013), or that a trigger started on the container or
+    VM tier, for the Admin it runs as (ADR 0080). One request, one decision: a batch is
+    approved or declined together."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
@@ -118,6 +161,10 @@ class RunApproval(models.Model):
     #: The agent that asked for the person, if one did (ADR 0072).
     agent = models.ForeignKey(
         "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: The trigger that asked, if one did, for the Admin who turned it on (ADR 0080).
+    trigger = models.ForeignKey(
+        ProjectTrigger, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     created_at = models.DateTimeField(db_default=Now())
     expires_at = models.DateTimeField()
@@ -553,6 +600,64 @@ class ActionRun(models.Model):
     @property
     def finished(self) -> bool:
         return self.status in FINISHED
+
+
+class FiringState(models.TextChoices):
+    #: Its run is yet to be launched, just after the change commits.
+    PENDING = "pending", "Pending"
+    #: Its run was launched (and may wait for approval), or an earlier one's reused.
+    LAUNCHED = "launched", "Launched"
+    #: Its run couldn't be launched: ``error`` says why.
+    FAILED = "failed", "Failed"
+    #: Before it could fire, the trigger was turned off, or the entity archived.
+    SKIPPED = "skipped", "Skipped"
+
+
+class TriggerFiring(models.Model):
+    """A change that fired a project's trigger (ADR 0080), and the run it launched."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    trigger = models.ForeignKey(ProjectTrigger, on_delete=models.PROTECT, related_name="firings")
+    #: ``entity.created`` or ``entity.updated``.
+    event = models.CharField(max_length=32)
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    #: The revision the change made: the run reads the entity as it is when it's launched.
+    revision = models.PositiveIntegerField()
+    state = models.CharField(
+        max_length=16, choices=FiringState.choices, default=FiringState.PENDING
+    )
+    run = models.OneToOneField(
+        ActionRun, null=True, blank=True, on_delete=models.PROTECT, related_name="firing"
+    )
+    #: Why it failed or was skipped: ``code`` and ``message``.
+    error = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    fired_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_trigger_firing"
+        db_table_comment = "Each change that fired a project's trigger, and the run it launched."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["trigger", "id"], name="iki_trigger_firing_trigger"),
+            models.Index(
+                fields=["id"], name="iki_trigger_firing_pending", condition=Q(state="pending")
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(state__in=FiringState.values), name="iki_trigger_firing_state"
+            ),
+            models.CheckConstraint(
+                condition=Q(state="launched", run__isnull=False)
+                | ~Q(state="launched") & Q(run__isnull=True),
+                name="iki_trigger_firing_run",
+            ),
+            models.CheckConstraint(
+                condition=Q(state="pending", fired_at__isnull=True)
+                | ~Q(state="pending") & Q(fired_at__isnull=False),
+                name="iki_trigger_firing_fired",
+            ),
+        ]
 
 
 class RunInput(models.Model):

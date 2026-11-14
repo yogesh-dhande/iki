@@ -63,6 +63,7 @@ export const VIA: Record<string, string> = {
   api: "through the API",
   mcp: "by an AI assistant (MCP)",
   cli: "from the command line",
+  trigger: "by a trigger",
   system: "by Iki",
 };
 
@@ -565,8 +566,9 @@ function shown(value: unknown): string {
 
 type Approval = NonNullable<Run["approval"]>;
 
-/** Whoever asked: the app, for whom. */
+/** Whoever asked: the trigger, or the app, for whom. */
 function asker(approval: Approval): string {
+  if (approval.trigger) return `The trigger “${approval.trigger.label}”`;
   return approval.agent?.name ?? (approval.client || "An app");
 }
 
@@ -610,7 +612,8 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
       <p>
         {asker(approval)} asked to start {these} for {approval.requested_by.name}{" "}
         <RelativeTime value={approval.created_at} />. {count > 1 ? "They run" : "It runs"} on the{" "}
-        {run.tier} tier, which an AI agent can’t start by itself, so{" "}
+        {run.tier} tier, which {approval.trigger ? "a trigger" : "an AI agent"} can’t start by
+        itself, so{" "}
         {approval.can.decide
           ? `${count > 1 ? "they wait" : "it waits"} for you.`
           : `${count > 1 ? "they wait" : "it waits"} for ${approval.requested_by.name} to approve ${count > 1 ? "them" : "it"} in Iki.`}{" "}
@@ -698,6 +701,25 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
 }
 
 /** How a request was decided, for the run's details. */
+/** The trigger that launched a run, and the change that fired it (ADR 0080). */
+function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trigger"]> }) {
+  const fired = run.inputs.find((i) => i.entity === trigger.entity);
+  return (
+    <>
+      <dt>Trigger</dt>
+      <dd>
+        {trigger.label}, when{" "}
+        <Link to="/entities/$ref/" params={{ ref: fired?.hrid ?? trigger.entity }}>
+          {fired?.hrid ?? "its entity"}
+        </Link>{" "}
+        {trigger.event === "entity.created" ? "was created" : "changed"}{" "}
+        <span className="muted">(revision {trigger.revision})</span>. It runs as{" "}
+        {run.requested_by.name}, who turned the trigger on.
+      </dd>
+    </>
+  );
+}
+
 function approvalText(approval: Approval) {
   switch (approval.state) {
     case "approved":
@@ -1211,6 +1233,7 @@ export function RunPage() {
             <Through agent={run.agent} />
           </dd>
           <AgentRows agent={run.agent} />
+          {run.trigger ? <TriggerRow run={run} trigger={run.trigger} /> : null}
           {run.approval && run.approval.state !== "pending" ? (
             <>
               <dt>Approval</dt>

@@ -728,6 +728,40 @@ class FileRef(TypedDict):
     size: int
 
 
+class FiredEntityOut(TypedDict):
+    hrid: str
+    id: str
+    type: str
+
+
+class FiredRunOut(TypedDict):
+    hrid: str
+    id: str
+    status: str
+
+
+class FiringErrorOut(TypedDict):
+    code: str
+    message: str
+
+
+class FiringOut(TypedDict):
+    created_at: str
+    entity: FiredEntityOut
+    error: FiringErrorOut | None
+    event: Literal['entity.created', 'entity.updated']
+    fired_at: str | None
+    id: str
+    label: str
+    #: The revision the change made.
+    revision: int
+    run: FiredRunOut | None
+    #: `pending` until its run is launched, just after the change; `failed` if it couldn't be; `skipped` if the trigger was turned off or the entity archived first.
+    state: Literal['pending', 'launched', 'failed', 'skipped']
+    #: The trigger's qualified name.
+    trigger: str
+
+
 class FreezeIn(TypedDict):
     #: Why, for the record.
     reason: NotRequired[str]
@@ -1026,6 +1060,12 @@ class PageFileOut(TypedDict):
     next_cursor: str | None
 
 
+class PageFiringOut(TypedDict):
+    items: list[FiringOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
 class PageInventoryOut(TypedDict):
     items: list[InventoryOut]
     #: Pass as cursor for the next page; null at the end.
@@ -1315,6 +1355,48 @@ class ProjectRoleOut(TypedDict):
     name: Literal['viewer', 'editor', 'runner', 'admin']
 
 
+class ProjectTriggerCan(TypedDict):
+    #: You may turn it off: you're one of the project's Admins.
+    disable: bool
+    #: You may turn it on, or on as you: you're an Admin who can run its action here, in the web app.
+    enable: bool
+
+
+class ProjectTriggerOut(TypedDict):
+    #: The qualified name of the action it runs on the entity.
+    action: str
+    action_label: str
+    can: ProjectTriggerCan
+    description: str | None
+    disabled_at: str | None
+    #: Who turned it off. Null while it's on, or when Iki did (see `disabled_reason`).
+    disabled_by: PersonRef | None
+    #: Why Iki turned it off, if it did: its runs could no longer be launched as the Admin who turned it on.
+    disabled_reason: str
+    enabled: bool
+    enabled_at: str | None
+    #: Who its runs are launched as: whoever turned it on last. Null if nobody ever has.
+    enabled_by: PersonRef | None
+    #: For `entity.updated`: it fires only when one of these changed. Empty for any change.
+    fields: list[str]
+    #: The action's input that takes the entity.
+    input: str
+    label: str
+    last_fired_at: str | None
+    #: Its qualified name, such as `protein.weigh_new_proteins`.
+    name: str
+    #: What fires it: an entity of its type created, or changed.
+    on: Literal['entity.created', 'entity.updated']
+    params: dict[str, Any]
+    plugin: str
+    #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
+    tier: Literal['client', 'backend', 'container', 'vm'] | None
+    #: The entity type it fires for, with its subtypes.
+    type: str
+    #: Why you can't turn it on, for one of the project's Admins who can't.
+    why_not_enable: str | None
+
+
 class QueryIn(TypedDict):
     """A search, as ``POST /entities/search`` takes it, without its project or paging."""
     archived: NotRequired[bool | None]
@@ -1488,11 +1570,13 @@ class RunApprovalOut(TypedDict):
     id: str
     #: Why it was declined, if they said.
     note: str
-    #: Who the app acted for: who decides.
+    #: Who the app or trigger acted for: who decides.
     requested_by: PersonRef
     #: The runs it holds, all decided together.
     runs: list[ApprovalRunOut]
     state: Literal['pending', 'approved', 'declined', 'expired']
+    #: The project's trigger that asked, if one did, for requested_by: the Admin who turned it on (ADR 0080).
+    trigger: TriggerRefOut | None
 
 
 class RunArtifactOut(TypedDict):
@@ -1696,6 +1780,8 @@ class RunOut(TypedDict):
     started_at: str | None
     status: Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
     tier: Literal['client', 'backend', 'container', 'vm']
+    #: The project's trigger that launched it, if one did, and the change that fired it (ADR 0080). It runs as requested_by, who turned the trigger on.
+    trigger: TriggerFiredOut | None
     via: str
     #: Why a queued run hasn't started: a quota is holding it, or the machine being started for it is waiting (for a node with a GPU, say).
     waiting: str | None
@@ -2003,6 +2089,47 @@ class TeamRef(TypedDict):
     id: str
     name: str
     slug: str
+
+
+class TriggerFiredOut(TypedDict):
+    #: The entity whose change fired it.
+    entity: str
+    event: Literal['entity.created', 'entity.updated']
+    #: Its label, or its name once it's no longer installed.
+    label: str
+    #: The trigger's qualified name, such as `protein.weigh_new`.
+    name: str
+    #: The revision the change made.
+    revision: int
+
+
+class TriggerOut(TypedDict):
+    #: The qualified name of the action it runs on the entity.
+    action: str
+    action_label: str
+    description: str | None
+    #: For `entity.updated`: it fires only when one of these changed. Empty for any change.
+    fields: list[str]
+    #: The action's input that takes the entity.
+    input: str
+    label: str
+    #: Its qualified name, such as `protein.weigh_new_proteins`.
+    name: str
+    #: What fires it: an entity of its type created, or changed.
+    on: Literal['entity.created', 'entity.updated']
+    params: dict[str, Any]
+    plugin: str
+    #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
+    tier: Literal['client', 'backend', 'container', 'vm'] | None
+    #: The entity type it fires for, with its subtypes.
+    type: str
+
+
+class TriggerRefOut(TypedDict):
+    #: Its label, or its name once it's no longer installed.
+    label: str
+    #: The trigger's qualified name, such as `protein.weigh_new`.
+    name: str
 
 
 class UnitOption(TypedDict):
@@ -2383,4 +2510,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'ConditionOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'ConditionOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageFiringOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
