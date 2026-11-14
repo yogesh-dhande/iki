@@ -44,6 +44,7 @@ import {
 } from "../ui";
 import { inputField, listed, NO_RULES } from "./new-run";
 import { useProject } from "./project-overview";
+import { StepGraph } from "./step-graph";
 import { APPROVER, When, WORKFLOW_STATUS } from "./workflow-runs";
 
 /** How often a list with workflow runs still going is read again. */
@@ -409,6 +410,17 @@ function WorkflowForm({
           Each starts once the steps it takes from have succeeded. If one fails, no further step
           starts.
         </p>
+        {workflow.steps.length > 1 ? (
+          <StepGraph
+            steps={workflow.steps.map((step) => ({
+              id: step.id,
+              label: step.label,
+              after: step.after,
+              meta: actions.find((a) => a.name === step.action)?.label ?? step.action,
+            }))}
+            caption="Each step is right of the steps it waits for."
+          />
+        ) : null}
         <Steps workflow={workflow} actions={actions} />
       </fieldset>
       {workflow.inputs.map((input) => (

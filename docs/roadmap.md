@@ -96,8 +96,8 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 | 38b  | Fan-out over many entities, and fan-in                                                                            | done        | `10cf90a` |
 | 38c  | Conditions: steps that run only when an earlier one's results say                                                 | done        | `6529ee9` |
 | 38d  | Approval gates: a step waits for a person to approve                                                              | done        | `a284e9a` |
-| 38e  | A project's workflow runs, and a form to start one                                                                | done        |           |
-| 38f  | The workflow's graph, live as its steps go                                                                        | planned     |           |
+| 38e  | A project's workflow runs, and a form to start one                                                                | done        | `c7721fb` |
+| 38f  | The workflow's graph, live as its steps go                                                                        | done        |           |
 | 38g  | Re-running a workflow from a failed step                                                                          | planned     |           |
 | 38h  | MCP tools for agents to start and follow workflows                                                                | planned     |           |
 | 39   | Triggers with loop protection, including scheduled ones run as a service account                                  | planned     |           |

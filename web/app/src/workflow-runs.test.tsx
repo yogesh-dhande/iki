@@ -50,11 +50,22 @@ describe("a workflow run's page", () => {
       "/entities/DNA-000001/",
     );
     expect(within(summary).getByRole("list", { name: "Params" })).toHaveTextContent("frame: 1");
-    const steps = screen.getByRole("region", { name: "Steps" });
+    const region = screen.getByRole("region", { name: "Steps" });
+    const steps = within(region).getByRole("list", { name: "Steps in order" });
     const links = within(steps).getAllByRole("link");
     expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual([
       ["Translate", "/runs/RUN-000001/"],
       ["Properties", "/runs/RUN-000002/"],
+    ]);
+    // The graph: each step right of those it waits for, with how far it has got.
+    const graph = within(region).getByRole("group", { name: /2 steps, each right of/ });
+    expect(
+      within(graph)
+        .getAllByRole("link")
+        .map((l) => [l.textContent, l.getAttribute("href")]),
+    ).toEqual([
+      ["TranslateSucceeded · RUN-000001", "/runs/RUN-000001/"],
+      ["PropertiesQueued · RUN-000002", "/runs/RUN-000002/"],
     ]);
     // A running step shows how its run is getting on.
     const states = within(steps)

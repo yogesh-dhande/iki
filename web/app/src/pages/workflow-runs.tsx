@@ -15,7 +15,9 @@ import { usePageTitle } from "../layout";
 import {
   finished,
   RUNS,
+  STATUS,
   STEP_STATE,
+  tone,
   useWorkflowUpdates,
   workflowRunQuery,
   type RunStatus,
@@ -32,6 +34,7 @@ import {
   useMessages,
 } from "../ui";
 import { StatusBadge, VIA } from "./runs";
+import { StepGraph, type GraphStep } from "./step-graph";
 
 export const WORKFLOW_STATUS: Record<WorkflowRun["status"], string> = {
   running: "Running",
@@ -250,6 +253,25 @@ export function When({ conditions }: { conditions: Condition[] }) {
   );
 }
 
+/** Its steps for the graph: how far each has got, linked to its run or batch. */
+function graphSteps(run: WorkflowRun): GraphStep[] {
+  return run.steps.map((step) => ({
+    id: step.id,
+    label: step.label,
+    after: step.after,
+    tone: step.run && step.state === "running" ? tone(step.run.status) : stepTone(step.state),
+    meta:
+      (step.run && step.state === "running" ? STATUS[step.run.status] : STEP_STATE[step.state]) +
+      (step.run ? ` · ${step.run.hrid}` : "") +
+      (step.batch ? ` · ${countRuns(step.batch)}` : ""),
+    link: step.run
+      ? { to: "/runs/$ref/" as const, ref: step.run.hrid }
+      : step.batch
+        ? { to: "/batches/$ref/" as const, ref: step.batch.hrid }
+        : undefined,
+  }));
+}
+
 /** "3 of 12 runs finished", or "12 runs" once they all have. */
 function countRuns(batch: StepBatch): string {
   const ended = Object.entries(batch.statuses)
@@ -460,7 +482,13 @@ export function WorkflowRunPage() {
         <h2 className="section-title" id="workflow-steps-title">
           Steps
         </h2>
-        <ol className="rows">
+        {run.steps.length > 1 ? (
+          <StepGraph
+            steps={graphSteps(run)}
+            caption={`${String(run.steps.length)} steps, each right of the steps it waits for. Point at one to see what it waits for and what waits for it.`}
+          />
+        ) : null}
+        <ol className="rows" aria-label="Steps in order">
           {run.steps.map((step) => (
             <li className="row" key={step.id}>
               <div className="row-main">

@@ -123,9 +123,10 @@ workflow on; the task runners also look every minute for any left behind.
 - A workflow is as reproducible as its runs: each records its inputs at
   the revisions it read, and the workflow records which run was which step.
 - A project's Workflows tab lists its workflow runs and starts one, as
-  GitHub's Actions tab runs a workflow by hand. The workflow's graph,
-  re-running from a failed step, and MCP tools for agents follow (steps 38f
-  to 38h).
+  GitHub's Actions tab runs a workflow by hand, and a workflow run's page
+  draws its steps as a graph, laid out as an entity's lineage is, that
+  follows it live. Re-running from a failed step, and MCP tools for agents,
+  follow (steps 38g and 38h).
 - Conditions read params and metrics only, not entities' values: a step that
   should run only for entities with some value takes the entities a query
   step gives it.

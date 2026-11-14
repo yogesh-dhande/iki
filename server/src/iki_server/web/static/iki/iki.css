@@ -1511,6 +1511,32 @@ a.lineage-node:focus-visible {
   list-style: none;
 }
 
+/* A workflow's steps, drawn as a lineage is: each step's state shows down its left edge,
+   besides its text, so it's never told by colour alone. */
+.workflow-graph {
+  margin-bottom: 1rem;
+}
+
+.workflow-node {
+  border-left-width: 4px;
+}
+
+.workflow-node.tone-good {
+  border-left-color: var(--success);
+}
+
+.workflow-node.tone-bad {
+  border-left-color: var(--error);
+}
+
+.workflow-node.tone-busy {
+  border-left-color: var(--warning);
+}
+
+.workflow-node.tone-quiet {
+  border-left-style: dashed;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lineage-line,
   .lineage-node {
