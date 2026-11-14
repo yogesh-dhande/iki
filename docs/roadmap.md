@@ -8,8 +8,9 @@ commits. Steps marked with a letter, such as 34c, were added along the way.
 This page lists every step, what it delivers, and the commits that did it
 (`git show <commit>`). Architecture decisions are in [the ADRs](adr/README.md).
 
-Status: **done**, **in progress**, **planned**, or **deferred**: optional plugins wait
-until after M1. Plugins before then are the ones that prove a platform feature.
+Status: **done**, **in progress**, **planned**, **deferred** (optional plugins wait
+until after M1), or **to scope** (after M1, once its scope is agreed).
+Plugins before M1 are the ones that prove a platform feature.
 
 ## Stage 0: Foundations
 
@@ -89,19 +90,19 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 
 ## Stage 6: Orchestration
 
-| Step | What                                                                                                                                                         | Status | Commits                                               |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ----------------------------------------------------- |
-| 38   | Workflows: DAGs, fan-out and fan-in, conditions, approval gates, UI                                                                                          | done   |                                                       |
-| 38a  | Workflow manifests checked against their actions; steps run as ordinary runs; a workflow run's page                                                          | done   | `311bb91`                                             |
-| 38b  | Fan-out over many entities, and fan-in                                                                                                                       | done   | `10cf90a`                                             |
-| 38c  | Conditions: steps that run only when an earlier one's results say                                                                                            | done   | `6529ee9`                                             |
-| 38d  | Approval gates: a step waits for a person to approve                                                                                                         | done   | `a284e9a`                                             |
-| 38e  | A project's workflow runs, and a form to start one                                                                                                           | done   | `c7721fb`                                             |
-| 38f  | The workflow's graph, live as its steps go                                                                                                                   | done   | `05906ce`                                             |
-| 38g  | Re-running a workflow from a failed step                                                                                                                     | done   | `7f016d8`                                             |
-| 38h  | MCP tools for agents to start and follow workflows                                                                                                           | done   | `09c3b4d`                                             |
-| 39   | Triggers with loop protection, including scheduled ones run as a service account: event triggers turned on per project (ADR 0080); scheduled ones (ADR 0081) | done   | `8716951`, `ef6da23`                                  |
-| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back                                            | done   | `b5a9120`, `c655e98`, `80e4aab`, `ed633ce`, `6d27b72` |
+| Step | What                                                                                                                                                         | Status | Commits                                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---------------------------------------------------------------- |
+| 38   | Workflows: DAGs, fan-out and fan-in, conditions, approval gates, UI                                                                                          | done   |                                                                  |
+| 38a  | Workflow manifests checked against their actions; steps run as ordinary runs; a workflow run's page                                                          | done   | `311bb91`                                                        |
+| 38b  | Fan-out over many entities, and fan-in                                                                                                                       | done   | `10cf90a`                                                        |
+| 38c  | Conditions: steps that run only when an earlier one's results say                                                                                            | done   | `6529ee9`                                                        |
+| 38d  | Approval gates: a step waits for a person to approve                                                                                                         | done   | `a284e9a`                                                        |
+| 38e  | A project's workflow runs, and a form to start one                                                                                                           | done   | `c7721fb`                                                        |
+| 38f  | The workflow's graph, live as its steps go                                                                                                                   | done   | `05906ce`                                                        |
+| 38g  | Re-running a workflow from a failed step                                                                                                                     | done   | `7f016d8`                                                        |
+| 38h  | MCP tools for agents to start and follow workflows                                                                                                           | done   | `09c3b4d`                                                        |
+| 39   | Triggers with loop protection, including scheduled ones run as a service account: event triggers turned on per project (ADR 0080); scheduled ones (ADR 0081) | done   | `8716951`, `ef6da23`                                             |
+| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back                                            | done   | `b5a9120`, `c655e98`, `80e4aab`, `ed633ce`, `6d27b72`, `41f304c` |
 
 ## Stage 7: Components, views and apps
 
@@ -128,3 +129,11 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 | 48   | OpenTofu modules for AWS, and production Helm values                                                                      | planned |
 | 49   | Dashboards and alerts, compute admin pages, a disaster-recovery runbook with an automated restore test                    | planned |
 | 50   | Hardening and release: authorization fuzzing, a cross-browser CSP suite, load tests, the docs site, the signed M1 release | planned |
+
+## After M1
+
+Planned once M1 ships; each needs its scope agreed first.
+
+| What                                                                                                                                                                                                                                                                                                                                                                                                                            | Status   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Instruments: viewing and controlling a plugin's experiments on lab instruments. Workers on the lab network that enforce an action's declared hosts, protocols and ports themselves (OPC UA, SiLA 2, file shares); readings, an append-only time series per entity, live, with limits that notify; control only through the lab's validated scheduler, after approval; an example plugin with a fake plate reader and bioreactor | to scope |
