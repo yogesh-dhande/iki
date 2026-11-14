@@ -164,6 +164,13 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "get_batch",
         "cancel_run",
         "reproduce_run",
+        "list_workflows",
+        "describe_workflow",
+        "run_workflow",
+        "list_workflow_runs",
+        "get_workflow_run",
+        "cancel_workflow_run",
+        "rerun_workflow_run",
     ]
     writes = {
         "create_entity",
@@ -173,6 +180,9 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "run_batch",
         "cancel_run",
         "reproduce_run",
+        "run_workflow",
+        "cancel_workflow_run",
+        "rerun_workflow_run",
     }
     for t in listed:
         assert t["annotations"]["readOnlyHint"] is (t["name"] not in writes), t["name"]
@@ -564,3 +574,60 @@ async def test_agents_run_actions_and_costly_runs_wait_for_the_person(
     settled = data(await tool(token, "get_run", ref=held["hrid"]))["run"]["approval"]
     assert (settled["state"], settled["note"]) == ("declined", "Its runs were cancelled.")
     assert "reason" in error(await tool(token, "cancel_run", ref=queued["hrid"], reason=""))
+
+
+async def test_agents_run_workflows_and_are_told_what_waits_for_people(world: World) -> None:
+    from test_api_entities import api_as
+
+    from iki_server.runs import workflows
+    from iki_server.runs.models import ActionRun, RunStatus
+
+    def proteins() -> list[dict[str, Any]]:
+        editor = api_as(world, "editor")
+        return [protein(editor, world.project, name) for name in ("abl", "src")]
+
+    abl, src = await sync_to_async(proteins)()
+    token = await token_for(world, "editor", scope="read write run")
+    project = str(world.project.pk)
+    listed = data(await tool(token, "list_workflows"))
+    assert "protein.review_then_weigh" in [w["name"] for w in listed]
+    described = data(await tool(token, "describe_workflow", name="protein.review_then_weigh"))
+    assert described["steps"][1]["approval"]["role"] == "runner"
+
+    started = await tool(
+        token,
+        "run_workflow",
+        name="protein.review_then_weigh",
+        project=project,
+        inputs={"query": abl["id"], "target": src["id"]},
+        reason="Check the pair",
+    )
+    run = data(started)
+    assert (run["via"], run["reason"], run["status"]) == ("mcp", "Check the pair", "running")
+    assert note(started) == ""
+    found = data(await tool(token, "list_workflow_runs", project=project, status="running"))
+    assert [w["hrid"] for w in found["items"]] == [run["hrid"]]
+
+    # Its alignment succeeds: the weighing waits for a Runner, and the agent is told where.
+    def aligned() -> None:
+        ActionRun.objects.filter(workflow_id=run["id"]).update(status=RunStatus.SUCCEEDED)
+        workflows.advance(run["id"])
+
+    await sync_to_async(aligned)()
+    waiting = await tool(token, "get_workflow_run", ref=run["hrid"])
+    assert data(waiting)["steps"][1]["state"] == "awaiting_approval"
+    told = note(waiting)
+    assert told.startswith(
+        "Step `weigh` waits for someone with the runner role or above in the project, other "
+        "than whoever started the workflow, to approve it in Iki at "
+        f"https://testserver/workflow-runs/{run['hrid']}/ before "
+    )
+    assert told.endswith("Agents can't approve steps. get_workflow_run shows when it moves on.")
+
+    cancelled = data(
+        await tool(token, "cancel_workflow_run", ref=run["hrid"], reason="Wrong target")
+    )
+    assert cancelled["status"] == "cancelled"
+    again = data(await tool(token, "rerun_workflow_run", ref=run["hrid"], reason="Right one"))
+    assert again["rerun_of"]["hrid"] == run["hrid"]
+    assert again["steps"][0]["carried_from"]["hrid"] == run["hrid"]

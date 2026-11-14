@@ -8,7 +8,7 @@ marker the data itself can't guess (ADR 0013).
 
 import json
 import secrets
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.conf import settings
@@ -110,6 +110,37 @@ def waiting(runs: list[dict[str, Any]], *, page: str = "") -> str:
         + (f" before {expires}" if expires else "")
         + f". You can't approve {them} yourself; get_run shows when it's decided."
     )
+
+
+def workflow_waiting(run: dict[str, Any]) -> str:
+    """What to tell the agent when a workflow run it follows waits for a person: a step's
+    run on a costly tier, or a step's approval gate (ADR 0079)."""
+    told: list[str] = []
+    page = web_url(f"/workflow-runs/{run['hrid']}/")
+    for step in run.get("steps", []):
+        held = step.get("run") or {}
+        if held.get("status") == RunStatus.AWAITING_APPROVAL:
+            told.append(
+                f"Step `{step['id']}`'s run, {held['hrid']}, waits for the person's approval: "
+                "it runs on a tier an agent can't start alone. Ask them to approve or decline "
+                f"it in Iki at {web_url(f'/runs/{held["hrid"]}/')}."
+            )
+        elif step.get("state") == "awaiting_approval":
+            role = (step.get("approval") or {}).get("role", "editor")
+            told.append(
+                f"Step `{step['id']}` waits for someone with the {role} role or above in the "
+                "project, other than whoever started the workflow, to approve it in Iki at "
+                f"{page}"
+                + (
+                    f" before {step['approval_expires_at']}"
+                    if step.get("approval_expires_at")
+                    else ""
+                )
+                + ". Agents can't approve steps."
+            )
+    if not told:
+        return ""
+    return " ".join(told) + " get_workflow_run shows when it moves on."
 
 
 Inputs = Annotated[
@@ -512,6 +543,118 @@ def build() -> MCPServer:
         and VM tiers it waits for the person to approve it, as run_action does."""
         run = await call("POST", path("/runs/{ref}/reproduce", ref=ref), body={"reason": reason})
         return answer(run, note=waiting([run]))
+
+    @server.tool(annotations=READ, title="List workflows")
+    async def list_workflows() -> CallToolResult:
+        """Installed workflows: several of a plugin's actions run as one, each step an
+        ordinary run started once the steps it takes from have succeeded. Each lists its
+        inputs, params, steps (with their conditions and approvals), the tiers its steps run
+        on, and whether it can run now."""
+        return answer(await call("GET", "/workflows"))
+
+    @server.tool(annotations=READ, title="Describe a workflow")
+    async def describe_workflow(
+        name: Annotated[
+            str, Field(description="Its name, such as protein.translate_and_characterize.")
+        ],
+    ) -> CallToolResult:
+        """One workflow: its inputs, params (with a JSON Schema), and its steps in the order
+        they start: the action each runs, where each input comes from, what it waits for,
+        when it runs (`when`) and who approves it (`approval`)."""
+        return answer(await call("GET", path("/workflows/{name}", name=name)))
+
+    @server.tool(annotations=ADD, title="Run a workflow")
+    async def run_workflow(
+        name: Annotated[
+            str, Field(description="The workflow, such as protein.translate_and_characterize.")
+        ],
+        project: Annotated[
+            UUID, Field(description="Where its steps run. Entities they create belong to it.")
+        ],
+        reason: RunReason,
+        inputs: Annotated[
+            dict[str, UUID | list[UUID]] | None,
+            Field(
+                description="Entity IDs for each of describe_workflow's inputs: one, or a "
+                "list for inputs that take many."
+            ),
+        ] = None,
+        params: Annotated[
+            dict[str, Any] | None,
+            Field(description="Its params, as describe_workflow's params_schema says."),
+        ] = None,
+    ) -> CallToolResult:
+        """Starts a workflow: its inputs, params and the person's role for every step's tier
+        are checked first, and its first steps start at once. Each step is a run started
+        for the person, as run_action's are: those on the container and VM tiers wait for
+        them to approve in Iki, and steps with an approval wait for someone else to; the
+        answer says so. Inputs must be in the project, as for run_action. Follow it with
+        get_workflow_run."""
+        body = {
+            "project": str(project),
+            "inputs": _ids(inputs),
+            "params": params or {},
+            "reason": reason,
+        }
+        run = await call("POST", path("/workflows/{name}/runs", name=name), body=body)
+        return answer(run, note=workflow_waiting(run))
+
+    @server.tool(annotations=READ, title="List workflow runs")
+    async def list_workflow_runs(
+        project: Annotated[UUID | None, Field(description="Only this project's.")] = None,
+        workflow: Annotated[str | None, Field(description="Only runs of this workflow.")] = None,
+        status: Annotated[
+            Literal["running", "succeeded", "failed", "cancelled"] | None,
+            Field(description="Only workflow runs in this state."),
+        ] = None,
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
+    ) -> CallToolResult:
+        """Workflow runs the person can read, newest first."""
+        query = {
+            "project": str(project) if project else None,
+            "workflow": workflow,
+            "status": status,
+            "limit": limit,
+            "cursor": cursor,
+        }
+        return answer(await call("GET", "/workflow-runs", query=query))
+
+    @server.tool(annotations=READ, title="Get a workflow run")
+    async def get_workflow_run(
+        ref: Annotated[str, Field(description="Its ID or HRID, such as WF-000123.")],
+    ) -> CallToolResult:
+        """A workflow run: its status, and each step's state, run (or batch), why it failed
+        or was skipped, and who approved it. get_run tells more about a step's run."""
+        run = await call("GET", path("/workflow-runs/{ref}", ref=ref))
+        return answer(run, note=workflow_waiting(run))
+
+    @server.tool(annotations=CHANGE, title="Cancel a workflow run")
+    async def cancel_workflow_run(
+        ref: Annotated[str, Field(description="Its ID or HRID, such as WF-000123.")],
+        reason: RunReason,
+    ) -> CallToolResult:
+        """Cancels a workflow run: no further step starts, and its running steps' runs are
+        cancelled as cancel_run would. Steps that finished keep their results."""
+        return answer(
+            await call(
+                "POST", path("/workflow-runs/{ref}/cancel", ref=ref), body={"reason": reason}
+            )
+        )
+
+    @server.tool(annotations=ADD, title="Re-run a workflow from its failed steps")
+    async def rerun_workflow_run(
+        ref: Annotated[str, Field(description="Its ID or HRID, such as WF-000123.")],
+        reason: RunReason,
+    ) -> CallToolResult:
+        """Starts a workflow run that failed or was cancelled again, for the person: a new
+        workflow run of the workflow as it was, on the same inputs and params. Steps that
+        succeeded are carried over with their results; the rest run again, waiting for
+        approval as run_workflow's do."""
+        run = await call(
+            "POST", path("/workflow-runs/{ref}/rerun", ref=ref), body={"reason": reason}
+        )
+        return answer(run, note=workflow_waiting(run))
 
     return server
 

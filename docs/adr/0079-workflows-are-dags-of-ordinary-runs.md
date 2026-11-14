@@ -118,6 +118,16 @@ MCP (whose runs on the container and vm tiers then wait for approval, as the
 agent's own would). The starter's role is checked again at each launch: one
 who lost it fails the step rather than run on their old authority.
 
+**Agents start and follow workflows over MCP.** `list_workflows`,
+`describe_workflow`, `list_workflow_runs` and `get_workflow_run` read;
+`run_workflow` and `rerun_workflow_run` start one, and
+`cancel_workflow_run`, marked destructive, cancels one. Each calls the REST
+endpoint behind it (ADR 0049), so an agent may do only what the person it
+acts for may. When a step waits for a person, its run for their approval
+(ADR 0050) or its approval gate for someone else's, the answer says so, and
+where in Iki they decide, outside the data's fence. There is no tool to
+approve a step: agents never do.
+
 **A workflow run is followed as one.** It has a HRID (`WF-000001`), its
 inputs at the revisions they were given, its params, the workflow as
 installed at the start, each step's state (waiting, running, succeeded,
@@ -135,8 +145,7 @@ workflow on; the task runners also look every minute for any left behind.
 - A project's Workflows tab lists its workflow runs and starts one, as
   GitHub's Actions tab runs a workflow by hand, and a workflow run's page
   draws its steps as a graph, laid out as an entity's lineage is, that
-  follows it live. MCP tools for agents to start and follow workflows follow
-  (step 38h).
+  follows it live.
 - Conditions read params and metrics only, not entities' values: a step that
   should run only for entities with some value takes the entities a query
   step gives it.
