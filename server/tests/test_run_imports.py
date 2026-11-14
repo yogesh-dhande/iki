@@ -12,6 +12,7 @@ from test_run_results import done, output
 from test_runs import PREDICT, bind_vm, launch, protein, world
 from test_workers import keep_connection, worker
 
+from iki_server.entities import services
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.files import services as files
 from iki_server.files.services import EMPTY_SHA256
@@ -280,3 +281,68 @@ def test_an_import_may_attach_the_file_it_was_given(world: World) -> None:
     made = Entity.objects.get(type="protein.ProteinStructure")
     values = api_as(world, "editor").get(f"/entities/{made.pk}").json()["values"]
     assert values["structure"] == file_id
+
+
+# --- Matching on a unique field (ADR 0082) ------------------------------------------------------
+
+
+def lims(name: str, sequence: str = "MKVLEIC", lims_id: str = "LIMS-1", **values: Any) -> Any:
+    return {
+        "type": "protein.Protein",
+        "values": {"name": name, "sequence": sequence, "lims_id": lims_id, **values},
+        "origin": {"id": lims_id},
+    }
+
+
+def test_a_record_that_comes_again_updates_its_entity(world: World) -> None:
+    run, answer = imported(world, lims("ABL1"))
+    assert answer["run_status"] == "succeeded", answer
+    (made,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
+
+    again, answer = imported(world, lims("ABL1 kinase", organism="Homo sapiens"))
+    assert answer["run_status"] == "succeeded", answer
+    (effect,) = api_as(world).get(f"/runs/{again['id']}").json()["effects"]
+    assert (effect["hrid"], effect["kind"], effect["revision"]) == (made["hrid"], "updated", 2)
+    entity = api_as(world).get(f"/entities/{made['hrid']}").json()
+    assert (entity["values"]["name"], entity["values"]["organism"]) == (
+        "ABL1 kinase",
+        "Homo sapiens",
+    )
+    assert Entity.objects.filter(type="protein.Protein").count() == 1
+    revisions = api_as(world).get(f"/entities/{made['hrid']}/revisions").json()["items"]
+    assert (revisions[0]["number"], revisions[0]["via"]) == (2, "run")
+    later, first = api_as(world).get(f"/entities/{made['hrid']}/origins").json()
+    assert (later["revision"], later["run"]["id"], first["revision"]) == (2, again["id"], 1)
+
+    # Unchanged, it's found again, as a reused duplicate is: no new revision.
+    third, answer = imported(world, lims("ABL1 kinase", organism="Homo sapiens"))
+    (effect,) = api_as(world).get(f"/runs/{third['id']}").json()["effects"]
+    assert (effect["kind"], effect["revision"]) == ("reused", None)
+
+
+def test_only_the_runs_projects_own_entity_is_matched(world: World) -> None:
+    other = Project.objects.create(team=world.team, name="Enzymes")
+    elsewhere = services.create(
+        world.users["admin"],
+        "protein.Protein",
+        other,
+        {"name": "Theirs", "sequence": "MKKK", "lims_id": "LIMS-1"},
+    ).entity
+    run, answer = imported(world, lims("Ours"))
+    assert answer["run_status"] == "succeeded", answer
+    (effect,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
+    assert effect["kind"] == "created"
+    assert effect["hrid"] != Entity.objects.get(pk=elsewhere.pk).hrid
+
+
+def test_a_match_that_cant_change_fails_the_run(world: World) -> None:
+    run, _ = imported(world, lims("ABL1"))
+    (made,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
+    entity = Entity.objects.get(hrid=made["hrid"])
+    services.set_archived(world.users["editor"], entity, True)
+    _, answer = imported(world, lims("ABL1 kinase"))
+    assert answer["run_status"] == "failed", answer
+    failed = Entity.objects.get(hrid=made["hrid"])
+    assert failed.revision == entity.revision + 1  # archived, and nothing since
+    _, answer = imported(world, lims("ABL1", sequence="MKKK", lims_id="LIMS-1"))
+    assert answer["run_status"] == "failed"

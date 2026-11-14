@@ -488,6 +488,23 @@ def test_creates(tmp_path: Path) -> None:
     assert unknown.hint == "Did you mean `assay`?"
 
 
+@pytest.mark.parametrize(
+    ("field", "code"),
+    [("barcode", "match-on-not-unique"), ("nope", "match-on-unknown-field")],
+)
+def test_creates_match_on_a_unique_field(tmp_path: Path, field: str, code: str) -> None:
+    creates = f"{{ creates: [{{ type: Assay, cardinality: many, match_on: {field} }}] }}"
+    assert codes(make(tmp_path, action(effects=creates))) == [code]
+
+
+def test_an_extensions_unique_field_can_be_matched_on() -> None:
+    result = load_plugin(PREDICTION, dependencies=[PROTEIN, DNA])
+    assert result.problems == []
+    assert result.plugin is not None
+    predict = result.plugin.actions["predict_structure"]
+    assert predict.creates[0].match_on == "job_id"
+
+
 def test_imports_create_without_inputs(tmp_path: Path) -> None:
     fetch = action(
         inputs="",

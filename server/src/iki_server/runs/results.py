@@ -28,10 +28,10 @@ from uuid import UUID
 
 from django.db import transaction
 
-from iki_server.entities import access, registry
+from iki_server.entities import access, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
-from iki_server.entities.values import Invalid, shape
+from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.org import permissions
 from iki_server.org.services import Refused
 from iki_server.runs import input_files
@@ -299,6 +299,8 @@ class _Create:
     origin: dict[str, Any] | None = None
     #: Its name in ``creates``, which later creates' ref fields can give (``$create``).
     key: str | None = None
+    #: The unique field an entity in the run's project it matches has (ADR 0082).
+    match_on: str | None = None
 
 
 def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
@@ -444,7 +446,15 @@ def _create(
     origin = _origin(check, at, item["origin"]) if "origin" in item else None
     if parents is None:
         return None
-    return _Create(_pointer(*at), item["type"], item["values"], parents, origin, item.get("key"))
+    return _Create(
+        _pointer(*at),
+        item["type"],
+        item["values"],
+        parents,
+        origin,
+        item.get("key"),
+        effect.match_on,
+    )
 
 
 def _no_files(check: Check, at: str, type_name: str, values: Mapping[str, Any]) -> None:
@@ -555,6 +565,54 @@ def _with_created(check: Check, create: _Create, made: dict[str, UUID]) -> dict[
     return values
 
 
+def _kind(saved: entities.Saved, *, matched: bool) -> str:
+    if matched:
+        # A record that came again unchanged was found, as a reused duplicate is.
+        return EffectKind.UPDATED if saved.revision is not None else EffectKind.REUSED
+    return EffectKind.REUSED if saved.reused else EffectKind.CREATED
+
+
+def matching(
+    run: ActionRun, type_name: str, match_on: str | None, values: Mapping[str, Any]
+) -> Entity | None:
+    """The entity of the run's project whose unique ``match_on`` field has the create's
+    value, locked, if the action matches on one (ADR 0082). Only the project's own: one
+    linked in from elsewhere is another project's to change."""
+    value = values.get(match_on) if match_on is not None else None
+    if match_on is None or value is None or type_name not in registry.types():
+        return None
+    form = shape(type_name)
+    if match_on not in form.fields():
+        return None
+    found = unique.owned(run.project, unique.key(form.part_of(match_on).model, match_on), value)
+    return Entity.objects.select_for_update().filter(pk__in=found).first()
+
+
+def update_match(
+    check: Check, at: str, type_name: str, entity: Entity, values: Mapping[str, Any]
+) -> entities.Saved | None:
+    """Writes a create's values to the entity it matches, as a revision by the run. Notes
+    why it can't, or raises :class:`Rejected` if the launcher can no longer edit it."""
+    user = check.run.requested_by
+    if entity.type not in subtypes(type_name):
+        check.error(
+            at + "/type",
+            f"It matches {entity.hrid}, a {entity.type}, which isn't a {type_name}.",
+        )
+        return None
+    if not access.can_edit(user, entity):
+        raise Rejected(
+            "not_allowed", f"{user.name} can no longer edit {entity.hrid}, which it matches."
+        )
+    try:
+        return entities.update(user, entity, values, expected_revision=entity.revision, by_run=True)
+    except Invalid as error:
+        invalid(check, at, error)
+    except Refused as error:
+        check.error(at, f"It matches {entity.hrid}, which can't change now: {error}")
+    return None
+
+
 def _write_creates(check: Check, creates: list[_Create]) -> None:
     run = check.run
     #: key → the entity its create made or reused
@@ -563,20 +621,26 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
         values = _with_created(check, create, made)
         if values is None:
             continue
-        try:
-            saved = entities.create(
-                run.requested_by,
-                create.type,
-                run.project,
-                values,
-                # A run can't answer "this looks like a duplicate": types that only warn
-                # get a new entity, as they would if the person went ahead.
-                allow_duplicate=True,
-                by_run=True,
-            )
-        except Invalid as error:
-            invalid(check, create.pointer, error)
-            continue
+        match = matching(run, create.type, create.match_on, values)
+        if match is not None:
+            saved = update_match(check, create.pointer, create.type, match, values)
+            if saved is None:
+                continue
+        else:
+            try:
+                saved = entities.create(
+                    run.requested_by,
+                    create.type,
+                    run.project,
+                    values,
+                    # A run can't answer "this looks like a duplicate": types that only warn
+                    # get a new entity, as they would if the person went ahead.
+                    allow_duplicate=True,
+                    by_run=True,
+                )
+            except Invalid as error:
+                invalid(check, create.pointer, error)
+                continue
         entity_id = saved.entity.pk
         if create.key is not None:
             made[create.key] = entity_id
@@ -587,7 +651,7 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
         RunEffect.objects.create(
             run=run,
             entity_id=entity_id,
-            kind=EffectKind.REUSED if saved.reused else EffectKind.CREATED,
+            kind=_kind(saved, matched=match is not None),
             revision=revision,
         )
         if create.origin is not None:

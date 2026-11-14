@@ -33,6 +33,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -613,9 +614,26 @@ _EVENTS = {
 }
 
 
+#: Inside :func:`quietly`: changes too many to tell of one by one.
+_quiet: ContextVar[bool] = ContextVar("iki_entities_quiet", default=False)
+
+
+@contextmanager
+def quietly() -> Iterator[None]:
+    """Changes made inside tell no webhook and fire no trigger, one by one: a bulk import
+    (ADR 0056) tells of them all in one event, and fires nothing per entity."""
+    token = _quiet.set(True)
+    try:
+        yield
+    finally:
+        _quiet.reset(token)
+
+
 def _announce(entity_id: Any, revision: Revision, user: User) -> None:  # noqa: ANN401 - a UUID
     """Tells the owner project's and the organization's webhooks, and fires its triggers,
     in the change's transaction."""
+    if _quiet.get():
+        return
     from iki_server.webhooks import events
     from iki_server.webhooks.services import emit
 

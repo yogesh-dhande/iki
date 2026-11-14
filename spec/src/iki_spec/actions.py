@@ -18,6 +18,7 @@ from iki_spec import validate as _validate
 from iki_spec.model import (
     Action,
     Creates,
+    EntityType,
     Environment,
     Field,
     Input,
@@ -118,6 +119,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 type=qualify(c["type"], plugin),
                 cardinality=c.get("cardinality", "one"),
                 derived_from=tuple(c.get("derived_from", ())),
+                match_on=c.get("match_on"),
             )
             for c in effects.get("creates", ())
         ),
@@ -544,6 +546,32 @@ class _Rules:
             for message in _validate.value_problems(param, param.default):
                 self.add("invalid-default", f"The default {message}", source, (*path, "default"))
 
+    def match_on(self, name: str, target: EntityType, source: Document, path: Path) -> None:
+        """A create's `match_on`: a unique field of the type, its own, a parent's, or one an
+        extension of this plugin adds."""
+        fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
+        names = {target.qualified_name, *(a.qualified_name for a in self.s.ancestors(target))}
+        for extension in self.s.plugin.extensions:
+            if extension.extends_type in names:
+                fields.update(extension.fields)
+        found = fields.get(name)
+        if found is None:
+            self.add(
+                "match-on-unknown-field",
+                f"`{target.qualified_name}` has no field `{name}` to match on.",
+                source,
+                path,
+            )
+        elif not found.unique:
+            self.add(
+                "match-on-not-unique",
+                f"`{name}` isn't unique, so a value could match more than one entity: only "
+                "unique fields can be matched on.",
+                source,
+                path,
+                hint=f"Mark `{name}` `unique: true` (and `indexed: true`).",
+            )
+
     def effects(self, action: Action, source: Document) -> None:
         for index, creates in enumerate(action.creates):
             path: Path = ("effects", "creates", index)
@@ -559,6 +587,8 @@ class _Rules:
             for n, name in enumerate(creates.derived_from):
                 if name not in action.inputs:
                     self.unknown_input(action, name, source, (*path, "derived_from", n))
+            if creates.match_on is not None and target is not None:
+                self.match_on(creates.match_on, target, source, (*path, "match_on"))
         seen: dict[str, int] = {}
         for index, updates in enumerate(action.updates):
             path = ("effects", "updates", index)

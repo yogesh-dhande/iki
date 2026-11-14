@@ -298,6 +298,8 @@ on it. The validator checks that:
   removed or `immutable`; updates reach inherited fields and fields this
   plugin adds to the type
 - every `derived_from` and `updates` names an input
+- a create's `match_on` is a unique field of the type, its own, a parent's,
+  or one this plugin's extension adds
 - params follow the rules for settings, and also take `date`, `quantity`
   and `file` (one file, such as one to import, with `media_types` and
   `max_size`; never a default, and never a reference, which is an input)
@@ -884,12 +886,25 @@ An imported entity says where it came from in `origin`: a database's record
 (its `version`, an `https` `url`, when it was `retrieved_at`, and the
 `sha256` of what was read), or a record in a file the run was given (`file`,
 one of its file params). Iki keeps it with the entity, for whoever reads
-it, and again each time an import finds the same entity. A file field takes a file the inputs already had, by ID, or one the
+it, and again each time an import finds the same entity.
+
+An import from a LIMS or ELN matches its records to entities with
+`match_on`, one of the type's unique fields (ADR 0082). A create whose value
+an entity of the run's project has already updates that entity instead: a
+revision by the run, with its origin, setting the values the create gives.
+One that changes nothing is found again, as a reused duplicate is. Only the
+project's own entities match, never one linked in from elsewhere. In a
+creates file, a record may come only once.
+
+````yaml
+effects:
+  creates: [{ type: lab.Sample, cardinality: many, match_on: lims_id }]
+``` A file field takes a file the inputs already had, by ID, or one the
 command made:
 
 ```json
 { "structure": { "$file": "relaxed.pdb", "media_type": "chemical/x-pdb" } }
-```
+````
 
 `$file` is a path inside `IKI_OUT_DIR`; `name` defaults to its last part,
 and `media_type` to a guess from its extension. The worker uploads it for
@@ -1013,7 +1028,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                                                                                                                                                                                                                                                                 | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                        | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`                                                                                                                                                                                                                                                                       | Actions                         |
-| `creates-abstract`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
+| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                               | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`                                                                                                                                                                                                                                             | Where actions run               |
 | `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                            | Reuse and retries               |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                            | Workflows                       |

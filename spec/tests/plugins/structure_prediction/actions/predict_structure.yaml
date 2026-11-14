@@ -8,7 +8,12 @@ params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
   seed: { type: int, default: 0, min: 0 }
 effects:
-  creates: [{ type: protein.ProteinStructure, cardinality: many, derived_from: [protein] }]
+  creates:
+    # A job the service already ran comes back as the same structure, updated.
+    - type: protein.ProteinStructure
+      cardinality: many
+      derived_from: [protein]
+      match_on: job_id
 runs_on:
   tier: vm
   environment: alphafold-gpu

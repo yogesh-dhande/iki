@@ -52,20 +52,25 @@ from iki_server.entities import services as entities
 from iki_server.entities.access import readable_projects
 from iki_server.entities.hrids import sequence_name
 from iki_server.entities.identity import hash_of
+from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, Part, Refs, is_list_table, shape
 from iki_server.files import storage
 from iki_server.files.models import File
 from iki_server.runs import live, results
 from iki_server.runs.models import (
     ActionRun,
+    EffectKind,
+    ExternalOrigin,
     ImportPhase,
     Job,
     JobState,
+    Lineage,
     RunEffect,
     RunImport,
     RunOutput,
     RunStatus,
 )
+from iki_server.runs.services import is_a
 from iki_spec import schemas
 
 if TYPE_CHECKING:
@@ -673,8 +678,10 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
     try:
         with transaction.atomic():
             results.write(done)
-            imported.updated = RunEffect.objects.filter(run=run).count()
-            counts = _insert(imported, run)
+            unchanged = _update_matches(imported, done.check)
+            imported.updated = RunEffect.objects.filter(run=run).count() - unchanged
+            created, reused, linked = _insert(imported, run)
+            counts = (created, reused + unchanged, linked)
     except (IntegrityError, DatabaseError) as error:
         if not isinstance(error, IntegrityError) and "violates" not in str(error):
             raise
@@ -691,12 +698,119 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
         "run": {"id": str(run.pk), "hrid": run.hrid, "action": run.action},
         "project": events.project_data(run.project),
         "created": imported.created,
+        "updated": imported.updated,
         "reused": imported.reused,
         "linked": imported.linked,
         "actor": events.actor_data(run.requested_by),
         "agent": audit.agent_data(run.agent),
     }
     emit("entity.imported", data, project=run.project)
+
+
+def _update_matches(imported: RunImport, check: results.Check) -> int:
+    """Writes each staged line whose ``match_on`` value an entity of the run's project has
+    to that entity, as a revision (ADR 0082), and unstages it so the rest are inserted.
+    Raises :class:`results.InvalidOutput` for lines that can't be. Returns how many changed
+    nothing."""
+    table = _lines(imported)
+    unchanged = 0
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT DISTINCT type FROM {table} s")  # noqa: S608 - our own values
+        staged = sorted(t for (t,) in cursor.fetchall())
+    for effect in check.action.creates:
+        if effect.match_on is None:
+            continue
+        for type_name in (t for t in staged if is_a(t, effect.type)):
+            unchanged += _update_matches_of(imported, check, type_name, effect.match_on)
+    if check.errors:
+        raise results.InvalidOutput(check.errors)
+    return unchanged
+
+
+def _update_matches_of(
+    imported: RunImport, check: results.Check, type_name: str, field: str
+) -> int:
+    run = check.run
+    table = _lines(imported)
+    part = shape(type_name).part_of(field)
+    params: dict[str, Any] = {
+        "type": type_name,
+        "part": part.model._meta.db_table,
+        "field": field,
+        "project": run.project_id,
+        "key": unique.key(part.model, field),
+    }
+    value = "s.parts->%(part)s->>%(field)s"
+    with connection.cursor() as cursor:
+        # A record twice in one file: which would win is anyone's guess.
+        cursor.execute(
+            f"SELECT array_agg(s.line ORDER BY s.line) FROM {table} s"  # noqa: S608 - ours; values are parameters
+            f" WHERE s.type = %(type)s AND {value} IS NOT NULL"
+            f" GROUP BY {value} HAVING count(*) > 1 ORDER BY min(s.line) LIMIT 100",
+            params,
+        )
+        for (lines,) in cursor.fetchall():
+            for line in lines[1:]:
+                check.error(
+                    results.pointer("creates_file", line, "values", field),
+                    f"Line {lines[0]} has the same {field}: each record comes once in a file.",
+                )
+        if check.errors:
+            return 0
+        cursor.execute(
+            f"SELECT s.line, s.parts, s.origin, s.parents, u.entity_id FROM {table} s"  # noqa: S608 - ours; values are parameters
+            " JOIN iki_unique_value u ON u.project_id = %(project)s AND u.key = %(key)s"
+            f" AND u.value = {value} WHERE s.type = %(type)s ORDER BY s.line",
+            params,
+        )
+        matched = cursor.fetchall()
+    unchanged = 0
+    done: list[int] = []
+    with entities.quietly():
+        for line, parts_text, origin_text, parents_text, entity_id in matched:
+            # Django reads jsonb as text.
+            parts, origin, parents = (
+                json.loads(t) if isinstance(t, str) else t
+                for t in (parts_text, origin_text, parents_text)
+            )
+            entity = Entity.objects.select_for_update().get(pk=entity_id)
+            values = {n: v for fields in parts.values() for n, v in fields.items()}
+            at = results.pointer("creates_file", line)
+            saved = results.update_match(check, at, type_name, entity, values)
+            if saved is None:
+                continue
+            revision = saved.revision.number if saved.revision is not None else None
+            unchanged += revision is None
+            RunEffect.objects.create(
+                run=run,
+                entity_id=entity.pk,
+                kind=EffectKind.UPDATED if revision is not None else EffectKind.REUSED,
+                revision=revision,
+            )
+            if origin is not None:
+                # As staged: ExternalOrigin's fields.
+                ExternalOrigin.objects.create(
+                    run=run, entity_id=entity.pk, revision=revision, **origin
+                )
+            Lineage.objects.bulk_create(
+                Lineage(
+                    entity_id=entity.pk,
+                    parent_id=parent,
+                    parent_revision=parent_revision,
+                    run=run,
+                    input=name,
+                )
+                for parent, name, parent_revision in parents or []
+            )
+            done.append(line)
+    if done:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM iki_import_line WHERE bulk_import_id = %s AND round = %s"
+                " AND line = ANY(%s)",
+                [imported.pk, imported.round, done],
+            )
+    return unchanged
 
 
 def _first_line(error: Exception) -> str:

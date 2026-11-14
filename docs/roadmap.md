@@ -101,7 +101,7 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 | 38g  | Re-running a workflow from a failed step                                                                                                                     | done        | `7f016d8`            |
 | 38h  | MCP tools for agents to start and follow workflows                                                                                                           | done        | `09c3b4d`            |
 | 39   | Triggers with loop protection, including scheduled ones run as a service account: event triggers turned on per project (ADR 0080); scheduled ones (ADR 0081) | done        | `8716951`, `ef6da23` |
-| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back                                            | in progress | `b5a9120`            |
+| 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back                                            | in progress | `b5a9120`, `c655e98` |
 
 ## Stage 7: Components, views and apps
 

@@ -85,7 +85,8 @@ _register(
     EventType(
         "entity.imported",
         "A run imports entities from a file, too many to tell of one by one: one event for "
-        "all of them, in place of entity.created for each.",
+        "all of them, in place of entity.created, or entity.updated for the records it "
+        "matched, for each.",
         project=True,
         org=True,
     ),

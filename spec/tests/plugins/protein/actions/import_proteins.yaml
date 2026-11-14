@@ -9,7 +9,7 @@ params:
     media_types: [chemical/seq-aa-fasta, text/plain]
     max_size: 1MiB
 effects:
-  creates: [{ type: Protein, cardinality: many }]
+  creates: [{ type: Protein, cardinality: many, match_on: lims_id }]
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/imports.py]
 deterministic: true

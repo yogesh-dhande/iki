@@ -257,6 +257,10 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
         },
         "cardinality": { "enum": ["one", "many"] },
+        "match_on": {
+          "description": "One of the type's unique fields, such as a LIMS record's ID. A create whose value an entity in the run's project has already updates that entity instead, as a revision with its origin.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
         "derived_from": {
           "description": "The inputs each created entity comes from, for its lineage.",
           "type": "array",

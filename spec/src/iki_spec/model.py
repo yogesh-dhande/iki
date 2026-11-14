@@ -260,6 +260,8 @@ class Creates:
     type: str  # qualified
     cardinality: str = "one"
     derived_from: tuple[str, ...] = ()
+    #: A unique field: a create with a value an entity in the project has updates it.
+    match_on: str | None = None
 
 
 @dataclass(frozen=True)

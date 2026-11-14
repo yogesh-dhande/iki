@@ -38,6 +38,7 @@ __all__ = [
     "is_clash",
     "key",
     "link",
+    "owned",
     "taken",
 ]
 
@@ -107,6 +108,13 @@ def link(f: Field, plugin: str) -> str | None:
     if not out.startswith("https://") or "{value}" not in out or len(out) <= len("https://"):
         return None
     return out
+
+
+def owned(project: Project, field_key: str, value: object) -> models.QuerySet[UniqueValue, UUID]:
+    """The ID of the entity of ``project``'s own with this value of a unique field, if any."""
+    return UniqueValue.objects.filter(project=project, key=field_key, value=str(value)).values_list(
+        "entity_id", flat=True
+    )
 
 
 def holders(field_key: str, value: str) -> models.QuerySet[UniqueValue, UUID]:

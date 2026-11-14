@@ -56,6 +56,20 @@ value twice, fails as a whole, naming the field and value.
 entities the reader can read, in any project, so it shows at most one of each
 project's own. It never says that a project the reader can't see has one.
 
+**Imports update the entity a record matches.** An action's `creates` can
+name a unique field to `match_on`. A create whose value an entity of the
+run's project has already updates that entity instead of making a second
+one, as Salesforce's upsert by external ID does. The update is an ordinary
+revision by the run, so it is checked as any edit is (immutable fields stay
+put, the launcher must be able to edit the entity), and the origin is kept
+with it. A record that comes again unchanged is "reused", with no new
+revision, so a nightly import of the same records writes nothing. Only the
+project's own entities match: one linked in from another project is that
+project's to change, and the run makes the project its own. Bulk imports
+match too, quietly: one `entity.imported` event tells of the updates with the
+creates, and no trigger fires for each. A record twice in one file is
+refused, since which copy should win can't be known.
+
 **A field can link to its record.** A string field's `link` is a URL with
 `{value}` in it, such as `https://lims.example.org/samples/{value}`. It may
 start with one of the plugin's settings, since each deployment has its own

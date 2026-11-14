@@ -284,12 +284,53 @@ def test_two_lines_with_one_unique_value_fail_the_import(world: World) -> None:
     assert body["status"] == "failed"
     assert body["error"]["errors"] == [
         {
-            "pointer": "#/creates_file",
-            "detail": "An entity in the project has `protein_protein.lims_id` “LIMS-1” already, "
-            "or two lines do.",
+            "pointer": "#/creates_file/2/values/lims_id",
+            "detail": "Line 1 has the same lims_id: each record comes once in a file.",
         }
     ]
     assert not Entity.objects.filter(type="protein.Protein").exists()
+
+
+def test_lines_that_match_entities_update_them(world: World) -> None:
+    from test_webhooks import make
+
+    first, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f, lims_id="LIMS-1"),
+            protein(KINASES[1], "B", f, lims_id="LIMS-2"),
+        ),
+    )
+    assert finished(world, first)["status"] == "succeeded"
+    make(world, "https://lims.example.com/hooks", ["entity.updated", "entity.imported"])
+    second, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A2", f, lims_id="LIMS-1"),  # changed
+            protein(KINASES[1], "B", f, lims_id="LIMS-2"),  # the same
+            protein(KINASES[2], "C", f, lims_id="LIMS-3"),  # new
+        ),
+    )
+    body = finished(world, second)
+    assert body["status"] == "succeeded", body.get("error")
+    imported = RunImport.objects.get(run_id=second["id"])
+    assert (imported.created, imported.updated, imported.reused) == (1, 1, 1)
+    assert Entity.objects.filter(type="protein.Protein").count() == 3
+    api = api_as(world, "editor")
+    (one,) = api.get(
+        "/entities/lookup", type="protein.Protein", field="lims_id", value="LIMS-1"
+    ).json()
+    assert (one["values"]["name"], one["revision"]) == ("A2", 2)
+    origins = api.get(f"/entities/{one['hrid']}/origins").json()
+    assert [(o["run"]["id"], o["revision"]) for o in origins] == [
+        (second["id"], 2),
+        (first["id"], 1),
+    ]
+    effects = {e["hrid"]: e["kind"] for e in seen(world, second)["effects"]}
+    assert sorted(effects.values()) == ["created", "reused", "updated"]
+    # One event for the import, none for each entity it changed.
+    events = list(Delivery.objects.exclude(event="ping").values_list("event", flat=True))
+    assert events == ["entity.imported"]
 
 
 def test_a_creates_files_lines_cant_refer_to_one_another(world: World) -> None:
