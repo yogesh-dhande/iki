@@ -61,6 +61,11 @@ export function ProjectTabs() {
             Runs
           </Link>
         ) : null}
+        {project.can.read ? (
+          <Link to="/projects/$slug/workflows/" params={{ slug: project.slug }} activeProps={tab}>
+            Workflows
+          </Link>
+        ) : null}
         <Link to="/projects/$slug/members/" params={{ slug: project.slug }} activeProps={tab}>
           Members
         </Link>

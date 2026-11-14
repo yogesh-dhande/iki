@@ -198,6 +198,44 @@ export const ACTION = {
   estimate: null,
 } satisfies Schemas["ActionOut"];
 
+/** protein.weigh_twice: no inputs to choose here, only the pH, and an approval. */
+export const WORKFLOW = {
+  name: "protein.weigh_twice",
+  plugin: "protein",
+  label: "Weigh twice",
+  description: "Weighs, then weighs again once someone has checked.",
+  inputs: [],
+  params: ACTION.params,
+  params_schema: ACTION.params_schema,
+  steps: [
+    {
+      id: "first",
+      label: "First",
+      action: ACTION.name,
+      inputs: {},
+      params: { ph: "$params.ph" },
+      after: [],
+      each: null,
+      when: [],
+      approval: null,
+    },
+    {
+      id: "second",
+      label: "Second",
+      action: ACTION.name,
+      inputs: {},
+      params: {},
+      after: ["first"],
+      each: null,
+      when: [],
+      approval: { role: "runner", instructions: "" },
+    },
+  ],
+  tiers: ["backend"],
+  available: true,
+  unavailable_reason: null,
+} satisfies Schemas["WorkflowOut"];
+
 export const WORKFLOW_ID = "00000000-0000-7000-8000-0000000000w1";
 
 /** WF-000001: protein.translate_and_characterize, translated, characterizing. */

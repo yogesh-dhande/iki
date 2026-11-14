@@ -10330,6 +10330,20 @@
             "title": "Steps",
             "type": "array"
           },
+          "tiers": {
+            "description": "The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).",
+            "items": {
+              "enum": [
+                "client",
+                "backend",
+                "container",
+                "vm"
+              ],
+              "type": "string"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
           "unavailable_reason": {
             "anyOf": [
               {
@@ -10351,6 +10365,7 @@
           "params",
           "params_schema",
           "steps",
+          "tiers",
           "available",
           "unavailable_reason"
         ],

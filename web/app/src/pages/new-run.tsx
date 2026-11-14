@@ -53,7 +53,7 @@ import {
 } from "../ui";
 import { useProject } from "./project-overview";
 
-type Input = Action["inputs"][number];
+export type Input = Action["inputs"][number];
 
 interface Launch {
   inputs: Record<string, string | string[]>;
@@ -63,7 +63,7 @@ interface Launch {
 }
 
 /** "PRT-000001", "PRT-000001 and PRT-000002", "PRT-000001, PRT-000002 and PRT-000003". */
-function listed(items: string[]): string {
+export function listed(items: string[]): string {
   return items.length > 1
     ? `${items.slice(0, -1).join(", ")} and ${items.at(-1) ?? ""}`
     : (items[0] ?? "");
@@ -117,7 +117,7 @@ function Estimate({ estimate, runs }: { estimate: NonNullable<Action["estimate"]
   );
 }
 
-function inputField(input: Input): FieldDef {
+export function inputField(input: Input): FieldDef {
   return {
     name: input.name,
     label: input.label,
@@ -140,7 +140,7 @@ function inputField(input: Input): FieldDef {
   };
 }
 
-const NO_RULES: Schemaed = { values_schema: { type: "object", properties: {} } };
+export const NO_RULES: Schemaed = { values_schema: { type: "object", properties: {} } };
 
 export function NewRun() {
   const project = useProject();

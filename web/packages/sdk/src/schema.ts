@@ -6926,6 +6926,11 @@ export interface components {
              * @description In the order they start.
              */
             steps: components["schemas"]["WorkflowStepOut"][];
+            /**
+             * Tiers
+             * @description The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).
+             */
+            tiers: ("client" | "backend" | "container" | "vm")[];
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };

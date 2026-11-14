@@ -17,7 +17,9 @@ export type Attempt = Schemas["RunAttemptOut"];
 export type AttemptState = Attempt["state"];
 export type Action = Schemas["ActionOut"];
 export type Batch = Schemas["BatchOut"];
+export type Workflow = Schemas["WorkflowOut"];
 export type WorkflowRun = Schemas["WorkflowRunOut"];
+export type WorkflowStatus = WorkflowRun["status"];
 export type StepState = WorkflowRun["steps"][number]["state"];
 
 export const RUNS = ["runs"] as const;
@@ -135,6 +137,35 @@ export function projectRunsQuery(projectId: string, status: RunStatus | undefine
     queryFn: async ({ pageParam }) =>
       unwrap(
         await iki.GET("/api/v1/runs", {
+          params: {
+            query: {
+              project: projectId,
+              limit: 25,
+              ...(status ? { status } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
+        }),
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+/** The workflows installed plugins provide (ADR 0079). */
+export const workflowsQuery = queryOptions({
+  queryKey: ["workflows"],
+  queryFn: async () => unwrap(await iki.GET("/api/v1/workflows")),
+  staleTime: 5 * 60_000,
+});
+
+/** A project's workflow runs, newest first, a page at a time. */
+export function projectWorkflowRunsQuery(projectId: string, status: WorkflowStatus | undefined) {
+  return infiniteQueryOptions({
+    queryKey: [...RUNS, "list", "workflows", projectId, status ?? "all"],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      unwrap(
+        await iki.GET("/api/v1/workflow-runs", {
           params: {
             query: {
               project: projectId,

@@ -20,7 +20,14 @@ from iki_server.api.common import caller, project
 from iki_server.api.entities import field_out
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.runs import CancelIn, InputOut, ParamOut, invalid_problem, outside_problem
+from iki_server.api.runs import (
+    CancelIn,
+    InputOut,
+    ParamOut,
+    Tier,
+    invalid_problem,
+    outside_problem,
+)
 from iki_server.api.schemas import AgentOut, Page, PersonRef, agent_out
 from iki_server.entities import schema
 from iki_server.entities.values import Invalid
@@ -30,6 +37,9 @@ from iki_server.runs.models import ActionRun, StepState, WorkflowRun, WorkflowSt
 from iki_spec.model import Workflow
 
 router = Router(tags=["workflows"])
+
+#: Tiers from the least a starter needs to the most.
+TIER_ORDER = ("client", "backend", "container", "vm")
 
 
 # --- Workflows ---------------------------------------------------------------------------------
@@ -89,6 +99,10 @@ class WorkflowOut(Schema):
     params: list[ParamOut]
     params_schema: dict[str, Any] = Field(description="The params as JSON Schema (2020-12).")
     steps: list[WorkflowStepOut] = Field(description="In the order they start.")
+    tiers: list[Tier] = Field(
+        description="The tiers its steps run on, from the least to the most a starter needs: "
+        "starting it takes the role each needs in the project (`can.run` on a project)."
+    )
     available: bool = Field(description="Whether every step's action can run on this deployment.")
     unavailable_reason: str | None
 
@@ -104,9 +118,11 @@ def _workflow_out(of: Workflow) -> dict[str, Any]:
         if not available.available:
             reason = f"Step `{step_id}` can't run here. {available.reason or ''}".strip()
             break
+    tiers = {a.tier for a in actions.values() if a is not None}
     return {
         "name": of.qualified_name,
         "plugin": of.plugin,
+        "tiers": [t for t in TIER_ORDER if t in tiers],
         "label": of.label,
         "description": of.description,
         "inputs": [

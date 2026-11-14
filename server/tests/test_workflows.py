@@ -132,6 +132,7 @@ def test_lists_installed_workflows(world: World) -> None:
         },
     ]
     assert found["available"] is True
+    assert found["tiers"] == ["backend"]
     problem(viewer.get("/workflows/protein.nope"), 404, "not_found")
     conditional = listed[0]["steps"][1]
     assert (conditional["id"], conditional["after"]) == ("weigh", ["align"])

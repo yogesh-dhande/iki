@@ -33,14 +33,14 @@ import {
 } from "../ui";
 import { StatusBadge, VIA } from "./runs";
 
-const WORKFLOW_STATUS: Record<WorkflowRun["status"], string> = {
+export const WORKFLOW_STATUS: Record<WorkflowRun["status"], string> = {
   running: "Running",
   succeeded: "Succeeded",
   failed: "Failed",
   cancelled: "Cancelled",
 };
 
-function stepTone(state: StepState): string {
+export function stepTone(state: StepState): string {
   switch (state) {
     case "succeeded":
       return "good";
@@ -56,7 +56,7 @@ function stepTone(state: StepState): string {
   }
 }
 
-function StepBadge({ state }: { state: StepState }) {
+export function StepBadge({ state }: { state: StepState }) {
   return <span className={`badge badge-${stepTone(state)}`}>{STEP_STATE[state]}</span>;
 }
 
@@ -64,7 +64,7 @@ type Step = WorkflowRun["steps"][number];
 type StepBatch = NonNullable<Step["batch"]>;
 
 /** Who approves a step, as "an Editor". */
-const APPROVER: Record<NonNullable<Step["approval"]>["role"], string> = {
+export const APPROVER: Record<NonNullable<Step["approval"]>["role"], string> = {
   viewer: "a Viewer",
   editor: "an Editor",
   runner: "a Runner",
@@ -236,7 +236,7 @@ function Operand({ value }: { value: unknown }) {
 }
 
 /** "Runs if align.score is at least min_score": what must hold for a step to run. */
-function When({ conditions }: { conditions: Condition[] }) {
+export function When({ conditions }: { conditions: Condition[] }) {
   return (
     <span className="row-meta">
       {"Runs if "}

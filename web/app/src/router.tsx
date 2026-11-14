@@ -60,6 +60,9 @@ const WorkflowRunPage = lazyRouteComponent(
   () => import("./pages/workflow-runs"),
   "WorkflowRunPage",
 );
+const workflowPages = () => import("./pages/workflows");
+const ProjectWorkflows = lazyRouteComponent(workflowPages, "ProjectWorkflows");
+const NewWorkflowRun = lazyRouteComponent(workflowPages, "NewWorkflowRun");
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
@@ -186,6 +189,33 @@ const projectRunNewRoute = createRoute({
   validateSearch: validateNewRunSearch,
   loader: ({ context }) => context.queryClient.query(typesQuery),
   component: NewRun,
+});
+
+const WORKFLOW_STATUSES = ["running", "succeeded", "failed", "cancelled"] as const;
+
+const projectWorkflowsRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "workflows",
+  // ?status=failed: only workflow runs with that status.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { status?: (typeof WORKFLOW_STATUSES)[number] } => {
+    const status = WORKFLOW_STATUSES.find((s) => s === search["status"]);
+    return status ? { status } : {};
+  },
+  component: ProjectWorkflows,
+});
+
+const projectWorkflowNewRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "workflows/new",
+  // ?workflow=protein.translate_and_characterize: its form.
+  validateSearch: (search: Record<string, unknown>): { workflow?: string | undefined } =>
+    typeof search["workflow"] === "string" && search["workflow"]
+      ? { workflow: search["workflow"] }
+      : {},
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: NewWorkflowRun,
 });
 
 const projectSettingsRoute = createRoute({
@@ -327,6 +357,8 @@ const routeTree = rootRoute.addChildren([
       projectEntityNewRoute,
       projectRunsRoute,
       projectRunNewRoute,
+      projectWorkflowsRoute,
+      projectWorkflowNewRoute,
       projectSettingsRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),

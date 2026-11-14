@@ -2247,6 +2247,8 @@ class WorkflowOut(TypedDict):
     plugin: str
     #: In the order they start.
     steps: list[WorkflowStepOut]
+    #: The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).
+    tiers: list[Literal['client', 'backend', 'container', 'vm']]
     unavailable_reason: str | None
 
 
