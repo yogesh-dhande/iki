@@ -550,18 +550,22 @@ the first of ADR 0084's tiers, configuring what Iki has.
 display:
   viewers:
     - { viewer: sequence, sequence: bases, features: features }
+    - { viewer: structure, structure: model } # on a type with a structure file
 ```
 
-| Viewer     | Fields                                                                                                                                                                     |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sequence` | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. |
+| Viewer      | Fields                                                                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence`  | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. |
+| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                            |
 
 The sequence viewer shows the residues in rows of 60, in groups of 10, with
 each feature as a bar under the residues it covers, coloured by its kind and
 pointing the way its strand runs, and lists the features in a table. A
 feature whose end comes before its start wraps the origin of a circular
-sequence. `label` names the tab. The validator checks that each field exists
-and is what its viewer shows, and that each viewer is given once.
+sequence. The structure viewer shows the file in Mol\*, in a sandboxed frame
+with no network (ADR 0085). `label` names the tab. The validator checks that
+each field exists and is what its viewer shows, and that each viewer is given
+once.
 
 ## Components
 

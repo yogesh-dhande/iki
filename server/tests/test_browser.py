@@ -825,6 +825,90 @@ def test_a_proteins_sequence_in_its_viewer(open_as: Any, world: World, color_sch
     assert_clean(page)
 
 
+def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_type: str) -> Any:
+    """A file in the project, its bytes put straight into the store the server reads."""
+    import hashlib
+
+    import boto3
+
+    from iki_server.files.models import Blob, File
+
+    data = path.read_bytes()
+    sha256 = hashlib.sha256(data).hexdigest()
+    key = f"browser-files/{sha256}"
+    boto3.client(
+        "s3",
+        endpoint_url=s3_endpoint,
+        region_name="us-east-1",
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
+    ).put_object(Bucket=bucket, Key=key, Body=data)
+    blob, _ = Blob.objects.get_or_create(
+        sha256=sha256, defaults={"size": len(data), "storage_uri": f"s3://{bucket}/{key}"}
+    )
+    return File.objects.create(
+        blob=blob,
+        name=path.name,
+        media_type=media_type,
+        project=world.project,
+        created_by=world.users["admin"],
+    )
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_structure_in_mol_star_in_its_frame(
+    open_as: Any, world: World, color_scheme: str, _s3_endpoint: str, _s3_bucket: str
+) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    crambin = entities.create(
+        admin, "protein.Protein", world.project, {"sequence": "TTCCPSIVAR", "name": "Crambin"}
+    ).entity
+    file = _stored_file(
+        world,
+        _s3_endpoint,
+        _s3_bucket,
+        Path(__file__).parent / "data" / "crambin.pdb",
+        "chemical/x-pdb",
+    )
+    made = entities.create(
+        admin,
+        "protein.ProteinStructure",
+        world.project,
+        {"structure": file.pk, "method": "xray", "chains": [crambin.pk]},
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/", color_scheme)
+    page.get_by_role("link", name="Structure", exact=True).click()
+    page.get_by_role("link", name="Download crambin.pdb").wait_for()
+    frame_element = page.locator("iframe.structure-frame")
+    frame_element.wait_for()
+    # Mol* has drawn it once the page stops saying it's drawing.
+    page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
+    shown = page.frame_locator("iframe.structure-frame")
+    shown.locator("canvas").first.wait_for()
+    shown.get_by_text("Sequence of").first.wait_for()
+    assert_clean(page)
+
+    # Mol* can't read Iki's cookies, storage or page, or call the API as the person.
+    (frame,) = [f for f in page.frames if f.url.endswith("/viewers/structure/") and f.parent_frame]
+    assert frame.evaluate(SANDBOX_PROBES) == {
+        "origin": "null",
+        "api": "refused",
+        "cookie": "refused",
+        "storage": "refused",
+        "page": "refused",
+        "pageStorage": "refused",
+    }
+    frame.evaluate("() => { location.href = 'about:blank'; }")
+    page.get_by_role("alert").get_by_text(
+        "The structure viewer tried to open another page, so Iki closed it."
+    ).wait_for()
+    assert page.locator("iframe").count() == 0
+
+
 # What a component's code could try, run in its frame, with its frame's origin and policy.
 SANDBOX_PROBES = """
 async () => {

@@ -42,9 +42,22 @@ marks its residues. Rows off screen aren't drawn, so a genome opens as
 quickly as a primer. A feature that can't be drawn, out of range or
 malformed, is left out rather than hiding the rest.
 
-**More viewers come the same way.** A structure viewer (Mol*), and tracks
-such as per-residue values, are further entries under `display.viewers`,
-each with the fields it shows.
+**The structure viewer is Mol\*, in a sandboxed frame of Iki's own.** Its
+field is a file field of mmCIF or PDB files, the formats Mol\* reads. Mol\*
+is a great deal of code that parses whatever file it's given, so it doesn't
+run in the page: the web app opens it in a frame with
+`sandbox="allow-scripts"`, whose document's origin is no one's, with a
+policy that allows its one module and no network. A file that fooled its
+parsers could draw something wrong, but couldn't read Iki's pages, cookies
+or storage, or call the API as the person. The page reads the file from the
+store with a link Iki signs (`GET /files/{id}/content-url`), checks the
+bytes against the SHA-256 Iki recorded when it stored them, and hands them
+to the frame. Iki builds Mol\* from its library, not its prebuilt viewer,
+which evaluates code as it loads (for its video exporter) and would need
+`unsafe-eval`. Files over 256 MiB are left to desktop viewers.
+
+**More viewers come the same way.** Tracks such as per-residue values are
+further entries under `display.viewers`, each with the fields it shows.
 
 ## Consequences
 
@@ -54,3 +67,9 @@ each with the fields it shows.
   component (ADR 0084), or asks for the viewer to grow.
 - The viewers are Iki's code, so they're tested and accessible as the rest
   of the app is, and follow its light and dark themes.
+- Browsers read files from the store, so its CORS rule allows `GET` from
+  Iki's origin as well as `PUT`; `iki-server setup_storage` updates it, and
+  `--check` reports a bucket that only allows uploads.
+- Mol\*'s own interface (its panels and controls) is Mol\*'s, inside the
+  frame: Iki tests that it runs, isolated, in each browser, not its
+  accessibility.

@@ -193,10 +193,11 @@ class EntityType:
 class Viewer:
     """One of Iki's own viewers on a type's pages, and the fields it shows (``display``)."""
 
-    viewer: str  # "sequence"
+    viewer: str  # "sequence" or "structure"
     label: str
     sequence: str = ""  # a string field with a sequence format
     features: str = ""  # a json field of regions along it, or ""
+    structure: str = ""  # a file field of mmCIF or PDB files
 
 
 @dataclass(frozen=True)

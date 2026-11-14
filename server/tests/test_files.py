@@ -1,12 +1,13 @@
 """Files: uploads in parts, checked against their SHA-256, stored once, read and downloaded."""
 
 import hashlib
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 import requests
 from api_client import Api, problem
+from django.utils import timezone
 from org_world import World, build_world
 
 from iki_server.audit.models import AuditEvent
@@ -242,6 +243,7 @@ def test_uploads_are_their_makers_and_files_their_projects(world: World, s3: Any
     for principal in ("outsider", "org_admin", "team_member"):
         problem(api_as(world, principal).get(f"/files/{file_id}"), 404, "not_found")
         problem(api_as(world, principal).get(f"/files/{file_id}/content"), 404, "not_found")
+        problem(api_as(world, principal).get(f"/files/{file_id}/content-url"), 404, "not_found")
     listed = api_as(world, "viewer").get("/files", project=str(world.project.pk)).json()
     assert [f["id"] for f in listed["items"]] == [file_id]
     problem(start(api_as(world, "viewer"), world, PDB), 403, "forbidden")
@@ -260,6 +262,17 @@ def test_downloads_redirect_to_a_short_lived_link_under_the_files_name(
     assert fetched.headers["Content-Disposition"] == (
         "attachment; filename=\"r_sum_ 1abc.pdb\"; filename*=UTF-8''r%C3%A9sum%C3%A9%201abc.pdb"
     )
+
+
+def test_pages_that_read_a_file_get_a_link_and_the_hash_to_check(world: World, s3: Any) -> None:
+    """The structure viewer reads files itself, so it needs the link, not a redirect."""
+    upload = add(api_as(world), world, PDB)
+    before = timezone.now()
+    body = api_as(world, "viewer").get(f"/files/{upload['file']['id']}/content-url").json()
+    assert body["sha256"] == hashlib.sha256(PDB).hexdigest()
+    expires = datetime.fromisoformat(body["expires_at"])
+    assert timedelta(minutes=4) < expires - before <= timedelta(minutes=5, seconds=5)
+    assert requests.get(body["url"], timeout=30).content == PDB
 
 
 def test_without_storage_the_files_api_says_so(world: World) -> None:

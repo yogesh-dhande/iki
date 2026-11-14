@@ -8,5 +8,9 @@ packages:
 minimumReleaseAge: 4320
 # Dependency install scripts never run unless a package is listed here.
 onlyBuiltDependencies: []
+# Refused outright: Scarf's install script reports installs to a third party
+# (it comes with swagger-ui-dist, which Mol*'s server tools use).
+allowBuilds:
+  "@scarf/scarf": false
 strictDepBuilds: true
 engineStrict: true

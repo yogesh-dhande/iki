@@ -1,8 +1,9 @@
 """``iki-server setup_storage``: checks the file bucket, and gives it the rules Iki needs.
 
-- **CORS:** browsers send upload parts straight to the bucket, from Iki's
-  public URL (and the web app's dev server, in development). The rule allows
-  ``PUT`` from those origins only.
+- **CORS:** browsers send upload parts straight to the bucket, and some pages
+  (the structure viewer) read files from it, from Iki's public URL (and the web
+  app's dev server, in development). The rule allows ``PUT`` and ``GET`` from
+  those origins only, with links Iki signed.
 - **Lifecycle:** multipart uploads abandoned for 2 days are aborted, and
   staging objects older than 2 days are deleted, in case maintenance never ran.
 - **Versioning** is checked, not changed: turning it on is the bucket
@@ -21,6 +22,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from iki_server.files import storage
 
 RULE_ID = "iki-uploads"
+#: Named for uploads, which it allowed first; kept, so Iki recognizes its own rule.
 CORS_ID = "iki-browser-uploads"
 STALE_DAYS = 2
 
@@ -36,7 +38,7 @@ def cors_rule() -> dict[str, Any]:
     return {
         "ID": CORS_ID,
         "AllowedOrigins": origins(),
-        "AllowedMethods": ["PUT"],
+        "AllowedMethods": ["GET", "PUT"],
         # Iki lists the parts itself, so pages needn't read any response header.
         "AllowedHeaders": ["content-type"],
         "MaxAgeSeconds": 3600,
@@ -86,7 +88,7 @@ class Command(BaseCommand):
         others = [r for r in cors if r.get("ID") != CORS_ID]
         mine = next((r for r in cors if r.get("ID") == CORS_ID), None)
         if mine is None or not _same(mine, cors_rule()):
-            missing.append("CORS for browser uploads")
+            missing.append("CORS for browsers' uploads and reads")
             if not options["check"]:
                 s3.put_bucket_cors(
                     Bucket=bucket,

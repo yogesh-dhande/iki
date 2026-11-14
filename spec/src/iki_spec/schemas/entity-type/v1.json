@@ -110,8 +110,8 @@
       "required": ["viewer"],
       "properties": {
         "viewer": {
-          "description": "Which viewer. `sequence`: the sequence, with its features as a track along it.",
-          "enum": ["sequence"]
+          "description": "Which viewer. `sequence`: the sequence, with its features as a track along it. `structure`: a 3D structure, in Mol*.",
+          "enum": ["sequence", "structure"]
         },
         "label": {
           "description": "The tab's name. The viewer's own name if left out, such as Sequence.",
@@ -138,6 +138,27 @@
               },
               "features": {
                 "description": "A json field listing regions along it, as GenBank features are: each with a `type`, a `start` and `end` (from 1), and optionally a `name` and a `strand` (`forward`, `reverse` or `none`).",
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "viewer": {
+                "const": "structure"
+              }
+            }
+          },
+          "then": {
+            "required": ["viewer", "structure"],
+            "properties": {
+              "viewer": true,
+              "label": true,
+              "structure": {
+                "description": "The field it shows: a file field whose media types are chemical/x-mmcif or chemical/x-pdb, or both.",
                 "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
               }
             },

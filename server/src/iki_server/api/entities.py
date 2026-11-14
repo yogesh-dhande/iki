@@ -15,7 +15,7 @@ import math
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
@@ -37,7 +37,7 @@ from iki_server.org.permissions import Action
 from iki_server.runs.models import ExternalOrigin, Lineage, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
-from iki_spec.model import EntityType
+from iki_spec.model import EntityType, Viewer
 from iki_spec.model import Field as SpecField
 
 router = Router(tags=["entities"])
@@ -86,7 +86,7 @@ class FieldOut(Schema):
     items: str | None = Field(description="Lists: the type of each item.")
 
 
-class ViewerOut(Schema):
+class SequenceViewerOut(Schema):
     viewer: Literal["sequence"] = Field(
         description="`sequence`: the sequence, with its features as a track along it."
     )
@@ -98,6 +98,18 @@ class ViewerOut(Schema):
     features: str | None = Field(
         description="A json field of regions along it (type, start, end, name, strand), or null."
     )
+
+
+class StructureViewerOut(Schema):
+    viewer: Literal["structure"] = Field(description="`structure`: a 3D structure, in Mol*.")
+    label: str = Field(description="What its tab is called.")
+    structure: str = Field(
+        description="The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB "
+        "(chemical/x-pdb)."
+    )
+
+
+ViewerOut = Annotated[SequenceViewerOut | StructureViewerOut, Field(discriminator="viewer")]
 
 
 class EntityTypeOut(Schema):
@@ -344,9 +356,17 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
     }
 
 
-def _alphabet(form: Shape, field: str) -> str:
-    spec = form.fields().get(field)
-    return "protein" if spec is not None and spec.format == "protein_sequence" else "dna"
+def _viewer_out(form: Shape, viewer: Viewer) -> dict[str, Any]:
+    if viewer.viewer == "structure":
+        return {"viewer": "structure", "label": viewer.label, "structure": viewer.structure}
+    spec = form.fields().get(viewer.sequence)
+    return {
+        "viewer": "sequence",
+        "label": viewer.label,
+        "sequence": viewer.sequence,
+        "alphabet": "protein" if spec is not None and spec.format == "protein_sequence" else "dna",
+        "features": viewer.features or None,
+    }
 
 
 def _type_out(entity_type: EntityType) -> dict[str, Any]:
@@ -373,16 +393,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "on_duplicate": registry.duplicate_policy(entity_type),
         "fields": fields,
         "values_schema": schema.for_type(name),
-        "viewers": [
-            {
-                "viewer": v.viewer,
-                "label": v.label,
-                "sequence": v.sequence,
-                "alphabet": _alphabet(form, v.sequence),
-                "features": v.features or None,
-            }
-            for v in registry.viewers(entity_type)
-        ],
+        "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
     }
 
 

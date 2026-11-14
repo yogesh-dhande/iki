@@ -33,14 +33,15 @@ def test_it_sets_browser_uploads_and_cleanup_rules_and_keeps_others(bucket: Any)
         "AllowedMethods": ["GET"],
     }
     bucket.put_bucket_cors(Bucket=S3_BUCKET, CORSConfiguration={"CORSRules": [theirs]})
-    with pytest.raises(CommandError, match="missing: CORS for browser uploads; lifecycle rules"):
+    missing = "missing: CORS for browsers' uploads and reads; lifecycle rules"
+    with pytest.raises(CommandError, match=missing):
         run("--check")
     out, _ = run()
-    assert "CORS for browser uploads, lifecycle rules for abandoned uploads" in out
+    assert "CORS for browsers' uploads and reads, lifecycle rules for abandoned uploads" in out
     rules = {r.get("ID"): r for r in bucket.get_bucket_cors(Bucket=S3_BUCKET)["CORSRules"]}
     assert set(rules) == {"analytics", "iki-browser-uploads"}
     assert rules["iki-browser-uploads"]["AllowedOrigins"] == ["https://iki.example.com"]
-    assert rules["iki-browser-uploads"]["AllowedMethods"] == ["PUT"]
+    assert rules["iki-browser-uploads"]["AllowedMethods"] == ["GET", "PUT"]
     (rule,) = bucket.get_bucket_lifecycle_configuration(Bucket=S3_BUCKET)["Rules"]
     assert rule["Filter"]["Prefix"].endswith("/uploads/")
     assert rule["AbortIncompleteMultipartUpload"] == {"DaysAfterInitiation": 2}
@@ -70,3 +71,16 @@ def test_it_needs_a_bucket_and_a_public_url(settings: Any) -> None:
     settings.IKI_FILES_BUCKET = ""
     with pytest.raises(CommandError, match="IKI_FILES_BUCKET"):
         run()
+
+
+def test_it_lets_browsers_read_where_it_let_them_only_upload(bucket: Any) -> None:
+    """Buckets set up before the structure viewer read files: their rule only allowed PUT."""
+    bucket.put_bucket_versioning(Bucket=S3_BUCKET, VersioningConfiguration={"Status": "Enabled"})
+    run()
+    old = {**setup_storage.cors_rule(), "AllowedMethods": ["PUT"]}
+    bucket.put_bucket_cors(Bucket=S3_BUCKET, CORSConfiguration={"CORSRules": [old]})
+    with pytest.raises(CommandError, match=r"missing: CORS for browsers' uploads and reads\.$"):
+        run("--check")
+    run()
+    (rule,) = bucket.get_bucket_cors(Bucket=S3_BUCKET)["CORSRules"]
+    assert rule["AllowedMethods"] == ["GET", "PUT"]

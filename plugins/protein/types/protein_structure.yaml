@@ -102,3 +102,4 @@ fields:
       secondary structure, accessibility, hydrogen bonds and backbone angles.
 display:
   title: "{{ name or pdb_id or hrid }}"
+  viewers: [{ viewer: structure, structure: structure }]

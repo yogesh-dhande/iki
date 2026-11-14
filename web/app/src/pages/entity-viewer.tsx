@@ -1,6 +1,6 @@
 /**
- * Iki's own viewers on an entity's page, as its type configures them: for now, the
- * sequence viewer, with the sequence's features as a track along it.
+ * Iki's own viewers on an entity's page, as its type configures them: the sequence
+ * viewer, with the sequence's features as a track along it, and the structure viewer.
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -27,8 +27,9 @@ import {
 import { buttonClass } from "../ui";
 import { EntityTabs, useEntity } from "./entity";
 import { NotFound } from "./errors";
+import { StructureViewer } from "./structure-viewer";
 
-type Viewer = Schemas["ViewerOut"];
+type Viewer = Schemas["SequenceViewerOut"];
 
 export function EntityViewer() {
   const { entity, type } = useEntity();
@@ -39,7 +40,11 @@ export function EntityViewer() {
   return (
     <>
       <EntityTabs entity={entity} type={type} />
-      <SequenceViewer entity={entity} type={type} viewer={viewer} />
+      {viewer.viewer === "structure" ? (
+        <StructureViewer entity={entity} type={type} viewer={viewer} />
+      ) : (
+        <SequenceViewer entity={entity} type={type} viewer={viewer} />
+      )}
     </>
   );
 }

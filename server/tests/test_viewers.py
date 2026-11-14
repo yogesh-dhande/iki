@@ -1,9 +1,21 @@
-"""Viewers: Iki's own viewers on a type's pages, as the type API lists them (ADR 0085)."""
+"""Viewers: Iki's own viewers on a type's pages, as the type API lists them, and the frame
+the structure viewer runs Mol* in (ADR 0085)."""
+
+import base64
+import hashlib
+import re
+from pathlib import Path
 
 import pytest
+from browser import Browser
+from django.contrib.staticfiles import finders
+from django.utils.csp import CSP
 from org_world import World
 from test_api_entities import api_as
+from test_web_security import csp_directives
 from test_workers import world
+
+from iki_server.web import static_headers, viewers
 
 __all__ = ["world"]
 
@@ -22,3 +34,54 @@ def test_a_type_lists_the_viewers_it_configures(world: World) -> None:
         }
     ]
     assert types["dna.DNASequence"]["viewers"] == []
+    assert types["protein.ProteinStructure"]["viewers"] == [
+        {"viewer": "structure", "label": "Structure", "structure": "structure"}
+    ]
+
+
+# --- The structure viewer's frame ---------------------------------------------------------------
+
+
+def test_the_structure_frame_runs_mol_star_and_nothing_else() -> None:
+    # No session: the frame's document belongs to no one, so it never has one.
+    page = Browser().get("/viewers/structure/")
+    assert page.status_code == 200
+    html = page.content.decode()
+    name, integrity = viewers._module(viewers.STRUCTURE_ENTRY)
+    module = f"https://testserver/static/{name}"
+    found = finders.find(name)
+    assert isinstance(found, str)
+    digest = hashlib.sha384(Path(found).read_bytes()).digest()
+    assert integrity == "sha384-" + base64.b64encode(digest).decode()
+    assert re.findall(r"<script[^>]*>", html) == [
+        f'<script type="module" src="{module}" integrity="{integrity}" crossorigin="anonymous">'
+    ]
+    csp = csp_directives(page[CSP.HEADER_ENFORCE])
+    assert csp["script-src"] == [module]
+    assert csp["default-src"] == ["'none'"]
+    assert csp["connect-src"] == ["'none'"]
+    assert csp["form-action"] == ["'none'"]
+    assert csp["sandbox"] == ["allow-scripts"]
+    assert csp["frame-ancestors"] == ["'self'"]
+    assert "worker-src" not in csp and "frame-src" not in csp  # default-src 'none'
+    assert page["X-Frame-Options"] == "SAMEORIGIN"
+    assert page["Cross-Origin-Resource-Policy"] == "cross-origin"
+    assert page["Cache-Control"] == "no-cache"
+
+
+def test_without_its_build_the_structure_frame_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(viewers, "MANIFEST", "viewers/missing.json")
+    page = Browser().get("/viewers/structure/")
+    assert page.status_code == 503
+    assert b"make web" in page.content
+
+
+def test_viewers_code_is_for_frames_of_no_origin_too() -> None:
+    headers: dict[str, str] = {}
+    static_headers.add_headers(
+        headers, "/x/viewers/assets/main-1.js", "/static/viewers/assets/main-1.js"
+    )
+    assert headers == {"Cross-Origin-Resource-Policy": "cross-origin"}
+    others: dict[str, str] = {}
+    static_headers.add_headers(others, "/x/app/assets/main-1.js", "/static/app/assets/main-1.js")
+    assert others == {}

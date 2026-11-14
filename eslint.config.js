@@ -18,6 +18,7 @@ export default tseslint.config(
       "**/.static/**",
       // The web app's build output, and the client generated from the API.
       "server/src/iki_server/web/static/app/**",
+      "server/src/iki_server/web/static/viewers/**",
       "web/packages/sdk/src/schema.ts",
     ],
   },

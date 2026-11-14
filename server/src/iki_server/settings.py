@@ -20,6 +20,7 @@ from django.utils.csp import CSP
 from iki_server import __version__
 from iki_server.core.crypto import validate_keys as validate_encryption_keys
 from iki_server.observability.logging import configure_logging
+from iki_server.web.static_headers import add_headers as add_static_headers
 
 env = environ.Env()
 
@@ -658,6 +659,8 @@ TASKS = {
 # content-hashed names and long-lived caching.
 
 STATIC_URL = "/static/"
+# Viewers' frames load their code from no origin of their own (iki_server.web.viewers).
+SERVESTATIC_ADD_HEADERS_FUNCTION = add_static_headers
 STATIC_ROOT = env.path("IKI_STATIC_ROOT", default=str(BASE_DIR.parent / ".static"))
 STORAGES = {
     "staticfiles": {"BACKEND": "iki_server.web.frontend.StaticFilesStorage"},

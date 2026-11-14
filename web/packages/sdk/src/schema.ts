@@ -947,6 +947,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/{file_id}/content-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A link to read a file
+         * @description For pages that read a file themselves, such as the structure viewer: the store
+         *     lets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't
+         *     offer, since a redirect to another origin hides who's asking.
+         */
+        get: operations["iki_server_api_files_file_content_url"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -3151,6 +3173,24 @@ export interface components {
              */
             value: string;
         };
+        /** ContentUrlOut */
+        ContentUrlOut: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Sha256
+             * @description What the bytes it reads hash to: check them against it.
+             */
+            sha256: string;
+            /**
+             * Url
+             * @description A signed URL that reads the file, for five minutes.
+             */
+            url: string;
+        };
         /** CostGroupOut */
         CostGroupOut: {
             /** Amount */
@@ -3770,7 +3810,7 @@ export interface components {
              * Viewers
              * @description Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.
              */
-            viewers: components["schemas"]["ViewerOut"][];
+            viewers: (components["schemas"]["SequenceViewerOut"] | components["schemas"]["StructureViewerOut"])[];
         };
         /** EnvironmentVolumesOut */
         EnvironmentVolumesOut: {
@@ -6372,6 +6412,35 @@ export interface components {
             /** Secret */
             secret: string;
         };
+        /** SequenceViewerOut */
+        SequenceViewerOut: {
+            /**
+             * Alphabet
+             * @description What it's a sequence of: bases or amino acids.
+             * @enum {string}
+             */
+            alphabet: "dna" | "protein";
+            /**
+             * Features
+             * @description A json field of regions along it (type, start, end, name, strand), or null.
+             */
+            features: string | null;
+            /**
+             * Label
+             * @description What its tab is called.
+             */
+            label: string;
+            /**
+             * Sequence
+             * @description The field holding the sequence.
+             */
+            sequence: string;
+            /**
+             * @description `sequence`: the sequence, with its features as a track along it. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            viewer: "sequence";
+        };
         /** ServiceAccountIn */
         ServiceAccountIn: {
             /**
@@ -6774,6 +6843,24 @@ export interface components {
              */
             status: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
         };
+        /** StructureViewerOut */
+        StructureViewerOut: {
+            /**
+             * Label
+             * @description What its tab is called.
+             */
+            label: string;
+            /**
+             * Structure
+             * @description The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB (chemical/x-pdb).
+             */
+            structure: string;
+            /**
+             * @description `structure`: a 3D structure, in Mol*. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            viewer: "structure";
+        };
         /** SummaryOut */
         SummaryOut: {
             /** Unread */
@@ -7147,36 +7234,6 @@ export interface components {
             ready_at: string | null;
             /** Version */
             version: number | null;
-        };
-        /** ViewerOut */
-        ViewerOut: {
-            /**
-             * Alphabet
-             * @description What it's a sequence of: bases or amino acids.
-             * @enum {string}
-             */
-            alphabet: "dna" | "protein";
-            /**
-             * Features
-             * @description A json field of regions along it (type, start, end, name, strand), or null.
-             */
-            features: string | null;
-            /**
-             * Label
-             * @description What its tab is called.
-             */
-            label: string;
-            /**
-             * Sequence
-             * @description The field holding the sequence.
-             */
-            sequence: string;
-            /**
-             * Viewer
-             * @description `sequence`: the sequence, with its features as a track along it.
-             * @constant
-             */
-            viewer: "sequence";
         };
         /** VolumeOut */
         VolumeOut: {
@@ -9134,6 +9191,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_files_file_content_url: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentUrlOut"];
+                };
             };
         };
     };

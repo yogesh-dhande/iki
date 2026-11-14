@@ -62,7 +62,7 @@ def _module(component: Component) -> bytes:
         raise Http404 from None
 
 
-def _origin(request: HttpRequest) -> str:
+def public_origin(request: HttpRequest) -> str:
     """Iki's origin, as the frame's policy names it: a sandboxed document's own origin
     is no one's, so ``'self'`` can't be relied on to mean Iki."""
     if settings.IKI_PUBLIC_URL:
@@ -97,7 +97,7 @@ def _page(label: str, element: str, module: str, integrity: str) -> str:
 def frame(request: HttpRequest, name: str, digest: str) -> HttpResponse:
     component = _installed(name, digest)
     data = _module(component)
-    module = _origin(request) + reverse("component_module", args=[name, digest])
+    module = public_origin(request) + reverse("component_module", args=[name, digest])
     page = _page(component.label, component.element, module, _hash_source(data))
     response = HttpResponse(page, content_type="text/html; charset=utf-8")
     response._csp_config = {  # type: ignore[attr-defined]

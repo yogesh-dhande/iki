@@ -838,6 +838,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/files", fixed("/files"), row(200)),
     ("GET", "/files/{file_id}", file(), readers(200)),
     ("GET", "/files/{file_id}/content", file("/content"), readers(302)),
+    ("GET", "/files/{file_id}/content-url", file("/content-url"), readers(200)),
     # Notifications are each person's own: nobody else's are found.
     ("GET", "/notifications", fixed("/notifications"), row(200)),
     ("GET", "/notifications/summary", fixed("/notifications/summary"), row(200)),

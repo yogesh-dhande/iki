@@ -1465,6 +1465,32 @@
         "title": "ConditionOut",
         "type": "object"
       },
+      "ContentUrlOut": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "What the bytes it reads hash to: check them against it.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "url": {
+            "description": "A signed URL that reads the file, for five minutes.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at",
+          "sha256"
+        ],
+        "title": "ContentUrlOut",
+        "type": "object"
+      },
       "CostGroupOut": {
         "properties": {
           "amount": {
@@ -2739,7 +2765,21 @@
           "viewers": {
             "description": "Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.",
             "items": {
-              "$ref": "#/components/schemas/ViewerOut"
+              "discriminator": {
+                "mapping": {
+                  "sequence": "#/components/schemas/SequenceViewerOut",
+                  "structure": "#/components/schemas/StructureViewerOut"
+                },
+                "propertyName": "viewer"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/SequenceViewerOut"
+                },
+                {
+                  "$ref": "#/components/schemas/StructureViewerOut"
+                }
+              ]
             },
             "title": "Viewers",
             "type": "array"
@@ -8724,6 +8764,56 @@
         "title": "SecretOut",
         "type": "object"
       },
+      "SequenceViewerOut": {
+        "properties": {
+          "alphabet": {
+            "description": "What it's a sequence of: bases or amino acids.",
+            "enum": [
+              "dna",
+              "protein"
+            ],
+            "title": "Alphabet",
+            "type": "string"
+          },
+          "features": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A json field of regions along it (type, start, end, name, strand), or null.",
+            "title": "Features"
+          },
+          "label": {
+            "description": "What its tab is called.",
+            "title": "Label",
+            "type": "string"
+          },
+          "sequence": {
+            "description": "The field holding the sequence.",
+            "title": "Sequence",
+            "type": "string"
+          },
+          "viewer": {
+            "const": "sequence",
+            "description": "`sequence`: the sequence, with its features as a track along it.",
+            "title": "Viewer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "label",
+          "sequence",
+          "alphabet",
+          "features"
+        ],
+        "title": "SequenceViewerOut",
+        "type": "object"
+      },
       "ServiceAccountIn": {
         "properties": {
           "description": {
@@ -9610,6 +9700,33 @@
         "title": "StepRunOut",
         "type": "object"
       },
+      "StructureViewerOut": {
+        "properties": {
+          "label": {
+            "description": "What its tab is called.",
+            "title": "Label",
+            "type": "string"
+          },
+          "structure": {
+            "description": "The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB (chemical/x-pdb).",
+            "title": "Structure",
+            "type": "string"
+          },
+          "viewer": {
+            "const": "structure",
+            "description": "`structure`: a 3D structure, in Mol*.",
+            "title": "Viewer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "label",
+          "structure"
+        ],
+        "title": "StructureViewerOut",
+        "type": "object"
+      },
       "SummaryOut": {
         "properties": {
           "unread": {
@@ -10426,56 +10543,6 @@
           "ready_at"
         ],
         "title": "VersionOut",
-        "type": "object"
-      },
-      "ViewerOut": {
-        "properties": {
-          "alphabet": {
-            "description": "What it's a sequence of: bases or amino acids.",
-            "enum": [
-              "dna",
-              "protein"
-            ],
-            "title": "Alphabet",
-            "type": "string"
-          },
-          "features": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "A json field of regions along it (type, start, end, name, strand), or null.",
-            "title": "Features"
-          },
-          "label": {
-            "description": "What its tab is called.",
-            "title": "Label",
-            "type": "string"
-          },
-          "sequence": {
-            "description": "The field holding the sequence.",
-            "title": "Sequence",
-            "type": "string"
-          },
-          "viewer": {
-            "const": "sequence",
-            "description": "`sequence`: the sequence, with its features as a track along it.",
-            "title": "Viewer",
-            "type": "string"
-          }
-        },
-        "required": [
-          "viewer",
-          "label",
-          "sequence",
-          "alphabet",
-          "features"
-        ],
-        "title": "ViewerOut",
         "type": "object"
       },
       "VolumeOut": {
@@ -14929,6 +14996,48 @@
           }
         ],
         "summary": "Download a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/{file_id}/content-url": {
+      "get": {
+        "description": "For pages that read a file themselves, such as the structure viewer: the store\nlets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't\noffer, since a redirect to another origin hides who's asking.",
+        "operationId": "iki_server_api_files_file_content_url",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentUrlOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A link to read a file",
         "tags": [
           "files"
         ]

@@ -28,9 +28,10 @@ COPY web/packages/sdk/package.json web/packages/sdk/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "@ikisci/app..."
 COPY web web
-# Writes server/src/iki_server/web/static/app (Vite's outDir).
+# Writes server/src/iki_server/web/static/app and, for the structure viewer's frame, viewers.
 RUN pnpm --filter @ikisci/app build \
- && test -f /src/server/src/iki_server/web/static/app/manifest.json
+ && test -f /src/server/src/iki_server/web/static/app/manifest.json \
+ && test -f /src/server/src/iki_server/web/static/viewers/manifest.json
 
 # --- Build: resolve the locked dependencies into a virtualenv ----------------
 FROM ${PYTHON_IMAGE} AS build
@@ -57,6 +58,7 @@ COPY server/src server/src
 # The server reads plugin manifests and units with iki-spec.
 COPY spec/src spec/src
 COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/web/static/app
+COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_server/web/static/viewers
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable
 # Deployments add their plugins at /opt/iki/plugins (deploy/plugins.Dockerfile),

@@ -23,6 +23,9 @@ fields:
   bases: {{ type: string, format: dna_sequence }}
   name: {{ type: string }}
   features: {{ type: json }}
+  model: {{ type: file, media_types: [chemical/x-mmcif, chemical/x-pdb] }}
+  map: {{ type: file, media_types: [chemical/x-mmcif, application/octet-stream] }}
+  anything: {{ type: file }}
 display:
   viewers: {viewers}
 """
@@ -80,3 +83,30 @@ def test_the_schema_knows_each_viewers_fields(tmp_path: Path) -> None:
     assert codes(made(tmp_path, "[{ viewer: sequence }]")) == ["schema"]
     assert codes(made(tmp_path, "[{ viewer: sequence, sequence: bases, file: x }]")) == ["schema"]
     assert codes(made(tmp_path, "[{ viewer: chart }]")) == ["schema"]
+
+
+def test_a_structure_viewer_shows_a_file_of_structures(tmp_path: Path) -> None:
+    both = "[{ viewer: sequence, sequence: bases }, { viewer: structure, structure: model }]"
+    result = made(tmp_path, both)
+    assert result.problems == []
+    plugin = result.plugin
+    assert plugin is not None
+    assert plugin.types["acme.Plasmid"].viewers[1] == Viewer(
+        viewer="structure", label="Structure", structure="model"
+    )
+    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+
+
+def test_a_structure_viewers_file_holds_only_what_it_reads(tmp_path: Path) -> None:
+    """Mol* reads mmCIF and PDB: a field that may hold anything else isn't its to show."""
+    for field in ("map", "anything", "name"):
+        result = made(tmp_path, f"[{{ viewer: structure, structure: {field} }}]")
+        assert codes(result) == ["viewer-field"], field
+    assert made(tmp_path, "[{ viewer: structure, structure: map }]").problems[0].message == (
+        "`map` isn't a file field of mmCIF or PDB files (media types chemical/x-mmcif or "
+        "chemical/x-pdb), which a structure viewer's `structure` shows."
+    )
+    assert codes(made(tmp_path, "[{ viewer: structure }]")) == ["schema"]
+    assert codes(made(tmp_path, "[{ viewer: structure, structure: model, sequence: bases }]")) == [
+        "schema"
+    ]

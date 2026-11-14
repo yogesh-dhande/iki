@@ -662,6 +662,9 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
     )
 
 
+#: The formats the structure viewer reads, by media type, as Mol* names them.
+STRUCTURE_MEDIA_TYPES = {"chemical/x-mmcif": "mmcif", "chemical/x-pdb": "pdb"}
+
 #: What each viewer's fields must be: (role, as it reads, test).
 _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] = {
     "sequence": (
@@ -672,10 +675,21 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
         ),
         ("features", "a json field", lambda f: f.type == "json"),
     ),
+    "structure": (
+        (
+            "structure",
+            "a file field of mmCIF or PDB files (media types chemical/x-mmcif or chemical/x-pdb)",
+            lambda f: (
+                f.type == "file"
+                and bool(f.media_types)
+                and set(f.media_types) <= set(STRUCTURE_MEDIA_TYPES)
+            ),
+        ),
+    ),
 }
 
 #: Each viewer's name, when a type doesn't give it one.
-VIEWER_LABELS = {"sequence": "Sequence"}
+VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure"}
 
 
 def _viewer(body: dict[str, Any]) -> Viewer:
@@ -685,6 +699,7 @@ def _viewer(body: dict[str, Any]) -> Viewer:
         label=body.get("label") or VIEWER_LABELS[kind],
         sequence=body.get("sequence", ""),
         features=body.get("features", ""),
+        structure=body.get("structure", ""),
     )
 
 

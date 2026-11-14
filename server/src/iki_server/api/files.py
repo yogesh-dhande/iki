@@ -16,11 +16,12 @@ SHA-256, then the registration is ``ready``, with its ``file``.
 ``registration.finished`` arrives on ``/events``.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
 from django.http import HttpRequest, HttpResponse
+from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
@@ -418,3 +419,27 @@ def download_file(request: HttpRequest, file_id: UUID) -> HttpResponse:
     response["Location"] = url
     response["Cache-Control"] = "no-store"
     return response
+
+
+class ContentUrlOut(Schema):
+    url: str = Field(description="A signed URL that reads the file, for five minutes.")
+    expires_at: datetime
+    sha256: str = Field(description="What the bytes it reads hash to: check them against it.")
+
+
+@router.get("/files/{file_id}/content-url", response=ContentUrlOut, summary="A link to read a file")
+def file_content_url(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
+    """For pages that read a file themselves, such as the structure viewer: the store
+    lets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't
+    offer, since a redirect to another origin hides who's asking."""
+    me = caller(request)
+    found = _file(me, file_id)
+    _storage()
+    blob = found.blob
+    return {
+        "url": storage.download_url(
+            blob.storage_uri, blob.object_version, found.name, found.media_type
+        ),
+        "expires_at": timezone.now() + timedelta(seconds=storage.DOWNLOAD_URL_SECONDS),
+        "sha256": blob.sha256,
+    }

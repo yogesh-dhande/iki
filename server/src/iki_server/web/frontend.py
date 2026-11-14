@@ -26,6 +26,8 @@ MANIFEST = "app/manifest.json"
 ENTRY = "src/main.tsx"
 #: Vite names these by content hash already, and chunks import each other by those names.
 ASSETS_PREFIX = "app/assets/"
+#: The same for the viewers' frames' code (iki_server.web.viewers).
+VIEWER_ASSETS_PREFIX = "viewers/assets/"
 DEV_HEADER = "X-Iki-Web-Dev"
 
 
@@ -41,7 +43,7 @@ class StaticFilesStorage(CompressedManifestStaticFilesStorage):
     """
 
     def hashed_name(self, name: str, content: Any = None, filename: str | None = None) -> str:  # noqa: ANN401
-        if name.startswith(ASSETS_PREFIX):
+        if name.startswith((ASSETS_PREFIX, VIEWER_ASSETS_PREFIX)):
             return name
         return super().hashed_name(name, content, filename)
 
@@ -54,7 +56,9 @@ class ServeStaticMiddleware(BaseServeStaticMiddleware):
     """
 
     def immutable_file_test(self, path: str, url: str) -> bool:
-        if url.startswith(f"{self.static_prefix}{ASSETS_PREFIX}"):
+        if url.startswith(
+            (f"{self.static_prefix}{ASSETS_PREFIX}", f"{self.static_prefix}{VIEWER_ASSETS_PREFIX}")
+        ):
             return True
         return super().immutable_file_test(path, url)
 

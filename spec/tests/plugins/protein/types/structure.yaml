@@ -9,3 +9,5 @@ fields:
   method: { type: enum, values: [xray, nmr, cryo_em, predicted] }
   resolution: { type: quantity, unit: Ao, min: 0 }
   chains: { type: list, items: { type: ref, to: Protein }, min_items: 1 }
+display:
+  viewers: [{ viewer: structure, structure: structure }]

@@ -746,6 +746,20 @@ input:focus-visible {
   vertical-align: -0.05rem;
 }
 
+/* The structure viewer: Mol*, in a sandboxed frame of Iki's own (ADR 0085). */
+.structure-file {
+  margin: 0 0 0.75rem;
+}
+
+.structure-frame {
+  display: block;
+  width: 100%;
+  height: min(75vh, 900px);
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
 /* A plugin's component, in a sandboxed frame of its own (ADR 0084). */
 .component-frame {
   display: block;

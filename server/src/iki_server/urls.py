@@ -8,6 +8,7 @@ from iki_server.api.v1 import api as api_v1
 from iki_server.components import views as components
 from iki_server.mcp import views as mcp
 from iki_server.realtime import views as realtime
+from iki_server.web import viewers
 from iki_server.web import views as web
 
 urlpatterns: list[URLPattern | URLResolver] = [
@@ -58,6 +59,8 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/viewers/<str:viewer>/", web.app, name="entity_viewer"),
     path("entities/<str:ref>/components/<str:name>/", web.app, name="entity_component"),
     # Plugins' components, for the web app's sandboxed frames (ADR 0084).
+    # The frames Iki's own viewers run in (ADR 0085).
+    path("viewers/structure/", viewers.structure_frame, name="structure_frame"),
     path(
         "plugin-components/<str:name>/<str:digest>/",
         components.frame,
