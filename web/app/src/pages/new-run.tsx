@@ -130,6 +130,7 @@ export function inputField(input: Input): FieldDef {
     immutable: false,
     computed: false,
     unique: false,
+    link: null,
     unit: null,
     unit_symbol: null,
     display_unit: null,

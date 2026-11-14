@@ -8,6 +8,10 @@ dependencies:
       Protein: ">=1"
       ProteinStructure: ">=1"
 settings:
+  jobs_url:
+    type: string
+    description: Where the prediction service shows its jobs.
+    default: https://predict.example.org
   default_model:
     type: enum
     values: [alphafold2, colabfold, boltz]

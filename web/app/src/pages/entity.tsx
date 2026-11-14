@@ -96,6 +96,13 @@ export function useEntity(): { entity: Entity; type: EntityType | undefined; typ
   return { entity, type: types.find((t) => t.name === entity.type), types };
 }
 
+/** Where a value leads in another system, such as its LIMS record (ADR 0082): its field's
+ * link with the value in it, encoded. Only ever https, as the API gives it. */
+export function linkTo(field: FieldDef, value: unknown): string | null {
+  if (typeof value !== "string" || !field.link?.startsWith("https://")) return null;
+  return field.link.replaceAll("{value}", encodeURIComponent(value));
+}
+
 /** One value as it reads on the page: references link, files download, units show. */
 export function Value({
   field,
@@ -121,6 +128,14 @@ export function Value({
           </li>
         ))}
       </ul>
+    );
+  }
+  const link = linkTo(field, value);
+  if (link) {
+    return (
+      <a href={link} target="_blank" rel="noreferrer noopener">
+        {value as string}
+      </a>
     );
   }
   switch (field.type) {

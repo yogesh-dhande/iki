@@ -523,6 +523,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entity-types/{name}", fixed("/entity-types/dna.DNASequence"), row(200)),
     ("GET", "/entities", fixed("/entities"), row(200)),
     ("POST", "/entities/search", lambda w: ("/entities/search", {"q": "kin"}), row(200)),
+    (
+        "GET",
+        "/entities/lookup",
+        fixed("/entities/lookup?type=protein.Protein&field=lims_id&value=LIMS-1"),
+        row(200),
+    ),
     # Saved searches: a project's readers save their own; the owner changes one; Admins
     # can remove shared ones.
     (

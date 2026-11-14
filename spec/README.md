@@ -143,8 +143,20 @@ since projects are kept apart. A field can be made unique after entities
 have values: the deploy fills them in, and stops, naming them, if any in a
 project share one.
 
+A string field may `link` to where its value leads in another system, such
+as the record in the LIMS. `{value}` is the value, and `{settings.name}` one
+of the plugin's settings, so each deployment can point at its own LIMS. A
+link starts with `https://` or a setting, and Iki shows only links that are
+https once the settings are filled in. The API, SDK and MCP look entities
+up by a unique field's value.
+
 ```yaml
-lims_id: { type: string, max_length: 64, indexed: true, unique: true }
+lims_id:
+  type: string
+  max_length: 64
+  indexed: true
+  unique: true
+  link: "{settings.lims_url}/samples/{value}"
 ```
 
 A field is never deleted, because its history is kept. To stop using one,
@@ -993,7 +1005,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                         | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                                                                                                                                                                                                                                                                         | Identities                      |
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                 | Field options                   |
-| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`                                                                                                                                                                                                                                                                                                                                                                                                                 | Indexes                         |
+| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                             | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                             | Units                           |
 | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                            | Files, JSON fields and titles   |
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                           | Extensions                      |

@@ -2919,6 +2919,18 @@
             "title": "Label",
             "type": "string"
           },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where a value leads in another system: an https URL with `{value}` in it, for the value, URL-encoded.",
+            "title": "Link"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -2996,6 +3008,7 @@
           "immutable",
           "computed",
           "unique",
+          "link",
           "unit",
           "unit_symbol",
           "display_unit",
@@ -3887,6 +3900,46 @@
           }
         },
         "title": "LogParams",
+        "type": "object"
+      },
+      "LookupParams": {
+        "properties": {
+          "field": {
+            "description": "One of the type's unique fields, such as `lims_id`.",
+            "title": "Field",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only entities that belong to this project.",
+            "title": "Project"
+          },
+          "type": {
+            "description": "The entity type, such as `protein.Protein`; subtypes count.",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "field",
+          "value"
+        ],
+        "title": "LookupParams",
         "type": "object"
       },
       "MarkAllIn": {
@@ -5289,6 +5342,18 @@
             "title": "Label",
             "type": "string"
           },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where a value leads in another system: an https URL with `{value}` in it, for the value, URL-encoded.",
+            "title": "Link"
+          },
           "max": {
             "anyOf": [
               {
@@ -5421,6 +5486,7 @@
           "immutable",
           "computed",
           "unique",
+          "link",
           "unit",
           "unit_symbol",
           "display_unit",
@@ -13700,6 +13766,94 @@
           }
         ],
         "summary": "Create an entity",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/lookup": {
+      "get": {
+        "description": "The entities you can read of ``type`` (or a subtype) whose unique ``field`` is\n``value``, such as the record's ID in a LIMS (ADR 0082). Each project has at most one of\nits own, so with ``project`` you get its own and any linked into it. Oldest first.",
+        "operationId": "iki_server_api_entities_lookup_entities",
+        "parameters": [
+          {
+            "description": "The entity type, such as `protein.Protein`; subtypes count.",
+            "in": "query",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "description": "The entity type, such as `protein.Protein`; subtypes count.",
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of the type's unique fields, such as `lims_id`.",
+            "in": "query",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "description": "One of the type's unique fields, such as `lims_id`.",
+              "title": "Field",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "value",
+            "required": true,
+            "schema": {
+              "maxLength": 600,
+              "minLength": 1,
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only entities that belong to this project.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only entities that belong to this project.",
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EntityOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Entities by an external ID",
         "tags": [
           "entities"
         ]

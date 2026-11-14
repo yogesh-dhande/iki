@@ -241,7 +241,11 @@ def test_runs_get_their_plugins_settings_as_the_deployment_set_them(
     made = launch(runner, world.project, {"protein": abl["id"]}, PREDICT)
     assert made.status_code == 201, made.content
     # The fixture plugins are built without a deployment, so they take their defaults.
-    expected = {"default_model": "colabfold", "allowed_presets": ["monomer"]}
+    expected = {
+        "jobs_url": "https://predict.example.org",
+        "default_model": "colabfold",
+        "allowed_presets": ["monomer"],
+    }
     assert made.json()["settings"] == expected
     assert ActionRun.objects.get(pk=made.json()["id"]).plugin_settings == expected
 

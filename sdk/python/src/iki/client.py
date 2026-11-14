@@ -363,6 +363,25 @@ class Entities(_Part):
 
         return Results(fetch, frames.entities)
 
+    def lookup(
+        self,
+        type: str,
+        field: str,
+        value: str,
+        *,
+        project: str | Mapping[str, Any] | None = None,
+    ) -> list[EntityOut]:
+        """The entities whose unique `field` is `value`, such as the ID a LIMS gives its
+        record, in each project you can read: at most one of each project's own::
+
+            iki.entities.lookup("protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas")
+        """
+        client = self._client
+        params = {"type": type, "field": field, "value": value}
+        if project is not None:
+            params["project"] = client._project_id(project)
+        return cast("list[EntityOut]", client.request("GET", "/entities/lookup", params=params))
+
     def get(self, ref: str) -> EntityOut:
         """An entity, by its ID or HRID (``PRT-000123``)."""
         return cast("EntityOut", self._client.request("GET", _path("/entities/{ref}", ref=ref)))

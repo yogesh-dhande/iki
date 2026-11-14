@@ -148,6 +148,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "list_entity_types",
         "describe_entity_type",
         "search_entities",
+        "lookup_entities",
         "get_entity",
         "get_entity_history",
         "get_lineage",
@@ -259,6 +260,12 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     def made() -> tuple[dict[str, Any], dict[str, Any]]:
         editor = api_as(world, "editor")
         abl = protein(editor, world.project)
+        tagged = editor.patch(
+            f"/entities/{abl['hrid']}",
+            {"values": {"lims_id": "LIMS-ABL"}},
+            headers={"If-Match": '"1"'},
+        )
+        assert tagged.status_code == 200, tagged.content
         run = launch(editor, world.project, {"protein": abl["id"]})
         assert run.status_code == 201, run.content
         return abl, run.json()
@@ -285,12 +292,18 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
         )
     )
     assert [e["hrid"] for e in found["items"]] == [abl["hrid"]]
+    looked_up = data(
+        await tool(
+            token, "lookup_entities", type="protein.Protein", field="lims_id", value="LIMS-ABL"
+        )
+    )
+    assert [e["hrid"] for e in looked_up] == [abl["hrid"]]
     entity = data(await tool(token, "get_entity", ref=abl["hrid"]))
     assert entity["entity"]["id"] == abl["id"]
     assert entity["provenance"]["sequence"]["user"]["email"] == "editor@example.com"
     assert entity["origins"] == []  # made by hand, not imported
     history = data(await tool(token, "get_entity_history", ref=abl["hrid"]))
-    assert [r["number"] for r in history["items"]] == [1]
+    assert [r["number"] for r in history["items"]] == [2, 1]  # created, then tagged
     lineage = data(await tool(token, "get_lineage", ref=abl["hrid"], up=1))
     assert lineage["root"] == abl["id"]
 

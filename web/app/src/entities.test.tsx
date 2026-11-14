@@ -9,9 +9,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   ALICE,
   entity,
+  field,
   FILE_ID,
   KINASE,
   nth,
+  PROTEIN,
   PROTEIN_ID,
   renderApp,
   revision,
@@ -476,6 +478,29 @@ describe("an entity's page", () => {
     );
     expect(screen.getByText("52.3415 ku")).toBeInTheDocument();
     expect(screen.getByText("(52,341.5 u)")).toBeInTheDocument();
+  });
+
+  it("links an external ID to its record in the other system", async () => {
+    withTypes();
+    const lims = field({
+      name: "lims_id",
+      label: "LIMS ID",
+      type: "string",
+      unique: true,
+      link: "https://lims.example.org/proteins/{value}",
+    });
+    answer("GET /api/v1/entity-types", [{ ...PROTEIN, fields: [...PROTEIN.fields, lims] }]);
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({ values: { name: "ABL1 kinase", sequence: "MKV", lims_id: "P 42/7" } }),
+    );
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    await renderApp("/entities/PRT-000001/");
+    const values = screen.getByRole("region", { name: "Values" });
+    const record = within(values).getByRole("link", { name: "P 42/7" });
+    expect(record).toHaveAttribute("href", "https://lims.example.org/proteins/P%2042%2F7");
+    expect(record).toHaveAttribute("rel", "noreferrer noopener");
   });
 
   it("says where an imported entity came from", async () => {

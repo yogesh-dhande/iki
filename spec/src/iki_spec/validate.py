@@ -1203,6 +1203,8 @@ class _Semantics:
                 )
             if f.indexed:
                 self.index(f, source, path)
+            if f.link is not None:
+                self.link(f.link, source, (*path, "link"))
             if f.unique and not f.indexed:
                 self.add(
                     "unique-needs-index",
@@ -1240,6 +1242,37 @@ class _Semantics:
         if f.has_default:
             for message in value_problems(f, f.default):
                 self.add("invalid-default", f"The default {message}", source, (*path, "default"))
+
+    def link(self, template: str, source: Document, path: Path) -> None:
+        """A field's link: an https URL, with the value and the plugin's settings in it."""
+        names = re.findall(r"\{([^{}]*)\}", template)
+        for name in names:
+            setting = name.removeprefix("settings.")
+            if name == "value" or (
+                name.startswith("settings.") and setting in self.plugin.settings
+            ):
+                continue
+            self.add(
+                "link-unknown-placeholder",
+                f"`{{{name}}}` isn't something a link can have: use `{{value}}`, or "
+                "`{settings.<name>}` with one of the plugin's settings.",
+                source,
+                path,
+            )
+        if "value" not in names:
+            self.add(
+                "link-without-value",
+                "A link leads to the value's record, so it has `{value}` in it.",
+                source,
+                path,
+            )
+        if not template.startswith(("https://", "{settings.")):
+            self.add(
+                "link-not-https",
+                "Links start with `https://`, or with a setting that holds the start of one.",
+                source,
+                path,
+            )
 
     def index(self, f: Field, source: Document, path: Path) -> None:
         if f.type not in INDEXABLE:

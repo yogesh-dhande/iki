@@ -259,6 +259,30 @@ def build() -> MCPServer:
             )
         )
 
+    @server.tool(annotations=READ, title="Look up entities by an external ID")
+    async def lookup_entities(
+        type: Annotated[str, Field(description="The type, such as protein.Protein.")],
+        field: Annotated[
+            str,
+            Field(
+                description="One of its unique fields, such as lims_id: describe_entity_type "
+                "says which are (unique: true)."
+            ),
+        ],
+        value: Annotated[str, Field(min_length=1, max_length=600)],
+        project: Annotated[UUID | None, Field(description="Only this project's.")] = None,
+    ) -> CallToolResult:
+        """The entities whose unique field has this value, such as the ID a LIMS or ELN
+        gives its record: at most one in each project the person can read. A field's `link`
+        leads to the record there, with `{value}` filled in."""
+        query = {
+            "type": type,
+            "field": field,
+            "value": value,
+            "project": str(project) if project else None,
+        }
+        return answer(await call("GET", "/entities/lookup", query=query))
+
     @server.tool(annotations=READ, title="Get an entity")
     async def get_entity(ref: Ref) -> CallToolResult:
         """An entity's values, and for each one who set it, how (by hand, or which run)

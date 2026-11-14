@@ -22,18 +22,22 @@ from uuid import UUID
 from django.db import IntegrityError, models
 from psycopg import sql
 
+from iki_server.entities import registry
 from iki_server.entities.models import UNIQUE_CONSTRAINT, UniqueValue
 from iki_server.entities.values import Shape
 from iki_server.org.models import Project
+from iki_spec.model import Field
 
 __all__ = [
     "Clash",
     "Column",
     "clash_message",
     "columns",
+    "holders",
     "install",
     "is_clash",
     "key",
+    "link",
     "taken",
 ]
 
@@ -88,6 +92,29 @@ def taken(
             if found is not None:
                 errors[name] = [f"is {found}’s already: no two entities in a project share it."]
     return errors
+
+
+def link(f: Field, plugin: str) -> str | None:
+    """Where a field's values lead in another system: its link with the plugin's settings
+    filled in and ``{value}`` left for each value, or None. Only an https link is given, so a
+    deployment's setting can't make one run script or leave TLS."""
+    if f.link is None:
+        return None
+    values = registry.settings(plugin)
+    out = re.sub(
+        r"\{settings\.([^{}]+)\}", lambda m: str(values.get(m[1]) or "").rstrip("/"), f.link
+    )
+    if not out.startswith("https://") or "{value}" not in out or len(out) <= len("https://"):
+        return None
+    return out
+
+
+def holders(field_key: str, value: str) -> models.QuerySet[UniqueValue, UUID]:
+    """The IDs of the entities, in any project, with this value of a unique field: narrow
+    them to what the reader can see before showing any."""
+    return UniqueValue.objects.filter(key=field_key, value=value).values_list(
+        "entity_id", flat=True
+    )
 
 
 class Clash(Exception):  # noqa: N818 - reads as "the values clash"

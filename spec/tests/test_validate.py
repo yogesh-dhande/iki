@@ -409,6 +409,31 @@ def test_a_unique_external_id(tmp_path: Path) -> None:
     assert result.plugin.types["acme.Assay"].fields["lims_id"].unique
 
 
+@pytest.mark.parametrize(
+    ("link", "code"),
+    [
+        ("http://lims.example.org/{value}", "link-not-https"),
+        ("javascript:alert({value})", "link-not-https"),
+        ("https://lims.example.org/samples", "link-without-value"),
+        ("https://lims.example.org/{id}", "link-unknown-placeholder"),
+        ("{settings.nope}/{value}", "link-unknown-placeholder"),
+    ],
+)
+def test_links(tmp_path: Path, link: str, code: str) -> None:
+    result = make(tmp_path, fields(f'x: {{ type: string, link: "{link}" }}\n'))
+    assert code in codes(result), result.problems
+
+
+def test_a_link_can_start_with_a_setting(tmp_path: Path) -> None:
+    plugin = PLUGIN + "settings:\n  lims_url: { type: string, default: https://lims.example.org }\n"
+    result = make(
+        tmp_path, fields('x: { type: string, link: "{settings.lims_url}/s/{value}" }\n'), plugin
+    )
+    assert result.problems == []
+    assert result.plugin is not None
+    assert result.plugin.types["acme.Assay"].fields["x"].link == "{settings.lims_url}/s/{value}"
+
+
 def test_indexable_fields(tmp_path: Path) -> None:
     result = make(
         tmp_path,

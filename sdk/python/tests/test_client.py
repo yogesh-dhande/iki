@@ -262,6 +262,19 @@ def test_projects_are_named_by_slug_or_id(fake: FakeIki, client: Client) -> None
         client.projects.get("nope")
 
 
+def test_entities_are_looked_up_by_an_external_id(fake: FakeIki, client: Client) -> None:
+    fake.on("GET", "/api/v1/entities/lookup", [entity("PRT-000007", lims_id="LIMS-7")])
+    found = client.entities.lookup("protein.Protein", "lims_id", "LIMS-7", project=PROJECT)
+    assert [e["hrid"] for e in found] == ["PRT-000007"]
+    sent = fake.requests[-1].url.params
+    assert dict(sent) == {
+        "type": "protein.Protein",
+        "field": "lims_id",
+        "value": "LIMS-7",
+        "project": PROJECT,
+    }
+
+
 def test_changes_name_the_revision_they_were_decided_on(fake: FakeIki, client: Client) -> None:
     fake.on("PATCH", "/api/v1/entities/PRT-000001", entity(name="ABL1"))
     client.entities.update("PRT-000001", {"name": "ABL1"}, revision=3, reason="Typo")

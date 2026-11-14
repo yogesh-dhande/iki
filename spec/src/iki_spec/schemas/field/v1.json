@@ -32,6 +32,12 @@
       "type": "boolean",
       "description": "No two entities in a project have the same value, such as a LIMS or ELN record's ID. Strings only, and they must be indexed."
     },
+    "link": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 500,
+      "description": "Where the value leads in another system, such as `https://lims.example.org/samples/{value}`: `{value}` is the field's value, and `{settings.name}` one of the plugin's settings. It starts with `https://` or a setting."
+    },
     "removed": {
       "type": "boolean",
       "description": "The field is gone from the type: its column is dropped, but its values stay in the type's history. Removed fields are never deleted, so history is kept."
@@ -216,6 +222,7 @@
                 "computed",
                 "indexed",
                 "unique",
+                "link",
                 "removed",
                 "default",
                 "format",

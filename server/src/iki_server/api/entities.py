@@ -28,7 +28,7 @@ from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
-from iki_server.entities import access, registry, schema, search, services
+from iki_server.entities import access, registry, schema, search, services, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid, shape, subtypes, to_json
 from iki_server.org import permissions
@@ -64,6 +64,10 @@ class FieldOut(Schema):
     computed: bool = Field(description="Set only by actions.")
     unique: bool = Field(
         description="No two entities in a project have the same value, such as a LIMS record's ID."
+    )
+    link: str | None = Field(
+        description="Where a value leads in another system: an https URL with `{value}` in it, "
+        "for the value, URL-encoded."
     )
     unit: str | None = Field(description="Quantities: the UCUM unit values are in.")
     unit_symbol: str | None = Field(description="The unit as people write it, such as Å for Ao.")
@@ -308,6 +312,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "required": f.required,
         "immutable": f.immutable,
         "unique": f.unique,
+        "link": unique.link(f, plugin),
         "computed": f.computed,
         "unit": f.unit,
         "unit_symbol": units.symbol(f.unit) if f.unit else None,
@@ -605,6 +610,45 @@ def _searching(*, parameters: bool = False) -> Iterator[None]:
             "by an indexed field.",
             code="search_too_slow",
         ) from error
+
+
+#: More entities than one value of a unique field has across the projects a person reads.
+LOOKUP_LIMIT = 100
+
+
+class LookupParams(Schema):
+    type: str = Field(description="The entity type, such as `protein.Protein`; subtypes count.")
+    field: str = Field(description="One of the type's unique fields, such as `lims_id`.")
+    value: str = Field(min_length=1, max_length=600)
+    project: UUID | None = Field(None, description="Only entities that belong to this project.")
+
+
+@router.get("/entities/lookup", response=list[EntityOut], summary="Entities by an external ID")
+def lookup_entities(request: HttpRequest, params: Query[LookupParams]) -> list[dict[str, Any]]:
+    """The entities you can read of ``type`` (or a subtype) whose unique ``field`` is
+    ``value``, such as the record's ID in a LIMS (ADR 0082). Each project has at most one of
+    its own, so with ``project`` you get its own and any linked into it. Oldest first."""
+    me = caller(request)
+    type_name, field, project_id = params.type, params.field, params.project
+    if type_name not in _types():
+        raise Problem(404, f"There’s no entity type {type_name}.")
+    form = shape(type_name)
+    spec = form.fields().get(field)
+    if spec is None or not spec.unique:
+        raise Problem(
+            422,
+            f"`{field}` isn’t a unique field of {type_name}.",
+            code="validation_failed",
+            errors=[{"parameter": "field", "detail": "isn't a unique field of the type."}],
+        )
+    if project_id is not None:
+        project(me, project_id)
+    rows = unique.holders(unique.key(form.part_of(field).model, field), params.value)
+    entities = access.visible(me).filter(pk__in=rows, type__in=subtypes(type_name))
+    if project_id is not None:
+        entities = entities.filter(links__project_id=project_id)
+    picked = list(entities.select_related("created_by").order_by("created_at", "pk")[:LOOKUP_LIMIT])
+    return _out(me, picked)
 
 
 @router.get(

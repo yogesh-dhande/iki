@@ -165,3 +165,77 @@ def test_sync_fills_in_values_and_stops_at_entities_sharing_one(world: World) ->
     ]
     # The trigger is back.
     assert problem(protein(api, world.project, "MKVLA", lims_id="LIMS-2"), 422, "validation_failed")
+
+
+# --- Looking up, and links out ------------------------------------------------------------------
+
+
+def lookup(api: Api, value: str, **params: Any) -> Any:
+    return api.get(
+        "/entities/lookup",
+        **{"type": "protein.Protein", "field": "lims_id", "value": value, **params},
+    )
+
+
+def test_an_external_id_finds_its_entity_in_each_project_you_can_read(world: World) -> None:
+    other = Project.objects.create(team=world.team, name="Enzymes")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    api = api_as(world)
+    mine = protein(api, world.project, "MKV", lims_id="LIMS-1").json()
+    theirs = protein(api, other, "MKVL", lims_id="LIMS-1").json()
+
+    found = lookup(api, "LIMS-1")
+    assert found.status_code == 200, found.content
+    assert [e["hrid"] for e in found.json()] == [mine["hrid"], theirs["hrid"]]
+    assert [e["hrid"] for e in lookup(api, "LIMS-1", project=str(other.pk)).json()] == [
+        theirs["hrid"]
+    ]
+    assert lookup(api, "LIMS-2").json() == []
+    # A subtype's lookup by its parent's type finds it too; another type's doesn't.
+    assert lookup(api, "LIMS-1", type="dna.Sequence").status_code == 422  # no such field there
+
+    # Someone who can read only the first project sees only its entity.
+    viewer = world.users["viewer"]
+    assert not ProjectMembership.objects.filter(project=other, user=viewer).exists()
+    assert [e["hrid"] for e in lookup(api_as(world, "viewer"), "LIMS-1").json()] == [mine["hrid"]]
+    problem(lookup(api_as(world, "viewer"), "LIMS-1", project=str(other.pk)), 404, "not_found")
+
+
+def test_only_a_unique_field_looks_entities_up(world: World) -> None:
+    api = api_as(world)
+    body = problem(lookup(api, "Homo sapiens", field="organism"), 422, "validation_failed")
+    assert body["errors"] == [{"parameter": "field", "detail": "isn't a unique field of the type."}]
+    problem(lookup(api, "X", type="protein.Nope"), 404, "not_found")
+
+
+def test_fields_link_to_the_record_in_the_other_system(world: World) -> None:
+    api = api_as(world)
+    proteins = {f["name"]: f for f in api.get("/entity-types/protein.Protein").json()["fields"]}
+    assert proteins["lims_id"]["link"] == "https://lims.example.org/proteins/{value}"
+    assert proteins["organism"]["link"] is None
+    structures = {
+        f["name"]: f for f in api.get("/entity-types/protein.ProteinStructure").json()["fields"]
+    }
+    # From the plugin's setting, as the deployment set it.
+    assert structures["job_id"]["link"] == "https://predict.example.org/jobs/{value}"
+
+
+@pytest.mark.parametrize(
+    ("setting", "link"),
+    [
+        ("https://jobs.example.org/", "https://jobs.example.org/jobs/{value}"),
+        ("javascript:alert(1)//", None),
+        ("http://jobs.example.org", None),
+        ("", None),
+    ],
+)
+def test_a_link_is_only_ever_https(
+    monkeypatch: pytest.MonkeyPatch, setting: str, link: str | None
+) -> None:
+    from iki_server.entities import registry, values
+
+    monkeypatch.setattr(registry, "settings", lambda plugin: {"jobs_url": setting})
+    field = values.shape("protein.ProteinStructure").fields()["job_id"]
+    assert unique.link(field, "structure_prediction") == link

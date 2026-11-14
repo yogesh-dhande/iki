@@ -91,6 +91,8 @@ class Field:
     indexed: bool = False
     #: No two entities in a project share a value (ADR 0082).
     unique: bool = False
+    #: Where the value leads in another system: a URL with `{value}` (ADR 0082).
+    link: str | None = None
     #: Gone from the type, but kept in its history (removed fields are never deleted).
     removed: bool = False
     has_default: bool = False
@@ -126,6 +128,7 @@ class Field:
             computed=bool(data.get("computed", False)),
             indexed=bool(data.get("indexed", False)),
             unique=bool(data.get("unique", False)),
+            link=data.get("link"),
             removed=bool(data.get("removed", False)),
             has_default="default" in data,
             default=data.get("default"),

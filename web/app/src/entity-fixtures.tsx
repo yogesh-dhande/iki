@@ -41,6 +41,7 @@ export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" |
     immutable: false,
     computed: false,
     unique: false,
+    link: null,
     unit: null,
     unit_symbol: null,
     display_unit: null,

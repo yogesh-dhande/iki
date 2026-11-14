@@ -51,6 +51,19 @@ writes at the same moment are refused by the constraint instead, with a
 plainer message. A bulk import that would write a taken value, or the same
 value twice, fails as a whole, naming the field and value.
 
+**Entities are looked up by a unique field's value**, in the API
+(`GET /entities/lookup`), the SDK and an MCP tool. A lookup finds the
+entities the reader can read, in any project, so it shows at most one of each
+project's own. It never says that a project the reader can't see has one.
+
+**A field can link to its record.** A string field's `link` is a URL with
+`{value}` in it, such as `https://lims.example.org/samples/{value}`. It may
+start with one of the plugin's settings, since each deployment has its own
+LIMS. The build checks the link's shape, and the server gives a field's link
+only if, with the settings filled in, it is https. So no setting can turn a
+value into a script. The web app shows the value as a link that opens a new
+tab, with the value URL-encoded.
+
 ## Consequences
 
 - A LIMS plugin can rely on one entity per record in each project. Looking

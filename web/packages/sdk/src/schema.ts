@@ -584,6 +584,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Entities by an external ID
+         * @description The entities you can read of ``type`` (or a subtype) whose unique ``field`` is
+         *     ``value``, such as the record's ID in a LIMS (ADR 0082). Each project has at most one of
+         *     its own, so with ``project`` you get its own and any linked into it. Oldest first.
+         */
+        get: operations["iki_server_api_entities_lookup_entities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/search": {
         parameters: {
             query?: never;
@@ -3801,6 +3823,11 @@ export interface components {
             items: string | null;
             /** Label */
             label: string;
+            /**
+             * Link
+             * @description Where a value leads in another system: an https URL with `{value}` in it, for the value, URL-encoded.
+             */
+            link: string | null;
             /** Name */
             name: string;
             /**
@@ -4251,6 +4278,26 @@ export interface components {
              * @default 0
              */
             offset: number;
+        };
+        /** LookupParams */
+        LookupParams: {
+            /**
+             * Field
+             * @description One of the type's unique fields, such as `lims_id`.
+             */
+            field: string;
+            /**
+             * Project
+             * @description Only entities that belong to this project.
+             */
+            project?: string | null;
+            /**
+             * Type
+             * @description The entity type, such as `protein.Protein`; subtypes count.
+             */
+            type: string;
+            /** Value */
+            value: string;
         };
         /** MarkAllIn */
         MarkAllIn: {
@@ -4816,6 +4863,11 @@ export interface components {
             items: string | null;
             /** Label */
             label: string;
+            /**
+             * Link
+             * @description Where a value leads in another system: an https URL with `{value}` in it, for the value, URL-encoded.
+             */
+            link: string | null;
             /** Max */
             max: number | null;
             /** Max Length */
@@ -8511,6 +8563,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_lookup_entities: {
+        parameters: {
+            query: {
+                /** @description The entity type, such as `protein.Protein`; subtypes count. */
+                type: string;
+                /** @description One of the type's unique fields, such as `lims_id`. */
+                field: string;
+                value: string;
+                /** @description Only entities that belong to this project. */
+                project?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"][];
                 };
             };
         };
