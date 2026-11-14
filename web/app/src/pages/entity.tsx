@@ -15,6 +15,7 @@ import { useState } from "react";
 
 import { Through } from "../agent";
 import { iki, problemOf, useApiMutation } from "../api";
+import { componentsQuery, entityTabs } from "../components";
 import {
   ENTITIES,
   entityProjectsQuery,
@@ -362,6 +363,9 @@ function EntityActions({ entity, type }: { entity: Entity; type: EntityType | un
 
 export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const tab = { "aria-current": "page" } as const;
+  const types = useQuery(typesQuery).data ?? [];
+  // Plugins' tabs (ADR 0084). If they can't be listed, the page still works without them.
+  const plugins = entityTabs(entity.type, types, useQuery(componentsQuery).data ?? []);
   return (
     <>
       <PageHeader
@@ -403,6 +407,16 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
         <Link to="/entities/$ref/history/" params={{ ref: entity.hrid }} activeProps={tab}>
           History
         </Link>
+        {plugins.map(({ component, label }) => (
+          <Link
+            key={component.name}
+            to="/entities/$ref/components/$name/"
+            params={{ ref: entity.hrid, name: component.name }}
+            activeProps={tab}
+          >
+            {label}
+          </Link>
+        ))}
       </nav>
     </>
   );

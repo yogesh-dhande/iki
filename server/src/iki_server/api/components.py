@@ -7,6 +7,7 @@ sandboxed frame the web app makes, never in its page.
 from typing import Any, Literal
 
 from django.http import HttpRequest
+from django.urls import reverse
 from ninja import Field, Router, Schema
 
 from iki_server.api.common import caller
@@ -35,6 +36,7 @@ class ComponentOut(Schema):
         description="The type of the entities a person can select in it, or null."
     )
     sha256: str = Field(description="Its module's SHA-256: the code its frames run.")
+    frame: str = Field(description='The page to show it in, in `<iframe sandbox="allow-scripts">`.')
 
 
 def _out(component: Component) -> dict[str, Any]:
@@ -47,6 +49,7 @@ def _out(component: Component) -> dict[str, Any]:
         "slots": [{"slot": s.slot, "type": s.type, "label": s.label} for s in component.slots],
         "selects": component.selects or None,
         "sha256": component.sha256,
+        "frame": reverse("component_frame", args=[component.qualified_name, component.sha256]),
     }
 
 

@@ -264,6 +264,8 @@ SECURE_CSP = {
     "connect-src": [CSP.SELF],
     "manifest-src": [CSP.SELF],
     "form-action": [CSP.SELF],
+    # Plugins' components, in sandboxed frames of their own (ADR 0084).
+    "frame-src": [CSP.SELF],
     "frame-ancestors": [CSP.NONE],
     "base-uri": [CSP.NONE],
     "object-src": [CSP.NONE],

@@ -24,6 +24,11 @@ What's here:
   then decodes it: two actions run one after the other, as one.
 - `triggers/store_new_samples.yaml`: a trigger that assigns each new sample's
   storage by itself, in projects whose Admins turn it on.
+- `components/sample_label.yaml` and `components/sample-label.js`: a tab on
+  each sample's page showing its tube label, drawn by the plugin's own code.
+  Iki runs it in a sandboxed frame with no network and no access to the
+  person's session, and gives it the sample. Use a component only for what
+  Iki's own pages can't show.
 - `migrations/`: the database migrations for those types, made by
   `iki plugin makemigrations` and reviewed in pull requests like code.
 - `.github/workflows/ci.yml`: checks every change, the way a deployment's

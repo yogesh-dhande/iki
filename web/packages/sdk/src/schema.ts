@@ -3075,6 +3075,11 @@ export interface components {
              * @description The custom element its module defines.
              */
             element: string;
+            /**
+             * Frame
+             * @description The page to show it in, in `<iframe sandbox="allow-scripts">`.
+             */
+            frame: string;
             /** Label */
             label: string;
             /**

@@ -18,6 +18,7 @@ import { meQuery, projectQuery, queryClient, rolesQuery } from "./api";
 import { Layout } from "./layout";
 import { ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
+import { componentsQuery } from "./components";
 import { entityQuery, typesQuery, validateEntitySearch, validateNewEntitySearch } from "./entities";
 import { validateLineageSearch } from "./lineage";
 import { validateCostsSearch } from "./costs-search";
@@ -69,6 +70,10 @@ const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
 const EntityHistory = lazyRouteComponent(entityPages, "EntityHistory");
 const EntityLineage = lazyRouteComponent(() => import("./pages/lineage"), "EntityLineage");
+const EntityComponent = lazyRouteComponent(
+  () => import("./pages/entity-component"),
+  "EntityComponent",
+);
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
@@ -276,6 +281,8 @@ const entityRoute = createRoute({
     Promise.all([
       context.queryClient.query(entityQuery(params.ref)),
       context.queryClient.query(typesQuery),
+      // Plugins' tabs: the page shows without them if they can't be listed.
+      context.queryClient.query(componentsQuery).catch(() => undefined),
     ]),
 });
 
@@ -302,6 +309,13 @@ const entityLineageRoute = createRoute({
   path: "lineage",
   validateSearch: validateLineageSearch,
   component: EntityLineage,
+});
+
+const entityComponentRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "components/$name",
+  loader: ({ context }) => context.queryClient.query(componentsQuery),
+  component: EntityComponent,
 });
 
 const runRoute = createRoute({
@@ -382,6 +396,7 @@ const routeTree = rootRoute.addChildren([
     entityEditRoute,
     entityHistoryRoute,
     entityLineageRoute,
+    entityComponentRoute,
   ]),
   runRoute,
   batchRoute,

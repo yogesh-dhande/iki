@@ -398,6 +398,7 @@ def _summary(result: Result, errors: int, warnings: int, *, color: bool) -> str:
         _count(len(plugin.environments), "environment"),
         _count(len(plugin.workflows), "workflow"),
         _count(len(plugin.triggers), "trigger"),
+        _count(len(plugin.components), "component"),
     ]
     tail = f", with {_count(warnings, 'warning')}" if warnings else ""
     mark = "\033[1;32m✓\033[0m" if color else "✓"
@@ -453,6 +454,7 @@ def _json(
                 "environments": sorted(plugin.environments),
                 "workflows": sorted(plugin.workflows),
                 "triggers": sorted(plugin.triggers),
+                "components": sorted(plugin.components),
             }
             if plugin
             else None

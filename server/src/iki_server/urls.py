@@ -5,6 +5,7 @@ from django.urls import URLPattern, URLResolver, include, path
 from iki_server.accounts import views as accounts
 from iki_server.api import worker
 from iki_server.api.v1 import api as api_v1
+from iki_server.components import views as components
 from iki_server.mcp import views as mcp
 from iki_server.realtime import views as realtime
 from iki_server.web import views as web
@@ -53,6 +54,19 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/", web.app, name="entity"),
     path("entities/<str:ref>/edit/", web.app, name="entity_edit"),
     path("entities/<str:ref>/history/", web.app, name="entity_history"),
+    path("entities/<str:ref>/lineage/", web.app, name="entity_lineage"),
+    path("entities/<str:ref>/components/<str:name>/", web.app, name="entity_component"),
+    # Plugins' components, for the web app's sandboxed frames (ADR 0084).
+    path(
+        "plugin-components/<str:name>/<str:digest>/",
+        components.frame,
+        name="component_frame",
+    ),
+    path(
+        "plugin-components/<str:name>/<str:digest>.js",
+        components.module,
+        name="component_module",
+    ),
     # Runs (a project's runs are in org.urls).
     path("runs/<str:ref>/", web.app, name="run"),
     path("batches/<str:ref>/", web.app, name="batch"),

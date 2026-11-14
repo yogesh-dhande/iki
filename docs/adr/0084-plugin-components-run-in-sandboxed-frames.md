@@ -53,9 +53,12 @@ as with actions' code (ADR 0047).
 its own that is no one's: it can't read Iki's cookies, storage or pages, or
 call Iki's API as the person. The frame's own policy (CSP) allows its module
 and Iki's bridge, by digest, and nothing else: no network (`connect-src
-'none'`), no other scripts, no forms, no frames, no navigation away from
-Iki. The policy also says `sandbox`, so the frame is sandboxed however it's
-opened.
+'none'`), no other scripts, no forms, no frames of its own. The sandbox
+keeps it from navigating Iki's page, opening windows or downloading. The
+policy also says `sandbox`, so the frame is sandboxed however it's opened,
+and only Iki's pages may frame it. The frame and its module are addressed
+by the module's digest, so browsers keep them for ever, and neither needs
+or gets the person's session.
 
 **Iki gives it data, and does what it asks.** Inside the frame, Iki's
 bridge creates the element and sets its properties: the entity whose page it
@@ -71,9 +74,13 @@ saying which plugin asked.
 
 - A component can only show what Iki gives it and tell the page what a
   person did. It can't read other data, change anything, or send data out
-  by network requests. Browsers leave a few channels that no policy closes,
-  such as WebRTC in some of them and DNS prefetching, so plugin code is
-  still reviewed, pinned and signed into the image, as all plugin code is.
+  by network requests. Browsers leave a few channels that no policy closes:
+  a frame can open another page in itself, with data in its address, and
+  some browsers allow WebRTC and DNS prefetching. The page notices a frame
+  that opens another page, stops talking to it and takes it away, saying
+  which plugin did it; but what was in the address has gone. So plugin
+  code is still reviewed, pinned and signed into the image, as all plugin
+  code is.
 - Plugin authors write an ordinary custom element. Libraries that fetch
   their own data, or load code from elsewhere, must be bundled and given
   data instead. WebAssembly and workers work.

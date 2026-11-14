@@ -331,6 +331,8 @@ class ComponentOut(TypedDict):
     description: str | None
     #: The custom element its module defines.
     element: str
+    #: The page to show it in, in `<iframe sandbox="allow-scripts">`.
+    frame: str
     label: str
     #: Its qualified name, such as `protein.plate_map`.
     name: str

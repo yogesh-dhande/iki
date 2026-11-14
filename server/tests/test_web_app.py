@@ -30,6 +30,8 @@ APP_PAGES = [
     "/entities/DNA-000001/",
     "/entities/DNA-000001/edit/",
     "/entities/DNA-000001/history/",
+    "/entities/DNA-000001/lineage/",
+    "/entities/PRT-000001/components/protein.residues/",
     "/projects/a-b/runs/",
     "/projects/a-b/runs/new/",
     "/runs/RUN-000001/",
@@ -72,6 +74,8 @@ def test_app_pages_keep_the_strict_policy(world: World) -> None:
     assert csp["connect-src"] == ["'self'"]
     assert csp["trusted-types"] == ["'none'"]
     assert csp["require-trusted-types-for"] == ["'script'"]
+    # Plugins' components: only in Iki's own frames, which sandbox them (ADR 0084).
+    assert csp["frame-src"] == ["'self'"]
 
 
 def test_app_pages_need_sign_in_and_come_back_after(world: World) -> None:

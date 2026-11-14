@@ -71,8 +71,20 @@ export default tseslint.config(
     },
   },
   {
+    // Iki's bridge in plugins' components' frames: a module, in the browser (ADR 0084).
+    files: ["server/src/iki_server/components/bridge.js"],
+    languageOptions: {
+      globals: {
+        ResizeObserver: "readonly",
+        customElements: "readonly",
+        document: "readonly",
+        window: "readonly",
+      },
+    },
+  },
+  {
     // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084).
-    files: ["**/plugins/**/components/**/*.{js,mjs}"],
+    files: ["**/plugins/**/components/**/*.{js,mjs}", "plugin-template/components/**/*.{js,mjs}"],
     languageOptions: {
       globals: {
         CustomEvent: "readonly",

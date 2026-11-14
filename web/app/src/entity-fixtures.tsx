@@ -190,4 +190,5 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
 export function withTypes(): void {
   signedIn();
   answer("GET /api/v1/entity-types", [COLLECTION_TYPE, PROTEIN, STRUCTURE]);
+  answer("GET /api/v1/components", []);
 }

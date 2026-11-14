@@ -1285,6 +1285,11 @@
             "title": "Element",
             "type": "string"
           },
+          "frame": {
+            "description": "The page to show it in, in `<iframe sandbox=\"allow-scripts\">`.",
+            "title": "Frame",
+            "type": "string"
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -1331,7 +1336,8 @@
           "element",
           "slots",
           "selects",
-          "sha256"
+          "sha256",
+          "frame"
         ],
         "title": "ComponentOut",
         "type": "object"

@@ -801,6 +801,66 @@ def test_following_lineage_from_entity_to_entity(
     assert page.get_by_role("heading", level=2).count() == 2
 
 
+# What a component's code could try, run in its frame, with its frame's origin and policy.
+SANDBOX_PROBES = """
+async () => {
+  const tried = async (what) => {
+    try {
+      await what();
+      return "allowed";
+    } catch (error) {
+      return "refused";
+    }
+  };
+  return {
+    origin: self.origin,
+    api: await tried(() => fetch("/api/v1/me")),
+    cookie: await tried(() => document.cookie),
+    storage: await tried(() => localStorage.length),
+    page: await tried(() => window.parent.document.title),
+    pageStorage: await tried(() => window.parent.localStorage.length),
+  };
+}
+"""
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_plugins_component_runs_sandboxed_in_its_tab(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    made = entities.create(
+        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/", color_scheme)
+    page.get_by_role("link", name="Residues").click()
+    shown = page.frame_locator('iframe[title="Residues"]')
+    shown.get_by_text(f"{hrid}: 10 residues").wait_for()
+    shown.get_by_role("button", name="Select").wait_for()
+    assert_clean(page)
+
+    # Its code can't read Iki's cookies, storage or page, or call the API as the person.
+    (frame,) = [f for f in page.frames if "/plugin-components/protein.residues/" in f.url]
+    assert frame.evaluate(SANDBOX_PROBES) == {
+        "origin": "null",
+        "api": "refused",
+        "cookie": "refused",
+        "storage": "refused",
+        "page": "refused",
+        "pageStorage": "refused",
+    }
+    # Nor can it go elsewhere and stay: the page closes it.
+    frame.evaluate("() => { location.href = 'about:blank'; }")
+    page.get_by_role("alert").get_by_text(
+        "Residues tried to open another page, so Iki closed it."
+    ).wait_for()
+    assert page.locator("iframe").count() == 0
+
+
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     page = open_as("org_admin", "/projects/kinase-atlas/")
     page.get_by_text("You’re not a member of this project").wait_for()
