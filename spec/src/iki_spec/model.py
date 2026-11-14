@@ -446,14 +446,16 @@ class Workflow:
         return done
 
 
-#: What fires a trigger: an entity of its type created, or changed.
-TRIGGER_EVENTS = ("entity.created", "entity.updated")
+#: What fires a trigger: an entity of its type created, or changed, or its schedule.
+TRIGGER_EVENTS = ("entity.created", "entity.updated", "schedule")
+#: The events that fire a trigger for an entity.
+ENTITY_EVENTS = ("entity.created", "entity.updated")
 
 
 @dataclass(frozen=True)
 class Trigger:
     """Runs one of the plugin's actions by itself when an entity of a type is created or
-    changed, in projects whose Admins turn it on (ADR 0080)."""
+    changed, or on a schedule, in projects whose Admins turn it on (ADR 0080)."""
 
     plugin: str
     name: str
@@ -461,8 +463,11 @@ class Trigger:
     description: str | None = None
     #: One of :data:`TRIGGER_EVENTS`.
     on: str = "entity.created"
-    #: The entities it fires for, with their subtypes, qualified.
+    #: The entities it fires for, with their subtypes, qualified; empty on a schedule.
     type: str = ""
+    #: On a schedule: cron's five fields, in `timezone` (UTC when empty).
+    schedule: str = ""
+    timezone: str = ""
     #: For entity.updated: it fires only when one of these changed; empty for any change.
     fields: tuple[str, ...] = ()
     #: The plugin's action it runs.

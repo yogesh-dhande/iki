@@ -104,18 +104,25 @@ class ApprovalState(models.TextChoices):
 
 class ProjectTrigger(models.Model):
     """A plugin's trigger in a project (ADR 0080): off until one of the project's Admins
-    turns it on, and then run as whoever turned it on last."""
+    turns it on. An entity trigger then runs as whoever turned it on last; a scheduled one
+    runs as the service account they chose (``run_as``), on their authority."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
     #: The trigger's qualified name, such as ``protein.compute_new_protein_properties``.
     trigger = models.CharField(max_length=200)
     enabled = models.BooleanField(default=True)
-    #: Who its runs are launched as: whoever turned it on last.
+    #: Who turned it on last: whom its runs are launched as, or on whose authority.
     enabled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
     )
     enabled_at = models.DateTimeField()
+    #: For a scheduled trigger: the service account its runs are launched as.
+    run_as = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: For a scheduled trigger that's on: when it next runs.
+    next_run_at = models.DateTimeField(null=True, blank=True)
     #: Who turned it off last, or None if Iki did (see ``disabled_reason``).
     disabled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
@@ -130,6 +137,11 @@ class ProjectTrigger(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(
                 fields=["project"], name="iki_project_trigger_on", condition=Q(enabled=True)
+            ),
+            models.Index(
+                fields=["next_run_at"],
+                name="iki_project_trigger_due",
+                condition=Q(enabled=True, next_run_at__isnull=False),
             ),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
@@ -614,15 +626,23 @@ class FiringState(models.TextChoices):
 
 
 class TriggerFiring(models.Model):
-    """A change that fired a project's trigger (ADR 0080), and the run it launched."""
+    """A change that fired a project's trigger, or its schedule coming round (ADR 0080),
+    and the run it launched."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     trigger = models.ForeignKey(ProjectTrigger, on_delete=models.PROTECT, related_name="firings")
-    #: ``entity.created`` or ``entity.updated``.
+    #: ``entity.created``, ``entity.updated`` or ``schedule``.
     event = models.CharField(max_length=32)
-    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    entity = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     #: The revision the change made: the run reads the entity as it is when it's launched.
-    revision = models.PositiveIntegerField()
+    revision = models.PositiveIntegerField(null=True, blank=True)
+    #: On a schedule: the time it was for.
+    scheduled_for = models.DateTimeField(null=True, blank=True)
+    #: On a schedule: the time the last run that succeeded was for, which the command is
+    #: given to carry on from (None for the first).
+    since = models.DateTimeField(null=True, blank=True)
     state = models.CharField(
         max_length=16, choices=FiringState.choices, default=FiringState.PENDING
     )
@@ -656,6 +676,17 @@ class TriggerFiring(models.Model):
                 condition=Q(state="pending", fired_at__isnull=True)
                 | ~Q(state="pending") & Q(fired_at__isnull=False),
                 name="iki_trigger_firing_fired",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    event="schedule",
+                    entity__isnull=True,
+                    revision__isnull=True,
+                    scheduled_for__isnull=False,
+                )
+                | ~Q(event="schedule")
+                & Q(entity__isnull=False, revision__isnull=False, scheduled_for__isnull=True),
+                name="iki_trigger_firing_what",
             ),
         ]
 

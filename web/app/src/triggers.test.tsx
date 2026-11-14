@@ -17,6 +17,8 @@ const OFF: Schemas["ProjectTriggerOut"] = {
   description: null,
   on: "entity.created",
   type: "protein.Protein",
+  schedule: "",
+  timezone: "",
   fields: [],
   action: "protein.compute_properties",
   action_label: "Compute properties",
@@ -26,6 +28,9 @@ const OFF: Schemas["ProjectTriggerOut"] = {
   enabled: false,
   enabled_by: null,
   enabled_at: null,
+  run_as: null,
+  next_run_at: null,
+  run_as_choices: [],
   disabled_by: null,
   disabled_at: null,
   disabled_reason: "",
@@ -55,6 +60,22 @@ const RELAX: Schemas["ProjectTriggerOut"] = {
   tier: "container",
 };
 
+const ROBOT = { id: "00000000-0000-7000-8000-0000000000b7", name: "Nightly robot" };
+
+const NIGHTLY: Schemas["ProjectTriggerOut"] = {
+  ...OFF,
+  name: "protein.fetch_hemoglobin_nightly",
+  label: "Fetch hemoglobin nightly",
+  on: "schedule",
+  type: "",
+  schedule: "0 3 * * *",
+  timezone: "Europe/Zurich",
+  action: "protein.fetch_proteins",
+  action_label: "Fetch proteins",
+  input: "",
+  run_as_choices: [{ id: "00000000-0000-7000-8000-0000000000b6", name: "Ingest bot" }, ROBOT],
+};
+
 const FIRING: Schemas["FiringOut"] = {
   id: "00000000-0000-7000-8000-0000000000f1",
   trigger: OFF.name,
@@ -62,6 +83,8 @@ const FIRING: Schemas["FiringOut"] = {
   event: "entity.created",
   entity: { id: "00000000-0000-7000-8000-0000000000e1", hrid: "PRT-000007", type: OFF.type },
   revision: 1,
+  scheduled_for: null,
+  since: null,
   state: "launched",
   run: { id: "00000000-0000-7000-8000-0000000000r9", hrid: "RUN-000009", status: "queued" },
   error: null,
@@ -158,6 +181,86 @@ describe("a project's triggers", () => {
     expect(rows).toHaveTextContent(/Iki turned it off .*: Alice Admin can no longer run/);
     expect(rows).toHaveTextContent("You can’t turn it on: Its runs would be launched as you");
     expect(within(rows).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("says when a scheduled one runs, as which service account", async () => {
+    onProject([
+      {
+        ...NIGHTLY,
+        enabled: true,
+        enabled_by: ON.enabled_by,
+        enabled_at: ON.enabled_at,
+        run_as: ROBOT,
+        next_run_at: "2026-03-15T02:00:00Z",
+        can: { enable: true, disable: true },
+      },
+    ]);
+    await renderApp("/projects/kinase-atlas/triggers/");
+    const rows = await screen.findByRole("list", { name: "Triggers" });
+    const [row] = within(rows).getAllByRole("listitem");
+    expect(row).toHaveTextContent(
+      "On the schedule 0 3 * * * (Europe/Zurich), it starts a run of Fetch proteins in Kinase Atlas.",
+    );
+    expect(row).toHaveTextContent(/running as Nightly robot on Alice Admin’s authority · next /);
+    expect(within(must(row)).getByRole("button", { name: "Change" })).toBeInTheDocument();
+  });
+
+  it("turns a scheduled one on as the service account you choose", async () => {
+    onProject([NIGHTLY]);
+    const path = `/api/v1/projects/${KINASE.id}/triggers/${NIGHTLY.name}/enable`;
+    answer(`POST ${path}`, () => ({ ...NIGHTLY, enabled: true, run_as: ROBOT }));
+    const { user } = await renderApp("/projects/kinase-atlas/triggers/");
+    await user.click(await screen.findByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("as the service account you choose, on your authority");
+    expect(dialog).toHaveTextContent("One never starts while the last is still running");
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Runs as" }), ROBOT.name);
+    await user.click(within(dialog).getByRole("button", { name: "Turn on" }));
+    await waitFor(() => {
+      expect(calls("POST", path)).toHaveLength(1);
+    });
+    expect(calls("POST", path)[0]?.body).toEqual({ run_as: ROBOT.id });
+    expect(
+      await screen.findByText("“Fetch hemoglobin nightly” is on, and runs as Nightly robot."),
+    ).toBeInTheDocument();
+  });
+
+  it("lists a scheduled firing by the time it was for", async () => {
+    onProject(
+      [NIGHTLY],
+      [
+        {
+          ...FIRING,
+          trigger: NIGHTLY.name,
+          label: NIGHTLY.label,
+          event: "schedule",
+          entity: null,
+          revision: null,
+          scheduled_for: "2026-03-14T02:00:00Z",
+          since: "2026-03-13T02:00:00Z",
+        },
+        {
+          ...FIRING,
+          id: "f3",
+          trigger: NIGHTLY.name,
+          label: NIGHTLY.label,
+          event: "schedule",
+          entity: null,
+          revision: null,
+          scheduled_for: "2026-03-15T02:00:00Z",
+          since: null,
+          state: "skipped",
+          run: null,
+          error: { code: "still_running", message: "Its last run hadn't finished." },
+        },
+      ],
+    );
+    await renderApp("/projects/kinase-atlas/triggers/");
+    const firings = await screen.findByRole("list", { name: "Firings" });
+    const [launched, skipped] = within(firings).getAllByRole("listitem");
+    expect(launched).toHaveTextContent(/Scheduled for .*since the run for/);
+    expect(launched).not.toHaveTextContent("revision");
+    expect(skipped).toHaveTextContent("Its last run hadn't finished.");
   });
 
   it("lists what they fired, and narrows it to one trigger", async () => {

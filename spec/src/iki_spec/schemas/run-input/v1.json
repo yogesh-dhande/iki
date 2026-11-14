@@ -40,7 +40,21 @@
             }
           }
         },
-        "project": { "type": "string", "format": "uuid" }
+        "project": { "type": "string", "format": "uuid" },
+        "trigger": {
+          "type": "object",
+          "description": "For a run a scheduled trigger launched (ADR 0080): which, the time it was for, and the time the last run of it that succeeded was for, to carry on from. An import fetches what changed since `since`; null on its first run.",
+          "required": ["name", "scheduled_for", "since"],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The trigger's qualified name, such as `lims.sync_samples`."
+            },
+            "scheduled_for": { "type": "string", "format": "date-time" },
+            "since": { "type": ["string", "null"], "format": "date-time" }
+          }
+        }
       }
     },
     "job": {

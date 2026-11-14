@@ -349,7 +349,11 @@ class Runner:
                 finally:
                     close_old_connections()
                 try:
-                    # Trigger firings whose task to launch their run was lost (ADR 0080).
+                    # Scheduled triggers whose time has come (ADR 0080).
+                    ticked = runs_triggers.tick()
+                    if ticked:
+                        logger.info("triggers_scheduled", count=ticked)
+                    # And firings whose task to launch their run was lost.
                     fired = runs_triggers.recover()
                     if fired:
                         logger.info("triggers_recovered", count=fired)

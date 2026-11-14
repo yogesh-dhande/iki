@@ -333,3 +333,76 @@ def test_triggers_live_under_triggers(tmp_path: Path) -> None:
     (root / "actions" / "stray.yaml").write_text(GOOD)
     result = load_plugin(root)
     assert "wrong-file" in codes(result)
+
+
+# --- Scheduled ---------------------------------------------------------------------------------
+
+IMPORT = """\
+---
+apiVersion: iki/v1
+kind: Action
+name: sync
+params:
+  since: { type: string }
+effects:
+  creates: [{ type: Readout, cardinality: many }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+"""
+
+
+def scheduled(tmp_path: Path, body: str) -> Result:
+    global ACTIONS
+    saved = ACTIONS
+    ACTIONS = saved + IMPORT
+    try:
+        return make(tmp_path, trigger(body))
+    finally:
+        ACTIONS = saved
+
+
+def test_a_scheduled_trigger(tmp_path: Path) -> None:
+    body = "on: schedule\nschedule: 0 6 * * MON-FRI\ntimezone: Europe/Zurich\nrun: sync\n"
+    result = scheduled(tmp_path, body)
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.triggers["on_assay"]
+    assert (found.on, found.schedule, found.timezone, found.type, found.input) == (
+        "schedule",
+        "0 6 * * MON-FRI",
+        "Europe/Zurich",
+        "",
+        "",
+    )
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        ("on: schedule\nrun: sync\n", "trigger-schedule-missing"),
+        ("on: schedule\nschedule: '* * * * *'\nrun: sync\n", "trigger-schedule-invalid"),
+        ("on: schedule\nschedule: 0 6 * * * *\nrun: sync\n", "trigger-schedule-invalid"),
+        ("on: schedule\nschedule: 0 6 31 2 *\nrun: sync\n", "trigger-schedule-never"),
+        (
+            "on: schedule\nschedule: 0 6 * * *\ntimezone: Mars/Olympus\nrun: sync\n",
+            "trigger-timezone-unknown",
+        ),
+        ("on: schedule\nschedule: 0 6 * * *\ntype: Assay\nrun: sync\n", "trigger-schedule-entity"),
+        ("on: schedule\nschedule: 0 6 * * *\nrun: describe\n", "trigger-input-missing"),
+        ("on: entity.created\nrun: describe\n", "trigger-type-missing"),
+        (
+            "on: entity.created\ntype: Assay\nschedule: 0 6 * * *\nrun: describe\n",
+            "trigger-schedule-not-scheduled",
+        ),
+    ],
+)
+def test_schedules_are_checked(tmp_path: Path, body: str, code: str) -> None:
+    assert code in codes(scheduled(tmp_path, body)), scheduled(tmp_path, body).problems
+
+
+def test_a_schedules_problem_says_why(tmp_path: Path) -> None:
+    result = scheduled(tmp_path, "on: schedule\nschedule: '*/2 * * * *'\nrun: sync\n")
+    assert only(result, "trigger-schedule-invalid") == (
+        "It runs 2 minutes apart, and a schedule runs at most every 5 minutes."
+    )

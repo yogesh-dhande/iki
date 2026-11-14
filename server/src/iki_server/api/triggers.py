@@ -30,7 +30,7 @@ from iki_spec.model import Trigger
 
 router = Router(tags=["triggers"])
 
-Event = Literal["entity.created", "entity.updated"]
+Event = Literal["entity.created", "entity.updated", "schedule"]
 
 
 class TriggerOut(Schema):
@@ -38,15 +38,23 @@ class TriggerOut(Schema):
     plugin: str
     label: str
     description: str | None
-    on: Event = Field(description="What fires it: an entity of its type created, or changed.")
-    type: str = Field(description="The entity type it fires for, with its subtypes.")
+    on: Event = Field(
+        description="What fires it: an entity of its type created, or changed, or its schedule."
+    )
+    type: str = Field(
+        description="The entity type it fires for, with its subtypes; empty on a schedule."
+    )
+    schedule: str = Field(
+        description="On a schedule: when it runs, in cron's five fields. Empty otherwise."
+    )
+    timezone: str = Field(description="On a schedule: the timezone of its times.")
     fields: list[str] = Field(
         description="For `entity.updated`: it fires only when one of these changed. Empty for "
         "any change."
     )
-    action: str = Field(description="The qualified name of the action it runs on the entity.")
+    action: str = Field(description="The qualified name of the action it runs.")
     action_label: str
-    input: str = Field(description="The action's input that takes the entity.")
+    input: str = Field(description="The action's input that takes the entity; empty on a schedule.")
     params: dict[str, Any]
     tier: Tier | None = Field(
         description="Where its runs run; on the container and VM tiers each waits for the "
@@ -63,6 +71,8 @@ def _trigger_out(spec: Trigger) -> dict[str, Any]:
         "description": spec.description,
         "on": spec.on,
         "type": spec.type,
+        "schedule": spec.schedule,
+        "timezone": spec.timezone or ("UTC" if spec.schedule else ""),
         "fields": list(spec.fields),
         "action": f"{spec.plugin}.{spec.run}",
         "action_label": action.label if action is not None else spec.run,
@@ -92,10 +102,20 @@ class ProjectTriggerCan(Schema):
 class ProjectTriggerOut(TriggerOut):
     enabled: bool
     enabled_by: PersonRef | None = Field(
-        description="Who its runs are launched as: whoever turned it on last. Null if nobody "
-        "ever has."
+        description="Who turned it on last: whom an entity trigger's runs are launched as, and on "
+        "whose authority a scheduled one's are. Null if nobody ever has."
     )
     enabled_at: datetime | None
+    run_as: PersonRef | None = Field(
+        description="On a schedule: the service account its runs are launched as."
+    )
+    next_run_at: datetime | None = Field(
+        description="On a schedule, while it's on: when it next runs."
+    )
+    run_as_choices: list[PersonRef] = Field(
+        description="On a schedule, for the project's Admins: the service accounts it may run as, "
+        "members who can run its action here."
+    )
     disabled_by: PersonRef | None = Field(
         description="Who turned it off. Null while it's on, or when Iki did (see "
         "`disabled_reason`)."
@@ -121,12 +141,16 @@ def _project_triggers_out(me: User, found: Project) -> list[dict[str, Any]]:
     for name, spec in triggers.triggers().items():
         row = rows.get(name)
         why = triggers.why_not_enable(me, found, spec) if admin else None
-        mine = row is not None and row.enabled and row.enabled_by_id == me.pk
+        # A scheduled trigger can be turned on again to choose another service account.
+        mine = (
+            row is not None and row.enabled and row.enabled_by_id == me.pk and spec.on != "schedule"
+        )
         out.append(
             {
                 **_trigger_out(spec),
                 **_state(row),
                 "last_fired_at": last.get(name),
+                "run_as_choices": triggers.run_as_choices(found, spec) if admin else [],
                 "why_not_enable": why,
                 "can": {
                     "enable": admin and web and why is None and not mine,
@@ -155,11 +179,15 @@ def _state(row: ProjectTrigger | None) -> dict[str, Any]:
             "disabled_by": None,
             "disabled_at": None,
             "disabled_reason": "",
+            "run_as": None,
+            "next_run_at": None,
         }
     return {
         "enabled": row.enabled,
         "enabled_by": row.enabled_by,
         "enabled_at": row.enabled_at,
+        "run_as": row.run_as,
+        "next_run_at": row.next_run_at if row.enabled else None,
         "disabled_by": None if row.enabled else row.disabled_by,
         "disabled_at": None if row.enabled else row.disabled_at,
         "disabled_reason": "" if row.enabled else row.disabled_reason,
@@ -189,14 +217,25 @@ def _installed(name: str) -> Trigger:
     return spec
 
 
+class EnableIn(Schema):
+    run_as: UUID | None = Field(
+        None,
+        description="For a scheduled trigger: the service account its runs are launched as, "
+        "one of its `run_as_choices`.",
+    )
+
+
 @router.post(
     "/projects/{project_id}/triggers/{name}/enable",
     response=ProjectTriggerOut,
     summary="Turn a trigger on in a project",
 )
-def enable_trigger(request: HttpRequest, project_id: UUID, name: str) -> dict[str, Any]:
-    """From now on its runs are launched as you, so you must be able to run its action here.
-    Only in the web app: no token, and so no agent, can turn one on."""
+def enable_trigger(
+    request: HttpRequest, project_id: UUID, name: str, payload: EnableIn | None = None
+) -> dict[str, Any]:
+    """From now on an entity trigger's runs are launched as you, and a scheduled one's as the
+    service account you choose (`run_as`), on your authority: either way you must be able to
+    run its action here. Only in the web app: no token, and so no agent, can turn one on."""
     me = caller(request)
     found = project(me, project_id, permissions.Action.PROJECT_TRIGGERS_MANAGE)
     _installed(name)
@@ -207,8 +246,13 @@ def enable_trigger(request: HttpRequest, project_id: UUID, name: str) -> dict[st
             "can’t, and no agent can turn one on for you.",
             code="web_only",
         )
+    run_as = None
+    if payload is not None and payload.run_as is not None:
+        run_as = User.objects.filter(pk=payload.run_as).first()
+        if run_as is None:
+            raise Problem(422, "No such service account.", code="invalid")
     try:
-        triggers.enable(me, found, name)
+        triggers.enable(me, found, name, run_as=run_as)
     except PermissionDenied:
         raise Problem(403) from None
     except Refused as error:
@@ -255,11 +299,17 @@ class FiringOut(Schema):
     trigger: str = Field(description="The trigger's qualified name.")
     label: str
     event: Event
-    entity: FiredEntityOut
-    revision: int = Field(description="The revision the change made.")
+    entity: FiredEntityOut | None = Field(description="Whose change fired it; null on a schedule.")
+    revision: int | None = Field(description="The revision the change made; null on a schedule.")
+    scheduled_for: datetime | None = Field(description="On a schedule: the time it was for.")
+    since: datetime | None = Field(
+        description="On a schedule: the time the last run that succeeded was for, which its "
+        "command carries on from. Null for the first."
+    )
     state: Literal["pending", "launched", "failed", "skipped"] = Field(
-        description="`pending` until its run is launched, just after the change; `failed` if "
-        "it couldn't be; `skipped` if the trigger was turned off or the entity archived first."
+        description="`pending` until its run is launched, just after the change or the time; "
+        "`failed` if it couldn't be; `skipped` if the trigger was turned off or the entity "
+        "archived first, or, on a schedule, while its last run hadn't finished."
     )
     run: FiredRunOut | None
     error: FiringErrorOut | None

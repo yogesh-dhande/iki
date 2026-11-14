@@ -925,6 +925,7 @@ describe("a run's page", () => {
             requested_by: { id: "someone", name: "Ada Lovelace" },
             approval: approval({
               requested_by: { id: "someone", name: "Ada Lovelace" },
+              decider: { id: "someone", name: "Ada Lovelace" },
               can: { decide: false },
             }),
           }),
@@ -944,6 +945,9 @@ describe("a run's page", () => {
         event: "entity.created" as const,
         entity: "00000000-0000-7000-8000-0000000000e1",
         revision: 1,
+        scheduled_for: null,
+        since: null,
+        enabled_by: { id: "00000000-0000-7000-8000-00000000a11c", name: "Alice Admin" },
       };
       onRun(
         () =>
@@ -971,6 +975,48 @@ describe("a run's page", () => {
       expect(screen.getByText(/by a trigger/)).toBeInTheDocument();
       expect(screen.getByText(/Relax new structures, when/)).toHaveTextContent(
         /when its entity was created \(revision 1\)\. It runs as .*, who turned the trigger on\./,
+      );
+    });
+
+    it("says when a scheduled trigger asked, as its service account", async () => {
+      const robot = { id: "00000000-0000-7000-8000-0000000000b7", name: "Nightly robot" };
+      const admin = { id: "00000000-0000-7000-8000-00000000a11c", name: "Alice Admin" };
+      const trigger = {
+        name: "protein.fetch_hemoglobin_nightly",
+        label: "Fetch hemoglobin nightly",
+        event: "schedule" as const,
+        entity: null,
+        revision: null,
+        scheduled_for: "2026-03-14T02:00:00Z",
+        since: "2026-03-13T02:00:00Z",
+        enabled_by: admin,
+      };
+      onRun(
+        () =>
+          run({
+            ...waiting,
+            via: "trigger",
+            client: "",
+            agent: null,
+            requested_by: robot,
+            trigger,
+            approval: approval({
+              client: "",
+              agent: null,
+              trigger: { name: trigger.name, label: trigger.label },
+              requested_by: robot,
+              decider: admin,
+              can: { decide: false },
+            }),
+          }),
+        unstarted,
+      );
+      withLog(() => "");
+      await renderApp("/runs/RUN-000001/");
+      const request = screen.getByRole("region", { name: "Waiting for approval" });
+      expect(request).toHaveTextContent(/it waits for Alice Admin to approve it in Iki\./);
+      expect(screen.getByText(/Fetch hemoglobin nightly, on its schedule/)).toHaveTextContent(
+        /carries on from the run for .*\. It runs as Nightly robot on Alice Admin’s authority/,
       );
     });
 

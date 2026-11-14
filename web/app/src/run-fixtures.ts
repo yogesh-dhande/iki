@@ -83,6 +83,7 @@ export function approval(
     agent: AGENT,
     trigger: null,
     requested_by: { id: ME.id, name: ME.name },
+    decider: { id: ME.id, name: ME.name },
     created_at: "2026-03-14T09:00:00Z",
     expires_at: "2026-03-21T09:00:00Z",
     decided_by: null,

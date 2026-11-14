@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ikisci.org/schemas/trigger/v1",
   "title": "Iki trigger (iki/v1)",
-  "description": "Runs one of the plugin's actions by itself when an entity of a type is created or changed. It runs in a project only after the project's Admins turn it on, and runs as the Admin who did.",
+  "description": "Runs one of the plugin's actions by itself: when an entity of a type is created or changed, or on a schedule. It runs in a project only after one of the project's Admins turns it on there.",
   "type": "object",
-  "required": ["apiVersion", "kind", "name", "on", "type", "run"],
+  "required": ["apiVersion", "kind", "name", "on", "run"],
   "properties": {
     "apiVersion": {
       "const": "iki/v1"
@@ -23,11 +23,23 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
     },
     "on": {
-      "description": "What fires it: an entity of its type created (`entity.created`), or changed (`entity.updated`). Changes a triggered run makes never fire a trigger.",
-      "enum": ["entity.created", "entity.updated"]
+      "description": "What fires it: an entity of its type created (`entity.created`) or changed (`entity.updated`), or the time coming round (`schedule`). Changes a triggered run makes never fire a trigger.",
+      "enum": ["entity.created", "entity.updated", "schedule"]
+    },
+    "schedule": {
+      "description": "For `on: schedule`: when it runs, in cron's five fields (minute, hour, day of the month, month, day of the week), such as `0 6 * * 1-5` for 6:00 on weekdays. At most every 5 minutes.",
+      "type": "string",
+      "minLength": 9,
+      "maxLength": 200
+    },
+    "timezone": {
+      "description": "For `on: schedule`: the IANA timezone its times are in, such as `Europe/Zurich`. UTC if left out.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
     },
     "type": {
-      "description": "The entities it fires for, with their subtypes.",
+      "description": "For `entity.created` and `entity.updated`: the entities it fires for, with their subtypes.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
     },
     "fields": {
@@ -41,7 +53,7 @@
       }
     },
     "run": {
-      "description": "The name of the plugin's action it runs, on the entity. It can't be one that runs on the client tier: nobody is at their computer for it.",
+      "description": "The name of the plugin's action it runs: on the entity, or, on a schedule, on nothing. It can't be one that runs on the client tier: nobody may be at their computer for it.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
     "input": {

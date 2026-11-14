@@ -1,0 +1,9 @@
+apiVersion: iki/v1
+kind: Trigger
+name: fetch_hemoglobin_nightly
+label: Fetch hemoglobin nightly
+on: schedule
+schedule: 0 3 * * *
+timezone: Europe/Zurich
+run: fetch_proteins
+params: { accession: P69905 }

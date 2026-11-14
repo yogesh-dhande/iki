@@ -228,6 +228,11 @@ def project_role(user: Any, project: Project) -> ProjectRole | None:  # noqa: AN
     return cache[project.pk]
 
 
+def least_role(action: Action) -> ProjectRole:
+    """The least project role that may take a project action."""
+    return _PROJECT_ACTION_ROLE[action]
+
+
 def members_with(project: Project, at_least: ProjectRole) -> QuerySet[Any]:
     """Active people whose role in the project is at least `at_least`: by their own grant,
     or a team's they belong to."""

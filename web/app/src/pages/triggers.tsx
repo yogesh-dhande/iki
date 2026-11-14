@@ -58,8 +58,9 @@ function waits(trigger: ProjectTrigger): boolean {
   return trigger.tier === "container" || trigger.tier === "vm";
 }
 
-/** "a new protein", "a protein's organism or sequence changes": what fires it. */
+/** "Each new protein", "A change to a protein's organism or sequence": what fires it. */
 function firedBy(trigger: ProjectTrigger, typeLabel: string): string {
+  if (trigger.on === "schedule") return `Each time its schedule comes round`;
   if (trigger.on === "entity.created") return `Each new ${typeLabel}`;
   if (trigger.fields.length === 0) return `Each change to a ${typeLabel}`;
   const fields = trigger.fields.map((f) => f.replaceAll("_", " "));
@@ -80,9 +81,10 @@ export function ProjectTriggers() {
     <>
       <p className="muted">
         A trigger runs one of a plugin’s actions by itself when entities in {project.name} are
-        created or change. It’s off until one of the project’s Admins turns it on, and its runs are
-        launched as that Admin; those on the container and VM tiers wait for their approval. What a
-        triggered run changes never fires a trigger, so triggers can’t set each other off.
+        created or change, or on a schedule. It’s off until one of the project’s Admins turns it on,
+        and its runs are launched as that Admin, or for a schedule as the service account they
+        choose; those on the container and VM tiers wait for the Admin’s approval. What a triggered
+        run changes never fires a trigger, so triggers can’t set each other off.
       </p>
       {triggers.isPending ? <Loading label="Loading triggers…" /> : null}
       {triggers.error ? <ProblemAlert problem={problemOf(triggers.error)} /> : null}
@@ -111,7 +113,15 @@ function stateLine(trigger: ProjectTrigger) {
     return (
       <>
         On since <RelativeTime value={trigger.enabled_at ?? ""} />, running as{" "}
-        {trigger.enabled_by.name}
+        {trigger.run_as
+          ? `${trigger.run_as.name} on ${trigger.enabled_by.name}’s authority`
+          : trigger.enabled_by.name}
+        {trigger.next_run_at ? (
+          <>
+            {" "}
+            · next <RelativeTime value={trigger.next_run_at} />
+          </>
+        ) : null}
         {trigger.last_fired_at ? (
           <>
             {" "}
@@ -148,13 +158,18 @@ function TriggerRow({
   fires: string;
 }) {
   const [asking, setAsking] = useState<"enable" | "disable" | null>(null);
+  const scheduled = trigger.on === "schedule";
+  const [runAs, setRunAs] = useState(trigger.run_as?.id ?? trigger.run_as_choices[0]?.id ?? "");
   const { say } = useMessages();
   const change = useApiMutation(
     async (verb: "enable" | "disable") => {
       const params = { path: { project_id: project.id, name: trigger.name } };
       return unwrap(
         verb === "enable"
-          ? await iki.POST("/api/v1/projects/{project_id}/triggers/{name}/enable", { params })
+          ? await iki.POST("/api/v1/projects/{project_id}/triggers/{name}/enable", {
+              params,
+              body: scheduled ? { run_as: runAs } : {},
+            })
           : await iki.POST("/api/v1/projects/{project_id}/triggers/{name}/disable", { params }),
       );
     },
@@ -165,12 +180,23 @@ function TriggerRow({
     change.reset();
   };
   const onAsSomeoneElse = trigger.enabled && trigger.can.enable;
+  const account = trigger.run_as_choices.find((c) => c.id === runAs);
+  const enableLabel = !onAsSomeoneElse ? "Turn on" : scheduled ? "Change" : "Run as me";
   return (
     <li className="row">
       <div className="row-main">
         <span className="row-title">{trigger.label}</span>
         <span className="row-meta">
-          {fires} in {project.name} starts a run of {trigger.action_label}
+          {scheduled ? (
+            <>
+              On the schedule <code>{trigger.schedule}</code> ({trigger.timezone}), it starts a run
+              of {trigger.action_label} in {project.name}
+            </>
+          ) : (
+            <>
+              {fires} in {project.name} starts a run of {trigger.action_label}
+            </>
+          )}
           {waits(trigger) ? `, on the ${trigger.tier ?? ""} tier: each waits for approval` : ""}.
           {trigger.description ? ` ${trigger.description}` : ""}
         </span>
@@ -190,7 +216,7 @@ function TriggerRow({
               setAsking("enable");
             }}
           >
-            {onAsSomeoneElse ? "Run as me" : "Turn on"}
+            {enableLabel}
           </Button>
         ) : null}
         {trigger.can.disable ? (
@@ -205,8 +231,14 @@ function TriggerRow({
       </div>
       <ConfirmDialog
         isOpen={asking === "enable"}
-        title={onAsSomeoneElse ? `Run “${trigger.label}” as you?` : `Turn on “${trigger.label}”?`}
-        confirmLabel={onAsSomeoneElse ? "Run as me" : "Turn on"}
+        title={
+          !onAsSomeoneElse
+            ? `Turn on “${trigger.label}”?`
+            : scheduled
+              ? `Change who “${trigger.label}” runs as?`
+              : `Run “${trigger.label}” as you?`
+        }
+        confirmLabel={enableLabel}
         confirmVariant="primary"
         busy={change.isPending}
         problem={change.error ? problemOf(change.error) : undefined}
@@ -215,18 +247,39 @@ function TriggerRow({
           change.mutate("enable", {
             onSuccess: () => {
               close();
-              say(`“${trigger.label}” is on, and runs as you.`);
+              say(
+                scheduled
+                  ? `“${trigger.label}” is on, and runs as ${account?.name ?? "the service account"}.`
+                  : `“${trigger.label}” is on, and runs as you.`,
+              );
             },
           });
         }}
       >
-        <p>
-          {fires} in {project.name} will start a run of {trigger.action_label}, launched as you and
-          recorded as started by this trigger.
-          {onAsSomeoneElse && trigger.enabled_by
-            ? ` It runs as ${trigger.enabled_by.name} now.`
-            : ""}
-        </p>
+        {scheduled ? (
+          <>
+            <p>
+              Each time <code>{trigger.schedule}</code> ({trigger.timezone}) comes round, a run of{" "}
+              {trigger.action_label} starts in {project.name}, as the service account you choose, on
+              your authority. One never starts while the last is still running, and each is told
+              when the last that succeeded was for, to carry on from there.
+            </p>
+            <SelectField
+              label="Runs as"
+              value={runAs}
+              options={trigger.run_as_choices.map((c) => ({ value: c.id, label: c.name }))}
+              onChange={setRunAs}
+            />
+          </>
+        ) : (
+          <p>
+            {fires} in {project.name} will start a run of {trigger.action_label}, launched as you
+            and recorded as started by this trigger.
+            {onAsSomeoneElse && trigger.enabled_by
+              ? ` It runs as ${trigger.enabled_by.name} now.`
+              : ""}
+          </p>
+        )}
         {waits(trigger) ? (
           <p>
             Its runs are on the {trigger.tier} tier, so each waits for your approval before it
@@ -238,7 +291,10 @@ function TriggerRow({
             still applies.
           </p>
         )}
-        <p>If you lose the role to run it here, Iki turns it off and tells the project’s Admins.</p>
+        <p>
+          If {scheduled ? "you or the service account lose" : "you lose"} the role to run it here,
+          Iki turns it off and tells the project’s Admins.
+        </p>
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={asking === "disable"}
@@ -258,8 +314,8 @@ function TriggerRow({
         }}
       >
         <p>
-          Changes from now on start nothing. Runs it already started carry on, and an Admin can turn
-          it on again.
+          {scheduled ? "Its schedule stops" : "Changes from now on start nothing"}. Runs it already
+          started carry on, and an Admin can turn it on again.
         </p>
       </ConfirmDialog>
     </li>
@@ -311,13 +367,33 @@ function Firings({ project, triggers }: { project: Project; triggers: ProjectTri
             <li className="row" key={f.id}>
               <div className="row-main">
                 <span className="row-title">
-                  <Link to="/entities/$ref/" params={{ ref: f.entity.hrid }}>
-                    {f.entity.hrid}
-                  </Link>{" "}
-                  {f.event === "entity.created" ? "was created" : "changed"}
+                  {f.entity ? (
+                    <>
+                      <Link to="/entities/$ref/" params={{ ref: f.entity.hrid }}>
+                        {f.entity.hrid}
+                      </Link>{" "}
+                      {f.event === "entity.created" ? "was created" : "changed"}
+                    </>
+                  ) : (
+                    <>
+                      Scheduled for <RelativeTime value={f.scheduled_for ?? f.created_at} />
+                    </>
+                  )}
                 </span>
                 <span className="row-meta">
-                  {f.label} · revision {f.revision} · <RelativeTime value={f.created_at} />
+                  {f.label}
+                  {f.revision !== null ? ` · revision ${String(f.revision)}` : ""}
+                  {f.event === "schedule" ? (
+                    f.since ? (
+                      <>
+                        {" "}
+                        · since the run for <RelativeTime value={f.since} />
+                      </>
+                    ) : (
+                      " · its first"
+                    )
+                  ) : null}{" "}
+                  · <RelativeTime value={f.created_at} />
                   {f.run ? (
                     <>
                       {" · "}

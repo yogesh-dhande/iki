@@ -96,7 +96,7 @@ def announce(approval: RunApproval, runs: int, label: str, *, path: str) -> None
     """Tells the person their agent, or their trigger, is asking, with a link to decide."""
     what = f"{runs} runs of {label}" if runs > 1 else f"a run of {label}"
     notify(
-        [approval.requested_by],
+        [decider(approval)],
         kinds.RUN_APPROVAL_REQUESTED,
         title=f"{asker(approval)} asks to start {what} in {approval.project.name}",
         body="It runs on a tier that needs your approval. Approve or decline it in Iki; "
@@ -119,8 +119,17 @@ def _may_decide(user: User, approval: RunApproval) -> None:
     # Tokens can't, whatever their scopes: else an agent could approve its own request.
     if permissions.token_limits(user) is not None:
         raise PermissionDenied
-    if approval.requested_by_id != user.pk:
+    if decider(approval).pk != user.pk:
         raise PermissionDenied
+
+
+def decider(approval: RunApproval) -> User:
+    """Who decides: whom the runs are for, or, for a service account a scheduled trigger runs
+    as, the Admin who turned the trigger on (ADR 0080)."""
+    trigger = approval.trigger
+    if trigger is not None and trigger.run_as_id == approval.requested_by_id:
+        return trigger.enabled_by
+    return approval.requested_by
 
 
 def _pending(approval: RunApproval) -> RunApproval:

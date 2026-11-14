@@ -17,13 +17,14 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Iterator
 from contextvars import ContextVar
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+from iki_server.accounts.models import Kind as UserKind
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
@@ -36,8 +37,16 @@ from iki_server.org import permissions
 from iki_server.org.models import Project, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.runs import approvals, catalog, services
-from iki_server.runs.models import ActionRun, FiringState, ProjectTrigger, TriggerFiring
-from iki_spec.model import Trigger
+from iki_server.runs.models import (
+    FINISHED,
+    ActionRun,
+    FiringState,
+    ProjectTrigger,
+    RunStatus,
+    TriggerFiring,
+)
+from iki_spec import cron
+from iki_spec.model import Action, Trigger
 from iki_spec.workflows import literal
 
 __all__ = [
@@ -47,8 +56,11 @@ __all__ = [
     "firings",
     "in_project",
     "label",
+    "next_run",
     "noticed",
     "recover",
+    "run_as_choices",
+    "tick",
     "trigger",
     "triggers",
     "why_not_enable",
@@ -129,12 +141,13 @@ def _fires(spec: Trigger, event: str, entity_type: str, changed: list[str]) -> b
 
 
 def fire(firing_id: str) -> str:
-    """Launches a firing's run, as the Admin who turned the trigger on. Safe to run twice:
-    it locks the firing, and fires only one that's pending."""
+    """Launches a firing's run: as the Admin who turned the trigger on, or for a schedule,
+    as the service account they chose. Safe to run twice: it locks the firing, and fires
+    only one that's pending."""
     with transaction.atomic():
         firing = (
             TriggerFiring.objects.select_for_update(of=("self",), skip_locked=True)
-            .select_related("trigger__project", "trigger__enabled_by", "entity")
+            .select_related("trigger__project", "trigger__enabled_by", "trigger__run_as", "entity")
             .filter(pk=firing_id, state=FiringState.PENDING)
             .first()
         )
@@ -153,31 +166,50 @@ def _fire(firing: TriggerFiring) -> None:
     if spec is None:
         _end(firing, FiringState.SKIPPED, "not_installed", "The trigger is no longer installed.")
         return
-    if firing.entity.archived_at is not None:
+    if firing.entity is not None and firing.entity.archived_at is not None:
         _end(firing, FiringState.SKIPPED, "archived", f"{firing.entity.hrid} was archived first.")
         return
     action = catalog.action(f"{spec.plugin}.{spec.run}")
     if action is None:
         _end(firing, FiringState.FAILED, "not_installed", f"`{spec.run}` is no longer installed.")
         return
-    user, project = row.enabled_by, row.project
-    did = "was created" if firing.event == "entity.created" else "changed"
+    project = row.project
+    params = {name: literal(value) for name, value in spec.params.items()}
     try:
         with (
             audit.using(audit.Context(via=Via.TRIGGER)),
             approvals.for_trigger(row),
             transaction.atomic(),
         ):
-            run = services.launch(
-                user,
-                action,
-                project,
-                {spec.input: [firing.entity_id]},
-                {name: literal(value) for name, value in spec.params.items()},
-                reason=f"Trigger “{spec.label}”: {firing.entity.hrid} {did}.",
-            )
+            if firing.entity is None:
+                assert row.run_as is not None and firing.scheduled_for is not None  # noqa: S101
+                user = row.run_as
+                # Its authority is the Admin's: they must still be able to run it too.
+                services.may_launch(row.enabled_by, action, project)
+                when = firing.scheduled_for.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+                run = services.launch(
+                    user,
+                    action,
+                    project,
+                    {},
+                    params,
+                    reason=f"Scheduled trigger “{spec.label}”, for {when}.",
+                    # Each run picks up from the last: an identical earlier run is no answer.
+                    reuse_results=False,
+                )
+            else:
+                user = row.enabled_by
+                did = "was created" if firing.event == "entity.created" else "changed"
+                run = services.launch(
+                    user,
+                    action,
+                    project,
+                    {spec.input: [firing.entity.pk]},
+                    params,
+                    reason=f"Trigger “{spec.label}”: {firing.entity.hrid} {did}.",
+                )
     except PermissionDenied:
-        message = f"{user.name} can no longer run `{action.qualified_name}` in {project.name}."
+        message = _not_allowed(row, action, project)
         _end(firing, FiringState.FAILED, "not_allowed", message)
         _turn_off(row, spec, message)
         return
@@ -194,6 +226,16 @@ def _fire(firing: TriggerFiring) -> None:
     _end(firing, FiringState.LAUNCHED)
 
 
+def _not_allowed(row: ProjectTrigger, action: Action, project: Project) -> str:
+    """Who can no longer run the trigger's action: the Admin, or its service account."""
+    for who in (row.enabled_by, row.run_as):
+        if who is not None and not permissions.can(
+            who, services.TIER_PERMISSIONS[action.tier], project
+        ):
+            return f"{who.name} can no longer run `{action.qualified_name}` in {project.name}."
+    return f"`{action.qualified_name}` can no longer be run in {project.name} as the trigger runs."
+
+
 def _end(firing: TriggerFiring, state: str, code: str = "", message: str = "") -> None:
     firing.state = state
     firing.fired_at = timezone.now()
@@ -202,13 +244,16 @@ def _end(firing: TriggerFiring, state: str, code: str = "", message: str = "") -
 
 
 def _turn_off(row: ProjectTrigger, spec: Trigger, why: str) -> None:
-    """Iki turns the trigger off: its runs can no longer be launched as its Admin. The
-    project's Admins, and that Admin, are told."""
+    """Iki turns the trigger off: its runs can no longer be launched as it runs them. The
+    project's Admins, and the Admin who turned it on, are told."""
     row.enabled = False
     row.disabled_by = None
     row.disabled_at = timezone.now()
     row.disabled_reason = why
-    row.save(update_fields=["enabled", "disabled_by", "disabled_at", "disabled_reason"])
+    row.next_run_at = None
+    row.save(
+        update_fields=["enabled", "disabled_by", "disabled_at", "disabled_reason", "next_run_at"]
+    )
     audit.record(
         "trigger.disabled",
         actor=None,
@@ -225,6 +270,70 @@ def _turn_off(row: ProjectTrigger, spec: Trigger, why: str) -> None:
         path=f"/projects/{row.project.slug}/triggers/",
         project=row.project,
     )
+
+
+# --- Schedules ---------------------------------------------------------------------------------
+
+
+def tick(now: datetime | None = None) -> int:
+    """Fires each scheduled trigger whose time has come, once however many times it was
+    missed, as GitHub's schedules do. One whose last run hasn't finished is skipped this
+    time: runs never overlap. Returns how many it fired or skipped."""
+    now = now or timezone.now()
+    done = 0
+    installed = triggers()
+    with transaction.atomic():
+        due = list(
+            ProjectTrigger.objects.select_for_update(skip_locked=True)
+            .filter(enabled=True, next_run_at__lte=now)
+            .order_by("next_run_at")[:RECOVER_AT_MOST]
+        )
+        for row in due:
+            assert row.next_run_at is not None  # noqa: S101 - filtered on it
+            spec = installed.get(row.trigger)
+            if spec is None or spec.on != "schedule":
+                row.next_run_at = None
+                row.save(update_fields=["next_run_at"])
+                continue
+            at = row.next_run_at
+            row.next_run_at = next_run(spec, now)
+            row.save(update_fields=["next_run_at"])
+            _schedule(row, at, now)
+            done += 1
+    return done
+
+
+def _schedule(row: ProjectTrigger, at: datetime, now: datetime) -> None:
+    from iki_server.runs.tasks import fire_trigger
+
+    earlier = row.firings.filter(event="schedule")
+    going = earlier.filter(
+        Q(state=FiringState.PENDING)
+        | (Q(state=FiringState.LAUNCHED) & ~Q(run__status__in=[s.value for s in FINISHED]))
+    ).first()
+    if going is not None:
+        TriggerFiring.objects.create(
+            trigger=row,
+            event="schedule",
+            scheduled_for=at,
+            state=FiringState.SKIPPED,
+            fired_at=now,
+            error={
+                "code": "still_running",
+                "message": "Its last run hadn't finished, and runs on a schedule never overlap.",
+            },
+        )
+        return
+    last = (
+        earlier.filter(state=FiringState.LAUNCHED, run__status=RunStatus.SUCCEEDED)
+        .order_by("-scheduled_for")
+        .values_list("scheduled_for", flat=True)
+        .first()
+    )
+    firing = TriggerFiring.objects.create(
+        trigger=row, event="schedule", scheduled_for=at, since=last
+    )
+    fire_trigger.enqueue(str(firing.pk))
 
 
 def recover() -> int:
@@ -251,17 +360,50 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
     try:
         services.may_launch(user, action, project)
     except PermissionDenied:
+        if spec.on == "schedule":
+            return (
+                f"Its runs are launched on your authority, and you can't run {action.tier}-tier "
+                "actions in this project."
+            )
         return (
             f"Its runs would be launched as you, and you can't run {action.tier}-tier actions "
             "in this project."
         )
     except Refused as error:
         return str(error)
+    if spec.on == "schedule" and not run_as_choices(project, spec):
+        return (
+            f"A scheduled trigger runs as a service account, and none in {project.name} can run "
+            f"{action.tier}-tier actions. Add one as a member first."
+        )
     return None
 
 
-def enable(user: User, project: Project, name: str) -> ProjectTrigger:
-    """Turns the trigger on in the project, its runs launched as `user` from now on.
+def run_as_choices(project: Project, spec: Trigger) -> list[User]:
+    """The service accounts a scheduled trigger may run as in the project: active members
+    who can run its action's tier, by name."""
+    action = catalog.action(f"{spec.plugin}.{spec.run}")
+    if spec.on != "schedule" or action is None:
+        return []
+    least = permissions.least_role(services.TIER_PERMISSIONS[action.tier])
+    return list(
+        permissions.members_with(project, least)
+        .filter(kind=UserKind.SERVICE)
+        .distinct()
+        .order_by("name", "pk")
+    )
+
+
+def next_run(spec: Trigger, after: datetime) -> datetime | None:
+    """When a scheduled trigger next runs after `after`, or None if it never does."""
+    return cron.parse(spec.schedule).next_after(after, cron.zone(spec.timezone or "UTC"))
+
+
+def enable(
+    user: User, project: Project, name: str, *, run_as: User | None = None
+) -> ProjectTrigger:
+    """Turns the trigger on in the project. An entity trigger's runs are launched as `user`
+    from now on; a scheduled one's as the service account `run_as`, on `user`'s authority.
     Raises :class:`PermissionDenied` for anyone but the project's Admins, and
     :class:`Refused` if it can't run here, or as them."""
     permissions.require(user, permissions.Action.PROJECT_TRIGGERS_MANAGE, project)
@@ -271,16 +413,29 @@ def enable(user: User, project: Project, name: str) -> ProjectTrigger:
     why = why_not_enable(user, project, spec)
     if why is not None:
         raise Refused(why)
+    scheduled = spec.on == "schedule"
+    if scheduled and run_as is None:
+        raise Refused("Choose the service account it runs as.")
+    if not scheduled and run_as is not None:
+        raise Refused("A trigger that fires on changes runs as whoever turns it on.")
+    if scheduled and run_as not in run_as_choices(project, spec):
+        raise Refused(
+            "It can only run as an active service account that's a member of the project and "
+            "can run its action here."
+        )
     now = timezone.now()
     with transaction.atomic():
         row, made = ProjectTrigger.objects.select_for_update().get_or_create(
             project=project, trigger=name, defaults={"enabled_by": user, "enabled_at": now}
         )
-        if not made and row.enabled and row.enabled_by_id == user.pk:
+        unchanged = row.enabled and row.enabled_by_id == user.pk and row.run_as == run_as
+        if not made and unchanged:
             return row
         row.enabled = True
         row.enabled_by = user
         row.enabled_at = now
+        row.run_as = run_as
+        row.next_run_at = next_run(spec, now) if scheduled else None
         row.disabled_reason = ""
         row.save()
         audit.record(
@@ -288,7 +443,12 @@ def enable(user: User, project: Project, name: str) -> ProjectTrigger:
             actor=user,
             target=row,
             project=project,
-            data={"trigger": name, "action": f"{spec.plugin}.{spec.run}", "on": spec.on},
+            data={
+                "trigger": name,
+                "action": f"{spec.plugin}.{spec.run}",
+                "on": spec.on,
+                **({"run_as": run_as.name, "schedule": spec.schedule} if run_as else {}),
+            },
         )
     return row
 
@@ -307,7 +467,16 @@ def disable(user: User, project: Project, name: str) -> ProjectTrigger | None:
         row.disabled_by = user
         row.disabled_at = timezone.now()
         row.disabled_reason = ""
-        row.save(update_fields=["enabled", "disabled_by", "disabled_at", "disabled_reason"])
+        row.next_run_at = None
+        row.save(
+            update_fields=[
+                "enabled",
+                "disabled_by",
+                "disabled_at",
+                "disabled_reason",
+                "next_run_at",
+            ]
+        )
         audit.record(
             "trigger.disabled", actor=user, target=row, project=project, data={"trigger": name}
         )

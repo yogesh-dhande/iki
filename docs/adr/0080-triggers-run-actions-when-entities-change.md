@@ -98,4 +98,4 @@ rows.
 - A trigger whose Admin leaves stops, and says so, rather than quietly
   running under someone else.
 - Scheduled triggers (cron, run as a service account, never overlapping)
-  build on the same records. They come next.
+  build on the same records ([ADR 0081](0081-scheduled-triggers-run-as-a-service-account.md)).

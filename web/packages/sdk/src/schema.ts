@@ -1289,8 +1289,9 @@ export interface paths {
         put?: never;
         /**
          * Turn a trigger on in a project
-         * @description From now on its runs are launched as you, so you must be able to run its action here.
-         *     Only in the web app: no token, and so no agent, can turn one on.
+         * @description From now on an entity trigger's runs are launched as you, and a scheduled one's as the
+         *     service account you choose (`run_as`), on your authority: either way you must be able to
+         *     run its action here. Only in the web app: no token, and so no agent, can turn one on.
          */
         post: operations["iki_server_api_triggers_enable_trigger"];
         delete?: never;
@@ -3460,6 +3461,14 @@ export interface components {
             /** Kinds */
             kinds: components["schemas"]["EmailKindOut"][];
         };
+        /** EnableIn */
+        EnableIn: {
+            /**
+             * Run As
+             * @description For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.
+             */
+            run_as?: string | null;
+        };
         /** EntityCan */
         EntityCan: {
             /**
@@ -3930,13 +3939,14 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
-            entity: components["schemas"]["FiredEntityOut"];
+            /** @description Whose change fired it; null on a schedule. */
+            entity: components["schemas"]["FiredEntityOut"] | null;
             error: components["schemas"]["FiringErrorOut"] | null;
             /**
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.updated";
+            event: "entity.created" | "entity.updated" | "schedule";
             /** Fired At */
             fired_at: string | null;
             /**
@@ -3948,13 +3958,23 @@ export interface components {
             label: string;
             /**
              * Revision
-             * @description The revision the change made.
+             * @description The revision the change made; null on a schedule.
              */
-            revision: number;
+            revision: number | null;
             run: components["schemas"]["FiredRunOut"] | null;
             /**
+             * Scheduled For
+             * @description On a schedule: the time it was for.
+             */
+            scheduled_for: string | null;
+            /**
+             * Since
+             * @description On a schedule: the time the last run that succeeded was for, which its command carries on from. Null for the first.
+             */
+            since: string | null;
+            /**
              * State
-             * @description `pending` until its run is launched, just after the change; `failed` if it couldn't be; `skipped` if the trigger was turned off or the entity archived first.
+             * @description `pending` until its run is launched, just after the change or the time; `failed` if it couldn't be; `skipped` if the trigger was turned off or the entity archived first, or, on a schedule, while its last run hadn't finished.
              * @enum {string}
              */
             state: "pending" | "launched" | "failed" | "skipped";
@@ -5131,7 +5151,7 @@ export interface components {
         ProjectTriggerOut: {
             /**
              * Action
-             * @description The qualified name of the action it runs on the entity.
+             * @description The qualified name of the action it runs.
              */
             action: string;
             /** Action Label */
@@ -5152,7 +5172,7 @@ export interface components {
             enabled: boolean;
             /** Enabled At */
             enabled_at: string | null;
-            /** @description Who its runs are launched as: whoever turned it on last. Null if nobody ever has. */
+            /** @description Who turned it on last: whom an entity trigger's runs are launched as, and on whose authority a scheduled one's are. Null if nobody ever has. */
             enabled_by: components["schemas"]["PersonRef"] | null;
             /**
              * Fields
@@ -5161,7 +5181,7 @@ export interface components {
             fields: string[];
             /**
              * Input
-             * @description The action's input that takes the entity.
+             * @description The action's input that takes the entity; empty on a schedule.
              */
             input: string;
             /** Label */
@@ -5174,25 +5194,47 @@ export interface components {
              */
             name: string;
             /**
+             * Next Run At
+             * @description On a schedule, while it's on: when it next runs.
+             */
+            next_run_at: string | null;
+            /**
              * On
-             * @description What fires it: an entity of its type created, or changed.
+             * @description What fires it: an entity of its type created, or changed, or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.updated";
+            on: "entity.created" | "entity.updated" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
             };
             /** Plugin */
             plugin: string;
+            /** @description On a schedule: the service account its runs are launched as. */
+            run_as: components["schemas"]["PersonRef"] | null;
+            /**
+             * Run As Choices
+             * @description On a schedule, for the project's Admins: the service accounts it may run as, members who can run its action here.
+             */
+            run_as_choices: components["schemas"]["PersonRef"][];
+            /**
+             * Schedule
+             * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
+             */
+            schedule: string;
             /**
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
              */
             tier: ("client" | "backend" | "container" | "vm") | null;
             /**
+             * Timezone
+             * @description On a schedule: the timezone of its times.
+             */
+            timezone: string;
+            /**
              * Type
-             * @description The entity type it fires for, with its subtypes.
+             * @description The entity type it fires for, with its subtypes; empty on a schedule.
              */
             type: string;
             /**
@@ -5559,6 +5601,8 @@ export interface components {
             /** Decided At */
             decided_at: string | null;
             decided_by: components["schemas"]["PersonRef"] | null;
+            /** @description Who decides: requested_by, or for a service account a scheduled trigger runs as, the Admin who turned the trigger on. */
+            decider: components["schemas"]["PersonRef"];
             /**
              * Expires At
              * Format: date-time
@@ -5574,7 +5618,7 @@ export interface components {
              * @description Why it was declined, if they said.
              */
             note: string;
-            /** @description Who the app or trigger acted for: who decides. */
+            /** @description Whom the app or trigger asked for. */
             requested_by: components["schemas"]["PersonRef"];
             /**
              * Runs
@@ -6038,7 +6082,7 @@ export interface components {
              * @enum {string}
              */
             tier: "client" | "backend" | "container" | "vm";
-            /** @description The project's trigger that launched it, if one did, and the change that fired it (ADR 0080). It runs as requested_by, who turned the trigger on. */
+            /** @description The project's trigger that launched it, if one did, and the change or schedule that fired it (ADR 0080). */
             trigger: components["schemas"]["TriggerFiredOut"] | null;
             /** Via */
             via: string;
@@ -6685,17 +6729,18 @@ export interface components {
         };
         /** TriggerFiredOut */
         TriggerFiredOut: {
+            /** @description The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as. */
+            enabled_by: components["schemas"]["PersonRef"];
             /**
              * Entity
-             * Format: uuid
-             * @description The entity whose change fired it.
+             * @description The entity whose change fired it; null on a schedule.
              */
-            entity: string;
+            entity: string | null;
             /**
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.updated";
+            event: "entity.created" | "entity.updated" | "schedule";
             /**
              * Label
              * @description Its label, or its name once it's no longer installed.
@@ -6708,15 +6753,25 @@ export interface components {
             name: string;
             /**
              * Revision
-             * @description The revision the change made.
+             * @description The revision the change made; null on a schedule.
              */
-            revision: number;
+            revision: number | null;
+            /**
+             * Scheduled For
+             * @description On a schedule: the time it was for.
+             */
+            scheduled_for: string | null;
+            /**
+             * Since
+             * @description On a schedule: the time the last run that succeeded was for, which its command carries on from. Null for the first.
+             */
+            since: string | null;
         };
         /** TriggerOut */
         TriggerOut: {
             /**
              * Action
-             * @description The qualified name of the action it runs on the entity.
+             * @description The qualified name of the action it runs.
              */
             action: string;
             /** Action Label */
@@ -6730,7 +6785,7 @@ export interface components {
             fields: string[];
             /**
              * Input
-             * @description The action's input that takes the entity.
+             * @description The action's input that takes the entity; empty on a schedule.
              */
             input: string;
             /** Label */
@@ -6742,10 +6797,10 @@ export interface components {
             name: string;
             /**
              * On
-             * @description What fires it: an entity of its type created, or changed.
+             * @description What fires it: an entity of its type created, or changed, or its schedule.
              * @enum {string}
              */
-            on: "entity.created" | "entity.updated";
+            on: "entity.created" | "entity.updated" | "schedule";
             /** Params */
             params: {
                 [key: string]: unknown;
@@ -6753,13 +6808,23 @@ export interface components {
             /** Plugin */
             plugin: string;
             /**
+             * Schedule
+             * @description On a schedule: when it runs, in cron's five fields. Empty otherwise.
+             */
+            schedule: string;
+            /**
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
              */
             tier: ("client" | "backend" | "container" | "vm") | null;
             /**
+             * Timezone
+             * @description On a schedule: the timezone of its times.
+             */
+            timezone: string;
+            /**
              * Type
-             * @description The entity type it fires for, with its subtypes.
+             * @description The entity type it fires for, with its subtypes; empty on a schedule.
              */
             type: string;
         };
@@ -9404,7 +9469,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EnableIn"] | null;
+            };
+        };
         responses: {
             /** @description OK */
             200: {

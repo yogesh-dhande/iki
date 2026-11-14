@@ -385,6 +385,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
                 "sha": run.plugin_sha or None,
             },
             "project": str(run.project_id),
+            **_trigger(run),
         },
         "job": {
             "id": str(job.pk),
@@ -406,6 +407,28 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         "files": input_files.describe(files),
         **({"volumes": job.volumes} if job.volumes else {}),
         **({"pack": pack} if members else {}),
+    }
+
+
+def _trigger(run: ActionRun) -> dict[str, Any]:
+    """For a run a scheduled trigger launched: which, when for, and since when (ADR 0080)."""
+    if run.via != "trigger":
+        return {}
+    from iki_server.runs.models import TriggerFiring
+
+    firing = (
+        TriggerFiring.objects.filter(run=run, scheduled_for__isnull=False)
+        .select_related("trigger")
+        .first()
+    )
+    if firing is None or firing.scheduled_for is None:
+        return {}
+    return {
+        "trigger": {
+            "name": firing.trigger.trigger,
+            "scheduled_for": firing.scheduled_for.isoformat(),
+            "since": firing.since.isoformat() if firing.since else None,
+        }
     }
 
 

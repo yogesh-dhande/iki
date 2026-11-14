@@ -3,14 +3,17 @@
 A plugin's triggers live under `triggers/`. The schema checks each document's shape; the
 rules here check it against the plugin's types and actions: that the type exists and the
 fields it watches are the type's, that the action it runs takes an entity of that type and
-needs nothing else, that its params fit, and that it doesn't run on the client tier.
+needs nothing else, that its params fit, and that it doesn't run on the client tier. A
+scheduled trigger's schedule must read, come round, and run at most every five minutes,
+and its action must need no inputs.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from iki_spec import schemas
+from iki_spec import cron, schemas
 from iki_spec import validate as _validate
 from iki_spec.model import Action, Trigger, qualify
 from iki_spec.problems import Path
@@ -21,6 +24,9 @@ if TYPE_CHECKING:
 
 __all__ = ["check", "read_trigger"]
 
+#: From when a schedule is checked to come round.
+_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
+
 
 def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigger:
     name = body["name"]
@@ -30,7 +36,9 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
         label=body.get("label") or name.replace("_", " ").capitalize(),
         description=body.get("description"),
         on=body["on"],
-        type=qualify(body["type"], plugin),
+        type=qualify(body["type"], plugin) if body.get("type") else "",
+        schedule=body.get("schedule") or "",
+        timezone=body.get("timezone") or "",
         fields=tuple(body.get("fields") or ()),
         run=body["run"],
         # Filled in by `check` when it's left out and one input takes the type.
@@ -73,9 +81,29 @@ class _Rules:
         )
 
     def trigger(self, trigger: Trigger, source: Document) -> Trigger:
-        target = self.s.reference(trigger.type, source, ("type",))
-        if target is not None:
-            self.watched(trigger, source)
+        scheduled = trigger.on == "schedule"
+        if scheduled:
+            self.scheduled(trigger, source)
+        elif not trigger.type:
+            self.add(
+                "trigger-type-missing",
+                f"A trigger `on: {trigger.on}` says which entities it fires for, with `type`.",
+                source,
+                (),
+                hint="Add `type:`, such as `type: Protein`.",
+            )
+        else:
+            if trigger.schedule or trigger.timezone:
+                self.add(
+                    "trigger-schedule-not-scheduled",
+                    "`schedule` and `timezone` are for `on: schedule`.",
+                    source,
+                    ("schedule",) if trigger.schedule else ("timezone",),
+                    key=True,
+                )
+            target = self.s.reference(trigger.type, source, ("type",))
+            if target is not None:
+                self.watched(trigger, source)
         action = self.plugin.actions.get(trigger.run)
         if action is None:
             self.add(
@@ -95,7 +123,20 @@ class _Rules:
                 ("run",),
                 hint="Run it on the backend, container or VM tier.",
             )
-        given = self.given(trigger, action, source)
+        if scheduled:
+            for name, put in action.inputs.items():
+                if not put.optional:
+                    self.add(
+                        "trigger-input-missing",
+                        f"`{trigger.run}` needs `{name}`, and a scheduled trigger gives it no "
+                        "entities.",
+                        source,
+                        ("run",),
+                        hint="Run an action that needs no inputs, such as an import.",
+                    )
+            given = ""
+        else:
+            given = self.given(trigger, action, source)
         if given:
             for name, put in action.inputs.items():
                 if name != given and not put.optional:
@@ -122,6 +163,45 @@ class _Rules:
         if given and given != trigger.input:
             return Trigger(**{**trigger.__dict__, "input": given})
         return trigger
+
+    def scheduled(self, trigger: Trigger, source: Document) -> None:
+        for name in ("type", "fields", "input"):
+            if getattr(trigger, name):
+                self.add(
+                    "trigger-schedule-entity",
+                    f"A scheduled trigger fires for no entity, so it has no `{name}`.",
+                    source,
+                    (name,),
+                    key=True,
+                )
+        if not trigger.schedule:
+            self.add(
+                "trigger-schedule-missing",
+                "A trigger `on: schedule` says when it runs, with `schedule`.",
+                source,
+                (),
+                hint="Add `schedule:` in cron's five fields, such as `0 6 * * 1-5`.",
+            )
+            return
+        tz = None
+        if trigger.timezone:
+            try:
+                tz = cron.zone(trigger.timezone)
+            except cron.ScheduleError as error:
+                self.add("trigger-timezone-unknown", str(error), source, ("timezone",))
+                return
+        try:
+            schedule = cron.parse(trigger.schedule)
+        except cron.ScheduleError as error:
+            self.add("trigger-schedule-invalid", str(error), source, ("schedule",))
+            return
+        if schedule.next_after(_EPOCH, tz or cron.zone("UTC")) is None:
+            self.add(
+                "trigger-schedule-never",
+                f"`{trigger.schedule}` names no day that comes round, so it never runs.",
+                source,
+                ("schedule",),
+            )
 
     def watched(self, trigger: Trigger, source: Document) -> None:
         if not trigger.fields:

@@ -616,7 +616,7 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
         itself, so{" "}
         {approval.can.decide
           ? `${count > 1 ? "they wait" : "it waits"} for you.`
-          : `${count > 1 ? "they wait" : "it waits"} for ${approval.requested_by.name} to approve ${count > 1 ? "them" : "it"} in Iki.`}{" "}
+          : `${count > 1 ? "they wait" : "it waits"} for ${approval.decider.name} to approve ${count > 1 ? "them" : "it"} in Iki.`}{" "}
         If nobody decides, the request expires <RelativeTime value={approval.expires_at} />.
       </p>
       {others > 0 ? (
@@ -700,9 +700,28 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
   );
 }
 
-/** How a request was decided, for the run's details. */
-/** The trigger that launched a run, and the change that fired it (ADR 0080). */
+/** The trigger that launched a run, and the change or time that fired it (ADR 0080). */
 function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trigger"]> }) {
+  if (trigger.entity === null) {
+    return (
+      <>
+        <dt>Trigger</dt>
+        <dd>
+          {trigger.label}, on its schedule, for{" "}
+          <RelativeTime value={trigger.scheduled_for ?? run.created_at} />
+          {trigger.since ? (
+            <>
+              ; it carries on from the run for <RelativeTime value={trigger.since} />
+            </>
+          ) : (
+            "; its first"
+          )}
+          . It runs as {run.requested_by.name} on {trigger.enabled_by.name}’s authority, who turned
+          the trigger on.
+        </dd>
+      </>
+    );
+  }
   const fired = run.inputs.find((i) => i.entity === trigger.entity);
   return (
     <>

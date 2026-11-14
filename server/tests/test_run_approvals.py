@@ -178,7 +178,7 @@ def test_only_the_person_decides_and_only_in_the_web_app(world: World) -> None:
     assert seen.json()["can"] == {"decide": False}
     assert problem(api_as(world, "runner").post(f"{where}/approve"), 403, "forbidden")[
         "detail"
-    ] == ("Only the person the app asked for can decide.")
+    ] == ("Only the person the app or trigger asked for can decide.")
     problem(api_as(world, "outsider").get(where), 404, "not_found")
 
     # The person's own tokens can't either, whatever their scopes: else an agent could

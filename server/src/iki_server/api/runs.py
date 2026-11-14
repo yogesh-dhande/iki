@@ -409,7 +409,11 @@ class RunApprovalOut(Schema):
         description="The project's trigger that asked, if one did, for requested_by: the Admin "
         "who turned it on (ADR 0080)."
     )
-    requested_by: PersonRef = Field(description="Who the app or trigger acted for: who decides.")
+    requested_by: PersonRef = Field(description="Whom the app or trigger asked for.")
+    decider: PersonRef = Field(
+        description="Who decides: requested_by, or for a service account a scheduled trigger "
+        "runs as, the Admin who turned the trigger on."
+    )
     created_at: datetime
     expires_at: datetime
     decided_by: PersonRef | None
@@ -431,9 +435,18 @@ class WorkflowStepRefOut(Schema):
 
 
 class TriggerFiredOut(TriggerRefOut):
-    event: Literal["entity.created", "entity.updated"]
-    entity: UUID = Field(description="The entity whose change fired it.")
-    revision: int = Field(description="The revision the change made.")
+    event: Literal["entity.created", "entity.updated", "schedule"]
+    entity: UUID | None = Field(description="The entity whose change fired it; null on a schedule.")
+    revision: int | None = Field(description="The revision the change made; null on a schedule.")
+    scheduled_for: datetime | None = Field(description="On a schedule: the time it was for.")
+    since: datetime | None = Field(
+        description="On a schedule: the time the last run that succeeded was for, which its "
+        "command carries on from. Null for the first."
+    )
+    enabled_by: PersonRef = Field(
+        description="The Admin who turned the trigger on: on whose authority it ran. On a "
+        "schedule, requested_by is the service account it runs as."
+    )
 
 
 class RunCostOut(Schema):
@@ -467,8 +480,8 @@ class RunOut(Schema):
         description="The workflow run it's a step of, if any (ADR 0079)."
     )
     trigger: TriggerFiredOut | None = Field(
-        description="The project's trigger that launched it, if one did, and the change that "
-        "fired it (ADR 0080). It runs as requested_by, who turned the trigger on."
+        description="The project's trigger that launched it, if one did, and the change or "
+        "schedule that fired it (ADR 0080)."
     )
     tier: Tier
     environment: str
@@ -685,10 +698,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "event": f.event,
             "entity": f.entity_id,
             "revision": f.revision,
+            "scheduled_for": f.scheduled_for,
+            "since": f.since,
+            "enabled_by": f.trigger.enabled_by,
         }
         for f in TriggerFiring.objects.filter(
             run__in=[r for r in runs if r.via == Via.TRIGGER]
-        ).select_related("trigger")
+        ).select_related("trigger__enabled_by")
     }
     projects.update({r.project_id: r.project for r in refs.values()})
     may_cancel = {
@@ -1154,7 +1170,7 @@ def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
     if not ids:
         return {}
     found = RunApproval.objects.filter(pk__in=ids).select_related(
-        "requested_by", "decided_by", "agent", "trigger"
+        "requested_by", "decided_by", "agent", "trigger__enabled_by"
     )
     held: dict[Any, list[dict[str, Any]]] = {}
     for run_id, hrid, approval_id in (
@@ -1171,6 +1187,7 @@ def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
             "client": a.client,
             "agent": agent_out(a.agent, a.client),
             "trigger": trigger_ref(a.trigger) if a.trigger is not None else None,
+            "decider": approvals.decider(a),
             "requested_by": a.requested_by,
             "created_at": a.created_at,
             "expires_at": a.expires_at,
@@ -1179,7 +1196,9 @@ def _approvals_out(me: User, ids: set[Any]) -> dict[Any, dict[str, Any]]:
             "note": a.note,
             "runs": held.get(a.pk, []),
             "can": {
-                "decide": web and a.requested_by_id == me.pk and a.state == ApprovalState.PENDING
+                "decide": web
+                and approvals.decider(a).pk == me.pk
+                and a.state == ApprovalState.PENDING
             },
         }
         for a in found
@@ -1205,8 +1224,8 @@ def _decide(me: User, approval: RunApproval) -> None:
             "its own request.",
             code="web_only",
         )
-    if approval.requested_by_id != me.pk:
-        raise Problem(403, "Only the person the app asked for can decide.")
+    if approvals.decider(approval).pk != me.pk:
+        raise Problem(403, "Only the person the app or trigger asked for can decide.")
 
 
 class DeclineIn(Schema):

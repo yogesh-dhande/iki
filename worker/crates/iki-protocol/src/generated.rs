@@ -84,6 +84,9 @@ pub struct RunInputRun {
     pub action: String,
     pub plugin: RunInputRunPlugin,
     pub project: String,
+    /// For a run a scheduled trigger launched (ADR 0080): which, the time it was for, and the time the last run of it that succeeded was for, to carry on from. An import fetches what changed since `since`; null on its first run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<RunInputRunTrigger>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +95,15 @@ pub struct RunInputRunPlugin {
     pub version: String,
     /// The plugin's commit, when the deployment was built from a lockfile.
     pub sha: Option<String>,
+}
+
+/// For a run a scheduled trigger launched (ADR 0080): which, the time it was for, and the time the last run of it that succeeded was for, to carry on from. An import fetches what changed since `since`; null on its first run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputRunTrigger {
+    /// The trigger's qualified name, such as `lims.sync_samples`.
+    pub name: String,
+    pub scheduled_for: String,
+    pub since: Option<String>,
 }
 
 /// For iki-worker, not the command: the lease it holds, and its limits.

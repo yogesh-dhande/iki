@@ -2,17 +2,20 @@
 Admins turn them on, as the Admin who did; what a triggered run writes fires nothing
 (ADR 0080)."""
 
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Any
 
 import pytest
 from api_client import problem
+from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, patch
 from test_oauth import bearer, signed_in_token
 from test_runs import COMPUTE, launch, protein
 from test_workers import WorkerClient, keep_connection, worker, world
 
+from iki_server.accounts import service_accounts
+from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent, Via
 from iki_server.notifications.models import Notification
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
@@ -33,7 +36,14 @@ pytestmark = pytest.mark.django_db
 __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 
 NEW = "protein.weigh_new_proteins"
+NIGHTLY = "protein.fetch_hemoglobin_nightly"
 CHANGED = "protein.weigh_changed_proteins"
+
+
+@pytest.fixture(autouse=True)
+def proxied(settings: Any) -> None:
+    """fetch_proteins, which the scheduled trigger runs, reaches UniProt through the proxy."""
+    settings.IKI_EGRESS_PROXY_URL = "http://egress-proxy:3128"
 
 
 def run_tasks() -> int:
@@ -77,14 +87,16 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 
 def test_lists_installed_triggers(world: World) -> None:
     found = api_as(world, "viewer").get("/triggers").json()
-    assert [t["name"] for t in found] == [CHANGED, NEW]
-    assert found[1] == {
+    assert [t["name"] for t in found] == [NIGHTLY, CHANGED, NEW]
+    assert found[2] == {
         "name": NEW,
         "plugin": "protein",
         "label": "Weigh new proteins",
         "description": None,
         "on": "entity.created",
         "type": "protein.Protein",
+        "schedule": "",
+        "timezone": "",
         "fields": [],
         "action": COMPUTE,
         "action_label": "Compute properties",
@@ -189,6 +201,9 @@ def test_a_new_entity_fires_a_run_as_the_admin(world: World) -> None:
         "event": "entity.created",
         "entity": kit["id"],
         "revision": 1,
+        "scheduled_for": None,
+        "since": None,
+        "enabled_by": {"id": str(world.users["admin"].pk), "name": world.users["admin"].name},
     }
     (listed_firing,) = firings(world)
     assert listed_firing["trigger"] == NEW
@@ -397,3 +412,180 @@ def test_runs_on_costly_tiers_wait_for_the_admin(
     run.refresh_from_db()
     assert run.status == RunStatus.QUEUED
     assert str(firing.entity_id) == kit["id"]
+
+
+# --- Scheduled ---------------------------------------------------------------------------------
+
+
+def robot(world: World, role: ProjectRole = ProjectRole.EDITOR) -> User:
+    """A service account that's a member of the project."""
+    account = service_accounts.create("Nightly sync", "", by=world.users["org_admin"])
+    ProjectMembership.objects.create(project=world.project, user=account, role=role)
+    return account
+
+
+def scheduled_on(world: World, account: User) -> dict[str, Any]:
+    made = api_as(world, "admin").post(
+        f"/projects/{world.project.pk}/triggers/{NIGHTLY}/enable", {"run_as": str(account.pk)}
+    )
+    assert made.status_code == 200, made.content
+    body: dict[str, Any] = made.json()
+    return body
+
+
+def due(world: World) -> ProjectTrigger:
+    row = ProjectTrigger.objects.get(project=world.project, trigger=NIGHTLY)
+    assert row.next_run_at is not None
+    return row
+
+
+def test_a_scheduled_trigger_runs_as_a_service_account(world: World) -> None:
+    before = listed(world, "admin")[NIGHTLY]
+    assert (before["on"], before["schedule"], before["timezone"]) == (
+        "schedule",
+        "0 3 * * *",
+        "Europe/Zurich",
+    )
+    # None to run as yet.
+    assert before["run_as_choices"] == []
+    assert before["why_not_enable"] is not None
+    assert "runs as a service account" in before["why_not_enable"]
+    account = robot(world)
+    assert [c["name"] for c in listed(world, "admin")[NIGHTLY]["run_as_choices"]] == [
+        "Nightly sync"
+    ]
+    assert listed(world)[NIGHTLY]["run_as_choices"] == []  # only Admins see them
+    url = f"/projects/{world.project.pk}/triggers/{NIGHTLY}/enable"
+    problem(api_as(world, "admin").post(url, {}), 409, "not_allowed")
+    human = {"run_as": str(world.users["editor"].pk)}
+    problem(api_as(world, "admin").post(url, human), 409, "not_allowed")
+
+    body = scheduled_on(world, account)
+    assert body["run_as"]["name"] == "Nightly sync"
+    assert body["enabled_by"]["name"] == world.users["admin"].name
+    row = due(world)
+    at = row.next_run_at
+    assert at is not None
+    # 03:00 in Zurich is 01:00 or 02:00 UTC.
+    assert at.astimezone(UTC).hour in (1, 2)
+    assert body["next_run_at"] is not None
+    event = AuditEvent.objects.get(action="trigger.enabled")
+    assert (event.data["run_as"], event.data["schedule"]) == ("Nightly sync", "0 3 * * *")
+
+    assert triggers.tick(at - timedelta(seconds=1)) == 0
+    assert triggers.tick(at + timedelta(seconds=30)) == 1
+    firing = TriggerFiring.objects.get()
+    assert (firing.event, firing.entity, firing.scheduled_for, firing.since) == (
+        "schedule",
+        None,
+        at,
+        None,
+    )
+    row.refresh_from_db()
+    assert row.next_run_at is not None and row.next_run_at > at
+    run_tasks()
+    firing.refresh_from_db()
+    run = firing.run
+    assert run is not None
+    assert (run.requested_by, run.via, run.params) == (account, "trigger", {"accession": "P69905"})
+    assert run.reason.startswith("Scheduled trigger “Fetch hemoglobin nightly”, for ")
+    shown = api_as(world, "viewer").get(f"/runs/{run.hrid}").json()["trigger"]
+    assert shown["event"] == "schedule" and shown["entity"] is None
+    assert shown["enabled_by"]["name"] == world.users["admin"].name
+    assert shown["scheduled_for"] is not None and shown["since"] is None
+
+
+def test_scheduled_runs_never_overlap_and_carry_on_from_the_last_success(world: World) -> None:
+    scheduled_on(world, robot(world))
+    first_at = due(world).next_run_at
+    assert first_at is not None
+    triggers.tick(first_at)
+    run_tasks()
+    # Its run hasn't finished when the time next comes round: skipped.
+    second_at = due(world).next_run_at
+    assert second_at is not None
+    triggers.tick(second_at)
+    skipped = TriggerFiring.objects.get(scheduled_for=second_at)
+    assert skipped.state == FiringState.SKIPPED
+    assert skipped.error is not None and skipped.error["code"] == "still_running"
+    # Once it's done, the next one is told when the last success was for.
+    pod = worker(world)
+    job = pod.lease().json()
+    assert job["run"]["trigger"] == {
+        "name": NIGHTLY,
+        "scheduled_for": first_at.isoformat(),
+        "since": None,
+    }
+    done = pod.report(job, "complete", output={"apiVersion": "iki/v1", "kind": "RunOutput"})
+    assert done.status_code == 200, done.content
+    third_at = due(world).next_run_at
+    assert third_at is not None
+    triggers.tick(third_at)
+    run_tasks()
+    third = TriggerFiring.objects.get(scheduled_for=third_at)
+    assert third.state == FiringState.LAUNCHED and third.since == first_at
+    job = pod.lease().json()
+    assert job["run"]["trigger"]["since"] == first_at.isoformat()
+    # Every run starts afresh: an identical earlier one's results aren't reused.
+    assert third.run is not None and third.run.reused_from_id is None
+
+
+def test_missed_times_run_once(world: World) -> None:
+    scheduled_on(world, robot(world))
+    at = due(world).next_run_at
+    assert at is not None
+    assert triggers.tick(at + timedelta(days=3)) == 1
+    assert TriggerFiring.objects.count() == 1
+    assert due(world).next_run_at > at + timedelta(days=3)  # type: ignore[operator]
+
+
+def test_a_service_account_that_loses_its_role_turns_it_off(world: World) -> None:
+    account = robot(world)
+    scheduled_on(world, account)
+    ProjectMembership.objects.filter(project=world.project, user=account).update(
+        role=ProjectRole.VIEWER
+    )
+    at = due(world).next_run_at
+    assert at is not None
+    triggers.tick(at)
+    run_tasks()
+    firing = TriggerFiring.objects.get()
+    assert firing.state == FiringState.FAILED
+    row = ProjectTrigger.objects.get(trigger=NIGHTLY)
+    assert (row.enabled, row.next_run_at) == (False, None)
+    assert row.disabled_reason.startswith("Nightly sync can no longer run")
+
+
+def test_scheduled_runs_on_costly_tiers_wait_for_the_admin(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(approvals, "APPROVAL_TIERS", approvals.APPROVAL_TIERS | {"backend"})
+    account = robot(world)
+    scheduled_on(world, account)
+    at = due(world).next_run_at
+    assert at is not None
+    triggers.tick(at)
+    run_tasks()
+    approval = RunApproval.objects.get()
+    assert approval.requested_by == account
+    assert approvals.decider(approval) == world.users["admin"]
+    told = Notification.objects.get(kind="run.approval_requested")
+    assert told.recipient == world.users["admin"]
+    admin = api_as(world, "admin")
+    run = TriggerFiring.objects.get().run
+    assert run is not None
+    shown = admin.get(f"/runs/{run.hrid}").json()["approval"]
+    assert shown["decider"]["name"] == world.users["admin"].name
+    assert shown["can"]["decide"] is True
+    approved = admin.post(f"/run-approvals/{approval.pk}/approve", {})
+    assert approved.status_code == 200, approved.content
+
+
+def test_turning_a_scheduled_trigger_off_stops_its_schedule(world: World) -> None:
+    scheduled_on(world, robot(world))
+    off = api_as(world, "admin").post(
+        f"/projects/{world.project.pk}/triggers/{NIGHTLY}/disable", {}
+    )
+    assert off.json()["next_run_at"] is None
+    assert ProjectTrigger.objects.get(trigger=NIGHTLY).next_run_at is None
+    assert triggers.tick(timezone.now() + timedelta(days=2)) == 0
