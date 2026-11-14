@@ -30,11 +30,14 @@ from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.entities import access, hrids, registry
 from iki_server.entities.values import Invalid
+from iki_server.notifications import kinds
+from iki_server.notifications.services import notify
 from iki_server.org import permissions
-from iki_server.org.models import Project
+from iki_server.org.models import Project, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, live, services
 from iki_server.runs.models import (
+    APPROVAL_EXPIRES_AFTER,
     WORKFLOW_HRID_PREFIX,
     WORKFLOW_HRID_SEQUENCE,
     ActionRun,
@@ -55,7 +58,9 @@ from iki_spec.workflows import literal
 __all__ = [
     "actions",
     "advance",
+    "approve",
     "cancel",
+    "decline",
     "inputs_of",
     "may_cancel",
     "may_start",
@@ -63,6 +68,7 @@ __all__ = [
     "spec_of",
     "start",
     "visible",
+    "why_not_decide",
     "workflow",
     "workflows",
 ]
@@ -306,6 +312,9 @@ def _advance(run: WorkflowRun) -> None:
         if step.state == StepState.RUNNING and theirs and all(r.finished for r in theirs):
             _ended(run, step, theirs, now)
             changed = True
+        elif _expired(step, now):
+            _expire(run, spec, step, now)
+            changed = True
     while not _stopping(run, steps):
         moved = False
         for step in steps.values():
@@ -319,6 +328,8 @@ def _advance(run: WorkflowRun) -> None:
                 unmet = _unmet(run, spec.steps[step.step].when, runs)
                 if unmet is not None:
                     _skip(step, *unmet, now)
+                elif spec.steps[step.step].approval is not None and step.decided_by_id is None:
+                    _ask(run, spec, step, now)
                 else:
                     launched = _launch(run, spec, step, runs)
                     if launched is not None:
@@ -332,7 +343,7 @@ def _advance(run: WorkflowRun) -> None:
             break
     if _stopping(run, steps):
         for step in steps.values():
-            if step.state == StepState.WAITING:
+            if step.state in (StepState.WAITING, StepState.AWAITING_APPROVAL):
                 step.state = StepState.SKIPPED
                 step.finished_at = now
                 step.error = {
@@ -343,7 +354,7 @@ def _advance(run: WorkflowRun) -> None:
                 }
                 step.save(update_fields=["state", "finished_at", "error"])
                 changed = True
-    if not any(s.state == StepState.RUNNING for s in steps.values()):
+    if not any(s.state in _UNFINISHED for s in steps.values()):
         _end(run, steps, now)
         changed = True
     if changed:
@@ -358,9 +369,13 @@ def _skip(step: WorkflowStep, code: str, message: str, now: Any) -> None:  # noq
     step.save(update_fields=["state", "finished_at", "error"])
 
 
+#: The states of a step its workflow waits on, once nothing more will start.
+_UNFINISHED = (StepState.RUNNING, StepState.AWAITING_APPROVAL)
+
+
 def _stopping(run: WorkflowRun, steps: Mapping[str, WorkflowStep]) -> bool:
     return run.cancel_requested_at is not None or any(
-        s.state == StepState.FAILED for s in steps.values()
+        s.state in (StepState.FAILED, StepState.DECLINED) for s in steps.values()
     )
 
 
@@ -417,13 +432,17 @@ def _ended_as(launched: ActionRun) -> str:
 
 
 def _end(run: WorkflowRun, steps: Mapping[str, WorkflowStep], now: Any) -> None:  # noqa: ANN401 - a datetime
-    failed = next((s for s in steps.values() if s.state == StepState.FAILED), None)
+    failed = next(
+        (s for s in steps.values() if s.state in (StepState.FAILED, StepState.DECLINED)), None
+    )
     if failed is not None:
+        declined = failed.state == StepState.DECLINED
         run.status = WorkflowStatus.FAILED
         run.error = {
-            "code": "step_failed",
+            "code": "step_declined" if declined else "step_failed",
             "step": failed.step,
-            "message": f"Step `{failed.step}` didn't succeed. "
+            "message": f"Step `{failed.step}` "
+            + ("wasn't approved. " if declined else "didn't succeed. ")
             + ((failed.error or {}).get("message") or ""),
         }
     elif run.cancel_requested_at is not None:
@@ -490,6 +509,167 @@ def _launch(
     step.state = StepState.RUNNING
     step.save(update_fields=["state", "started_at"])
     return launched
+
+
+# --- Approval ----------------------------------------------------------------------------------
+
+
+def _ask(run: WorkflowRun, spec: Workflow, step: WorkflowStep, now: Any) -> None:  # noqa: ANN401 - a datetime
+    """The step's turn has come: it waits for someone with its approval's role in the
+    project, other than whoever started the workflow, who are told."""
+    approval = spec.steps[step.step].approval
+    assert approval is not None  # noqa: S101 - asked only for steps that need it
+    step.state = StepState.AWAITING_APPROVAL
+    step.approval_requested_at = now
+    step.approval_expires_at = now + APPROVAL_EXPIRES_AFTER
+    step.save(update_fields=["state", "approval_requested_at", "approval_expires_at"])
+    audit.record(
+        "workflow.approval_requested",
+        actor=None,
+        target=run,
+        project=run.project,
+        data={"step": step.step, "role": approval.role},
+    )
+    approvers = permissions.members_with(run.project, _role(approval.role))
+    label = spec.steps[step.step].label
+    notify(
+        approvers.exclude(pk=run.requested_by_id),
+        kinds.WORKFLOW_APPROVAL_REQUESTED,
+        title=f"{run.hrid} ({spec.label}) waits for approval to {label.lower()}",
+        body=(approval.instructions + "\n\n" if approval.instructions else "")
+        + f"Started by {run.requested_by.name}. Approve or decline it in Iki; it waits "
+        f"{APPROVAL_EXPIRES_AFTER.days} days.",
+        path=f"/workflow-runs/{run.hrid}/",
+        project=run.project,
+    )
+
+
+def _role(name: str) -> ProjectRole:
+    return ProjectRole[name.upper()]
+
+
+def _expired(step: WorkflowStep, now: Any) -> bool:  # noqa: ANN401 - a datetime
+    return (
+        step.state == StepState.AWAITING_APPROVAL
+        and step.approval_expires_at is not None
+        and step.approval_expires_at <= now
+    )
+
+
+def _expire(run: WorkflowRun, spec: Workflow, step: WorkflowStep, now: Any) -> None:  # noqa: ANN401 - a datetime
+    step.state = StepState.DECLINED
+    step.finished_at = now
+    step.error = {
+        "code": "approval_expired",
+        "message": f"Nobody approved it within {APPROVAL_EXPIRES_AFTER.days} days.",
+    }
+    step.save(update_fields=["state", "finished_at", "error"])
+    audit.record(
+        "workflow.approval_expired",
+        actor=None,
+        target=run,
+        project=run.project,
+        data={"step": step.step},
+    )
+    _tell_declined(run, spec, step, None)
+
+
+def _tell_declined(run: WorkflowRun, spec: Workflow, step: WorkflowStep, by: User | None) -> None:
+    label = spec.steps[step.step].label
+    notify(
+        [run.requested_by],
+        kinds.WORKFLOW_STEP_DECLINED,
+        title=f"{run.hrid} ({spec.label}) stopped: “{label}” wasn't approved",
+        body=(step.error or {}).get("message") or "",
+        path=f"/workflow-runs/{run.hrid}/",
+        project=run.project,
+        actor=by,
+    )
+
+
+def why_not_decide(
+    user: User, run: WorkflowRun, step: WorkflowStep, spec: Workflow | None = None
+) -> str | None:
+    """Why `user` may not approve or decline the step, or None if they may: someone with its
+    approval's role in the project, other than whoever started the workflow, in the web app
+    (no token, so no agent approves a step)."""
+    approval = (spec or spec_of(run)).steps[step.step].approval
+    if approval is None or step.state != StepState.AWAITING_APPROVAL:
+        return "It isn't waiting for approval."
+    if permissions.token_limits(user) is not None:
+        return "Steps are approved in the web app, not with a token."
+    if user.pk == run.requested_by_id:
+        return "Someone else approves it: whoever started a workflow can't approve its steps."
+    role = permissions.project_role(user, run.project)
+    if role is None or role < _role(approval.role):
+        return f"It needs someone who is {_role(approval.role).label} or above in the project."
+    return None
+
+
+def approve(user: User, run: WorkflowRun, step_id: str, *, note: str = "") -> WorkflowRun:
+    """Approve a step waiting for it: it starts, as whoever started the workflow."""
+    return _decide(user, run, step_id, note=note, approved=True)
+
+
+def decline(user: User, run: WorkflowRun, step_id: str, *, note: str) -> WorkflowRun:
+    """Decline a step waiting for approval: it doesn't run, and the workflow fails."""
+    return _decide(user, run, step_id, note=note, approved=False)
+
+
+def _decide(
+    user: User, run: WorkflowRun, step_id: str, *, note: str, approved: bool
+) -> WorkflowRun:
+    advance(run.pk)  # first, so one that's due expires rather than be decided
+    with transaction.atomic():
+        found = WorkflowRun.objects.select_for_update(of=("self",)).select_related(
+            "project", "requested_by", "agent"
+        )
+        run = found.get(pk=run.pk)
+        step = WorkflowStep.objects.filter(workflow=run, step=step_id).first()
+        if step is None:
+            raise LookupError(step_id)
+        if step.state != StepState.AWAITING_APPROVAL:
+            raise Refused(f"Step `{step_id}` of {run.hrid} isn't waiting for approval.")
+        why = why_not_decide(user, run, step)
+        if why is not None:
+            if user.pk == run.requested_by_id:
+                raise Refused(why)  # they may otherwise: say why not
+            raise PermissionDenied(why)
+        now = timezone.now()
+        step.decided_by = user
+        step.decided_at = now
+        step.decision_note = note
+        if approved:
+            step.state = StepState.WAITING  # its turn has come: it starts now
+            step.save(update_fields=["state", "decided_by", "decided_at", "decision_note"])
+        else:
+            step.state = StepState.DECLINED
+            step.finished_at = now
+            step.error = {
+                "code": "declined",
+                "message": f"{user.name} declined it" + (f": {note}" if note else "."),
+            }
+            step.save(
+                update_fields=[
+                    "state",
+                    "finished_at",
+                    "error",
+                    "decided_by",
+                    "decided_at",
+                    "decision_note",
+                ]
+            )
+        audit.record(
+            "workflow.step_approved" if approved else "workflow.step_declined",
+            actor=user,
+            target=run,
+            project=run.project,
+            data={"step": step_id, **({"note": note} if note else {})},
+        )
+        if not approved:
+            _tell_declined(run, spec_of(run), step, user)
+        _advance(run)
+    return run
 
 
 _PHRASES = {

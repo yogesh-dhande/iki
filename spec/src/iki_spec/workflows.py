@@ -17,6 +17,7 @@ from iki_spec.model import (
     CONDITION_OPERATORS,
     NUMERIC_OPERATORS,
     Action,
+    Approval,
     Condition,
     Field,
     Input,
@@ -68,6 +69,7 @@ def read_workflow(plugin: str, body: dict[str, Any], document: Document) -> Work
                 needs=tuple(step.get("needs") or ()),
                 each=step.get("each"),
                 when=tuple(_condition(c) for c in step.get("when") or ()),
+                approval=_approval(step.get("approval")),
             )
             for i, step in body["steps"].items()
         },
@@ -467,6 +469,14 @@ class _Rules:
 def _loose(f: Field) -> Field:
     """`f` as a condition compares with it: its type and values, not its bounds."""
     return Field(name=f.name, type="float" if f.type == "quantity" else f.type, values=f.values)
+
+
+def _approval(given: dict[str, Any] | None) -> Approval | None:
+    if given is None:
+        return None
+    return Approval(
+        role=given.get("role", "editor"), instructions=(given.get("instructions") or "").strip()
+    )
 
 
 def _reachable_order(workflow: Workflow) -> list[str]:

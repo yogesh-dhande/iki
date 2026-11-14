@@ -99,6 +99,24 @@ RUN_APPROVAL_REQUESTED = register(
         group="Runs",
     )
 )
+WORKFLOW_APPROVAL_REQUESTED = register(
+    Kind(
+        "workflow.approval_requested",
+        "A workflow step waits for approval",
+        "A step of a workflow someone else started waits for a person with your role in its "
+        "project to approve it.",
+        group="Runs",
+    )
+)
+WORKFLOW_STEP_DECLINED = register(
+    Kind(
+        "workflow.step_declined",
+        "A step of your workflow was declined",
+        "A step of a workflow you started is declined, or nobody approves it in time, so the "
+        "workflow fails.",
+        group="Runs",
+    )
+)
 BUDGET_THRESHOLD = register(
     Kind(
         "budget.threshold_reached",

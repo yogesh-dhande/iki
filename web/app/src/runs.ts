@@ -177,11 +177,13 @@ export function workflowRunQuery(ref: string) {
 
 export const STEP_STATE: Record<StepState, string> = {
   waiting: "Waiting",
+  awaiting_approval: "Awaiting approval",
   running: "Running",
   succeeded: "Succeeded",
   failed: "Failed",
   cancelled: "Cancelled",
   skipped: "Skipped",
+  declined: "Declined",
 };
 
 /** A batch's runs, in the order it launched them, a page at a time. */

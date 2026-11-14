@@ -45,6 +45,7 @@ function stepTone(state: StepState): string {
     case "succeeded":
       return "good";
     case "failed":
+    case "declined":
       return "bad";
     case "cancelled":
     case "skipped":
@@ -59,7 +60,143 @@ function StepBadge({ state }: { state: StepState }) {
   return <span className={`badge badge-${stepTone(state)}`}>{STEP_STATE[state]}</span>;
 }
 
-type StepBatch = NonNullable<WorkflowRun["steps"][number]["batch"]>;
+type Step = WorkflowRun["steps"][number];
+type StepBatch = NonNullable<Step["batch"]>;
+
+/** Who approves a step, as "an Editor". */
+const APPROVER: Record<NonNullable<Step["approval"]>["role"], string> = {
+  viewer: "a Viewer",
+  editor: "an Editor",
+  runner: "a Runner",
+  admin: "an Admin",
+};
+
+/** A step waiting for a person to approve it: theirs to decide, if they may. */
+function StepApproval({ run, step }: { run: WorkflowRun; step: Step }) {
+  const [asking, setAsking] = useState<"approve" | "decline" | null>(null);
+  const [note, setNote] = useState("");
+  const { say } = useMessages();
+  const client = useQueryClient();
+  const decide = useApiMutation(
+    async (verb: "approve" | "decline") => {
+      const given = {
+        params: { path: { ref: run.id, step: step.id } },
+        body: { note: note.trim() },
+      };
+      return unwrap(
+        verb === "approve"
+          ? await iki.POST("/api/v1/workflow-runs/{ref}/steps/{step}/approve", given)
+          : await iki.POST("/api/v1/workflow-runs/{ref}/steps/{step}/decline", given),
+      );
+    },
+    [RUNS],
+  );
+  const close = () => {
+    setAsking(null);
+    setNote("");
+    decide.reset();
+  };
+  const approver = step.approval ? APPROVER[step.approval.role] : "";
+  const titleId = `approval-${step.id}`;
+  return (
+    <section className="alert alert-warning" aria-labelledby={titleId}>
+      <h2 className="alert-title" id={titleId}>
+        {step.can.decide
+          ? `“${step.label}” waits for your approval`
+          : `“${step.label}” waits for approval`}
+      </h2>
+      {step.approval?.instructions ? (
+        <p className="preserve-lines">{step.approval.instructions}</p>
+      ) : null}
+      <p>
+        {step.can.decide
+          ? `It starts once you approve it, as ${run.requested_by.name}, who started the workflow.`
+          : `It needs ${approver} or above in the project, other than ${run.requested_by.name}, who started the workflow.`}{" "}
+        Declining it fails the workflow.
+        {step.approval_expires_at ? (
+          <>
+            {" "}
+            If nobody decides, it’s declined <RelativeTime value={step.approval_expires_at} />.
+          </>
+        ) : null}
+      </p>
+      {step.can.decide ? (
+        <div className="actions">
+          <Button
+            variant="primary"
+            onClick={() => {
+              setAsking("approve");
+            }}
+          >
+            Approve
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              setAsking("decline");
+            }}
+          >
+            Decline
+          </Button>
+        </div>
+      ) : null}
+      <ConfirmDialog
+        isOpen={asking !== null}
+        title={asking === "approve" ? `Approve “${step.label}”?` : `Decline “${step.label}”?`}
+        confirmLabel={asking === "approve" ? "Approve" : "Decline"}
+        cancelLabel="Keep waiting"
+        confirmVariant={asking === "approve" ? "primary" : "danger"}
+        busy={decide.isPending}
+        problem={decide.error ? problemOf(decide.error) : undefined}
+        onCancel={close}
+        onConfirm={() => {
+          if (!asking) return;
+          decide.mutate(asking, {
+            onSuccess: (saved) => {
+              client.setQueryData(workflowRunQuery(saved.hrid).queryKey, saved);
+              say(
+                asking === "approve"
+                  ? `Approved “${step.label}”. It starts now.`
+                  : `Declined “${step.label}”. ${saved.hrid} failed.`,
+              );
+              close();
+            },
+          });
+        }}
+      >
+        <p>
+          {asking === "approve"
+            ? `It starts now, as ${run.requested_by.name}. Your approval is recorded with your name and the time.`
+            : `It doesn’t run, and ${run.hrid} fails. ${run.requested_by.name} is told why.`}
+        </p>
+        <TextField
+          label={asking === "approve" ? "Note" : "Reason"}
+          value={note}
+          onChange={setNote}
+          maxLength={2000}
+          optional={asking === "approve"}
+          multiline
+          help={
+            asking === "approve"
+              ? "What you checked, for the record."
+              : "Why, for the record and for whoever started the workflow."
+          }
+        />
+      </ConfirmDialog>
+    </section>
+  );
+}
+
+/** "Approved by Runner 3 minutes ago: looks right", for a step someone decided. */
+function Decision({ decision }: { decision: NonNullable<Step["decision"]> }) {
+  return (
+    <span className="row-meta">
+      {decision.approved ? "Approved" : "Declined"} by {decision.by.name}{" "}
+      <RelativeTime value={decision.at} />
+      {decision.note ? <span className="preserve-lines">: {decision.note}</span> : null}
+    </span>
+  );
+}
 type Condition = WorkflowRun["steps"][number]["when"][number];
 
 const COMPARED: Record<Condition["operator"], string> = {
@@ -313,6 +450,12 @@ export function WorkflowRunPage() {
         </dl>
       </section>
 
+      {run.steps
+        .filter((s) => s.state === "awaiting_approval")
+        .map((s) => (
+          <StepApproval key={s.id} run={run} step={s} />
+        ))}
+
       <section aria-labelledby="workflow-steps-title">
         <h2 className="section-title" id="workflow-steps-title">
           Steps
@@ -346,6 +489,12 @@ export function WorkflowRunPage() {
                   ) : null}
                 </span>
                 {step.when.length ? <When conditions={step.when} /> : null}
+                {step.approval && !step.decision ? (
+                  <span className="row-meta">
+                    Needs approval by {APPROVER[step.approval.role]} or above
+                  </span>
+                ) : null}
+                {step.decision ? <Decision decision={step.decision} /> : null}
                 {step.error ? <p className="row-reason">{step.error.message}</p> : null}
               </div>
               <div className="row-tags">

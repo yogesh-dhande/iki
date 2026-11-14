@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema, Status
@@ -25,7 +26,7 @@ from iki_server.entities import schema
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.runs import catalog, services, workflows
-from iki_server.runs.models import ActionRun, WorkflowRun, WorkflowStep
+from iki_server.runs.models import ActionRun, StepState, WorkflowRun, WorkflowStep
 from iki_spec.model import Workflow
 
 router = Router(tags=["workflows"])
@@ -44,6 +45,13 @@ class ConditionOut(Schema):
         description="What it's compared with: a value, `$params.<name>`, or for `in` a list "
         "of them. A string starting `$$` stands for one starting `$`."
     )
+
+
+class ApprovalOut(Schema):
+    role: Literal["viewer", "editor", "runner", "admin"] = Field(
+        description="The project role an approver needs."
+    )
+    instructions: str = Field(description="What the approver checks; empty if nothing's said.")
 
 
 class WorkflowStepOut(Schema):
@@ -65,6 +73,10 @@ class WorkflowStepOut(Schema):
         description="Conditions that must all hold for it to run, checked once the steps it "
         "starts after have succeeded. If one doesn't, it's skipped, and so are the steps "
         "after it."
+    )
+    approval: ApprovalOut | None = Field(
+        description="If a person approves it before it starts: someone with this role in the "
+        "project, other than whoever started the workflow, once its conditions hold."
     )
 
 
@@ -141,6 +153,9 @@ def _step_out(of: Workflow, step_id: str) -> dict[str, Any]:
         "when": [
             {"value": c.value, "operator": c.operator, "operand": c.operand} for c in step.when
         ],
+        "approval": None
+        if step.approval is None
+        else {"role": step.approval.role, "instructions": step.approval.instructions},
     }
 
 
@@ -193,7 +208,8 @@ class WorkflowInputOut(Schema):
 class StepErrorOut(Schema):
     code: str = Field(
         description="`run_failed` (its run didn't succeed), `launch_failed` (its run couldn't "
-        "start), `condition_false` (skipped: its conditions didn't all hold), "
+        "start), `condition_false` (skipped: its conditions didn't all hold), `declined` "
+        "(its approver declined it), `approval_expired` (nobody approved it in time), "
         "`condition_unknown` (failed: a metric its conditions read wasn't reported) or "
         "`skipped` (a step it starts after didn't succeed or was skipped, or the workflow "
         "was cancelled)."
@@ -202,7 +218,9 @@ class StepErrorOut(Schema):
 
 
 class WorkflowErrorOut(Schema):
-    code: str = Field(description="`step_failed`.")
+    code: str = Field(
+        description="`step_failed`, or `step_declined` for a step that wasn't approved."
+    )
     message: str
     step: str = Field(description="The step that failed.")
 
@@ -232,6 +250,17 @@ class StepBatchOut(Schema):
     )
 
 
+class DecisionOut(Schema):
+    approved: bool
+    by: PersonRef
+    at: datetime
+    note: str
+
+
+class StepCan(Schema):
+    decide: bool = Field(description="It waits for approval, and you may approve or decline it.")
+
+
 class WorkflowRunStepOut(Schema):
     id: str
     label: str
@@ -239,10 +268,26 @@ class WorkflowRunStepOut(Schema):
     after: list[str]
     each: str | None = Field(description="The input it runs once for each entity of, if any.")
     when: list[ConditionOut] = Field(description="Conditions that must all hold for it to run.")
-    state: Literal["waiting", "running", "succeeded", "failed", "cancelled", "skipped"]
+    approval: ApprovalOut | None = Field(description="Who approves it before it starts, if any.")
+    state: Literal[
+        "waiting",
+        "awaiting_approval",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "skipped",
+        "declined",
+    ]
     started_at: datetime | None
     finished_at: datetime | None
     error: StepErrorOut | None = Field(description="Why it failed or was skipped.")
+    approval_requested_at: datetime | None = Field(description="When it began to wait.")
+    approval_expires_at: datetime | None = Field(
+        description="When it's declined if nobody has decided: 30 days after it began to wait."
+    )
+    decision: DecisionOut | None = Field(description="Who approved or declined it, if anyone.")
+    can: StepCan
     run: StepRunOut | None = Field(description="Its run, once launched, when it runs once.")
     batch: StepBatchOut | None = Field(
         description="When it runs once for each entity (`each`): their batch, once launched. "
@@ -281,7 +326,8 @@ class WorkflowRunOut(Schema):
 
 def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
     steps: dict[Any, list[WorkflowStep]] = {}
-    for step in WorkflowStep.objects.filter(workflow__in=found).order_by("workflow", "position"):
+    listed = WorkflowStep.objects.filter(workflow__in=found).select_related("decided_by")
+    for step in listed.order_by("workflow", "position"):
         steps.setdefault(step.workflow_id, []).append(step)
     # A step run once has its run; one run for each entity, its batch's counts.
     theirs = ActionRun.objects.filter(workflow__in=found)
@@ -327,6 +373,10 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
                         "started_at": s.started_at,
                         "finished_at": s.finished_at,
                         "error": s.error,
+                        "approval_requested_at": s.approval_requested_at,
+                        "approval_expires_at": s.approval_expires_at,
+                        "decision": _decision(s),
+                        "can": {"decide": workflows.why_not_decide(me, run, s, spec) is None},
                         "run": _ref(launched.get((run.pk, s.step))),
                         "batch": batches.get((run.pk, s.step)),
                     }
@@ -336,6 +386,17 @@ def _runs_out(me: User, found: list[WorkflowRun]) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def _decision(step: WorkflowStep) -> dict[str, Any] | None:
+    if step.decided_by is None or step.decided_at is None:
+        return None
+    return {
+        "approved": step.state != StepState.DECLINED,
+        "by": step.decided_by,
+        "at": step.decided_at,
+        "note": step.decision_note,
+    }
 
 
 def _ref(run: ActionRun | None) -> dict[str, Any] | None:
@@ -438,4 +499,76 @@ def cancel_workflow_run(request: HttpRequest, ref: str, payload: CancelIn) -> di
     `POST /runs/{ref}/cancel` would. It ends cancelled once they have."""
     me = caller(request)
     workflows.cancel(me, find(me, ref), reason=payload.reason)
+    return _runs_out(me, [find(me, ref)])[0]
+
+
+class ApproveIn(Schema):
+    note: str = Field("", max_length=2000, description="What you checked, for the record.")
+
+
+class DeclineStepIn(Schema):
+    note: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Why, for the record and for whoever started the workflow.",
+    )
+
+
+def _deciding(request: HttpRequest, ref: str) -> tuple[User, WorkflowRun]:
+    me = caller(request)
+    if permissions.token_limits(me) is not None:
+        raise Problem(
+            403,
+            "Approve or decline workflow steps in Iki’s web app. Tokens can’t, so no agent "
+            "can approve a step.",
+            code="web_only",
+        )
+    return me, find(me, ref)
+
+
+@router.post(
+    "/workflow-runs/{ref}/steps/{step}/approve",
+    response=WorkflowRunOut,
+    summary="Approve a workflow step",
+)
+def approve_workflow_step(
+    request: HttpRequest, ref: str, step: str, payload: ApproveIn
+) -> dict[str, Any]:
+    """The step starts, as whoever started the workflow. Someone with its approval's role in
+    the project may, other than whoever started it, and only in the web app."""
+    me, run = _deciding(request, ref)
+    try:
+        workflows.approve(me, run, step, note=payload.note.strip())
+    except LookupError:
+        raise Problem(404, f"{run.hrid} has no step `{step}`.") from None
+    except PermissionDenied as error:
+        raise Problem(403, str(error) or None) from None
+    return _runs_out(me, [find(me, ref)])[0]
+
+
+@router.post(
+    "/workflow-runs/{ref}/steps/{step}/decline",
+    response=WorkflowRunOut,
+    summary="Decline a workflow step",
+)
+def decline_workflow_step(
+    request: HttpRequest, ref: str, step: str, payload: DeclineStepIn
+) -> dict[str, Any]:
+    """The step doesn't run, and the workflow fails; whoever started it is told why. As
+    approving, someone with the role, other than whoever started it, in the web app."""
+    me, run = _deciding(request, ref)
+    note = payload.note.strip()
+    if not note:
+        raise Problem(
+            422,
+            "Say why it's declined.",
+            code="validation_failed",
+            errors=[{"pointer": "#/note", "detail": "Say why it's declined."}],
+        )
+    try:
+        workflows.decline(me, run, step, note=note)
+    except LookupError:
+        raise Problem(404, f"{run.hrid} has no step `{step}`.") from None
+    except PermissionDenied as error:
+        raise Problem(403, str(error) or None) from None
     return _runs_out(me, [find(me, ref)])[0]

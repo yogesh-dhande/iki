@@ -224,6 +224,19 @@ def project_role(user: Any, project: Project) -> ProjectRole | None:  # noqa: AN
     return cache[project.pk]
 
 
+def members_with(project: Project, at_least: ProjectRole) -> QuerySet[Any]:
+    """Active people whose role in the project is at least `at_least`: by their own grant,
+    or a team's they belong to."""
+    from iki_server.accounts.models import User
+
+    grants = ProjectMembership.objects.filter(project=project, role__gte=at_least)
+    return User.objects.filter(
+        Q(pk__in=grants.filter(user__isnull=False).values("user"))
+        | Q(team_memberships__team__in=grants.filter(team__isnull=False).values("team")),
+        is_active=True,
+    ).distinct()
+
+
 def is_team_member(user: Any, team: Team) -> bool:  # noqa: ANN401
     if not _active(user):
         return False

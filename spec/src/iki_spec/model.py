@@ -14,6 +14,7 @@ from typing import Any
 from iki_spec import naming
 
 __all__ = [
+    "APPROVAL_ROLES",
     "BUILTIN_TYPES",
     "CONDITION_OPERATORS",
     "FIELD_TYPES",
@@ -21,6 +22,7 @@ __all__ = [
     "NUMERIC_OPERATORS",
     "TIERS",
     "Action",
+    "Approval",
     "Condition",
     "Creates",
     "EntityType",
@@ -366,6 +368,19 @@ class Condition:
         return parts[1] if parts[0] == "$steps" and len(parts) == 4 else None
 
 
+#: The project roles a workflow step's approval may need, lowest first.
+APPROVAL_ROLES = ("viewer", "editor", "runner", "admin")
+
+
+@dataclass(frozen=True)
+class Approval:
+    """A person approves a workflow step before it starts (ADR 0079): someone with `role`
+    in the project, other than whoever started the workflow."""
+
+    role: str = "editor"
+    instructions: str = ""
+
+
 @dataclass(frozen=True)
 class WorkflowStep:
     """One step of a workflow: a run of one of the plugin's actions (ADR 0079)."""
@@ -383,6 +398,8 @@ class WorkflowStep:
     each: str | None = None
     #: What must hold for it to run; otherwise it's skipped, and the steps after it.
     when: tuple[Condition, ...] = ()
+    #: Who approves it before it starts, if anyone must.
+    approval: Approval | None = None
 
     def after(self) -> set[str]:
         """The steps it runs after: those it takes from, and those it needs. Naming
@@ -541,6 +558,7 @@ _DATACLASSES = (
     Workflow,
     WorkflowStep,
     Condition,
+    Approval,
 )
 
 
@@ -603,6 +621,7 @@ def _workflow(data: dict[str, Any]) -> Workflow:
                         **step,
                         "needs": tuple(step["needs"]),
                         "when": tuple(Condition(**c) for c in step.get("when") or ()),
+                        "approval": Approval(**step["approval"]) if step.get("approval") else None,
                     }
                 )
                 for i, step in data["steps"].items()

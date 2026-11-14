@@ -95,9 +95,21 @@ class ApprovalCan(TypedDict):
     decide: bool
 
 
+class ApprovalOut(TypedDict):
+    #: What the approver checks; empty if nothing's said.
+    instructions: str
+    #: The project role an approver needs.
+    role: Literal['viewer', 'editor', 'runner', 'admin']
+
+
 class ApprovalRunOut(TypedDict):
     hrid: str
     id: str
+
+
+class ApproveIn(TypedDict):
+    #: What you checked, for the record.
+    note: NotRequired[str]
 
 
 class AttemptImportOut(TypedDict):
@@ -400,9 +412,21 @@ class CreatesOut(TypedDict):
     type: str
 
 
+class DecisionOut(TypedDict):
+    approved: bool
+    at: str
+    by: PersonRef
+    note: str
+
+
 class DeclineIn(TypedDict):
     #: Why, for the record and for the agent.
     note: NotRequired[str]
+
+
+class DeclineStepIn(TypedDict):
+    #: Why, for the record and for whoever started the workflow.
+    note: str
 
 
 class DeliveryFilters(TypedDict):
@@ -1912,8 +1936,13 @@ class StepBatchOut(TypedDict):
     statuses: dict[str, int]
 
 
+class StepCan(TypedDict):
+    #: It waits for approval, and you may approve or decline it.
+    decide: bool
+
+
 class StepErrorOut(TypedDict):
-    #: `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).
+    #: `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `declined` (its approver declined it), `approval_expired` (nobody approved it in time), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).
     code: str
     message: str
 
@@ -2189,7 +2218,7 @@ class WorkerRegistrationOut(TypedDict):
 
 
 class WorkflowErrorOut(TypedDict):
-    #: `step_failed`.
+    #: `step_failed`, or `step_declined` for a step that wasn't approved.
     code: str
     message: str
     #: The step that failed.
@@ -2281,8 +2310,17 @@ class WorkflowRunOut(TypedDict):
 class WorkflowRunStepOut(TypedDict):
     action: str
     after: list[str]
+    #: Who approves it before it starts, if any.
+    approval: ApprovalOut | None
+    #: When it's declined if nobody has decided: 30 days after it began to wait.
+    approval_expires_at: str | None
+    #: When it began to wait.
+    approval_requested_at: str | None
     #: When it runs once for each entity (`each`): their batch, once launched. `GET /runs?batch=` lists them.
     batch: StepBatchOut | None
+    can: StepCan
+    #: Who approved or declined it, if anyone.
+    decision: DecisionOut | None
     #: The input it runs once for each entity of, if any.
     each: str | None
     #: Why it failed or was skipped.
@@ -2293,7 +2331,7 @@ class WorkflowRunStepOut(TypedDict):
     #: Its run, once launched, when it runs once.
     run: StepRunOut | None
     started_at: str | None
-    state: Literal['waiting', 'running', 'succeeded', 'failed', 'cancelled', 'skipped']
+    state: Literal['waiting', 'awaiting_approval', 'running', 'succeeded', 'failed', 'cancelled', 'skipped', 'declined']
     #: Conditions that must all hold for it to run.
     when: list[ConditionOut]
 
@@ -2303,6 +2341,8 @@ class WorkflowStepOut(TypedDict):
     action: str
     #: The steps it starts after, in name order.
     after: list[str]
+    #: If a person approves it before it starts: someone with this role in the project, other than whoever started the workflow, once its conditions hold.
+    approval: ApprovalOut | None
     #: The input it runs once for each entity of, as a batch, if any.
     each: str | None
     id: str
@@ -2323,4 +2363,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalRunOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'ConditionOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DeclineIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepErrorOut', 'StepRunOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'Condition', 'ConditionOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageFileOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']

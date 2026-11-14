@@ -12,6 +12,7 @@ from test_runs import protein
 from test_workers import WorkerClient, keep_connection, worker, world
 
 from iki_server.audit.models import AuditEvent
+from iki_server.notifications.models import Notification
 from iki_server.runs import services, workflows
 from iki_server.runs.models import (
     ActionRun,
@@ -34,6 +35,7 @@ WEIGH_AND_ALIGN = "protein.weigh_and_align"
 RELAX_TWICE = "protein.relax_twice"
 IMPORT_AND_WEIGH = "protein.import_and_weigh"
 ALIGN_THEN_WEIGH = "protein.align_then_weigh"
+REVIEW_THEN_WEIGH = "protein.review_then_weigh"
 
 
 def run_tasks() -> int:
@@ -96,10 +98,10 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 def test_lists_installed_workflows(world: World) -> None:
     viewer = api_as(world, "viewer")
     listed = viewer.get("/workflows").json()
-    names = [ALIGN_THEN_WEIGH, IMPORT_AND_WEIGH, RELAX_TWICE, WEIGH_AND_ALIGN]
+    names = [ALIGN_THEN_WEIGH, IMPORT_AND_WEIGH, RELAX_TWICE, REVIEW_THEN_WEIGH, WEIGH_AND_ALIGN]
     assert [w["name"] for w in listed] == names
     found = viewer.get(f"/workflows/{WEIGH_AND_ALIGN}").json()
-    assert found == listed[3]
+    assert found == listed[4]
     assert (found["label"], found["plugin"]) == ("Weigh and align", "protein")
     assert [i["name"] for i in found["inputs"]] == ["query", "target"]
     assert found["params"][0]["name"] == "mode"
@@ -115,6 +117,7 @@ def test_lists_installed_workflows(world: World) -> None:
             "after": [],
             "each": None,
             "when": [],
+            "approval": None,
         },
         {
             "id": "align",
@@ -125,12 +128,17 @@ def test_lists_installed_workflows(world: World) -> None:
             "after": ["weigh"],
             "each": None,
             "when": [],
+            "approval": None,
         },
     ]
     assert found["available"] is True
     problem(viewer.get("/workflows/protein.nope"), 404, "not_found")
     conditional = listed[0]["steps"][1]
     assert (conditional["id"], conditional["after"]) == ("weigh", ["align"])
+    assert listed[3]["steps"][1]["approval"] == {
+        "role": "runner",
+        "instructions": "Check the alignment before the target is weighed.",
+    }
     assert conditional["when"] == [
         {
             "value": "$steps.align.metrics.score",
@@ -571,6 +579,157 @@ def test_a_condition_reads_the_metrics_of_results_reused(
     stricter = start(editor, world, inputs, ALIGN_THEN_WEIGH, params={"min_score": 4}).json()
     assert steps(stricter) == {"align": "succeeded", "weigh": "skipped", "weigh_again": "skipped"}
     assert "is 3, and it must be at least 4." in stricter["steps"][1]["error"]["message"]
+
+
+# --- Approval ----------------------------------------------------------------------------------
+
+
+def reviewing(world: World) -> dict[str, Any]:
+    """A run of review_then_weigh, started by the editor, whose alignment succeeded: its
+    weighing waits for a Runner or Admin other than the editor to approve it."""
+    editor = api_as(world, "editor")
+    kit, met = protein(editor, world.project, "kit"), protein(editor, world.project, "met")
+    inputs = {"query": kit["id"], "target": met["id"]}
+    body: dict[str, Any] = start(editor, world, inputs, REVIEW_THEN_WEIGH).json()
+    complete(worker(world))
+    run_tasks()
+    return get(world, body)
+
+
+def decide(world: World, body: dict[str, Any], who: str, verb: str, note: str = "") -> Any:
+    path = f"/workflow-runs/{body['hrid']}/steps/weigh/{verb}"
+    return api_as(world, who).post(path, {"note": note})
+
+
+def test_a_step_waits_for_approval(world: World) -> None:
+    body = reviewing(world)
+    assert body["status"] == "running"
+    assert steps(body) == {"align": "succeeded", "weigh": "awaiting_approval"}
+    weigh_step = body["steps"][1]
+    assert weigh_step["run"] is None
+    assert weigh_step["approval"]["role"] == "runner"
+    assert weigh_step["approval_requested_at"] is not None
+    assert weigh_step["approval_expires_at"] is not None
+    assert weigh_step["decision"] is None
+    # Whoever started it can't approve its steps; those with the role can.
+    assert weigh_step["can"] == {"decide": False}
+    assert get(world, body, "runner")["steps"][1]["can"] == {"decide": True}
+    assert get(world, body, "via_team")["steps"][1]["can"] == {"decide": False}  # an Editor
+    told = Notification.objects.filter(kind="workflow.approval_requested")
+    assert sorted(n.recipient.name for n in told) == ["Admin", "Runner"]
+    assert {n.path for n in told} == {f"/workflow-runs/{body['hrid']}/"}
+    assert "Check the alignment" in told[0].body
+    event = AuditEvent.objects.get(action="workflow.approval_requested")
+    assert event.data == {"step": "weigh", "role": "runner"}
+
+
+def test_approving_starts_the_step_as_whoever_started_the_workflow(world: World) -> None:
+    body = reviewing(world)
+    refused = problem(decide(world, body, "editor", "approve"), 409, "refused")
+    assert "whoever started a workflow can't approve its steps" in refused["detail"]
+    too_low = problem(decide(world, body, "via_team", "approve"), 403, "forbidden")
+    assert too_low["detail"] == "It needs someone who is Runner or above in the project."
+    problem(decide(world, body, "outsider", "approve"), 404, "not_found")
+
+    approved = decide(world, body, "runner", "approve", "  Alignment looks right.  ")
+    assert approved.status_code == 200, approved.content
+    out = approved.json()
+    assert steps(out) == {"align": "succeeded", "weigh": "running"}
+    decision = out["steps"][1]["decision"]
+    assert (decision["approved"], decision["by"]["name"], decision["note"]) == (
+        True,
+        "Runner",
+        "Alignment looks right.",
+    )
+    run = ActionRun.objects.get(workflow_step="weigh")
+    assert run.requested_by == world.users["editor"]
+    event = AuditEvent.objects.get(action="workflow.step_approved")
+    assert event.actor == world.users["runner"]
+    assert event.data == {"step": "weigh", "note": "Alignment looks right."}
+    problem(decide(world, body, "admin", "approve"), 409, "refused")  # decided already
+
+
+def test_declining_fails_the_workflow(world: World) -> None:
+    body = reviewing(world)
+    problem(decide(world, body, "admin", "decline", "   "), 422, "validation_failed")
+    declined = decide(world, body, "admin", "decline", "The alignment has a gap at the hinge.")
+    assert declined.status_code == 200, declined.content
+    out = declined.json()
+    assert out["status"] == "failed"
+    assert steps(out) == {"align": "succeeded", "weigh": "declined"}
+    assert out["steps"][1]["error"] == {
+        "code": "declined",
+        "message": "Admin declined it: The alignment has a gap at the hinge.",
+    }
+    assert out["steps"][1]["decision"]["approved"] is False
+    assert out["error"]["code"] == "step_declined"
+    assert out["error"]["message"].startswith("Step `weigh` wasn't approved.")
+    assert ActionRun.objects.filter(workflow_step="weigh").count() == 0
+    (told,) = Notification.objects.filter(kind="workflow.step_declined")
+    assert told.recipient == world.users["editor"]
+    assert AuditEvent.objects.get(action="workflow.step_declined").actor == world.users["admin"]
+
+
+def test_a_step_nobody_approves_in_time_is_declined(world: World) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    body = reviewing(world)
+    WorkflowStep.objects.filter(step="weigh").update(
+        approval_expires_at=timezone.now() - timedelta(seconds=1)
+    )
+    # Deciding one that's due finds it expired.
+    problem(decide(world, body, "runner", "approve"), 409, "refused")
+    out = get(world, body)
+    assert out["status"] == "failed"
+    assert out["steps"][1]["error"]["code"] == "approval_expired"
+    assert AuditEvent.objects.filter(action="workflow.approval_expired").count() == 1
+
+
+def test_expired_approvals_are_found_by_housekeeping(world: World) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    body = reviewing(world)
+    WorkflowStep.objects.filter(step="weigh").update(
+        approval_expires_at=timezone.now() - timedelta(seconds=1)
+    )
+    assert workflows.recover() == 1
+    assert steps(get(world, body)) == {"align": "succeeded", "weigh": "declined"}
+
+
+def test_cancelling_a_workflow_ends_a_step_waiting_for_approval(world: World) -> None:
+    body = reviewing(world)
+    out = api_as(world, "editor").post(f"/workflow-runs/{body['hrid']}/cancel", {}).json()
+    assert out["status"] == "cancelled"
+    assert steps(out) == {"align": "succeeded", "weigh": "skipped"}
+    problem(decide(world, body, "runner", "approve"), 409, "refused")
+
+
+def test_steps_are_approved_only_in_the_web_app(world: World) -> None:
+    from test_oauth import bearer, signed_in_token
+
+    body = reviewing(world)
+    _, tokens = signed_in_token(world, "runner")
+    where = f"/workflow-runs/{body['hrid']}"
+    assert bearer(tokens["access_token"], "GET", where).json()["steps"][1]["can"] == {
+        "decide": False
+    }
+    for verb in ("approve", "decline"):
+        refused = bearer(
+            tokens["access_token"], "POST", f"{where}/steps/weigh/{verb}", {"note": "x"}
+        )
+        assert refused.status_code == 403, refused.content
+        assert refused.json()["code"] == "web_only"
+    assert steps(get(world, body)) == {"align": "succeeded", "weigh": "awaiting_approval"}
+
+
+def test_an_unknown_step_isnt_found(world: World) -> None:
+    body = reviewing(world)
+    path = f"/workflow-runs/{body['hrid']}/steps/nope/approve"
+    problem(api_as(world, "runner").post(path, {}), 404, "not_found")
 
 
 # --- Agents ------------------------------------------------------------------------------------

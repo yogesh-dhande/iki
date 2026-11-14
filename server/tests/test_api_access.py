@@ -187,6 +187,26 @@ def workflow_run(suffix: str = "", body: Any = None) -> Build:
     return build
 
 
+def gated_step(verb: str, body: Any) -> Build:
+    """The editor's run of review_then_weigh, its weighing waiting for a Runner's approval."""
+
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.runs import workflows
+        from iki_server.runs.models import ActionRun, RunStatus
+
+        found = workflows.workflow("protein.review_then_weigh")
+        assert found is not None
+        kit = _protein(w).pk
+        made = workflows.start(
+            w.users["editor"], found, w.project, {"query": [kit], "target": [kit]}, {}
+        )
+        ActionRun.objects.filter(workflow=made).update(status=RunStatus.SUCCEEDED)
+        workflows.advance(made.pk)
+        return f"/workflow-runs/{made.pk}/steps/weigh/{verb}", body
+
+    return build
+
+
 def run(suffix: str = "", body: Any = None) -> Build:
     return lambda w: (f"/runs/{_run(w).pk}{suffix}", body)
 
@@ -609,6 +629,20 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/workflow-runs", fixed("/workflow-runs"), row(200)),
     ("GET", "/workflow-runs/{ref}", workflow_run(), readers(200)),
     ("POST", "/workflow-runs/{ref}/cancel", workflow_run("/cancel", {}), editors(200)),
+    # A Runner or above approves, other than whoever started it (never with a token:
+    # test_workflows).
+    (
+        "POST",
+        "/workflow-runs/{ref}/steps/{step}/approve",
+        gated_step("approve", {}),
+        readers(403, runner=200, admin=200, editor=409),
+    ),
+    (
+        "POST",
+        "/workflow-runs/{ref}/steps/{step}/decline",
+        gated_step("decline", {"note": "Wrong pair"}),
+        readers(403, runner=200, admin=200, editor=409),
+    ),
     # Only the person an agent asked for decides (and never with a token: test_run_approvals).
     ("GET", "/run-approvals/{approval_id}", approval(), readers(200)),
     (

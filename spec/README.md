@@ -423,6 +423,22 @@ steps:
       - { value: $steps.align.metrics.identity_percent, at_least: $params.min_identity }
 ```
 
+A step with `approval:` waits, once its turn comes and its conditions hold,
+for a person to approve it: someone with `role` (`viewer`, `editor` by
+default, `runner` or `admin`) in the project, other than whoever started the
+workflow, in the web app. They're told, and see the `instructions`. Approving
+starts the step as whoever started the workflow; declining it, with a reason,
+fails the workflow, as does nobody deciding within 30 days.
+
+```yaml
+steps:
+  characterize:
+    action: compute_properties
+    inputs: { protein: $inputs.target }
+    needs: [align]
+    approval: { role: admin, instructions: Check the alignment covers the kinase domain. }
+```
+
 The build checks each step against its action: every input it needs comes from
 somewhere, of a type it takes and, where it takes one entity, not from
 something that can be many; every required param is given, each value fits,

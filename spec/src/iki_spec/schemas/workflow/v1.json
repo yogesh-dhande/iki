@@ -114,6 +114,23 @@
           "description": "One of the action's inputs that takes one entity: the step runs once for each entity its source gives, as a batch. Its created entities, and what it was given for this input, are then many.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
+        "approval": {
+          "description": "A person approves it before it starts, once the steps it runs after have succeeded and its conditions hold: someone with this role in the project, other than whoever started the workflow. Declining it fails the workflow.",
+          "type": "object",
+          "properties": {
+            "role": {
+              "description": "The project role an approver needs: viewer, editor (the default), runner or admin.",
+              "enum": ["viewer", "editor", "runner", "admin"]
+            },
+            "instructions": {
+              "description": "What the approver checks, shown where they decide.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          },
+          "additionalProperties": false
+        },
         "when": {
           "description": "What must hold for it to run, all of it. Otherwise it's skipped, and so are the steps that take from it.",
           "type": "array",

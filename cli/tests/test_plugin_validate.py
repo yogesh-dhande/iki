@@ -29,7 +29,7 @@ def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 0
     assert capsys.readouterr().out == (
         "✓ protein 3.0.0 is valid: 2 entity types, 0 extensions, 0 settings, 5 actions, "
-        "1 environment, 4 workflows.\n"
+        "1 environment, 5 workflows.\n"
     )
 
 

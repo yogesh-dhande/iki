@@ -94,8 +94,8 @@ until after M1. Plugins before then are the ones that prove a platform feature.
 | 38   | Workflows: DAGs, fan-out and fan-in, conditions, approval gates, UI                                               | in progress |           |
 | 38a  | Workflow manifests checked against their actions; steps run as ordinary runs; a workflow run's page               | done        | `311bb91` |
 | 38b  | Fan-out over many entities, and fan-in                                                                            | done        | `10cf90a` |
-| 38c  | Conditions: steps that run only when an earlier one's results say                                                 | done        |           |
-| 38d  | Approval gates: a step waits for a person to approve                                                              | planned     |           |
+| 38c  | Conditions: steps that run only when an earlier one's results say                                                 | done        | `6529ee9` |
+| 38d  | Approval gates: a step waits for a person to approve                                                              | done        |           |
 | 38e  | The workflow's graph, a launch form, and re-running from a failed step                                            | planned     |           |
 | 39   | Triggers with loop protection, including scheduled ones run as a service account                                  | planned     |           |
 | 39b  | Linking LIMS and ELN records through plugins: unique external IDs, imports that update, lookup, opt-in write-back | planned     |           |

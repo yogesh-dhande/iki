@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Workflow
+name: review_then_weigh
+label: Review, then weigh
+inputs:
+  query: { type: Protein, schema: ">=1" }
+  target: { type: Protein, schema: ">=1" }
+steps:
+  align:
+    action: align_pair
+    inputs: { query: $inputs.query, target: $inputs.target }
+  weigh:
+    action: compute_properties
+    inputs: { protein: $inputs.target }
+    needs: [align]
+    approval: { role: runner, instructions: Check the alignment before the target is weighed. }

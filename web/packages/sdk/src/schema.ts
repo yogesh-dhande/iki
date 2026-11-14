@@ -2140,6 +2140,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-runs/{ref}/steps/{step}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a workflow step
+         * @description The step starts, as whoever started the workflow. Someone with its approval's role in
+         *     the project may, other than whoever started it, and only in the web app.
+         */
+        post: operations["iki_server_api_workflows_approve_workflow_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/{ref}/steps/{step}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline a workflow step
+         * @description The step doesn't run, and the workflow fails; whoever started it is told why. As
+         *     approving, someone with the role, other than whoever started it, in the web app.
+         */
+        post: operations["iki_server_api_workflows_decline_workflow_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflows": {
         parameters: {
             query?: never;
@@ -2366,6 +2408,20 @@ export interface components {
              */
             decide: boolean;
         };
+        /** ApprovalOut */
+        ApprovalOut: {
+            /**
+             * Instructions
+             * @description What the approver checks; empty if nothing's said.
+             */
+            instructions: string;
+            /**
+             * Role
+             * @description The project role an approver needs.
+             * @enum {string}
+             */
+            role: "viewer" | "editor" | "runner" | "admin";
+        };
         /** ApprovalRunOut */
         ApprovalRunOut: {
             /** Hrid */
@@ -2375,6 +2431,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+        };
+        /** ApproveIn */
+        ApproveIn: {
+            /**
+             * Note
+             * @description What you checked, for the record.
+             * @default
+             */
+            note: string;
         };
         /** AttemptImportOut */
         AttemptImportOut: {
@@ -3030,12 +3095,33 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** DecisionOut */
+        DecisionOut: {
+            /** Approved */
+            approved: boolean;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            by: components["schemas"]["PersonRef"];
+            /** Note */
+            note: string;
+        };
         /** DeclineIn */
         DeclineIn: {
             /**
              * Note
              * @description Why, for the record and for the agent.
              * @default
+             */
+            note: string;
+        };
+        /** DeclineStepIn */
+        DeclineStepIn: {
+            /**
+             * Note
+             * @description Why, for the record and for whoever started the workflow.
              */
             note: string;
         };
@@ -6169,11 +6255,19 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** StepCan */
+        StepCan: {
+            /**
+             * Decide
+             * @description It waits for approval, and you may approve or decline it.
+             */
+            decide: boolean;
+        };
         /** StepErrorOut */
         StepErrorOut: {
             /**
              * Code
-             * @description `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).
+             * @description `run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `declined` (its approver declined it), `approval_expired` (nobody approved it in time), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).
              */
             code: string;
             /** Message */
@@ -6770,7 +6864,7 @@ export interface components {
         WorkflowErrorOut: {
             /**
              * Code
-             * @description `step_failed`.
+             * @description `step_failed`, or `step_declined` for a step that wasn't approved.
              */
             code: string;
             /** Message */
@@ -6971,8 +7065,23 @@ export interface components {
             action: string;
             /** After */
             after: string[];
+            /** @description Who approves it before it starts, if any. */
+            approval: components["schemas"]["ApprovalOut"] | null;
+            /**
+             * Approval Expires At
+             * @description When it's declined if nobody has decided: 30 days after it began to wait.
+             */
+            approval_expires_at: string | null;
+            /**
+             * Approval Requested At
+             * @description When it began to wait.
+             */
+            approval_requested_at: string | null;
             /** @description When it runs once for each entity (`each`): their batch, once launched. `GET /runs?batch=` lists them. */
             batch: components["schemas"]["StepBatchOut"] | null;
+            can: components["schemas"]["StepCan"];
+            /** @description Who approved or declined it, if anyone. */
+            decision: components["schemas"]["DecisionOut"] | null;
             /**
              * Each
              * @description The input it runs once for each entity of, if any.
@@ -6994,7 +7103,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "waiting" | "running" | "succeeded" | "failed" | "cancelled" | "skipped";
+            state: "waiting" | "awaiting_approval" | "running" | "succeeded" | "failed" | "cancelled" | "skipped" | "declined";
             /**
              * When
              * @description Conditions that must all hold for it to run.
@@ -7013,6 +7122,8 @@ export interface components {
              * @description The steps it starts after, in name order.
              */
             after: string[];
+            /** @description If a person approves it before it starts: someone with this role in the project, other than whoever started the workflow, once its conditions hold. */
+            approval: components["schemas"]["ApprovalOut"] | null;
             /**
              * Each
              * @description The input it runs once for each entity of, as a batch, if any.
@@ -10298,6 +10409,60 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CancelIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_approve_workflow_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_workflows_decline_workflow_step: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclineStepIn"];
             };
         };
         responses: {

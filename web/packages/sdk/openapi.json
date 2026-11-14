@@ -331,6 +331,32 @@
         "title": "ApprovalCan",
         "type": "object"
       },
+      "ApprovalOut": {
+        "properties": {
+          "instructions": {
+            "description": "What the approver checks; empty if nothing's said.",
+            "title": "Instructions",
+            "type": "string"
+          },
+          "role": {
+            "description": "The project role an approver needs.",
+            "enum": [
+              "viewer",
+              "editor",
+              "runner",
+              "admin"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "instructions"
+        ],
+        "title": "ApprovalOut",
+        "type": "object"
+      },
       "ApprovalRunOut": {
         "properties": {
           "hrid": {
@@ -348,6 +374,19 @@
           "hrid"
         ],
         "title": "ApprovalRunOut",
+        "type": "object"
+      },
+      "ApproveIn": {
+        "properties": {
+          "note": {
+            "default": "",
+            "description": "What you checked, for the record.",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "title": "ApproveIn",
         "type": "object"
       },
       "AttemptImportOut": {
@@ -1639,6 +1678,34 @@
         "title": "CreatesOut",
         "type": "object"
       },
+      "DecisionOut": {
+        "properties": {
+          "approved": {
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approved",
+          "by",
+          "at",
+          "note"
+        ],
+        "title": "DecisionOut",
+        "type": "object"
+      },
       "DeclineIn": {
         "properties": {
           "note": {
@@ -1650,6 +1717,22 @@
           }
         },
         "title": "DeclineIn",
+        "type": "object"
+      },
+      "DeclineStepIn": {
+        "properties": {
+          "note": {
+            "description": "Why, for the record and for whoever started the workflow.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "DeclineStepIn",
         "type": "object"
       },
       "DeliveryFilters": {
@@ -8711,10 +8794,24 @@
         "title": "StepBatchOut",
         "type": "object"
       },
+      "StepCan": {
+        "properties": {
+          "decide": {
+            "description": "It waits for approval, and you may approve or decline it.",
+            "title": "Decide",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "decide"
+        ],
+        "title": "StepCan",
+        "type": "object"
+      },
       "StepErrorOut": {
         "properties": {
           "code": {
-            "description": "`run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).",
+            "description": "`run_failed` (its run didn't succeed), `launch_failed` (its run couldn't start), `condition_false` (skipped: its conditions didn't all hold), `declined` (its approver declined it), `approval_expired` (nobody approved it in time), `condition_unknown` (failed: a metric its conditions read wasn't reported) or `skipped` (a step it starts after didn't succeed or was skipped, or the workflow was cancelled).",
             "title": "Code",
             "type": "string"
           },
@@ -10122,7 +10219,7 @@
       "WorkflowErrorOut": {
         "properties": {
           "code": {
-            "description": "`step_failed`.",
+            "description": "`step_failed`, or `step_declined` for a step that wasn't approved.",
             "title": "Code",
             "type": "string"
           },
@@ -10563,6 +10660,43 @@
             "title": "After",
             "type": "array"
           },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who approves it before it starts, if any."
+          },
+          "approval_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it's declined if nobody has decided: 30 days after it began to wait.",
+            "title": "Approval Expires At"
+          },
+          "approval_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it began to wait.",
+            "title": "Approval Requested At"
+          },
           "batch": {
             "anyOf": [
               {
@@ -10573,6 +10707,20 @@
               }
             ],
             "description": "When it runs once for each entity (`each`): their batch, once launched. `GET /runs?batch=` lists them."
+          },
+          "can": {
+            "$ref": "#/components/schemas/StepCan"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who approved or declined it, if anyone."
           },
           "each": {
             "anyOf": [
@@ -10643,11 +10791,13 @@
           "state": {
             "enum": [
               "waiting",
+              "awaiting_approval",
               "running",
               "succeeded",
               "failed",
               "cancelled",
-              "skipped"
+              "skipped",
+              "declined"
             ],
             "title": "State",
             "type": "string"
@@ -10668,10 +10818,15 @@
           "after",
           "each",
           "when",
+          "approval",
           "state",
           "started_at",
           "finished_at",
           "error",
+          "approval_requested_at",
+          "approval_expires_at",
+          "decision",
+          "can",
           "run",
           "batch"
         ],
@@ -10692,6 +10847,17 @@
             },
             "title": "After",
             "type": "array"
+          },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "If a person approves it before it starts: someone with this role in the project, other than whoever started the workflow, once its conditions hold."
           },
           "each": {
             "anyOf": [
@@ -10744,7 +10910,8 @@
           "params",
           "after",
           "each",
-          "when"
+          "when",
+          "approval"
         ],
         "title": "WorkflowStepOut",
         "type": "object"
@@ -17942,6 +18109,126 @@
           }
         ],
         "summary": "Cancel a workflow run",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflow-runs/{ref}/steps/{step}/approve": {
+      "post": {
+        "description": "The step starts, as whoever started the workflow. Someone with its approval's role in\nthe project may, other than whoever started it, and only in the web app.",
+        "operationId": "iki_server_api_workflows_approve_workflow_step",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "title": "Step",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRunOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Approve a workflow step",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/api/v1/workflow-runs/{ref}/steps/{step}/decline": {
+      "post": {
+        "description": "The step doesn't run, and the workflow fails; whoever started it is told why. As\napproving, someone with the role, other than whoever started it, in the web app.",
+        "operationId": "iki_server_api_workflows_decline_workflow_step",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "title": "Step",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineStepIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRunOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Decline a workflow step",
         "tags": [
           "workflows"
         ]

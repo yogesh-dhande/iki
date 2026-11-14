@@ -14,6 +14,7 @@ compute admin made for their tier, and get a token of their own. Only
 hashes of either are stored.
 """
 
+from datetime import timedelta
 from typing import ClassVar
 
 from django.conf import settings
@@ -310,6 +311,8 @@ class WorkflowInput(models.Model):
 class StepState(models.TextChoices):
     #: For the steps it takes from.
     WAITING = "waiting", "Waiting"
+    #: Its turn has come, and it waits for a person to approve it.
+    AWAITING_APPROVAL = "awaiting_approval", "Awaiting approval"
     RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
@@ -317,11 +320,22 @@ class StepState(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
     #: The workflow failed or was cancelled before it could start.
     SKIPPED = "skipped", "Skipped"
+    #: Its approver declined it, or nobody decided in time: the workflow failed.
+    DECLINED = "declined", "Declined"
 
 
 STEP_ENDED = frozenset(
-    {StepState.SUCCEEDED, StepState.FAILED, StepState.CANCELLED, StepState.SKIPPED}
+    {
+        StepState.SUCCEEDED,
+        StepState.FAILED,
+        StepState.CANCELLED,
+        StepState.SKIPPED,
+        StepState.DECLINED,
+    }
 )
+
+#: How long a step waits for approval before it's declined, as GitHub's environments do.
+APPROVAL_EXPIRES_AFTER = timedelta(days=30)
 
 
 class WorkflowStep(models.Model):
@@ -334,11 +348,20 @@ class WorkflowStep(models.Model):
     step = models.CharField(max_length=63)
     #: Its place in the order the workflow runs its steps, from 0.
     position = models.PositiveIntegerField()
-    state = models.CharField(max_length=16, choices=StepState.choices, default=StepState.WAITING)
+    state = models.CharField(max_length=20, choices=StepState.choices, default=StepState.WAITING)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     #: Why it failed or was skipped: ``code`` and ``message``.
     error = models.JSONField(null=True, blank=True)
+    #: When it began to wait for approval, and when it no longer will.
+    approval_requested_at = models.DateTimeField(null=True, blank=True)
+    approval_expires_at = models.DateTimeField(null=True, blank=True)
+    #: Who approved or declined it, when, and what they said.
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "iki_workflow_step"

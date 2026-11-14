@@ -74,6 +74,22 @@ report fails the step rather than count as false: whether it should have run
 isn't known, and in a regulated lab a silent skip is worse than a stop. A
 reused run's metrics are those of the run it reused.
 
+**A step can wait for a person to approve it.** `approval: { role,
+instructions }` holds a step, once its turn comes and its conditions hold,
+until someone with that project role (Editor by default) approves it, as
+GitHub's environments wait for required reviewers. Whoever started the
+workflow can't approve its steps: a second person checks, as GxP review
+expects, and as setup builds already require (ADR 0075). Deciding is done in
+the web app only, so no agent, whatever its token's scopes, approves a step
+(as ADR 0050). Approving, with an optional note, launches the step as the
+workflow's starter, under their authority, checked again then; the approver
+is recorded, not made the launcher. Declining needs a reason, fails the
+workflow, and tells its starter. A step nobody decides within 30 days (as
+GitHub's limit) is declined. Those who may decide are notified, and each
+request, decision and expiry is audited with the note. A Part 11 signature,
+signing again at the moment of deciding, can be added once Iki signs people
+in other than through SSO (ADR 0023).
+
 **Each step is an ordinary run, launched as the person who started the
 workflow.** It's launched as if they had launched it themselves, in the
 workflow's project, with the same checks (their role on the tier, the
@@ -106,8 +122,9 @@ workflow on; the task runners also look every minute for any left behind.
 
 - A workflow is as reproducible as its runs: each records its inputs at
   the revisions it read, and the workflow records which run was which step.
-- Approval gates, and the web app's graph and launch form, follow (steps 38d
-  and 38e), as do MCP tools for agents to start and follow workflows.
+- The web app's graph and launch form, and re-running from a failed step,
+  follow (step 38e), as do MCP tools for agents to start and follow
+  workflows.
 - Conditions read params and metrics only, not entities' values: a step that
   should run only for entities with some value takes the entities a query
   step gives it.

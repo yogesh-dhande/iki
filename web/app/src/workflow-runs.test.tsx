@@ -198,6 +198,75 @@ describe("a workflow run's page", () => {
     expect(screen.getByRole("region", { name: "Running: cancelling" })).toBeInTheDocument();
   });
 
+  it("asks for approval of a step waiting for it, and records a note", async () => {
+    const [translate, properties] = workflowRun().steps;
+    if (!translate || !properties) throw new Error("The fixture has two steps");
+    const waiting = {
+      ...properties,
+      state: "awaiting_approval" as const,
+      run: null,
+      approval: { role: "runner" as const, instructions: "Check the translation first." },
+      approval_requested_at: "2026-03-14T09:01:00Z",
+      approval_expires_at: "2026-04-13T09:01:00Z",
+      can: { decide: true },
+    };
+    onWorkflow(() => workflowRun({ steps: [translate, waiting] }));
+    const approved = {
+      ...waiting,
+      state: "running" as const,
+      can: { decide: false },
+      decision: {
+        approved: true,
+        by: { id: "00000000-0000-7000-8000-0000000000a9", name: "Rui Runner" },
+        at: "2026-03-14T09:05:00Z",
+        note: "Frame 1 is right.",
+      },
+    };
+    answer(`POST /api/v1/workflow-runs/${WORKFLOW_ID}/steps/properties/approve`, () =>
+      workflowRun({ steps: [translate, approved] }),
+    );
+    const { user } = await renderApp("/workflow-runs/WF-000001/");
+    const asking = screen.getByRole("region", { name: "“Properties” waits for your approval" });
+    expect(asking).toHaveTextContent("Check the translation first.");
+    expect(asking).toHaveTextContent("Declining it fails the workflow.");
+    expect(screen.getByRole("region", { name: "Steps" })).toHaveTextContent(
+      "Needs approval by a Runner or above",
+    );
+    await user.click(within(asking).getByRole("button", { name: "Approve" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Approve “Properties”?" });
+    await user.type(within(dialog).getByRole("textbox", { name: /Note/ }), "Frame 1 is right.");
+    await user.click(within(dialog).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("Approved “Properties”. It starts now.")).toBeVisible();
+    expect(calls("POST").at(-1)?.body).toEqual({ note: "Frame 1 is right." });
+    expect(screen.queryByRole("region", { name: /waits for/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Steps" })).toHaveTextContent(
+      "Approved by Rui Runner",
+    );
+  });
+
+  it("says who may approve a step, to those who may not", async () => {
+    const [translate, properties] = workflowRun().steps;
+    if (!translate || !properties) throw new Error("The fixture has two steps");
+    onWorkflow(() =>
+      workflowRun({
+        steps: [
+          translate,
+          {
+            ...properties,
+            state: "awaiting_approval",
+            run: null,
+            approval: { role: "admin", instructions: "" },
+            approval_expires_at: "2026-04-13T09:01:00Z",
+          },
+        ],
+      }),
+    );
+    await renderApp("/workflow-runs/WF-000001/");
+    const asking = screen.getByRole("region", { name: "“Properties” waits for approval" });
+    expect(asking).toHaveTextContent("It needs an Admin or above in the project, other than");
+    expect(within(asking).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+  });
+
   it("says when there's no such workflow run", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from iki_spec.model import plugin_from_dict, plugin_to_dict
+from iki_spec.model import Approval, plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 from iki_spec.workflows import literal
 
@@ -587,3 +587,31 @@ def test_a_step_cant_read_its_own_metrics(tmp_path: Path) -> None:
         "when: [{ value: $steps.m.metrics.score, above: 1 }] }\n"
     )
     assert "its own" in only(make(tmp_path, flow(steps)), "workflow-unknown-step")
+
+
+# --- Approval ----------------------------------------------------------------------------------
+
+
+def test_a_step_can_wait_for_approval(tmp_path: Path) -> None:
+    steps = (
+        MEASURE
+        + "t: { action: total, inputs: { readout: $steps.m.created.Readout }, "
+        + "approval: { role: admin, instructions: '  Check the readouts first.  ' } }\n"
+        + "d: { action: describe, inputs: { thing: $inputs.assay }, approval: {} }\n"
+    )
+    result = make(tmp_path, flow(steps))
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.workflows["pipeline"].steps
+    assert found["t"].approval == Approval(role="admin", instructions="Check the readouts first.")
+    assert found["d"].approval == Approval(role="editor", instructions="")
+    assert found["m"].approval is None
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    "approval", ["{ role: owner }", "{ instructions: '' }", "{ by: me }", "yes"]
+)
+def test_an_approval_names_a_project_role(tmp_path: Path, approval: str) -> None:
+    steps = f"d: {{ action: describe, inputs: {{ thing: $inputs.assay }}, approval: {approval} }}\n"
+    assert codes(make(tmp_path, flow(steps))) == ["schema"]
