@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: send_renamed
+label: Send renamed proteins to the LIMS
+description: >-
+  Writes a protein's new name to its LIMS record when someone renames it in
+  Iki. Imports never fire it: changes a triggered run makes fire no trigger.
+on: entity.updated
+type: protein.Protein
+fields: [name]
+run: send_to_lims

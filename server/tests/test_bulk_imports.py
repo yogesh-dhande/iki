@@ -333,6 +333,48 @@ def test_lines_that_match_entities_update_them(world: World) -> None:
     assert events == ["entity.imported"]
 
 
+def test_lines_claim_the_same_entities_without_a_record(world: World) -> None:
+    from iki_server.entities import services
+
+    editor = world.users["editor"]
+    before = services.create(
+        editor, "protein.Protein", world.project, {"sequence": KINASES[0]}
+    ).entity
+    taken = services.create(
+        editor, "protein.Protein", world.project, {"sequence": KINASES[1], "lims_id": "LIMS-9"}
+    ).entity
+    clash, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f, lims_id="LIMS-1"),
+            protein(KINASES[1], "B", f, lims_id="LIMS-2"),
+            protein(KINASES[2], "C", f, lims_id="LIMS-3"),
+            protein(KINASES[2], "C2", f, lims_id="LIMS-4"),
+        ),
+    )
+    body = finished(world, clash)
+    assert body["status"] == "failed"
+    problems = {e["pointer"]: e["detail"] for e in body["error"]["errors"]}
+    hrid = Entity.objects.get(pk=taken.pk).hrid
+    assert problems == {
+        "#/creates_file/2/values/lims_id": f"It has the same sequence as {hrid}, whose "
+        "lims_id is LIMS-9 already: they'd be one entity, which can't be two records.",
+        "#/creates_file/4/values/lims_id": "It has the same sequence as line 3: they'd be one "
+        "entity, which can't be two records.",
+    }
+    run, _ = started(world, lambda f: lines(protein(KINASES[0], "A", f, lims_id="LIMS-1")))
+    assert finished(world, run)["status"] == "succeeded"
+    (effect,) = seen(world, run)["effects"]
+    claimed = Entity.objects.get(pk=before.pk)
+    assert (effect["hrid"], effect["kind"]) == (claimed.hrid, "updated")
+    (one,) = (
+        api_as(world, "editor")
+        .get("/entities/lookup", type="protein.Protein", field="lims_id", value="LIMS-1")
+        .json()
+    )
+    assert one["hrid"] == claimed.hrid
+
+
 def test_a_creates_files_lines_cant_refer_to_one_another(world: World) -> None:
     run, _ = started(
         world,

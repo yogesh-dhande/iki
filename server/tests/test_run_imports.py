@@ -335,6 +335,42 @@ def test_only_the_runs_projects_own_entity_is_matched(world: World) -> None:
     assert effect["hrid"] != Entity.objects.get(pk=elsewhere.pk).hrid
 
 
+def test_a_record_claims_the_same_entity_without_one(world: World) -> None:
+    # Registered before the LIMS knew it: the same sequence, with no lims_id yet.
+    before = services.create(
+        world.users["editor"], "protein.Protein", world.project, {"sequence": "MKVLEIC"}
+    ).entity
+    run, answer = imported(world, lims("ABL1"))
+    assert answer["run_status"] == "succeeded", answer
+    (effect,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
+    hrid = Entity.objects.get(pk=before.pk).hrid
+    assert (effect["hrid"], effect["kind"], effect["revision"]) == (hrid, "updated", 2)
+    assert api_as(world).get(f"/entities/{hrid}").json()["values"]["lims_id"] == "LIMS-1"
+    # Then it's that record's: it comes again as a match.
+    again, answer = imported(world, lims("ABL1"))
+    (effect,) = api_as(world).get(f"/runs/{again['id']}").json()["effects"]
+    assert (effect["hrid"], effect["kind"]) == (hrid, "reused")
+    assert Entity.objects.filter(type="protein.Protein").count() == 1
+
+
+def test_two_records_cant_be_one_entity(world: World) -> None:
+    run, _ = imported(world, lims("ABL1"))
+    (made,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
+    _, answer = imported(world, lims("ABL1 again", lims_id="LIMS-2"))
+    assert answer["run_status"] == "failed"
+    assert answer["errors"] == [
+        {
+            "pointer": "#/creates/0/values/lims_id",
+            "detail": f"It has the same sequence as {made['hrid']}, whose lims_id is LIMS-1 "
+            "already: they'd be one entity, which can't be two records.",
+        }
+    ]
+    # Nor in one run: the first makes the entity, the second would be it.
+    _, answer = imported(world, lims("A", "MKKW", "LIMS-3"), lims("B", "MKKW", "LIMS-4"))
+    assert answer["run_status"] == "failed"
+    assert [e["pointer"] for e in answer["errors"]] == ["#/creates/1/values/lims_id"]
+
+
 def test_a_match_that_cant_change_fails_the_run(world: World) -> None:
     run, _ = imported(world, lims("ABL1"))
     (made,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]

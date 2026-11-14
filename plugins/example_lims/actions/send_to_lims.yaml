@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: send_to_lims
+label: Send to the LIMS
+description: >-
+  Writes each protein's Iki ID and name to its LIMS record, and keeps what it
+  wrote (`sent.json`) with the run. Iki changes nothing; proteins without a
+  LIMS record are skipped.
+inputs:
+  proteins: { type: protein.Protein, cardinality: many }
+runs_on: { tier: backend, environment: lims-tools }
+command: [python, ./scripts/send.py]
+network: ["{settings.lims_host}"]
+secrets:
+  - name: LIMS_TOKEN
+    description: An API token the LIMS issued for Iki, which can read and change proteins.
+# Writing the same values again changes nothing.
+retries: { max: 2, on: [worker_lost, interrupted] }
+artifacts: { keep: [sent.json] }
+metrics:
+  records: { label: Records, description: How many LIMS records it wrote. }
+timeout: 30m

@@ -70,6 +70,18 @@ match too, quietly: one `entity.imported` event tells of the updates with the
 creates, and no trigger fires for each. A record twice in one file is
 refused, since which copy should win can't be known.
 
+**A record claims the entity it would reuse.** A type with an identity
+reuses duplicates (ADR 0035), so a protein registered before the LIMS knew
+it is the entity the LIMS record's create would reuse, and a reused entity
+keeps its own values. A record with no match therefore claims the run's
+project's own duplicate, if that has no value for the field yet: the update
+sets it, and the record matches from then on. If the duplicate is another
+record's already, the run fails and names both, rather than drop one: one
+entity can't be two records, and a GxP lab would rather fix the LIMS than
+lose the link. Two records of one entity in a file fail the same way. A
+duplicate another project owns is reused as before, without the field,
+since it's that project's to change.
+
 **A field can link to its record.** A string field's `link` is a URL with
 `{value}` in it, such as `https://lims.example.org/samples/{value}`. It may
 start with one of the plugin's settings, since each deployment has its own

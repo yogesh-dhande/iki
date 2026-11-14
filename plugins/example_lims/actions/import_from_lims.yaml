@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: import_from_lims
+label: Import proteins from the LIMS
+description: >-
+  Imports the proteins the LIMS added or changed: since the last run when the
+  nightly trigger runs it, every one when run by hand. A protein whose LIMS ID
+  Iki already has is updated, not made again, and one Iki has under the same
+  sequence, without a LIMS ID yet, takes the record's.
+effects:
+  creates: [{ type: protein.Protein, cardinality: many, match_on: lims_id }]
+runs_on: { tier: backend, environment: lims-tools }
+command: [python, ./scripts/sync.py]
+network: ["{settings.lims_host}"]
+secrets:
+  - name: LIMS_TOKEN
+    description: An API token the LIMS issued for Iki, which can read and change proteins.
+# Reading is safe to repeat.
+retries: { max: 2, on: [worker_lost, interrupted] }
+metrics:
+  records: { label: Records, description: How many records the LIMS listed. }
+timeout: 1h

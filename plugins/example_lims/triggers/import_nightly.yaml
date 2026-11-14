@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: import_nightly
+label: Import from the LIMS nightly
+description: >-
+  Imports what the LIMS added or changed since the last night's run, at 2:00
+  UTC, as the service account a project's Admin picks.
+on: schedule
+schedule: 0 2 * * *
+run: import_from_lims

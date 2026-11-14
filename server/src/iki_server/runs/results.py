@@ -30,7 +30,8 @@ from django.db import transaction
 
 from iki_server.entities import access, registry, unique
 from iki_server.entities import services as entities
-from iki_server.entities.models import Entity
+from iki_server.entities.identity import hash_of
+from iki_server.entities.models import Entity, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.org import permissions
 from iki_server.org.services import Refused
@@ -588,6 +589,50 @@ def matching(
     return Entity.objects.select_for_update().filter(pk__in=found).first()
 
 
+def same_entity(run: ActionRun, type_name: str, values: Mapping[str, Any]) -> Entity | None:
+    """The entity of the run's project a create would reuse as a duplicate, locked, for a
+    type that reuses them: a record with no match yet claims it (ADR 0082)."""
+    entity_type = registry.types().get(type_name)
+    if entity_type is None or registry.duplicate_policy(entity_type) != "reuse":
+        return None
+    try:
+        digest = hash_of(values, entity_type)
+    except ValueError:  # its identity has a file
+        return None
+    if digest is None:
+        return None
+    return (
+        Entity.objects.select_for_update()
+        .filter(owner_project=run.project, identity_hash=digest, archived_at__isnull=True)
+        .order_by("created_at", "pk")
+        .first()
+    )
+
+
+def claim(check: Check, create: _Create, values: Mapping[str, Any]) -> Entity | None:
+    """The entity a create with no match claims: the project's own duplicate of it, if it
+    has no value for ``match_on`` yet. One that's another record's already is an error:
+    the two records would be one entity."""
+    match_on = create.match_on
+    if match_on is None or values.get(match_on) is None:
+        return None
+    twin = same_entity(check.run, create.type, values)
+    if twin is None:
+        return None
+    key = unique.key(shape(create.type).part_of(match_on).model, match_on)
+    other = UniqueValue.objects.filter(entity=twin, key=key).values_list("value", flat=True).first()
+    if other is None:
+        return twin
+    owner = registry.identity_owner(registry.types()[create.type])
+    same = " and ".join(owner.identity) if owner is not None else "identity"
+    check.error(
+        f"{create.pointer}/values/{match_on}",
+        f"It has the same {same} as {twin.hrid}, whose {match_on} is {other} already: "
+        "they'd be one entity, which can't be two records.",
+    )
+    return None
+
+
 def update_match(
     check: Check, at: str, type_name: str, entity: Entity, values: Mapping[str, Any]
 ) -> entities.Saved | None:
@@ -622,6 +667,11 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
         if values is None:
             continue
         match = matching(run, create.type, create.match_on, values)
+        if match is None and create.match_on is not None:
+            errors = len(check.errors)
+            match = claim(check, create, values)
+            if len(check.errors) > errors:
+                continue
         if match is not None:
             saved = update_match(check, create.pointer, create.type, match, values)
             if saved is None:

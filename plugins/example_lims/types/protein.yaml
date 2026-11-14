@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityTypeExtension
+extends_type: protein.Protein
+fields:
+  lims_id:
+    type: string
+    label: LIMS ID
+    max_length: 64
+    indexed: true
+    unique: true
+    link: "https://{settings.lims_host}/proteins/{value}"
+    description: >-
+      Its record in the LIMS. No two proteins in a project have the same one,
+      so importing the record again updates the protein it already is.

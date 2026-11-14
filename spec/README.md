@@ -902,15 +902,23 @@ One that changes nothing is found again, as a reused duplicate is. Only the
 project's own entities match, never one linked in from elsewhere. In a
 creates file, a record may come only once.
 
-````yaml
+A record with no match yet, of a type that reuses duplicates, claims the
+project's own entity it would reuse, if that entity has no value for the
+field yet: a protein registered before the LIMS knew it takes the record's
+ID. If it's another record's already, the run fails, naming both, since one
+entity can't be two records; so does a file with two records of one entity.
+
+```yaml
 effects:
   creates: [{ type: lab.Sample, cardinality: many, match_on: lims_id }]
-``` A file field takes a file the inputs already had, by ID, or one the
+```
+
+A file field takes a file the inputs already had, by ID, or one the
 command made:
 
 ```json
 { "structure": { "$file": "relaxed.pdb", "media_type": "chemical/x-pdb" } }
-````
+```
 
 `$file` is a path inside `IKI_OUT_DIR`; `name` defaults to its last part,
 and `media_type` to a guess from its extension. The worker uploads it for

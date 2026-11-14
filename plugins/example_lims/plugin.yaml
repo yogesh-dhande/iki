@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: example_lims
+version: 0.1.0
+title: Example LIMS
+description: >-
+  Links each protein to its record in a LIMS: imports the LIMS's proteins
+  nightly, updating those Iki already has, and writes Iki's IDs back. A
+  starting point for a plugin that connects a real LIMS or ELN.
+license: Apache-2.0
+homepage: https://ikisci.org/plugins/example_lims
+dependencies:
+  protein:
+    types:
+      Protein: ">=1"
+settings:
+  lims_host:
+    type: string
+    format: hostname
+    required: true
+    description: >-
+      The LIMS's host name, such as lims.example.org. Runs reach it, and only
+      it, over HTTPS, and each protein's LIMS ID links to its page there.

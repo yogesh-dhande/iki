@@ -764,6 +764,10 @@ def _update_matches_of(
             params,
         )
         matched = cursor.fetchall()
+        matched += _claims(cursor, check, table, type_name, field, params)
+        matched.sort(key=lambda row: row[0])
+        if check.errors:
+            return 0
     unchanged = 0
     done: list[int] = []
     with entities.quietly():
@@ -811,6 +815,64 @@ def _update_matches_of(
                 [imported.pk, imported.round, done],
             )
     return unchanged
+
+
+def _claims(
+    cursor: Any,  # noqa: ANN401 - a cursor
+    check: results.Check,
+    table: str,
+    type_name: str,
+    field: str,
+    params: dict[str, Any],
+) -> list[tuple[Any, ...]]:
+    """The staged lines with no match whose type reuses duplicates, each with the run's
+    project's own duplicate it claims, as the matched rows are (ADR 0082). Notes those
+    whose duplicate is another record's already, or another line's in the file."""
+    entity_type = registry.types()[type_name]
+    owner = registry.identity_owner(entity_type)
+    if owner is None or registry.duplicate_policy(entity_type) != "reuse":
+        return []
+    same = " and ".join(owner.identity)
+    value = "s.parts->%(part)s->>%(field)s"
+    unmatched = (
+        f" s.type = %(type)s AND {value} IS NOT NULL AND s.identity_hash IS NOT NULL"  # noqa: S608 - ours; values are parameters
+        " AND NOT EXISTS (SELECT 1 FROM iki_unique_value m WHERE m.project_id = %(project)s"
+        f" AND m.key = %(key)s AND m.value = {value})"
+    )
+    # Two records of one entity in a file: it can only be one of them.
+    cursor.execute(
+        f"SELECT array_agg(s.line ORDER BY s.line) FROM {table} s WHERE {unmatched}"  # noqa: S608 - ours; values are parameters
+        f" GROUP BY s.identity_hash HAVING count(DISTINCT {value}) > 1"
+        " ORDER BY min(s.line) LIMIT 100",
+        params,
+    )
+    for (lines,) in cursor.fetchall():
+        for line in lines[1:]:
+            check.error(
+                results.pointer("creates_file", line, "values", field),
+                f"It has the same {same} as line {lines[0]}: they'd be one entity, which "
+                "can't be two records.",
+            )
+    cursor.execute(
+        f"SELECT DISTINCT ON (s.line) s.line, s.parts, s.origin, s.parents, e.id, e.hrid,"  # noqa: S608 - ours; values are parameters
+        f" u.value FROM {table} s"
+        " JOIN iki_entity e ON e.owner_project_id = %(project)s"
+        "  AND e.identity_hash = s.identity_hash AND e.archived_at IS NULL"
+        " LEFT JOIN iki_unique_value u ON u.entity_id = e.id AND u.key = %(key)s"
+        f" WHERE {unmatched} ORDER BY s.line, e.created_at, e.id",
+        params,
+    )
+    claims = []
+    for line, parts, origin, parents, entity_id, hrid, other in cursor.fetchall():
+        if other is None:
+            claims.append((line, parts, origin, parents, entity_id))
+            continue
+        check.error(
+            results.pointer("creates_file", line, "values", field),
+            f"It has the same {same} as {hrid}, whose {field} is {other} already: they'd be "
+            "one entity, which can't be two records.",
+        )
+    return claims
 
 
 def _first_line(error: Exception) -> str:
