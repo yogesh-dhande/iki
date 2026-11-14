@@ -85,3 +85,5 @@ fields:
     description: The DNA sequence it was translated from.
 display:
   title: "{{ name or uniprot_accession or hrid }}"
+  viewers:
+    - { viewer: sequence, sequence: sequence }

@@ -6,15 +6,25 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "schema_version"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "EntityType" },
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "EntityType"
+    },
     "name": {
       "description": "The type's name in PascalCase. Elsewhere it is `plugin.Name`.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName"
     },
-    "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
-    "label_plural": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
-    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "label": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "label_plural": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
     "schema_version": {
       "description": "Increase it whenever the fields change. Other plugins' dependencies and actions name the versions they work with.",
       "type": "integer",
@@ -53,7 +63,9 @@
       "minItems": 1,
       "maxItems": 10,
       "uniqueItems": true,
-      "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+      "items": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      }
     },
     "on_duplicate": {
       "description": "What happens when someone creates an entity with the same identity as an existing one: `reuse` the existing one (the default), `warn` and let them choose, or `allow` a duplicate.",
@@ -63,8 +75,12 @@
       "description": "The type's fields, by name.",
       "type": "object",
       "maxProperties": 500,
-      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-      "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1" }
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "$ref": "https://ikisci.org/schemas/field/v1"
+      }
     },
     "display": {
       "type": "object",
@@ -74,10 +90,61 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "viewers": {
+          "description": "Iki's own viewers for its entities, each a tab on their pages, configured by naming the fields they show. Its subtypes' pages show them too, unless they declare their own.",
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/viewer"
+          }
         }
       },
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "viewer": {
+      "type": "object",
+      "required": ["viewer"],
+      "properties": {
+        "viewer": {
+          "description": "Which viewer. `sequence`: the sequence, with its features as a track along it.",
+          "enum": ["sequence"]
+        },
+        "label": {
+          "description": "The tab's name. The viewer's own name if left out, such as Sequence.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "viewer": {
+                "const": "sequence"
+              }
+            }
+          },
+          "then": {
+            "required": ["viewer", "sequence"],
+            "properties": {
+              "viewer": true,
+              "label": true,
+              "sequence": {
+                "description": "The field it shows: a string with format `dna_sequence` or `protein_sequence`.",
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              },
+              "features": {
+                "description": "A json field listing regions along it, as GenBank features are: each with a `type`, a `start` and `end` (from 1), and optionally a `name` and a `strand` (`forward`, `reverse` or `none`).",
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    }
+  }
 }

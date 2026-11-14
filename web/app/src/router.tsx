@@ -70,6 +70,7 @@ const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
 const EntityHistory = lazyRouteComponent(entityPages, "EntityHistory");
 const EntityLineage = lazyRouteComponent(() => import("./pages/lineage"), "EntityLineage");
+const EntityViewer = lazyRouteComponent(() => import("./pages/entity-viewer"), "EntityViewer");
 const EntityComponent = lazyRouteComponent(
   () => import("./pages/entity-component"),
   "EntityComponent",
@@ -311,6 +312,12 @@ const entityLineageRoute = createRoute({
   component: EntityLineage,
 });
 
+const entityViewerRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "viewers/$viewer",
+  component: EntityViewer,
+});
+
 const entityComponentRoute = createRoute({
   getParentRoute: () => entityRoute,
   path: "components/$name",
@@ -396,6 +403,7 @@ const routeTree = rootRoute.addChildren([
     entityEditRoute,
     entityHistoryRoute,
     entityLineageRoute,
+    entityViewerRoute,
     entityComponentRoute,
   ]),
   runRoute,

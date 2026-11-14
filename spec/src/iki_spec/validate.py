@@ -14,7 +14,7 @@ from __future__ import annotations
 import dataclasses
 import keyword
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path as FilePath
 from typing import Any
@@ -43,6 +43,7 @@ from iki_spec.model import (
     Field,
     Plugin,
     Trigger,
+    Viewer,
     Workflow,
     matches_format,
     qualify,
@@ -656,7 +657,34 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         on_duplicate=body.get("on_duplicate"),
         fields=_fields(body.get("fields", {}), plugin),
         display_title=(body.get("display") or {}).get("title"),
+        viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
         file=document.file,
+    )
+
+
+#: What each viewer's fields must be: (role, as it reads, test).
+_VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] = {
+    "sequence": (
+        (
+            "sequence",
+            "a DNA or protein sequence",
+            lambda f: f.type == "string" and f.format in ("dna_sequence", "protein_sequence"),
+        ),
+        ("features", "a json field", lambda f: f.type == "json"),
+    ),
+}
+
+#: Each viewer's name, when a type doesn't give it one.
+VIEWER_LABELS = {"sequence": "Sequence"}
+
+
+def _viewer(body: dict[str, Any]) -> Viewer:
+    kind = body["viewer"]
+    return Viewer(
+        viewer=kind,
+        label=body.get("label") or VIEWER_LABELS[kind],
+        sequence=body.get("sequence", ""),
+        features=body.get("features", ""),
     )
 
 
@@ -949,6 +977,9 @@ class _Semantics:
         if entity_type.display_title is not None:
             present = {n: f for n, f in names.items() if not f.removed}
             self.title(entity_type.display_title, source, present)
+        if entity_type.viewers:
+            present = {n: f for n, f in names.items() if not f.removed}
+            self.viewers(entity_type, source, present)
 
     def identity(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
@@ -1011,6 +1042,38 @@ class _Semantics:
         path: Path = ("display", "title")
         for problem, hint in _title_problems(template, fields):
             self.add("display-title", problem, source, path, hint=hint)
+
+    def viewers(self, entity_type: EntityType, source: Document, fields: dict[str, Field]) -> None:
+        """Each viewer names fields the type has, of the kind it shows, once per type."""
+        seen: set[str] = set()
+        for index, viewer in enumerate(entity_type.viewers):
+            path: Path = ("display", "viewers", index)
+            if viewer.viewer in seen:
+                self.add(
+                    "viewer-twice",
+                    f"This type has a `{viewer.viewer}` viewer already.",
+                    source,
+                    (*path, "viewer"),
+                    hint="Give each viewer once: it's one tab on the type's pages.",
+                )
+            seen.add(viewer.viewer)
+            for role, wanted, kinds in _VIEWER_ROLES[viewer.viewer]:
+                name = getattr(viewer, role)
+                if not name:
+                    continue
+                found = fields.get(name)
+                if found is None:
+                    self.add(
+                        "unknown-field", f"This type has no field `{name}`.", source, (*path, role)
+                    )
+                elif not kinds(found):
+                    self.add(
+                        "viewer-field",
+                        f"`{name}` isn't {wanted}, which a {viewer.viewer} viewer's "
+                        f"`{role}` shows.",
+                        source,
+                        (*path, role),
+                    )
 
     def hrid_prefixes(self) -> None:
         seen: dict[str, str] = {}

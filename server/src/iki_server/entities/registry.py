@@ -15,7 +15,14 @@ from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
-from iki_spec.model import BUILTIN_TYPES, EntityType, Extension, Plugin, plugin_from_dict
+from iki_spec.model import (
+    BUILTIN_TYPES,
+    EntityType,
+    Extension,
+    Plugin,
+    Viewer,
+    plugin_from_dict,
+)
 
 
 @cache
@@ -63,6 +70,11 @@ def display_title(entity_type: EntityType) -> str | None:
     return next(
         (t.display_title for t in [entity_type, *ancestors(entity_type)] if t.display_title), None
     )
+
+
+def viewers(entity_type: EntityType) -> tuple[Viewer, ...]:
+    """Iki's own viewers on ``entity_type``'s pages: its own or the nearest parent's."""
+    return next((t.viewers for t in [entity_type, *ancestors(entity_type)] if t.viewers), ())
 
 
 def duplicate_policy(entity_type: EntityType) -> str | None:

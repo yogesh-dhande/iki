@@ -83,6 +83,7 @@ display:
 | `identity`              | Fields that make an entity the same as another. Each must be `required` and `immutable`. See below. |
 | `on_duplicate`          | When someone creates a duplicate: `reuse` the existing entity, `warn` and let them choose, `allow`. |
 | `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                  |
+| `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.     |
 
 ### Identities
 
@@ -537,6 +538,30 @@ params: { accession: P69905 }
 Each run's `input.json` has `run.trigger`, with `scheduled_for`, the time
 it was for, and `since`, the time the last run that succeeded was for (null
 the first time), so an import can fetch only what's new.
+
+## Viewers
+
+A type shows its entities in Iki's own viewers by naming the fields they
+show, under `display.viewers`. Each is a tab on its entities' pages, and its
+subtypes' too unless they declare their own. No plugin code runs: this is
+the first of ADR 0084's tiers, configuring what Iki has.
+
+```yaml
+display:
+  viewers:
+    - { viewer: sequence, sequence: bases, features: features }
+```
+
+| Viewer     | Fields                                                                                                                                                                     |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence` | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. |
+
+The sequence viewer shows the residues in rows of 60, in groups of 10, with
+each feature as a bar under the residues it covers, coloured by its kind and
+pointing the way its strand runs, and lists the features in a table. A
+feature whose end comes before its start wraps the origin of a circular
+sequence. `label` names the tab. The validator checks that each field exists
+and is what its viewer shows, and that each viewer is given once.
 
 ## Components
 

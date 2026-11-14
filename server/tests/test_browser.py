@@ -806,6 +806,25 @@ def test_following_lineage_from_entity_to_entity(
     assert page.get_by_role("heading", level=2).count() == 2
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_proteins_sequence_in_its_viewer(open_as: Any, world: World, color_scheme: str) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    sequence = "MLEICLKLVGCKSKKGLSSSSSCYLEEALQRPVASDFEPQGLSEAARWNSKENLLAGPSENDPNLFVALYDFVASG"
+    made = entities.create(
+        admin, "protein.Protein", world.project, {"sequence": sequence, "name": "ABL1"}
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/", color_scheme)
+    page.get_by_role("link", name="Sequence").click()
+    page.get_by_text(f"{len(sequence)} residues").wait_for()
+    figure = page.get_by_role("figure", name="Sequence of ABL1")
+    figure.get_by_text("61", exact=True).wait_for()
+    assert_clean(page)
+
+
 # What a component's code could try, run in its frame, with its frame's origin and policy.
 SANDBOX_PROBES = """
 async () => {

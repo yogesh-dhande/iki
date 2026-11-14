@@ -1,0 +1,82 @@
+"""Viewers: Iki's own viewers on a type's pages, configured by naming its fields."""
+
+import textwrap
+from pathlib import Path
+
+from iki_spec.model import Viewer, plugin_from_dict, plugin_to_dict
+from iki_spec.validate import Result, load_plugin
+
+PLUGIN = """\
+apiVersion: iki/v1
+kind: Plugin
+name: acme
+version: 1.0.0
+"""
+
+TYPE = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Plasmid
+schema_version: 1
+hrid: {{ prefix: PLS }}
+fields:
+  bases: {{ type: string, format: dna_sequence }}
+  name: {{ type: string }}
+  features: {{ type: json }}
+display:
+  viewers: {viewers}
+"""
+
+
+def made(tmp_path: Path, viewers: str) -> Result:
+    root = tmp_path / "acme"
+    (root / "types").mkdir(parents=True, exist_ok=True)
+    (root / "plugin.yaml").write_text(PLUGIN)
+    (root / "types" / "plasmid.yaml").write_text(textwrap.dedent(TYPE.format(viewers=viewers)))
+    return load_plugin(root)
+
+
+def codes(result: Result) -> list[str]:
+    return [p.code for p in result.problems]
+
+
+def test_a_sequence_viewer_names_its_sequence_and_features(tmp_path: Path) -> None:
+    result = made(tmp_path, "[{ viewer: sequence, sequence: bases, features: features }]")
+    assert result.problems == []
+    plugin = result.plugin
+    assert plugin is not None
+    plasmid = plugin.types["acme.Plasmid"]
+    assert plasmid.viewers == (
+        Viewer(viewer="sequence", label="Sequence", sequence="bases", features="features"),
+    )
+    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+
+
+def test_a_viewer_can_name_its_tab(tmp_path: Path) -> None:
+    plugin = made(tmp_path, "[{ viewer: sequence, sequence: bases, label: Map }]").plugin
+    assert plugin is not None
+    assert plugin.types["acme.Plasmid"].viewers[0].label == "Map"
+
+
+def test_its_fields_must_exist_and_be_what_it_shows(tmp_path: Path) -> None:
+    missing = made(tmp_path, "[{ viewer: sequence, sequence: basez }]")
+    assert codes(missing) == ["unknown-field"]
+    assert missing.problems[0].message == "This type has no field `basez`."
+    plain = made(tmp_path, "[{ viewer: sequence, sequence: name }]")
+    assert codes(plain) == ["viewer-field"]
+    assert plain.problems[0].message == (
+        "`name` isn't a DNA or protein sequence, which a sequence viewer's `sequence` shows."
+    )
+    features = made(tmp_path, "[{ viewer: sequence, sequence: bases, features: name }]")
+    assert codes(features) == ["viewer-field"]
+
+
+def test_each_viewer_is_given_once(tmp_path: Path) -> None:
+    twice = "[{ viewer: sequence, sequence: bases }, { viewer: sequence, sequence: bases }]"
+    assert codes(made(tmp_path, twice)) == ["viewer-twice"]
+
+
+def test_the_schema_knows_each_viewers_fields(tmp_path: Path) -> None:
+    assert codes(made(tmp_path, "[{ viewer: sequence }]")) == ["schema"]
+    assert codes(made(tmp_path, "[{ viewer: sequence, sequence: bases, file: x }]")) == ["schema"]
+    assert codes(made(tmp_path, "[{ viewer: chart }]")) == ["schema"]

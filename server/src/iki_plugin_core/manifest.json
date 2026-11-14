@@ -218,7 +218,8 @@
         "name": "Collection",
         "on_duplicate": null,
         "plugin": "core",
-        "schema_version": 1
+        "schema_version": 1,
+        "viewers": []
       },
       "core.Entity": {
         "abstract": true,
@@ -235,7 +236,8 @@
         "name": "Entity",
         "on_duplicate": null,
         "plugin": "core",
-        "schema_version": 1
+        "schema_version": 1,
+        "viewers": []
       },
       "core.Sequence": {
         "abstract": true,
@@ -346,7 +348,8 @@
         "name": "Sequence",
         "on_duplicate": null,
         "plugin": "core",
-        "schema_version": 1
+        "schema_version": 1,
+        "viewers": []
       }
     },
     "version": "0.1.0",

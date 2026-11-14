@@ -2735,6 +2735,14 @@
             "description": "A JSON Schema (2020-12) of the entity's values.",
             "title": "Values Schema",
             "type": "object"
+          },
+          "viewers": {
+            "description": "Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.",
+            "items": {
+              "$ref": "#/components/schemas/ViewerOut"
+            },
+            "title": "Viewers",
+            "type": "array"
           }
         },
         "required": [
@@ -2750,7 +2758,8 @@
           "identity",
           "on_duplicate",
           "fields",
-          "values_schema"
+          "values_schema",
+          "viewers"
         ],
         "title": "EntityTypeOut",
         "type": "object"
@@ -10417,6 +10426,56 @@
           "ready_at"
         ],
         "title": "VersionOut",
+        "type": "object"
+      },
+      "ViewerOut": {
+        "properties": {
+          "alphabet": {
+            "description": "What it's a sequence of: bases or amino acids.",
+            "enum": [
+              "dna",
+              "protein"
+            ],
+            "title": "Alphabet",
+            "type": "string"
+          },
+          "features": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A json field of regions along it (type, start, end, name, strand), or null.",
+            "title": "Features"
+          },
+          "label": {
+            "description": "What its tab is called.",
+            "title": "Label",
+            "type": "string"
+          },
+          "sequence": {
+            "description": "The field holding the sequence.",
+            "title": "Sequence",
+            "type": "string"
+          },
+          "viewer": {
+            "const": "sequence",
+            "description": "`sequence`: the sequence, with its features as a track along it.",
+            "title": "Viewer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "label",
+          "sequence",
+          "alphabet",
+          "features"
+        ],
+        "title": "ViewerOut",
         "type": "object"
       },
       "VolumeOut": {

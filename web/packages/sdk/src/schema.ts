@@ -3766,6 +3766,11 @@ export interface components {
             values_schema: {
                 [key: string]: unknown;
             };
+            /**
+             * Viewers
+             * @description Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.
+             */
+            viewers: components["schemas"]["ViewerOut"][];
         };
         /** EnvironmentVolumesOut */
         EnvironmentVolumesOut: {
@@ -7142,6 +7147,36 @@ export interface components {
             ready_at: string | null;
             /** Version */
             version: number | null;
+        };
+        /** ViewerOut */
+        ViewerOut: {
+            /**
+             * Alphabet
+             * @description What it's a sequence of: bases or amino acids.
+             * @enum {string}
+             */
+            alphabet: "dna" | "protein";
+            /**
+             * Features
+             * @description A json field of regions along it (type, start, end, name, strand), or null.
+             */
+            features: string | null;
+            /**
+             * Label
+             * @description What its tab is called.
+             */
+            label: string;
+            /**
+             * Sequence
+             * @description The field holding the sequence.
+             */
+            sequence: string;
+            /**
+             * Viewer
+             * @description `sequence`: the sequence, with its features as a track along it.
+             * @constant
+             */
+            viewer: "sequence";
         };
         /** VolumeOut */
         VolumeOut: {

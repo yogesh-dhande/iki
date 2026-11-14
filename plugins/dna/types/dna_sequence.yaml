@@ -81,3 +81,6 @@ fields:
             additionalProperties: { type: string, maxLength: 10000 }
 display:
   title: "{{ name or accession or hrid }}"
+  # A tab with its bases, and its features as a track along them.
+  viewers:
+    - { viewer: sequence, sequence: bases, features: features }

@@ -30,7 +30,7 @@ from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
 from iki_server.entities import access, registry, schema, search, services, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision
-from iki_server.entities.values import Invalid, shape, subtypes, to_json
+from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -86,6 +86,20 @@ class FieldOut(Schema):
     items: str | None = Field(description="Lists: the type of each item.")
 
 
+class ViewerOut(Schema):
+    viewer: Literal["sequence"] = Field(
+        description="`sequence`: the sequence, with its features as a track along it."
+    )
+    label: str = Field(description="What its tab is called.")
+    sequence: str = Field(description="The field holding the sequence.")
+    alphabet: Literal["dna", "protein"] = Field(
+        description="What it's a sequence of: bases or amino acids."
+    )
+    features: str | None = Field(
+        description="A json field of regions along it (type, start, end, name, strand), or null."
+    )
+
+
 class EntityTypeOut(Schema):
     name: str = Field(description="Qualified: plugin.Type.")
     plugin: str
@@ -103,6 +117,10 @@ class EntityTypeOut(Schema):
     fields: list[FieldOut]
     values_schema: dict[str, Any] = Field(
         description="A JSON Schema (2020-12) of the entity's values."
+    )
+    viewers: list[ViewerOut] = Field(
+        description="Iki's own viewers on its entities' pages, each a tab: its own, or its "
+        "nearest parent's."
     )
 
 
@@ -326,6 +344,11 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
     }
 
 
+def _alphabet(form: Shape, field: str) -> str:
+    spec = form.fields().get(field)
+    return "protein" if spec is not None and spec.format == "protein_sequence" else "dna"
+
+
 def _type_out(entity_type: EntityType) -> dict[str, Any]:
     form = shape(entity_type.qualified_name)
     owner = registry.identity_owner(entity_type)
@@ -350,6 +373,16 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "on_duplicate": registry.duplicate_policy(entity_type),
         "fields": fields,
         "values_schema": schema.for_type(name),
+        "viewers": [
+            {
+                "viewer": v.viewer,
+                "label": v.label,
+                "sequence": v.sequence,
+                "alphabet": _alphabet(form, v.sequence),
+                "features": v.features or None,
+            }
+            for v in registry.viewers(entity_type)
+        ],
     }
 
 

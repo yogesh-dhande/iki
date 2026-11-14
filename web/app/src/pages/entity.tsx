@@ -401,6 +401,16 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
         >
           Overview
         </Link>
+        {(type?.viewers ?? []).map((v) => (
+          <Link
+            key={v.viewer}
+            to="/entities/$ref/viewers/$viewer/"
+            params={{ ref: entity.hrid, viewer: v.viewer }}
+            activeProps={tab}
+          >
+            {v.label}
+          </Link>
+        ))}
         <Link to="/entities/$ref/lineage/" params={{ ref: entity.hrid }} activeProps={tab}>
           Lineage
         </Link>

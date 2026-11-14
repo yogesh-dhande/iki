@@ -593,6 +593,159 @@ input:focus-visible {
 }
 
 .site-nav a,
+/* The sequence viewer: residues in rows of 60, groups of 10, features as a track. */
+:root {
+  --feature-coding: #2f6fb5;
+  --feature-regulatory: #2e8540;
+  --feature-terminator: #b5452f;
+  --feature-origin: #8a4fb5;
+  --feature-binding: #a36b00;
+  --feature-other: #5f6b78;
+  --feature-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --feature-coding: #7fb0ff;
+    --feature-regulatory: #6fd49a;
+    --feature-terminator: #ff9b85;
+    --feature-origin: #c9a2f2;
+    --feature-binding: #f2b75a;
+    --feature-other: #a3b0bd;
+    --feature-text: #0f141a;
+  }
+}
+
+.sequence {
+  margin: 0 0 1.5rem;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.875rem;
+}
+
+.sequence-rows {
+  position: relative;
+  min-width: max-content;
+}
+
+.sequence-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  gap: 1.5ch;
+  padding-bottom: 0.5rem;
+}
+
+.sequence-position {
+  flex: none;
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+
+.sequence-line {
+  display: flex;
+  flex-direction: column;
+}
+
+.sequence-residues {
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+
+.sequence-group {
+  display: inline-block;
+  margin-right: 1ch;
+}
+
+.sequence-residues mark {
+  background: var(--warning-bg);
+  color: inherit;
+  outline: 1px solid var(--warning);
+}
+
+.sequence-track {
+  position: relative;
+  display: block;
+  margin-top: 0.15rem;
+}
+
+/* Placed in the residues' own ch, so a bar spans exactly the residues it covers. */
+.feature {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1rem;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--feature-other);
+  color: var(--feature-text);
+  white-space: nowrap;
+}
+
+.feature-label {
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.feature-coding,
+.feature-swatch.feature-coding {
+  background: var(--feature-coding);
+}
+.feature-regulatory,
+.feature-swatch.feature-regulatory {
+  background: var(--feature-regulatory);
+}
+.feature-terminator,
+.feature-swatch.feature-terminator {
+  background: var(--feature-terminator);
+}
+.feature-origin,
+.feature-swatch.feature-origin {
+  background: var(--feature-origin);
+}
+.feature-binding,
+.feature-swatch.feature-binding {
+  background: var(--feature-binding);
+}
+
+/* A feature's direction, at the end it runs towards. */
+.feature-forward {
+  clip-path: polygon(0 0, calc(100% - 0.5ch) 0, 100% 50%, calc(100% - 0.5ch) 100%, 0 100%);
+}
+.feature-reverse {
+  clip-path: polygon(0.5ch 0, 100% 0, 100% 100%, 0.5ch 100%, 0 50%);
+}
+
+.feature-shown {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.feature-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.feature-swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.4rem;
+  border-radius: 2px;
+  background: var(--feature-other);
+  vertical-align: -0.05rem;
+}
+
 /* A plugin's component, in a sandboxed frame of its own (ADR 0084). */
 .component-frame {
   display: block;

@@ -55,6 +55,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/edit/", web.app, name="entity_edit"),
     path("entities/<str:ref>/history/", web.app, name="entity_history"),
     path("entities/<str:ref>/lineage/", web.app, name="entity_lineage"),
+    path("entities/<str:ref>/viewers/<str:viewer>/", web.app, name="entity_viewer"),
     path("entities/<str:ref>/components/<str:name>/", web.app, name="entity_component"),
     # Plugins' components, for the web app's sandboxed frames (ADR 0084).
     path(

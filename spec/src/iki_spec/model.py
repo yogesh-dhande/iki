@@ -172,6 +172,7 @@ class EntityType:
     on_duplicate: str | None = None
     fields: dict[str, Field] = field(default_factory=dict)
     display_title: str | None = None
+    viewers: tuple[Viewer, ...] = ()
     file: str | None = None
 
     @property
@@ -186,6 +187,16 @@ class EntityType:
     def current_fields(self) -> dict[str, Field]:
         """The fields entities have now, without the removed ones."""
         return {name: f for name, f in self.fields.items() if not f.removed}
+
+
+@dataclass(frozen=True)
+class Viewer:
+    """One of Iki's own viewers on a type's pages, and the fields it shows (``display``)."""
+
+    viewer: str  # "sequence"
+    label: str
+    sequence: str = ""  # a string field with a sequence format
+    features: str = ""  # a json field of regions along it, or ""
 
 
 @dataclass(frozen=True)
@@ -645,6 +656,7 @@ _DATACLASSES = (
     Trigger,
     Component,
     ComponentSlot,
+    Viewer,
 )
 
 
@@ -674,6 +686,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         **v,
                         "identity": tuple(v["identity"]),
                         "fields": {n: _field(f) for n, f in v["fields"].items()},
+                        # Plugins built before viewers have none.
+                        "viewers": tuple(Viewer(**x) for x in v.get("viewers") or ()),
                     }
                 )
                 for k, v in data["types"].items()

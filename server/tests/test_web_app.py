@@ -32,6 +32,7 @@ APP_PAGES = [
     "/entities/DNA-000001/history/",
     "/entities/DNA-000001/lineage/",
     "/entities/PRT-000001/components/protein.residues/",
+    "/entities/PRT-000001/viewers/sequence/",
     "/projects/a-b/runs/",
     "/projects/a-b/runs/new/",
     "/runs/RUN-000001/",
