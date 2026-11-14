@@ -44,7 +44,7 @@
       "items": { "$ref": "#/$defs/slot" }
     },
     "events": {
-      "description": "What it tells the page, by name. `select` names the entities a person picked in it, so the page can act on them.",
+      "description": "What it tells the page, by name. `select`: entities a person picked in it, as an `iki-select` event whose `detail.entities` lists their HRIDs, so the page can act on them.",
       "type": "object",
       "additionalProperties": false,
       "properties": {

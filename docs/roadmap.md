@@ -106,11 +106,11 @@ Plugins before M1 are the ones that prove a platform feature.
 
 ## Stage 7: Components, views and apps
 
-| Step | What                                                                                                 | Status      | Commits   |
-| ---- | ---------------------------------------------------------------------------------------------------- | ----------- | --------- |
-| 40   | Component framework: plugins' Web Components in sandboxed frames (ADR 0084), slots, linked selection | in progress | `e6245fe` |
-| 41   | Views and viewers: Mol\*, sequence and track viewers, parsers in WebAssembly                         | planned     |           |
-| 42   | Apps: composed pages with an expression language, and MCP tools to build them                        | planned     |           |
+| Step | What                                                                                                 | Status  | Commits              |
+| ---- | ---------------------------------------------------------------------------------------------------- | ------- | -------------------- |
+| 40   | Component framework: plugins' Web Components in sandboxed frames (ADR 0084), slots, linked selection | done    | `e6245fe`, `b78ddd9` |
+| 41   | Views and viewers: Mol\*, sequence and track viewers, parsers in WebAssembly                         | planned |                      |
+| 42   | Apps: composed pages with an expression language, and MCP tools to build them                        | planned |                      |
 
 ## Stage 8: Remaining plugins and lifecycle
 

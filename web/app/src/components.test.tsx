@@ -16,8 +16,8 @@ import {
   readMessage,
   type PluginComponent,
 } from "./components";
-import { entity, PROTEIN, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
-import { answer } from "./test-server";
+import { entity, PROTEIN, PROTEIN_ID, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
+import { answer, calls, page } from "./test-server";
 
 const RESIDUES: PluginComponent = {
   name: "protein.residues",
@@ -136,6 +136,55 @@ describe("the frame", () => {
   });
 });
 
+describe("a selection", () => {
+  async function pick(entities: unknown[]) {
+    const { user } = await renderApp("/entities/PRT-000001/components/protein.residues/");
+    const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
+    const { port } = connect(frame);
+    port.postMessage({ type: "ready" });
+    port.postMessage({ type: "select", entities });
+    return user;
+  }
+
+  it("is read back as the person may read it, and offered to the run page", async () => {
+    onResidues();
+    const other = entity({ id: "00000000-0000-7000-8000-00000000e002", hrid: "PRT-000002" });
+    answer("POST /api/v1/entities/search", page([entity(), other]));
+    const user = await pick(["PRT-000001", "PRT-000002", "PRT-000009"]);
+    expect(await screen.findByText(/^2 proteins selected/)).toHaveTextContent(
+      "2 proteins selected. 1 left out: not proteins you can read",
+    );
+    const [search] = calls("POST", "/api/v1/entities/search");
+    expect(search?.body).toMatchObject({
+      where: { field: "hrid", op: "in", value: ["PRT-000001", "PRT-000002", "PRT-000009"] },
+    });
+    expect(screen.getByRole("link", { name: "Run action on them" })).toHaveAttribute(
+      "href",
+      "/projects/kinase-atlas/runs/new/?entities=PRT-000001%2CPRT-000002",
+    );
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByRole("link", { name: "Run action on them" })).not.toBeInTheDocument();
+  });
+
+  it("leaves out entities of other types", async () => {
+    onResidues();
+    const structure = entity({ hrid: "PST-000001", type: "protein.ProteinStructure" });
+    answer("POST /api/v1/entities/search", page([structure]));
+    await pick(["PST-000001"]);
+    expect(await screen.findByText(/^0 proteins selected/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Run action on/ })).not.toBeInTheDocument();
+  });
+
+  it("of more than a run takes says so, without looking them up", async () => {
+    onResidues();
+    await pick(Array.from({ length: 201 }, (_, i) => `PRT-${String(i + 1)}`));
+    expect(
+      await screen.findByText("201 selected: an action runs on at most 200 at once"),
+    ).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/entities/search")).toEqual([]);
+  });
+});
+
 describe("messages", () => {
   it("are only those a component may send, within bounds", () => {
     expect(readMessage(RESIDUES, { type: "ready" })).toEqual({ type: "ready" });
@@ -153,10 +202,12 @@ describe("messages", () => {
     expect(readMessage(RESIDUES, { type: "resize", height: Number.NaN })).toBeNull();
   });
 
-  it("select only what it declared it selects, as entity references", () => {
+  it("select only what it declared it selects, by HRID", () => {
     expect(
-      readMessage(RESIDUES, { type: "select", entities: ["PRT-000001", "PRT-000001"] }),
+      readMessage(RESIDUES, { type: "select", entities: ["PRT-000001", "prt-000001"] }),
     ).toEqual({ type: "select", entities: ["PRT-000001"] });
+    expect(readMessage(RESIDUES, { type: "select", entities: [PROTEIN_ID] })).toBeNull();
+    expect(readMessage(RESIDUES, { type: "select", entities: ["PRT-1/../x"] })).toBeNull();
     expect(
       readMessage({ ...RESIDUES, selects: null }, { type: "select", entities: [] }),
     ).toBeNull();

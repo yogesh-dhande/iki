@@ -8,7 +8,7 @@ class Residues extends HTMLElement {
     pick.textContent = "Select";
     pick.addEventListener("click", () =>
       this.dispatchEvent(
-        new CustomEvent("iki-select", { detail: { entities: [entity.id] }, bubbles: true }),
+        new CustomEvent("iki-select", { detail: { entities: [entity.hrid] }, bubbles: true }),
       ),
     );
     this.replaceChildren(text, pick);

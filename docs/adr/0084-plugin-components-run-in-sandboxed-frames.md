@@ -63,12 +63,13 @@ or gets the person's session.
 **Iki gives it data, and does what it asks.** Inside the frame, Iki's
 bridge creates the element and sets its properties: the entity whose page it
 is on, as the person may read it. The element tells the page what happened
-with DOM events (`iki-select`, with the entities picked), which the bridge
-passes on through a `MessageChannel` port the page hands it once. The page
-checks every message against what the component declared, and does anything
-that matters itself: it fetches with the person's permissions, and writes,
-runs and navigation go through Iki's own screens, with their confirmations,
-saying which plugin asked.
+with DOM events (`iki-select`, with the HRIDs of the entities picked), which
+the bridge passes on through a `MessageChannel` port the page hands it once.
+The page checks every message against what the component declared, and
+does anything that matters itself: it fetches with the person's permissions,
+and writes, runs and navigation go through Iki's own screens, with their
+confirmations. A selection, say, is read back from the API, as the person
+may read it, and offered to the run page as the grid's is.
 
 ## Consequences
 

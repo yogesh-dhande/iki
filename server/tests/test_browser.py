@@ -56,7 +56,12 @@ FADES_DONE = """
 
 RUN_AXE = """
 async (tags) => {
-  const result = await axe.run(document, { runOnly: { type: "tag", values: tags } });
+  // Iki's pages, not plugins' components in their frames: those are their plugins' to
+  // check, and their origin is no one's, so axe couldn't reach them anyway (ADR 0084).
+  const result = await axe.run(document, {
+    runOnly: { type: "tag", values: tags },
+    iframes: false,
+  });
   return result.violations.map((v) => ({
     id: v.id,
     impact: v.impact,
@@ -840,7 +845,11 @@ def test_a_plugins_component_runs_sandboxed_in_its_tab(
     page.get_by_role("link", name="Residues").click()
     shown = page.frame_locator('iframe[title="Residues"]')
     shown.get_by_text(f"{hrid}: 10 residues").wait_for()
-    shown.get_by_role("button", name="Select").wait_for()
+    assert_clean(page)
+
+    # What a person picks in it, the page reads back and offers to the run page.
+    shown.get_by_role("button", name="Select").click()
+    page.get_by_role("status").filter(has_text="1 protein selected").wait_for()
     assert_clean(page)
 
     # Its code can't read Iki's cookies, storage or page, or call the API as the person.
@@ -859,6 +868,9 @@ def test_a_plugins_component_runs_sandboxed_in_its_tab(
         "Residues tried to open another page, so Iki closed it."
     ).wait_for()
     assert page.locator("iframe").count() == 0
+
+    page.get_by_role("link", name="Run action on it").click()
+    page.wait_for_url(re.compile(rf"/projects/kinase-atlas/runs/new/\?entities={hrid}$"))
 
 
 def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:

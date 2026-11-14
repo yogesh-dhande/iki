@@ -562,8 +562,9 @@ events: { select: { type: Well } } # it lets people pick wells
 called `label`, or the component's. The module defines the element with
 `customElements.define`. Iki sets its `entity` property to the entity whose
 page it's on, as the person may read it, and listens for `iki-select`
-events, whose `detail.entities` lists the IDs of the entities picked, of the
-type `events.select` declares.
+events, whose `detail.entities` lists the HRIDs of the entities picked, of
+the type `events.select` declares. The page shows what was picked, among
+what the person may read, and offers to run an action on them.
 
 The validator checks that the module is a text file in the plugin, not a
 symbolic link and at most 10 MiB, that the types named exist, and that no

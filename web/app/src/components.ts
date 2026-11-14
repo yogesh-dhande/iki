@@ -55,6 +55,8 @@ export const MAX_FRAME_HEIGHT = 20_000;
 export const MIN_FRAME_HEIGHT = 160;
 /** The most entities one selection may hold. */
 export const MAX_SELECTED = 1000;
+/** What a selection names entities by: their HRIDs, such as `PRT-000001`. */
+const HRID = /^[A-Za-z][A-Za-z0-9]{1,7}-[0-9]{1,20}$/;
 
 export type FrameMessage =
   { type: "ready" } | { type: "resize"; height: number } | { type: "select"; entities: string[] };
@@ -76,11 +78,11 @@ export function readMessage(component: PluginComponent, data: unknown): FrameMes
       const entities = message["entities"];
       if (!component.selects || !Array.isArray(entities)) return null;
       if (entities.length > MAX_SELECTED) return null;
-      const refs = entities.filter(
-        (e): e is string => typeof e === "string" && e.length > 0 && e.length <= 100,
+      const hrids = entities.filter(
+        (e): e is string => typeof e === "string" && e.length <= 100 && HRID.test(e),
       );
-      if (refs.length !== entities.length) return null;
-      return { type: "select", entities: [...new Set(refs)] };
+      if (hrids.length !== entities.length) return null;
+      return { type: "select", entities: [...new Set(hrids.map((h) => h.toUpperCase()))] };
     }
     default:
       return null;

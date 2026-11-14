@@ -13,7 +13,8 @@ function send(message) {
 function selected(event) {
   const picked = event.detail?.entities;
   if (!Array.isArray(picked)) return;
-  const entities = picked.map((e) => (typeof e === "string" ? e : (e?.hrid ?? e?.id)));
+  // HRIDs, or the entities Iki gave it.
+  const entities = picked.map((e) => (typeof e === "string" ? e : e?.hrid));
   send({ type: "select", entities: entities.filter((e) => typeof e === "string") });
 }
 
