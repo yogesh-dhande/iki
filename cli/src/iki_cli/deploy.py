@@ -162,6 +162,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
                 [f.plugin for f in fetched if f.plugin is not None],
                 staging,
                 migrations={f.entry.name: f.directory / "migrations" for f in fetched},
+                sources={f.entry.name: f.directory for f in fetched},
                 settings=settings,
                 lock=_record(lock, fetched, made),
                 local=lock.has_local,

@@ -2,6 +2,7 @@
   "apiVersion": "iki/v1",
   "plugin": {
     "actions": {},
+    "components": {},
     "dependencies": {},
     "description": "The types every Iki deployment has.",
     "environments": {},

@@ -202,6 +202,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
             [p for p, _ in plugins],
             args.output,
             migrations={p.name: d / "migrations" for p, d in plugins},
+            sources={p.name: d for p, d in plugins},
             # Built without a deployment, settings take their defaults, as they do when a
             # deployment leaves them out.
             settings={p.name: _defaults(p) for p, _ in plugins},
@@ -264,6 +265,7 @@ def run_makemigrations(args: argparse.Namespace) -> int:
                 [p for p, _ in plugins],
                 Path(tmp),
                 migrations={p.name: d / "migrations" for p, d in plugins},
+                sources={p.name: d for p, d in plugins},
             )
         except ValueError as error:
             sys.stderr.write(f"error: {error}. Pass it with --with.\n")

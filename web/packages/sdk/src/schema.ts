@@ -188,6 +188,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/components": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Installed components */
+        get: operations["iki_server_api_components_list_components"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/budgets": {
         parameters: {
             query?: never;
@@ -3048,6 +3065,37 @@ export interface components {
             /** Type */
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** ComponentOut */
+        ComponentOut: {
+            /** Description */
+            description: string | null;
+            /**
+             * Element
+             * @description The custom element its module defines.
+             */
+            element: string;
+            /** Label */
+            label: string;
+            /**
+             * Name
+             * @description Its qualified name, such as `protein.plate_map`.
+             */
+            name: string;
+            /** Plugin */
+            plugin: string;
+            /**
+             * Selects
+             * @description The type of the entities a person can select in it, or null.
+             */
+            selects: string | null;
+            /**
+             * Sha256
+             * @description Its module's SHA-256: the code its frames run.
+             */
+            sha256: string;
+            /** Slots */
+            slots: components["schemas"]["SlotOut"][];
         };
         /**
          * Condition
@@ -6573,6 +6621,25 @@ export interface components {
              */
             state: "creating" | "ready" | "failed" | "deleted";
         };
+        /** SlotOut */
+        SlotOut: {
+            /**
+             * Label
+             * @description What the tab is called.
+             */
+            label: string;
+            /**
+             * Slot
+             * @description `entity.tab`: a tab of its own on the pages of entities of `type`.
+             * @constant
+             */
+            slot: "entity.tab";
+            /**
+             * Type
+             * @description The entity type whose pages show it, with its subtypes.
+             */
+            type: string;
+        };
         /** SortIn */
         SortIn: {
             /**
@@ -7954,6 +8021,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_components_list_components: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComponentOut"][];
                 };
             };
         };

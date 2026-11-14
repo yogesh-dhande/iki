@@ -22,10 +22,21 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from iki_spec import API_VERSION, actions, naming, schemas, titles, triggers, units, workflows
+from iki_spec import (
+    API_VERSION,
+    actions,
+    components,
+    naming,
+    schemas,
+    titles,
+    triggers,
+    units,
+    workflows,
+)
 from iki_spec.model import (
     BUILTIN_TYPES,
     Action,
+    Component,
     EntityType,
     Environment,
     Extension,
@@ -52,6 +63,7 @@ KINDS = {
     "Environment": "environment",
     "Workflow": "workflow",
     "Trigger": "trigger",
+    "Component": "component",
 }
 
 #: Where each kind of manifest lives in a plugin.
@@ -62,6 +74,7 @@ DIRECTORIES = {
     "Environment": "environments",
     "Workflow": "workflows",
     "Trigger": "triggers",
+    "Component": "components",
 }
 
 MAX_IDENTIFIER = naming.MAX_IDENTIFIER
@@ -275,6 +288,7 @@ class _Loaded:
     environment_sources: dict[str, Document] = field(default_factory=dict)
     workflow_sources: dict[str, Document] = field(default_factory=dict)
     trigger_sources: dict[str, Document] = field(default_factory=dict)
+    component_sources: dict[str, Document] = field(default_factory=dict)
     # The raw (schema-valid) documents, for checks on things the model drops.
     raw: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -415,6 +429,18 @@ def _read(root: FilePath) -> _Loaded:
             checker,
         ):
             fires[trigger.name] = trigger
+    shown: dict[str, Component] = {}
+    for document in _manifests(root, "components", checker):
+        component = components.read_component(name, document.data, document)
+        if _unique(
+            "duplicate-component",
+            component.name,
+            shown,
+            loaded.component_sources,
+            document,
+            checker,
+        ):
+            shown[component.name] = component
 
     loaded.plugin = Plugin(
         name=name,
@@ -434,6 +460,7 @@ def _read(root: FilePath) -> _Loaded:
         environments=environments,
         workflows=flows,
         triggers=fires,
+        components=shown,
     )
     return loaded
 
@@ -542,6 +569,7 @@ def _kind_phrase(document: Document) -> str:
         "Environment": "an environment",
         "Workflow": "a workflow",
         "Trigger": "a trigger",
+        "Component": "a component",
     }.get(kind or "", f"a {kind}")
 
 
@@ -553,6 +581,7 @@ def _kind_phrase_plural(kind: str) -> str:
         "Environment": "environments",
         "Workflow": "workflows",
         "Trigger": "triggers",
+        "Component": "components",
     }[kind]
 
 
@@ -676,6 +705,10 @@ class _Semantics:
         workflows.check(self)
         # With the input each gives its entity, where it was left out and only one fits.
         self.loaded.plugin = dataclasses.replace(self.plugin, triggers=triggers.check(self))
+        # With each module's digest.
+        self.loaded.plugin = dataclasses.replace(
+            self.loaded.plugin, components=components.check(self)
+        )
         self.unpinned()
 
     # The plugin manifest ------------------------------------------------------------------------

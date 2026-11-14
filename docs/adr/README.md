@@ -113,3 +113,4 @@ supersedes the old one, and update the old one's status.
 | [0081](0081-scheduled-triggers-run-as-a-service-account.md)                          | Scheduled triggers run as a service account                                                         | Accepted |
 | [0082](0082-unique-fields-link-records-in-other-systems.md)                          | Unique fields link records in other systems                                                         | Accepted |
 | [0083](0083-a-setting-can-name-a-host-an-action-reaches.md)                          | A setting can name a host an action reaches                                                         | Accepted |
+| [0084](0084-plugin-components-run-in-sandboxed-frames.md)                            | Plugin components run in sandboxed frames                                                           | Accepted |

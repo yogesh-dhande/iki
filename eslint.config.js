@@ -13,6 +13,8 @@ export default tseslint.config(
       "**/node_modules/**",
       "worker/target/**",
       ".venv/**",
+      // Plugins the tests built.
+      ".pytest_cache/**",
       "**/.static/**",
       // The web app's build output, and the client generated from the API.
       "server/src/iki_server/web/static/app/**",
@@ -66,6 +68,18 @@ export default tseslint.config(
           message: "Render text, not HTML: the CSP's Trusted Types refuse raw HTML.",
         },
       ],
+    },
+  },
+  {
+    // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084).
+    files: ["**/plugins/**/components/**/*.{js,mjs}"],
+    languageOptions: {
+      globals: {
+        CustomEvent: "readonly",
+        HTMLElement: "readonly",
+        customElements: "readonly",
+        document: "readonly",
+      },
     },
   },
   {

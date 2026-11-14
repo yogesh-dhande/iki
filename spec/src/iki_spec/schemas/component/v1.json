@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/component/v1",
+  "title": "Iki component (iki/v1)",
+  "description": "A piece of UI the plugin adds to Iki's pages: a Web Component, in one JavaScript module, that Iki runs in a sandboxed frame with no network and no access to the person's session. Iki gives it the data it shows, with the viewer's permissions, and does anything it asks for itself (ADR 0084).",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "module", "element", "slots"],
+  "properties": {
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "Component"
+    },
+    "name": {
+      "description": "The component's name in snake_case. Elsewhere it is `plugin.name`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "label": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
+    "module": {
+      "description": "The JavaScript module that defines the element, such as `./components/plate-map.js`: one file, with everything it needs bundled in, since the frame loads nothing else. Up to 10 MiB.",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500,
+      "pattern": "^\\./(?!(.*/)?\\.\\.(/|$))[^\\\\\\x00]+\\.m?js$"
+    },
+    "element": {
+      "description": "The custom element the module defines (`customElements.define`), such as `acme-plate-map`: lower case, with a hyphen.",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 100,
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)+$"
+    },
+    "slots": {
+      "description": "Where it appears on Iki's pages.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/slot" }
+    },
+    "events": {
+      "description": "What it tells the page, by name. `select` names the entities a person picked in it, so the page can act on them.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "select": {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "description": "The type of the entities it selects, with its subtypes.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+            },
+            "description": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "slot": {
+      "type": "object",
+      "required": ["slot", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "description": "`entity.tab`: a tab of its own on the page of each entity of `type`.",
+          "enum": ["entity.tab"]
+        },
+        "type": {
+          "description": "The entities whose pages show it, with their subtypes.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+        },
+        "label": {
+          "description": "The tab's name. The component's label if left out.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        }
+      }
+    }
+  }
+}

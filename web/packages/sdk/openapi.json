@@ -1267,6 +1267,75 @@
         "title": "CollectionSearch",
         "type": "object"
       },
+      "ComponentOut": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "element": {
+            "description": "The custom element its module defines.",
+            "title": "Element",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its qualified name, such as `protein.plate_map`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "selects": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type of the entities a person can select in it, or null.",
+            "title": "Selects"
+          },
+          "sha256": {
+            "description": "Its module's SHA-256: the code its frames run.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "plugin",
+          "label",
+          "description",
+          "element",
+          "slots",
+          "selects",
+          "sha256"
+        ],
+        "title": "ComponentOut",
+        "type": "object"
+      },
       "Condition": {
         "additionalProperties": false,
         "description": "A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and\n``value``), ``all``, ``any`` or ``not``.",
@@ -9274,6 +9343,33 @@
         "title": "SetupVolumeOut",
         "type": "object"
       },
+      "SlotOut": {
+        "properties": {
+          "label": {
+            "description": "What the tab is called.",
+            "title": "Label",
+            "type": "string"
+          },
+          "slot": {
+            "const": "entity.tab",
+            "description": "`entity.tab`: a tab of its own on the pages of entities of `type`.",
+            "title": "Slot",
+            "type": "string"
+          },
+          "type": {
+            "description": "The entity type whose pages show it, with its subtypes.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "type",
+          "label"
+        ],
+        "title": "SlotOut",
+        "type": "object"
+      },
       "SortIn": {
         "properties": {
           "descending": {
@@ -12388,6 +12484,40 @@
         "summary": "Freeze a dynamic collection",
         "tags": [
           "collections"
+        ]
+      }
+    },
+    "/api/v1/components": {
+      "get": {
+        "operationId": "iki_server_api_components_list_components",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ComponentOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Installed components",
+        "tags": [
+          "components"
         ]
       }
     },

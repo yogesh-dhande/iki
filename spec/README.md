@@ -31,6 +31,7 @@ actions/             # kind: Action
 environments/        # kind: Environment
 workflows/           # kind: Workflow
 triggers/            # kind: Trigger
+components/          # kind: Component, with each one's JavaScript module
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
@@ -536,6 +537,38 @@ params: { accession: P69905 }
 Each run's `input.json` has `run.trigger`, with `scheduled_for`, the time
 it was for, and `since`, the time the last run that succeeded was for (null
 the first time), so an import can fetch only what's new.
+
+## Components
+
+A component is a piece of UI the plugin adds to Iki's pages, for what Iki's
+own components can't show, such as a plate map where people pick wells. It
+is a Web Component, in one JavaScript module with everything it needs
+bundled in, and Iki runs it in a sandboxed frame: no network, no access to
+the person's session or Iki's pages (ADR 0084). Iki gives it the data it
+shows, with the viewer's permissions, and does what it asks for itself.
+
+```yaml
+apiVersion: iki/v1
+kind: Component
+name: plate_map
+label: Plate map
+module: ./components/plate-map.js # one file, up to 10 MiB
+element: acme-plate-map # the custom element it defines
+slots: [{ slot: entity.tab, type: Plate }] # a tab on each plate's page
+events: { select: { type: Well } } # it lets people pick wells
+```
+
+`entity.tab` is a tab on the pages of entities of `type` and its subtypes,
+called `label`, or the component's. The module defines the element with
+`customElements.define`. Iki sets its `entity` property to the entity whose
+page it's on, as the person may read it, and listens for `iki-select`
+events, whose `detail.entities` lists the IDs of the entities picked, of the
+type `events.select` declares.
+
+The validator checks that the module is a text file in the plugin, not a
+symbolic link and at most 10 MiB, that the types named exist, and that no
+two components define the same element. The build copies each module with
+the digest it had then, and the server checks it before serving it.
 
 ## Dependencies
 
@@ -1047,6 +1080,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `network-unknown-setting`, `network-setting-not-hostname`, `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                 | Reuse and retries               |
 | `workflow-unknown-action`, `workflow-unknown-input`, `workflow-unknown-param`, `workflow-input-missing`, `workflow-param-missing`, `workflow-unknown-reference`, `workflow-unknown-step`, `workflow-wrong-type`, `workflow-many-into-one`, `workflow-each-takes-many`, `workflow-unknown-metric`, `workflow-condition-type`, `workflow-condition-each`, `workflow-invalid-param`, `workflow-cycle`, `duplicate-workflow`                                                            | Workflows                       |
 | `trigger-unknown-action`, `trigger-client-tier`, `trigger-unknown-input`, `trigger-input-ambiguous`, `trigger-input-missing`, `trigger-wrong-type`, `trigger-fields-not-updated`, `trigger-unknown-param`, `trigger-invalid-param`, `trigger-param-missing`, `trigger-type-missing`, `trigger-schedule-missing`, `trigger-schedule-invalid`, `trigger-schedule-never`, `trigger-schedule-entity`, `trigger-schedule-not-scheduled`, `trigger-timezone-unknown`, `duplicate-trigger` | Triggers                        |
+| `duplicate-component`, `element-twice`, `component-too-big`, `missing-file`, `unreadable-file`, `symlink`                                                                                                                                                                                                                                                                                                                                                                           | Components                      |
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                             | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                                                                                                                                             | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                   | Volumes and setup               |

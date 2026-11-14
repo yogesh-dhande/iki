@@ -13,6 +13,7 @@ from iki_spec.validate import load_plugin
 
 PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
 GOLDEN = Path(__file__).parent / "golden"
+SOURCES = {name: PLUGINS / name for name in ("dna", "protein", "structure_prediction")}
 
 
 def load(name: str, *dependencies: str) -> Plugin:
@@ -60,7 +61,12 @@ def test_build_writes_a_package_per_plugin(plugins: list[Plugin], tmp_path: Path
     migrations.mkdir()
     (migrations / "0001_initial.py").write_text("# a migration\n")
     (migrations / "notes.txt").write_text("not copied\n")
-    packages = build(list(reversed(plugins)), tmp_path / "out", migrations={"dna": migrations})
+    packages = build(
+        list(reversed(plugins)),
+        tmp_path / "out",
+        migrations={"dna": migrations},
+        sources=SOURCES,
+    )
     assert [p.name for p in packages] == [
         "iki_plugin_dna",
         "iki_plugin_protein",
@@ -75,6 +81,12 @@ def test_build_writes_a_package_per_plugin(plugins: list[Plugin], tmp_path: Path
     manifest = json.loads((dna / "manifest.json").read_text())
     assert manifest["apiVersion"] == "iki/v1"
     assert plugin_from_dict(manifest["plugin"]) == plugins[0]
+    # Each component's module, as it was checked.
+    residues = tmp_path / "out" / "iki_plugin_protein" / "components" / "residues.js"
+    assert (
+        residues.read_bytes() == (PLUGINS / "protein" / "components" / "residues.js").read_bytes()
+    )
+    assert not (dna / "components").exists()
     registry = (tmp_path / "out" / REGISTRY / "__init__.py").read_text()
     assert registry.endswith(
         "APPS = [\n"
@@ -101,12 +113,25 @@ def test_hosts_from_settings_are_filled_in(plugins: list[Plugin], tmp_path: Path
     build(
         [*plugins[:2], reaching],
         tmp_path,
+        sources=SOURCES,
         settings={"structure_prediction": {"jobs_url": "https://x.example", **values}},
     )
     package = tmp_path / "iki_plugin_structure_prediction"
     manifest = json.loads((package / "manifest.json").read_text())
     by_name = {a["name"]: a for a in manifest["plugin"]["actions"].values()}
     assert by_name[action.name]["network"] == ["lims.acme.example", "example.org"]
+
+
+def test_a_component_changed_since_it_was_checked_isnt_built(
+    plugins: list[Plugin], tmp_path: Path
+) -> None:
+    protein = plugins[1]
+    residues = protein.components["residues"]
+    changed = replace(protein, components={"residues": replace(residues, sha256="0" * 64)})
+    with pytest.raises(ValueError, match="changed after the plugin was checked"):
+        build([plugins[0], changed], tmp_path, sources=SOURCES)
+    with pytest.raises(ValueError, match="components need its directory"):
+        build(plugins[:2], tmp_path)
 
 
 def test_build_replaces_earlier_builds(plugins: list[Plugin], tmp_path: Path) -> None:

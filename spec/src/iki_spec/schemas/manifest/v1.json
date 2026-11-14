@@ -18,7 +18,8 @@
         "Action",
         "Environment",
         "Workflow",
-        "Trigger"
+        "Trigger",
+        "Component"
       ]
     }
   },
@@ -53,6 +54,10 @@
     {
       "if": { "properties": { "kind": { "const": "Trigger" } }, "required": ["kind"] },
       "then": { "$ref": "https://ikisci.org/schemas/trigger/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "Component" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/component/v1" }
     }
   ]
 }

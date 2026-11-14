@@ -9,7 +9,9 @@ For each plugin, a package ``iki_plugin_<name>``:
   in from the deployment's values;
 - ``settings.json``: the deployment's values for its settings, when built
   for a deployment;
-- ``migrations/``: the plugin repository's migrations, copied unchanged.
+- ``migrations/``: the plugin repository's migrations, copied unchanged;
+- ``components/``: each component's module, as ``<name>.js``, checked against the
+  digest it had when the plugin was read (ADR 0084).
 
 And ``iki_installed_plugins``, listing those apps in dependency order, with
 the Iki version that built them (the server refuses a build by another) and,
@@ -21,6 +23,7 @@ The same inputs always give the same bytes, so a build can be checked.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import re
 import shutil
@@ -115,11 +118,29 @@ def with_hosts(plugin: Plugin, values: Mapping[str, Any]) -> Plugin:
     return dataclasses.replace(plugin, actions=actions)
 
 
+def _components(plugin: Plugin, source: Path | None, package: Path) -> None:
+    """Copies each component's module into ``package/components``, as it was checked."""
+    if not plugin.components:
+        return
+    if source is None:
+        raise ValueError(f"{plugin.name}'s components need its directory to be built")
+    out = package / "components"
+    out.mkdir()
+    for name, component in sorted(plugin.components.items()):
+        data = (source / component.module.removeprefix("./")).read_bytes()
+        if hashlib.sha256(data).hexdigest() != component.sha256:
+            raise ValueError(
+                f"{plugin.name}'s {component.module} changed after the plugin was checked"
+            )
+        (out / f"{name}.js").write_bytes(data)
+
+
 def build(
     plugins: Sequence[Plugin],
     output: Path,
     *,
     migrations: Mapping[str, Path] | None = None,
+    sources: Mapping[str, Path] | None = None,
     settings: Mapping[str, Mapping[str, Any]] | None = None,
     lock: Mapping[str, Any] | None = None,
     local: bool = False,
@@ -127,7 +148,8 @@ def build(
     """Writes the apps into ``output``, replacing earlier builds there. Returns the packages.
 
     ``migrations`` maps a plugin's name to its repository's ``migrations/``,
-    and ``settings`` to the deployment's values for its settings. ``lock``
+    ``sources`` to its directory (for its components' modules), and
+    ``settings`` to the deployment's values for its settings. ``lock``
     records where the plugins came from; ``local`` says one came from a
     directory rather than a git commit, which only development servers accept.
     """
@@ -164,6 +186,7 @@ def build(
             for file in sorted(source.glob("*.py")):
                 shutil.copyfile(file, package / "migrations" / file.name)
         (package / "migrations" / "__init__.py").touch()
+        _components(plugin, (sources or {}).get(plugin.name), package)
         packages.append(package)
     registry = output / "iki_installed_plugins"
     if registry.exists():

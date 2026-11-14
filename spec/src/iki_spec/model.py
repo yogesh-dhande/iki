@@ -494,6 +494,40 @@ class Trigger:
 
 
 @dataclass(frozen=True)
+class ComponentSlot:
+    """Where a component appears: ``entity.tab``, on the pages of entities of ``type``."""
+
+    slot: str
+    #: Qualified; its subtypes' pages show it too.
+    type: str
+    label: str = ""
+
+
+@dataclass(frozen=True)
+class Component:
+    """A Web Component the plugin adds to Iki's pages, run in a sandboxed frame (ADR 0084)."""
+
+    plugin: str
+    name: str
+    label: str = ""
+    description: str | None = None
+    #: Its JavaScript module, relative to the plugin's root (``./components/x.js``).
+    module: str = ""
+    #: The custom element the module defines.
+    element: str = ""
+    slots: tuple[ComponentSlot, ...] = ()
+    #: The type of the entities it can select (qualified), or empty if it selects none.
+    selects: str = ""
+    #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
+    sha256: str = ""
+    file: str | None = None
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}"
+
+
+@dataclass(frozen=True)
 class Plugin:
     name: str
     version: str
@@ -510,6 +544,7 @@ class Plugin:
     environments: dict[str, Environment] = field(default_factory=dict)
     workflows: dict[str, Workflow] = field(default_factory=dict)
     triggers: dict[str, Trigger] = field(default_factory=dict)
+    components: dict[str, Component] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -608,6 +643,8 @@ _DATACLASSES = (
     Condition,
     Approval,
     Trigger,
+    Component,
+    ComponentSlot,
 )
 
 
@@ -653,6 +690,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "triggers": {
                 k: Trigger(**{**v, "fields": tuple(v["fields"])})
                 for k, v in (data.get("triggers") or {}).items()
+            },
+            # ...or components.
+            "components": {
+                k: Component(**{**v, "slots": tuple(ComponentSlot(**x) for x in v["slots"])})
+                for k, v in (data.get("components") or {}).items()
             },
         }
     )

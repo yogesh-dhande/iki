@@ -863,6 +863,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # Triggers: read with the project; turned on and off by its Admins (in the web app
     # only: test_triggers).
     ("GET", "/triggers", fixed("/triggers"), row(200)),
+    ("GET", "/components", fixed("/components"), row(200)),
     ("GET", "/projects/{project_id}/triggers", project("/triggers"), readers(200, org_admin=403)),
     (
         "POST",

@@ -16,6 +16,7 @@ from ninja.errors import AuthenticationError, HttpError, ValidationError
 
 from iki_server.api import (
     collections,
+    components,
     compute,
     costs,
     entities,
@@ -64,6 +65,7 @@ for module in (
     runs,
     workflows,
     triggers,
+    components,
     compute,
     setups,
     costs,
