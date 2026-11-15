@@ -52,6 +52,33 @@ export function entityAppsQuery(ref: string) {
   });
 }
 
+/** The app a project's page opens with, chosen by its Admins: none if there isn't one,
+ * or the reader can't read it there now. */
+export function dashboardQuery(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", projectId, "dashboard"],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/projects/{project_id}/dashboard", {
+          params: { path: { project_id: projectId } },
+        }),
+      ),
+  });
+}
+
+/** The project's apps its Admins could choose for its page: not about an entity. */
+export function dashboardChoicesQuery(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", projectId, "dashboard", "choices"],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/projects/{project_id}/dashboard/choices", {
+          params: { path: { project_id: projectId } },
+        }),
+      ),
+  });
+}
+
 function isTemplate(value: unknown): value is string {
   return typeof value === "string" && value.includes("{{");
 }

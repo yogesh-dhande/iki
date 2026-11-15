@@ -2398,6 +2398,17 @@ input[type="file"]::file-selector-button {
     grid-column: 1 / -1 !important;
   }
 }
+/* A project's dashboard: its app's name, and a way to see how it's built. */
+.dashboard-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.dashboard-heading .section-title {
+  margin: 0;
+}
 .app-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

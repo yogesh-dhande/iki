@@ -1952,6 +1952,67 @@
         "title": "CreatesOut",
         "type": "object"
       },
+      "DashboardIn": {
+        "properties": {
+          "app": {
+            "description": "An app in the project, by ID or HRID, that isn't about an entity.",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "App",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "title": "DashboardIn",
+        "type": "object"
+      },
+      "DashboardOut": {
+        "properties": {
+          "app": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntityAppOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The app the project's page opens with. Null if there's none, or you can't read it there now: it was archived, or taken out of the project."
+          },
+          "set_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set At"
+          },
+          "set_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who chose it, if anyone has."
+          }
+        },
+        "required": [
+          "app",
+          "set_by",
+          "set_at"
+        ],
+        "title": "DashboardOut",
+        "type": "object"
+      },
       "DecisionOut": {
         "properties": {
           "approved": {
@@ -16168,6 +16229,177 @@
         "summary": "What a project's runs cost",
         "tags": [
           "costs"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/dashboard": {
+      "delete": {
+        "description": "The project's page opens without an app. The app itself stays. This is recorded.",
+        "operationId": "iki_server_api_apps_delete_dashboard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Remove a project's dashboard",
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "The app the project's page opens with, chosen by its Admins.",
+        "operationId": "iki_server_api_apps_get_dashboard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A project's dashboard",
+        "tags": [
+          "apps"
+        ]
+      },
+      "put": {
+        "description": "Project Admins choose one of the project's apps for its page to open with, for\neveryone who can read it. An app about an entity can't be one: it's a tab on their\npages instead. This is recorded.",
+        "operationId": "iki_server_api_apps_put_dashboard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DashboardIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Choose a project's dashboard",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/dashboard/choices": {
+      "get": {
+        "description": "The project's apps you can read that aren't archived or about an entity, by name.",
+        "operationId": "iki_server_api_apps_dashboard_choices",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EntityAppOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The apps that could be a project's dashboard",
+        "tags": [
+          "apps"
         ]
       }
     },

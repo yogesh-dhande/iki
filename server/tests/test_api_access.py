@@ -110,6 +110,17 @@ def _entity(w: World) -> Any:
     ).entity
 
 
+def dashboard(w: World) -> tuple[Any, ...]:
+    from iki_server.entities import services as entities
+
+    spec = {
+        "version": 1,
+        "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
+    }
+    made = entities.create(w.users["editor"], "core.App", w.project, {"name": "Hi", "spec": spec})
+    return f"/projects/{w.project.pk}/dashboard", {"app": str(made.entity.pk)}
+
+
 def entity(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Build:
     def build(w: World) -> tuple[Any, ...]:
         found = _entity(w)
@@ -871,6 +882,21 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/triggers", fixed("/triggers"), row(200)),
     ("GET", "/components", fixed("/components"), row(200)),
     ("GET", "/projects/{project_id}/triggers", project("/triggers"), readers(200, org_admin=403)),
+    # A project's dashboard: read with the project; chosen by its Admins.
+    (
+        "GET",
+        "/projects/{project_id}/dashboard",
+        project("/dashboard"),
+        readers(200, org_admin=403),
+    ),
+    ("PUT", "/projects/{project_id}/dashboard", dashboard, visible(403, admin=200)),
+    ("DELETE", "/projects/{project_id}/dashboard", project("/dashboard"), visible(403, admin=204)),
+    (
+        "GET",
+        "/projects/{project_id}/dashboard/choices",
+        project("/dashboard/choices"),
+        visible(403, admin=200),
+    ),
     (
         "POST",
         "/projects/{project_id}/triggers/{name}/enable",

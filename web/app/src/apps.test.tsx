@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Offers, Rendered } from "./apps";
-import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
-import { answer, calls, respond } from "./test-server";
+import { entity, field, KINASE, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { answer, calls, page, problem, project, respond } from "./test-server";
 
 vi.mock("./apps", async (original) => {
   const real = await original<typeof import("./apps")>();
@@ -357,5 +357,92 @@ describe("an entity's apps", () => {
     expect(await within(tabs).findByRole("link", { name: "QC (APP-000001)" })).toBeInTheDocument();
     expect(within(tabs).getByRole("link", { name: "QC (APP-000002)" })).toBeInTheDocument();
     expect(within(tabs).getByRole("link", { name: "Maps" })).toBeInTheDocument();
+  });
+});
+
+describe("a project's dashboard", () => {
+  const DASHBOARD = `/api/v1/projects/${KINASE.id}/dashboard`;
+  const NOTE = { id: "note", component: "iki.text", props: { text: "Welcome to the atlas." } };
+  const CHOSEN = { id: "a", hrid: "APP-000001", name: "Plasmid QC" };
+
+  function onProject(overrides: Parameters<typeof project>[0] = {}) {
+    onTypes();
+    answer("GET /api/v1/projects", page([project(overrides)]));
+  }
+
+  it("opens the project's page, for everyone who can read it", async () => {
+    onProject({ my_role: "viewer", can: { ...KINASE.can, edit: false, manage: false } });
+    answer(`GET ${DASHBOARD}`, { app: CHOSEN, set_by: null, set_at: null });
+    answer("GET /api/v1/entities/APP-000001", app([NOTE]));
+    await renderApp("/projects/kinase-atlas/");
+    const shown = await screen.findByRole("region", { name: "Plasmid QC" });
+    expect(await within(shown).findByText("Welcome to the atlas.")).toBeInTheDocument();
+    expect(
+      within(shown).getByRole("link", { name: "How it’s built (APP-000001)" }),
+    ).toHaveAttribute("href", "/entities/APP-000001/");
+  });
+
+  it("is offered to Admins when there's none, and to no one else", async () => {
+    onProject();
+    answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
+    await renderApp("/projects/kinase-atlas/");
+    expect(await screen.findByText(/Open this page with one of the project’s apps/)).toBeVisible();
+  });
+
+  it("is chosen in Settings from the project's apps, and can be removed", async () => {
+    onProject();
+    answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
+    answer(`GET ${DASHBOARD}/choices`, [CHOSEN, { id: "b", hrid: "APP-000002", name: "Maps" }]);
+    answer(`PUT ${DASHBOARD}`, { app: CHOSEN, set_by: null, set_at: null });
+    const { user } = await renderApp("/projects/kinase-atlas/settings/");
+    const card = (await screen.findByRole("heading", { name: "Dashboard" })).closest("section");
+    if (!card) throw new Error("no Dashboard card");
+    const select = await within(card).findByRole("combobox", {
+      name: "Open the project’s page with",
+    });
+    expect(select).toHaveAccessibleDescription(/Apps about one entity are tabs/);
+    const save = within(card).getByRole("button", { name: "Save" });
+    expect(save).toHaveAttribute("aria-disabled", "true");
+    await user.selectOptions(select, "APP-000001");
+    answer(`GET ${DASHBOARD}`, { app: CHOSEN, set_by: null, set_at: null });
+    await user.click(save);
+    expect(await screen.findByText("Kinase Atlas’s page opens with Plasmid QC now.")).toBeVisible();
+    expect(calls("PUT", DASHBOARD)[0]?.body).toEqual({ app: "APP-000001" });
+
+    answer(`DELETE ${DASHBOARD}`, respond(204));
+    await user.selectOptions(select, "");
+    answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
+    await user.click(save);
+    expect(await screen.findByText("Kinase Atlas’s page opens without an app now.")).toBeVisible();
+    expect(calls("DELETE", DASHBOARD)).toHaveLength(1);
+  });
+
+  it("says why it can't be chosen, and when its app is gone", async () => {
+    onProject();
+    answer(`GET ${DASHBOARD}`, { app: null, set_by: { id: "x", name: "Ada" }, set_at: null });
+    answer(`GET ${DASHBOARD}/choices`, [CHOSEN]);
+    const refusal = "APP-000001 is archived. Restore it first.";
+    answer(`PUT ${DASHBOARD}`, problem(409, "refused", refusal));
+    const { user } = await renderApp("/projects/kinase-atlas/settings/");
+    expect(await screen.findByText(/was archived or taken out of the project/)).toBeVisible();
+    const card = screen.getByRole("heading", { name: "Dashboard" }).closest("section");
+    if (!card) throw new Error("no Dashboard card");
+    await user.selectOptions(
+      within(card).getByRole("combobox", { name: "Open the project’s page with" }),
+      "APP-000001",
+    );
+    await user.click(within(card).getByRole("button", { name: "Save" }));
+    expect(await within(card).findByRole("alert")).toHaveTextContent(refusal);
+  });
+
+  it("points to making an app when the project has none", async () => {
+    onProject();
+    answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
+    answer(`GET ${DASHBOARD}/choices`, []);
+    await renderApp("/projects/kinase-atlas/settings/");
+    expect(await screen.findByRole("link", { name: "make one" })).toHaveAttribute(
+      "href",
+      "/projects/kinase-atlas/entities/new/?type=core.App",
+    );
   });
 });

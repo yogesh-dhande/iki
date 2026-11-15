@@ -12,9 +12,12 @@ import {
   useApiMutation,
   type Project,
 } from "../api";
+import { dashboardQuery } from "../apps";
+import { entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
+import { AppPanel } from "./app";
 import { ProjectCosts } from "./cost-table";
-import { Badge, Button, PageHeader, ProblemAlert, Time, useMessages } from "../ui";
+import { Badge, Button, Loading, PageHeader, ProblemAlert, Time, useMessages } from "../ui";
 
 /** The project the current page is about, from the `$slug` in its address. */
 export function useProject(): Project {
@@ -141,6 +144,7 @@ export function ProjectOverview() {
           </p>
         </div>
       ) : null}
+      {project.can.read ? <Dashboard project={project} /> : null}
       {project.can.read ? (
         <section className="card">
           {project.description ? <p className="preserve-lines">{project.description}</p> : null}
@@ -173,6 +177,43 @@ export function ProjectOverview() {
       )}
       {project.can.read ? <ProjectCosts project={project} /> : null}
     </>
+  );
+}
+
+/** The app the project's Admins chose for its page (ADR 0090), if the reader can read it. */
+function Dashboard({ project }: { project: Project }) {
+  const dashboard = useQuery(dashboardQuery(project.id));
+  const chosen = dashboard.data?.app;
+  const app = useQuery({ ...entityQuery(chosen?.hrid ?? ""), enabled: Boolean(chosen) });
+  const types = useQuery(typesQuery);
+  if (dashboard.isError) return <ProblemAlert problem={problemOf(dashboard.error)} />;
+  if (!dashboard.data) return <Loading label="Opening its dashboard…" />;
+  if (!chosen) {
+    return project.can.manage && !project.archived ? (
+      <p className="muted">
+        Open this page with one of the project’s apps: choose it in{" "}
+        <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
+          Settings
+        </Link>
+        .
+      </p>
+    ) : null;
+  }
+  const problem = app.error ?? types.error;
+  if (problem) return <ProblemAlert problem={problemOf(problem)} />;
+  if (!app.data || !types.data) return <Loading label={`Opening ${chosen.name}…`} />;
+  return (
+    <section className="dashboard" aria-labelledby="dashboard-title">
+      <div className="dashboard-heading">
+        <h2 className="section-title" id="dashboard-title">
+          {chosen.name}
+        </h2>
+        <Link to="/entities/$ref/" params={{ ref: chosen.hrid }} className="muted">
+          How it’s built ({chosen.hrid})
+        </Link>
+      </div>
+      <AppPanel app={app.data} types={types.data} />
+    </section>
   );
 }
 

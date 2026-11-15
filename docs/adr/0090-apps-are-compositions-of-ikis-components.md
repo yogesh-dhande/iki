@@ -59,6 +59,16 @@ Editors made it for, and only for people who can read it: someone else's
 project can't add tabs to yours. The tab opens only for apps the server
 lists for that entity.
 
+**A project's page can open with an app.** Its Admins choose one of the
+project's apps, not one about an entity, as GitHub shows a repository's
+README and Benchling a project's dashboard. Everyone who can read the
+project sees it above the project's summary, while they can read the app
+there: archived, or taken out of the project, it isn't shown, though it
+stays chosen until an Admin changes it. Choosing and removing it are in
+the audit log (`project.dashboard_set`, `project.dashboard_cleared`), with
+the app it replaced. The choice is kept beside the project, not in it, so
+projects don't depend on entities.
+
 Plugin components in sandboxed frames (ADR 0084), charts, and a run
 launcher come next, each with what it needs checked the same way. No
 component runs code from the spec.
@@ -109,6 +119,7 @@ calls slowly, and a cold start shouldn't count against an app.
   (`POST /apps/check`: every problem saving would refuse, each with its
   panel and prop, nothing saved) and `create_app`, which answers with the
   page to open. Changing one is `update_entity`, checked the same way.
-- An app opens on its own page, or, about an entity, as a tab on that
-  entity's page. Placing them as project dashboards, and drafts to preview
-  before saving, follow.
+- An app opens on its own page, as a tab on the page of an entity it's
+  about, or as its project's dashboard
+  (`GET`/`PUT`/`DELETE /projects/{id}/dashboard`). Drafts to preview before
+  saving follow.

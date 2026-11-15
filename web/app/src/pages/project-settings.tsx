@@ -1,11 +1,22 @@
 import { unwrap } from "@ikisci/sdk";
-import { useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
+import { APP_TYPE, dashboardChoicesQuery, dashboardQuery } from "../apps";
 import { required, useForm } from "../forms";
 import { usePageTitle } from "../layout";
-import { Button, CheckboxField, ConfirmDialog, ProblemAlert, TextField, useMessages } from "../ui";
+import {
+  Button,
+  CheckboxField,
+  ConfirmDialog,
+  Loading,
+  ProblemAlert,
+  SelectField,
+  TextField,
+  useMessages,
+} from "../ui";
 import { useProject } from "./project-overview";
 
 function usePatchProject(project: Project) {
@@ -39,6 +50,7 @@ export function ProjectSettings() {
   return (
     <div className="columns">
       <Details project={project} />
+      <Dashboard project={project} />
       <Sharing project={project} />
       {project.archived ? <Restore project={project} /> : <Archive project={project} />}
     </div>
@@ -99,6 +111,119 @@ function Details({ project }: { project: Project }) {
           </form>
         </>
       )}
+    </section>
+  );
+}
+
+/** The app the project's page opens with (ADR 0090), for everyone who can read it: one
+ * of its apps that isn't about an entity. */
+function Dashboard({ project }: { project: Project }) {
+  const { say } = useMessages();
+  const current = useQuery(dashboardQuery(project.id));
+  const choices = useQuery(dashboardChoicesQuery(project.id));
+  const [picked, setPicked] = useState<string>();
+  const save = useApiMutation(
+    async (hrid: string) => {
+      if (hrid) {
+        unwrap(
+          await iki.PUT("/api/v1/projects/{project_id}/dashboard", {
+            params: { path: { project_id: project.id } },
+            body: { app: hrid },
+          }),
+        );
+      } else {
+        unwrap(
+          await iki.DELETE("/api/v1/projects/{project_id}/dashboard", {
+            params: { path: { project_id: project.id } },
+          }),
+        );
+      }
+    },
+    [["projects", project.id, "dashboard"]],
+  );
+  const shown = current.data?.app?.hrid ?? "";
+  const value = picked ?? shown;
+  let body: React.ReactNode;
+  if (current.isError || choices.isError) {
+    body = <ProblemAlert problem={problemOf(current.error ?? choices.error)} />;
+  } else if (!current.data || !choices.data) {
+    body = <Loading label="Finding its apps…" />;
+  } else if (project.archived) {
+    body = (
+      <p className="muted">
+        {current.data.app ? `It opens with ${current.data.app.name}. ` : null}Restore the project to
+        change it.
+      </p>
+    );
+  } else {
+    const hidden = current.data.set_by && !current.data.app;
+    body = (
+      <>
+        {hidden ? (
+          <p className="muted">
+            The app chosen for it was archived or taken out of the project, so the page shows none.
+          </p>
+        ) : null}
+        {choices.data.length === 0 && !shown ? (
+          <p className="muted">
+            The project has no apps to show yet. An app lays out grids, viewers and text;{" "}
+            <Link
+              to="/projects/$slug/entities/new/"
+              params={{ slug: project.slug }}
+              search={{ type: APP_TYPE }}
+            >
+              make one
+            </Link>
+            .
+          </p>
+        ) : (
+          <>
+            <ProblemAlert problem={save.error ? problemOf(save.error) : undefined} />
+            <form
+              onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
+                event.preventDefault();
+                save.mutate(value, {
+                  onSuccess: () => {
+                    setPicked(undefined);
+                    const app = choices.data.find((a) => a.hrid === value);
+                    say(
+                      app
+                        ? `${project.name}’s page opens with ${app.name} now.`
+                        : `${project.name}’s page opens without an app now.`,
+                    );
+                  },
+                });
+              }}
+            >
+              <SelectField
+                label="Open the project’s page with"
+                value={value}
+                onChange={setPicked}
+                options={[
+                  { value: "", label: "No app" },
+                  ...choices.data.map((a) => ({ value: a.hrid, label: `${a.name} (${a.hrid})` })),
+                ]}
+                help="Everyone who can read the project sees it above its summary. Apps about one entity are tabs on their pages instead."
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                busy={save.isPending}
+                busyText="Saving…"
+                disabled={value === shown && !hidden}
+              >
+                Save
+              </Button>
+            </form>
+          </>
+        )}
+      </>
+    );
+  }
+  return (
+    <section className="card">
+      <h2 className="section-title">Dashboard</h2>
+      {body}
     </section>
   );
 }

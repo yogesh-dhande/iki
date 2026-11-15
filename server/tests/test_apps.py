@@ -354,3 +354,82 @@ def test_an_entitys_page_lists_the_apps_about_it_in_its_projects(world: World) -
     assert tabs("editor") == [(their_app, "Their notes"), (ours, "Variants")]
     # Someone who can't read the entity can't learn its apps.
     assert api_as(world, "auditor").get(f"/entities/{abl_hrid}/apps").status_code == 404
+
+
+NOTE = {"id": "note", "component": "iki.text", "props": {"text": "Hello."}}
+
+
+def test_a_projects_admins_choose_the_app_its_page_opens_with(world: World) -> None:
+    """Its dashboard: one of its apps that isn't about an entity, for everyone who reads
+    it, while it's still there to read. Choosing and clearing it are recorded."""
+    from iki_server.audit.models import AuditEvent
+
+    editor, admin, viewer = (api_as(world, p) for p in ("editor", "admin", "viewer"))
+    path = f"/projects/{world.project.pk}/dashboard"
+    assert viewer.get(path).json() == {"app": None, "set_by": None, "set_at": None}
+    first = app(editor, world.project, GRID, VIEWER, TEXT).json()["hrid"]
+    second = create(
+        editor,
+        world.project,
+        {"name": "Atlas", "spec": {"version": 1, "panels": [NOTE]}},
+        "core.App",
+    ).json()["hrid"]
+    tab = about(editor, world.project, ITSELF, name="Variants").json()["hrid"]
+    old = app(editor, world.project, NOTE).json()["hrid"]
+    Entity.objects.filter(hrid=old).update(archived_at=timezone.now())
+    protein = create(editor, world.project, {"sequence": "MKV"}, "protein.Protein").json()["hrid"]
+    elsewhere = Project.objects.create(team=world.team, name="Elsewhere")
+    ProjectMembership.objects.create(
+        project=elsewhere, user=world.users["admin"], role=ProjectRole.EDITOR
+    )
+    theirs = app(api_as(world, "admin"), elsewhere, NOTE).json()["hrid"]
+
+    # Its Admins choose among the project's apps that could be one.
+    choices = admin.get(f"{path}/choices")
+    assert [a["hrid"] for a in choices.json()] == [second, first]
+    assert viewer.get(f"{path}/choices").status_code == 403
+    assert viewer.put(path, {"app": first}).status_code == 403
+
+    def refused(ref: str) -> str:
+        body = problem(admin.put(path, {"app": ref}), 409, "refused")
+        detail: str = body["errors"][0]["detail"]
+        return detail
+
+    assert refused(tab) == (
+        f"{tab} is about one entity at a time, so it’s a tab on their pages, not a dashboard."
+    )
+    assert refused(old) == f"{old} is archived. Restore it first."
+    assert refused(theirs) == f"{theirs} isn’t in {world.project.name}. Add it first."
+    assert refused(protein) == f"There’s no app {protein} that you can read."
+    assert refused("APP-999999") == "There’s no app APP-999999 that you can read."
+
+    chosen = admin.put(path, {"app": first.lower()})
+    assert chosen.status_code == 200, chosen.content
+    assert chosen.json()["app"]["hrid"] == first
+    assert chosen.json()["set_by"]["id"] == str(world.users["admin"].pk)
+    shown = viewer.get(path).json()
+    assert shown["app"] == {"id": shown["app"]["id"], "hrid": first, "name": "Kinases"}
+    # Choosing it again changes nothing; choosing another says what it replaced.
+    admin.put(path, {"app": first})
+    admin.put(path, {"app": second})
+    events = AuditEvent.objects.filter(action__startswith="project.dashboard").order_by("pk")
+    assert [(e.action, e.data) for e in events] == [
+        ("project.dashboard_set", {"app": [None, first]}),
+        ("project.dashboard_set", {"app": [first, second]}),
+    ]
+
+    # Archived, it's no longer shown, though it's still chosen.
+    Entity.objects.filter(hrid=second).update(archived_at=timezone.now())
+    assert viewer.get(path).json()["app"] is None
+    assert admin.get(path).json()["set_by"] is not None
+
+    assert admin.delete(path).status_code == 204
+    assert admin.get(path).json()["set_by"] is None
+    assert events.last().data == {"app": [second, None]}  # type: ignore[union-attr]
+    assert admin.delete(path).status_code == 204
+    assert events.all().count() == 3
+
+    # An archived project's dashboard can't change until it's restored.
+    Project.objects.filter(pk=world.project.pk).update(archived_at=timezone.now())
+    body = problem(admin.put(path, {"app": first}), 409, "refused")
+    assert "Restore the project before changing it." in str(body)

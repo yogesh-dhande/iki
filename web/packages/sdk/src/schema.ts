@@ -1245,6 +1245,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A project's dashboard
+         * @description The app the project's page opens with, chosen by its Admins.
+         */
+        get: operations["iki_server_api_apps_get_dashboard"];
+        /**
+         * Choose a project's dashboard
+         * @description Project Admins choose one of the project's apps for its page to open with, for
+         *     everyone who can read it. An app about an entity can't be one: it's a tab on their
+         *     pages instead. This is recorded.
+         */
+        put: operations["iki_server_api_apps_put_dashboard"];
+        post?: never;
+        /**
+         * Remove a project's dashboard
+         * @description The project's page opens without an app. The app itself stays. This is recorded.
+         */
+        delete: operations["iki_server_api_apps_delete_dashboard"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/dashboard/choices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The apps that could be a project's dashboard
+         * @description The project's apps you can read that aren't archived or about an entity, by name.
+         */
+        get: operations["iki_server_api_apps_dashboard_choices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/grantable-teams": {
         parameters: {
             query?: never;
@@ -3498,6 +3548,23 @@ export interface components {
             derived_from: string[];
             /** Type */
             type: string;
+        };
+        /** DashboardIn */
+        DashboardIn: {
+            /**
+             * App
+             * @description An app in the project, by ID or HRID, that isn't about an entity.
+             */
+            app: string;
+        };
+        /** DashboardOut */
+        DashboardOut: {
+            /** @description The app the project's page opens with. Null if there's none, or you can't read it there now: it was archived, or taken out of the project. */
+            app: components["schemas"]["EntityAppOut"] | null;
+            /** Set At */
+            set_at: string | null;
+            /** @description Who chose it, if anyone has. */
+            set_by: components["schemas"]["PersonRef"] | null;
         };
         /** DecisionOut */
         DecisionOut: {
@@ -9819,6 +9886,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectCostSummaryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_get_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_put_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_delete_dashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_apps_dashboard_choices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityAppOut"][];
                 };
             };
         };

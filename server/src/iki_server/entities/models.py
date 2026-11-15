@@ -123,6 +123,27 @@ class ProjectLink(models.Model):
         return f"{self.entity_id} in {self.project_id}"
 
 
+class ProjectDashboard(models.Model):
+    """The app a project's page opens with (ADR 0090), chosen by its Admins from its own
+    apps. The app shows what each person viewing it may read, as it does anywhere."""
+
+    project = models.OneToOneField(
+        Project, on_delete=models.CASCADE, primary_key=True, related_name="+"
+    )
+    app = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
+    )
+    set_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_project_dashboard"
+        db_table_comment = "The app each project's page opens with, chosen by its Admins."
+
+    def __str__(self) -> str:
+        return f"{self.app_id} on {self.project_id}"
+
+
 class UniqueValue(models.Model):
     """A value of a unique field (ADR 0082), held once per project.
 

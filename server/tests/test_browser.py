@@ -1408,3 +1408,41 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
     grid.get_by_text(made["ABL2"]).wait_for()
     assert grid.get_by_text(made["Abl"]).count() == 0
     assert_clean(page)
+
+
+def test_a_projects_page_opens_with_its_dashboard(open_as: Any, world: World) -> None:
+    from iki_server.entities import dashboards
+    from iki_server.entities import services as entities
+
+    admin = world.users["admin"]
+    entities.create(
+        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+    )
+    spec = {
+        "version": 1,
+        "panels": [
+            {
+                "id": "proteins",
+                "title": "Our proteins",
+                "component": "iki.entities",
+                "props": {
+                    "type": "protein.Protein",
+                    "select": "none",
+                    "columns": [{"field": "name"}],
+                },
+            },
+            {
+                "id": "count",
+                "component": "iki.text",
+                "props": {"text": "{{ size(proteins.rows) }} so far."},
+            },
+        ],
+    }
+    made = entities.create(admin, "core.App", world.project, {"name": "Atlas", "spec": spec})
+    dashboards.choose(world.project, str(made.entity.pk), by=admin)
+    page = open_as("viewer", f"/projects/{world.project.slug}/")
+    # By CSS and text, not role, until axe has run (Firefox; see above).
+    shown = page.locator(".dashboard", has_text="Atlas")
+    shown.get_by_text("1 so far.").wait_for()
+    shown.locator(".app-panel", has_text="Our proteins").get_by_text("ABL1").wait_for()
+    assert_clean(page)

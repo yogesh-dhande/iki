@@ -1317,7 +1317,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     reads_on_protein(alice, project, chains[1])
     aligned_many(alice, project, chains)
     globins_app(alice, project)
-    relatives_app(alice, project)
+    dashboard(alice, project, relatives_app(alice, project))
     structures(alice, project)
 
 
@@ -1545,7 +1545,23 @@ def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{made.json()['hrid']}: an app of three panels, its expressions checked by iki-wasm")
 
 
-def relatives_app(alice: requests.Session, project: dict[str, Any]) -> None:
+def dashboard(alice: requests.Session, project: dict[str, Any], relatives: str) -> None:
+    """The project's page opens with Globins (ADR 0090), which Alice, its Admin, chooses.
+    An app about one protein can't be the dashboard: it's a tab on their pages."""
+    path = f"/projects/{project['id']}/dashboard"
+    choices = {a["name"]: a["hrid"] for a in api_call(alice, "GET", f"{path}/choices").json()}
+    if "Globins" not in choices or "Relatives" in choices:
+        fail(f"the dashboard's choices are {sorted(choices)}, not Globins and no Relatives")
+    refused = api_call(alice, "PUT", path, {"app": relatives})
+    if refused.status_code != 409:
+        fail(f"an app about a protein as the dashboard answered HTTP {refused.status_code}")
+    chosen = api_call(alice, "PUT", path, {"app": choices["Globins"]})
+    if chosen.status_code != 200 or (chosen.json()["app"] or {}).get("name") != "Globins":
+        fail(f"choosing the dashboard answered HTTP {chosen.status_code}: {chosen.text[:300]}")
+    ok(f"{choices['Globins']}: {project['name']}’s page opens with it")
+
+
+def relatives_app(alice: requests.Session, project: dict[str, Any]) -> str:
     """An app about a protein (ADR 0090): a tab on each protein's page in the project, its
     grid's conditions worked out from the protein it's on."""
     spec = {
@@ -1603,6 +1619,8 @@ def relatives_app(alice: requests.Session, project: dict[str, Any]) -> None:
     if made.json()["hrid"] not in [t["hrid"] for t in tabs]:
         fail(f"HBB_HUMAN's page doesn't list its app: {tabs}")
     ok(f"{made.json()['hrid']}: an app about a protein, a tab on {found[0]['hrid']}'s page")
+    hrid: str = made.json()["hrid"]
+    return hrid
 
 
 def aligned_many(
