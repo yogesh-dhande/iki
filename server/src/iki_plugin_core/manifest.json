@@ -261,6 +261,352 @@
         ],
         "file": "types/alignment.yaml"
       },
+      "core.App": {
+        "plugin": "core",
+        "name": "App",
+        "schema_version": 1,
+        "label": "App",
+        "label_plural": "Apps",
+        "description": "A page of Iki's own components, each panel bound to those before it by expressions.",
+        "extends": null,
+        "abstract": false,
+        "hrid_prefix": "APP",
+        "hrid_digits": 6,
+        "identity": [],
+        "on_duplicate": null,
+        "fields": {
+          "name": {
+            "name": "name",
+            "type": "string",
+            "label": "Name",
+            "description": null,
+            "required": true,
+            "immutable": false,
+            "computed": false,
+            "indexed": true,
+            "unique": false,
+            "link": null,
+            "removed": false,
+            "has_default": false,
+            "default": null,
+            "format": null,
+            "pattern": null,
+            "min_length": null,
+            "max_length": 200,
+            "min": null,
+            "max": null,
+            "values": [],
+            "unit": null,
+            "display_unit": null,
+            "media_types": [],
+            "max_size": null,
+            "to": null,
+            "items": null,
+            "min_items": null,
+            "max_items": null,
+            "schema": null
+          },
+          "description": {
+            "name": "description",
+            "type": "text",
+            "label": "Description",
+            "description": null,
+            "required": false,
+            "immutable": false,
+            "computed": false,
+            "indexed": false,
+            "unique": false,
+            "link": null,
+            "removed": false,
+            "has_default": false,
+            "default": null,
+            "format": null,
+            "pattern": null,
+            "min_length": null,
+            "max_length": 10000,
+            "min": null,
+            "max": null,
+            "values": [],
+            "unit": null,
+            "display_unit": null,
+            "media_types": [],
+            "max_size": null,
+            "to": null,
+            "items": null,
+            "min_items": null,
+            "max_items": null,
+            "schema": null
+          },
+          "spec": {
+            "name": "spec",
+            "type": "json",
+            "label": "Spec",
+            "description": "Its panels, in order (app/v1). Each is one of Iki's components, with its props and its width on a twelve-column grid. A prop that takes text or an entity can hold expressions between {{ and }}, which read the panels before it by their IDs: an entities grid offers `rows` and `selection`, a viewer `entity`.",
+            "required": true,
+            "immutable": false,
+            "computed": false,
+            "indexed": false,
+            "unique": false,
+            "link": null,
+            "removed": false,
+            "has_default": false,
+            "default": null,
+            "format": null,
+            "pattern": null,
+            "min_length": null,
+            "max_length": null,
+            "min": null,
+            "max": null,
+            "values": [],
+            "unit": null,
+            "display_unit": null,
+            "media_types": [],
+            "max_size": null,
+            "to": null,
+            "items": null,
+            "min_items": null,
+            "max_items": null,
+            "schema": {
+              "type": "object",
+              "required": [
+                "version",
+                "panels"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "version": {
+                  "const": 1
+                },
+                "panels": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 24,
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "component",
+                      "props"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9_]{0,39}$"
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "component": {
+                        "enum": [
+                          "iki.entities",
+                          "iki.viewer",
+                          "iki.text"
+                        ]
+                      },
+                      "props": {
+                        "type": "object"
+                      }
+                    },
+                    "allOf": [
+                      {
+                        "if": {
+                          "properties": {
+                            "component": {
+                              "const": "iki.entities"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "props": {
+                              "$ref": "#/$defs/entities"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "component": {
+                              "const": "iki.viewer"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "props": {
+                              "$ref": "#/$defs/viewer"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "if": {
+                          "properties": {
+                            "component": {
+                              "const": "iki.text"
+                            }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "props": {
+                              "$ref": "#/$defs/text"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "$defs": {
+                "entities": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "scope": {
+                      "enum": [
+                        "project",
+                        "all"
+                      ]
+                    },
+                    "where": {
+                      "type": "object"
+                    },
+                    "q": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "sort": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "descending": {
+                      "type": "boolean"
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "select": {
+                      "enum": [
+                        "none",
+                        "one",
+                        "many"
+                      ]
+                    },
+                    "columns": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 20,
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "field"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100
+                              },
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "label",
+                              "value"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100
+                              },
+                              "value": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 1000
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "viewer": {
+                  "type": "object",
+                  "required": [
+                    "entity"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "entity": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    },
+                    "viewer": {
+                      "enum": [
+                        "sequence",
+                        "structure",
+                        "alignment"
+                      ]
+                    }
+                  }
+                },
+                "text": {
+                  "type": "object",
+                  "required": [
+                    "text"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 10000
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "display_title": "{{ name }}",
+        "viewers": [],
+        "file": "types/app.yaml"
+      },
       "core.Collection": {
         "plugin": "core",
         "name": "Collection",

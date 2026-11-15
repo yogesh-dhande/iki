@@ -3,12 +3,13 @@
 //! The browser hands the module a file's bytes and gets JSON back: the records of a FASTA
 //! file, and, when they're the rows of an alignment, how well each column is conserved.
 //! They're Rust so that the same code can run natively when Iki has a desktop app (ADR
-//! 0088); in the browser, the worker they run in has no page to reach. It also evaluates
-//! apps' expressions (ADR 0090), which the server checks with this same module.
+//! 0088); in the browser, the worker they run in has no page to reach. It also renders
+//! apps' text and expressions (ADR 0090), which the server checks with this same module.
 
 use serde::{Deserialize, Serialize};
 
 pub mod expressions;
+pub mod templates;
 
 /// The most a file may be: the web app refuses larger ones before sending them.
 pub const MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -351,7 +352,7 @@ pub fn read_json(bytes: &[u8]) -> Vec<u8> {
 /// What [`check_json`] reads.
 #[derive(Deserialize)]
 struct CheckRequest {
-    expressions: Vec<String>,
+    templates: Vec<String>,
 }
 
 fn failed(message: &str) -> Vec<u8> {
@@ -359,27 +360,26 @@ fn failed(message: &str) -> Vec<u8> {
         .unwrap_or_else(|_| br#"{"error":"It couldn't be written out."}"#.to_vec())
 }
 
-/// [`expressions::check`], from and to JSON: `{"expressions": [...]}` in, `{"checked":
+/// [`templates::check`], from and to JSON: `{"templates": [...]}` in, `{"checked":
 /// [...]}` out, or `{"error": ...}` if what came in isn't that.
 #[must_use]
 pub fn check_json(bytes: &[u8]) -> Vec<u8> {
     match serde_json::from_slice::<CheckRequest>(bytes) {
         Ok(request) => serde_json::to_vec(
-            &serde_json::json!({ "checked": expressions::check(&request.expressions) }),
+            &serde_json::json!({ "checked": templates::check(&request.templates) }),
         )
         .unwrap_or_else(|_| failed("The check couldn't be written out.")),
         Err(error) => failed(&format!("The request isn't one: {error}.")),
     }
 }
 
-/// [`expressions::evaluate`], from and to JSON: an [`expressions::Evaluation`] in,
-/// `{"values": [...]}` out (each expression's values, one per row or just one), or
-/// `{"error": ...}`.
+/// [`templates::render`], from and to JSON: a [`templates::Rendering`] in, `{"values":
+/// [...]}` out (each template's values, one per row or just one), or `{"error": ...}`.
 #[must_use]
-pub fn evaluate_json(bytes: &[u8]) -> Vec<u8> {
-    match serde_json::from_slice::<expressions::Evaluation>(bytes) {
-        Ok(evaluation) => {
-            serde_json::to_vec(&serde_json::json!({ "values": expressions::evaluate(&evaluation) }))
+pub fn render_json(bytes: &[u8]) -> Vec<u8> {
+    match serde_json::from_slice::<templates::Rendering>(bytes) {
+        Ok(rendering) => {
+            serde_json::to_vec(&serde_json::json!({ "values": templates::render(&rendering) }))
                 .unwrap_or_else(|_| failed("The values couldn't be written out."))
         }
         Err(error) => failed(&format!("The request isn't one: {error}.")),
@@ -416,7 +416,7 @@ pub mod exports {
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 
-    /// Checks the expressions in the input buffer (see [`super::check_json`]), and frees it.
+    /// Checks the templates in the input buffer (see [`super::check_json`]), and frees it.
     #[unsafe(no_mangle)]
     pub extern "C" fn iki_check() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
@@ -424,12 +424,11 @@ pub mod exports {
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 
-    /// Evaluates the expressions in the input buffer (see [`super::evaluate_json`]), and
-    /// frees it.
+    /// Renders the templates in the input buffer (see [`super::render_json`]), and frees it.
     #[unsafe(no_mangle)]
-    pub extern "C" fn iki_evaluate() {
+    pub extern "C" fn iki_render() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
-        let json = super::evaluate_json(&bytes);
+        let json = super::render_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 
@@ -584,8 +583,8 @@ mod tests {
     }
 
     #[test]
-    fn the_exports_check_and_evaluate_expressions_as_json() {
-        let request = br#"{"expressions": ["size(picked) + 1", "picked["]}"#;
+    fn the_exports_check_and_render_templates_as_json() {
+        let request = br#"{"templates": ["{{ size(picked) + 1 }}", "{{ picked[ }}"]}"#;
         exports::iki_input(request.len());
         exports::write_input(request);
         exports::iki_check();
@@ -593,15 +592,16 @@ mod tests {
             serde_json::from_slice(&exports::output()).unwrap_or_default();
         assert_eq!(
             checked["checked"][0],
-            serde_json::json!({"names": ["picked"]})
+            serde_json::json!({"names": ["picked"], "fields": [], "whole": true})
         );
         assert!(checked["checked"][1]["error"].is_string());
 
-        let request = br#"{"expressions": ["size(picked) + 1"], "variables": {"picked": [1, 2]}}"#;
+        let request =
+            br#"{"templates": ["{{ size(picked) + 1 }} picked"], "variables": {"picked": [1, 2]}}"#;
         exports::iki_input(request.len());
         exports::write_input(request);
-        exports::iki_evaluate();
-        assert_eq!(exports::output(), br#"{"values":[[{"value":3}]]}"#);
+        exports::iki_render();
+        assert_eq!(exports::output(), br#"{"values":[[{"value":"3 picked"}]]}"#);
     }
 
     #[test]
@@ -615,7 +615,7 @@ mod tests {
                 .starts_with("The request isn't one")
         );
         let answer: serde_json::Value =
-            serde_json::from_slice(&evaluate_json(b"{}")).unwrap_or_default();
+            serde_json::from_slice(&render_json(b"{}")).unwrap_or_default();
         assert!(answer["error"].is_string());
     }
 }

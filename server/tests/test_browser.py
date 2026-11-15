@@ -1277,3 +1277,70 @@ def test_the_apps_files_are_cached_for_ever(open_as: Any) -> None:
         response = page.request.get(url)
         assert response.ok, url
         assert "immutable" in response.headers["cache-control"], url
+
+
+@pytest.mark.wasm
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_an_app_whose_panels_read_the_ones_before(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    for name, sequence in (("ABL1", "MLEICLKLVG"), ("ABL2", "MLEVCLKLVGAKQ")):
+        entities.create(
+            admin, "protein.Protein", world.project, {"sequence": sequence, "name": name}
+        )
+    spec = {
+        "version": 1,
+        "panels": [
+            {
+                "id": "kinases",
+                "title": "Kinases",
+                "width": 5,
+                "component": "iki.entities",
+                "props": {
+                    "type": "protein.Protein",
+                    "where": {"all": [{"field": "name", "op": "starts_with", "value": "ABL"}]},
+                    "sort": "name",
+                    "columns": [
+                        {"field": "name"},
+                        {"label": "Length", "value": "{{ size(row.values.sequence) }} aa"},
+                    ],
+                },
+            },
+            {
+                "id": "picked",
+                "title": "Picked",
+                "width": 7,
+                "component": "iki.viewer",
+                "props": {"entity": "{{ kinases.selection }}"},
+            },
+            {
+                "id": "summary",
+                "component": "iki.text",
+                "props": {
+                    "text": "{{ size(kinases.selection) }} of {{ size(kinases.rows) }} picked."
+                },
+            },
+        ],
+    }
+    made = entities.create(admin, "core.App", world.project, {"name": "Kinases", "spec": spec})
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/", color_scheme)
+    # By text, not role, until axe has run: Playwright's Firefox crashes running axe after
+    # finding a region by its role.
+    grid = page.locator(".app-panel", has_text="Kinases")
+    grid.get_by_text("13 aa", exact=True).wait_for()
+    page.get_by_text("0 of 2 picked.").wait_for()
+    # Its expressions ran in iki-wasm's worker, under a policy of its own.
+    policy = page.evaluate(WORKER_POLICY)
+    assert policy is not None and "script-src 'self' 'wasm-unsafe-eval'" in policy
+    assert_clean(page)
+
+    grid.get_by_role("radio", name="Pick ABL1").check()
+    page.get_by_text("1 of 2 picked.").wait_for()
+    picked = page.locator(".app-panel", has_text="Picked")
+    picked.get_by_text("10 residues").wait_for()
+    assert picked.get_by_role("link", name="ABL1").count() == 1

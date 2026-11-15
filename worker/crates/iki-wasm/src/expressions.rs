@@ -57,64 +57,90 @@ fn compile(source: &str) -> Result<cel::Program, String> {
     cel::Program::compile(source).map_err(|errors| unreadable(&errors))
 }
 
-/// The names an expression reads that it doesn't bind itself, as the variables of `map`,
-/// `filter`, `all` and `exists` are.
-fn free(node: &cel::IdedExpr, bound: &mut Vec<String>, names: &mut BTreeSet<String>) {
+/// What an expression reads that it doesn't bind itself, as the variables of `map`,
+/// `filter`, `all` and `exists` are: names, and the fields it selects of them.
+#[derive(Default)]
+struct Uses {
+    names: BTreeSet<String>,
+    /// As `name.field`.
+    fields: BTreeSet<String>,
+}
+
+fn free(node: &cel::IdedExpr, bound: &mut Vec<String>, uses: &mut Uses) {
     match &node.expr {
         Expr::Ident(name) => {
             if !bound.contains(name) {
-                names.insert(name.clone());
+                uses.names.insert(name.clone());
             }
         }
-        Expr::Select(select) => free(&select.operand, bound, names),
+        Expr::Select(select) => {
+            if let Expr::Ident(name) = &select.operand.expr
+                && !bound.contains(name)
+            {
+                uses.fields.insert(format!("{name}.{}", select.field));
+            }
+            free(&select.operand, bound, uses);
+        }
         Expr::Call(call) => {
             if let Some(target) = &call.target {
-                free(target, bound, names);
+                free(target, bound, uses);
             }
             for arg in &call.args {
-                free(arg, bound, names);
+                free(arg, bound, uses);
             }
         }
         Expr::List(list) => {
             for element in &list.elements {
-                free(element, bound, names);
+                free(element, bound, uses);
             }
         }
-        Expr::Map(map) => entries(&map.entries, bound, names),
-        Expr::Struct(structure) => entries(&structure.entries, bound, names),
+        Expr::Map(map) => entries(&map.entries, bound, uses),
+        Expr::Struct(structure) => entries(&structure.entries, bound, uses),
         Expr::Comprehension(c) => {
             // The range and the start are read outside it; the rest with its variables.
-            free(&c.iter_range, bound, names);
-            free(&c.accu_init, bound, names);
+            free(&c.iter_range, bound, uses);
+            free(&c.accu_init, bound, uses);
             let before = bound.len();
             bound.push(c.iter_var.clone());
             if let Some(second) = &c.iter_var2 {
                 bound.push(second.clone());
             }
             bound.push(c.accu_var.clone());
-            free(&c.loop_cond, bound, names);
-            free(&c.loop_step, bound, names);
-            free(&c.result, bound, names);
+            free(&c.loop_cond, bound, uses);
+            free(&c.loop_step, bound, uses);
+            free(&c.result, bound, uses);
             bound.truncate(before);
         }
         Expr::Literal(_) | Expr::Unspecified => {}
     }
 }
 
-fn entries(
-    entries: &[cel::common::ast::IdedEntryExpr],
-    bound: &mut Vec<String>,
-    names: &mut BTreeSet<String>,
-) {
+fn entries(entries: &[cel::common::ast::IdedEntryExpr], bound: &mut Vec<String>, uses: &mut Uses) {
     for entry in entries {
         match &entry.expr {
             EntryExpr::MapEntry(e) => {
-                free(&e.key, bound, names);
-                free(&e.value, bound, names);
+                free(&e.key, bound, uses);
+                free(&e.value, bound, uses);
             }
-            EntryExpr::StructField(f) => free(&f.value, bound, names),
+            EntryExpr::StructField(f) => free(&f.value, bound, uses),
         }
     }
+}
+
+/// The names an expression reads, and the fields it selects of them (as `name.field`),
+/// sorted; or why it doesn't read.
+///
+/// # Errors
+///
+/// When it doesn't read, saying why for a person.
+pub fn uses(source: &str) -> Result<(Vec<String>, Vec<String>), String> {
+    let program = compile(source)?;
+    let mut found = Uses::default();
+    free(program.expression(), &mut Vec::new(), &mut found);
+    Ok((
+        found.names.into_iter().collect(),
+        found.fields.into_iter().collect(),
+    ))
 }
 
 /// The parser's message, for a person: ANTLR's "mismatched input ')' expecting {…}"
@@ -147,14 +173,8 @@ fn plainly(message: &str) -> String {
 pub fn check(sources: &[String]) -> Vec<Checked> {
     sources
         .iter()
-        .map(|source| match compile(source) {
-            Ok(program) => {
-                let mut names = BTreeSet::new();
-                free(program.expression(), &mut Vec::new(), &mut names);
-                Checked::Valid {
-                    names: names.into_iter().collect(),
-                }
-            }
+        .map(|source| match uses(source) {
+            Ok((names, _)) => Checked::Valid { names },
             Err(error) => Checked::Invalid { error },
         })
         .collect()
@@ -237,8 +257,72 @@ fn run(program: &cel::Program, context: &cel::Context<'_, '_>) -> Evaluated {
             },
         },
         Err(error) => Evaluated::Error {
-            error: format!("{error}."),
+            error: format!("{}.", failure(&error)),
         },
+    }
+}
+
+/// What kind of value it is, for a person, without what's in it.
+fn kind(value: &cel::Value) -> &'static str {
+    match value {
+        cel::Value::List(_) => "a list",
+        cel::Value::Map(_) => "a map",
+        cel::Value::Int(_) | cel::Value::UInt(_) => "a whole number",
+        cel::Value::Float(_) => "a number",
+        cel::Value::String(_) => "text",
+        cel::Value::Bytes(_) => "bytes",
+        cel::Value::Bool(_) => "yes or no",
+        cel::Value::Null => "nothing",
+        _ => "a value",
+    }
+}
+
+/// Why an expression failed, for a person. cel's own messages print values as Rust
+/// sees them (`Map({...})`), which would also put what a row holds in an error.
+fn failure(error: &cel::ExecutionError) -> String {
+    use cel::ExecutionError as E;
+    let name = |n: &str| n.chars().take(40).collect::<String>();
+    let message = match error {
+        E::InvalidArgumentCount { expected, actual } => {
+            format!("It takes {expected} arguments, not {actual}")
+        }
+        E::UnsupportedTargetType { target } => format!("It can't be used on {}", kind(target)),
+        E::NotSupportedAsMethod { method, target } => {
+            format!("{} has no `{}()`", kind(target), name(method))
+        }
+        E::UnsupportedKeyType(key) => format!("{} can't be a map's key", kind(key)),
+        E::UnexpectedType { got, want } => format!("It's {got} where {want} is wanted"),
+        E::NoSuchKey(key) => format!("There's no `{}`", name(key)),
+        E::NoSuchOverload(overload) => format!(
+            "`{}` doesn't take {}",
+            name(overload.function()),
+            overload.argument_types().join(" and ")
+        ),
+        E::UndeclaredReference(reference) => {
+            format!("There's nothing called `{}`", name(reference))
+        }
+        E::MissingArgumentOrTarget => "It's missing an argument".to_owned(),
+        E::ValuesNotComparable(a, b) => {
+            format!("{} can't be compared with {}", kind(a), kind(b))
+        }
+        E::UnsupportedBinaryOperator(op, a, b) => {
+            format!("`{op}` doesn't work on {} and {}", kind(a), kind(b))
+        }
+        E::UnsupportedIndex(index, of) => format!("{} can't index {}", kind(index), kind(of)),
+        E::FunctionError { function, .. } => format!("`{}()` failed", name(function)),
+        E::DivisionByZero(_) | E::RemainderByZero(_) => "It divides by zero".to_owned(),
+        E::Overflow(op, ..) => format!("`{op}` makes a number too large"),
+        E::IndexOutOfBounds(cel::Value::Int(index)) => format!("There's no item {index}"),
+        E::IndexOutOfBounds(_) => "There's no such item".to_owned(),
+        E::DuplicateKey(_) => "A map has the same key twice".to_owned(),
+        _ => "It can't be worked out".to_owned(),
+    };
+    let mut chars = message.chars();
+    let short: String = chars.by_ref().take(200).collect();
+    if chars.next().is_some() {
+        format!("{short}…")
+    } else {
+        short
     }
 }
 
@@ -433,5 +517,34 @@ mod tests {
         })));
         assert_eq!(out[0].len(), 2);
         assert!(out[0].iter().all(|e| matches!(e, Evaluated::Error { .. })));
+    }
+
+    #[test]
+    fn says_why_it_failed_without_showing_values() {
+        let out = evaluate(&evaluation(json!({
+            "expressions": [
+                "row.secret",
+                "row + 1",
+                "row < 1",
+                "[1, 2][5]",
+                "row.size(1)",
+                "nothing.here",
+            ],
+            "variables": {"row": {"name": "confidential sequence"}},
+        })));
+        let errors: Vec<String> = out
+            .iter()
+            .map(|values| match &values[0] {
+                Evaluated::Error { error } => error.clone(),
+                Evaluated::Value { value } => format!("a value: {value}"),
+            })
+            .collect();
+        assert_eq!(errors[0], "There's no `secret`.");
+        assert_eq!(errors[3], "There's no item 5.");
+        assert_eq!(errors[5], "There's nothing called `nothing`.");
+        for error in &errors {
+            assert!(!error.contains("confidential"), "{error}");
+            assert!(!error.contains("Map("), "{error}");
+        }
     }
 }

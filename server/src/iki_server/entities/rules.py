@@ -7,6 +7,8 @@ on every create and edit, so they hold for the web, the API, MCP and runs alike:
   search must work for the person saving it, in a project they can read.
 - ``core.View`` (ADR 0086) shows a revision its entity has, in a viewer its
   entity's type has, with that viewer's state.
+- ``core.App`` (ADR 0090) has a spec whose panels, props and expressions work for
+  the person saving it (see :mod:`iki_server.entities.app_specs`).
 
 Subtypes follow their parents' rules.
 """
@@ -18,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from iki_server.accounts.models import User
-from iki_server.entities import access, registry, search
+from iki_server.entities import access, app_specs, registry, search
 from iki_server.entities.models import Revision
 from iki_server.org import permissions
 from iki_server.org.models import Project
@@ -93,7 +95,16 @@ def _view(user: User, values: Mapping[str, Any]) -> Errors:
     return errors
 
 
+def _app(user: User, values: Mapping[str, Any]) -> Errors:
+    spec = values.get("spec")
+    if not isinstance(spec, Mapping):
+        return {}  # The field's schema says so.
+    found = app_specs.problems(user, spec)
+    return {"spec": found} if found else {}
+
+
 RULES: dict[str, Rule] = {
+    "core.App": Rule(("spec",), _app),
     "core.Collection": Rule(("members", "search"), _collection),
     "core.View": Rule(("target", "target_revision", "viewer", "state"), _view),
 }

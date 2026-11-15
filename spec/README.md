@@ -624,8 +624,7 @@ A plugin lists the plugins whose types it uses, with the schema versions it
 works with. To check those references, pass the dependencies' directories
 with `--with`. Without them, the validator says it can't check them rather
 than guessing. Core types (`core.Entity`, `core.Sequence`, `core.Collection`,
-`core.View`, `core.Alignment`)
-need no dependency.
+`core.View`, `core.Alignment`, `core.App`) need no dependency.
 
 ## The core plugin
 
@@ -649,6 +648,10 @@ declaring a dependency, and no other plugin can be named `core`:
   the revision it showed: its `target`, `target_revision`, `viewer`, and the
   viewer's `state`
   ([ADR 0086](../docs/adr/0086-saved-views-are-entities-pinned-to-a-revision.md)).
+- `core.App`: a page of Iki's own components. Its `spec` (`app/v1`) lists
+  panels on a twelve-column grid, each an entities grid, a viewer or text,
+  bound to the panels before it by CEL expressions between `{{` and `}}`
+  ([ADR 0090](../docs/adr/0090-apps-are-compositions-of-ikis-components.md)).
 
 The server ships the core plugin's app, generated like any plugin's. After
 changing these manifests, run `make core` to regenerate it and make its

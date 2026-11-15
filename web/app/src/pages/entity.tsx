@@ -36,7 +36,9 @@ import {
   type Revision,
 } from "../entities";
 import { usePageTitle } from "../layout";
+import { APP_TYPE } from "../apps";
 import { VIEW_TYPE } from "../views";
+import { AppPanel, AppSpec } from "./app";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
 import { SavedViewPanel } from "./view";
 import {
@@ -441,8 +443,11 @@ export function EntityOverview() {
   const projects = useQuery(entityProjectsQuery(entity.hrid)).data;
   const origins = useQuery(originsQuery(entity.hrid)).data ?? [];
   const collection = isCollection(type, types);
-  // A collection's members and search have a section of their own.
-  const fields = (type?.fields ?? []).filter((f) => !collection || !COLLECTION_FIELDS.has(f.name));
+  const app = type?.name === APP_TYPE;
+  // A collection's members and search have a section of their own, as an app's spec does.
+  const fields = (type?.fields ?? []).filter(
+    (f) => !(collection && COLLECTION_FIELDS.has(f.name)) && !(app && f.name === "spec"),
+  );
   const set = fields.filter((f) => entity.values[f.name] != null);
   const unset = fields.filter((f) => entity.values[f.name] == null);
   return (
@@ -462,6 +467,7 @@ export function EntityOverview() {
         </div>
       ) : null}
       {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}
+      {app ? <AppPanel app={entity} types={types} /> : null}
       <section className="card" aria-labelledby="values-title">
         <h2 className="section-title" id="values-title">
           Values
@@ -486,6 +492,7 @@ export function EntityOverview() {
         ) : null}
       </section>
       {collection ? <CollectionMembers entity={entity} types={types} /> : null}
+      {app ? <AppSpec app={entity} /> : null}
       <section className="card" aria-labelledby="details-title">
         <h2 className="section-title" id="details-title">
           Details
@@ -524,8 +531,7 @@ export function EntityOverview() {
           ) : null}
           <dt>Created</dt>
           <dd>
-            {personName(entity.created_by)},
-            <RelativeTime value={entity.created_at} />
+            {personName(entity.created_by)}, <RelativeTime value={entity.created_at} />
           </dd>
           <dt>Last changed</dt>
           <dd>

@@ -14,6 +14,7 @@ def test_the_core_plugin_is_valid_and_strict() -> None:
 def test_its_types_are_the_builtin_ones() -> None:
     assert sorted(BUILTIN_TYPES) == [
         "core.Alignment",
+        "core.App",
         "core.Collection",
         "core.Entity",
         "core.Sequence",
@@ -29,6 +30,10 @@ def test_its_types_are_the_builtin_ones() -> None:
     sequence = BUILTIN_TYPES["core.Sequence"]
     assert sequence.abstract
     assert set(sequence.fields) == {"name", "description", "organism"}
+    app = BUILTIN_TYPES["core.App"]
+    assert not app.abstract
+    assert set(app.fields) == {"name", "description", "spec"}
+    assert app.hrid_prefix == "APP"
     view = BUILTIN_TYPES["core.View"]
     assert not view.abstract
     assert set(view.fields) == {

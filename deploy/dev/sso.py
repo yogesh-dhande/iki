@@ -1305,6 +1305,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     chains = aligned(alice, project)
     reads_on_protein(alice, project, chains[1])
     aligned_many(alice, project, chains)
+    globins_app(alice, project)
     structures(alice, project)
 
 
@@ -1454,6 +1455,60 @@ ALIGNMENT_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-protein-alignment-tools"
     "@sha256:74cb2a5405950c42efa5a5edf049e2c571f8b7790338ab7eed3fcdf521e70dbd"
 )
+
+
+def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
+    """An app (ADR 0090): a grid of the globins, the one picked in the sequence viewer, and
+    a line of text, bound by expressions the server checks with iki-wasm in its pod."""
+    grid = {
+        "id": "globins",
+        "title": "Globins",
+        "width": 5,
+        "component": "iki.entities",
+        "props": {
+            "type": "protein.Protein",
+            "where": {
+                "all": [
+                    {"field": "name", "op": "in", "value": ["HBA_HUMAN", "HBB_HUMAN", "MB_HUMAN"]}
+                ]
+            },
+            "sort": "name",
+            "columns": [
+                {"field": "name"},
+                {"label": "Length", "value": "{{ size(row.values.sequence) }} aa"},
+            ],
+        },
+    }
+    viewer = {
+        "id": "picked",
+        "title": "Picked",
+        "width": 7,
+        "component": "iki.viewer",
+        "props": {"entity": "{{ globins.selection }}", "viewer": "sequence"},
+    }
+    text = {
+        "id": "summary",
+        "component": "iki.text",
+        "props": {
+            "text": "{{ size(globins.rows) }} globins; {{ size(globins.selection) }} picked."
+        },
+    }
+
+    def save(*panels: dict[str, Any]) -> requests.Response:
+        values = {"name": "Globins", "spec": {"version": 1, "panels": list(panels)}}
+        body = {"type": "core.App", "project": project["id"], "values": values}
+        return api_call(alice, "POST", "/entities", body)
+
+    wrong = save(text, grid)
+    details = (
+        [e["detail"] for e in wrong.json().get("errors", [])] if wrong.status_code == 422 else []
+    )
+    if not any("`globins` isn’t a panel before it" in d for d in details):
+        fail(f"an app reading a later panel answered HTTP {wrong.status_code}: {wrong.text[:300]}")
+    made = save(grid, viewer, text)
+    if made.status_code != 201:
+        fail(f"saving an app answered HTTP {made.status_code}: {made.text[:300]}")
+    ok(f"{made.json()['hrid']}: an app of three panels, its expressions checked by iki-wasm")
 
 
 def aligned_many(

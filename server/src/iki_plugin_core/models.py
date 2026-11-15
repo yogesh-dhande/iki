@@ -121,6 +121,73 @@ class Alignment_members(models.Model):
         ]
 
 
+class App(Entity):
+    """App (core.App), schema version 1. A page of Iki's own components, each panel bound to those before it by expressions."""
+
+    IKI_TYPE = 'core.App'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=200, db_index=True)
+    description = models.TextField(null=True)
+    spec = models.JSONField()
+
+    class Meta:
+        db_table = 'core_app'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='core_app__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='core_app__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='core_app__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 10000),
+                name='core_app__description__max_length',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_32a429e33908931da645',
+            ),
+            GinIndex(
+                SearchVector('description', config='simple'),
+                name='descriptio_fts_97dafa02e04bf98',
+            ),
+        ]
+
+
+class App_History(models.Model):
+    """The history of core_app: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'App'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    description = models.TextField(null=True)
+    spec = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'core_app__history'
+
+
 class Collection(Entity):
     """Collection (core.Collection), schema version 1. A named set of entities, listed one by one or found by a search."""
 

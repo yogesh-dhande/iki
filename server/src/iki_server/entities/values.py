@@ -20,6 +20,7 @@ from typing import Any, cast
 from django.apps import apps
 from django.db import models
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import best_match
 
 from iki_server.core.sizes import human_size
 from iki_server.entities import registry
@@ -216,9 +217,11 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
         return _file(f, value, refs)
     if f.type == "json":
         if f.schema is not None:
-            errors = sorted(Draft202012Validator(f.schema).iter_errors(value), key=str)
-            if errors:
-                raise ValueError(f"doesn't fit its schema: {errors[0].message}.")
+            mismatch = best_match(Draft202012Validator(f.schema).iter_errors(value))
+            if mismatch is not None:
+                where = ".".join(str(p) for p in mismatch.absolute_path)
+                at = f" at `{where}`" if where else ""
+                raise ValueError(f"doesn't fit its schema{at}: {mismatch.message}.")
         return value
     problems = value_problems(f, value)
     if problems:

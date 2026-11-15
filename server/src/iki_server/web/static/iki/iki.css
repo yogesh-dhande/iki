@@ -2370,3 +2370,48 @@ input[type="file"]::file-selector-button {
 .budget-summary .budget-meter {
   flex: 1 1 16rem;
 }
+
+/* Apps (ADR 0090): panels on a twelve-column grid, each as wide as its spec says; on a
+   narrow screen, each the whole width. */
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.app-grid > .app-panel {
+  min-width: 0;
+  margin: 0;
+}
+@media (max-width: 48rem) {
+  .app-grid > .app-panel {
+    grid-column: 1 / -1 !important;
+  }
+}
+.app-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.app-error {
+  color: var(--error);
+}
+/* A grid wider than its panel scrolls within it. */
+.app-table {
+  overflow-x: auto;
+}
+.app-entities {
+  width: 100%;
+}
+.app-entities td:nth-child(-n + 2) {
+  white-space: nowrap;
+}
+.app-entities tr:has(> td > input:checked) {
+  background: var(--surface-2);
+}
+.app-spec {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  max-height: 24rem;
+  overflow: auto;
+}

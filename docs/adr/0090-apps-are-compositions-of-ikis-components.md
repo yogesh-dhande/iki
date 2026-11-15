@@ -59,13 +59,21 @@ Expression Language, which Kubernetes, Firebase and Envoy use for the same
 reason: it's pure, has no loops or I/O, always ends, and is typed. It can
 read only what the page gives it: the app's inputs, what earlier panels
 offer, and, in a column, the row. What it makes is shown as text, never
-HTML.
+HTML: text as it is, numbers as written, yes or no, a list's items with
+commas between, and an entity by its title. A prop that is one expression
+and nothing else, as a viewer's entity is, takes that expression's value
+as it is. A panel waits for the panels before it to offer what they have,
+so it never reads a grid that hasn't loaded.
 
 **One implementation, in Rust.** The browser evaluates expressions with
 iki-wasm (ADR 0088), which now includes the `cel` crate (MIT), in a Web Worker,
 as it reads files. The server checks them when an app is saved, with the
 same module run by wasmtime, so what the server accepts is exactly what
-the browser runs, and the desktop app can use the crate itself. An
+the browser runs, and the desktop app can use the crate itself. iki-wasm
+also splits text into its expressions, minding CEL's strings and maps
+(`{{ {"a": {"b": 1}} }}`), so both split it the same way, and writes a
+failure plainly, naming the kinds of values involved but never what's in
+them. An
 expression is at most 1,000 characters and nests at most 32 deep; the
 server gives reading each one a budget of instructions, and the browser
 stops one that runs for longer than 50 ms.

@@ -1,5 +1,6 @@
-"""Checking apps' expressions (ADR 0090) with iki-wasm, the module browsers evaluate them
-with, run here by wasmtime: what the server accepts is exactly what browsers run.
+"""Checking apps' text and expressions (ADR 0090) with iki-wasm, the module browsers
+render them with, run here by wasmtime: what the server accepts is exactly what browsers
+run. Text has expressions between ``{{`` and ``}}``; iki-wasm splits it, as browsers do.
 
 The module is built by ``scripts/build-wasm.sh``, which copies it next to this file, as
 the server's image does. Each thread has an instance of its own (wasmtime's stores aren't
@@ -17,8 +18,8 @@ import wasmtime
 
 #: Where the module is: built and copied here by scripts/build-wasm.sh, and by the image.
 WASM = Path(__file__).with_name("iki_wasm.wasm")
-#: Instructions reading one expression may take: the costliest of 1,000 characters (a
-#: list of 450 numbers) takes about 70 million.
+#: Instructions checking 1,000 characters may take: the costliest expression of that
+#: length (a list of 450 numbers) takes about 70 million.
 FUEL = 200_000_000
 #: The longest expression, in characters, as iki-wasm also checks.
 MAX_LENGTH = 1000
@@ -30,9 +31,14 @@ class UnavailableError(RuntimeError):
 
 @dataclass(frozen=True)
 class Checked:
-    """What one expression reads, or why it doesn't."""
+    """What one text's expressions read, or why one doesn't."""
 
+    #: The names they read, sorted: panels' IDs, say.
     names: tuple[str, ...] = ()
+    #: The fields they read of those names, as ``name.field``, sorted.
+    fields: tuple[str, ...] = ()
+    #: Whether it's one expression and nothing else, so its value is that one's.
+    whole: bool = False
     error: str | None = None
 
     @property
@@ -76,7 +82,7 @@ class _Instance:
             raise UnavailableError("iki-wasm has no memory to share.")
         self.memory = memory
         self.functions: dict[str, wasmtime.Func] = {}
-        for name in ("iki_input", "iki_check", "iki_evaluate", "iki_output", "iki_output_len"):
+        for name in ("iki_input", "iki_check", "iki_output", "iki_output_len"):
             function = exports[name]
             if not isinstance(function, wasmtime.Func):
                 raise UnavailableError(f"iki-wasm has no function {name}.")
@@ -110,16 +116,23 @@ def _call(export: str, request: dict[str, object], fuel: int) -> dict[str, objec
     return found
 
 
-def check(expressions: Sequence[str]) -> list[Checked]:
-    """Whether each expression reads, and the names it uses (those that `map`, `filter`,
-    `all` and `exists` bind aside), as browsers will read it."""
-    if not expressions:
+def check(texts: Sequence[str]) -> list[Checked]:
+    """Whether each text's expressions read, and the names and fields they use (those
+    that `map`, `filter`, `all` and `exists` bind aside), as browsers will read them."""
+    if not texts:
         return []
-    found = _call("iki_check", {"expressions": list(expressions)}, FUEL * len(expressions))
+    fuel = FUEL * (1 + sum(len(t) for t in texts) // MAX_LENGTH)
+    found = _call("iki_check", {"templates": list(texts)}, fuel)
     out = []
     for each in found["checked"]:  # type: ignore[attr-defined]
         if "error" in each:
             out.append(Checked(error=str(each["error"])))
         else:
-            out.append(Checked(names=tuple(each["names"])))
+            out.append(
+                Checked(
+                    names=tuple(each["names"]),
+                    fields=tuple(each["fields"]),
+                    whole=bool(each["whole"]),
+                )
+            )
     return out

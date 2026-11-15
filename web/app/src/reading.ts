@@ -66,12 +66,13 @@ export function workerScriptUrl(input: string): string {
 
 let policy: { createScriptURL: (input: string) => unknown } | null = null;
 
-function newWorker(): Worker {
-  const url = new URL(readerUrl, location.href).href;
+/** One of the app's own workers, `script` (as Vite's `?worker&url` gives it). */
+export function newWorker(script: string = readerUrl): Worker {
+  const url = new URL(script, location.href).href;
   const tt = (window as TrustedTypesWindow).trustedTypes;
   policy ??= tt ? tt.createPolicy("iki-workers", { createScriptURL: workerScriptUrl }) : null;
-  const script = policy ? policy.createScriptURL(url) : workerScriptUrl(url);
-  return new Worker(script as string | URL, { type: "module" });
+  const trusted = policy ? policy.createScriptURL(url) : workerScriptUrl(url);
+  return new Worker(trusted as string | URL, { type: "module" });
 }
 
 /** What iki-wasm reads in `bytes`, which are handed to the worker (and so emptied here).

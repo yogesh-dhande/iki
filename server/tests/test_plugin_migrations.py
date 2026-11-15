@@ -313,9 +313,11 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:6] == [
-        # The core plugin's alignments, collections and views, which every deployment has.
+    assert report.splitlines()[:7] == [
+        # The core plugin's alignments, apps, collections and views, which every deployment
+        # has.
         "  HRID sequence iki_hrid_aln",
+        "  HRID sequence iki_hrid_app",
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
         "  HRID sequence iki_hrid_prt",
