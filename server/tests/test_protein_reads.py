@@ -1,0 +1,325 @@
+"""The protein plugin's alignment of reads to a protein: reads translated in six frames,
+the best kept, frameshifts found in the rest, into a core.Alignment, with where they cover
+the protein and every difference from it, named as HGVS names a protein's."""
+
+import importlib.util
+import inspect
+import json
+import random
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from iki_spec import schemas
+
+PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
+SCRIPT = PLUGINS / "protein" / "scripts" / "reads.py"
+DNA_SCRIPT = PLUGINS / "dna" / "scripts" / "reads.py"
+
+#: One codon for each residue, and a stop.
+CODON = {
+    "A": "GCT",
+    "R": "CGT",
+    "N": "AAC",
+    "D": "GAT",
+    "C": "TGC",
+    "Q": "CAG",
+    "E": "GAA",
+    "G": "GGT",
+    "H": "CAC",
+    "I": "ATC",
+    "L": "CTG",
+    "K": "AAA",
+    "M": "ATG",
+    "F": "TTC",
+    "P": "CCG",
+    "S": "TCT",
+    "T": "ACC",
+    "W": "TGG",
+    "Y": "TAC",
+    "V": "GTT",
+    "*": "TAA",
+}
+COMPLEMENT = str.maketrans("ACGT", "TGCA")
+
+
+def made_up(length: int, seed: int, letters: str) -> str:
+    """Letters at random, the same for the same seed."""
+    rng = random.Random(seed)  # noqa: S311 - made-up test data, not secrets
+    return "".join(rng.choice(letters) for _ in range(length))
+
+
+#: A made-up protein of 250 residues, the same each time, and bases that code for it.
+PROTEIN = "M" + made_up(249, 3, "ACDEFGHIKLMNPQRSTVWY")
+#: Bases of a vector, before the protein's code.
+VECTOR = made_up(120, 4, "ACGT")
+
+
+def coding(protein: str) -> str:
+    return "".join(CODON[a] for a in protein)
+
+
+def reverse_complement(bases: str) -> str:
+    return bases.translate(COMPLEMENT)[::-1]
+
+
+def fastq(*reads: tuple[str, str, int]) -> bytes:
+    """Records of (name, bases, quality for every base)."""
+    return "".join(
+        f"@{name}\n{bases}\n+\n{chr(33 + quality) * len(bases)}\n" for name, bases, quality in reads
+    ).encode()
+
+
+def load(path: Path, name: str) -> Any:
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # its dataclasses look themselves up there
+    spec.loader.exec_module(module)
+    return module
+
+
+def run(
+    tmp_path: Path, files: dict[str, bytes], *, sequence: str = PROTEIN, **params: Any
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
+    described = {}
+    for n, (name, content) in enumerate(files.items(), start=1):
+        path = tmp_path / name
+        path.write_bytes(content)
+        described[f"f{n}"] = {"name": name, "path": str(path)}
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(exist_ok=True)
+    output = tmp_path / "output.json"
+    output.unlink(missing_ok=True)
+    reference = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "hrid": "PRT-000001",
+        "values": {"name": "Kinase", "sequence": sequence},
+    }
+    (tmp_path / "input.json").write_text(
+        json.dumps(
+            {
+                "run": {"hrid": "RUN-000001"},
+                "inputs": {"reference": [reference]},
+                "params": {"reads": list(described), "trim": True, **params},
+                "files": described,
+            }
+        )
+    )
+    result = subprocess.run(  # noqa: S603 - our own script
+        [sys.executable, "-I", str(SCRIPT)],
+        env={
+            "IKI_INPUT": str(tmp_path / "input.json"),
+            "IKI_OUTPUT": str(output),
+            "IKI_OUT_DIR": str(out_dir),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if not output.exists():
+        return result, None
+    found: dict[str, Any] = json.loads(output.read_text())
+    assert not list(schemas.check("run-output", found))
+    return result, found
+
+
+def rows(tmp_path: Path) -> list[tuple[str, str]]:
+    """The alignment's records: (header, row)."""
+    out: list[tuple[str, str]] = []
+    for line in (tmp_path / "out" / "alignment.fasta").read_text().splitlines():
+        if line.startswith(">"):
+            out.append((line[1:], ""))
+        else:
+            out[-1] = (out[-1][0], out[-1][1] + line)
+    return out
+
+
+def texts(output: dict[str, Any]) -> list[str]:
+    return [m["text"] for m in output["messages"]]
+
+
+def other(residue: str) -> str:
+    return "W" if residue != "W" else "Y"
+
+
+def test_a_read_through_vector_into_the_code_is_aligned_and_its_difference_named(
+    tmp_path: Path,
+) -> None:
+    # Residues 1-200 after 120 bases of vector, residue 100 changed, poor bases at the end.
+    changed = list(PROTEIN[:200])
+    changed[99] = other(PROTEIN[99])
+    bases = VECTOR + coding("".join(changed)) + "ACGTACGT"
+    quality = [40] * (len(bases) - 8) + [4] * 8
+    record = f"@clone_F1\n{bases}\n+\n{''.join(chr(33 + q) for q in quality)}\n"
+
+    result, output = run(tmp_path, {"clone.fastq": record.encode()})
+
+    assert output is not None, result.stdout
+    (created,) = output["creates"]
+    values = created["values"]
+    assert values["reference"] == values["members"][0] == created["derived_from"][0]
+    assert values["aligned"] == {"$file": "alignment.fasta", "media_type": "chemical/seq-aa-fasta"}
+    assert values["method"] == (
+        "Biopython PairwiseAligner, local, in six frames as tblastn: BLOSUM62, gap opening 11, "
+        "extension 1, expected value under 0.001; reads trimmed by Mott's algorithm, limit 0.05"
+    )
+    (ref_header, ref_row), (read_header, read_row) = rows(tmp_path)
+    assert (ref_header, ref_row) == ("PRT-000001 Kinase", PROTEIN)
+    assert read_header == (
+        "clone_F1 forward frame 1, bases 121–720 of 720 (trimmed from 728), from clone.fastq"
+    )
+    assert read_row == "".join(changed) + "-" * 50
+    assert texts(output)[:2] == [
+        "The reads cover 1–200 of Kinase's 250 residues (80.0%). Not covered: 201–250.",
+        f"Differences from PRT-000001: {PROTEIN[99]}100{changed[99]} (clone_F1 Q40).",
+    ]
+    assert output["metrics"] == {
+        "reads": 1,
+        "aligned": 1,
+        "coverage_percent": 80.0,
+        "differences": 1,
+    }
+
+
+def test_a_frameshift_on_the_other_strand_is_found_and_named(tmp_path: Path) -> None:
+    # Residues 101-250, a base lost from residue 151's codon, read on the other strand.
+    bases = coding(PROTEIN)[300:]
+    lost = 151 * 3 - 300 - 2
+    shifted = bases[:lost] + bases[lost + 1 :]
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{reverse_complement(shifted)}\n".encode()})
+
+    assert output is not None
+    (_, _), (header, row) = rows(tmp_path)
+    assert header.startswith("r reverse complement frame 1, bases 1–150, frame 3, bases ")
+    assert row[:100] == "-" * 100
+    assert row[100:150] == PROTEIN[100:150]
+    assert row[151:] == PROTEIN[151:]
+    assert f"{PROTEIN[150]}151fs (r)" in texts(output)[1]
+
+
+def test_stops_and_in_frame_gaps_are_named(tmp_path: Path) -> None:
+    # A stop at residue 30, residue 60 lost and a residue added after 90.
+    code = (
+        coding(PROTEIN[:29])
+        + CODON["*"]
+        + coding(PROTEIN[30:59])
+        + coding(PROTEIN[60:90])
+        + CODON[other(PROTEIN[90])]
+        + coding(PROTEIN[90:200])
+    )
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()})
+
+    assert output is not None
+    # The made-up protein has G30, Q60 and E90-C91, none repeated.
+    assert (PROTEIN[29], PROTEIN[59], PROTEIN[89:91]) == ("G", "Q", "EC")
+    assert texts(output)[1] == (
+        "Differences from PRT-000001: G30* (r); Q60del (r); E90_C91insW (r)."
+    )
+
+
+@pytest.mark.parametrize(
+    ("protein", "at", "residues", "named"),
+    [
+        ("MKLAG", 2, "W", "K2_L3insW"),
+        # A K before K2 is a duplication of it.
+        ("MKLAG", 1, "K", "K2dup"),
+        ("MKLAG", 3, "KL", "K2_L3dup"),
+        # In KKK, an added K is named at the last.
+        ("MKKKA", 1, "K", "K4dup"),
+    ],
+)
+def test_insertions_are_named_as_hgvs_names_them(
+    protein: str, at: int, residues: str, named: str
+) -> None:
+    assert load(SCRIPT, "protein_reads").insertion(protein, at, residues) == named
+
+
+def test_deletions_move_c_terminal_in_repeated_residues() -> None:
+    reads = load(SCRIPT, "protein_reads")
+    assert reads.deletion("MKKKA", 1, 1) == "K4del"
+    assert reads.deletion("MKLAG", 1, 2) == "K2_L3del"
+    # KL from KLKL: the last two.
+    assert reads.deletion("MKLKLA", 1, 2) == "K4_L5del"
+
+
+def test_ambiguous_and_unusual_residues_differ_only_from_what_they_cant_be(
+    tmp_path: Path,
+) -> None:
+    # The protein has X at 40, B at 41, U (selenocysteine, coded by TGA) at 42 and O at 43;
+    # the read codes A, D, a stop and K there, and E where the protein has Z at 44.
+    protein = PROTEIN[:39] + "XBUOZ" + PROTEIN[44:]
+    code = coding(PROTEIN[:39]) + "GCTGATTGAAAAGAA" + coding(PROTEIN[44:200])
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=protein)
+
+    assert output is not None
+    assert texts(output)[1] == "Differences from PRT-000001: O43K (r)."
+
+
+def test_reads_that_dont_code_for_it_are_left_out_saying_so(tmp_path: Path) -> None:
+    files = {
+        "good.fastq": fastq(("good", coding(PROTEIN[50:250]), 40)),
+        "stranger.fastq": fastq(("stranger", made_up(600, 99, "ACGT"), 40)),
+        "poor.fastq": fastq(("poor", coding(PROTEIN[:100]), 3)),
+    }
+
+    _, output = run(tmp_path, files)
+
+    assert output is not None
+    warnings = [m["text"] for m in output["messages"] if m["level"] == "warning"]
+    assert warnings == [
+        "stranger doesn't code for any of PRT-000001 in any frame. It's left out.",
+        "poor has no bases good enough to keep: it's left out.",
+    ]
+    assert [h.split()[0] for h, _ in rows(tmp_path)] == ["PRT-000001", "good"]
+    assert output["metrics"]["aligned"] == 1
+
+
+@pytest.mark.parametrize(
+    ("files", "sequence", "said"),
+    [
+        (
+            {"far.fasta": b">far\n" + made_up(600, 98, "ACGT").encode() + b"\n"},
+            PROTEIN,
+            "None of the reads code for any of PRT-000001.",
+        ),
+        ({"r.fasta": b">r\nACGT\n"}, "", "PRT-000001 has no residues to align to."),
+        ({"r.fasta": b">r\nACGT\n"}, "MK1L", "PRT-000001 has '1', which isn't a residue."),
+        ({"r.fasta": b">r\nACGT\n"}, "MK*L*", "PRT-000001 has a stop inside it, at residue 3."),
+        (
+            {"notes.txt": b"hello"},
+            PROTEIN,
+            "notes.txt isn't an AB1 trace, a FASTQ file or a FASTA file.",
+        ),
+    ],
+)
+def test_what_cant_be_aligned_fails_its_run_saying_why(
+    tmp_path: Path, files: dict[str, bytes], sequence: str, said: str
+) -> None:
+    result, output = run(tmp_path, files, sequence=sequence)
+
+    assert output is None
+    assert result.returncode == 1, result.stderr
+    assert result.stdout.strip().splitlines()[-1] == f"::error {said}"
+
+
+@pytest.mark.parametrize(
+    "name", ["Read", "mott", "unique", "read_file", "ranges", "spans", "percent", "fail"]
+)
+def test_reading_reads_is_kept_as_the_dna_plugin_has_it(name: str) -> None:
+    # Each plugin ships its own scripts, so the protein plugin has a copy of these.
+    mine = load(SCRIPT, "protein_reads")
+    theirs = load(DNA_SCRIPT, "dna_reads")
+    assert inspect.getsource(getattr(mine, name)) == inspect.getsource(getattr(theirs, name))
+    assert (mine.LIMIT, mine.MAX_READS, mine.MAX_READ) == (
+        theirs.LIMIT,
+        theirs.MAX_READS,
+        theirs.MAX_READ,
+    )

@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: align_reads
+label: Align reads to a protein
+description: >-
+  Aligns sequencing reads to a protein, such as Sanger reads of an expression
+  construct to the protein it should make, into an alignment of them in Iki for
+  the alignment viewer, the protein its reference. Reads come from AB1 traces,
+  FASTQ or FASTA files. Each is trimmed of its poor ends and translated in its
+  six frames, and the frame that codes for the protein is kept, as tblastn
+  would, so reads through vector align where they hold the protein's code. The
+  run says where the reads cover the protein, and lists every change from it
+  (substitutions, stops, deletions, insertions and frameshifts), with the reads
+  that show it and their quality there.
+inputs:
+  reference:
+    type: Protein
+    schema: ">=1"
+    description: The protein the reads should code for, such as the protein as designed.
+params:
+  reads:
+    type: list
+    required: true
+    max_items: 96
+    label: Read files
+    description: AB1 traces (one read each), or FASTQ or FASTA files of reads, up to 1,000 reads.
+    items:
+      type: file
+      media_types: [application/x-abi, text/x-fastq, chemical/seq-na-fasta, text/plain]
+      max_size: 50MiB
+  trim:
+    type: bool
+    label: Trim poor ends
+    default: true
+    description: Trim each read with qualities to its best stretch, by Mott's algorithm, as phred does.
+  name:
+    type: string
+    description: The alignment's name. Without one, it's named after the protein.
+effects:
+  creates: [{ type: core.Alignment, derived_from: [reference] }]
+runs_on: { tier: backend, environment: protein-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/reads.py]
+deterministic: true
+artifacts: { keep: ["alignment.fasta"] }
+metrics:
+  reads: { label: Reads, description: The reads the files held. }
+  aligned: { label: Aligned, description: The reads that code for some of the protein. }
+  coverage_percent:
+    { label: Coverage (%), description: The share of the protein's residues a read covers. }
+  differences:
+    {
+      label: Differences,
+      description: "Differences from the protein: substitutions, stops, deletions, insertions and frameshifts.",
+    }
+timeout: 30m

@@ -84,6 +84,34 @@ Iki's publish workflow builds, scans and signs
   The run fails if MAFFT changes any row's residues rather than only adding
   gaps. It keeps `alignment.fasta` as an artifact, which is also the
   alignment's file. Proteins up to 40,000 residues, and 5 million in all.
+- **`align_reads`**: aligns sequencing reads to a protein, such as Sanger
+  reads of an expression construct to the protein it should make, into a
+  `core.Alignment` the alignment viewer shows, the protein its reference. It
+  takes the same files as the dna plugin's `align_reads`: up to 96, AB1
+  traces, FASTQ or FASTA files, up to 1,000 reads in all
+  ([ADR 0089](../../docs/adr/0089-a-param-can-take-several-files.md)). It
+  asks for 1 GiB of memory, and keeps `alignment.fasta` as an artifact, which
+  is also the alignment's file.
+
+Aligning reads to a protein: reads are read and trimmed as the dna plugin's
+`align_reads` does (the protein plugin has its own copy of that code, and a
+test keeps the two the same). Each read is translated in its six frames by
+the standard genetic code and aligned locally to the protein as tblastn
+does: BLOSUM62, a gap opening penalty of 11 and an extension penalty of 1.
+The best frame is kept if the alignment's expected value, by BLASTP's
+statistics for those scores (λ 0.267, K 0.041), is under 0.001, so a read
+that's partly vector aligns where it holds the protein's code, and one that
+doesn't code for it is left out, saying so. What's left of the read either
+side is aligned in its strand's other frames: a part that aligns there means
+the frame shifted, and the run names where (`K120fs`). The run lists each
+difference in the protein's numbering, as HGVS names them in one-letter
+codes: substitutions (`T315I`), stops (`Q45*`), deletions (`K12del`,
+`K12_L14del`), insertions (`K12_L13insG`), duplications (`K12dup`) and
+frameshifts, a deletion or insertion in repeated residues named at its
+C-terminal-most place, with the reads that show it and their quality (the
+least of its codon's bases). Where the protein has an ambiguous residue (B,
+Z, J, X), a residue it may be isn't a difference; U (selenocysteine) is
+coded by a stop's codon, TGA, so a stop there isn't one either.
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 
@@ -161,8 +189,11 @@ cd plugins && uv run iki plugin makemigrations protein --with dna   # after chan
 Its environment's packages are pinned, with their hashes, in
 `requirements.txt`, compiled from `requirements.in` as it says. Pin the same
 releases in the repository's dev dependencies, where
-`server/tests/test_protein_actions.py` runs the actions: `make check-deps`
-checks they match, and that each is at least 3 days old.
+`server/tests/test_protein_actions.py` runs the actions (and
+`server/tests/test_protein_reads.py`, `align_reads`): `make check-deps`
+checks they match, and that each is at least 3 days old. `scripts/reads.py`
+reads and trims reads with a copy of the dna plugin's code, since each
+plugin ships its own scripts; change both together, as that test checks.
 
 `server/tests/test_first_party_plugins.py` checks that it's valid, that its
 migrations match its manifests, and that it migrates forwards and back.

@@ -1302,7 +1302,9 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
         f"protein.compute_properties ran in Biopython's environment ({run['hrid']}): "
         f"{weight} Da, pI {point}"
     )
-    aligned_many(alice, project, aligned(alice, project))
+    chains = aligned(alice, project)
+    reads_on_protein(alice, project, chains[1])
+    aligned_many(alice, project, chains)
     structures(alice, project)
 
 
@@ -1384,6 +1386,62 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
         f"until {text['expires_at'][:10]}, and made {created[0]['hrid']} of the two"
     )
     return chains
+
+
+#: A codon for each residue, to write the bases that code for a protein.
+CODONS = {
+    "A": "GCC",
+    "C": "TGC",
+    "D": "GAC",
+    "E": "GAG",
+    "F": "TTC",
+    "G": "GGC",
+    "H": "CAC",
+    "I": "ATC",
+    "K": "AAG",
+    "L": "CTG",
+    "M": "ATG",
+    "N": "AAC",
+    "P": "CCC",
+    "Q": "CAG",
+    "R": "CGC",
+    "S": "AGC",
+    "T": "ACC",
+    "V": "GTG",
+    "W": "TGG",
+    "Y": "TAC",
+}
+
+
+def reads_on_protein(alice: requests.Session, project: dict[str, Any], hbb: dict[str, Any]) -> None:
+    """protein.align_reads: a read of the start of haemoglobin beta's code, through the
+    vector before it, on the other strand, with the sickle-cell change (E7V), found in its
+    frame and named in the protein's numbering."""
+    coded = "".join(CODONS[r] for r in "MVHLTPV" + HBB[7:100])
+    vector = "".join(secrets.choice("ACGT") for _ in range(80))
+    read = (vector + coded).translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    fastq = f"@hbb_R1\n{read}\n+\n{'I' * len(read)}\n".encode()
+    files = [upload(alice, project, "hbb_R1.fastq", fastq, "text/x-fastq")]
+    action = "protein.align_reads"
+    run = launch(alice, project, action, {"reference": hbb["id"]}, {"reads": files})
+    metrics = run.get("metrics") or {}
+    if metrics.get("aligned") != 1 or metrics.get("differences") != 1:
+        fail(f"{run['hrid']} ({action}) measured {metrics}, not 1 read and 1 difference")
+    said = [m["text"] for m in run.get("messages") or []]
+    expected = f"Differences from {hbb['hrid']}: E7V (hbb_R1 Q40)."
+    if expected not in said:
+        fail(f"{run['hrid']} said {said}, not {expected!r}")
+    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in created] != ["core.Alignment"]:
+        fail(f"{run['hrid']} created {created}, not one core.Alignment")
+    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
+    if values["reference"] != hbb["id"] or values["members"] != [hbb["id"]]:
+        fail(f"{created[0]['hrid']} is {values}")
+    ok(
+        f"{action} found haemoglobin beta's code in a read's frame on the other strand "
+        f"({run['hrid']}): {metrics['coverage_percent']}% covered, E7V, making "
+        f"{created[0]['hrid']}"
+    )
 
 
 #: Human myoglobin (UniProt P02144), a globin like haemoglobin's chains.
