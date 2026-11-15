@@ -295,3 +295,57 @@ def test_shutting_down_ends_streams_at_once(django_db_blocker: Any, tmp_path: An
             assert time.monotonic() - stopped < 10
             assert '"reason": "shutdown"' in server.text
             conn.close()
+
+
+def test_open_streams_dont_hold_database_connections(django_db_blocker: Any, tmp_path: Any) -> None:
+    """Each stream gives its connection back as it starts, so a few tabs following runs
+    don't leave the rest of the app waiting for the pool."""
+    from test_workers import queued
+
+    world = build_world()
+    run = queued(world)
+    client = Client()
+    client.force_login(world.users["viewer"])
+    cookie = client.cookies[settings.SESSION_COOKIE_NAME].value
+
+    def stale() -> None:
+        # A page last seen a while ago: opening the stream refreshes the session, so
+        # saving it is the last thing the request's thread does before streaming.
+        session = UserSession.objects.get(session_key=cookie)
+        data = session.get_decoded()
+        data[LAST_SEEN] = 0
+        session.session_data = UserSession.get_session_store_class()().encode(data)
+        session.save()
+
+    pool = {"IKI_DB_POOL_MIN_SIZE": "1", "IKI_DB_POOL_MAX_SIZE": "2"}
+    with django_db_blocker.unblock(), app_role() as role:
+        env = server_env(
+            role,
+            tmp_path,
+            IKI_SECRET_KEY=settings.SECRET_KEY,
+            IKI_DB_POOL_TIMEOUT_SECONDS="3",
+            **pool,
+        )
+        with serve(env) as server:
+            host, port = server.url.removeprefix("http://").split(":")
+            streams = []
+            try:
+                for _ in range(3):
+                    stale()
+                    conn = http.client.HTTPConnection(host, int(port), timeout=10)
+                    conn.request(
+                        "GET",
+                        f"/api/v1/runs/{run['hrid']}/events",
+                        headers={"Cookie": f"iki_session={cookie}"},
+                    )
+                    response = conn.getresponse()
+                    assert response.status == 200, server.text
+                    assert b"event: ready" in response.read1()
+                    streams.append(conn)
+                conn = http.client.HTTPConnection(host, int(port), timeout=10)
+                conn.request("GET", "/api/v1/me", headers={"Cookie": f"iki_session={cookie}"})
+                assert conn.getresponse().status == 200, server.text
+                conn.close()
+            finally:
+                for stream in streams:
+                    stream.close()

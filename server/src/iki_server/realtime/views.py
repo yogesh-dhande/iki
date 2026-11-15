@@ -71,6 +71,10 @@ async def db[T](fn: Callable[..., T], *args: Any) -> T:  # noqa: ANN401
     return await sync_to_async(run, thread_sensitive=True)()
 
 
+def _nothing() -> None:
+    """For ``db``: no work, just the connection's return to the pool."""
+
+
 def sse(event: str, data: dict[str, Any]) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
@@ -355,6 +359,9 @@ async def _run(
     deadline = loop.time() + MAX_LIFETIME * random.uniform(0.9, 1.0)  # noqa: S311
     opened, reason = loop.time(), "disconnected"
     logger.info("realtime_stream_opened", user=str(user.pk), streams=streams.count())
+    # Middleware ran in this request's thread after the view returned (saving a refreshed
+    # session, say), so give its connection back to the pool before streaming for minutes.
+    await db(_nothing)
     try:
         yield f"retry: {RETRY_MS}\n\n".encode() + ready
         next_check = loop.time() + HEARTBEAT

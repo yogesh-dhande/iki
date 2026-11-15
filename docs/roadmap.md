@@ -109,7 +109,7 @@ Plugins before M1 are the ones that prove a platform feature.
 | Step | What                                                                                                                                          | Status      | Commits                         |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------- |
 | 40   | Component framework: plugins' Web Components in sandboxed frames (ADR 0084), slots, linked selection                                          | done        | `e6245fe`, `b78ddd9`, `a798257` |
-| 41   | Views and viewers: types configure Iki's viewers (ADR 0085), sequence and track viewer, Mol\*, saved views (ADR 0086), parsers in WebAssembly | in progress | `6d6ccb7` `c372574`             |
+| 41   | Views and viewers: types configure Iki's viewers (ADR 0085), sequence and track viewer, Mol\*, saved views (ADR 0086), parsers in WebAssembly | in progress | `6d6ccb7` `c372574` `774f6a7`   |
 | 42   | Apps: composed pages with an expression language, and MCP tools to build them                                                                 | planned     |                                 |
 
 ## Stage 8: Remaining plugins and lifecycle
