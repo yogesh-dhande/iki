@@ -60,13 +60,14 @@ kind: EnvironmentBinding
 environment: protein.structure-tools
 templates: [{ template: container-structures }]
 ---
-# The protein plugin's MAFFT (alignment-tools): two threads, and memory for a
-# few hundred proteins aligned iteratively.
+# The protein plugin's MAFFT (alignment-tools): its minimum, one thread and
+# memory for a few hundred proteins aligned iteratively. A deployment that
+# aligns thousands binds a bigger template; MAFFT uses the CPUs it's given.
 apiVersion: iki/v1
 kind: ComputeTemplate
 name: container-alignments
 provisioner: k8s_job
-capacity: { cpu: 2, memory: 4Gi, scratch_disk: 2Gi }
+capacity: { cpu: 1, memory: 2Gi, scratch_disk: 2Gi }
 limits: { max_concurrent: 1 }
 price: { per_hour: 0.20, currency: USD }
 ---

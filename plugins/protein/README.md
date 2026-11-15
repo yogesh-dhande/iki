@@ -35,7 +35,8 @@ DSSP and MAFFT run on the container tier, in the plugin's own images, which
 Iki's publish workflow builds, scans and signs
 ([ADR 0065](../../docs/adr/0065-first-party-plugins-images-are-built-and-signed-like-ikis.md)):
 `structure-tools`, from `images/structure-tools`, and `alignment-tools`, from
-`images/alignment-tools`, which asks for 2 CPUs and 4 GiB.
+`images/alignment-tools`, which asks for at least 1 CPU and 2 GiB
+(MAFFT uses as many CPUs as it's given).
 
 - **`compute_properties`**: a protein's properties, as ExPASy's ProtParam
   computes them, for many at once.

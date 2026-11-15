@@ -1360,7 +1360,7 @@ def aligned_many(
         fail(f"{run['hrid']} measured {metrics}, not three rows")
     ok(
         f"{action} ran MAFFT in a pod of its own ({run['hrid']}): {values['method']}, "
-        f"{metrics['length']} columns, making {created[0]['hrid']} of three globins"
+        f"{int(metrics['length'])} columns, making {created[0]['hrid']} of three globins"
     )
 
 
