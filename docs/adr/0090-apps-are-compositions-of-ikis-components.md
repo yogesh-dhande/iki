@@ -76,7 +76,9 @@ failure plainly, naming the kinds of values involved but never what's in
 them. An
 expression is at most 1,000 characters and nests at most 32 deep; the
 server gives reading each one a budget of instructions, and the browser
-stops one that runs for longer than 50 ms.
+stops a rendering that runs for longer than a second. The browser's worker
+renders once before it's used, since some browsers run a module's first
+calls slowly, and a cold start shouldn't count against an app.
 
 ## Consequences
 

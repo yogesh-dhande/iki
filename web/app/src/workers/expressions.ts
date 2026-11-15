@@ -38,10 +38,24 @@ function render(wasm: Exports, request: string): string {
   return new TextDecoder().decode(out);
 }
 
-// The module loads first, and the page hears when it's ready, so that the time a
-// rendering may take is the rendering's alone.
+// What the module renders once before it says it's ready, so that browsers which run a
+// module's first calls slowly, before compiling them fully, do so here and not in the
+// time a person's rendering is given.
+const WARM_UP = JSON.stringify({
+  templates: ["{{ size(p.rows.filter(r, r.title.startsWith('a'))) }} of {{ p.rows }}"],
+  variables: { p: { rows: [{ title: "a" }, { title: "b" }] } },
+});
+
+// The module loads and warms up first, and the page hears when it's ready, so that the
+// time a rendering may take is the rendering's alone.
 instantiate().then(
   (wasm) => {
+    try {
+      render(wasm, WARM_UP);
+    } catch (error) {
+      scope.postMessage({ failed: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     scope.addEventListener("message", (event) => {
       const { request } = event.data as { request: string };
       try {

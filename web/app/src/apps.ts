@@ -75,8 +75,10 @@ export type Offers = Record<string, Record<string, unknown>>;
 
 export type Rendered = { value: unknown } | { error: string };
 
-/** How long a rendering may run, in milliseconds, before its worker is ended. */
-export const LIMIT_MS = 50;
+/** How long a rendering may run, in milliseconds, before its worker is ended. It runs
+ * off the page's thread, so this stops runaway expressions rather than keeping the page
+ * smooth, and it's well over what the server lets the largest app's expressions take. */
+export const LIMIT_MS = 1000;
 
 interface Pending {
   resolve: (values: Rendered[][]) => void;
