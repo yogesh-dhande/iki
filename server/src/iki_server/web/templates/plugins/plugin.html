@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ plugin.title|default:plugin.name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'org:plugins' %}">Plugins</a></p>
+    <h1>{{ plugin.title|default:plugin.name }}{% if detached %} <span class="badge badge-muted">Detached</span>{% endif %}</h1>
+  </div>
+</div>
+<section class="card">
+  <dl class="summary">
+    <dt>Name</dt><dd><code>{{ plugin.name }}</code></dd>
+    <dt>Version</dt><dd>{{ plugin.version }}</dd>
+    {% if plugin.sha %}<dt>Commit</dt><dd><code>{{ plugin.sha }}</code></dd>{% endif %}
+    <dt>State</dt><dd>{% if detached %}Detached: its data is kept and can be read, but nothing changes it.{% else %}Active{% endif %}</dd>
+  </dl>
+</section>
+{% if report %}
+<section class="card" aria-labelledby="report-title">
+  <h2 class="section-title" id="report-title">{% if scheduled %}What the purge deletes{% else %}What a purge would delete{% endif %}</h2>
+  {% if report.entities %}
+  <p>{{ report.entities }} entit{{ report.entities|pluralize:"y,ies" }}, with their values, history and files’ uses:</p>
+  <ul>{% for t in report.types %}<li>{{ t.count }} {{ t.label }} (<code>{{ t.type }}</code>)</li>{% endfor %}</ul>
+  {% if report.projects %}
+  <p>In {{ report.projects|length }} project{{ report.projects|length|pluralize }}: {% for p in report.projects %}{{ p.team }} / {{ p.name }}{% if p.held %} (on legal hold){% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+  {% endif %}
+  {% if report.references %}
+  <p>Each leaves a tombstone, its ID, HRID and type, so what refers to it still does:</p>
+  <ul>{% for r in report.references %}<li>{{ r.count }} {{ r.what }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% else %}
+  <p>It has no entities. A purge drops its empty tables.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% if scheduled %}
+<section class="card" aria-labelledby="scheduled-title">
+  <h2 class="section-title" id="scheduled-title">Purge scheduled</h2>
+  <p>{{ scheduled.requested_by.get_full_name }} asked for it on {{ scheduled.requested_at|date:"Y-m-d" }}: “{{ scheduled.reason }}”</p>
+  <p>It runs at the first deploy after {{ scheduled.run_after|date:"Y-m-d" }} whose lockfile sets <code>{{ plugin.name }}</code> to <code>state: purged</code>. A legal hold placed before then stops it.</p>
+  <form method="post" data-busy-form>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="cancel">
+    <button class="button" type="submit" data-busy-text="Cancelling…">Cancel the purge</button>
+  </form>
+</section>
+{% elif detached %}
+<section class="card card-danger" aria-labelledby="purge-title">
+  <h2 class="section-title" id="purge-title">Purge its data</h2>
+  {% if why_not %}
+  <p>{{ why_not }}</p>
+  {% else %}
+  <p>This deletes the data above for good, {{ wait_days }} days from now. It can be cancelled until then.</p>
+  {% include "web/_errors.html" %}
+  <form method="post" data-busy-form>
+    {% csrf_token %}
+    <input type="hidden" name="action" value="purge">
+    {% include "web/_field.html" with field=form.reason %}
+    {% include "web/_field.html" with field=form.confirm %}
+    <button class="button button-danger" type="submit" data-busy-text="Scheduling…">Schedule the purge</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

@@ -593,6 +593,17 @@ except ValueError as _error:
         f"IKI_FILES_ARTIFACT_RETENTION and IKI_FILES_ARTIFACT_MIN_RETENTION must be durations "
         f"such as 90d: {_error}"
     ) from None
+# A purge waits this long once it's confirmed, and can be cancelled until then (ADR 0092).
+try:
+    IKI_PURGE_WAIT: int = _parse_duration(env.str("IKI_PURGE_WAIT", default="") or "30d")
+except ValueError as _error:
+    raise environ.ImproperlyConfigured(
+        f"IKI_PURGE_WAIT must be a duration such as 30d: {_error}"
+    ) from None
+if IKI_PURGE_WAIT < 7 * 86400:
+    raise environ.ImproperlyConfigured(
+        "IKI_PURGE_WAIT must be at least 7d, so a purge can be noticed and cancelled."
+    )
 # Checkpoints (ADR 0069): how often a worker saves a checkpointable run's progress while
 # its command runs, if it changed. It saves once more when an attempt that's retried ends.
 try:

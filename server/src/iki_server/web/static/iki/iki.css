@@ -1278,6 +1278,11 @@ legend {
   color: var(--error);
 }
 
+/* A card whose action deletes data for good, as a purge does. */
+.card-danger {
+  border-color: var(--error);
+}
+
 @media (max-width: 40rem) {
   .site-header {
     flex-wrap: wrap;

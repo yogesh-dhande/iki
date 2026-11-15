@@ -53,7 +53,7 @@ reason and types the plugin's name, as GitHub has you type a repository's
 name before deleting it.
 
 **Then it waits.** A confirmed purge is scheduled. By default it runs
-after 30 days (`IKI_PURGE_WAIT_DAYS`, at least 7), as AWS schedules a key
+after 30 days (`IKI_PURGE_WAIT`, at least 7 days), as AWS schedules a key
 for deletion, and an Org Admin can cancel it until then. A hold placed
 in the meantime stops it again. When the wait is over, the lockfile's
 `state: purged` lets the next deploy carry it out. A purge isn't

@@ -648,7 +648,8 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         name=name,
         schema_version=body["schema_version"],
         label=body.get("label") or _words(name),
-        label_plural=body.get("label_plural") or _words(name) + "s",
+        # "DNA sequence" → "DNA sequences": from its label, which may be worded unlike its name.
+        label_plural=body.get("label_plural") or (body.get("label") or _words(name)) + "s",
         description=body.get("description"),
         extends=qualify(body["extends"], plugin) if "extends" in body else None,
         abstract=bool(body.get("abstract", False)),

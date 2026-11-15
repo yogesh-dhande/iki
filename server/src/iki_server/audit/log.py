@@ -74,6 +74,8 @@ ACTIONS: dict[str, str] = {
     "plugin.updated": "Updated a plugin",
     "plugin.detached": "Detached a plugin",
     "plugin.reattached": "Reattached a plugin",
+    "plugin.purge_requested": "Asked for a plugin’s data to be purged",
+    "plugin.purge_cancelled": "Cancelled a plugin’s purge",
     "file.added": "Added a file",
     "file.registered": "Registered a file in place",
     "entity.linked": "Shared an entity into a project",

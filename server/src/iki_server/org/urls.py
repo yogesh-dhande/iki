@@ -1,6 +1,7 @@
 from django.urls import URLPattern, path
 
 from iki_server.org import views
+from iki_server.plugins import pages as plugin_pages
 from iki_server.web.views import app
 
 app_name = "org"
@@ -31,6 +32,8 @@ urlpatterns: list[URLPattern] = [
     ),
     path("teams/<slug:slug>/settings/", views.team_settings, name="team_settings"),
     path("settings/legal-holds/", views.legal_holds, name="legal_holds"),
+    path("settings/plugins/", plugin_pages.plugins, name="plugins"),
+    path("settings/plugins/<slug:name>/", plugin_pages.plugin, name="plugin"),
     path("people/", views.people, name="people"),
     path("people/<uuid:user_id>/", views.person, name="person"),
     path("service-accounts/", views.service_accounts, name="service_accounts"),

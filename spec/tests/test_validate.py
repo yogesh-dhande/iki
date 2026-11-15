@@ -94,6 +94,10 @@ def test_builds_the_model_codegen_reads() -> None:
     assert protein.identity == ("sequence",)
     assert protein.label == "Protein"
     assert protein.label_plural == "Proteins"
+    # Without a plural of its own, a type's is its label's, not its name's.
+    dna = load_plugin(DNA).plugin
+    assert dna is not None
+    assert dna.types["dna.DNASequence"].label_plural == "DNA sequences"
     weight = protein.fields["molecular_weight"]
     assert weight.type == "quantity"
     assert weight.unit == "u"
