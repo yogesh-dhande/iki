@@ -605,6 +605,10 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
     ),
     ("POST", "/collections/{ref}/freeze", dynamic_collection, editors(200)),
+    # How to write an app, and checking one, are for everyone signed in: a check saves
+    # nothing and reads only what the caller could.
+    ("GET", "/apps/guide", fixed("/apps/guide"), row(200)),
+    ("POST", "/apps/check", fixed("/apps/check", {"spec": {}}), row(200)),
     # Actions are listed to everyone signed in. Running on the backend tier takes Editor;
     # runs are read with their project, and cancelled by whoever may run them.
     ("GET", "/actions", fixed("/actions"), row(200)),

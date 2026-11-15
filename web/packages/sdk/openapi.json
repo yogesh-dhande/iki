@@ -370,6 +370,120 @@
         "title": "AlignmentViewerOut",
         "type": "object"
       },
+      "AppCheckIn": {
+        "properties": {
+          "spec": {
+            "description": "A spec, as an app's `spec` value would be.",
+            "title": "Spec"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "title": "AppCheckIn",
+        "type": "object"
+      },
+      "AppCheckOut": {
+        "properties": {
+          "problems": {
+            "description": "Everything saving it would refuse, each saying which panel and prop, or where it doesn't fit the schema. Empty if it would save.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Problems",
+            "type": "array"
+          }
+        },
+        "required": [
+          "problems"
+        ],
+        "title": "AppCheckOut",
+        "type": "object"
+      },
+      "AppComponentOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "description": "As a panel's `component` names it, such as iki.entities.",
+            "title": "Name",
+            "type": "string"
+          },
+          "offers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "What it offers later panels' expressions.",
+            "title": "Offers",
+            "type": "object"
+          },
+          "props": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each prop it takes, and what it is.",
+            "title": "Props",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "props",
+          "offers"
+        ],
+        "title": "AppComponentOut",
+        "type": "object"
+      },
+      "AppGuideOut": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/AppComponentOut"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "example": {
+            "additionalProperties": true,
+            "description": "A spec that saves.",
+            "title": "Example",
+            "type": "object"
+          },
+          "expressions": {
+            "description": "How expressions between {{ and }} work.",
+            "title": "Expressions",
+            "type": "string"
+          },
+          "grid": {
+            "title": "Grid",
+            "type": "string"
+          },
+          "spec_schema": {
+            "additionalProperties": true,
+            "description": "The JSON Schema its spec follows (app/v1).",
+            "title": "Spec Schema",
+            "type": "object"
+          },
+          "type": {
+            "description": "The entity type an app is: core.App.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "spec_schema",
+          "grid",
+          "components",
+          "expressions",
+          "example"
+        ],
+        "title": "AppGuideOut",
+        "type": "object"
+      },
       "ApprovalCan": {
         "properties": {
           "decide": {
@@ -12427,6 +12541,78 @@
         "summary": "Run an action on each of several entities",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/api/v1/apps/check": {
+      "post": {
+        "description": "Everything wrong with a spec, checked as you, as saving it would be: its schema,\nits panels' searches and entities, and its expressions. Nothing is saved.",
+        "operationId": "iki_server_api_apps_check_app",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppCheckIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppCheckOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check an app's spec",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/guide": {
+      "get": {
+        "description": "The spec's schema, Iki's components (what each takes and offers), how expressions\nwork, and an example.",
+        "operationId": "iki_server_api_apps_app_guide",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppGuideOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How to write an app",
+        "tags": [
+          "apps"
         ]
       }
     },

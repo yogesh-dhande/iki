@@ -207,3 +207,37 @@ def test_an_edit_checks_the_new_spec(world: World) -> None:
     assert problems(moved) == [
         "Panel `summary`, `text`: `proteins` isn’t a panel before it.",
     ]
+
+
+def test_how_to_write_one_and_its_example_saves(world: World) -> None:
+    api = api_as(world, "viewer")
+    guide = api.get("/apps/guide").json()
+    assert {c["name"]: set(c["offers"]) for c in guide["components"]} == {
+        "iki.entities": {"rows", "selection"},
+        "iki.viewer": {"entity"},
+        "iki.text": set(),
+    }
+    assert "{{" in guide["expressions"]
+    made = app(api_as(world), world.project, *guide["example"]["panels"])
+    assert made.status_code == 201, made.content
+
+
+def test_checking_one_says_every_problem_and_saves_nothing(world: World) -> None:
+    api = api_as(world, "viewer")
+    spec = {
+        "version": 2,
+        "panels": [{**GRID, "width": 0}, {**TEXT, "component": "iki.script"}],
+    }
+    assert api.post("/apps/check", {"spec": spec}).json()["problems"] == [
+        "At `panels.0.width`: 0 is less than the minimum of 1.",
+        "At `panels.1.component`: 'iki.script' is not one of "
+        "['iki.entities', 'iki.viewer', 'iki.text'].",
+        "At `version`: 1 was expected.",
+    ]
+    spec = {"version": 1, "panels": [TEXT, GRID]}
+    assert api.post("/apps/check", {"spec": spec}).json()["problems"] == [
+        "Panel `summary`, `text`: `proteins` isn’t a panel before it."
+    ]
+    spec = {"version": 1, "panels": [GRID, VIEWER, TEXT]}
+    assert api.post("/apps/check", {"spec": spec}).json() == {"problems": []}
+    assert not api.get("/entities", params={"type": "core.App"}).json().get("items")

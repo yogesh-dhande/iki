@@ -85,6 +85,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/apps/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check an app's spec
+         * @description Everything wrong with a spec, checked as you, as saving it would be: its schema,
+         *     its panels' searches and entities, and its expressions. Nothing is saved.
+         */
+        post: operations["iki_server_api_apps_check_app"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/guide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How to write an app
+         * @description The spec's schema, Iki's components (what each takes and offers), how expressions
+         *     work, and an example.
+         */
+        get: operations["iki_server_api_apps_app_guide"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/batches": {
         parameters: {
             query?: never;
@@ -2610,6 +2652,77 @@ export interface components {
              * @enum {string}
              */
             viewer: "alignment";
+        };
+        /** AppCheckIn */
+        AppCheckIn: {
+            /**
+             * Spec
+             * @description A spec, as an app's `spec` value would be.
+             */
+            spec: unknown;
+        };
+        /** AppCheckOut */
+        AppCheckOut: {
+            /**
+             * Problems
+             * @description Everything saving it would refuse, each saying which panel and prop, or where it doesn't fit the schema. Empty if it would save.
+             */
+            problems: string[];
+        };
+        /** AppComponentOut */
+        AppComponentOut: {
+            /** Description */
+            description: string;
+            /**
+             * Name
+             * @description As a panel's `component` names it, such as iki.entities.
+             */
+            name: string;
+            /**
+             * Offers
+             * @description What it offers later panels' expressions.
+             */
+            offers: {
+                [key: string]: string;
+            };
+            /**
+             * Props
+             * @description Each prop it takes, and what it is.
+             */
+            props: {
+                [key: string]: string;
+            };
+        };
+        /** AppGuideOut */
+        AppGuideOut: {
+            /** Components */
+            components: components["schemas"]["AppComponentOut"][];
+            /**
+             * Example
+             * @description A spec that saves.
+             */
+            example: {
+                [key: string]: unknown;
+            };
+            /**
+             * Expressions
+             * @description How expressions between {{ and }} work.
+             */
+            expressions: string;
+            /** Grid */
+            grid: string;
+            /**
+             * Spec Schema
+             * @description The JSON Schema its spec follows (app/v1).
+             */
+            spec_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Type
+             * @description The entity type an app is: core.App.
+             */
+            type: string;
         };
         /** ApprovalCan */
         ApprovalCan: {
@@ -8045,6 +8158,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunBatchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_check_app: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppCheckIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppCheckOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_app_guide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppGuideOut"];
                 };
             };
         };

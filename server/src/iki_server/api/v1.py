@@ -15,6 +15,7 @@ from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 
 from iki_server.api import (
+    apps,
     collections,
     components,
     compute,
@@ -61,6 +62,7 @@ for module in (
     projects,
     entities,
     collections,
+    apps,
     searches,
     runs,
     workflows,

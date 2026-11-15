@@ -395,6 +395,48 @@ def build() -> MCPServer:
             )
         )
 
+    @server.tool(annotations=READ, title="How to write an app")
+    async def describe_apps() -> CallToolResult:
+        """How to write an app (core.App): a page of Iki's own components, an entities
+        grid, a viewer and text, laid out on a grid and bound to each other by expressions.
+        Gives the spec's JSON Schema, each component's props and what it offers later
+        panels, how expressions work, and an example. Read it before check_app."""
+        return answer(await call("GET", "/apps/guide"))
+
+    @server.tool(annotations=READ, title="Check an app")
+    async def check_app(
+        spec: Annotated[
+            dict[str, Any], Field(description="The app's spec, as describe_apps says.")
+        ],
+    ) -> CallToolResult:
+        """Everything saving an app with this spec would refuse, checked as the person,
+        each saying which panel and prop. Nothing is saved. Put each problem right and
+        check again until there are none, then create_app."""
+        return answer(await call("POST", "/apps/check", body={"spec": spec}))
+
+    @server.tool(annotations=ADD, title="Create an app")
+    async def create_app(
+        project: Annotated[
+            UUID, Field(description="The project it belongs to. It needs the person as Editor.")
+        ],
+        name: Annotated[str, Field(max_length=200)],
+        spec: Annotated[
+            dict[str, Any], Field(description="Its spec, which check_app found no problems in.")
+        ],
+        description: Annotated[str, Field(max_length=10000)] = "",
+        reason: Annotated[str, Field(max_length=2000, description="Why, for its history.")] = "",
+    ) -> CallToolResult:
+        """A new app, and where the person can open it. It shows each person what they
+        may read, never more. To change one, update_entity its `spec` (each save is a
+        revision, checked the same way)."""
+        values: dict[str, Any] = {"name": name, "spec": spec}
+        if description:
+            values["description"] = description
+        body = {"type": "core.App", "project": str(project), "values": values, "reason": reason}
+        made = await call("POST", "/entities", body=body)
+        page = web_url(f"/entities/{made['hrid']}/")
+        return answer(made, note=f"Created {made['hrid']}. The person can open it at {page}")
+
     @server.tool(annotations=READ, title="List actions")
     async def list_actions(
         takes: Annotated[

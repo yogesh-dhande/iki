@@ -89,6 +89,12 @@ stops one that runs for longer than 50 ms.
 - iki-wasm grows from about 45 KB to about 1 MB (about 300 KB as sent),
   loaded once, when a page reads a file or shows an app.
 - The server image carries wasmtime, to run iki-wasm for its checks.
-- Apps open on their own pages to start with. Placing them as project
-  dashboards, entity tabs and grid panels, drafts, and the MCP tools that
-  build and preview them follow.
+- Agents write apps with three MCP tools over two endpoints:
+  `describe_apps` (`GET /apps/guide`: the schema, each component's props
+  and what it offers, how expressions work, and an example), `check_app`
+  (`POST /apps/check`: every problem saving would refuse, each with its
+  panel and prop, nothing saved) and `create_app`, which answers with the
+  page to open. Changing one is `update_entity`, checked the same way.
+- Apps open on their entities' pages to start with. Placing them as
+  project dashboards, entity tabs and grid panels, and drafts to preview
+  before saving, follow.

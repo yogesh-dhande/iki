@@ -877,6 +877,16 @@ def mcp(token: str) -> None:
         fail(f"MCP list_projects answered HTTP {called.status_code}: {called.text[:300]}")
     if "<iki-data-" not in result["content"][0]["text"]:
         fail("MCP answers aren't fenced as data")
+    # An app's spec, checked by iki-wasm in the web pod: the guide's example, then a typo.
+    said = {"Mcp-Session-Id": session}
+    guide = rpc("tools/call", {"name": "describe_apps", "arguments": {}}, **said).json()
+    example = guide["result"]["structuredContent"]["example"]
+    checked = []
+    for spec in (example, {**example, "panels": example["panels"][::-1]}):
+        answer = rpc("tools/call", {"name": "check_app", "arguments": {"spec": spec}}, **said)
+        checked.append(answer.json()["result"]["structuredContent"]["problems"])
+    if checked[0] or not any("isn’t a panel before it" in p for p in checked[1]):
+        fail(f"MCP check_app found {checked}")
     ok(
         "an agent signed in as alice reached the MCP server in a session of its own and saw "
         f"what the API shows: {names}"
@@ -1463,7 +1473,7 @@ def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     grid = {
         "id": "globins",
         "title": "Globins",
-        "width": 5,
+        "width": 6,
         "component": "iki.entities",
         "props": {
             "type": "protein.Protein",
@@ -1482,7 +1492,7 @@ def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     viewer = {
         "id": "picked",
         "title": "Picked",
-        "width": 7,
+        "width": 6,
         "component": "iki.viewer",
         "props": {"entity": "{{ globins.selection }}", "viewer": "sequence"},
     }

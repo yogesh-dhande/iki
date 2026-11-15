@@ -11,11 +11,12 @@ takes. This says the rest, run as the person saving, as they'd see the page:
 - Each expression reads (with iki-wasm, as browsers will), and reads only panels before
   its own, and only what they offer: a grid its ``rows`` and ``selection``, a viewer its
   ``entity``. A grid's column also reads its ``row``.
-
 - Its text and expressions are at most :data:`MAX_TEXT` characters in all, so checking
   them is quick however it's written.
 
-Each problem says which panel and prop.
+Each problem says which panel and prop. :func:`check` also says where a spec doesn't fit
+its schema, for agents checking one before saving it, and :func:`guide` describes the
+components for them.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db.models import Q
+from jsonschema import Draft202012Validator
 
 from iki_server import expressions
 from iki_server.accounts.models import User
@@ -43,6 +45,145 @@ ENTITY: tuple[str, ...] = ("id", "hrid", "type", "title", "revision", "values")
 COLUMNS: tuple[str, ...] = ("hrid", "title", "type", "created_at", "updated_at")
 #: The most characters an app's text and expressions may have in all.
 MAX_TEXT = 50_000
+#: The most schema problems :func:`check` lists: past the first few, they repeat.
+MAX_SCHEMA_PROBLEMS = 20
+
+
+@dataclass(frozen=True)
+class Component:
+    """One of Iki's components, as agents are told about it."""
+
+    description: str
+    #: Each prop, and what it is.
+    props: Mapping[str, str]
+    #: What it offers later panels, and what each is.
+    offers: Mapping[str, str]
+
+
+ENTITY_VALUE = (
+    "an entity: {id, hrid, type, title, revision, values}, `values` holding its fields by name"
+)
+
+COMPONENTS: Mapping[str, Component] = {
+    "iki.entities": Component(
+        "A grid of the entities a search finds, as the person viewing the app may read them.",
+        {
+            "type": "The entity type to search, such as protein.Protein (list_entity_types).",
+            "scope": "`project` (the default): only the app's project. `all`: every project "
+            "the person viewing it can read.",
+            "where": "Conditions on the type's fields, as search_entities takes them.",
+            "q": "Text in their HRID or title.",
+            "sort": "The field they're in order of.",
+            "descending": "Whether in reverse order.",
+            "limit": "How many it shows, 1 to 100 (25 if not given).",
+            "select": "How many people may pick: `none`, `one` (the default) or `many`.",
+            "columns": "After the ID, each column is {field} (one of the type's fields, or "
+            "hrid, title, type, created_at, updated_at) or {label, value}, value being text "
+            "with expressions that read `row`, the row's entity. Without columns, its title.",
+        },
+        {"rows": f"the rows it shows, each {ENTITY_VALUE}", "selection": "the rows picked"},
+    ),
+    "iki.viewer": Component(
+        "One of Iki's viewers (sequence, structure, alignment) on an entity, as its type "
+        "configures them.",
+        {
+            "entity": "An HRID, or one expression and nothing else whose value is an entity, "
+            "an HRID, or a list (its first is shown), such as `{{ proteins.selection }}`. "
+            "Until there's one, it says there's nothing to show yet.",
+            "viewer": "Which of the entity's viewers: sequence, structure or alignment. Its "
+            "type's first if not given.",
+        },
+        {"entity": f"the entity it shows, {ENTITY_VALUE}, or null"},
+    ),
+    "iki.text": Component(
+        "Text, with expressions in it. It's shown as written, line breaks and all: never as "
+        "HTML or Markdown.",
+        {"text": "The text, up to 10,000 characters."},
+        {},
+    ),
+}
+
+EXPRESSIONS = (
+    "Text props (a text's `text`, a column's `value`, a viewer's `entity`) can hold "
+    "expressions between {{ and }}, in Google's Common Expression Language (CEL): "
+    "`size(proteins.selection)`, `proteins.rows.filter(r, r.values.length > 300)`, "
+    "`row.values.name + ' (' + row.hrid + ')'`, `x > 0 ? 'yes' : 'no'`. An expression reads "
+    "only panels before its own, by their IDs, and what they offer; a column's also reads "
+    "`row`. In text, each value is written in: text as it is, numbers as written, yes or "
+    "no, a list's items with commas, an entity by its title. An expression is at most 1,000 "
+    "characters and nests at most 32 deep; an app's text and expressions are at most "
+    "50,000 characters in all."
+)
+
+
+def guide() -> dict[str, Any]:
+    """What agents need to write an app: its schema, the components, and expressions."""
+    schema = registry.types()["core.App"].fields["spec"].schema
+    return {
+        "type": "core.App",
+        "spec_schema": schema,
+        "grid": "Panels are laid out in order on a grid twelve columns wide: `width` is how "
+        "many each spans (12 if not given), and a panel that doesn't fit starts a new row. "
+        "On a phone, each is the whole width.",
+        "components": [
+            {"name": name, "description": c.description, "props": c.props, "offers": c.offers}
+            for name, c in COMPONENTS.items()
+        ],
+        "expressions": EXPRESSIONS,
+        "example": {
+            "version": 1,
+            "panels": [
+                {
+                    "id": "proteins",
+                    "title": "Proteins",
+                    "width": 6,
+                    "component": "iki.entities",
+                    "props": {
+                        "type": "protein.Protein",
+                        "sort": "name",
+                        "columns": [
+                            {"field": "name"},
+                            {"label": "Length", "value": "{{ size(row.values.sequence) }} aa"},
+                        ],
+                    },
+                },
+                {
+                    "id": "picked",
+                    "title": "Picked",
+                    "width": 6,
+                    "component": "iki.viewer",
+                    "props": {"entity": "{{ proteins.selection }}"},
+                },
+                {
+                    "id": "summary",
+                    "component": "iki.text",
+                    "props": {
+                        "text": "{{ size(proteins.selection) }} of "
+                        "{{ size(proteins.rows) }} picked."
+                    },
+                },
+            ],
+        },
+    }
+
+
+def check(user: User, spec: Any) -> list[str]:  # noqa: ANN401 - JSON
+    """Everything wrong with a spec, as saving it would say, but each schema problem on its
+    own with where it is. Nothing if it would save."""
+    schema = registry.types()["core.App"].fields["spec"].schema or {}
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(spec),
+        key=lambda e: [str(p) for p in e.absolute_path],
+    )
+    if errors:
+        out = []
+        for error in errors[:MAX_SCHEMA_PROBLEMS]:
+            where = ".".join(str(p) for p in error.absolute_path)
+            out.append(f"At `{where}`: {error.message}." if where else f"{error.message}.")
+        if len(errors) > MAX_SCHEMA_PROBLEMS:
+            out.append(f"And {len(errors) - MAX_SCHEMA_PROBLEMS} more.")
+        return out
+    return problems(user, spec)
 
 
 @dataclass(frozen=True)

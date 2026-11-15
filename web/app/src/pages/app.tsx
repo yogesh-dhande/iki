@@ -255,7 +255,7 @@ function EntitiesPanel({
           <thead>
             <tr>
               {select === "none" ? null : (
-                <th scope="col">
+                <th scope="col" className="app-pick">
                   <span className="visually-hidden">Pick</span>
                 </th>
               )}
@@ -271,9 +271,10 @@ function EntitiesPanel({
             {items.map((e, row) => (
               <tr key={e.id}>
                 {select === "none" ? null : (
-                  <td>
+                  <td className="app-pick">
                     <input
                       type={select === "one" ? "radio" : "checkbox"}
+                      className="grid-tick"
                       name={`app-${panel.id}`}
                       aria-label={`Pick ${e.title}`}
                       checked={picked.has(e.hrid)}

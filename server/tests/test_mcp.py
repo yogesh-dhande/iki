@@ -155,6 +155,9 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "create_entity",
         "update_entity",
         "set_entity_archived",
+        "describe_apps",
+        "check_app",
+        "create_app",
         "list_actions",
         "describe_action",
         "list_runs",
@@ -174,6 +177,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "rerun_workflow_run",
     ]
     writes = {
+        "create_app",
         "create_entity",
         "update_entity",
         "set_entity_archived",
@@ -353,6 +357,51 @@ async def test_tools_see_only_what_the_grant_allows(world: World) -> None:
     assert "(404" in error(await tool(token, "get_entity", ref=secret["hrid"]))
     projects = data(await tool(token, "list_projects", member=True))
     assert other.name not in {p["name"] for p in projects["items"]}
+
+
+# --- Apps ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.wasm
+async def test_agents_write_an_app_check_it_and_create_it(world: World) -> None:
+    token = await token_for(world)
+    guide = data(await tool(token, "describe_apps"))
+    assert [c["name"] for c in guide["components"]] == ["iki.entities", "iki.viewer", "iki.text"]
+    assert guide["spec_schema"]["properties"]["version"] == {"const": 1}
+    # Its example is one that checks.
+    assert data(await tool(token, "check_app", spec=guide["example"])) == {"problems": []}
+
+    grid = {
+        "id": "proteins",
+        "component": "iki.entities",
+        "width": 13,
+        "props": {"type": "protein.Protein"},
+    }
+    text: dict[str, Any] = {
+        "id": "summary",
+        "component": "iki.text",
+        "props": {"text": "{{ proteins.picked }}"},
+    }
+    found = data(await tool(token, "check_app", spec={"version": 1, "panels": [grid, text]}))
+    assert found["problems"] == ["At `panels.0.width`: 13 is greater than the maximum of 12."]
+    grid["width"] = 6
+    found = data(await tool(token, "check_app", spec={"version": 1, "panels": [grid, text]}))
+    assert found["problems"] == [
+        "Panel `summary`, `text`: `proteins` offers `rows` and `selection`, not `picked`."
+    ]
+    text["props"]["text"] = "{{ size(proteins.selection) }} picked"
+    spec = {"version": 1, "panels": [grid, text]}
+    assert data(await tool(token, "check_app", spec=spec)) == {"problems": []}
+
+    result = await tool(
+        token, "create_app", project=str(world.project.pk), name="Proteins", spec=spec
+    )
+    made = data(result)
+    assert made["hrid"].startswith("APP-")
+    assert note(result) == (
+        f"Created {made['hrid']}. The person can open it at "
+        f"https://testserver/entities/{made['hrid']}/"
+    )
 
 
 # --- Writing ------------------------------------------------------------------------------------

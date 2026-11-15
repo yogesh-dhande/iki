@@ -2403,8 +2403,16 @@ input[type="file"]::file-selector-button {
 .app-entities {
   width: 100%;
 }
-.app-entities td:nth-child(-n + 2) {
+/* Each cell on one line, as in Grafana's tables: a grid wider than its panel scrolls. */
+.app-entities th,
+.app-entities td {
+  padding: 0.5rem 0.65rem;
   white-space: nowrap;
+  vertical-align: middle;
+}
+.app-entities .app-pick {
+  width: 1%;
+  padding-right: 0.25rem;
 }
 .app-entities tr:has(> td > input:checked) {
   background: var(--surface-2);
