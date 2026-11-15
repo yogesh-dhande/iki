@@ -440,7 +440,10 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
             params={{ ref: entity.hrid, app: app.hrid }}
             activeProps={tab}
           >
-            {app.name}
+            {/* Two apps of one name are told apart by their IDs. */}
+            {apps.filter((a) => a.name === app.name).length > 1
+              ? `${app.name} (${app.hrid})`
+              : app.name}
           </Link>
         ))}
       </nav>

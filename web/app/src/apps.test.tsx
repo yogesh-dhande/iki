@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Offers, Rendered } from "./apps";
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
-import { answer, calls } from "./test-server";
+import { answer, calls, respond } from "./test-server";
 
 vi.mock("./apps", async (original) => {
   const real = await original<typeof import("./apps")>();
@@ -300,5 +300,62 @@ describe("an app about an entity", () => {
     });
     const search = calls("POST", "/api/v1/entities/search")[1]?.body as Record<string, unknown>;
     expect(search["where"]).toEqual({ field: "name", op: "eq", value: "pOther" });
+  });
+});
+
+describe("an app's grid, when it can't search", () => {
+  it("shows nothing while a condition's value is empty", async () => {
+    onTypes();
+    const unnamed = { ...PTEST, values: { ...PTEST.values, name: null } };
+    answer("GET /api/v1/entities/DNA-000001", unnamed);
+    answer("GET /api/v1/entities/DNA-000001/apps", [
+      { id: about([]).id, hrid: "APP-000001", name: "Plasmid QC" },
+    ]);
+    answer("GET /api/v1/entities/APP-000001", about([OTHERS]));
+    await renderApp("/entities/DNA-000001/apps/APP-000001/");
+    const others = await screen.findByRole("region", { name: "Others" });
+    expect(
+      await within(others).findByText("Nothing to show yet: a condition’s value is empty."),
+    ).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/entities/search")).toHaveLength(0);
+  });
+
+  it("says where in its props each problem is", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/APP-000001", app([GRID]));
+    answer(
+      "POST /api/v1/entities/search",
+      respond(422, {
+        type: "about:blank",
+        title: "Unprocessable",
+        status: 422,
+        detail: "Some fields are invalid.",
+        code: "validation_failed",
+        errors: [{ pointer: "#/where/all/0/value", detail: "must be some text." }],
+      }),
+    );
+    await renderApp("/entities/APP-000001/");
+    const grid = await screen.findByRole("region", { name: "Plasmids" });
+    const alert = await within(grid).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Some fields are invalid.where.all.0.value: must be some text.",
+    );
+  });
+});
+
+describe("an entity's apps", () => {
+  it("are told apart by their IDs when they share a name", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/DNA-000001", PTEST);
+    answer("GET /api/v1/entities/DNA-000001/apps", [
+      { id: "a", hrid: "APP-000001", name: "QC" },
+      { id: "b", hrid: "APP-000002", name: "QC" },
+      { id: "c", hrid: "APP-000003", name: "Maps" },
+    ]);
+    await renderApp("/entities/DNA-000001/");
+    const tabs = screen.getByRole("navigation", { name: "Entity" });
+    expect(await within(tabs).findByRole("link", { name: "QC (APP-000001)" })).toBeInTheDocument();
+    expect(within(tabs).getByRole("link", { name: "QC (APP-000002)" })).toBeInTheDocument();
+    expect(within(tabs).getByRole("link", { name: "Maps" })).toBeInTheDocument();
   });
 });

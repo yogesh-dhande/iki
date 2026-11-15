@@ -5,7 +5,7 @@
  * What expressions make is shown as text, never as HTML.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
@@ -231,7 +231,11 @@ function EntitiesPanel({
   const conditions = useRendered(conditionTemplates(entities.where), before);
   const values = conditions.values?.map((v) => v[0]);
   const unworked =
-    conditions.error ?? values?.flatMap((v) => (v && "error" in v ? [v.error] : []))[0];
+    conditions.error ??
+    values?.flatMap((v) => (v && "error" in v ? [v.error] : []))[0] ??
+    (values?.some((v) => !v || ("value" in v && (v.value === null || v.value === undefined)))
+      ? "a condition’s value is empty."
+      : undefined);
   const where = (
     values && unworked === undefined
       ? fillConditions(
@@ -275,7 +279,7 @@ function EntitiesPanel({
   if (unworked !== undefined) {
     return <p className="muted">Nothing to show yet: {unworked}</p>;
   }
-  if (found.isError) return <ProblemAlert problem={problemOf(found.error)} />;
+  if (found.isError) return <SearchProblem problem={problemOf(found.error)} />;
   if (!items) return <Loading label="Finding them…" />;
   if (items.length === 0) return <p className="muted">There are none to show.</p>;
   const select = entities.select ?? "one";
@@ -356,6 +360,32 @@ function EntitiesPanel({
         </table>
       </div>
     </>
+  );
+}
+
+/** Why a grid's search was refused. A panel has no fields to highlight, so each error
+ * says where in its props it is, as the server's checks do. */
+function SearchProblem({ problem }: { problem: Problem }) {
+  if (!problem.errors?.length) return <ProblemAlert problem={problem} />;
+  return (
+    <div className="alert alert-error" role="alert">
+      <p>{problem.detail}</p>
+      <ul>
+        {problem.errors.map((e, i) => {
+          const where = (e.pointer ?? e.parameter ?? "").replace(/^#\//, "").replaceAll("/", ".");
+          return (
+            <li key={i}>
+              {where ? (
+                <>
+                  <code>{where}</code>:{" "}
+                </>
+              ) : null}
+              {e.detail}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

@@ -427,9 +427,10 @@ def api_call(
     method: str,
     path: str,
     body: Any = None,  # noqa: ANN401
+    extra: dict[str, str] | None = None,
 ) -> requests.Response:
     """Calls /api/v1 like Iki's pages do: the session, plus the page's CSRF token."""
-    headers = {"Origin": IKI}
+    headers = {"Origin": IKI, **(extra or {})}
     if method != "GET":
         page = session.get(f"{IKI}/projects/")
         token = re.search(r'<meta name="csrf-token" content="([^"]+)"', page.text)
@@ -1468,6 +1469,30 @@ ALIGNMENT_TOOLS = (
 )
 
 
+def save_app(
+    alice: requests.Session, project: dict[str, Any], name: str, spec: dict[str, Any]
+) -> requests.Response:
+    """Saves the project's app of that name: a new revision of it if it's there, as
+    someone editing it would, so running the seed again doesn't add another."""
+    search = {
+        "type": "core.App",
+        "exact_type": False,
+        "project": project["id"],
+        "limit": 1,
+        "where": {"field": "name", "op": "eq", "value": name},
+    }
+    found = api_call(alice, "POST", "/entities/search", search).json().get("items", [])
+    if not found:
+        values = {"name": name, "spec": spec}
+        body = {"type": "core.App", "project": project["id"], "values": values}
+        return api_call(alice, "POST", "/entities", body)
+    hrid = found[0]["hrid"]
+    etag = api_call(alice, "GET", f"/entities/{hrid}").headers.get("ETag", "")
+    return api_call(
+        alice, "PATCH", f"/entities/{hrid}", {"values": {"spec": spec}}, {"If-Match": etag}
+    )
+
+
 def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     """An app (ADR 0090): a grid of the globins, the one picked in the sequence viewer, and
     a line of text, bound by expressions the server checks with iki-wasm in its pod."""
@@ -1506,9 +1531,7 @@ def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     }
 
     def save(*panels: dict[str, Any]) -> requests.Response:
-        values = {"name": "Globins", "spec": {"version": 1, "panels": list(panels)}}
-        body = {"type": "core.App", "project": project["id"], "values": values}
-        return api_call(alice, "POST", "/entities", body)
+        return save_app(alice, project, "Globins", {"version": 1, "panels": list(panels)})
 
     wrong = save(text, grid)
     details = (
@@ -1517,7 +1540,7 @@ def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     if not any("`globins` isn’t a panel before it" in d for d in details):
         fail(f"an app reading a later panel answered HTTP {wrong.status_code}: {wrong.text[:300]}")
     made = save(grid, viewer, text)
-    if made.status_code != 201:
+    if made.status_code not in (200, 201):
         fail(f"saving an app answered HTTP {made.status_code}: {made.text[:300]}")
     ok(f"{made.json()['hrid']}: an app of three panels, its expressions checked by iki-wasm")
 
@@ -1564,10 +1587,8 @@ def relatives_app(alice: requests.Session, project: dict[str, Any]) -> None:
             },
         ],
     }
-    values = {"name": "Relatives", "spec": spec}
-    body = {"type": "core.App", "project": project["id"], "values": values}
-    made = api_call(alice, "POST", "/entities", body)
-    if made.status_code != 201:
+    made = save_app(alice, project, "Relatives", spec)
+    if made.status_code not in (200, 201):
         fail(f"saving an app about a protein answered HTTP {made.status_code}: {made.text[:300]}")
     search = {
         "type": "protein.Protein",
