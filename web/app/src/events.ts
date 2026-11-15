@@ -75,7 +75,8 @@ export function useLiveUpdates(enabled: boolean): void {
         setUnread(parse(event));
         void refreshInbox();
       });
-      stream.addEventListener("resync", () => {
+      stream.addEventListener("resync", (event: MessageEvent<string>) => {
+        setUnread(parse(event));
         void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS });
       });
       stream.addEventListener("signed_out", () => {

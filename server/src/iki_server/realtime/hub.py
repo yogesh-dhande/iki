@@ -54,6 +54,8 @@ class Hub:
     #: Set while LISTEN is active (tests wait for it).
     listening: asyncio.Event = field(default_factory=asyncio.Event)
     _listener: asyncio.Task[None] | None = None
+    #: Set when a stream stopped waiting for LISTEN: it may have missed events.
+    _gave_up: bool = False
 
     #: Open streams per person, whatever they follow.
     people: dict[str, int] = field(default_factory=lambda: defaultdict(int))
@@ -66,6 +68,20 @@ class Hub:
         if self._listener is None or self._listener.done():
             self._listener = asyncio.get_running_loop().create_task(self._listen())
         return stream
+
+    async def caught_up(self, within: float = 5.0) -> bool:
+        """Wait until LISTEN is active, so nothing sent from now on is missed. A stream's
+        first answer (its ``ready``, and what the page reads after it) must come after this:
+        a NOTIFY reaches only connections already listening. Gives up after `within`
+        seconds, as when the database is away; the ``resync`` sent once it listens again
+        tells pages to read afresh."""
+        if self.listening.is_set():
+            return True
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self.listening.wait(), within)
+        if not self.listening.is_set():
+            self._gave_up = True
+        return self.listening.is_set()
 
     def unsubscribe(self, stream: Stream) -> None:
         following = self.streams.get(stream.topic)
@@ -107,8 +123,11 @@ class Hub:
                     await conn.execute(f"LISTEN {CHANNEL}")
                     self.listening.set()
                     delay = 1.0
-                    if connected_before:
+                    # Streams may have missed events while it wasn't listening (after a
+                    # lost connection, or a stream that gave up waiting): they read afresh.
+                    if connected_before or self._gave_up:
                         self.broadcast("resync")
+                    self._gave_up = False
                     connected_before = True
                     logger.info("realtime_listening")
                     async for notify in conn.notifies():

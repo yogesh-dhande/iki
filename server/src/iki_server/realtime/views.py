@@ -168,8 +168,15 @@ async def events(request: HttpRequest) -> HttpResponseBase:
         user, still_valid, streams = await _open(request)
     except Problem as problem:
         return response(problem)
-    unread = await db(_unread, user)
+    # Following first, then the count, once nothing more can be missed: a notification
+    # sent between the two is then in the count, or comes as an event, or both.
     stream = streams.subscribe(user.pk)
+    try:
+        await streams.caught_up()
+        unread = await db(_unread, user)
+    except BaseException:
+        streams.unsubscribe(stream)
+        raise
     ready = sse("ready", {"unread": unread})
     return _streaming(_run(streams, stream, user, still_valid, ready, _prepare))
 
@@ -363,6 +370,8 @@ async def _run(
     # session, say), so give its connection back to the pool before streaming for minutes.
     await db(_nothing)
     try:
+        # The page reads what it shows once it's ready: by then, nothing is missed.
+        await streams.caught_up()
         yield f"retry: {RETRY_MS}\n\n".encode() + ready
         next_check = loop.time() + HEARTBEAT
         while True:
@@ -411,8 +420,7 @@ async def _prepare(user: User, item: dict[str, Any]) -> bytes | None:
         if not await db(_visible, user, notification_id):
             return None
         return sse(event, {"id": notification_id, "unread": await db(_unread, user)})
-    if event == "notifications_read":
+    if event in ("notifications_read", "resync"):
+        # A resync may follow events that were missed: the count is read afresh too.
         return sse(event, {"unread": await db(_unread, user)})
-    if event == "resync":
-        return sse(event, {})
     return None

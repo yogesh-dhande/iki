@@ -124,6 +124,48 @@ async def test_the_stream_starts_with_the_unread_count_then_says_what_arrives(
     assert hub().count() == 0
 
 
+async def test_a_stream_is_ready_only_once_nothing_more_can_be_missed(world: World) -> None:
+    """A NOTIFY reaches only connections already listening: the count, and the page's read
+    after it, come once the hub listens, so a notification sent then isn't lost."""
+    assert not hub().listening.is_set()  # each test's loop has a hub of its own
+    viewer = world.users["viewer"]
+    client = await signed_in(viewer)
+
+    response = await client.get("/api/v1/events", secure=True)
+    events = Events(response)
+    try:
+        assert await events.next() == ("ready", {"unread": 0})
+        assert hub().listening.is_set()
+        sent = await notify(viewer, "Straight after")
+        assert await events.next() == ("notification", {"id": sent, "unread": 1})
+    finally:
+        await events.close()
+
+
+async def test_a_stream_that_gave_up_waiting_is_told_to_resync(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the database is slow to listen, the stream starts anyway and reads afresh once
+    it does: a notification sent meanwhile is in the count it's given then."""
+    assert not hub().listening.is_set()
+    real = hub_module.Hub.caught_up
+
+    async def impatient(self: hub_module.Hub, within: float = 5.0) -> bool:
+        return await real(self, 0)
+
+    monkeypatch.setattr(hub_module.Hub, "caught_up", impatient)
+    viewer = world.users["viewer"]
+    client = await signed_in(viewer)
+
+    response = await client.get("/api/v1/events", secure=True)
+    events = Events(response)
+    try:
+        assert await events.next() == ("ready", {"unread": 0})
+        assert await events.next(timeout=10) == ("resync", {"unread": 0})
+    finally:
+        await events.close()
+
+
 async def test_streams_only_hear_about_their_own_person(world: World) -> None:
     viewer, editor = world.users["viewer"], world.users["editor"]
     events = await open_stream(await signed_in(viewer))
@@ -235,7 +277,7 @@ async def test_streams_resync_after_the_hub_loses_its_connection(world: World) -
 
         await sync_to_async(drop_listener)()
         # Events may have been missed while it was away: the page refetches.
-        assert await events.next(timeout=10) == ("resync", {})
+        assert await events.next(timeout=10) == ("resync", {"unread": 0})
     finally:
         await events.close()
 
