@@ -8,7 +8,9 @@ description: >-
   does with its defaults: BLOSUM62, a gap opening penalty of 10 and an
   extension penalty of 0.5, with gaps at the ends free in a global alignment.
   The run keeps the alignment, in EMBOSS's pair format and as aligned FASTA,
-  and records its score, identity, similarity and gaps.
+  and records its score, identity, similarity and gaps. The FASTA is also an
+  alignment of the two in Iki, the target its reference, for the alignment
+  viewer.
 inputs:
   query: { type: Protein, schema: ">=1" }
   target: { type: Protein, schema: ">=1" }
@@ -35,7 +37,8 @@ params:
     min: 0
     max: 10
     default: 0.5
-effects: {}
+effects:
+  creates: [{ type: core.Alignment, derived_from: [query, target] }]
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/align.py]
 deterministic: true

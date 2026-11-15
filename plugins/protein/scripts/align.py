@@ -6,9 +6,11 @@ penalty plus n - 1 extension penalties, as in EMBOSS. In a global alignment, gap
 either end are free, as in needle's defaults.
 
 It keeps the alignment as artifacts (ADR 0068): `alignment.txt`, in EMBOSS's pair
-format, and `alignment.fasta`, aligned, gaps as `-`. Its metrics are the score, the
-alignment's length, and its identity, similarity and gaps as percentages of that length,
-as EMBOSS reports them.
+format, and `alignment.fasta`, aligned, gaps as `-`, each record headed by its protein's
+HRID. That file is also a `core.Alignment` it creates (ADR 0088), of the two proteins,
+the target its reference, so Iki's alignment viewer shows it and lineage leads back to
+both. Its metrics are the score, the alignment's length, and its identity, similarity
+and gaps as percentages of that length, as EMBOSS reports them.
 """
 
 from __future__ import annotations
@@ -147,14 +149,37 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     print(
         f"{names[0]} vs {names[1]}: score {best.score:.1f}, {percent(identical, length)}% identical"
     )
+    titles = [e["values"].get("name") or e["hrid"] for e in (query, target)]
     return {
+        "creates": [
+            {
+                "type": "core.Alignment",
+                "values": {
+                    "name": f"{titles[0]} and {titles[1]}"[:200],
+                    "description": (
+                        f"{percent(identical, length)}% identical and "
+                        f"{percent(similar, length)}% similar over {length} columns, "
+                        f"scoring {best.score:.1f}."
+                    ),
+                    "reference": target["id"],
+                    "members": [query["id"], target["id"]],
+                    "aligned": {"$file": "alignment.fasta", "media_type": "chemical/seq-aa-fasta"},
+                    "method": (
+                        f"Biopython PairwiseAligner, {mode} as EMBOSS "
+                        f"{'needle' if mode == 'global' else 'water'}: {matrix}, gap opening "
+                        f"{gap_open:g}, extension {gap_extend:g}"
+                    ),
+                },
+                "derived_from": [query["id"], target["id"]],
+            }
+        ],
         "metrics": {
             "score": round(best.score, 1),
             "length": length,
             "identity_percent": percent(identical, length),
             "similarity_percent": percent(similar, length),
             "gaps_percent": percent(gaps, length),
-        }
+        },
     }
 
 

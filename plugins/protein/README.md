@@ -66,8 +66,11 @@ plugin's own image, which Iki's publish workflow builds from
   alignment's length, and its identity, similarity and gaps as percentages of
   it, and keeps the alignment as two artifacts
   ([ADR 0068](../../docs/adr/0068-runs-keep-artifacts-for-a-while.md)):
-  `alignment.txt` in EMBOSS's pair format, and `alignment.fasta`. Up to 100
-  million cells (10,000 residues by 10,000).
+  `alignment.txt` in EMBOSS's pair format, and `alignment.fasta`. The FASTA
+  is also a `core.Alignment` of the two, the target its reference, which
+  Iki's alignment viewer shows
+  ([ADR 0088](../../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
+  Up to 100 million cells (10,000 residues by 10,000).
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 

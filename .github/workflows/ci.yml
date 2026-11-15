@@ -315,6 +315,9 @@ jobs:
           - image: iki-protein-structure-tools
             plugin: plugins/protein
             dir: plugins/protein/images/structure-tools
+          - image: iki-protein-alignment-tools
+            plugin: plugins/protein
+            dir: plugins/protein/images/alignment-tools
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

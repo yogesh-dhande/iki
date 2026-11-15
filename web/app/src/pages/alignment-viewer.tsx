@@ -372,7 +372,7 @@ function AlignmentGrid({
   useLayoutEffect(() => {
     if (opened.current || !position || !scroll.width) return;
     opened.current = true;
-    reveal(cursor);
+    reveal(cursor, true);
     // Only once, when the viewer has its size.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scroll.width]);
@@ -404,12 +404,14 @@ function AlignmentGrid({
     });
   }, [alignment, rows, pinned, scroll, cursor, colouring, differences, reference, scheme]);
 
-  function reveal(at: { row: number; column: number }) {
+  /** Scrolls `at` into view: just into it as the cursor moves, or to the middle on a jump. */
+  function reveal(at: { row: number; column: number }, centre = false) {
     const el = region.current;
     if (!el) return;
     const x = at.column * CELL;
     const across = el.clientWidth - LABELS;
-    if (x < el.scrollLeft) el.scrollLeft = x;
+    if (centre) el.scrollLeft = Math.max(x - across / 2, 0);
+    else if (x < el.scrollLeft) el.scrollLeft = x;
     else if (x + CELL > el.scrollLeft + across) el.scrollLeft = x + CELL - across;
     if (at.row < pinned) return;
     const y = (at.row - pinned) * ROW;
@@ -418,9 +420,9 @@ function AlignmentGrid({
     else if (y + ROW > el.scrollTop + down) el.scrollTop = y + ROW - down;
   }
 
-  function moveTo(at: { row: number; column: number }) {
+  function moveTo(at: { row: number; column: number }, centre = false) {
     setCursor(at);
-    reveal(at);
+    reveal(at, centre);
   }
 
   function keyed(event: KeyboardEvent<HTMLDivElement>) {
@@ -508,9 +510,11 @@ function AlignmentGrid({
           onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
-            const column = Number(data.get("column"));
+            const column = Number(
+              (data.get("column") as string | null) ?? "".replaceAll(/[\s,]/g, ""),
+            );
             if (!Number.isInteger(column) || column < 1 || column > length) return;
-            moveTo({ row: cursor.row, column: column - 1 });
+            moveTo({ row: cursor.row, column: column - 1 }, true);
             region.current?.focus();
           }}
         >
@@ -518,10 +522,10 @@ function AlignmentGrid({
           <input
             id={`${ids}-column`}
             name="column"
-            type="number"
-            min={1}
-            max={length}
+            type="text"
             inputMode="numeric"
+            autoComplete="off"
+            spellCheck={false}
           />
           <button type="submit" className={buttonClass("quiet")}>
             Go

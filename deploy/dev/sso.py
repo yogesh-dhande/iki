@@ -1266,6 +1266,21 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         ("alignment.txt", "kept"),
     ]:
         fail(f"{run['hrid']} kept {kept}, not its alignment")
+    # The FASTA is also an alignment of the two in Iki (ADR 0088), the target its reference.
+    made = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in made] != ["core.Alignment"]:
+        fail(f"{run['hrid']} created {made}, not one core.Alignment")
+    alignment = api_call(alice, "GET", f"/entities/{made[0]['hrid']}").json()
+    values = alignment["values"]
+    if (
+        values["members"] != [chains[0]["id"], chains[1]["id"]]
+        or values["reference"] != chains[1]["id"]
+    ):
+        fail(f"{made[0]['hrid']} aligns {values['members']} to {values['reference']}")
+    fasta = next(k for k in kept if k["path"] == "alignment.fasta")
+    stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
+    if stored["sha256"] != fasta["sha256"]:
+        fail(f"{made[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
     text = next(k for k in kept if k["path"] == "alignment.txt")
     got = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts/{text['id']}/content")
     if got.status_code != 200 or hashlib.sha256(got.content).hexdigest() != text["sha256"]:
@@ -1275,7 +1290,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(
         f"protein.align_pair aligned haemoglobin's chains ({run['hrid']}): "
         f"{metrics['identity_percent']}% identical, kept {len(kept)} artifacts "
-        f"until {text['expires_at'][:10]}"
+        f"until {text['expires_at'][:10]}, and made {made[0]['hrid']} of the two"
     )
 
 

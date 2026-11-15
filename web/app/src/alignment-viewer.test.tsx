@@ -167,7 +167,7 @@ describe("the alignment viewer", () => {
     await onAlignment();
     await renderApp("/entities/ALN-000001/viewers/alignment/");
     await screen.findByRole("application");
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Go to column" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Go to column" }), {
       target: { value: "4" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Go" }));

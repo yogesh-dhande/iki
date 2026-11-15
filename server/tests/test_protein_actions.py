@@ -106,6 +106,22 @@ def test_aligns_two_proteins_as_needle_and_keeps_the_alignment(tmp_path: Path) -
     rows = ["".join(record.splitlines()[1:]) for record in fasta]
     assert [r.replace("-", "") for r in rows] == [HBA, HBB]
     assert len(rows[0]) == len(rows[1]) == 149
+    # The FASTA is an alignment of the two in Iki, each row headed by its HRID.
+    assert [record.split("\n", 1)[0] for record in fasta] == ["X-1", "X-2"]
+    (alignment,) = output["creates"]
+    assert alignment == {
+        "type": "core.Alignment",
+        "values": {
+            "name": "HBA_HUMAN and HBB_HUMAN",
+            "description": "43.6% identical and 60.4% similar over 149 columns, scoring 292.5.",
+            "reference": entity(2)["id"],
+            "members": [entity(1)["id"], entity(2)["id"]],
+            "aligned": {"$file": "alignment.fasta", "media_type": "chemical/seq-aa-fasta"},
+            "method": "Biopython PairwiseAligner, global as EMBOSS needle: BLOSUM62, gap opening "
+            "10, extension 0.5",
+        },
+        "derived_from": [entity(1)["id"], entity(2)["id"]],
+    }
 
 
 def test_end_gaps_are_free_globally_and_local_finds_the_best_part(tmp_path: Path) -> None:

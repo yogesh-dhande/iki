@@ -840,6 +840,10 @@ input:focus-visible {
   gap: 0.5rem;
 }
 
+.alignment-go label {
+  margin: 0;
+}
+
 .alignment-go input {
   width: 7rem;
 }
@@ -919,8 +923,13 @@ input:focus-visible {
   line-height: 1;
 }
 
-.alignment-label > span,
+/* The HRID whole, and the title in what room is left. */
 .alignment-label > a {
+  flex: none;
+}
+
+.alignment-label > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
