@@ -541,7 +541,13 @@ describe("a run's page", () => {
         state: "deleted",
         deleted_at: "2026-06-12T10:17:00Z",
       }),
-      artifact(),
+      artifact({ expires_at: "2099-06-12T10:17:00Z" }),
+      artifact({
+        id: "00000000-0000-7000-8000-0000000000a2",
+        path: "pae.json",
+        name: "pae.json",
+        expires_at: "2026-06-12T10:17:00Z",
+      }),
     ]);
     await renderApp("/runs/RUN-000001/");
     const card = await screen.findByRole("region", { name: "Artifacts" });
@@ -551,14 +557,16 @@ describe("a run's page", () => {
       "/api/v1/runs/RUN-000001/artifacts/00000000-0000-7000-8000-0000000000a1/content",
     );
     expect(kept).toHaveAttribute("download", "alignment.txt");
-    const [, deleted, rest] = within(card).getAllByRole("row");
-    if (!deleted || !rest) throw new Error("Not two artifacts");
+    const [, deleted, rest, held] = within(card).getAllByRole("row");
+    if (!deleted || !rest || !held) throw new Error("Not three artifacts");
+    // Past its retention but not deleted: the organization keeps it, as a legal hold does.
+    expect(held).toHaveTextContent("Kept past its retention");
     const rows = [undefined, deleted, rest];
     expect(rows[1]).toHaveTextContent("msas/uniref90.a3m");
     expect(rows[1]).toHaveTextContent("Deleted 12 Jun 2026, its retention over");
     expect(within(deleted).queryByRole("link")).toBeNull();
     expect(rows[2]).toHaveTextContent("2.0 KiB");
-    expect(rows[2]).toHaveTextContent("Until 12 Jun 2026");
+    expect(rows[2]).toHaveTextContent("Until 12 Jun 2099");
     expect(rows[2]).toHaveTextContent("SHA-256 9f86d081884c…");
     // One attempt: no column for it.
     expect(within(card).queryByRole("columnheader", { name: "Attempt" })).toBeNull();

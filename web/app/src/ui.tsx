@@ -626,7 +626,7 @@ const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 ];
 
 /** The time now, updated each minute, so "5 minutes ago" stays true. */
-function useNow(): number {
+export function useNow(): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => {

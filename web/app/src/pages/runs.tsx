@@ -55,6 +55,7 @@ import {
   TextField,
   Time,
   useMessages,
+  useNow,
 } from "../ui";
 import { useProject } from "./project-overview";
 
@@ -1470,6 +1471,7 @@ function RunArtifacts({ runRef, artifacts }: { runRef: string; artifacts: Artifa
 }
 
 function ArtifactKept({ artifact }: { artifact: Artifact }) {
+  const now = useNow();
   if (artifact.state === "deleted" && artifact.deleted_at) {
     return (
       <span className="muted">
@@ -1479,6 +1481,8 @@ function ArtifactKept({ artifact }: { artifact: Artifact }) {
   }
   if (artifact.state === "uploading") return <span className="muted">Uploading…</span>;
   if (artifact.state === "failed") return <span className="muted">Didn’t finish uploading</span>;
+  // The organization may keep it longer, as a legal hold does (ADR 0092).
+  if (Date.parse(artifact.expires_at) <= now) return <>Kept past its retention</>;
   return (
     <>
       Until <Time value={artifact.expires_at} />

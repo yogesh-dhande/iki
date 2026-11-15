@@ -6176,7 +6176,7 @@ export interface components {
             /**
              * Expires At
              * Format: date-time
-             * @description When its retention ends, and it's deleted.
+             * @description When its retention ends, and it's deleted. It may be kept longer, if the organization must keep it.
              */
             expires_at: string;
             /**

@@ -121,3 +121,4 @@ supersedes the old one, and update the old one's status.
 | [0089](0089-a-param-can-take-several-files.md)                                       | A param can take several files                                                                      | Accepted |
 | [0090](0090-apps-are-compositions-of-ikis-components.md)                             | Apps are compositions of Iki's components                                                           | Accepted |
 | [0091](0091-a-detached-plugins-data-is-kept-and-frozen.md)                           | A detached plugin's data is kept and frozen                                                         | Accepted |
+| [0092](0092-purging-a-detached-plugin-under-legal-holds.md)                          | Purging a detached plugin, under legal holds                                                        | Accepted |

@@ -24,7 +24,7 @@
       <a href="{% url 'org:project_list' %}"{% if request.resolver_match.url_name|slice:":7" == "project" %} aria-current="page"{% endif %}>Projects</a>
       <a href="{% url 'org:team_list' %}"{% if request.resolver_match.url_name|slice:":4" == "team" %} aria-current="page"{% endif %}>Teams</a>
       {% if nav_people %}<a href="{% url 'org:people' %}"{% if request.resolver_match.url_name in "people person service_accounts service_account" %} aria-current="page"{% endif %}>People</a>{% endif %}
-      {% if nav_settings %}<a href="{% url 'identity:sign_in_settings' %}"{% if request.resolver_match.namespace == "identity" or request.resolver_match.url_name == "org_apps" or request.resolver_match.url_name == "org_app" or request.resolver_match.url_name == "org_email" %} aria-current="page"{% endif %}>Settings</a>{% endif %}
+      {% if nav_settings %}<a href="{% url 'identity:sign_in_settings' %}"{% if request.resolver_match.namespace == "identity" or request.resolver_match.url_name == "org_apps" or request.resolver_match.url_name == "org_app" or request.resolver_match.url_name == "org_email" or request.resolver_match.url_name == "legal_holds" %} aria-current="page"{% endif %}>Settings</a>{% endif %}
       {% if nav_audit %}<a href="{% url 'audit:audit_log' %}"{% if request.resolver_match.url_name == "audit_log" %} aria-current="page"{% endif %}>Audit</a>{% endif %}
     </nav>
     {% endif %}{% endblock %}

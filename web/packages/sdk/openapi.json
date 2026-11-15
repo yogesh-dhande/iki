@@ -7818,7 +7818,7 @@
             "title": "Deleted At"
           },
           "expires_at": {
-            "description": "When its retention ends, and it's deleted.",
+            "description": "When its retention ends, and it's deleted. It may be kept longer, if the organization must keep it.",
             "format": "date-time",
             "title": "Expires At",
             "type": "string"

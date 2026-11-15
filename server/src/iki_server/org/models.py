@@ -178,6 +178,45 @@ class Project(models.Model):
         return self.archived_at is not None
 
 
+class LegalHold(models.Model):
+    """A project kept whole for a legal or regulatory matter (ADR 0092): while a hold is on,
+    nothing in the project is deleted, by retention or a purge. Org Admins place and release
+    holds; each is audited. A project can be under several, one per matter."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="legal_holds")
+    #: The matter it's for, such as a case, an inspection or a request's reference.
+    matter = models.CharField(max_length=200)
+    note = models.TextField(max_length=2000, blank=True)
+    placed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    placed_at = models.DateTimeField(auto_now_add=True)
+    released_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    released_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_legal_hold"
+        db_table_comment = "Projects kept whole for a legal or regulatory matter (ADR 0092)."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["project", "matter"],
+                condition=Q(released_at__isnull=True),
+                name="iki_legal_hold_once_per_matter",
+            ),
+            models.CheckConstraint(
+                condition=Q(released_at__isnull=True, released_by__isnull=True)
+                | Q(released_at__isnull=False, released_by__isnull=False),
+                name="iki_legal_hold_released_by_someone",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.matter} ({self.project})"
+
+
 class ProjectMembership(models.Model):
     """A project role granted to one person or to every member of a team.
 

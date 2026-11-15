@@ -1753,7 +1753,7 @@ class RunArtifactOut(TypedDict):
     attempt: int
     created_at: str
     deleted_at: str | None
-    #: When its retention ends, and it's deleted.
+    #: When its retention ends, and it's deleted. It may be kept longer, if the organization must keep it.
     expires_at: str
     id: str
     media_type: str

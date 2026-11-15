@@ -206,6 +206,21 @@ CASES: list[Case] = [
     ),
     ("people", "GET", lambda w: ("/people/", {}), row(FORBIDDEN, org_admin=OK)),
     ("audit_log", "GET", lambda w: ("/audit/", {}), row(FORBIDDEN, auditor=OK)),
+    (
+        "legal_holds",
+        "GET",
+        lambda w: ("/settings/legal-holds/", {}),
+        row(FORBIDDEN, org_admin=OK, auditor=OK),
+    ),
+    (
+        "legal_holds",
+        "POST",
+        lambda w: (
+            "/settings/legal-holds/",
+            {"action": "place", "project": str(w.project.pk), "matter": "Case 24-117"},
+        ),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
     ("sign_in_settings", "GET", lambda w: ("/settings/sign-in/", {}), row(FORBIDDEN, org_admin=OK)),
     (
         "sign_in_settings",

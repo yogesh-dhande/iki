@@ -3,7 +3,7 @@
 {% block main_class %}page-wide{% endblock %}
 {% block content %}
 <div class="page-header"><h1>Audit log</h1></div>
-<p class="muted">Every change, sign-in and setup step, newest first. Events can’t be changed or deleted, by anyone.</p>
+<p class="muted">Every change, sign-in and setup step, newest first. Events can’t be changed or deleted, by anyone. Projects kept whole for a matter are under <a href="{% url 'org:legal_holds' %}">Legal holds</a>.</p>
 <details class="filters"{% if filtered %} open{% endif %}>
   <summary>Filter</summary>
   <form method="get" class="filter-form">

@@ -23,15 +23,17 @@ from iki_server.accounts import service_accounts as service_account_services
 from iki_server.accounts.models import IdentityProvider, Kind, User
 from iki_server.oauth import services as oauth_services
 from iki_server.oauth.forms import CredentialForm
-from iki_server.org import permissions, services
+from iki_server.org import holds, permissions, services
 from iki_server.org.forms import (
     AddTeamMemberForm,
+    LegalHoldForm,
     OrgRolesForm,
     ServiceAccountForm,
     ServiceAccountRolesForm,
     TeamForm,
 )
 from iki_server.org.models import (
+    LegalHold,
     OrgRole,
     OrgRoleAssignment,
     ProjectMembership,
@@ -370,5 +372,59 @@ def service_account(request: HttpRequest, user_id: str) -> HttpResponse:
             "credentials": oauth_services.credentials(account),
             "token_url": request.build_absolute_uri("/oauth/token/"),
             "token_minutes": settings.OAUTH2_PROVIDER["ACCESS_TOKEN_EXPIRE_SECONDS"] // 60,  # type: ignore[operator]
+        },
+    )
+
+
+# --- Legal holds ---------------------------------------------------------------
+
+
+@page("GET", "POST")
+@refusals
+def legal_holds(request: HttpRequest) -> HttpResponse:
+    """Org Admins put projects on hold and release them; Auditors can read them (ADR 0092)."""
+    me = _user(request)
+    manage = permissions.can(me, Action.ORG_MANAGE)
+    if not manage:
+        permissions.require(me, Action.AUDIT_READ)
+    form = LegalHoldForm(request.POST if request.POST.get("action") == "place" else None)
+    if request.method == "POST":
+        if not manage:
+            raise PermissionDenied
+        if request.POST.get("action") == "release":
+            hold = get_object_or_404(LegalHold, pk=request.POST.get("hold"))
+            holds.release(me, hold)
+            messages.success(
+                request, f"Released the hold on {hold.project.name} for {hold.matter}."
+            )
+            return redirect("org:legal_holds")
+        if form.is_valid():
+            try:
+                hold = holds.place(
+                    me,
+                    form.cleaned_data["project"],
+                    form.cleaned_data["matter"],
+                    form.cleaned_data["note"],
+                )
+            except services.Refused as refusal:
+                form.add_error(refusal.field or None, str(refusal))
+            else:
+                messages.success(
+                    request,
+                    f"Put {hold.project.name} on hold for {hold.matter}. Nothing in it will be "
+                    "deleted until it’s released.",
+                )
+                return redirect("org:legal_holds")
+    every = LegalHold.objects.select_related("project__team", "placed_by", "released_by").order_by(
+        "-placed_at"
+    )
+    return render(
+        request,
+        "org/legal_holds.html",
+        {
+            "on": [h for h in every if h.released_at is None],
+            "released": [h for h in every if h.released_at is not None][:50],
+            "form": form,
+            "manage": manage,
         },
     )

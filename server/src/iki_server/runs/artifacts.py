@@ -28,7 +28,7 @@ from iki_server.audit import log as audit
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Upload, UploadKind
-from iki_server.org import permissions
+from iki_server.org import holds, permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun, RunArtifact, RunUpload
@@ -120,6 +120,8 @@ def delete_expired(limit: int = 10 * _BATCH) -> int:
                 RunArtifact.objects.select_for_update(skip_locked=True, of=("self",))
                 .select_related("upload", "run__project")
                 .filter(deleted_at__isnull=True, expires_at__lte=timezone.now())
+                # A legal hold keeps everything in its project, past retention (ADR 0092).
+                .exclude(run__project__in=holds.held_projects())
                 .order_by("expires_at")[:_BATCH]
             )
             if not due:

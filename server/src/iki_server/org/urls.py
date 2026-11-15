@@ -30,6 +30,7 @@ urlpatterns: list[URLPattern] = [
         name="team_member_remove",
     ),
     path("teams/<slug:slug>/settings/", views.team_settings, name="team_settings"),
+    path("settings/legal-holds/", views.legal_holds, name="legal_holds"),
     path("people/", views.people, name="people"),
     path("people/<uuid:user_id>/", views.person, name="person"),
     path("service-accounts/", views.service_accounts, name="service_accounts"),

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django import forms
 
@@ -6,6 +6,7 @@ from iki_server.accounts.models import User
 from iki_server.org.models import (
     ORG_ROLE_DESCRIPTIONS,
     OrgRole,
+    Project,
 )
 
 
@@ -89,4 +90,36 @@ class ServiceAccountRolesForm(forms.Form):
         ],
         widget=forms.CheckboxSelectMultiple,
         help_text="Service accounts can’t be Org Admins.",
+    )
+
+
+if TYPE_CHECKING:
+    _ModelChoice = forms.ModelChoiceField[Project]
+else:
+    _ModelChoice = forms.ModelChoiceField
+
+
+class _ProjectChoice(_ModelChoice):
+    def label_from_instance(self, obj: Project) -> str:
+        return f"{obj.team.name} / {obj.name}"
+
+
+class LegalHoldForm(forms.Form):
+    project = _ProjectChoice(
+        label="Project",
+        queryset=Project.objects.select_related("team").order_by("team__name", "name"),
+        empty_label="Choose a project",
+    )
+    matter = forms.CharField(
+        label="Matter",
+        max_length=200,
+        strip=True,
+        help_text="What it’s for, such as a case, an inspection or a request’s reference.",
+    )
+    note = forms.CharField(
+        label="Note",
+        max_length=2000,
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Who asked for it and how long it may last, for whoever reviews it next.",
     )

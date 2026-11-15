@@ -1564,7 +1564,10 @@ class RunArtifactOut(Schema):
         "(its record stays); `failed` if its upload didn't finish."
     )
     created_at: datetime
-    expires_at: datetime = Field(description="When its retention ends, and it's deleted.")
+    expires_at: datetime = Field(
+        description="When its retention ends, and it's deleted. It may be kept longer, if "
+        "the organization must keep it."
+    )
     deleted_at: datetime | None
 
 

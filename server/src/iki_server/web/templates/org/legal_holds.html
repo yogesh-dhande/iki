@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Legal holds{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Legal holds</h1></div>
+{% if manage %}{% include "web/_settings_tabs.html" %}{% endif %}
+<p class="muted">A project on hold is kept whole for a legal or regulatory matter. Nothing in it is deleted: run artifacts stay past their retention, and no plugin can be purged while any of its data is in the project. People keep working in it as usual. Each hold, and its release, is in the audit log.</p>
+<div class="columns">
+  <section aria-labelledby="on-title">
+    <h2 class="section-title" id="on-title">On hold</h2>
+    {% if on %}
+    <ul class="rows">
+      {% for hold in on %}
+      <li class="row">
+        <div class="row-main">
+          <span class="row-title">{{ hold.project.name }}</span>
+          <span class="row-meta">{{ hold.project.team.name }} · {{ hold.matter }} · placed by {{ hold.placed_by.get_full_name }} on {{ hold.placed_at|date:"Y-m-d" }}</span>
+          {% if hold.note %}<span class="row-meta preserve-lines">{{ hold.note }}</span>{% endif %}
+        </div>
+        {% if manage %}
+        <form method="post" data-busy-form>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="release">
+          <input type="hidden" name="hold" value="{{ hold.pk }}">
+          <button class="button" type="submit" data-busy-text="Releasing…" aria-label="Release the hold on {{ hold.project.name }} for {{ hold.matter }}">Release</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No project is on hold.</p>
+    {% endif %}
+    {% if released %}
+    <h2 class="section-title">Released</h2>
+    <ul class="rows">
+      {% for hold in released %}
+      <li class="row">
+        <div class="row-main">
+          <span class="row-title">{{ hold.project.name }}</span>
+          <span class="row-meta">{{ hold.matter }} · {{ hold.placed_at|date:"Y-m-d" }} to {{ hold.released_at|date:"Y-m-d" }}, released by {{ hold.released_by.get_full_name }}</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {% if manage %}
+  <section class="card" aria-labelledby="place-title">
+    <h2 class="section-title" id="place-title">Put a project on hold</h2>
+    {% include "web/_errors.html" %}
+    <form method="post" data-busy-form>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="place">
+      {% include "web/_field.html" with field=form.project %}
+      {% include "web/_field.html" with field=form.matter %}
+      {% include "web/_field.html" with field=form.note %}
+      <button class="button button-primary" type="submit" data-busy-text="Placing…">Put on hold</button>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

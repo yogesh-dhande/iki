@@ -20,6 +20,7 @@ from test_workers import WorkerClient, keep_connection, worker
 
 from iki_server.audit.models import AuditEvent
 from iki_server.files import storage
+from iki_server.org import holds
 from iki_server.runs import artifacts
 from iki_server.runs.models import RunArtifact
 
@@ -221,3 +222,16 @@ def test_retention_over_deletes_their_bytes_every_version_and_records_it(world: 
         "retention_days": 90,
         "paths": ["alignment.txt"],
     }
+
+
+def test_a_legal_hold_keeps_them_past_their_retention(world: World) -> None:
+    pod, _, job = aligning(world)
+    kept(pod, job, "alignment.txt")
+    done(pod, job, output(metrics={"score": 1.0}))
+    RunArtifact.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
+    hold = holds.place(world.users["org_admin"], world.project, "Inspection 2026-11")
+
+    assert artifacts.delete_expired() == 0
+    assert RunArtifact.objects.get().deleted_at is None
+    holds.release(world.users["org_admin"], hold)
+    assert artifacts.delete_expired() == 1
