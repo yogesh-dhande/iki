@@ -71,6 +71,20 @@ def test_a_plugin_can_be_detached(tmp_path: Path) -> None:
     assert result.lock.plugins[0].state == "detached"
 
 
+def test_a_purged_plugin_has_only_its_name(tmp_path: Path) -> None:
+    result = load_lock(lock(tmp_path, "- {name: lims, state: purged}\n"))
+    assert result.problems == []
+    assert result.lock is not None
+    assert result.lock.plugins[0].to_dict() == {"name": "lims", "state": "purged"}
+    kept = load_lock(
+        lock(tmp_path, f"- {{name: lims, git: https://x.org/p, sha: {SHA}, state: purged}}\n")
+    )
+    assert [(p.code, p.message) for p in kept.problems] == [
+        ("purged-source", "lims is purged, so it isn't fetched or built: remove `git`."),
+        ("purged-source", "lims is purged, so it isn't fetched or built: remove `sha`."),
+    ]
+
+
 def test_an_empty_deployment(tmp_path: Path) -> None:
     file = tmp_path / "plugins.lock.yaml"
     file.write_text("apiVersion: iki/v1\nkind: PluginLock\nplugins: []\n")

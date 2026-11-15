@@ -5,7 +5,7 @@
 <div class="page-header">
   <div>
     <p class="eyebrow"><a href="{% url 'org:plugins' %}">Plugins</a></p>
-    <h1>{{ plugin.title|default:plugin.name }}{% if detached %} <span class="badge badge-muted">Detached</span>{% endif %}</h1>
+    <h1>{{ plugin.title|default:plugin.name }}{% if detached %} <span class="badge badge-muted">Detached</span>{% elif purged %} <span class="badge badge-muted">Purged</span>{% endif %}</h1>
   </div>
 </div>
 <section class="card">
@@ -13,12 +13,12 @@
     <dt>Name</dt><dd><code>{{ plugin.name }}</code></dd>
     <dt>Version</dt><dd>{{ plugin.version }}</dd>
     {% if plugin.sha %}<dt>Commit</dt><dd><code>{{ plugin.sha }}</code></dd>{% endif %}
-    <dt>State</dt><dd>{% if detached %}Detached: its data is kept and can be read, but nothing changes it.{% else %}Active{% endif %}</dd>
+    <dt>State</dt><dd>{% if purged %}Purged on {{ purged.done_at|date:"Y-m-d" }}: its tables were dropped, and its entities keep only their tombstones.{% elif plugin.state == "purged" %}Purged: its tables were dropped.{% elif detached %}Detached: its data is kept and can be read, but nothing changes it.{% else %}Active{% endif %}</dd>
   </dl>
 </section>
 {% if report %}
 <section class="card" aria-labelledby="report-title">
-  <h2 class="section-title" id="report-title">{% if scheduled %}What the purge deletes{% else %}What a purge would delete{% endif %}</h2>
+  <h2 class="section-title" id="report-title">{% if purged %}What the purge deleted{% elif scheduled %}What the purge deletes{% else %}What a purge would delete{% endif %}</h2>
   {% if report.entities %}
   <p>{{ report.entities }} entit{{ report.entities|pluralize:"y,ies" }}, with their values and history:</p>
   <ul>{% for t in report.types %}<li>{{ t.count }} {{ t.label }} (<code>{{ t.type }}</code>)</li>{% endfor %}</ul>
@@ -34,7 +34,13 @@
   {% endif %}
 </section>
 {% endif %}
-{% if scheduled %}
+{% if purged %}
+<section class="card" aria-labelledby="purged-title">
+  <h2 class="section-title" id="purged-title">Purged</h2>
+  <p>{{ purged.requested_by.get_full_name }} asked for it on {{ purged.requested_at|date:"Y-m-d" }}: “{{ purged.reason }}”</p>
+  <p>Its entities were purged on {{ purged.tombstoned_at|date:"Y-m-d" }}, and the deploy on {{ purged.done_at|date:"Y-m-d" }} dropped its tables. Each entity keeps its tombstone: its ID, HRID, type, and a SHA-256 of its last values, which an export of it can be checked against. The <a href="{% url 'audit:audit_log' %}">audit log</a> has each step.</p>
+</section>
+{% elif scheduled %}
 <section class="card" aria-labelledby="scheduled-title">
   <h2 class="section-title" id="scheduled-title">Purge scheduled</h2>
   <p>{{ scheduled.requested_by.get_full_name }} asked for it on {{ scheduled.requested_at|date:"Y-m-d" }}: “{{ scheduled.reason }}”</p>

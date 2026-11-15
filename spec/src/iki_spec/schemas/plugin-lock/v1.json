@@ -31,8 +31,8 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName"
         },
         "state": {
-          "description": "`active`: installed and in use. `detached`: installed, its data kept and readable, but nothing changes it (ADR 0091): its tables are read-only, its actions and triggers are off. A plugin that depends on a detached one must be detached too.",
-          "enum": ["active", "detached"]
+          "description": "`active`: installed and in use. `detached`: installed, its data kept and readable, but nothing changes it (ADR 0091): its tables are read-only, its actions and triggers are off. A plugin that depends on a detached one must be detached too. `purged`: not built; the deploy drops its tables, once an Org Admin's purge of it has waited its time and left a tombstone for each entity (ADR 0092). A purged plugin has only `name` and `state`.",
+          "enum": ["active", "detached", "purged"]
         },
         "git": {
           "description": "The plugin's git repository: an https or ssh URL, such as `https://github.com/acme/iki-plugins.git` or `git@github.com:acme/iki-plugins.git`.",

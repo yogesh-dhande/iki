@@ -333,6 +333,37 @@ def test_what_depends_on_a_detached_plugin_is_detached_too(
 
 
 @pytest.mark.usefixtures("allow_file")
+def test_a_purged_plugin_isnt_built_but_is_recorded(
+    tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = deployment(tmp_path, upstream[1])
+    lockfile = directory / "plugins.lock.yaml"
+    text = lockfile.read_text()
+    dna = text[text.index("  - name: dna") : text.index("  - name: protein")]
+    lockfile.write_text(text.replace(dna, "  - name: dna\n    state: purged\n"))
+    assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
+    assert capsys.readouterr().err == (
+        "error: protein depends on dna, which the lockfile purges. "
+        "Purge protein too, or keep dna detached.\n"
+    )
+    protein = text[text.index("  - name: protein") :]
+    lockfile.write_text(
+        text.replace(dna, "  - name: dna\n    state: purged\n").replace(
+            protein, "  - name: protein\n    state: purged\n"
+        )
+    )
+    assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 0
+    assert "no plugins besides core" in capsys.readouterr().out
+    built = tmp_path / "o" / "iki_installed_plugins"
+    record = json.loads((built / "lock.json").read_text())
+    assert record["plugins"] == [
+        {"name": "dna", "state": "purged"},
+        {"name": "protein", "state": "purged"},
+    ]
+    assert not any(built.parent.glob("iki_plugin_*"))
+
+
+@pytest.mark.usefixtures("allow_file")
 def test_the_name_must_match(
     tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
 ) -> None:

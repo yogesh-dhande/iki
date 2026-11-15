@@ -158,6 +158,16 @@ def detached() -> frozenset[str]:
     )
 
 
+def purged() -> frozenset[str]:
+    """Plugins the lockfile purges (ADR 0092): not built, and their tables dropped by the
+    migrate Job once their purge is due and every entity has its tombstone."""
+    return frozenset(
+        entry["name"]
+        for entry in (installed() or {}).get("plugins", ())
+        if entry.get("state") == "purged"
+    )
+
+
 def detached_tables() -> list[str]:
     """The tables of detached plugins, which the app's database role can only read."""
     return sorted(

@@ -879,7 +879,7 @@ def test_plugins_cant_simply_disappear(two_builds: tuple[Path, Path], database: 
     (empty / "__init__.py").write_text(f"IKI_VERSION = {__version__!r}\nLOCAL = False\nAPPS = []\n")
     err = refused(empty.parent, database)
     assert "The database has the plugin(s) lab, but this build doesn't." in err
-    assert "detached first (ADR 0008)" in err
+    assert "needs it detached, then purged (ADR 0092)" in err
 
 
 def test_a_database_a_newer_iki_migrated_is_refused(
@@ -909,3 +909,137 @@ def test_the_app_can_only_read_the_kept_copies() -> None:
     from iki_server.core import db_roles
 
     assert "iki_plugin_migration" in db_roles.READ_ONLY_TABLES
+
+
+# --- Purging a plugin at deploy (ADR 0092) ----------------------------------------------------
+
+
+def run(build: Path, database: str, code: str) -> Any:
+    """Like :func:`orm`, without making ``WORLD`` again."""
+    script = "import django, json\ndjango.setup()\n" + textwrap.dedent(code)
+    script += "\nprint(json.dumps(result, default=str))\n"
+    out = django(build, database, "-c", script)
+    assert out.returncode == 0, out.stdout + out.stderr
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, database: str) -> None:
+    deployment = migrated.parent / "deployments" / "dev"
+    deployment.mkdir(parents=True)
+    (deployment / "dna.yaml").write_text("ncbi_email: lab@example.org\n")
+
+    def built(state: str) -> Path:
+        entry = (
+            "  - {name: dna, state: purged}\n"
+            if state == "purged"
+            else f"  - {{name: dna, local: ../../plugins/dna, state: {state}, "
+            "settings: dna.yaml}\n"
+        )
+        (deployment / "plugins.lock.yaml").write_text(
+            "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n" + entry
+        )
+        out = migrated.parent / f"image-{state}"
+        result = iki("deploy", "build", deployment, "-o", out, "--allow-local", cwd=migrated)
+        assert result.returncode == 0, result.stdout + result.stderr
+        return out
+
+    active, detached, purged = built("active"), built("detached"), built("purged")
+    deployed(active, database)
+    sync(active, database)
+    made = orm(
+        active,
+        database,
+        """
+        from iki_plugin_dna.models import DNASequence
+        from iki_server.accounts.models import User
+        dna = DNASequence.objects.create(owner_project=project, name="pUC19", bases="ACGT")
+        User.objects.create_user("admin@example.com", "Org Admin")
+        result = str(dna.pk)
+        """,
+    )
+    query(
+        database,
+        "INSERT INTO core_sequence__history (entity_id, revision) VALUES (%s, 1) RETURNING 1",
+        made,
+    )
+    query(
+        database,
+        "INSERT INTO dna_dnasequence__history (entity_id, revision) VALUES (%s, 1) RETURNING 1",
+        made,
+    )
+    query(
+        database,
+        "UPDATE iki_entity SET identity_hash = %s WHERE id = %s RETURNING 1",
+        "f" * 64,
+        made,
+    )
+    deployed(detached, database)
+    sync(detached, database)
+
+    assert "no purge of it was asked for" in refused(purged, database)
+    run(
+        detached,
+        database,
+        """
+        import datetime as dt
+        from django.utils import timezone
+        from iki_server.accounts.models import User
+        from iki_server.plugins.models import PluginPurge
+        PluginPurge.objects.create(
+            plugin="dna", reason="Retention over", report={}, requested_by=User.objects.get(),
+            run_after=timezone.now() + dt.timedelta(days=30),
+        )
+        result = None
+        """,
+    )
+    assert "dna's purge isn't due until" in refused(purged, database)
+    run(
+        detached,
+        database,
+        """
+        from django.utils import timezone
+        from iki_server.plugins import purge
+        from iki_server.plugins.models import PluginPurge
+        PluginPurge.objects.update(run_after=timezone.now())
+        result = purge.tombstone_due()
+        """,
+    )
+    hold = run(
+        detached,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.org.models import LegalHold, Project
+        result = str(LegalHold.objects.create(
+            project=Project.objects.get(), matter="Case 24-117", placed_by=User.objects.get(),
+        ).pk)
+        """,
+    )
+    err = refused(purged, database)
+    assert "Some of dna's data is on legal hold" in err
+    assert "Case 24-117" not in err and "Antibodies" not in err  # holds are confidential
+    query(database, "DELETE FROM iki_legal_hold WHERE id = %s RETURNING 1", hold)
+    assert query(database, "SELECT count(*) FROM dna_dnasequence") == [(1,)]
+
+    out = deployed(purged, database)
+    assert "Purged dna: dropped 4 table(s); 1 entities keep their tombstones" in out
+    assert "row(s) their entities had in other plugins' tables" in out
+    assert query(database, "SELECT tablename FROM pg_tables WHERE tablename LIKE 'dna\\_%%'") == []
+    for gone in (
+        "SELECT count(*) FROM core_sequence WHERE entity_id = %s",
+        "SELECT count(*) FROM core_sequence__history WHERE entity_id = %s",
+        "SELECT count(*) FROM iki_unique_value WHERE entity_id = %s",
+    ):
+        assert query(database, gone, made) == [(0,)]
+    assert query(
+        database,
+        "SELECT e.hrid, e.type, e.purged_at IS NOT NULL, e.identity_hash, length(t.content_sha256)"
+        " FROM iki_entity e JOIN iki_tombstone t ON t.entity_id = e.id",
+    ) == [("DNA-000001", "dna.DNASequence", True, None, 64)]
+    assert applied(database, "dna") == []
+    assert query(database, "SELECT done_at IS NOT NULL FROM iki_plugin_purge") == [(True,)]
+    assert query(database, "SELECT state FROM iki_plugin_state WHERE name = 'dna'") == [("purged",)]
+    events = query(database, "SELECT data FROM iki_audit_event WHERE action = 'plugin.purged'")
+    assert [e[0]["plugin"] for e in events] == ["dna"]
+    assert "dna" not in sync(purged, database)  # its views went; the rest are made again
+    assert "Purged" not in deployed(purged, database)  # once

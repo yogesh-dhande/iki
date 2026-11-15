@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header"><h1>Plugins</h1></div>
 {% include "web/_settings_tabs.html" %}
-<p class="muted">What this deployment installs, from its lockfile. Changing them is a reviewed change to the lockfile, and each deploy that changes one is in the audit log. A detached plugin’s data is kept and can be read, but nothing changes it; it can then be purged.</p>
+<p class="muted">What this deployment installs, from its lockfile. Changing them is a reviewed change to the lockfile, and each deploy that changes one is in the audit log. A detached plugin’s data is kept and can be read, but nothing changes it; it can then be purged. A purged plugin’s tables are gone; its entities’ tombstones stay.</p>
 {% if plugins %}
 <ul class="rows">
   {% for p in plugins %}
@@ -16,6 +16,7 @@
     <div class="row-tags">
       {% if p.purge %}<span class="badge">Purge on {{ p.purge.run_after|date:"Y-m-d" }}</span>{% endif %}
       {% if p.state == "detached" %}<span class="badge badge-muted">Detached</span>{% endif %}
+      {% if p.state == "purged" %}<span class="badge badge-muted">Purged{% if p.done %} on {{ p.done.done_at|date:"Y-m-d" }}{% endif %}</span>{% endif %}
     </div>
   </li>
   {% endfor %}

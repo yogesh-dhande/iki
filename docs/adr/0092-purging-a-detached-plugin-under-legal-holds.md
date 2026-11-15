@@ -63,10 +63,31 @@ something one click does in an afternoon.
 HRID, type, owner project and creation, so references, runs and lineage
 still resolve. It gains when it was purged, by whom, why, and a SHA-256
 of its last values, which proves what existed without keeping it. Its
-values, history and lists go with the plugin's tables, which the deploy
-drops by reversing the plugin's migrations from their stored copies
-(ADR 0034). The HRID is never handed out again. Lineage and references
-show the entity as purged instead of failing.
+values, history and lists go with the plugin's tables. The HRID is never
+handed out again. Lineage and references show the entity as purged
+instead of failing. Reading it answers 410 Gone with its tombstone, to
+those who could read it; to anyone else it's 404, as it was.
+
+**The deploy drops the tables.** Maintenance writes the tombstones once
+the wait is over. Then a lockfile with `state: purged` lets the migrate
+Job finish, in one transaction. It refuses, changing nothing and saying
+why, unless the purge is due and tombstoned, no hold has come, and
+nothing still installed depends on the plugin. It then:
+
+- drops the plugin's tables whole, with its fields on other plugins'
+  types;
+- deletes what its entities hold in tables they inherit from other
+  plugins (a DNA sequence's `core_sequence` row), history included;
+- deletes their unique values and identity hashes;
+- forgets the plugin's migrations, marks the purge done and audits it.
+
+It drops the tables instead of reversing the plugin's migrations from
+their stored copies (ADR 0034). A reversal runs the plugin's own reverse
+code, which could change rows Iki keeps, such as the types the
+tombstones name. History is append-only for every role, so only the
+migrate Job lifts that, for those rows, inside its transaction. The
+Plugins page keeps the purged plugin on record: who asked, why, what it
+deleted and when.
 
 ## Consequences
 

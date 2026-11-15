@@ -142,7 +142,12 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         fetched = _fetch_all(lock, workspace / "sources", args.cache, out, err)
         if fetched is None:
             return 1
-        if not _load_all(fetched, err) or not _detached_alone(fetched, err):
+        purged = {p.name for p in lock.plugins if p.state == "purged"}
+        if (
+            not _nothing_needs(purged, fetched, err)
+            or not _load_all(fetched, err)
+            or not _detached_alone(fetched, err)
+        ):
             return 1
         settings = _settings(lock, fetched, err)
         if settings is None:
@@ -209,6 +214,8 @@ def _fetch_all(
 ) -> list[_Fetched] | None:
     fetched = []
     for entry in lock.plugins:
+        if entry.state == "purged":
+            continue  # not built: the deploy drops its tables (ADR 0092)
         try:
             directory = fetch(entry, lock.directory, into, cache=cache)
         except FetchError as error:
@@ -255,6 +262,24 @@ def _load_all(fetched: list[_Fetched], err: TextIO) -> bool:
             ok = False
             continue
         item.plugin = result.plugin
+    return ok
+
+
+def _nothing_needs(purged: set[str], fetched: list[_Fetched], err: TextIO) -> bool:
+    """A purged plugin's tables are dropped (ADR 0092), so nothing built may depend on it."""
+    ok = True
+    for item in fetched:
+        documents, _ = read_documents(item.directory / "plugin.yaml", "plugin.yaml")
+        data = documents[0].data if documents else None
+        declared = data.get("dependencies") if isinstance(data, dict) else None
+        needs = sorted(purged & set(declared if isinstance(declared, dict) else ()))
+        if needs:
+            names = " and ".join(needs)
+            err.write(
+                f"error: {item.entry.name} depends on {names}, which the lockfile purges. "
+                f"Purge {item.entry.name} too, or keep {names} detached.\n"
+            )
+            ok = False
     return ok
 
 
@@ -370,6 +395,9 @@ def _record(
         if item.entry.settings:
             entry["settings_sha256"] = _sha256(lock.directory / item.entry.settings)
         plugins.append(entry)
+    # A purged plugin isn't built, but the server reads it here: its migrate Job drops
+    # the plugin's tables, and its Plugins page keeps the record.
+    plugins += [p.to_dict() for p in lock.plugins if p.state == "purged"]
     return {"lockfile_sha256": _sha256(lock.file), "lock": lock_to_dict(lock), "plugins": plugins}
 
 

@@ -19,6 +19,8 @@ class Command(BaseCommand):
             report = migrate_deployment(self.stdout)
         except DeployError as error:
             raise CommandError(str(error)) from None
+        for line in report.purged:
+            self.stdout.write(f"  Purged {line}")
         for app, name in report.reversed:
             self.stdout.write(f"  Reversed {app}.{name} (rolled back)")
         for app, name in report.archived:

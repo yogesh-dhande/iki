@@ -111,12 +111,15 @@ def _states() -> list[str]:
     known = {row.name: row for row in PluginState.objects.select_for_update()}
     changed = []
     for entry in record.get("plugins", ()):
+        row = known.get(entry["name"])
+        if entry.get("state") == PluginState.State.PURGED:
+            # migrate_deployment marks it purged, and audits it, as it drops the tables.
+            continue
         now = {
             "state": entry.get("state", PluginState.State.ACTIVE),
             "version": entry["version"],
             "sha": entry.get("sha") or registry.LOCAL,
         }
-        row = known.get(entry["name"])
         if row is None:
             row = PluginState.objects.create(name=entry["name"], **now)
             action, data = "plugin.installed", now

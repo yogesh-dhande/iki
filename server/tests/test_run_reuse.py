@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from api_client import problem
+from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, patch
 from test_run_imports import IMPORT, importing, origin, stored
@@ -354,6 +355,20 @@ def test_runs_of_other_code_cant_be_reproduced_here(
     assert seen(world, first)["can"]["reproduce"] is False
     body = problem(reproduce(world, first), 409, "refused")
     assert "can't be reproduced exactly here" in body["detail"]
+
+
+def test_runs_whose_inputs_were_purged_cant_be_reproduced(world: World) -> None:
+    editor = api_as(world, "editor")
+    abl = protein(editor, world.project)
+    first = launch(editor, world.project, {"protein": abl["id"]}).json()
+    worker_ = pod(world)
+    job = worker_.lease().json()
+    assert done(worker_, job, output(updates=weight(first)))["run_status"] == "succeeded"
+    Entity.objects.filter(pk=abl["id"]).update(purged_at=timezone.now())  # ADR 0092
+    body = problem(reproduce(world, first), 409, "refused")
+    assert body["detail"] == (
+        f"{abl['hrid']} was purged, so this run can't be reproduced: only its tombstone is left."
+    )
 
 
 def test_runs_without_results_cant_be_reproduced(world: World) -> None:

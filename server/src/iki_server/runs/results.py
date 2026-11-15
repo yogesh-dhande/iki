@@ -124,7 +124,7 @@ class Check:
             return file_id in self._files
         self._inputs_read = True
         read = {e: r for given in self.inputs.values() for e, r in given.items()}
-        for entity in Entity.objects.filter(pk__in=read):
+        for entity in Entity.objects.filter(pk__in=read, purged_at__isnull=True):
             fields = shape(entity.type).fields()
             for name, value in entities.values_at(entity, read[entity.pk]).items():
                 if name in fields:

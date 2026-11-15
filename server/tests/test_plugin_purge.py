@@ -15,7 +15,7 @@ from iki_server.entities.models import Entity, Tombstone
 from iki_server.org import holds
 from iki_server.org.services import Refused
 from iki_server.plugins import purge
-from iki_server.plugins.models import PluginPurge
+from iki_server.plugins.models import PluginPurge, PluginState
 
 pytestmark = pytest.mark.django_db
 
@@ -221,3 +221,37 @@ def test_a_hold_placed_during_the_wait_stops_it(
     assert not Tombstone.objects.exists()
     holds.release(world.users["org_admin"], hold)
     assert purge.tombstone_due() == 2
+
+
+def test_a_purged_plugin_stays_on_record(world: World) -> None:
+    admin = world.users["org_admin"]
+    now = timezone.now()
+    PluginState.objects.create(name="lims", state="purged", version="2.1.0", sha="b" * 40)
+    PluginPurge.objects.create(
+        plugin="lims",
+        reason="Retention of 10 years over",
+        report={
+            "plugin": "lims",
+            "entities": 3,
+            "types": [{"type": "lims.Sample", "label": "Samples", "count": 3}],
+            "projects": [],
+            "references": [],
+        },
+        requested_by=admin,
+        run_after=now,
+        tombstoned_at=now,
+        done_at=now,
+    )
+    browser = world.browser("org_admin")
+    listing = browser.get("/settings/plugins/").content.decode()
+    assert f"Purged on {now:%Y-%m-%d}" in listing
+    page = browser.get("/settings/plugins/lims/").content.decode()
+    assert "What the purge deleted" in page
+    assert "3 Samples" in page
+    assert "Retention of 10 years over" in page
+    assert "dropped its tables" in page
+    assert "Schedule the purge" not in page
+    assert "Cancel the purge" not in page
+    again = post(browser, "/settings/plugins/lims/", {"action": "cancel"})
+    assert again.status_code == 200
+    assert PluginPurge.objects.get().done_at == now

@@ -50,13 +50,16 @@ class PluginState(models.Model):
     """Each plugin a deploy has installed, as the last deploy left it (ADR 0091).
 
     ``sync_plugins`` compares the build's lockfile with these, so each plugin installed,
-    updated, detached or reattached is audited once, by the deploy that did it. Only the
+    updated, detached or reattached is audited once, by the deploy that did it. The
+    migrate Job marks one purged when it drops its tables. Only the
     migrator writes them; the app can only read them.
     """
 
     class State(models.TextChoices):
         ACTIVE = "active", "Active"
         DETACHED = "detached", "Detached"
+        #: Its tables were dropped (ADR 0092); the row keeps the version it was at.
+        PURGED = "purged", "Purged"
 
     name = models.CharField(max_length=100, primary_key=True)
     state = models.CharField(max_length=20, choices=State.choices)
@@ -70,7 +73,8 @@ class PluginState(models.Model):
         db_table_comment = "Each installed plugin's state, version and commit, as deployed."
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(
-                condition=Q(state__in=["active", "detached"]), name="iki_plugin_state_state"
+                condition=Q(state__in=["active", "detached", "purged"]),
+                name="iki_plugin_state_state",
             ),
         ]
 

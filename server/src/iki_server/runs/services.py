@@ -534,6 +534,18 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
     )
     if why:
         raise Refused(why)
+    purged = list(
+        access.tombstones(user)
+        .filter(pk__in=RunInput.objects.filter(run=original).values("entity_id"))
+        .order_by("hrid")
+        .values_list("hrid", flat=True)
+    )
+    if purged:
+        verb = "were" if len(purged) > 1 else "was"
+        raise Refused(
+            f"{', '.join(purged)} {verb} purged, so this run can't be reproduced: only "
+            f"{'their tombstones are' if len(purged) > 1 else 'its tombstone is'} left."
+        )
     readable = set(
         access.visible(user)
         .filter(pk__in=RunInput.objects.filter(run=original).values("entity_id"))

@@ -12,6 +12,10 @@ installs, each pinned to a git commit::
         sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
         state: active
         settings: settings/dna.yaml
+      - name: lims
+        state: purged
+
+A purged plugin (ADR 0092) has only its name: the deploy drops its tables.
 
 ``iki deploy build`` fetches each plugin at its commit, checks it with the
 others and with its settings, and compiles them for the server image. A
@@ -184,13 +188,24 @@ def _check(
                 (*at, "name"),
             )
         _check_source(plugin, document, at, problems)
-        if plugin.settings is not None:
+        if plugin.settings is not None and plugin.state != "purged":
             _check_settings(plugin.settings, document, (*at, "settings"), directory, problems)
 
 
 def _check_source(
     plugin: LockedPlugin, document: Document, at: DocPath, problems: _Problems
 ) -> None:
+    if plugin.state == "purged":
+        for key in ("git", "sha", "path", "local", "settings"):
+            if getattr(plugin, key) is not None:
+                problems.add(
+                    "purged-source",
+                    f"{plugin.name} is purged, so it isn't fetched or built: remove `{key}`.",
+                    document,
+                    (*at, key),
+                    key=True,
+                )
+        return
     if plugin.local is not None:
         for key in ("git", "sha", "path"):
             if getattr(plugin, key) is not None:

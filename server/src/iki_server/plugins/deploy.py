@@ -8,16 +8,18 @@ code doesn't know. So before migrating, this:
 
 1. Refuses what it can't do safely:
    - a database that a newer Iki migrated (restore a backup instead)
-   - a plugin missing from the build (removing plugins is ADR 0008's detach)
+   - a plugin missing from the build, unless the lockfile purges it
    - a migration that changed after it was applied
-2. Reverses the plugin migrations the build doesn't have, from the copies
+2. Drops the tables of each plugin the lockfile purges (ADR 0092), once its
+   purge has waited and left a tombstone for every entity. See :func:`_purge`.
+3. Reverses the plugin migrations the build doesn't have, from the copies
    it kept of them (:class:`~iki_server.plugins.models.PluginMigration`).
    It does so only if no reversal can lose data. Every operation must be
    reversible. No table it would drop may hold rows, no column it would drop
    may hold anything but its default, and no column whose type it would
    change may hold values. Otherwise it changes nothing and says why.
-3. Runs ``migrate``.
-4. Keeps a copy of every plugin migration now applied.
+4. Runs ``migrate``.
+5. Keeps a copy of every plugin migration now applied.
 """
 
 from __future__ import annotations
@@ -32,15 +34,22 @@ from typing import Any
 
 from django.apps import apps
 from django.core.management import call_command
-from django.db import connection, migrations
+from django.db import DatabaseError, connection, migrations, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.migrations.state import ProjectState
+from django.db.models import Q
+from django.utils import timezone
 from psycopg import sql
 
-from iki_server.plugins.models import PluginMigration
+from iki_server.audit import log as audit
+from iki_server.entities import registry
+from iki_server.entities.models import Entity, ProjectLink, Tombstone, UniqueValue
+from iki_server.org import holds
+from iki_server.plugins import sync
+from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
 from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
 from iki_spec.validate import RESERVED_PLUGIN_NAMES
 
@@ -73,6 +82,8 @@ class DeployError(Exception):
 class Report:
     reversed: list[Key] = field(default_factory=list)
     archived: list[Key] = field(default_factory=list)
+    #: What each purge did, a line per plugin.
+    purged: list[str] = field(default_factory=list)
 
 
 def plugin_apps() -> list[str]:
@@ -91,8 +102,9 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
     gone = {k[0] for k in unknown if k[0] not in installed} | {
         a for a in archive if a not in installed and any(k[0] == a for k in applied)
     }
-    removed = sorted(a for a in gone if a in archive or _could_be_plugin(a))
-    newer = [k for k in unknown if k[0] not in installed and k[0] not in removed]
+    purging = sorted(gone & registry.purged())
+    removed = sorted(a for a in gone - set(purging) if a in archive or _could_be_plugin(a))
+    newer = [k for k in unknown if k[0] not in installed and k[0] not in removed + purging]
     if newer:
         raise DeployError(
             f"A newer Iki migrated this database ({_names(newer)}), and this is Iki "
@@ -102,7 +114,8 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
     if removed:
         raise DeployError(
             f"The database has the plugin(s) {', '.join(removed)}, but this build doesn't. "
-            "Removing a plugin needs it detached first (ADR 0008): keep it in the lockfile."
+            "Removing a plugin needs it detached, then purged (ADR 0092): keep it in the "
+            "lockfile."
         )
     changed = [
         k
@@ -118,6 +131,8 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
             "can't change once a database has applied it: put the change in a new migration."
         )
 
+    if purging:
+        report.purged = _purge(purging, archive, applied)
     to_reverse = [k for k in unknown if k[0] in installed]
     if to_reverse:
         report.reversed = _roll_back(to_reverse, archive, applied)
@@ -186,7 +201,10 @@ class _WithCopies(MigrationLoader):
             if _sha256(row.source) != row.sha256:
                 raise DeployError(f"The kept copy of {_names([key])} doesn't match its hash.")
             app, name = key
-            package = self.migrations_module(app)[0] or f"iki_plugin_{app}.migrations"
+            try:
+                package = self.migrations_module(app)[0] or f"iki_plugin_{app}.migrations"
+            except LookupError:  # a purged plugin, which the build doesn't install
+                package = f"iki_plugin_{app}.migrations"
             module = types.ModuleType(f"{package}.{name}")
             module.__file__ = f"<kept copy of {app}.{name}>"
             exec(compile(row.source, module.__file__, "exec"), module.__dict__)  # noqa: S102 - code this database already ran, as kept by the migrator
@@ -327,6 +345,190 @@ def _lost_by_reversing(
         # Written by the plugin's author, with a reverse they wrote and reviewed.
         return None
     return f"Iki doesn't know whether reversing {operation.describe()} keeps data."
+
+
+# --- Purging -------------------------------------------------------------------------------------
+
+
+def _purge(
+    names: list[str], archive: dict[str, dict[Key, PluginMigration]], applied: set[Key]
+) -> list[str]:
+    """Deletes the data of plugins the lockfile purges (ADR 0092), in one transaction.
+
+    Each must have a purge whose wait is over, with every entity tombstoned, and none of
+    its data on legal hold; nothing still installed may depend on it. Then:
+
+    - its tables go whole: values, history, lists, and fields it added to other types;
+    - what its entities hold in tables they inherit from other plugins goes too (such as
+      ``core_sequence`` for a DNA sequence), history included;
+    - their unique values and identity hashes go;
+    - its migrations are no longer recorded as applied, and its purge is done.
+
+    It drops the tables rather than reversing the plugin's migrations: a reversal runs the
+    plugin's own reverse code, which could change rows Iki keeps, such as the types its
+    tombstones name. The entities' core rows, revisions and tombstones stay, as does the
+    audit log. If anything can't be done, nothing is, and the error says why.
+    """
+    with transaction.atomic():
+        purges = {name: _due(name) for name in names}
+        state = _state_of(names, archive, applied)
+        mine = [
+            m
+            for m in state.apps.get_models(include_auto_created=True)
+            if m._meta.app_label in names and m._meta.managed and not m._meta.proxy
+        ]
+        others = [
+            m
+            for m in state.apps.get_models(include_auto_created=True)
+            if m._meta.app_label in set(plugin_apps())
+            and m._meta.managed
+            and not m._meta.proxy
+            and any(f.column == "entity_id" for f in m._meta.local_concrete_fields)
+        ]
+        ids = Tombstone.objects.filter(purge__in=purges.values()).values("entity_id")
+        out = []
+        with connection.cursor() as cursor:
+            sync.drop_views(cursor)  # sync_plugins makes the rest again
+            tables = sorted(m._meta.db_table for m in mine)
+            try:
+                with transaction.atomic():
+                    # Without CASCADE: if anything else refers to them, nothing changes.
+                    cursor.execute(
+                        sql.SQL("DROP TABLE {}")
+                        .format(sql.SQL(", ").join(sql.Identifier(t) for t in tables))
+                        .as_string(cursor.connection)
+                    )
+            except DatabaseError as error:
+                raise DeployError(
+                    f"Couldn't drop the tables of {', '.join(names)}, so nothing was changed: "
+                    f"{error}".strip()
+                ) from None
+            elsewhere = sum(_delete_rows(cursor, m._meta.db_table, ids) for m in others)
+        UniqueValue.objects.filter(entity__in=ids).delete()
+        Entity.objects.filter(pk__in=ids).update(identity_hash=None)
+        MigrationRecorder.Migration.objects.filter(app__in=names).delete()
+        PluginState.objects.filter(name__in=names).update(state=PluginState.State.PURGED)
+        now = timezone.now()
+        for name, scheduled in purges.items():
+            scheduled.done_at = now
+            scheduled.save(update_fields=["done_at"])
+            dropped = sorted(m._meta.db_table for m in mine if m._meta.app_label == name)
+            entities = Tombstone.objects.filter(purge=scheduled).count()
+            audit.record(
+                "plugin.purged",
+                target=scheduled,
+                data={"plugin": name, "entities": entities, "tables": dropped},
+            )
+            out.append(
+                f"{name}: dropped {len(dropped)} table(s); {entities} entities keep their "
+                "tombstones"
+            )
+        if elsewhere:
+            out.append(f"deleted {elsewhere} row(s) their entities had in other plugins' tables")
+    return out
+
+
+def _due(name: str) -> PluginPurge:
+    """The purge of ``name`` the deploy may carry out now, or why it can't."""
+    keep = f"Deploy with {name} detached until then."
+    scheduled = (
+        PluginPurge.objects.select_for_update()
+        .filter(plugin=name, cancelled_at__isnull=True, done_at__isnull=True)
+        .first()
+    )
+    if scheduled is None:
+        raise DeployError(
+            f"The lockfile purges {name}, but no purge of it was asked for. An Org Admin asks "
+            f"for one on its page in Settings → Plugins, while it's detached. {keep}"
+        )
+    if scheduled.run_after > timezone.now():
+        raise DeployError(
+            f"{name}'s purge isn't due until {scheduled.run_after:%Y-%m-%d %H:%M} UTC, and "
+            f"can be cancelled until then. {keep}"
+        )
+    entities = Entity.objects.filter(type__startswith=f"{name}.")
+    in_projects = Q(pk__in=entities.values("owner_project")) | Q(
+        pk__in=ProjectLink.objects.filter(entity__in=entities.values("pk")).values("project")
+    )
+    if holds.held_projects().filter(in_projects).exists():
+        # Holds are confidential: the deploy's log doesn't say which project or matter.
+        raise DeployError(
+            f"Some of {name}'s data is on legal hold, so it can't be purged until the hold is "
+            f"released. {keep}"
+        )
+    if scheduled.tombstoned_at is None:
+        raise DeployError(
+            f"{name}'s entities don't all have tombstones yet. Maintenance makes them within "
+            f"the hour once the wait is over: deploy again after that. {keep}"
+        )
+    left = entities.exclude(tombstone__purge=scheduled).count()
+    if left:
+        raise DeployError(
+            f"{left} of {name}'s entities have no tombstone from its purge, so nothing was "
+            "changed. Was it reattached and used? Ask for a new purge."
+        )
+    return scheduled
+
+
+def _state_of(
+    names: list[str], archive: dict[str, dict[Key, PluginMigration]], applied: set[Key]
+) -> ProjectState:
+    """The schema the purged plugins' kept migrations made, with everything else's."""
+    mine = sorted(k for k in applied if k[0] in names)
+    missing = [k for k in mine if k not in archive.get(k[0], {})]
+    if missing:
+        raise DeployError(
+            f"Can't purge: Iki kept no copy of {_names(missing)} (they ran before it kept "
+            "copies), so it can't tell which tables are the plugin's. Restore its migrations "
+            "to the build, as a detached plugin, and deploy once to keep copies."
+        )
+    loader = _WithCopies({k: archive[k[0]][k] for k in mine}, connection)
+    needing = sorted(
+        (str(child.key[0]), str(child.key[1]))
+        for key in mine
+        for child in loader.graph.node_map[key].children
+        if child.key[0] not in names and child.key in applied
+    )
+    if needing:
+        raise DeployError(
+            f"Can't purge {', '.join(names)}: {_names(needing)} depend(s) on it. Purge those "
+            "plugins too."
+        )
+    return loader.project_state(mine)
+
+
+def _delete_rows(cursor: Any, table: str, ids: Any) -> int:  # noqa: ANN401 - Django's cursor, a queryset
+    """Deletes the purged entities' rows from another plugin's table, its history too."""
+    query, params = ids.query.sql_with_params()
+    triggers = _append_only(cursor, table)
+    for trigger in triggers:  # only the migrate Job may: history is append-only (ADR 0025)
+        cursor.execute(
+            sql.SQL("ALTER TABLE {} DISABLE TRIGGER {}")
+            .format(sql.Identifier(table), sql.Identifier(trigger))
+            .as_string(cursor.connection)
+        )
+    cursor.execute(
+        sql.SQL("DELETE FROM {} WHERE entity_id IN ({})")
+        .format(sql.Identifier(table), sql.SQL(query))  # Django's SQL; values are parameters
+        .as_string(cursor.connection),
+        params,
+    )
+    deleted = int(cursor.rowcount)
+    for trigger in triggers:
+        cursor.execute(
+            sql.SQL("ALTER TABLE {} ENABLE TRIGGER {}")
+            .format(sql.Identifier(table), sql.Identifier(trigger))
+            .as_string(cursor.connection)
+        )
+    return deleted
+
+
+def _append_only(cursor: Any, table: str) -> list[str]:  # noqa: ANN401 - Django's cursor
+    cursor.execute(
+        "SELECT tgname FROM pg_trigger WHERE tgrelid = %s::regclass AND tgname = %s",
+        [table, AppendOnly.ROW_TRIGGER],
+    )
+    return [row[0] for row in cursor.fetchall()]
 
 
 def _exists(cursor: Any, query: str, *names: str, params: list[Any] | None = None) -> bool:  # noqa: ANN401 - Django's cursor

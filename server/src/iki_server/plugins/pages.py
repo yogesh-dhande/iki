@@ -14,7 +14,7 @@ from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.org.views import _user, page, refusals
 from iki_server.plugins import purge
-from iki_server.plugins.models import PluginState
+from iki_server.plugins.models import PluginPurge, PluginState
 
 
 class PurgeForm(forms.Form):
@@ -49,10 +49,34 @@ def _installed() -> list[dict[str, Any]]:
     return out
 
 
+def _purged() -> list[dict[str, Any]]:
+    """Plugins a deploy purged (ADR 0092): no longer installed, but kept on record."""
+    done = {
+        p.plugin: p
+        for p in PluginPurge.objects.filter(done_at__isnull=False)
+        .select_related("requested_by")
+        .order_by("done_at")
+    }
+    return [
+        {
+            "name": s.name,
+            "title": "",
+            "version": s.version,
+            "sha": "" if s.sha == registry.LOCAL else s.sha,
+            "state": "purged",
+            "changed_at": s.changed_at,
+            "purge": None,
+            "done": done.get(s.name),
+        }
+        for s in PluginState.objects.filter(state=PluginState.State.PURGED).order_by("name")
+        if s.name not in registry.plugins()
+    ]
+
+
 @page("GET")
 def plugins(request: HttpRequest) -> HttpResponse:
     permissions.require(_user(request), Action.ORG_MANAGE)
-    return render(request, "plugins/plugins.html", {"plugins": _installed()})
+    return render(request, "plugins/plugins.html", {"plugins": _installed() + _purged()})
 
 
 @page("GET", "POST")
@@ -62,7 +86,18 @@ def plugin(request: HttpRequest, name: str) -> HttpResponse:
     permissions.require(me, Action.ORG_MANAGE)
     found = next((p for p in _installed() if p["name"] == name), None)
     if found is None:
-        raise Http404
+        gone = next((p for p in _purged() if p["name"] == name), None)
+        if gone is None:
+            raise Http404
+        return render(
+            request,
+            "plugins/plugin.html",
+            {
+                "plugin": gone,
+                "purged": gone["done"],
+                "report": getattr(gone["done"], "report", None),
+            },
+        )
     action = request.POST.get("action") if request.method == "POST" else None
     form = PurgeForm(request.POST if action == "purge" else None)
     scheduled = purge.pending(name)
