@@ -553,13 +553,21 @@ describe("file fields", () => {
     expect(
       await within(group).findByText("notes.txt is text/plain: choose chemical/x-pdb."),
     ).toBeInTheDocument();
+    // Each file sent is one line, with Remove; the refused one's place is left to choose
+    // again. What the list takes is said once, for the list.
     await waitFor(() => {
       expect(
         within(group)
-          .getAllByRole("combobox", { name: /already in the project/ })
-          .map((c) => (c as HTMLSelectElement).value),
-      ).toEqual([MADE, "", MADE]);
+          .getAllByRole("button", { name: /^Remove / })
+          .map((b) => b.getAttribute("aria-label") ?? b.textContent),
+        // The stand-in storage names every file it makes a.pdb.
+      ).toEqual(["Remove a.pdb", "Remove Traces, item 2", "Remove a.pdb"]);
     });
+    expect(within(group).getAllByRole("combobox", { name: /already in the project/ })).toHaveLength(
+      1,
+    );
+    expect(group).toHaveAccessibleDescription("It takes chemical/x-pdb files.");
+    expect(within(group).getAllByText("It takes", { exact: false })).toHaveLength(1);
     expect(calls("POST", "/api/v1/uploads")).toHaveLength(2);
     expect(within(group).queryByText("Traces takes at most 3 files", { exact: false })).toBeNull();
   });

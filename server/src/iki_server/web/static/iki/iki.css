@@ -2078,6 +2078,21 @@ input.input-number {
   margin-bottom: 0;
 }
 
+/* A file chosen in a list of files: its name and size, on one line beside Remove. */
+.list-input-file {
+  flex: 1;
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+
+.list-input-item:has(> .list-input-file) {
+  align-items: center;
+}
+
 /* Add one more, or, for a list of files, choose several at once. */
 .list-input-add {
   display: flex;

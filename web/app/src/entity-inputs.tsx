@@ -562,7 +562,21 @@ function inSentenceLabel(label: string): string {
   return `${article} ${lowered}`;
 }
 
-/** A file: one uploaded from this computer, or one already in the project. */
+/** What a file field takes, as a sentence, or "" when it takes anything. */
+function fileRules(schema: { "x-iki-media-types"?: string[]; "x-iki-max-size"?: number }): string {
+  const allowed = schema["x-iki-media-types"] ?? [];
+  const maxSize = schema["x-iki-max-size"];
+  const rules = [
+    allowed.length ? `${media.either(allowed)} files` : "",
+    maxSize != null ? `up to ${formatSize(maxSize)}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return rules ? `It takes ${rules}.` : "";
+}
+
+/** A file: one uploaded from this computer, or one already in the project. In a list,
+ * a chosen file is one line (the list says what it takes, once). */
 function FileInput({
   field,
   type,
@@ -589,13 +603,10 @@ function FileInput({
   const fits = (files.data ?? []).filter(
     (f) => media.allowed(f.media_type, allowed) && (maxSize == null || f.size <= maxSize),
   );
-  const rules = [
-    allowed.length ? `${media.either(allowed)} files` : "",
-    maxSize != null ? `up to ${formatSize(maxSize)}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
-  const help = helpText(field, [note, rules ? `It takes ${rules}.` : ""].filter(Boolean).join(" "));
+  const inList = itemLabel !== undefined;
+  const help = inList
+    ? undefined
+    : helpText(field, [note, fileRules(schema)].filter(Boolean).join(" "));
   const shownError = problem ?? error;
   const label = itemLabel ?? field.label;
 
@@ -649,17 +660,26 @@ function FileInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [given]);
 
+  if (inList && picked && !picked.uploading && picked.id) {
+    const size = files.data?.find((f) => f.id === picked.id)?.size;
+    return (
+      <p className="list-input-file">
+        <span className="visually-hidden">{label}: </span>
+        {picked.title}
+        {size != null ? <span className="muted"> {formatSize(size)}</span> : null}
+      </p>
+    );
+  }
+
   return (
     <fieldset
       className={shownError ? "field field-invalid" : "field"}
       aria-describedby={describedBy(shownError && `${id}-error`, help && `${id}-help`)}
       disabled={disabled}
     >
-      <legend className={itemLabel !== undefined ? "visually-hidden" : undefined}>
+      <legend className={inList ? "visually-hidden" : undefined}>
         {label}
-        {field.required || itemLabel !== undefined ? null : (
-          <span className="optional"> (optional)</span>
-        )}
+        {field.required || inList ? null : <span className="optional"> (optional)</span>}
       </legend>
       {shownError ? (
         <p className="field-error" id={`${id}-error`}>
@@ -768,7 +788,13 @@ function ListInput(props: InputProps) {
   const id = useId();
   const items = draft as Draft[];
   const item: FieldDef = { ...field, type: field.items ?? "string", required: false };
-  const help = helpText(field, note);
+  const files = field.items === "file";
+  const itemSchema = propertySchema(type, field.name).items ?? {};
+  // What each file may be, said once for the list rather than for each file.
+  const help = helpText(
+    field,
+    [note, files ? fileRules(itemSchema) : ""].filter(Boolean).join(" "),
+  );
   // Items change one by one as their files finish uploading, so each change starts from
   // the list as the last one left it, not as this render saw it.
   const latest = useRef(items);
@@ -779,7 +805,6 @@ function ListInput(props: InputProps) {
     latest.current = next;
     onChange(next);
   };
-  const files = field.items === "file";
   const most = propertySchema(type, field.name).maxItems;
   const [tooMany, setTooMany] = useState<string | null>(null);
   const shownError = tooMany ?? error;
@@ -830,7 +855,11 @@ function ListInput(props: InputProps) {
             <Button
               variant="quiet"
               disabled={disabled ?? false}
-              label={`Remove ${field.label}, item ${String(index + 1)}`}
+              label={
+                files && (d as Picked | null)?.id
+                  ? `Remove ${(d as Picked).title}`
+                  : `Remove ${field.label}, item ${String(index + 1)}`
+              }
               onClick={() => {
                 setTooMany(null);
                 change(latest.current.filter((_, i) => i !== index));
@@ -861,9 +890,7 @@ function ListInput(props: InputProps) {
               type="file"
               multiple
               disabled={disabled ?? false}
-              accept={media.accept(
-                propertySchema(type, field.name).items?.["x-iki-media-types"] ?? [],
-              )}
+              accept={media.accept(itemSchema["x-iki-media-types"] ?? [])}
               onChange={(event) => {
                 const chosen = [...(event.target.files ?? [])];
                 event.target.value = "";
