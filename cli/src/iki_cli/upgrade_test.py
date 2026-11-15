@@ -8,6 +8,7 @@ runs :mod:`iki_server.plugins.upgrade_test` there for each step, with that step'
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import os
@@ -24,7 +25,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from iki_codegen import build as build_apps
 from iki_spec import action_tests
-from iki_spec.model import EntityType, Plugin
+from iki_spec.model import EntityType, Field, Plugin
 
 #: How much of a failing step's log is shown.
 LOG_LINES = 20
@@ -91,6 +92,22 @@ def run(
                     f"          The earlier commit has no action tests with entities in "
                     f"{action_tests.DIRECTORY}/, so only its migrations run.\n"
                 )
+            unversioned = _unversioned(earlier, plugin)
+            out.write(
+                f"  {'ok    ' if not unversioned else 'FAILED'}  each type whose fields changed "
+                "has a higher schema_version\n"
+            )
+            if unversioned:
+                out.write("".join(f"          {p}\n" for p in unversioned))
+                return False
+            if earlier.version == plugin.version and _migrations(earlier_dir) != _migrations(
+                directory
+            ):
+                out.write(
+                    f"          Note: the migrations changed, and {plugin.name}'s version is still "
+                    f"{plugin.version}. Increase it when you release this, so a deployment's "
+                    "history tells the two apart.\n"
+                )
             for step, build, done in steps:
                 started = time.monotonic()
                 problems, log = _step(step, build, url, state)
@@ -105,6 +122,67 @@ def run(
         if scratch.left:
             return False
     return True
+
+
+#: A field's attributes that change only how it's shown or found, not what it holds (ADR 0095).
+_SHOWN = frozenset({"label", "description", "display_unit", "link", "indexed"})
+
+
+def _unversioned(earlier: Plugin, current: Plugin) -> list[str]:
+    """Each type whose entities may hold something new without a higher schema_version."""
+    out = []
+    for name, now in current.types.items():
+        then = earlier.types.get(name)
+        if then is None:
+            continue
+        if now.schema_version < then.schema_version:
+            out.append(
+                f"{name}'s schema_version went down, from {then.schema_version} to "
+                f"{now.schema_version}. Schema versions only go up: plugins that depend on "
+                f"{current.name} compare them."
+            )
+            continue
+        changes = _changes(then, now)
+        if changes and now.schema_version == then.schema_version:
+            out.append(
+                f"{name} changed ({'; '.join(changes)}), and its schema_version is still "
+                f"{now.schema_version}. Increase it to {now.schema_version + 1}: plugins that "
+                f"depend on {current.name} pin its types' schema versions."
+            )
+    return out
+
+
+def _changes(then: EntityType, now: EntityType) -> list[str]:
+    old, new = then.current_fields, now.current_fields
+    out = [f"added {n}" for n in new if n not in old]
+    out += [f"removed {n}" for n in old if n not in new]
+    for n in (n for n in new if n in old):
+        a, b = _held(old[n]), _held(new[n])
+        changed = [k for k in a if a[k] != b[k]]
+        if changed:
+            out.append(f"changed {n}'s {', '.join(changed)}")
+    out += [
+        f"changed its {attr}"
+        for attr in ("extends", "abstract", "identity")
+        if getattr(then, attr) != getattr(now, attr)
+    ]
+    return out
+
+
+def _held(f: Field) -> dict[str, Any]:
+    """What a field may hold: its attributes but those only about showing it."""
+    return {
+        k.name: _held(v) if isinstance(v := getattr(f, k.name), Field) else v
+        for k in dataclasses.fields(f)
+        if k.name not in _SHOWN
+    }
+
+
+def _migrations(directory: Path) -> dict[str, bytes]:
+    folder = directory / "migrations"
+    if not folder.is_dir():
+        return {}
+    return {p.name: p.read_bytes() for p in sorted(folder.glob("*.py"))}
 
 
 def _checkout(directory: Path, ref: str, into: Path, err: TextIO) -> tuple[str, Path | None] | None:

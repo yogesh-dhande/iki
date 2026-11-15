@@ -51,6 +51,7 @@ from iki_server.org import holds
 from iki_server.plugins import sync
 from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
 from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
+from iki_spec import releases
 from iki_spec.validate import RESERVED_PLUGIN_NAMES
 
 Key = tuple[str, str]
@@ -92,6 +93,7 @@ def plugin_apps() -> list[str]:
 
 def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django OutputWrapper
     report = Report()
+    _check_iki()
     executor = MigrationExecutor(connection)
     applied = set(executor.recorder.applied_migrations())
     code = executor.loader.disk_migrations
@@ -546,6 +548,21 @@ def _exists(cursor: Any, query: str, *names: str, params: list[Any] | None = Non
 
 def _names(keys: Iterable[Key]) -> str:
     return ", ".join(f"{app}.{name}" for app, name in keys)
+
+
+def _check_iki() -> None:
+    """Refuses plugins made for other Iki releases, before anything changes (ADR 0095)."""
+    this = ".".join(map(str, releases.release(_version())))
+    unfit = [
+        f"{p.name} works with Iki {p.iki.strip()}"
+        for p in registry.plugins().values()
+        if p.iki and not releases.fits(p.iki, this)
+    ]
+    if unfit:
+        raise DeployError(
+            f"This is Iki {this}, and {'; '.join(unfit)}. Deploy a release of Iki they work "
+            "with, or releases of them made for this one: nothing was migrated."
+        )
 
 
 def _version() -> str:

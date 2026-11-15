@@ -10,6 +10,8 @@ title: Example
 description: A starting point for a lab's own entity types.
 # An SPDX identifier. For a plugin only your company uses, "LicenseRef-Proprietary".
 license: Apache-2.0
+# The Iki releases it works with. A deployment on any other release refuses it.
+iki: ">=0.1"
 # The plugins whose types this one uses, with the schema versions it works with.
 dependencies:
   dna:

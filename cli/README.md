@@ -131,12 +131,21 @@ is still there with its history. Last, it deploys the earlier commit again,
 as a rollback, and checks the samples' values came back. The database is
 dropped at the end.
 
+Before it migrates anything, it compares each type then and now
+([ADR 0095](../docs/adr/0095-a-plugin-says-which-iki-it-works-with-and-versions-its-changes.md)).
+If what a type's entities may hold changed, such as a field added or a
+rule tightened, its `schema_version` must be higher: plugins that depend on
+it pin schema versions. A new label, description, display unit, link or
+index doesn't count. If the migrations changed and the plugin's `version`
+didn't, it says so, and passes.
+
 ```console
 $ iki plugin test plugins/protein --with plugins/dna --upgrade-from origin/main \
     --database postgres://postgres@localhost:5432/postgres
 …
 Upgrading protein from 3f2a1c9b7e0d (0.7.0) to 0.8.0 on the scratch database
 iki_upgrade_5c1e9a07, with 2 sample(s):
+  ok      each type whose fields changed has a higher schema_version
   ok      migrated to the earlier commit and made the samples  (9.9s)
   ok      upgraded: the samples and their history are intact  (1.1s)
   ok      rolled back: the samples have their values  (0.8s)

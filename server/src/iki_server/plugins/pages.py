@@ -40,6 +40,7 @@ def _installed() -> list[dict[str, Any]]:
                 "name": name,
                 "title": plugin.title,
                 "version": plugin.version,
+                "iki": (plugin.iki or "").strip(),
                 "sha": entry.get("sha") or "",
                 "state": entry.get("state", "active"),
                 "changed_at": states[name].changed_at if name in states else None,

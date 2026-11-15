@@ -132,6 +132,7 @@ def test_the_plugins_page(world: World, deployed: Callable[..., None]) -> None:
     listing = admin.get("/settings/plugins/").content.decode()
     assert "Detached" in listing
     page = admin.get("/settings/plugins/dna/").content.decode()
+    assert "<dt>Works with</dt><dd>Iki <code>&gt;=0.1</code></dd>" in page
     assert "What a purge would delete" in page
     assert "2 DNA sequences" in page
 

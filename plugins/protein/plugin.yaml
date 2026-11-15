@@ -6,6 +6,7 @@ version: 0.8.0
 title: Protein
 description: Proteins and their structures, with the properties of their sequences and folds, and their alignments.
 license: Apache-2.0
+iki: ">=0.1"
 homepage: https://ikisci.org/plugins/protein
 dependencies:
   dna:

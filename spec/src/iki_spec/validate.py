@@ -27,6 +27,7 @@ from iki_spec import (
     actions,
     components,
     naming,
+    releases,
     schemas,
     titles,
     triggers,
@@ -356,6 +357,15 @@ def _read(root: FilePath) -> _Loaded:
     data = plugin_doc.data
     name = data["name"]
     loaded.plugin_source = plugin_doc
+    if "iki" in data and not releases.fits(data["iki"]):
+        checker.add(
+            "iki-version",
+            f"{name} works with Iki {data['iki'].strip()}, and this is Iki {releases.iki()}.",
+            plugin_doc,
+            ("iki",),
+            hint=f"Use a release of {name} made for Iki {releases.iki()}, or deploy an Iki "
+            "it works with.",
+        )
 
     types: dict[str, EntityType] = {}
     extensions: list[Extension] = []
@@ -451,6 +461,7 @@ def _read(root: FilePath) -> _Loaded:
         description=data.get("description"),
         license=data.get("license"),
         homepage=data.get("homepage"),
+        iki=data.get("iki"),
         dependencies={
             plugin: dict(spec.get("types", {}))
             for plugin, spec in data.get("dependencies", {}).items()

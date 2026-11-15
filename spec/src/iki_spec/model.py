@@ -559,6 +559,8 @@ class Plugin:
     description: str | None = None
     license: str | None = None
     homepage: str | None = None
+    #: The Iki releases it works with, such as `>=0.1,<0.3`, or None to say nothing.
+    iki: str | None = None
     #: plugin name → {type name → schema-version constraint}
     dependencies: dict[str, dict[str, str]] = field(default_factory=dict)
     settings: dict[str, Field] = field(default_factory=dict)

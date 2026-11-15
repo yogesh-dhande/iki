@@ -1,0 +1,49 @@
+"""Which Iki releases a plugin works with: its ``iki:`` (ADR 0095)."""
+
+from __future__ import annotations
+
+import re
+
+_PART = re.compile(r"\s*(==|!=|>=|<=|>|<)\s*([0-9]+(?:\.[0-9]+){0,2})\s*")
+_RELEASE = re.compile(r"[0-9]+(?:\.[0-9]+){0,2}")
+
+
+def release(version: str) -> tuple[int, int, int]:
+    """A version's release numbers: ``0.2`` is (0, 2, 0), and so is ``0.2.0.dev3``.
+
+    A build of Iki counts as the release it leads to, so a plugin made against what's
+    coming loads on the builds before it.
+    """
+    match = _RELEASE.match(version.strip())
+    if match is None:
+        raise ValueError(f"{version!r} isn't a version")
+    major, minor, patch = (*(int(n) for n in match.group(0).split(".")), 0, 0)[:3]
+    return major, minor, patch
+
+
+def iki() -> str:
+    """This Iki's release, as plugins compare it: ``0.1.0`` for ``0.1.0.dev0``."""
+    from iki_spec import __version__
+
+    return ".".join(map(str, release(__version__)))
+
+
+def fits(requirement: str, version: str | None = None) -> bool:
+    """Whether Iki at ``version`` (this one if None) is a release ``requirement`` allows."""
+    have = release(version or iki())
+    for part in requirement.split(","):
+        match = _PART.fullmatch(part)
+        if match is None:
+            raise ValueError(f"{requirement!r} isn't a list of comparisons with releases")
+        op, want = match.group(1), release(match.group(2))
+        ok = {
+            "==": have == want,
+            "!=": have != want,
+            ">=": have >= want,
+            "<=": have <= want,
+            ">": have > want,
+            "<": have < want,
+        }[op]
+        if not ok:
+            return False
+    return True

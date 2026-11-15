@@ -676,6 +676,32 @@ def test_dependency_versions(tmp_path: Path, constraint: str, code: str | None) 
     assert codes(result) == ([code] if code else [])
 
 
+def test_a_plugin_says_which_iki_it_works_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import iki_spec
+
+    monkeypatch.setattr(iki_spec, "__version__", "0.2.0.dev3")
+    for fits in (">=0.1", ">=0.2,<0.3", "==0.2", "<1"):
+        result = make(tmp_path, "", PLUGIN + f"iki: '{fits}'\n")
+        assert result.ok, (fits, result.problems)
+        assert result.plugin is not None
+        assert result.plugin.iki == fits
+    assert make(tmp_path, "").plugin.iki is None  # type: ignore[union-attr]
+
+    result = make(tmp_path, "", PLUGIN + "iki: '>=0.3, <1'\n")
+    assert only(result, "iki-version") == "acme works with Iki >=0.3, <1, and this is Iki 0.2.0."
+    problem = result.problems[0]
+    assert (
+        problem.hint == "Use a release of acme made for Iki 0.2.0, or deploy an Iki it works with."
+    )
+    assert problem.location is not None
+    assert problem.location.line == 5
+
+    result = make(tmp_path, "", PLUGIN + "iki: '0.2'\n")
+    assert "It compares Iki release numbers, such as `>=0.1`" in only(result, "schema")
+
+
 def test_dependency_types_must_exist(tmp_path: Path) -> None:
     plugin = PLUGIN + "dependencies:\n  dna:\n    types:\n      DnaSequence: '>=1'\n"
     result = make(tmp_path, "", plugin, with_=(DNA,))

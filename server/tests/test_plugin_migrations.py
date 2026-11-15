@@ -903,6 +903,25 @@ def test_a_database_a_newer_iki_migrated_is_refused(
     assert "A newer Iki migrated this database (iki_entities.0099_future)" in err
 
 
+def test_a_plugin_made_for_another_iki_is_refused(
+    two_builds: tuple[Path, Path], database: str
+) -> None:
+    # As built by a newer CLI: this one refuses it at build (ADR 0095).
+    v1, _ = two_builds
+    manifest = v1 / "iki_plugin_lab" / "manifest.json"
+    data = json.loads(manifest.read_text())
+    data["plugin"]["iki"] = ">=99"
+    manifest.write_text(json.dumps(data))
+    err = refused(v1, database)
+    from iki_server import __version__
+    from iki_spec import releases
+
+    this = ".".join(map(str, releases.release(__version__)))
+    assert f"This is Iki {this}, and lab works with Iki >=99." in err
+    assert "nothing was migrated" in err
+    assert query(database, "SELECT to_regclass('django_migrations')") == [(None,)]
+
+
 def test_applied_migrations_cant_change(two_builds: tuple[Path, Path], database: str) -> None:
     v1, _ = two_builds
     deployed(v1, database)
@@ -1117,28 +1136,69 @@ def upgrade(lab: Path, server: str, *args: str) -> subprocess.CompletedProcess[s
     )
 
 
+ADD_NOTES = ("  count: { type: int }", "  count: { type: int }\n  notes: { type: text }")
+
+
 def test_an_upgrade_keeps_the_samples_and_rolls_back(versioned: Path, _postgres_url: str) -> None:
-    write_sample(
-        versioned, ("  count: { type: int }", "  count: { type: int }\n  notes: { type: text }")
-    )
+    write_sample(versioned, ADD_NOTES, ("schema_version: 1", "schema_version: 2"))
+    (versioned / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
     made("lab", "--name", "notes", "--no-input", cwd=versioned.parent)
     result = upgrade(versioned, _postgres_url, "-k", "none")
     assert result.returncode == 0, result.stdout + result.stderr
     lines = result.stdout.splitlines()
     header = re.fullmatch(
-        r"Upgrading lab from [0-9a-f]{12} \(1\.0\.0\) to 1\.0\.0 on the scratch database "
+        r"Upgrading lab from [0-9a-f]{12} \(1\.0\.0\) to 1\.1\.0 on the scratch database "
         r"(iki_upgrade_[0-9a-f]{8}), with 1 sample\(s\):",
         lines[0],
     )
     assert header is not None, lines[0]
-    assert lines[1].startswith("  ok      migrated to the earlier commit and made the samples")
-    assert lines[2].startswith("  ok      upgraded: the samples and their history are intact")
-    assert lines[3].startswith("  ok      rolled back: the samples have their values")
+    assert lines[1] == "  ok      each type whose fields changed has a higher schema_version"
+    assert lines[2].startswith("  ok      migrated to the earlier commit and made the samples")
+    assert lines[3].startswith("  ok      upgraded: the samples and their history are intact")
+    assert lines[4].startswith("  ok      rolled back: the samples have their values")
     with psycopg.connect(_postgres_url) as connection:
         left = connection.execute(
             "SELECT datname FROM pg_database WHERE datname = %s", [header.group(1)]
         ).fetchall()
     assert left == []  # the scratch database is dropped
+
+
+def test_a_type_that_changes_needs_a_higher_schema_version(
+    versioned: Path, _postgres_url: str
+) -> None:
+    write_sample(versioned, ADD_NOTES, ("max_length: 100", "max_length: 50"))
+    made("lab", "--name", "notes", "--no-input", cwd=versioned.parent)
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 1
+    assert "  FAILED  each type whose fields changed has a higher schema_version" in result.stdout
+    assert (
+        "lab.Sample changed (added notes; changed name's max_length), and its schema_version is "
+        "still 1. Increase it to 2: plugins that depend on lab pin its types' schema versions."
+    ) in result.stdout
+    assert "migrated to the earlier commit" not in result.stdout  # nothing ran
+
+    write_sample(versioned, ("schema_version: 1", "schema_version: 2"))
+    git(versioned.parent, "commit", "-q", "-am", "v2")
+    write_sample(versioned)
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 1
+    assert "lab.Sample's schema_version went down, from 2 to 1." in result.stdout
+
+
+def test_how_a_field_is_shown_isnt_a_new_schema(versioned: Path, _postgres_url: str) -> None:
+    write_sample(
+        versioned,
+        ("  count: { type: int }", "  count: { type: int, label: Tubes, indexed: true }"),
+    )
+    made("lab", "--name", "count_index", "--no-input", cwd=versioned.parent)
+    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "  ok      each type whose fields changed has a higher schema_version" in result.stdout
+    # The index is a migration, and the plugin is still 1.0.0.
+    assert (
+        "Note: the migrations changed, and lab's version is still 1.0.0. Increase it when you "
+        "release this, so a deployment's history tells the two apart."
+    ) in result.stdout
 
 
 def test_an_upgrade_that_cant_be_rolled_back_fails_unless_its_one_way(

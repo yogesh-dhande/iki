@@ -42,6 +42,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: protein # lower case; types are protein.Name, tables protein_name
 version: 3.0.0 # semantic version, for people (deployments pin the git commit)
+iki: ">=0.1,<0.3" # the Iki releases it works with: others refuse it
 title: Proteins
 license: Apache-2.0
 dependencies:
@@ -618,6 +619,16 @@ symbolic link and at most 10 MiB, that the types named exist, and that no
 two components define the same element. The build copies each module with
 the digest it had then, and the server checks it before serving it.
 
+## The Iki it works with
+
+`iki:` lists the Iki releases a plugin works with, as comparisons with
+release numbers, such as `">=0.1,<0.3"`
+([ADR 0095](../docs/adr/0095-a-plugin-says-which-iki-it-works-with-and-versions-its-changes.md)).
+On any other release, `iki plugin validate`, `build` and `deploy` refuse it
+(`iki-version`), and so does the deployment's migrate Job, before it
+migrates anything. A build of Iki counts as its release: `0.2.0.dev3` is
+`0.2.0`. Leaving `iki:` out says nothing either way.
+
 ## Dependencies
 
 A plugin lists the plugins whose types it uses, with the schema versions it
@@ -1175,7 +1186,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                             | Units                           |
 | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                            | Files, JSON fields and titles   |
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                           | Extensions                      |
-| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                                                                                                                                                                                                                                                                                          | Dependencies                    |
+| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                           | Dependencies                    |
 | `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                                                                                                                                                                                                                                                                 | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                       | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`                                                                                                                                                                                                                                                                       | Actions                         |

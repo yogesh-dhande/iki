@@ -320,6 +320,12 @@ def _required_hint(missing: str) -> str | None:
     }.get(missing)
 
 
+#: The pattern of a plugin's `iki:`, the Iki releases it works with (ADR 0095).
+IKI_RELEASES = (
+    r"^\s*(==|!=|>=|<=|>|<)\s*[0-9]+(\.[0-9]+){0,2}"
+    r"(\s*,\s*(==|!=|>=|<=|>|<)\s*[0-9]+(\.[0-9]+){0,2})*\s*$"
+)
+
 _PATTERN_MESSAGES = {
     "^[A-Z][A-Z0-9]{1,7}$": "HRID prefixes are 2 to 8 capital letters or digits, starting with a "
     "letter (such as `PRT`).",
@@ -335,6 +341,7 @@ _PATTERN_MESSAGES = {
     "`100MiB` or `2GiB`.",
     "^[0-9]{4}-[0-9]{2}-[0-9]{2}$": "Dates are written YYYY-MM-DD.",
     "^https://[^\\s]+$": "Use an https:// address.",
+    IKI_RELEASES: "It compares Iki release numbers, such as `>=0.1` or `>=0.1,<0.3`.",
 }
 
 
