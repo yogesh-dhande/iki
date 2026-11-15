@@ -8,6 +8,7 @@ own, in subprocesses, since the apps can't be installed in this process.
 
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -46,7 +47,12 @@ def iki(*args: str | Path, cwd: Path, answers: str = "") -> subprocess.Completed
         capture_output=True,
         text=True,
         check=False,
-        env={**os.environ, "NO_COLOR": "1"},
+        # The suite's own server is in $IKI_TEST_DATABASE_URL, which `iki plugin test` reads:
+        # its tests give --database when they mean one.
+        env={
+            **{k: v for k, v in os.environ.items() if k != "IKI_TEST_DATABASE_URL"},
+            "NO_COLOR": "1",
+        },
     )
 
 
@@ -823,6 +829,7 @@ def test_deploying_an_older_build_reverses_what_it_lacks(
     assert "Kept a copy of lab.0002_notes" in out
     assert "lab.0001_initial" not in out  # kept once
     orm(v2, database, SAMPLE_ROW.replace("NOTES", "notes=None"))
+    sync(v2, database)  # its views read notes, which the rollback drops
 
     out = deployed(v1, database)
     assert "Reversed lab.0002_notes (rolled back)" in out
@@ -1043,3 +1050,169 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
     assert [e[0]["plugin"] for e in events] == ["dna"]
     assert "dna" not in sync(purged, database)  # its views went; the rest are made again
     assert "Purged" not in deployed(purged, database)  # once
+
+
+# --- iki plugin test --upgrade-from (ADR 0094) -----------------------------------------------
+
+WEIGH = """\
+apiVersion: iki/v1
+kind: Action
+name: weigh
+inputs:
+  sample: { type: Sample, schema: ">=1" }
+effects:
+  updates: [{ input: sample, fields: [mass] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./weigh.py]
+"""
+
+TOOLS = """\
+apiVersion: iki/v1
+kind: Environment
+name: tools
+tiers: [backend]
+python: { version: "3.12", requirements: requirements.txt }
+"""
+
+WEIGHED = """\
+apiVersion: iki/v1
+kind: ActionTest
+action: weigh
+inputs:
+  sample:
+    - values: { name: S1, mass: 1.5, count: 3, temperature: 20 }
+"""
+
+
+def git(repo: Path, *args: str) -> None:
+    subprocess.run(  # noqa: S603 - git, in the test's own repository
+        ["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=t@example.com", *args],  # noqa: S607
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.fixture
+def versioned(lab: Path) -> Path:
+    """The lab plugin, with an action and a test, committed at its first migration."""
+    (lab / "actions").mkdir()
+    (lab / "actions" / "weigh.yaml").write_text(WEIGH)
+    (lab / "environments").mkdir()
+    (lab / "environments" / "tools.yaml").write_text(TOOLS)
+    (lab / "requirements.txt").write_text("")
+    (lab / "weigh.py").write_text("")
+    (lab / "tests").mkdir()
+    (lab / "tests" / "weighed.yaml").write_text(WEIGHED)
+    made("lab", "--no-input", cwd=lab.parent)
+    repo = lab.parent
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "v1")
+    return lab
+
+
+def upgrade(lab: Path, server: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return iki(
+        "plugin", "test", lab, "--upgrade-from", "main", "--database", server, *args, cwd=lab
+    )
+
+
+def test_an_upgrade_keeps_the_samples_and_rolls_back(versioned: Path, _postgres_url: str) -> None:
+    write_sample(
+        versioned, ("  count: { type: int }", "  count: { type: int }\n  notes: { type: text }")
+    )
+    made("lab", "--name", "notes", "--no-input", cwd=versioned.parent)
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    header = re.fullmatch(
+        r"Upgrading lab from [0-9a-f]{12} \(1\.0\.0\) to 1\.0\.0 on the scratch database "
+        r"(iki_upgrade_[0-9a-f]{8}), with 1 sample\(s\):",
+        lines[0],
+    )
+    assert header is not None, lines[0]
+    assert lines[1].startswith("  ok      migrated to the earlier commit and made the samples")
+    assert lines[2].startswith("  ok      upgraded: the samples and their history are intact")
+    assert lines[3].startswith("  ok      rolled back: the samples have their values")
+    with psycopg.connect(_postgres_url) as connection:
+        left = connection.execute(
+            "SELECT datname FROM pg_database WHERE datname = %s", [header.group(1)]
+        ).fetchall()
+    assert left == []  # the scratch database is dropped
+
+
+def test_an_upgrade_that_cant_be_rolled_back_fails_unless_its_one_way(
+    versioned: Path, _postgres_url: str
+) -> None:
+    (versioned / "migrations" / "0002_backfill.py").write_text(
+        "from django.db import migrations\n\n\n"
+        "def backfill(apps, schema_editor):\n    pass\n\n\n"
+        "class Migration(migrations.Migration):\n"
+        '    dependencies = [("lab", "0001_initial")]\n'
+        "    operations = [migrations.RunPython(backfill)]\n"
+    )
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 1
+    assert "  FAILED  rolled back: the samples have their values" in result.stdout
+    assert "The deploy refused it: Rolling back would lose data" in result.stdout
+    assert "lab.0002_backfill: Raw Python operation can't be reversed." in result.stdout
+    one_way = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    assert one_way.returncode == 0, one_way.stdout + one_way.stderr
+    assert "rolled back" not in one_way.stdout
+
+
+def test_a_rollback_that_loses_a_value_fails(versioned: Path, _postgres_url: str) -> None:
+    (versioned / "migrations" / "0002_rename_all.py").write_text(
+        "from django.db import migrations\n\n\n"
+        "class Migration(migrations.Migration):\n"
+        '    dependencies = [("lab", "0001_initial")]\n'
+        "    operations = [\n"
+        "        migrations.RunSQL(\n"
+        "            \"UPDATE lab_sample SET name = 'renamed'\", migrations.RunSQL.noop\n"
+        "        )\n"
+        "    ]\n"
+    )
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 1
+    assert (
+        "After the rollback, SMP-000001 (weighed's sample 1) doesn't have the name it had."
+        in result.stdout
+    )
+
+
+def test_an_upgrade_needs_a_commit_and_a_database(versioned: Path, _postgres_url: str) -> None:
+    result = iki("plugin", "test", versioned, "--upgrade-from", "main", "-k", "none", cwd=versioned)
+    assert result.returncode == 1
+    assert "an upgrade test needs PostgreSQL" in result.stderr
+    result = iki(
+        "plugin",
+        "test",
+        versioned,
+        "--upgrade-from",
+        "v9",
+        "--database",
+        _postgres_url,
+        "-k",
+        "none",
+        cwd=versioned,
+    )
+    assert result.returncode == 1
+    assert "v9 isn't a commit of the git repository" in result.stderr
+    # A pull request that adds a plugin has nothing to upgrade from.
+    added = versioned.parent / "lab_two"
+    shutil.copytree(versioned, added)
+    result = iki(
+        "plugin",
+        "test",
+        added,
+        "--upgrade-from",
+        "main",
+        "--database",
+        _postgres_url,
+        "-k",
+        "none",
+        cwd=added,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "lab isn't at main (" in result.stdout
+    assert "there's nothing to upgrade." in result.stdout

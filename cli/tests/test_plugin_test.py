@@ -30,6 +30,13 @@ sys.exit(answer.get("code", 0))
 OUTPUT = {"apiVersion": "iki/v1", "kind": "RunOutput"}
 
 
+@pytest.fixture(autouse=True)
+def _plain_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CI sets FORCE_COLOR; problems are compared as plain text.
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.setenv("NO_COLOR", "1")
+
+
 @pytest.fixture
 def plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     shutil.copytree(PLUGINS / "protein", tmp_path / "protein")

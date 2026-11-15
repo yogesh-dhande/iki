@@ -112,11 +112,35 @@ The commands run on this machine, so install what their environments need
 first. It exits 1 if any test fails, or if a fixture doesn't match the
 plugin, in which case nothing runs.
 
-| Option          | What it's for                                                        |
-| --------------- | -------------------------------------------------------------------- |
-| `--with DIR`    | A plugin this one depends on, directly or not. Repeat for each.      |
-| `-k TEXT`       | Run only the tests whose name contains this.                         |
-| `--worker PATH` | The `iki-worker` binary. `$IKI_WORKER`, or `iki-worker` on the PATH. |
+| Option               | What it's for                                                        |
+| -------------------- | -------------------------------------------------------------------- |
+| `--with DIR`         | A plugin this one depends on, directly or not. Repeat for each.      |
+| `-k TEXT`            | Run only the tests whose name contains this.                         |
+| `--worker PATH`      | The `iki-worker` binary. `$IKI_WORKER`, or `iki-worker` on the PATH. |
+| `--upgrade-from REF` | Also test the upgrade from the plugin at this git commit (below).    |
+| `--database URL`     | The PostgreSQL server for it. `$IKI_TEST_DATABASE_URL` unless given. |
+| `--no-rollback`      | Don't roll the upgrade back: for one meant to be one-way.            |
+
+With `--upgrade-from`, it also tests the plugin's upgrade from an earlier
+commit, such as a pull request's base
+([ADR 0094](../docs/adr/0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)).
+On a scratch database it makes on the `--database` server, it deploys the
+plugin as it was then and creates that commit's action-test entities as
+samples. It then deploys the plugin as it is now, and checks every sample
+is still there with its history. Last, it deploys the earlier commit again,
+as a rollback, and checks the samples' values came back. The database is
+dropped at the end.
+
+```console
+$ iki plugin test plugins/protein --with plugins/dna --upgrade-from origin/main \
+    --database postgres://postgres@localhost:5432/postgres
+…
+Upgrading protein from 3f2a1c9b7e0d (0.7.0) to 0.8.0 on the scratch database
+iki_upgrade_5c1e9a07, with 2 sample(s):
+  ok      migrated to the earlier commit and made the samples  (9.9s)
+  ok      upgraded: the samples and their history are intact  (1.1s)
+  ok      rolled back: the samples have their values  (0.8s)
+```
 
 ## `iki deploy build`
 

@@ -135,6 +135,11 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
         report.purged = _purge(purging, archive, applied)
     to_reverse = [k for k in unknown if k[0] in installed]
     if to_reverse:
+        # A view stops a column it reads from being dropped. migrate drops them before it
+        # runs (its pre_migrate signal), but a rollback runs first; sync_plugins makes them
+        # again after.
+        with connection.cursor() as cursor:
+            sync.drop_views(cursor)
         report.reversed = _roll_back(to_reverse, archive, applied)
     call_command("migrate", interactive=False, verbosity=1, stdout=stdout)
     report.archived = _keep_copies(installed)

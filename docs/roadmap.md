@@ -119,7 +119,7 @@ Plugins before M1 are the ones that prove a platform feature.
 | 43   | The antibody plugin                                                     | deferred    |                                                                       |
 | 44   | The small_molecule plugin, with a 2D molecule component                 | deferred    |                                                                       |
 | 45   | Detaching and purging plugins, with tombstones                          | done        | `cc26659` `657a64a` `2a66d86` `8fd7c5e` `5ddcab5` `bea8b12` `31ddc81` |
-| 46   | `iki plugin upgrade` codemods, a migration test harness, version checks | in progress |                                                                       |
+| 46   | `iki plugin upgrade` codemods, a migration test harness, version checks | in progress | `8f07927`                                                             |
 | 47   | Exporting and importing bundles between deployments                     | planned     |                                                                       |
 
 ## Stage 9: Production readiness

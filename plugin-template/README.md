@@ -68,7 +68,10 @@ complete and check it as you type.
    its history stays readable.
 4. Run `iki plugin test . --with …` to run your actions' tests in `tests/`,
    with [`iki-worker`](https://github.com/yogesh-dhande/iki/tree/main/worker#readme)
-   installed. Add a test for each change in what an action writes.
+   installed. Add a test for each change in what an action writes. With
+   `--upgrade-from main --database postgres://…`, it also upgrades the
+   entities of `main`'s tests with your new migrations, and rolls them
+   back, as CI does on each pull request.
 5. Commit the manifests, the new migration and the tests together, in one
    pull request.
 

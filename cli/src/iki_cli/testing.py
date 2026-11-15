@@ -62,11 +62,33 @@ def add_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -
         metavar="PATH",
         help="The iki-worker binary (default: $IKI_WORKER, or iki-worker on the PATH).",
     )
+    test.add_argument(
+        "--upgrade-from",
+        metavar="REF",
+        help=(
+            "Also test upgrading from the plugin at this git commit (ADR 0094): migrate a "
+            "scratch database to it, make its action tests' entities, migrate to the plugin "
+            "now, and roll back."
+        ),
+    )
+    test.add_argument(
+        "--database",
+        metavar="URL",
+        help=(
+            "A PostgreSQL server to make the scratch database on, as a postgres:// URL to a "
+            "database there (default: $IKI_TEST_DATABASE_URL). Its user needs CREATEDB."
+        ),
+    )
+    test.add_argument(
+        "--no-rollback",
+        action="store_true",
+        help="Don't roll the upgrade back: for one meant to be one-way.",
+    )
     test.set_defaults(handler=run_test)
 
 
 def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
-    from iki_cli.plugin import _defaults, _load, _missing_dependencies, _text
+    from iki_cli.plugin import _load, _missing_dependencies, _text
 
     out = out or sys.stdout
     err = sys.stderr
@@ -95,16 +117,47 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
         _text(err, result, loaded.problems, directory, sources, errors, 0)
         return 1
     tests = [t for t in loaded.tests if not args.select or args.select in t.name]
-    if not tests:
+    failed = False
+    if tests:
+        worker = _worker(args.worker, err)
+        if worker is None:
+            return 1
+        failed = not _action_tests(tests, plugin, types, directory, worker, out)
+    elif not args.upgrade_from:
         matching = f" matching {args.select}" if args.select else ""
         out.write(
             f"{plugin.name} has no action tests{matching}. "
             f"Add them to {action_tests.DIRECTORY}/ (ADR 0093).\n"
         )
         return 1 if args.select else 0
-    worker = _worker(args.worker, err)
-    if worker is None:
-        return 1
+    if args.upgrade_from:
+        from iki_cli import upgrade_test
+
+        upgraded = upgrade_test.run(
+            directory,
+            args.dependencies,
+            plugin,
+            types,
+            args.upgrade_from,
+            database=args.database or os.environ.get("IKI_TEST_DATABASE_URL"),
+            rollback=not args.no_rollback,
+            out=out,
+            err=err,
+        )
+        failed = failed or not upgraded
+    return 1 if failed else 0
+
+
+def _action_tests(
+    tests: list[ActionTest],
+    plugin: Plugin,
+    types: dict[str, EntityType],
+    directory: Path,
+    worker: Path,
+    out: TextIO,
+) -> bool:
+    from iki_cli.plugin import _defaults
+
     out.write(f"Running {len(tests)} test(s) of {plugin.name} {plugin.version}:\n")
     started = time.monotonic()
     failed = 0
@@ -123,7 +176,7 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
     took = time.monotonic() - started
     passed = len(tests) - failed
     out.write(f"{passed} passed{f', {failed} failed' if failed else ''} in {took:.1f}s.\n")
-    return 1 if failed else 0
+    return not failed
 
 
 def _types(dependencies: Sequence[Path], err: TextIO) -> dict[str, EntityType] | None:

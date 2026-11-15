@@ -123,3 +123,4 @@ supersedes the old one, and update the old one's status.
 | [0091](0091-a-detached-plugins-data-is-kept-and-frozen.md)                           | A detached plugin's data is kept and frozen                                                         | Accepted |
 | [0092](0092-purging-a-detached-plugin-under-legal-holds.md)                          | Purging a detached plugin, under legal holds                                                        | Accepted |
 | [0093](0093-plugin-action-tests-run-fixtures-through-the-worker.md)                  | Plugin action tests run fixtures through the worker                                                 | Accepted |
+| [0094](0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)                   | A plugin's upgrade is tested from an earlier commit                                                 | Accepted |
