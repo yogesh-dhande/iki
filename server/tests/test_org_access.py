@@ -155,7 +155,16 @@ CASES: list[Case] = [
     ("project_entity_new", "GET", project_url("entities/new/"), row(OK)),
     ("project_runs", "GET", project_url("runs/"), row(OK)),
     ("project_run_new", "GET", project_url("runs/new/"), row(OK)),
+    ("project_workflows", "GET", project_url("workflows/"), row(OK)),
+    ("project_workflow_new", "GET", project_url("workflows/new/"), row(OK)),
+    ("project_triggers", "GET", project_url("triggers/"), row(OK)),
     ("project_settings", "GET", project_url("settings/"), row(OK)),
+    (
+        "project_app_draft",
+        "GET",
+        project_url("apps/drafts/01a1c452-a14b-7195-acd0-4b6ba266a653/"),
+        row(OK),
+    ),
     ("project_webhooks", "GET", project_url("webhooks/"), row(OK)),
     (
         "project_webhook",

@@ -26,6 +26,7 @@ import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
+import { AppDraft } from "./pages/app-draft";
 import { validateNewRunSearch } from "./pages/new-run-search";
 import {
   actionsQuery,
@@ -243,6 +244,12 @@ const projectSettingsRoute = createRoute({
   component: ProjectSettings,
 });
 
+const projectAppDraftRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "apps/drafts/$draft",
+  component: AppDraft,
+});
+
 const projectWebhooksRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "webhooks",
@@ -401,6 +408,7 @@ const routeTree = rootRoute.addChildren([
       projectWorkflowNewRoute,
       projectTriggersRoute,
       projectSettingsRoute,
+      projectAppDraftRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),
   ]),

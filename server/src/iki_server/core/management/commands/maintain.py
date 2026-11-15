@@ -11,6 +11,7 @@
 - Deletes runs' artifacts whose retention is over (ADR 0068), every version of them.
 - Deletes checkpoints no attempt will resume from (ADR 0069): those of ended runs, and those
   a newer one replaced, in case the task that deletes them didn't.
+- Deletes apps' drafts (ADR 0090) once they expire, a day after they're made.
 """
 
 from typing import Any
@@ -20,6 +21,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from iki_server.accounts.models import UserSession
+from iki_server.entities import app_drafts
 from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
 from iki_server.runs import approvals, artifacts, checkpoints
@@ -47,6 +49,7 @@ class Command(BaseCommand):
         approvals_expired = approvals.expire()
         artifacts_deleted = artifacts.delete_expired()
         checkpoints_deleted = checkpoints.delete_stale()
+        drafts = app_drafts.prune()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -59,6 +62,7 @@ class Command(BaseCommand):
             expired_run_approvals=approvals_expired,
             deleted_artifacts=artifacts_deleted,
             deleted_checkpoints=checkpoints_deleted,
+            expired_app_drafts=drafts,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
@@ -66,6 +70,7 @@ class Command(BaseCommand):
             f"{deliveries} old webhook deliveries, cancelled {uploads} abandoned upload(s), "
             f"failed {registrations} stalled registration(s), expired "
             f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
-            f"run artifact(s) whose retention was over, and deleted {checkpoints_deleted} "
-            "run checkpoint(s) nothing will resume from."
+            f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "
+            f"run checkpoint(s) nothing will resume from, and deleted {drafts} expired app "
+            "draft(s)."
         )

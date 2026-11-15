@@ -158,6 +158,8 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "describe_apps",
         "check_app",
         "create_app",
+        "preview_app",
+        "set_project_dashboard",
         "list_actions",
         "describe_action",
         "list_runs",
@@ -178,6 +180,8 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
     ]
     writes = {
         "create_app",
+        "preview_app",
+        "set_project_dashboard",
         "create_entity",
         "update_entity",
         "set_entity_archived",
@@ -402,6 +406,47 @@ async def test_agents_write_an_app_check_it_and_create_it(world: World) -> None:
         f"Created {made['hrid']}. The person can open it at "
         f"https://testserver/entities/{made['hrid']}/"
     )
+
+
+@pytest.mark.wasm
+async def test_agents_show_their_person_an_app_first_and_place_it(world: World) -> None:
+    from iki_server.entities.models import AppDraft
+
+    token = await token_for(world)
+    spec = {
+        "version": 1,
+        "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
+    }
+    result = await tool(
+        token, "preview_app", project=str(world.project.pk), name="Greeting", spec=spec
+    )
+    draft = data(result)
+    assert draft["spec"] == spec and draft["entity"] is None
+    page = f"https://testserver/projects/{world.project.slug}/apps/drafts/{draft['id']}"
+    assert note(result) == (
+        f"Drafted. The person can look at it at {page} until {draft['expires_at']}."
+    )
+    # It's the person's, drafted by the agent.
+    saved = await AppDraft.objects.select_related("agent").aget(pk=draft["id"])
+    assert saved.created_by_id == world.users["editor"].pk
+    assert saved.agent is not None and draft["agent"] == saved.agent.label()
+    # A spec with problems isn't drafted: the agent hears what they are.
+    wrong = {"version": 1, "panels": [{"id": "hi", "component": "iki.text", "props": {}}]}
+    found = error(
+        await tool(token, "preview_app", project=str(world.project.pk), name="X", spec=wrong)
+    )
+    assert "(422, validation_failed)" in found and "#/spec" in found
+
+    made = data(
+        await tool(token, "create_app", project=str(world.project.pk), name="Greeting", spec=spec)
+    )
+    # Placing it takes the project's Admin.
+    place = {"project": str(world.project.pk), "app": made["hrid"]}
+    assert "(403" in error(await tool(token, "set_project_dashboard", **place))
+    admin = await token_for(world, "admin")
+    assert data(await tool(admin, "set_project_dashboard", **place))["app"]["hrid"] == made["hrid"]
+    cleared = await tool(admin, "set_project_dashboard", project=str(world.project.pk), app=None)
+    assert note(cleared) == "The project's page opens without an app now."
 
 
 # --- Writing ------------------------------------------------------------------------------------

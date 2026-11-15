@@ -1446,3 +1446,26 @@ def test_a_projects_page_opens_with_its_dashboard(open_as: Any, world: World) ->
     shown.get_by_text("1 so far.").wait_for()
     shown.locator(".app-panel", has_text="Our proteins").get_by_text("ABL1").wait_for()
     assert_clean(page)
+
+
+def test_a_draft_app_opens_for_its_person_and_previews_as_its_written(
+    open_as: Any, world: World
+) -> None:
+    from iki_server.entities import app_drafts
+    from iki_server.entities import services as entities
+
+    editor = world.users["editor"]
+    text = {"id": "hi", "component": "iki.text", "props": {"text": "{{ 1 + 1 }} panels."}}
+    spec = {"version": 1, "panels": [text]}
+    draft = app_drafts.create(editor, world.project, "Greeting", spec)
+    page = open_as("editor", f"/projects/{world.project.slug}/apps/drafts/{draft.pk}/")
+    page.get_by_text("2 panels.").wait_for()
+    page.get_by_text("A draft, not saved.").wait_for()
+    assert_clean(page)
+
+    made = entities.create(editor, "core.App", world.project, {"name": "Greeting", "spec": spec})
+    page.goto(page.url.split("/projects/")[0] + f"/entities/{made.entity.pk}/edit/")
+    # By CSS and text, not role, until axe has run (Firefox; see above).
+    page.locator(".app-preview button", has_text="Preview").click()
+    page.locator(".app-preview").get_by_text("2 panels.").wait_for()
+    assert_clean(page)

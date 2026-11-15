@@ -16,8 +16,9 @@ from ninja import Field, Router, Schema, Status
 
 from iki_server.api.common import caller, project, require_scope
 from iki_server.api.entities import _find
-from iki_server.api.schemas import PersonRef
-from iki_server.entities import app_specs, dashboards
+from iki_server.api.problems import Problem
+from iki_server.api.schemas import PersonRef, ProjectRef
+from iki_server.entities import app_drafts, app_specs, dashboards
 from iki_server.entities.models import Entity
 from iki_server.org.permissions import Action
 
@@ -161,3 +162,74 @@ def dashboard_choices(request: HttpRequest, project_id: UUID) -> list[dict[str, 
     me = caller(request)
     found = project(me, project_id, Action.PROJECT_MANAGE)
     return [_app_out(app) for app in dashboards.choices(me, found)]
+
+
+class AppDraftIn(Schema):
+    project: UUID = Field(description="The project it's for. It needs you as Editor there.")
+    name: str = Field(min_length=1, max_length=200)
+    spec: dict[str, Any] = Field(description="Its spec, which check_app found nothing wrong with.")
+    entity: str | None = Field(
+        default=None,
+        description="For an app about an entity: one in the project, by ID or HRID, to show it on.",
+        max_length=100,
+    )
+
+
+class DraftEntityOut(Schema):
+    id: UUID
+    hrid: str
+
+
+class AppDraftOut(Schema):
+    id: UUID
+    project: ProjectRef
+    name: str
+    spec: dict[str, Any]
+    entity: DraftEntityOut | None = Field(description="The entity it's shown on, if any.")
+    agent: str | None = Field(description="The agent that drafted it for you, if one did.")
+    created_at: datetime
+    expires_at: datetime = Field(description="When it can no longer be opened.")
+
+
+def _draft_out(draft: Any) -> dict[str, Any]:  # noqa: ANN401 - an AppDraft
+    return {
+        "id": draft.pk,
+        "project": draft.project,
+        "name": draft.name,
+        "spec": draft.spec,
+        "entity": draft.about,
+        "agent": draft.agent.label() if draft.agent is not None else None,
+        "created_at": draft.created_at,
+        "expires_at": draft.expires_at,
+    }
+
+
+@router.post("/apps/drafts", response={201: AppDraftOut}, summary="Draft an app, to look at first")
+def create_app_draft(request: HttpRequest, payload: AppDraftIn) -> Status[dict[str, Any]]:
+    """An app to open and look at before saving it, checked as saving it would be. Only
+    you can open it, for a day; nothing is recorded. Open it at
+    ``/projects/{slug}/apps/drafts/{id}``."""
+    me = caller(request)
+    found = project(me, payload.project, Action.PROJECT_EDIT)
+    problems = app_specs.check(me, payload.spec)
+    if problems:
+        raise Problem(
+            422,
+            "The app has problems: put each right, and check it again.",
+            code="validation_failed",
+            errors=[{"pointer": "#/spec", "detail": p} for p in problems],
+        )
+    draft = app_drafts.create(me, found, payload.name.strip(), payload.spec, payload.entity)
+    draft.refresh_from_db(fields=["created_at"])
+    return Status(201, _draft_out(draft))
+
+
+@router.get("/apps/drafts/{draft_id}", response=AppDraftOut, summary="An app's draft")
+def get_app_draft(request: HttpRequest, draft_id: UUID) -> dict[str, Any]:
+    """Your draft, while it lasts. No one else can open it."""
+    me = caller(request)
+    require_scope(me, "read")
+    draft = app_drafts.find(me, draft_id)
+    if draft is None:
+        raise Problem(404, "No such draft of yours, or it’s expired.")
+    return _draft_out(draft)

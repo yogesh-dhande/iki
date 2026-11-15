@@ -69,6 +69,20 @@ the audit log (`project.dashboard_set`, `project.dashboard_cleared`), with
 the app it replaced. The choice is kept beside the project, not in it, so
 projects don't depend on entities.
 
+**An app can be seen before it's saved.** An agent's `preview_app` drafts
+one for its person (`POST /apps/drafts`), checked as saving it would be,
+and answers with a page in the project where they see it as it would be,
+with what they may read, and can save it as an app themselves, as
+Vercel's preview deployments and Retool's preview mode let people look
+before shipping. A draft is that one person's: no one else can open it,
+nor can they once they can't read its project, and it lasts a day
+(`iki-server maintain` deletes expired ones; a person keeps at most 20).
+It's a preview, not a record: it has no history and isn't audited, since
+saving the app is what's recorded, with the agent that drafted it named
+in its reason. An app about an entity is drafted on one of its type in
+the project. People writing an app in its form preview it the same way,
+checked first, without saving.
+
 Plugin components in sandboxed frames (ADR 0084), charts, and a run
 launcher come next, each with what it needs checked the same way. No
 component runs code from the spec.
@@ -113,13 +127,14 @@ calls slowly, and a cold start shouldn't count against an app.
 - iki-wasm grows from about 45 KB to about 1 MB (about 300 KB as sent),
   loaded once, when a page reads a file or shows an app.
 - The server image carries wasmtime, to run iki-wasm for its checks.
-- Agents write apps with three MCP tools over two endpoints:
+- Agents write apps with MCP tools over the API:
   `describe_apps` (`GET /apps/guide`: the schema, each component's props
   and what it offers, how expressions work, and an example), `check_app`
   (`POST /apps/check`: every problem saving would refuse, each with its
-  panel and prop, nothing saved) and `create_app`, which answers with the
-  page to open. Changing one is `update_entity`, checked the same way.
+  panel and prop, nothing saved), `preview_app` (`POST /apps/drafts`: a
+  page for the person to look at first) and `create_app`, which answers
+  with the page to open. Changing one is `update_entity`, checked the same
+  way, and `set_project_dashboard` places one on its project's page.
 - An app opens on its own page, as a tab on the page of an entity it's
   about, or as its project's dashboard
-  (`GET`/`PUT`/`DELETE /projects/{id}/dashboard`). Drafts to preview before
-  saving follow.
+  (`GET`/`PUT`/`DELETE /projects/{id}/dashboard`).

@@ -433,3 +433,75 @@ def test_a_projects_admins_choose_the_app_its_page_opens_with(world: World) -> N
     Project.objects.filter(pk=world.project.pk).update(archived_at=timezone.now())
     body = problem(admin.put(path, {"app": first}), 409, "refused")
     assert "Restore the project before changing it." in str(body)
+
+
+def test_a_draft_is_for_its_person_to_look_at_for_a_day(world: World) -> None:
+    """An app to look at before saving it: checked as saving it would be, opened only by
+    the person it's for, while they can read its project, for a day."""
+    from datetime import timedelta
+
+    from iki_server.entities import app_drafts
+    from iki_server.entities.models import AppDraft
+
+    editor, viewer = api_as(world), api_as(world, "viewer")
+    spec = {"version": 1, "panels": [NOTE]}
+    body = {"project": str(world.project.pk), "name": " Greeting ", "spec": spec}
+    made = editor.post("/apps/drafts", body)
+    assert made.status_code == 201, made.content
+    draft = made.json()
+    assert draft["name"] == "Greeting" and draft["spec"] == spec
+    assert draft["project"]["slug"] == world.project.slug
+    assert draft["entity"] is None and draft["agent"] is None
+    assert editor.get(f"/apps/drafts/{draft['id']}").json()["id"] == draft["id"]
+    # No one else can open it, nor draft without editing the project.
+    assert viewer.get(f"/apps/drafts/{draft['id']}").status_code == 404
+    assert viewer.post("/apps/drafts", body).status_code == 403
+    # A spec with problems isn't drafted.
+    wrong = {**body, "spec": {"version": 1, "panels": [TEXT]}}
+    found = problem(editor.post("/apps/drafts", wrong), 422, "validation_failed")
+    assert [e["pointer"] for e in found["errors"]] == ["#/spec"]
+    assert "`proteins` isn’t" in found["errors"][0]["detail"]
+
+    # An app about an entity is drafted on one of its type in the project.
+    abl = create(editor, world.project, {"sequence": "MKV", "name": "ABL1"}, "protein.Protein")
+    abl_hrid = abl.json()["hrid"]
+    tab = {**body, "spec": {"version": 1, "entity": ABOUT, "panels": [ITSELF]}}
+
+    def refused(payload: dict[str, Any]) -> str:
+        detail: str = problem(editor.post("/apps/drafts", payload), 409, "refused")["detail"]
+        return detail
+
+    assert refused(tab) == "This app is about one protein.Protein: say which to show it on."
+    assert refused({**body, "entity": abl_hrid}) == (
+        "This app isn’t about an entity, so it takes none."
+    )
+    plasmid = create(editor, world.project, {"bases": "ACGT"}, "dna.DNASequence").json()["hrid"]
+    assert refused({**tab, "entity": plasmid}) == f"{plasmid} isn’t a protein.Protein."
+    assert refused({**tab, "entity": "PRT-999999"}) == (
+        f"There’s no entity PRT-999999 in {world.project.name} that you can read."
+    )
+    on = editor.post("/apps/drafts", {**tab, "entity": abl_hrid.lower()})
+    assert on.status_code == 201, on.content
+    assert on.json()["entity"]["hrid"] == abl_hrid
+
+    # It lasts a day, and only while its person can read its project.
+    AppDraft.objects.filter(pk=draft["id"]).update(expires_at=timezone.now() - timedelta(seconds=1))
+    assert editor.get(f"/apps/drafts/{draft['id']}").status_code == 404
+    assert app_drafts.prune() == 1
+    ProjectMembership.objects.filter(project=world.project, user=world.users["editor"]).delete()
+    assert editor.get(f"/apps/drafts/{on.json()['id']}").status_code == 404
+
+
+def test_a_person_keeps_their_latest_drafts(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    from iki_server.entities import app_drafts
+    from iki_server.entities.models import AppDraft
+
+    monkeypatch.setattr(app_drafts, "MAX_PER_PERSON", 3)
+    editor = api_as(world)
+    body = {"project": str(world.project.pk), "spec": {"version": 1, "panels": [NOTE]}}
+    made = [editor.post("/apps/drafts", {**body, "name": f"D{i}"}).json()["id"] for i in range(5)]
+    kept = AppDraft.objects.filter(created_by=world.users["editor"]).order_by("created_at")
+    assert [str(d.pk) for d in kept] == made[2:]
+    # An archived project takes no drafts, as it takes no other changes.
+    Project.objects.filter(pk=world.project.pk).update(archived_at=timezone.now())
+    assert editor.post("/apps/drafts", {**body, "name": "Late"}).status_code == 403

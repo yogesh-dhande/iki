@@ -437,6 +437,59 @@ def build() -> MCPServer:
         page = web_url(f"/entities/{made['hrid']}/")
         return answer(made, note=f"Created {made['hrid']}. The person can open it at {page}")
 
+    @server.tool(annotations=ADD, title="Preview an app")
+    async def preview_app(
+        project: Annotated[
+            UUID, Field(description="The project it's for. It needs the person as Editor.")
+        ],
+        name: Annotated[str, Field(max_length=200)],
+        spec: Annotated[
+            dict[str, Any], Field(description="Its spec, which check_app found no problems in.")
+        ],
+        entity: Annotated[
+            str | None,
+            Field(
+                description="For an app about an entity: one in the project, by ID or HRID, "
+                "to show it on.",
+                max_length=64,
+            ),
+        ] = None,
+    ) -> CallToolResult:
+        """A draft of an app for the person to open and look at before you create_app it:
+        the page it answers with shows it as it would be, with what they may read. Only
+        they can open it, for a day. Nothing is saved or recorded."""
+        body: dict[str, Any] = {"project": str(project), "name": name, "spec": spec}
+        if entity:
+            body["entity"] = entity
+        draft = await call("POST", "/apps/drafts", body=body)
+        page = web_url(f"/projects/{draft['project']['slug']}/apps/drafts/{draft['id']}")
+        return answer(
+            draft,
+            note=f"Drafted. The person can look at it at {page} until {draft['expires_at']}.",
+        )
+
+    @server.tool(annotations=CHANGE, title="Set a project's dashboard")
+    async def set_project_dashboard(
+        project: Annotated[
+            UUID, Field(description="The project. It needs the person as its Admin.")
+        ],
+        app: Annotated[
+            str | None,
+            Field(
+                description="One of its apps, by ID or HRID, not one about an entity. "
+                "null opens its page without one.",
+                max_length=64,
+            ),
+        ],
+    ) -> CallToolResult:
+        """The app the project's page opens with, for everyone who can read it. The
+        change is recorded in the audit log."""
+        where = path("/projects/{project}/dashboard", project=str(project))
+        if app is None:
+            await call("DELETE", where)
+            return answer({"app": None}, note="The project's page opens without an app now.")
+        return answer(await call("PUT", where, body={"app": app}))
+
     @server.tool(annotations=READ, title="List actions")
     async def list_actions(
         takes: Annotated[

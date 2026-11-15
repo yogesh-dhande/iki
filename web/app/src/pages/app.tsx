@@ -27,6 +27,10 @@ import { ENTITIES, entityQuery, valueText, type Entity, type EntityType } from "
 import { Loading, ProblemAlert, RelativeTime } from "../ui";
 import { ViewerBody } from "./entity-viewer";
 
+/** What an app's panels need of it: its spec, the project its grids search, and an ID
+ * to keep their searches apart. A saved app or a draft of one. */
+export type AppSource = Pick<Entity, "id" | "values" | "owner_project">;
+
 /** An app's panels. An app about an entity shows only on that entity's page, `about`
  * it; on its own, it says where it's shown. */
 export function AppPanel({
@@ -34,7 +38,7 @@ export function AppPanel({
   types,
   about,
 }: {
-  app: Entity;
+  app: AppSource;
   types: EntityType[];
   about?: Entity;
 }) {
@@ -128,7 +132,7 @@ interface BodyProps {
   panel: Panel;
   before: Offers;
   offer: (values: Record<string, unknown>) => void;
-  app: Entity;
+  app: AppSource;
   types: EntityType[];
 }
 

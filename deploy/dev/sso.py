@@ -1318,6 +1318,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     aligned_many(alice, project, chains)
     globins_app(alice, project)
     dashboard(alice, project, relatives_app(alice, project))
+    app_draft(alice, project)
     structures(alice, project)
 
 
@@ -1559,6 +1560,27 @@ def dashboard(alice: requests.Session, project: dict[str, Any], relatives: str) 
     if chosen.status_code != 200 or (chosen.json()["app"] or {}).get("name") != "Globins":
         fail(f"choosing the dashboard answered HTTP {chosen.status_code}: {chosen.text[:300]}")
     ok(f"{choices['Globins']}: {project['name']}’s page opens with it")
+
+
+def app_draft(alice: requests.Session, project: dict[str, Any]) -> None:
+    """A draft of an app (ADR 0090), checked as saving it would be, that only Alice, whom
+    it's for, can open; Bob can't, though he signs in to the same Iki."""
+    spec = {
+        "version": 1,
+        "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hello, {{ 1 + 1 }}."}}],
+    }
+    body = {"project": project["id"], "name": "Draft", "spec": spec}
+    made = api_call(alice, "POST", "/apps/drafts", body)
+    if made.status_code != 201:
+        fail(f"drafting an app answered HTTP {made.status_code}: {made.text[:300]}")
+    draft = made.json()
+    path = f"/apps/drafts/{draft['id']}"
+    if api_call(alice, "GET", path).status_code != 200:
+        fail("Alice can't open the draft she made")
+    seen = api_call(sign_in_as("bob"), "GET", path).status_code
+    if seen != 404:
+        fail(f"Bob opening Alice's draft answered HTTP {seen}, not 404")
+    ok(f"a draft app only Alice can open, at /projects/{project['slug']}/apps/drafts/{draft['id']}")
 
 
 def relatives_app(alice: requests.Session, project: dict[str, Any]) -> str:

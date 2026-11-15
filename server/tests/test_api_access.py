@@ -121,6 +121,17 @@ def dashboard(w: World) -> tuple[Any, ...]:
     return f"/projects/{w.project.pk}/dashboard", {"app": str(made.entity.pk)}
 
 
+def app_draft(w: World) -> tuple[Any, ...]:
+    from iki_server.entities import app_drafts
+
+    spec = {
+        "version": 1,
+        "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
+    }
+    made = app_drafts.create(w.users["editor"], w.project, "Hi", spec)
+    return f"/apps/drafts/{made.pk}", None
+
+
 def entity(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Build:
     def build(w: World) -> tuple[Any, ...]:
         found = _entity(w)
@@ -621,6 +632,24 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # nothing and reads only what the caller could.
     ("GET", "/apps/guide", fixed("/apps/guide"), row(200)),
     ("POST", "/apps/check", fixed("/apps/check", {"spec": {}}), row(200)),
+    # A draft: made by the project's Editors, opened only by the person it's for.
+    (
+        "POST",
+        "/apps/drafts",
+        lambda w: (
+            "/apps/drafts",
+            {
+                "project": str(w.project.pk),
+                "name": "Hi",
+                "spec": {
+                    "version": 1,
+                    "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
+                },
+            },
+        ),
+        visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
+    ),
+    ("GET", "/apps/drafts/{draft_id}", app_draft, row(404, editor=200)),
     # Actions are listed to everyone signed in. Running on the backend tier takes Editor;
     # runs are read with their project, and cancelled by whoever may run them.
     ("GET", "/actions", fixed("/actions"), row(200)),

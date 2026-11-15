@@ -39,6 +39,8 @@ import {
 import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
 import { Button, buttonClass, PageHeader, SelectField, TextField, useMessages } from "../ui";
+import { APP_TYPE } from "../apps";
+import { AppPreview } from "./app-preview";
 import { useProject } from "./project-overview";
 
 type Drafts = Record<string, Draft>;
@@ -295,81 +297,86 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
   }
 
   return (
-    <section className="card form-card" aria-labelledby="new-entity-title">
-      {/* Under the project's heading and tabs, as its other pages are. */}
-      <h2 className="section-title" id="new-entity-title">
-        New {label}
-      </h2>
-      <p>
-        In {project.name}: its members can read it, and its Editors can change it.{" "}
-        <Link to="/types/$name/" params={{ name: type.name }}>
-          About {inSentence(type.label_plural)}
-        </Link>
-      </p>
-      {duplicate ? (
-        <div className="alert alert-warning" role="alert">
-          <p>
-            {duplicates.length === 1 ? "This is" : "These values are"} the same as{" "}
-            {duplicates.map((d, index) => (
-              <span key={d.id}>
-                {index ? ", " : ""}
-                <Link to="/entities/$ref/" params={{ ref: d.hrid }}>
-                  {d.hrid}
-                </Link>
-              </span>
-            ))}
-            . Use {duplicates.length === 1 ? "it" : "one of them"}, or create a duplicate anyway.
-          </p>
-          <div className="actions">
-            <Button
-              busy={create.isPending}
-              busyText="Creating…"
-              onClick={() => {
-                send(true);
-              }}
-            >
-              Create a duplicate
-            </Button>
-          </div>
-        </div>
-      ) : (
-        form.alert
-      )}
-      <form
-        {...form.props}
-        onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
-          event.preventDefault();
-          send(false);
-        }}
-      >
-        <Fields
-          type={type}
-          types={types}
-          drafts={drafts}
-          setDraft={(name, draft) => {
-            setDrafts((current) => ({ ...current, [name]: draft }));
-          }}
-          errors={form.errors}
-          notes={notesFor(type, false, drafts)}
-          locked={new Set()}
-          projectId={project.id}
-        />
-        <Reason value={reason} onChange={setReason} error={form.errors["reason"]} />
-        <div className="actions">
-          <Button type="submit" variant="primary" busy={create.isPending} busyText="Creating…">
-            Create {label}
-          </Button>
-          <Link
-            to="/projects/$slug/entities/"
-            params={{ slug: project.slug }}
-            search={{ type: type.name }}
-            className={buttonClass("quiet")}
-          >
-            Cancel
+    <>
+      <section className="card form-card" aria-labelledby="new-entity-title">
+        {/* Under the project's heading and tabs, as its other pages are. */}
+        <h2 className="section-title" id="new-entity-title">
+          New {label}
+        </h2>
+        <p>
+          In {project.name}: its members can read it, and its Editors can change it.{" "}
+          <Link to="/types/$name/" params={{ name: type.name }}>
+            About {inSentence(type.label_plural)}
           </Link>
-        </div>
-      </form>
-    </section>
+        </p>
+        {duplicate ? (
+          <div className="alert alert-warning" role="alert">
+            <p>
+              {duplicates.length === 1 ? "This is" : "These values are"} the same as{" "}
+              {duplicates.map((d, index) => (
+                <span key={d.id}>
+                  {index ? ", " : ""}
+                  <Link to="/entities/$ref/" params={{ ref: d.hrid }}>
+                    {d.hrid}
+                  </Link>
+                </span>
+              ))}
+              . Use {duplicates.length === 1 ? "it" : "one of them"}, or create a duplicate anyway.
+            </p>
+            <div className="actions">
+              <Button
+                busy={create.isPending}
+                busyText="Creating…"
+                onClick={() => {
+                  send(true);
+                }}
+              >
+                Create a duplicate
+              </Button>
+            </div>
+          </div>
+        ) : (
+          form.alert
+        )}
+        <form
+          {...form.props}
+          onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            send(false);
+          }}
+        >
+          <Fields
+            type={type}
+            types={types}
+            drafts={drafts}
+            setDraft={(name, draft) => {
+              setDrafts((current) => ({ ...current, [name]: draft }));
+            }}
+            errors={form.errors}
+            notes={notesFor(type, false, drafts)}
+            locked={new Set()}
+            projectId={project.id}
+          />
+          <Reason value={reason} onChange={setReason} error={form.errors["reason"]} />
+          <div className="actions">
+            <Button type="submit" variant="primary" busy={create.isPending} busyText="Creating…">
+              Create {label}
+            </Button>
+            <Link
+              to="/projects/$slug/entities/"
+              params={{ slug: project.slug }}
+              search={{ type: type.name }}
+              className={buttonClass("quiet")}
+            >
+              Cancel
+            </Link>
+          </div>
+        </form>
+      </section>
+      {type.name === APP_TYPE ? (
+        <AppPreview type={type} types={types} drafts={drafts} project={project} />
+      ) : null}
+    </>
   );
 }
 
@@ -497,76 +504,85 @@ function EditEntityForm({
   }
 
   return (
-    <section className="card form-card">
-      <PageHeader
-        eyebrow={
-          <Link to="/entities/$ref/" params={{ ref: opened.hrid }}>
-            {opened.hrid}
-          </Link>
-        }
-        title={`Edit ${opened.title}`}
-      />
-      {conflict ? (
-        <div className="alert alert-warning" role="alert">
-          <p>
-            Someone else saved {base.entity.hrid} while you were editing (it’s at revision{" "}
-            {base.entity.revision} now), so nothing was saved yet.
-          </p>
-          <ul>
-            {conflict.updated.length ? (
-              <li>
-                {conflict.updated.join(", ")} now{" "}
-                {conflict.updated.length === 1 ? "has its" : "have their"} new{" "}
-                {conflict.updated.length === 1 ? "value" : "values"}.
-              </li>
-            ) : null}
-            {conflict.both.length ? (
-              <li>
-                You both changed {conflict.both.join(", ")}: yours{" "}
-                {conflict.both.length === 1 ? "is" : "are"} kept. Check{" "}
-                <Link
-                  to="/entities/$ref/history/"
-                  params={{ ref: base.entity.hrid }}
-                  target="_blank"
-                >
-                  their change
-                </Link>{" "}
-                before you save.
-              </li>
-            ) : null}
-          </ul>
-          <p>Save again to keep your changes.</p>
-        </div>
-      ) : unchanged ? (
-        <div className="alert alert-warning" role="alert">
-          <p>Nothing to save: you haven’t changed anything.</p>
-        </div>
-      ) : (
-        form.alert
-      )}
-      <form {...form.props} onSubmit={submit}>
-        <Fields
-          type={type}
-          types={types}
-          drafts={drafts}
-          setDraft={(name, draft) => {
-            setDrafts((current) => ({ ...current, [name]: draft }));
-          }}
-          errors={form.errors}
-          notes={notesFor(type, true, base.drafts)}
-          locked={locked}
-          projectId={opened.owner_project?.id ?? ""}
+    <>
+      <section className="card form-card">
+        <PageHeader
+          eyebrow={
+            <Link to="/entities/$ref/" params={{ ref: opened.hrid }}>
+              {opened.hrid}
+            </Link>
+          }
+          title={`Edit ${opened.title}`}
         />
-        <Reason value={reason} onChange={setReason} error={form.errors["reason"]} />
-        <div className="actions">
-          <Button type="submit" variant="primary" busy={save.isPending} busyText="Saving…">
-            Save changes
-          </Button>
-          <Link to="/entities/$ref/" params={{ ref: opened.hrid }} className={buttonClass("quiet")}>
-            Cancel
-          </Link>
-        </div>
-      </form>
-    </section>
+        {conflict ? (
+          <div className="alert alert-warning" role="alert">
+            <p>
+              Someone else saved {base.entity.hrid} while you were editing (it’s at revision{" "}
+              {base.entity.revision} now), so nothing was saved yet.
+            </p>
+            <ul>
+              {conflict.updated.length ? (
+                <li>
+                  {conflict.updated.join(", ")} now{" "}
+                  {conflict.updated.length === 1 ? "has its" : "have their"} new{" "}
+                  {conflict.updated.length === 1 ? "value" : "values"}.
+                </li>
+              ) : null}
+              {conflict.both.length ? (
+                <li>
+                  You both changed {conflict.both.join(", ")}: yours{" "}
+                  {conflict.both.length === 1 ? "is" : "are"} kept. Check{" "}
+                  <Link
+                    to="/entities/$ref/history/"
+                    params={{ ref: base.entity.hrid }}
+                    target="_blank"
+                  >
+                    their change
+                  </Link>{" "}
+                  before you save.
+                </li>
+              ) : null}
+            </ul>
+            <p>Save again to keep your changes.</p>
+          </div>
+        ) : unchanged ? (
+          <div className="alert alert-warning" role="alert">
+            <p>Nothing to save: you haven’t changed anything.</p>
+          </div>
+        ) : (
+          form.alert
+        )}
+        <form {...form.props} onSubmit={submit}>
+          <Fields
+            type={type}
+            types={types}
+            drafts={drafts}
+            setDraft={(name, draft) => {
+              setDrafts((current) => ({ ...current, [name]: draft }));
+            }}
+            errors={form.errors}
+            notes={notesFor(type, true, base.drafts)}
+            locked={locked}
+            projectId={opened.owner_project?.id ?? ""}
+          />
+          <Reason value={reason} onChange={setReason} error={form.errors["reason"]} />
+          <div className="actions">
+            <Button type="submit" variant="primary" busy={save.isPending} busyText="Saving…">
+              Save changes
+            </Button>
+            <Link
+              to="/entities/$ref/"
+              params={{ ref: opened.hrid }}
+              className={buttonClass("quiet")}
+            >
+              Cancel
+            </Link>
+          </div>
+        </form>
+      </section>
+      {type.name === APP_TYPE && opened.owner_project ? (
+        <AppPreview type={type} types={types} drafts={drafts} project={opened.owner_project} />
+      ) : null}
+    </>
   );
 }

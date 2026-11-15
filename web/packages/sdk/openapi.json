@@ -437,6 +437,115 @@
         "title": "AppComponentOut",
         "type": "object"
       },
+      "AppDraftIn": {
+        "properties": {
+          "entity": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an app about an entity: one in the project, by ID or HRID, to show it on.",
+            "title": "Entity"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "description": "The project it's for. It needs you as Editor there.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "spec": {
+            "additionalProperties": true,
+            "description": "Its spec, which check_app found nothing wrong with.",
+            "title": "Spec",
+            "type": "object"
+          }
+        },
+        "required": [
+          "project",
+          "name",
+          "spec"
+        ],
+        "title": "AppDraftIn",
+        "type": "object"
+      },
+      "AppDraftOut": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent that drafted it for you, if one did.",
+            "title": "Agent"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftEntityOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The entity it's shown on, if any."
+          },
+          "expires_at": {
+            "description": "When it can no longer be opened.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          },
+          "spec": {
+            "additionalProperties": true,
+            "title": "Spec",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "name",
+          "spec",
+          "entity",
+          "agent",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "AppDraftOut",
+        "type": "object"
+      },
       "AppGuideOut": {
         "properties": {
           "about": {
@@ -2287,6 +2396,25 @@
           "reproduced"
         ],
         "title": "DifferenceOut",
+        "type": "object"
+      },
+      "DraftEntityOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid"
+        ],
+        "title": "DraftEntityOut",
         "type": "object"
       },
       "EffectCountsOut": {
@@ -12670,6 +12798,89 @@
           }
         ],
         "summary": "Check an app's spec",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/drafts": {
+      "post": {
+        "description": "An app to open and look at before saving it, checked as saving it would be. Only\nyou can open it, for a day; nothing is recorded. Open it at\n``/projects/{slug}/apps/drafts/{id}``.",
+        "operationId": "iki_server_api_apps_create_app_draft",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppDraftIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDraftOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Draft an app, to look at first",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/drafts/{draft_id}": {
+      "get": {
+        "description": "Your draft, while it lasts. No one else can open it.",
+        "operationId": "iki_server_api_apps_get_app_draft",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "draft_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Draft Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDraftOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An app's draft",
         "tags": [
           "apps"
         ]

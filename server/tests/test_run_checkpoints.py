@@ -227,7 +227,7 @@ def test_maintenance_deletes_what_no_attempt_will_resume_from(world: World) -> N
     ActionRun.objects.filter(pk=run["id"]).update(status="failed", finished_at=timezone.now())
     out = StringIO()
     call_command("maintain", stdout=out)
-    assert "deleted 1 run checkpoint(s) nothing will resume from." in out.getvalue()
+    assert "deleted 1 run checkpoint(s) nothing will resume from," in out.getvalue()
     assert RunCheckpoint.objects.get(pk=saved).deleted_at is not None
     assert checkpoints.delete_stale() == 0
 

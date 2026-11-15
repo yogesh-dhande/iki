@@ -106,6 +106,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/apps/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft an app, to look at first
+         * @description An app to open and look at before saving it, checked as saving it would be. Only
+         *     you can open it, for a day; nothing is recorded. Open it at
+         *     ``/projects/{slug}/apps/drafts/{id}``.
+         */
+        post: operations["iki_server_api_apps_create_app_draft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/apps/drafts/{draft_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An app's draft
+         * @description Your draft, while it lasts. No one else can open it.
+         */
+        get: operations["iki_server_api_apps_get_app_draft"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/apps/guide": {
         parameters: {
             query?: never;
@@ -2764,6 +2806,62 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** AppDraftIn */
+        AppDraftIn: {
+            /**
+             * Entity
+             * @description For an app about an entity: one in the project, by ID or HRID, to show it on.
+             */
+            entity?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Project
+             * Format: uuid
+             * @description The project it's for. It needs you as Editor there.
+             */
+            project: string;
+            /**
+             * Spec
+             * @description Its spec, which check_app found nothing wrong with.
+             */
+            spec: {
+                [key: string]: unknown;
+            };
+        };
+        /** AppDraftOut */
+        AppDraftOut: {
+            /**
+             * Agent
+             * @description The agent that drafted it for you, if one did.
+             */
+            agent: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** @description The entity it's shown on, if any. */
+            entity: components["schemas"]["DraftEntityOut"] | null;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description When it can no longer be opened.
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            project: components["schemas"]["ProjectRef"];
+            /** Spec */
+            spec: {
+                [key: string]: unknown;
+            };
+        };
         /** AppGuideOut */
         AppGuideOut: {
             /**
@@ -3696,6 +3794,16 @@ export interface components {
              * @description Its value in the reproduction's.
              */
             reproduced: unknown;
+        };
+        /** DraftEntityOut */
+        DraftEntityOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /** EffectCountsOut */
         EffectCountsOut: {
@@ -8284,6 +8392,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AppCheckOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_create_app_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppDraftIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppDraftOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_get_app_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppDraftOut"];
                 };
             };
         };

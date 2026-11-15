@@ -45,6 +45,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("", include("iki_server.runs.page_urls")),
     path("", include("iki_server.notifications.urls")),
     path("notifications/", web.app, name="notifications"),
+    path("costs/", web.app, name="costs"),
     # The web app's: the organization's webhooks (project ones are in org.urls).
     path("settings/webhooks/", web.app, name="webhook_settings"),
     path("compute/volumes/", web.app, name="compute_volumes"),
@@ -58,6 +59,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/lineage/", web.app, name="entity_lineage"),
     path("entities/<str:ref>/viewers/<str:viewer>/", web.app, name="entity_viewer"),
     path("entities/<str:ref>/components/<str:name>/", web.app, name="entity_component"),
+    path("entities/<str:ref>/apps/<str:app>/", web.app, name="entity_app"),
     # Plugins' components, for the web app's sandboxed frames (ADR 0084).
     # The frames Iki's own viewers run in (ADR 0085).
     path("viewers/structure/", viewers.structure_frame, name="structure_frame"),

@@ -79,6 +79,20 @@ export function dashboardChoicesQuery(projectId: string) {
   });
 }
 
+/** A draft of an app, which only the person it's for can open, for a day. */
+export function appDraftQuery(id: string) {
+  return queryOptions({
+    queryKey: ["app-drafts", id],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/apps/drafts/{draft_id}", {
+          params: { path: { draft_id: id } },
+        }),
+      ),
+    retry: false,
+  });
+}
+
 function isTemplate(value: unknown): value is string {
   return typeof value === "string" && value.includes("{{");
 }

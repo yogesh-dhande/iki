@@ -45,6 +45,51 @@ def world() -> World:
     return build_world()
 
 
+ROUTER = Path(__file__).parents[2] / "web" / "app" / "src" / "router.tsx"
+#: A value for each of the router's path parameters.
+SAMPLES = {
+    "slug": "a-b",
+    "ref": "DNA-000001",
+    "name": "dna.DNASequence",
+    "viewer": "sequence",
+    "app": "APP-000001",
+    "webhookId": "01a1c452-a14b-7195-acd0-4b6ba266a652",
+    "draft": "01a1c452-a14b-7195-acd0-4b6ba266a653",
+}
+
+
+def routed_pages() -> list[str]:
+    """Every page the web app's router has, with a sample for each parameter, so a page
+    added there can't be missing from the server's (a link to it, opened, would 404)."""
+    source = ROUTER.read_text()
+    found = re.finditer(
+        r'const (\w+) = createRoute\(\{\s*getParentRoute: \(\) => (\w+),\s*path: "([^"]*)"',
+        source,
+    )
+    routes: dict[str, tuple[str, str, bool]] = {}
+    for match in found:
+        body = source[match.end() : source.index("});", match.end())]
+        routes[match[1]] = (match[2], match[3], "component" in body)
+    assert len(routes) == source.count("createRoute({"), "router.tsx changed shape"
+
+    def full(name: str) -> str:
+        if name not in routes:
+            return ""
+        parent, path, _ = routes[name]
+        return f"{full(parent)}/{path.strip('/')}".rstrip("/")
+
+    # A route without a page of its own only lays out its children's.
+    pages = {(full(name) or "") + "/" for name, route in routes.items() if route[2]}
+    return sorted(re.sub(r"\$(\w+)", lambda m: SAMPLES[m[1]], p.replace("//", "/")) for p in pages)
+
+
+def test_every_page_the_app_routes_loads_it(world: World) -> None:
+    viewer = world.browser("viewer")
+    statuses = {p: viewer.get(p).status_code for p in routed_pages()}
+    missing = [f"{p}: {status}" for p, status in statuses.items() if status != 200]
+    assert missing == [], "\n".join(missing)
+
+
 @pytest.mark.parametrize("path", APP_PAGES)
 def test_app_pages_load_the_app_with_the_session_and_csrf_token(world: World, path: str) -> None:
     page = world.browser("viewer").get(path)

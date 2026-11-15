@@ -448,3 +448,93 @@ describe("a project's dashboard", () => {
     );
   });
 });
+
+describe("an app's draft", () => {
+  const DRAFT_ID = "0190f5c2-0000-7000-8000-00000000df01";
+  const NOTE = { id: "note", component: "iki.text", props: { text: "Welcome to the atlas." } };
+  const DRAFT = {
+    id: DRAFT_ID,
+    project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
+    name: "Atlas",
+    spec: { version: 1, panels: [NOTE] },
+    entity: null,
+    agent: "Claude (abc)",
+    created_at: "2026-11-15T09:00:00Z",
+    expires_at: "2099-11-16T09:00:00Z",
+  };
+
+  function onProject() {
+    onTypes();
+    answer("GET /api/v1/projects", page([project()]));
+  }
+
+  it("shows its person the app as it would be, and saves it as one", async () => {
+    onProject();
+    answer(`GET /api/v1/apps/drafts/${DRAFT_ID}`, DRAFT);
+    const saved = app([NOTE]);
+    answer("POST /api/v1/entities", saved);
+    answer("GET /api/v1/entities/APP-000001", saved);
+    const { user, router } = await renderApp(`/projects/kinase-atlas/apps/drafts/${DRAFT_ID}`);
+    expect(await screen.findByText("Welcome to the atlas.")).toBeInTheDocument();
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent("A draft, not saved. Claude (abc) drafted it for you.");
+    expect(note).toHaveTextContent("Only you can see it");
+    await user.click(screen.getByRole("button", { name: "Save as an app in Kinase Atlas" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/entities/APP-000001/");
+    });
+    expect(calls("POST", "/api/v1/entities")[0]?.body).toEqual({
+      type: "core.App",
+      project: KINASE.id,
+      values: { name: "Atlas", spec: DRAFT.spec },
+      allow_duplicate: false,
+      reason: "Saved from a draft Claude (abc) made.",
+    });
+    expect(await screen.findByText("Saved Atlas as APP-000001.")).toBeVisible();
+  });
+
+  it("says why it can't be opened once it's gone", async () => {
+    onProject();
+    answer(
+      `GET /api/v1/apps/drafts/${DRAFT_ID}`,
+      problem(404, "not_found", "No such draft of yours, or it’s expired."),
+    );
+    await renderApp(`/projects/kinase-atlas/apps/drafts/${DRAFT_ID}`);
+    expect(
+      await screen.findByRole("heading", { name: "This draft can’t be opened" }),
+    ).toBeVisible();
+  });
+});
+
+describe("previewing an app as it's written", () => {
+  function onEditing() {
+    onTypes();
+    answer("GET /api/v1/entities/APP-000001", app([{ ...TEXT, props: { text: "Hello." } }]));
+    answer("GET /api/v1/entities/APP-000001/provenance", {});
+    answer("GET /api/v1/entities/APP-000001/projects", []);
+  }
+
+  it("checks it as saving would, then shows it without saving", async () => {
+    onEditing();
+    answer("POST /api/v1/apps/check", { problems: [] });
+    const { user } = await renderApp("/entities/APP-000001/edit/");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = screen.getByRole("region", { name: "Preview" });
+    expect(await within(preview).findByText("Hello.")).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/apps/check")[0]?.body).toEqual({
+      spec: { version: 1, panels: [{ ...TEXT, props: { text: "Hello." } }] },
+    });
+    expect(calls("PATCH")).toEqual([]);
+  });
+
+  it("says what saving it would refuse", async () => {
+    onEditing();
+    const refusal = "Panel `summary`, `text`: `plasmids` isn’t a panel before it.";
+    answer("POST /api/v1/apps/check", { problems: [refusal] });
+    const { user } = await renderApp("/entities/APP-000001/edit/");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = screen.getByRole("region", { name: "Preview" });
+    expect(await within(preview).findByRole("alert")).toHaveTextContent(refusal);
+    expect(within(preview).queryByText("Hello.")).toBeNull();
+  });
+});

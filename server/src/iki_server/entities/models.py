@@ -123,6 +123,38 @@ class ProjectLink(models.Model):
         return f"{self.entity_id} in {self.project_id}"
 
 
+class AppDraft(models.Model):
+    """An app's spec to look at before saving it (ADR 0090): what an agent drafts for its
+    person, say. Only the person it's for can open it, and only until it expires. It's
+    never an entity, has no history, and nothing points to it."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="+")
+    #: The person it's for, whose reading it shows and who alone can open it.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+"
+    )
+    #: The agent that drafted it for them, if one did (ADR 0072).
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    name = models.CharField(max_length=200)
+    spec = models.JSONField()
+    #: For an app about an entity, the one it's shown on.
+    about = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+    created_at = models.DateTimeField(db_default=Now())
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = "iki_app_draft"
+        db_table_comment = "Apps' specs to look at before saving, each for one person, for a day."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["created_by", "created_at"], name="iki_app_draft_by"),
+        ]
+
+
 class ProjectDashboard(models.Model):
     """The app a project's page opens with (ADR 0090), chosen by its Admins from its own
     apps. The app shows what each person viewing it may read, as it does anywhere."""
