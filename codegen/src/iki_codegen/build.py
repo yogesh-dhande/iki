@@ -178,7 +178,8 @@ def build(
         given = settings.get(plugin.name) if settings is not None else None
         resolved = plugin if given is None else with_hosts(plugin, given)
         manifest = {"apiVersion": API_VERSION, "plugin": plugin_to_dict(resolved)}
-        (package / "manifest.json").write_text(_json(manifest))
+        # In the manifest's own order: a type's fields are shown and asked for in it.
+        (package / "manifest.json").write_text(_json(manifest, ordered=True))
         if settings is not None and plugin.name in settings:
             (package / "settings.json").write_text(_json(dict(settings[plugin.name])))
         source = (migrations or {}).get(plugin.name)
@@ -206,8 +207,9 @@ def build(
     return packages
 
 
-def _json(data: Mapping[str, Any]) -> str:
-    return json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+def _json(data: Mapping[str, Any], *, ordered: bool = False) -> str:
+    """JSON with sorted keys, or, if `ordered`, the keys in the order given."""
+    return json.dumps(data, indent=2, sort_keys=not ordered, ensure_ascii=False) + "\n"
 
 
 def _apps(plugin: Plugin) -> str:
