@@ -24,6 +24,7 @@ from django.test import Client
 from iki_test_plugins import ensure_built
 from org_world import World, build_world
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from real_server import Server, app_role, manage, run_tasks, serve, server_env
 
 from iki_server.accounts.models import User
@@ -290,6 +291,12 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
     )
     page = open_as("admin", "/notifications/")
     page.get_by_role("link", name="Notifications, 1 unread").wait_for()
+    # What the inbox's requests answered, to say why if the new one never shows.
+    answered: list[str] = []
+    page.on(
+        "response",
+        lambda r: answered.append(f"{r.status} {r.url}") if "/notifications" in r.url else None,
+    )
 
     # Sent while the page is open: the stream (LISTEN/NOTIFY, then SSE) brings it.
     title = "Viewer added you to Kinase Atlas as Editor"
@@ -302,7 +309,10 @@ def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world
         actor=viewer,
     )
     page.get_by_role("link", name="Notifications, 2 unread").wait_for()
-    page.get_by_role("link", name=title).wait_for()
+    try:
+        page.get_by_role("link", name=title).wait_for()
+    except PlaywrightTimeoutError:
+        pytest.fail(f"the inbox never showed it; its requests answered {answered}")
     assert_clean(page)
 
     page.get_by_role("link", name=title).click()

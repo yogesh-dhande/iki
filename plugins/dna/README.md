@@ -1,6 +1,7 @@
 # dna
 
-Iki's DNA plugin: DNA sequences and primers.
+Iki's DNA plugin: DNA sequences and primers, and sequencing reads aligned to
+them.
 
 - **`dna.DNASequence`** (`DNA-000001`): a plasmid, gene, construct or genome.
   - Its identity is its bases and topology (linear or circular), so
@@ -28,8 +29,9 @@ proteins and other plugins' sequences.
 
 ## Actions
 
-They run on backend workers, in the `sequence-tools` environment (Python's
-standard library only).
+They run on backend workers, in the `sequence-tools` environment (Python 3.12
+with Biopython, which `align_reads` uses; the others need only Python's standard
+library).
 
 - **`compute_composition`**: a DNA sequence's length and GC content, for
   many at once.
@@ -45,6 +47,15 @@ standard library only).
   Each records the NCBI record and version it came from, its link, when it
   was fetched and its SHA-256. It reaches only `eutils.ncbi.nlm.nih.gov`,
   through the deployment's egress proxy, and needs the `ncbi_email` setting.
+- **`align_reads`**: aligns sequencing reads to a DNA sequence, such as Sanger
+  reads of a clone to the plasmid it should be, into a `core.Alignment` the
+  alignment viewer shows, the sequence its reference
+  ([ADR 0088](../../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
+  It takes up to 96 files, chosen together
+  ([ADR 0089](../../docs/adr/0089-a-param-can-take-several-files.md)): AB1
+  traces, one read each, named by their file, or FASTQ or FASTA files, named
+  by their records, up to 1,000 reads in all. It keeps `alignment.fasta` as an
+  artifact, which is also the alignment's file.
 
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
@@ -73,6 +84,23 @@ and makes at most three requests a second (ten with `NCBI_API_KEY`). When NCBI s
 fails on its side, it waits and asks again. An accession NCBI has no record
 for fails the run, which names it.
 
+Aligning reads: each file's format is read from its first bytes. A read with
+qualities (AB1, FASTQ) is trimmed to its best stretch by Mott's algorithm,
+as phred does (limit 0.05), unless the run says not to. Each is aligned
+locally to the sequence on both strands, and the better kept, with BLASTN's
+scores (match 2, mismatch -3, gap opening 5, extension 2) and N matching
+anything at no score. A circular sequence is aligned as if it went round
+again, so a read across its origin aligns in one piece. A read aligns if at
+least half its trimmed bases do (and 20); others are left out, and the run
+says so. The run says where the reads cover the sequence, and lists each
+difference from it in its numbering, as HGVS names them: substitutions
+(`C1234T`), deletions (`1240delA`, `1240_1242del`), insertions
+(`1250_1251insG`) and duplications (`1250dupG`), a deletion or insertion in
+repeated bases named at its 3′-most place, with the reads that show it and
+their quality there. In the alignment, each read's row is as it lies on the
+sequence (its reverse complement if it read the other strand), and bases a
+read has that the sequence doesn't get columns of their own.
+
 Reverse complements, restriction digests, primer design and GenBank export
 come later.
 
@@ -84,6 +112,12 @@ From the repository root:
 uv run iki plugin validate plugins/dna
 cd plugins && uv run iki plugin makemigrations dna   # after changing a manifest
 ```
+
+Its environment's packages are pinned, with their hashes, in
+`requirements.txt`, compiled from `requirements.in` as it says. Pin the same
+releases in the repository's dev dependencies, where
+`server/tests/test_dna_reads.py` runs `align_reads`: `make check-deps` checks
+they match, and that each is at least 3 days old.
 
 `server/tests/test_first_party_plugins.py` checks that it's valid, that its
 migrations match its manifests, and that it migrates forwards and back.

@@ -25,6 +25,7 @@ import json
 import math
 import re
 import secrets
+import struct
 import subprocess
 import sys
 import time
@@ -1089,7 +1090,96 @@ def actions() -> None:
         ):
             fail(f"{run['hrid']} wrote no melting temperature: {got}")
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
+    reads_aligned(alice, project)
     proteins(alice, project)
+
+
+def _abif(bases: str, quality: list[int], sample: str) -> bytes:
+    """A minimal ABIF (AB1) trace file, as a sequencer writes: its called bases (PBAS 2),
+    their qualities (PCON 2) and the sample's name (SMPL 1)."""
+    entries = [
+        (b"PBAS", 2, 2, bases.encode()),
+        (b"PCON", 2, 2, bytes(quality)),
+        (b"SMPL", 1, 18, bytes([len(sample)]) + sample.encode()),
+    ]
+    data, directory, start = b"", b"", 128
+    for name, number, kind, payload in entries:
+        size = len(payload)
+        directory += struct.pack(
+            ">4sihhiiii", name, number, kind, 1, size, size, start + len(data), 0
+        )
+        data += payload
+    header = struct.pack(
+        ">4sh4sihhiiii",
+        b"ABIF",
+        101,
+        b"tdir",
+        1,
+        1023,
+        28,
+        len(entries),
+        len(directory),
+        start + len(data),
+        0,
+    )
+    return header.ljust(start, b"\0") + data + directory
+
+
+def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
+    """dna.align_reads: a forward trace with a difference, and a reverse read across the
+    origin, uploaded as a list of files, aligned to a circular plasmid they come from."""
+    plasmid = "".join(secrets.choice("ACGT") for _ in range(1200))
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "dna.DNASequence",
+            "project": project["id"],
+            "values": {"name": "pE2E", "bases": plasmid, "topology": "circular"},
+        },
+    )
+    if made.status_code not in (200, 201):
+        fail(f"registering a plasmid answered HTTP {made.status_code}: {made.text[:300]}")
+    reference = made.json()
+    # Bases 201-700, read forward, with another base at 451, between poor ends.
+    called = list(plasmid[200:700])
+    other = "A" if called[250] != "A" else "C"
+    called[250] = other
+    trace = _abif("TTTT" + "".join(called) + "GGGG", [4] * 4 + [40] * 500 + [4] * 4, "F1")
+    # Bases 1101-1200 and 1-200, read on the other strand.
+    across = plasmid[1100:] + plasmid[:200]
+    backward = across.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    fastq = f"@R1\n{backward}\n+\n{'I' * len(backward)}\n".encode()
+    files = [
+        upload(alice, project, "clone_F1.ab1", trace, "application/x-abi"),
+        upload(alice, project, "clone_R1.fastq", fastq, "text/x-fastq"),
+    ]
+    action = "dna.align_reads"
+    run = launch(alice, project, action, {"reference": reference["id"]}, {"reads": files})
+    metrics = run.get("metrics") or {}
+    if metrics.get("aligned") != 2 or metrics.get("differences") != 1:
+        fail(f"{run['hrid']} ({action}) measured {metrics}, not 2 reads and 1 difference")
+    said = [m["text"] for m in run.get("messages") or []]
+    # An AB1 trace's read is named by its file.
+    expected = f"Differences from {reference['hrid']}: {plasmid[450]}451{other} (clone_F1 Q40)."
+    if expected not in said:
+        fail(f"{run['hrid']} said {said}, not {expected!r}")
+    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in created] != ["core.Alignment"]:
+        fail(f"{run['hrid']} created {created}, not one core.Alignment")
+    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
+    if values["reference"] != reference["id"] or values["members"] != [reference["id"]]:
+        fail(f"{created[0]['hrid']} is {values}")
+    (kept,) = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
+    if stored["sha256"] != kept["sha256"]:
+        fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
+    ok(
+        f"{action} aligned a trace and a read across the origin of a plasmid ({run['hrid']}): "
+        f"{metrics['coverage_percent']}% covered, {expected[:-1].split(': ', 1)[1]}, "
+        f"making {created[0]['hrid']}"
+    )
 
 
 #: The fake LIMS's records (deploy/dev/manifests/fake-lims.yaml).
@@ -1368,7 +1458,13 @@ def aligned_many(
 RESIDUES = {"ALA": "A", "GLY": "G", "LYS": "K", "SER": "S", "TRP": "W", "VAL": "V"}
 
 
-def upload(alice: requests.Session, project: dict[str, Any], name: str, data: bytes) -> str:
+def upload(
+    alice: requests.Session,
+    project: dict[str, Any],
+    name: str,
+    data: bytes,
+    media_type: str = "chemical/x-pdb",
+) -> str:
     """A file added as the web app adds one: its parts sent to the URLs Iki signs, then
     checked. Returns its ID."""
     started = api_call(
@@ -1378,7 +1474,7 @@ def upload(alice: requests.Session, project: dict[str, Any], name: str, data: by
         {
             "project": project["id"],
             "name": name,
-            "media_type": "chemical/x-pdb",
+            "media_type": media_type,
             "size": len(data),
             "sha256": hashlib.sha256(data).hexdigest(),
         },

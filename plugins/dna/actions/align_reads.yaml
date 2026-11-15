@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: align_reads
+label: Align reads to a sequence
+description: >-
+  Aligns sequencing reads to a DNA sequence, such as Sanger reads of a construct
+  to the plasmid it should be, into an alignment of them in Iki for the
+  alignment viewer, the sequence its reference. Reads come from AB1 traces,
+  FASTQ or FASTA files. Each is trimmed of its poor ends, aligned on whichever
+  strand fits, and round the origin of a circular sequence. The run says where
+  the reads cover the sequence, and lists every difference from it, with the
+  reads that show it and their quality there.
+inputs:
+  reference:
+    type: DNASequence
+    schema: ">=1"
+    description: The sequence the reads should match, such as the plasmid as designed.
+params:
+  reads:
+    type: list
+    required: true
+    max_items: 96
+    label: Read files
+    description: AB1 traces (one read each), or FASTQ or FASTA files of reads, up to 1,000 reads.
+    items:
+      type: file
+      media_types: [application/x-abi, text/x-fastq, chemical/seq-na-fasta, text/plain]
+      max_size: 50MiB
+  trim:
+    type: bool
+    label: Trim poor ends
+    default: true
+    description: Trim each read with qualities to its best stretch, by Mott's algorithm, as phred does.
+  name:
+    type: string
+    description: The alignment's name. Without one, it's named after the sequence.
+effects:
+  creates: [{ type: core.Alignment, derived_from: [reference] }]
+runs_on: { tier: backend, environment: sequence-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/reads.py]
+deterministic: true
+artifacts: { keep: ["alignment.fasta"] }
+metrics:
+  reads: { label: Reads, description: The reads the files held. }
+  aligned: { label: Aligned, description: The reads that aligned to the sequence. }
+  coverage_percent:
+    { label: Coverage (%), description: The share of the sequence's bases a read covers. }
+  differences:
+    {
+      label: Differences,
+      description: "Differences from the sequence: substitutions, deletions and insertions.",
+    }
+timeout: 30m
