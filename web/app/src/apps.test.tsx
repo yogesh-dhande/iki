@@ -201,3 +201,104 @@ describe("an app", () => {
     });
   });
 });
+
+function about(panels: unknown[]) {
+  const made = app(panels);
+  return {
+    ...made,
+    values: { ...made.values, spec: { version: 1, entity: { type: "dna.DNASequence" }, panels } },
+  };
+}
+
+const OTHERS = {
+  ...GRID,
+  id: "others",
+  title: "Others",
+  props: {
+    ...GRID.props,
+    where: { all: [{ field: "name", op: "ne", value: "{{ entity.values.name }}" }] },
+  },
+};
+const ITS_LENGTH = {
+  id: "length",
+  component: "iki.text",
+  props: { text: "{{ entity.values.name }} is {{ size(entity.values.bases) }} bp." },
+};
+
+describe("an app about an entity", () => {
+  it("is a tab on its page, reading it, its grids' conditions too", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/DNA-000001", PTEST);
+    answer("GET /api/v1/entities/DNA-000001/apps", [
+      { id: about([]).id, hrid: "APP-000001", name: "Plasmid QC" },
+    ]);
+    answer("GET /api/v1/entities/APP-000001", about([ITS_LENGTH, OTHERS]));
+    answer("POST /api/v1/entities/search", { items: [POTHER], next_cursor: null });
+    const { user } = await renderApp("/entities/DNA-000001/");
+
+    const tabs = screen.getByRole("navigation", { name: "Entity" });
+    await user.click(await within(tabs).findByRole("link", { name: "Plasmid QC" }));
+    expect(await screen.findByText("pTest is 160 bp.")).toBeInTheDocument();
+    const others = await screen.findByRole("region", { name: "Others" });
+    expect(await within(others).findByText("pOther")).toBeInTheDocument();
+    const search = calls("POST", "/api/v1/entities/search")[0]?.body as Record<string, unknown>;
+    expect(search["where"]).toEqual({ all: [{ field: "name", op: "ne", value: "pTest" }] });
+    // The page's tabs are drawn again on the app's tab, with it the current one.
+    const shown = screen.getByRole("navigation", { name: "Entity" });
+    expect(within(shown).getByRole("link", { name: "Plasmid QC" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("opens only on the entities the server lists it for", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/DNA-000001", PTEST);
+    answer("GET /api/v1/entities/DNA-000001/apps", []);
+    answer("GET /api/v1/entities/APP-000001", about([ITS_LENGTH]));
+    await renderApp("/entities/DNA-000001/apps/APP-000001/");
+    expect(
+      await screen.findByText("There’s nothing here, or you don’t have access to it."),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/entities/APP-000001")).toHaveLength(0);
+    });
+    expect(screen.queryByText(/is 160 bp/)).toBeNull();
+  });
+
+  it("on its own page, says where it's shown", async () => {
+    onTypes();
+    answer("GET /api/v1/entities/APP-000001", about([ITS_LENGTH]));
+    await renderApp("/entities/APP-000001/");
+    expect(
+      await screen.findByText(/This app is about one DNA sequence\. It’s a tab on each one’s page/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows nothing in a grid until its conditions can be worked out", async () => {
+    onTypes();
+    const following = {
+      ...GRID,
+      id: "same",
+      title: "Same name",
+      props: {
+        ...GRID.props,
+        where: { field: "name", op: "eq", value: "{{ plasmids.selection[0].values.name }}" },
+      },
+    };
+    answer("GET /api/v1/entities/APP-000001", app([GRID, following]));
+    answer("POST /api/v1/entities/search", { items: [PTEST, POTHER], next_cursor: null });
+    const { user } = await renderApp("/entities/APP-000001/");
+    const same = await screen.findByRole("region", { name: "Same name" });
+    expect(await within(same).findByText(/Nothing to show yet/)).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/entities/search")).toHaveLength(1);
+
+    const grid = screen.getByRole("region", { name: "Plasmids" });
+    await user.click(await within(grid).findByRole("radio", { name: "Pick pOther" }));
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/entities/search")).toHaveLength(2);
+    });
+    const search = calls("POST", "/api/v1/entities/search")[1]?.body as Record<string, unknown>;
+    expect(search["where"]).toEqual({ field: "name", op: "eq", value: "pOther" });
+  });
+});

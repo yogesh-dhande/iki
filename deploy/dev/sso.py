@@ -1316,6 +1316,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     reads_on_protein(alice, project, chains[1])
     aligned_many(alice, project, chains)
     globins_app(alice, project)
+    relatives_app(alice, project)
     structures(alice, project)
 
 
@@ -1343,7 +1344,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
             {
                 "type": "protein.Protein",
                 "project": project["id"],
-                "values": {"name": name, "sequence": sequence},
+                "values": {"name": name, "sequence": sequence, "organism": "Homo sapiens"},
             },
         )
         if made.status_code not in (200, 201):
@@ -1521,6 +1522,68 @@ def globins_app(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{made.json()['hrid']}: an app of three panels, its expressions checked by iki-wasm")
 
 
+def relatives_app(alice: requests.Session, project: dict[str, Any]) -> None:
+    """An app about a protein (ADR 0090): a tab on each protein's page in the project, its
+    grid's conditions worked out from the protein it's on."""
+    spec = {
+        "version": 1,
+        "entity": {"type": "protein.Protein"},
+        "panels": [
+            {
+                "id": "length",
+                "component": "iki.text",
+                "props": {
+                    "text": "{{ entity.values.name }} has {{ size(entity.values.sequence) }} "
+                    "residues. Others from {{ entity.values.organism }}:"
+                },
+            },
+            {
+                "id": "kin",
+                "title": "From the same organism",
+                "component": "iki.entities",
+                "props": {
+                    "type": "protein.Protein",
+                    "select": "none",
+                    "where": {
+                        "all": [
+                            {
+                                "field": "organism",
+                                "op": "eq",
+                                "value": "{{ entity.values.organism }}",
+                            },
+                            {"field": "name", "op": "ne", "value": "{{ entity.values.name }}"},
+                        ]
+                    },
+                    "sort": "name",
+                    "limit": 10,
+                    "columns": [
+                        {"field": "name"},
+                        {"label": "Length", "value": "{{ size(row.values.sequence) }} aa"},
+                    ],
+                },
+            },
+        ],
+    }
+    values = {"name": "Relatives", "spec": spec}
+    body = {"type": "core.App", "project": project["id"], "values": values}
+    made = api_call(alice, "POST", "/entities", body)
+    if made.status_code != 201:
+        fail(f"saving an app about a protein answered HTTP {made.status_code}: {made.text[:300]}")
+    search = {
+        "type": "protein.Protein",
+        "exact_type": False,
+        "limit": 1,
+        "where": {"field": "name", "op": "eq", "value": "HBB_HUMAN"},
+    }
+    found = api_call(alice, "POST", "/entities/search", search).json()["items"]
+    if not found:
+        fail("HBB_HUMAN wasn't found for its app")
+    tabs = api_call(alice, "GET", f"/entities/{found[0]['hrid']}/apps").json()
+    if made.json()["hrid"] not in [t["hrid"] for t in tabs]:
+        fail(f"HBB_HUMAN's page doesn't list its app: {tabs}")
+    ok(f"{made.json()['hrid']}: an app about a protein, a tab on {found[0]['hrid']}'s page")
+
+
 def aligned_many(
     alice: requests.Session, project: dict[str, Any], chains: list[dict[str, Any]]
 ) -> None:
@@ -1533,7 +1596,7 @@ def aligned_many(
         {
             "type": "protein.Protein",
             "project": project["id"],
-            "values": {"name": "MB_HUMAN", "sequence": MB},
+            "values": {"name": "MB_HUMAN", "sequence": MB, "organism": "Homo sapiens"},
         },
     )
     if made.status_code not in (200, 201):

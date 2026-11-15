@@ -36,7 +36,7 @@ import {
   type Revision,
 } from "../entities";
 import { usePageTitle } from "../layout";
-import { APP_TYPE } from "../apps";
+import { APP_TYPE, entityAppsQuery } from "../apps";
 import { VIEW_TYPE } from "../views";
 import { AppPanel, AppSpec } from "./app";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
@@ -370,6 +370,8 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
   const types = useQuery(typesQuery).data ?? [];
   // Plugins' tabs (ADR 0084). If they can't be listed, the page still works without them.
   const plugins = entityTabs(entity.type, types, useQuery(componentsQuery).data ?? []);
+  // Apps about it (ADR 0090), likewise.
+  const apps = useQuery(entityAppsQuery(entity.hrid)).data ?? [];
   return (
     <>
       <PageHeader
@@ -429,6 +431,16 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
             activeProps={tab}
           >
             {label}
+          </Link>
+        ))}
+        {apps.map((app) => (
+          <Link
+            key={app.hrid}
+            to="/entities/$ref/apps/$app/"
+            params={{ ref: entity.hrid, app: app.hrid }}
+            activeProps={tab}
+          >
+            {app.name}
           </Link>
         ))}
       </nav>

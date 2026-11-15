@@ -4,7 +4,11 @@
  * was saved; this reads it, and renders its templates with iki-wasm in a Web Worker.
  */
 
-import type { Entity } from "./entities";
+import { unwrap } from "@ikisci/sdk";
+import { queryOptions } from "@tanstack/react-query";
+
+import { iki } from "./api";
+import { ENTITIES, type Entity } from "./entities";
 import { newWorker } from "./reading";
 import expressionsUrl from "./workers/expressions.ts?worker&url";
 
@@ -33,7 +37,56 @@ export type Panel = { id: string; title?: string; width?: number } & (
 
 export interface AppSpec {
   version: 1;
+  /** The type of entity it's about: their pages show it as a tab, and its expressions
+   * read that entity as `entity`. */
+  entity?: { type: string };
   panels: Panel[];
+}
+
+/** The apps about an entity, which its page shows as tabs. */
+export function entityAppsQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...ENTITIES, "apps", ref.toUpperCase()],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/entities/{ref}/apps", { params: { path: { ref } } })),
+  });
+}
+
+function isTemplate(value: unknown): value is string {
+  return typeof value === "string" && value.includes("{{");
+}
+
+type Leaf = Record<string, unknown> & { value?: unknown };
+
+/** A copy of a grid's conditions, each leaf as `leaf` makes it, in one order. */
+function eachCondition(node: unknown, leaf: (node: Leaf) => Leaf): unknown {
+  if (typeof node !== "object" || node === null || Array.isArray(node)) return node;
+  const out: Leaf = { ...(node as Leaf) };
+  for (const key of ["all", "any"] as const) {
+    const children = out[key];
+    if (Array.isArray(children)) out[key] = children.map((c) => eachCondition(c, leaf));
+  }
+  if ("not" in out) out["not"] = eachCondition(out["not"], leaf);
+  return "value" in out ? leaf(out) : out;
+}
+
+/** The values of a grid's conditions that are expressions, in order. */
+export function conditionTemplates(where: unknown): string[] {
+  const found: string[] = [];
+  eachCondition(where, (leaf) => {
+    if (isTemplate(leaf.value)) found.push(leaf.value);
+    return leaf;
+  });
+  return found;
+}
+
+/** A grid's conditions with each expression's value in its place, in the order
+ * {@link conditionTemplates} lists them. */
+export function fillConditions(where: unknown, values: unknown[]): unknown {
+  let next = 0;
+  return eachCondition(where, (leaf) =>
+    isTemplate(leaf.value) ? { ...leaf, value: values[next++] } : leaf,
+  );
 }
 
 const COMPONENTS = new Set(["iki.entities", "iki.viewer", "iki.text"]);

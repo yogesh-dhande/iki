@@ -12,7 +12,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { iki, problemOf } from "../api";
 import {
+  conditionTemplates,
   entityValue,
+  fillConditions,
   readSpec,
   renderTemplates,
   type EntitiesProps,
@@ -25,7 +27,17 @@ import { ENTITIES, entityQuery, valueText, type Entity, type EntityType } from "
 import { Loading, ProblemAlert, RelativeTime } from "../ui";
 import { ViewerBody } from "./entity-viewer";
 
-export function AppPanel({ app, types }: { app: Entity; types: EntityType[] }) {
+/** An app's panels. An app about an entity shows only on that entity's page, `about`
+ * it; on its own, it says where it's shown. */
+export function AppPanel({
+  app,
+  types,
+  about,
+}: {
+  app: Entity;
+  types: EntityType[];
+  about?: Entity;
+}) {
   const spec = readSpec(app.values["spec"]);
   const [offers, setOffers] = useState<Offers>({});
   if (!spec) {
@@ -35,12 +47,27 @@ export function AppPanel({ app, types }: { app: Entity; types: EntityType[] }) {
       </section>
     );
   }
+  if (spec.entity && !about) {
+    const type = types.find((t) => t.name === spec.entity?.type);
+    return (
+      <section className="card">
+        <p className="muted">
+          This app is about one {type?.label ?? spec.entity.type}. It’s a tab on each one’s page
+          {app.owner_project ? ` in ${app.owner_project.name}` : ""}.
+        </p>
+      </section>
+    );
+  }
+  // An app about an entity reads it as `entity`, as the server checked.
+  const base: Offers = about
+    ? { entity: entityValue(about) as unknown as Record<string, unknown> }
+    : {};
   return (
     <div className="app-grid">
       {spec.panels.map((panel, index) => {
         // A panel reads only the panels before it, as the server checked, and waits for
         // each of them to offer what it has.
-        const before: Offers = {};
+        const before: Offers = { ...base };
         let ready = true;
         for (const p of spec.panels.slice(0, index)) {
           const offered = offers[p.id];
@@ -126,7 +153,9 @@ function useRendered(
 ): { values: Rendered[][] | undefined; error: string | undefined } {
   const key = JSON.stringify([templates, before, rows ?? null]);
   const [state, setState] = useState<{ values?: Rendered[][]; error?: string }>({});
+  const none = templates.length === 0;
   useEffect(() => {
+    if (none) return;
     let live = true;
     renderTemplates(templates, before, rows).then(
       (values) => {
@@ -142,6 +171,7 @@ function useRendered(
     // `key` stands for what it's rendered from.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+  if (none) return { values: [], error: undefined };
   return { values: state.values, error: state.error };
 }
 
@@ -174,6 +204,9 @@ function TextPanel({ text, before, offer }: BodyProps & { text: string }) {
 
 type SearchBody = Schemas["SearchIn"];
 
+/** A grid's rows while its conditions can't be worked out: the same each render. */
+const NONE: Entity[] = [];
+
 /** Columns every entity has, besides its fields, as the server checks a grid's. */
 const COLUMNS: Record<string, { label: string; cell: (e: Entity) => React.ReactNode }> = {
   hrid: { label: "ID", cell: (e) => e.hrid },
@@ -193,13 +226,27 @@ function EntitiesPanel({
 }: BodyProps & { entities: EntitiesProps }) {
   const type = types.find((t) => t.name === entities.type);
   const project = (entities.scope ?? "project") === "project" ? app.owner_project : null;
+  // Conditions whose values are expressions are worked out first; one that can't be (a
+  // grid's pick not made yet, say) leaves the grid with nothing to show.
+  const conditions = useRendered(conditionTemplates(entities.where), before);
+  const values = conditions.values?.map((v) => v[0]);
+  const unworked =
+    conditions.error ?? values?.flatMap((v) => (v && "error" in v ? [v.error] : []))[0];
+  const where = (
+    values && unworked === undefined
+      ? fillConditions(
+          entities.where,
+          values.map((v) => (v && "value" in v ? v.value : null)),
+        )
+      : undefined
+  ) as SearchBody["where"] | undefined;
   const body: SearchBody = {
     type: entities.type,
     exact_type: false,
     limit: entities.limit ?? 25,
     archived: false,
     ...(project ? { project: project.id } : {}),
-    ...(entities.where ? { where: entities.where } : {}),
+    ...(where ? { where } : {}),
     ...(entities.q ? { q: entities.q } : {}),
     ...(entities.sort
       ? { sort: { field: entities.sort, descending: entities.descending ?? false } }
@@ -209,8 +256,9 @@ function EntitiesPanel({
     queryKey: [...ENTITIES, "app", app.id, panel.id, body],
     queryFn: async () => unwrap(await iki.POST("/api/v1/entities/search", { body })),
     retry: false,
+    enabled: !entities.where || where !== undefined,
   });
-  const items = found.data?.items;
+  const items = unworked === undefined ? found.data?.items : NONE;
   const rows = useMemo(() => (items ?? []).map(entityValue), [items]);
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const selection = useMemo(() => rows.filter((r) => picked.has(r.hrid)), [rows, picked]);
@@ -224,6 +272,9 @@ function EntitiesPanel({
   const columns = entities.columns ?? [{ field: "title" }];
   const templates = columns.flatMap((c) => ("value" in c ? [c.value] : []));
   const rendered = useRendered(templates, before, rows);
+  if (unworked !== undefined) {
+    return <p className="muted">Nothing to show yet: {unworked}</p>;
+  }
   if (found.isError) return <ProblemAlert problem={problemOf(found.error)} />;
   if (!items) return <Loading label="Finding them…" />;
   if (items.length === 0) return <p className="muted">There are none to show.</p>;

@@ -652,6 +652,8 @@ declaring a dependency, and no other plugin can be named `core`:
   panels on a twelve-column grid, each an entities grid, a viewer or text,
   bound to the panels before it by CEL expressions between `{{` and `}}`
   ([ADR 0090](../docs/adr/0090-apps-are-compositions-of-ikis-components.md)).
+  An app about an entity type (`entity.type`) is a tab on their pages in its
+  projects, and reads the one it's on as `entity`.
 
 The server ships the core plugin's app, generated like any plugin's. After
 changing these manifests, run `make core` to regenerate it and make its

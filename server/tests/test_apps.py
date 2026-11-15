@@ -6,10 +6,12 @@ from typing import Any
 
 import pytest
 from api_client import Api, problem
+from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as, create, patch
 
 from iki_server.entities import app_specs
+from iki_server.entities.models import Entity
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 
 pytestmark = [pytest.mark.django_db, pytest.mark.wasm]
@@ -108,8 +110,8 @@ def test_a_panel_reads_only_panels_before_it_and_what_they_offer(world: World) -
     grid = with_props(GRID, columns=[column])
     assert problems(app(editor, world.project, grid)) == [
         "Panel `proteins`, `columns.0.value`: `other` isn’t its row or a panel before it.",
-        "Panel `proteins`, `columns.0.value`: `row` offers `id` and `hrid` and `type` and "
-        "`title` and `revision` and `values`, not `secret`.",
+        "Panel `proteins`, `columns.0.value`: `row` offers `id`, `hrid`, `type`, `title`, "
+        "`revision` and `values`, not `secret`.",
     ]
     # Only a column has a row.
     rowed = with_props(TEXT, text="{{ row.title }}")
@@ -241,3 +243,114 @@ def test_checking_one_says_every_problem_and_saves_nothing(world: World) -> None
     spec = {"version": 1, "panels": [GRID, VIEWER, TEXT]}
     assert api.post("/apps/check", {"spec": spec}).json() == {"problems": []}
     assert not api.get("/entities", params={"type": "core.App"}).json().get("items")
+
+
+ABOUT = {"type": "protein.Protein"}
+SAME_ORGANISM = {
+    "id": "kin",
+    "title": "From the same organism",
+    "component": "iki.entities",
+    "props": {
+        "type": "protein.Protein",
+        "where": {
+            "all": [
+                {"field": "organism", "op": "eq", "value": "{{ entity.values.organism }}"},
+                {"not": {"field": "name", "op": "eq", "value": "{{ entity.values.name }}"}},
+            ]
+        },
+        "columns": [{"field": "name"}],
+    },
+}
+ITSELF = {
+    "id": "itself",
+    "component": "iki.viewer",
+    "props": {"entity": "{{ entity }}", "viewer": "sequence"},
+}
+
+
+def about(api: Api, project: Project, *panels: dict[str, Any], name: str = "Kin") -> Any:
+    spec = {"version": 1, "entity": ABOUT, "panels": list(panels)}
+    return create(api, project, {"name": name, "spec": spec}, "core.App")
+
+
+def test_an_app_about_an_entity_reads_it_and_its_grids_conditions_can_too(
+    world: World,
+) -> None:
+    editor = api_as(world)
+    assert about(editor, world.project, ITSELF, SAME_ORGANISM).status_code == 201
+    check = editor.post
+    # Without saying what it's about, there's no `entity` to read.
+    spec = {"version": 1, "panels": [ITSELF]}
+    assert check("/apps/check", {"spec": spec}).json()["problems"] == [
+        "Panel `itself`, `entity`: `entity` isn’t a panel before it."
+    ]
+    # A condition's value is one expression, read as the others are.
+    texty = {"field": "name", "op": "starts_with", "value": "x{{ entity.hrid }}"}
+    reads = {"field": "nope", "op": "eq", "value": "{{ entity.secret }}"}
+    grid = with_props(SAME_ORGANISM, where={"any": [texty, reads]})
+    spec = {"version": 1, "entity": {"type": "protein.Nope"}, "panels": [grid]}
+    found = check("/apps/check", {"spec": spec}).json()["problems"]
+    assert found[0] == "`entity.type`: there’s no entity type protein.Nope."
+    assert found[1].startswith("Panel `kin`, `where.any.1.field`:")
+    assert found[2:] == [
+        "Panel `kin`, `where.any.0.value`: a condition’s value is one expression between "
+        "`{{` and `}}` and nothing else, or no expression.",
+        "Panel `kin`, `where.any.1.value`: `entity` offers `id`, `hrid`, `type`, `title`, "
+        "`revision` and `values`, not `secret`.",
+    ]
+    # A grid's conditions can read the panels before it, too.
+    picked = with_props(
+        SAME_ORGANISM,
+        where={"field": "name", "op": "eq", "value": "{{ proteins.selection[0].values.name }}"},
+    )
+    spec = {"version": 1, "panels": [GRID, picked]}
+    assert check("/apps/check", {"spec": spec}).json()["problems"] == []
+    # `entity` is the entity, not a panel.
+    named = {**TEXT, "id": "entity"}
+    spec = {"version": 1, "entity": ABOUT, "panels": [named]}
+    assert check("/apps/check", {"spec": spec}).json()["problems"] == [
+        "Panel `entity`: the app reads the entity it’s about as `entity`, so a panel can’t "
+        "have that ID.",
+        "Panel `entity`, `text`: `proteins` isn’t the entity the app is about or a panel "
+        "before it.",
+    ]
+
+
+def test_an_entitys_page_lists_the_apps_about_it_in_its_projects(world: World) -> None:
+    """An app is a tab on the entities of its own projects, for those who can read it."""
+    editor = api_as(world)
+    abl = create(editor, world.project, {"sequence": "MKV", "name": "ABL1"}, "protein.Protein")
+    abl_hrid = abl.json()["hrid"]
+    ours = about(editor, world.project, ITSELF, name="Variants").json()["hrid"]
+    dna = {"version": 1, "entity": {"type": "dna.DNASequence"}, "panels": [TEXT]}
+    create(editor, world.project, {"name": "Plasmid", "spec": dna}, "core.App")
+    plain = app(editor, world.project, GRID).json()["hrid"]
+    assert plain
+    gone = about(editor, world.project, ITSELF, name="Old").json()["hrid"]
+    Entity.objects.filter(hrid=gone).update(archived_at=timezone.now())
+    # Another team's project that the protein is also in, and one it isn't in.
+    theirs = Project.objects.create(team=world.team, name="Theirs")
+    elsewhere = Project.objects.create(team=world.team, name="Elsewhere")
+    for project in (theirs, elsewhere):
+        ProjectMembership.objects.create(
+            project=project, user=world.users["outsider"], role=ProjectRole.EDITOR
+        )
+        ProjectMembership.objects.create(
+            project=project, user=world.users["editor"], role=ProjectRole.EDITOR
+        )
+    linked = editor.put(f"/entities/{abl_hrid}/projects/{theirs.pk}")
+    assert linked.status_code == 201, linked.content
+    outsider = api_as(world, "outsider")
+    their_app = about(outsider, theirs, ITSELF, name="Their notes").json()["hrid"]
+    about(outsider, elsewhere, ITSELF, name="Not here")
+
+    def tabs(principal: str) -> list[tuple[str, str]]:
+        found = api_as(world, principal).get(f"/entities/{abl_hrid}/apps")
+        assert found.status_code == 200, found.content
+        return [(a["hrid"], a["name"]) for a in found.json()]
+
+    assert tabs("viewer") == [(ours, "Variants")]
+    assert tabs("outsider") == [(their_app, "Their notes")]
+    assert tabs("editor") == [(their_app, "Their notes"), (ours, "Variants")]
+    # Someone who can't read the entity can't learn its apps.
+    assert api_as(world, "auditor").get(f"/entities/{abl_hrid}/apps").status_code == 404

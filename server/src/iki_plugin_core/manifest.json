@@ -341,7 +341,7 @@
             "name": "spec",
             "type": "json",
             "label": "Spec",
-            "description": "Its panels, in order (app/v1). Each is one of Iki's components, with its props and its width on a twelve-column grid. A prop that takes text or an entity can hold expressions between {{ and }}, which read the panels before it by their IDs: an entities grid offers `rows` and `selection`, a viewer `entity`.",
+            "description": "Its panels, in order (app/v1). Each is one of Iki's components, with its props and its width on a twelve-column grid. A prop that takes text or an entity can hold expressions between {{ and }}, which read the panels before it by their IDs: an entities grid offers `rows` and `selection`, a viewer `entity`. An app about an entity of a type (`entity.type`) is a tab on their pages in its project, and its expressions read that one as `entity`; a grid's conditions can then hold expressions too.",
             "required": true,
             "immutable": false,
             "computed": false,
@@ -376,6 +376,20 @@
               "properties": {
                 "version": {
                   "const": 1
+                },
+                "entity": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  }
                 },
                 "panels": {
                   "type": "array",

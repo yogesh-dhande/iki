@@ -47,6 +47,18 @@ says which panel and prop.
 - `iki.viewer`, one of Iki's viewers (ADR 0085) on an entity.
 - `iki.text`, text with expressions in it.
 
+**An app can be about an entity.** A spec that says `"entity": {"type":
+"protein.Protein"}` is a tab on the pages of that type's entities (and its
+subtypes'), as Salesforce's record pages and Retool's URL parameters give a
+page its record. Its expressions read the entity it's on as `entity`, and a
+grid's condition can take its value from one expression
+(`{"field": "organism", "op": "eq", "value": "{{ entity.values.organism
+}}"}`), as it can from a panel before it, which makes master and detail
+grids. An app is a tab only on the entities of its own projects, which their
+Editors made it for, and only for people who can read it: someone else's
+project can't add tabs to yours. The tab opens only for apps the server
+lists for that entity.
+
 Plugin components in sandboxed frames (ADR 0084), charts, and a run
 launcher come next, each with what it needs checked the same way. No
 component runs code from the spec.
@@ -97,6 +109,6 @@ calls slowly, and a cold start shouldn't count against an app.
   (`POST /apps/check`: every problem saving would refuse, each with its
   panel and prop, nothing saved) and `create_app`, which answers with the
   page to open. Changing one is `update_entity`, checked the same way.
-- Apps open on their entities' pages to start with. Placing them as
-  project dashboards, entity tabs and grid panels, and drafts to preview
+- An app opens on its own page, or, about an entity, as a tab on that
+  entity's page. Placing them as project dashboards, and drafts to preview
   before saving, follow.

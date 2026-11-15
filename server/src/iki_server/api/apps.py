@@ -12,6 +12,7 @@ from django.http import HttpRequest
 from ninja import Field, Router, Schema
 
 from iki_server.api.common import caller, require_scope
+from iki_server.api.entities import _find
 from iki_server.entities import app_specs
 
 router = Router(tags=["apps"])
@@ -30,6 +31,7 @@ class AppGuideOut(Schema):
     grid: str
     components: list[AppComponentOut]
     expressions: str = Field(description="How expressions between {{ and }} work.")
+    about: str = Field(description="How an app is about an entity, and shown on its page.")
     example: dict[str, Any] = Field(description="A spec that saves.")
 
 
@@ -59,3 +61,22 @@ def check_app(request: HttpRequest, payload: AppCheckIn) -> dict[str, Any]:
     me = caller(request)
     require_scope(me, "read")
     return {"problems": app_specs.check(me, payload.spec)}
+
+
+class EntityAppOut(Schema):
+    id: str
+    hrid: str
+    name: str
+
+
+@router.get("/entities/{ref}/apps", response=list[EntityAppOut], summary="The apps about an entity")
+def entity_apps(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+    """Apps about its type in the projects it's in, that you can read, by name: its page
+    shows each as a tab, about it."""
+    me = caller(request)
+    require_scope(me, "read")
+    entity = _find(me, ref)
+    return [
+        {"id": str(app.pk), "hrid": app.hrid, "name": app.name}  # type: ignore[attr-defined]
+        for app in app_specs.about(me, entity)
+    ]

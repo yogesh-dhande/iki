@@ -75,6 +75,7 @@ const EntityComponent = lazyRouteComponent(
   () => import("./pages/entity-component"),
   "EntityComponent",
 );
+const EntityApp = lazyRouteComponent(() => import("./pages/entity-app"), "EntityApp");
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
@@ -325,6 +326,12 @@ const entityComponentRoute = createRoute({
   component: EntityComponent,
 });
 
+const entityAppRoute = createRoute({
+  getParentRoute: () => entityRoute,
+  path: "apps/$app",
+  component: EntityApp,
+});
+
 const runRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "runs/$ref",
@@ -405,6 +412,7 @@ const routeTree = rootRoute.addChildren([
     entityLineageRoute,
     entityViewerRoute,
     entityComponentRoute,
+    entityAppRoute,
   ]),
   runRoute,
   batchRoute,

@@ -439,6 +439,11 @@
       },
       "AppGuideOut": {
         "properties": {
+          "about": {
+            "description": "How an app is about an entity, and shown on its page.",
+            "title": "About",
+            "type": "string"
+          },
           "components": {
             "items": {
               "$ref": "#/components/schemas/AppComponentOut"
@@ -479,6 +484,7 @@
           "grid",
           "components",
           "expressions",
+          "about",
           "example"
         ],
         "title": "AppGuideOut",
@@ -2487,6 +2493,29 @@
           }
         },
         "title": "EnableIn",
+        "type": "object"
+      },
+      "EntityAppOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "name"
+        ],
+        "title": "EntityAppOut",
         "type": "object"
       },
       "EntityCan": {
@@ -14582,6 +14611,51 @@
         "summary": "Change, archive or restore",
         "tags": [
           "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/apps": {
+      "get": {
+        "description": "Apps about its type in the projects it's in, that you can read, by name: its page\nshows each as a tab, about it.",
+        "operationId": "iki_server_api_apps_entity_apps",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EntityAppOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The apps about an entity",
+        "tags": [
+          "apps"
         ]
       }
     },

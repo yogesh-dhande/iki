@@ -182,9 +182,15 @@ def _in_collection(user: Any, reference: str) -> Q:  # noqa: ANN401 - User
 
 
 class _Compiler:
-    def __init__(self, user: Any, form: Shape | None) -> None:  # noqa: ANN401 - User
+    def __init__(
+        self,
+        user: Any,  # noqa: ANN401 - User
+        form: Shape | None,
+        templated: Callable[[Any], bool] | None = None,
+    ) -> None:
         self.user = user
         self.form = form
+        self.templated = templated
         self.errors: list[tuple[str, str]] = []
         self.count = 0
 
@@ -256,6 +262,10 @@ class _Compiler:
             return self.fail(f"{pointer}/value", "is missing.")
         value = node["value"]
         at = f"{pointer}/value"
+        if self.templated is not None and self.templated(value):
+            # Worked out where it's used (an app's expression, checked on its own), so only
+            # the field and operator are checked here.
+            return Q()
         if op == "is_set":
             if not isinstance(value, bool):
                 return self.fail(at, "must be true or false.")
@@ -485,8 +495,15 @@ def form_of(type_name: str | None) -> Shape | None:
 # --- Running ------------------------------------------------------------------------------------
 
 
-def queryset(user: Any, search: Search) -> QuerySet[Entity]:  # noqa: ANN401 - User
-    """The entities the user can read that match. Raises :class:`SearchError`."""
+def queryset(
+    user: Any,  # noqa: ANN401 - User
+    search: Search,
+    templated: Callable[[Any], bool] | None = None,
+) -> QuerySet[Entity]:
+    """The entities the user can read that match. Raises :class:`SearchError`.
+
+    ``templated`` says which conditions' values are filled in later, as an app's
+    expressions are: their fields and operators are checked, not their values."""
     if search.type is not None and search.type not in registry.types():
         raise SearchError([("#/type", f"There’s no entity type {search.type}.")])
     form = form_of(search.type)
@@ -509,7 +526,7 @@ def queryset(user: Any, search: Search) -> QuerySet[Entity]:  # noqa: ANN401 - U
         found = found.filter(matching(search.q.strip(), names))
     errors: list[tuple[str, str]] = []
     if search.where is not None:
-        compiler = _Compiler(user, form)
+        compiler = _Compiler(user, form, templated)
         where = compiler.condition(search.where, "#/where")
         errors += compiler.errors
         found = found.filter(where)

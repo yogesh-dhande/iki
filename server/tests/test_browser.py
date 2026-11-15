@@ -1344,3 +1344,67 @@ def test_an_app_whose_panels_read_the_ones_before(
     picked = page.locator(".app-panel", has_text="Picked")
     picked.get_by_text("10 residues").wait_for()
     assert picked.get_by_role("link", name="ABL1").count() == 1
+
+
+@pytest.mark.wasm
+def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    made = {}
+    for name, sequence, organism in (
+        ("ABL1", "MLEICLKLVG", "Homo sapiens"),
+        ("ABL2", "MLEVCLKLVGAKQ", "Homo sapiens"),
+        ("Abl", "MGQQPGKVLG", "Mus musculus"),
+    ):
+        found = entities.create(
+            admin,
+            "protein.Protein",
+            world.project,
+            {"sequence": sequence, "name": name, "organism": organism},
+        )
+        made[name] = Entity.objects.get(pk=found.entity.pk).hrid
+    spec = {
+        "version": 1,
+        "entity": {"type": "protein.Protein"},
+        "panels": [
+            {
+                "id": "length",
+                "component": "iki.text",
+                "props": {
+                    "text": "{{ entity.values.name }} has {{ size(entity.values.sequence) }} "
+                    "residues."
+                },
+            },
+            {
+                "id": "kin",
+                "title": "From the same organism",
+                "component": "iki.entities",
+                "props": {
+                    "type": "protein.Protein",
+                    "select": "none",
+                    "where": {
+                        "all": [
+                            {
+                                "field": "organism",
+                                "op": "eq",
+                                "value": "{{ entity.values.organism }}",
+                            },
+                            {"field": "name", "op": "ne", "value": "{{ entity.values.name }}"},
+                        ]
+                    },
+                    "columns": [{"field": "name"}],
+                },
+            },
+        ],
+    }
+    entities.create(admin, "core.App", world.project, {"name": "Relatives", "spec": spec})
+    page = open_as("admin", f"/entities/{made['ABL1']}/")
+    # By CSS and text, not role, until axe has run (Firefox; see above).
+    page.locator(".tabs a", has_text="Relatives").click()
+    page.get_by_text("ABL1 has 10 residues.").wait_for()
+    grid = page.locator(".app-panel", has_text="From the same organism")
+    grid.get_by_text(made["ABL2"]).wait_for()
+    assert grid.get_by_text(made["Abl"]).count() == 0
+    assert_clean(page)

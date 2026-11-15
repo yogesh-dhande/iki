@@ -726,6 +726,27 @@ export interface paths {
         patch: operations["iki_server_api_entities_patch_entity"];
         trace?: never;
     };
+    "/api/v1/entities/{ref}/apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The apps about an entity
+         * @description Apps about its type in the projects it's in, that you can read, by name: its page
+         *     shows each as a tab, about it.
+         */
+        get: operations["iki_server_api_apps_entity_apps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/lineage": {
         parameters: {
             query?: never;
@@ -2695,6 +2716,11 @@ export interface components {
         };
         /** AppGuideOut */
         AppGuideOut: {
+            /**
+             * About
+             * @description How an app is about an entity, and shown on its page.
+             */
+            about: string;
             /** Components */
             components: components["schemas"]["AppComponentOut"][];
             /**
@@ -3724,6 +3750,15 @@ export interface components {
              * @description For a scheduled trigger: the service account its runs are launched as, one of its `run_as_choices`.
              */
             run_as?: string | null;
+        };
+        /** EntityAppOut */
+        EntityAppOut: {
+            /** Hrid */
+            hrid: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** EntityCan */
         EntityCan: {
@@ -9071,6 +9106,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_apps_entity_apps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityAppOut"][];
                 };
             };
         };
