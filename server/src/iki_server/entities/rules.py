@@ -5,6 +5,8 @@ on every create and edit, so they hold for the web, the API, MCP and runs alike:
 
 - ``core.Collection`` lists its ``members`` or has a ``search``, not both. Its
   search must work for the person saving it, in a project they can read.
+- ``core.View`` (ADR 0086) shows a revision its entity has, in a viewer its
+  entity's type has, with that viewer's state.
 
 Subtypes follow their parents' rules.
 """
@@ -16,7 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from iki_server.accounts.models import User
-from iki_server.entities import registry, search
+from iki_server.entities import access, registry, search
+from iki_server.entities.models import Revision
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -61,7 +64,39 @@ def _pointed(pointer: str, detail: str) -> str:
     return f"`{where}`: {detail}" if where else detail
 
 
-RULES: dict[str, Rule] = {"core.Collection": Rule(("members", "search"), _collection)}
+#: What each viewer keeps in a view's state, besides its version.
+VIEW_STATE = {"sequence": {"feature"}, "structure": {"camera"}}
+
+
+def _view(user: User, values: Mapping[str, Any]) -> Errors:
+    target = (
+        access.visible(user).filter(pk=values["target"]).first() if values.get("target") else None
+    )
+    if target is None:
+        return {}  # The reference's own check says so.
+    errors: Errors = {}
+    revision = values.get("target_revision")
+    revisions = Revision.objects.filter(entity=target)
+    if revision is not None and not revisions.filter(number=revision).exists():
+        errors["target_revision"] = [f"{target.hrid} has no revision {revision}."]
+    viewer = values.get("viewer")
+    entity_type = registry.types().get(target.type)
+    shown = {v.viewer for v in registry.viewers(entity_type)} if entity_type else set()
+    if viewer is not None and viewer not in shown:
+        errors["viewer"] = [f"{target.hrid}’s type has no {viewer} viewer."]
+    state = values.get("state")
+    if viewer in VIEW_STATE and isinstance(state, Mapping):
+        others = sorted(set(state) - {"version"} - VIEW_STATE[viewer])
+        if others:
+            listed = ", ".join(f"`{o}`" for o in others)
+            errors["state"] = [f"The {viewer} viewer doesn’t keep {listed}."]
+    return errors
+
+
+RULES: dict[str, Rule] = {
+    "core.Collection": Rule(("members", "search"), _collection),
+    "core.View": Rule(("target", "target_revision", "viewer", "state"), _view),
+}
 
 
 def rules_for(entity_type: EntityType) -> list[Rule]:

@@ -192,3 +192,84 @@ class Sequence_History(models.Model):
 
     class Meta:
         db_table = 'core_sequence__history'
+
+
+class View(Entity):
+    """View (core.View), schema version 1. A saved look at an entity in one of Iki's viewers, at the revision it showed."""
+
+    IKI_TYPE = 'core.View'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=200, db_index=True)
+    description = models.TextField(null=True)
+    target = models.ForeignKey(Entity, models.PROTECT, related_name='+')
+    target_revision = models.BigIntegerField()
+    viewer = models.TextField()
+    state = models.JSONField()
+
+    class Meta:
+        db_table = 'core_view'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='core_view__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='core_view__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='core_view__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 10000),
+                name='core_view__description__max_length',
+            ),
+            models.CheckConstraint(
+                condition=Q(target_revision__gte=1),
+                name='core_view__target_revision__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(viewer__in=['sequence', 'structure']),
+                name='core_view__viewer__values',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_53d135eb5ae2e7658e61',
+            ),
+            GinIndex(
+                SearchVector('description', config='simple'),
+                name='descriptio_fts_f0313ff6d63a203',
+            ),
+        ]
+
+
+class View_History(models.Model):
+    """The history of core_view: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'View'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    description = models.TextField(null=True)
+    target = models.UUIDField(db_column='target_id', null=True)
+    target_revision = models.BigIntegerField(null=True)
+    viewer = models.TextField(null=True)
+    state = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'core_view__history'

@@ -47,6 +47,13 @@ FAKE_WEB_APP_MANIFEST = {
     "_vendor-test.js": {"file": "assets/vendor-test.js"},
 }
 
+#: The structure viewer's frame's build (iki_server.web.viewers), for tests that don't
+#: need the real Mol*.
+FAKE_VIEWER_FILES = {
+    "viewers/manifest.json": b'{"src/structure-frame/main.ts": {"file": "assets/main-test.js"}}',
+    "viewers/assets/main-test.js": b"// Mol*, standing in.\n",
+}
+
 
 @pytest.fixture(autouse=True)
 def _web_app_manifest(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,9 +63,16 @@ def _web_app_manifest(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     """
     if request.node.get_closest_marker("built_web_app"):
         return
-    from iki_server.web import frontend
+    from iki_server.web import frontend, viewers
 
     monkeypatch.setattr(frontend, "manifest", lambda: FAKE_WEB_APP_MANIFEST)
+
+    def viewer_file(name: str) -> bytes:
+        if name not in FAKE_VIEWER_FILES:
+            raise viewers.ViewersNotBuilt(f"{name} is missing. Build the web app: make web")
+        return FAKE_VIEWER_FILES[name]
+
+    monkeypatch.setattr(viewers, "_file", viewer_file)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

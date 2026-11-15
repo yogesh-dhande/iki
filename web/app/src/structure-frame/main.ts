@@ -1,11 +1,16 @@
 /**
  * Mol*, in a frame of Iki's own: what the structure viewer runs (ADR 0085).
  *
- * The page hands it one port, then the structure's bytes and their format. The frame
- * has no network and no origin that's anyone's, so a file that fooled Mol*'s parsers
- * could only draw something wrong, never read Iki's pages or act as the person.
+ * The page hands it one port, then the structure's bytes, their format and, for a saved
+ * view (ADR 0086), where the camera was. It answers `{ get: "camera" }` with where the
+ * camera is now, so the page can save it. The frame has no network and no origin that's
+ * anyone's, so a file that fooled Mol*'s parsers could only draw something wrong, never
+ * read Iki's pages or act as the person.
  */
 
+import type { Camera as MolCamera } from "molstar/lib/mol-canvas3d/camera.js";
+import { Vec3 } from "molstar/lib/mol-math/linear-algebra.js";
+import type { PluginContext } from "molstar/lib/mol-plugin/context.js";
 import { PluginConfig } from "molstar/lib/mol-plugin/config.js";
 import { PluginSpec } from "molstar/lib/mol-plugin/spec.js";
 import { createPluginUI } from "molstar/lib/mol-plugin-ui/index.js";
@@ -17,10 +22,52 @@ import light from "molstar/build/viewer/theme/light.css?inline";
 
 type Format = "mmcif" | "pdb";
 
+/** Where the camera is, as a view saves it (core.View's state). */
+interface Camera {
+  position: number[];
+  target: number[];
+  up: number[];
+  fov?: number;
+  radius?: number;
+  mode?: "perspective" | "orthographic";
+}
+
 interface Show {
   structure: ArrayBuffer;
   format: Format;
   label: string;
+  camera?: Camera;
+}
+
+let shown: PluginContext | null = null;
+
+function round(values: ArrayLike<number>): number[] {
+  return Array.from(values, (v) => Math.round(v * 1000) / 1000);
+}
+
+function cameraNow(plugin: PluginContext): Camera | null {
+  const camera = plugin.canvas3d?.camera.getSnapshot();
+  if (!camera) return null;
+  return {
+    position: round(camera.position),
+    target: round(camera.target),
+    up: round(camera.up),
+    fov: Math.round(camera.fov * 10000) / 10000,
+    radius: Math.round(camera.radius * 1000) / 1000,
+    mode: camera.mode,
+  };
+}
+
+function toMolCamera(camera: Camera): Partial<MolCamera.Snapshot> {
+  const vec = (v: number[]) => Vec3.create(v[0] ?? 0, v[1] ?? 0, v[2] ?? 0);
+  return {
+    position: vec(camera.position),
+    target: vec(camera.target),
+    up: vec(camera.up),
+    ...(camera.fov !== undefined ? { fov: camera.fov } : {}),
+    ...(camera.radius !== undefined ? { radius: camera.radius } : {}),
+    ...(camera.mode !== undefined ? { mode: camera.mode } : {}),
+  };
 }
 
 const scheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -28,6 +75,12 @@ const scheme = window.matchMedia("(prefers-color-scheme: dark)");
 // Iki's pages deny WebXR (Permissions-Policy), and Mol* asks whether it's there as it
 // starts, which browsers report as a violation. There's nothing to ask: say it isn't.
 Object.defineProperty(navigator, "xr", { value: undefined, configurable: true });
+
+/** Whether this browser draws 3D: not where WebGL is off, as on many virtual desktops. */
+function webgl(): boolean {
+  const canvas = document.createElement("canvas");
+  return Boolean(canvas.getContext("webgl2") ?? canvas.getContext("webgl"));
+}
 
 function themed(): void {
   const style = document.getElementById("molstar-theme") ?? document.createElement("style");
@@ -77,6 +130,10 @@ async function show(target: HTMLElement, message: Show) {
   });
   const trajectory = await plugin.builders.structure.parseTrajectory(data, message.format);
   await plugin.builders.structure.hierarchy.applyPreset(trajectory, "default");
+  if (message.camera) {
+    plugin.canvas3d?.requestCameraReset({ snapshot: toMolCamera(message.camera), durationMs: 0 });
+  }
+  shown = plugin;
 }
 
 themed();
@@ -88,9 +145,19 @@ function accept(event: MessageEvent): void {
   const port = event.ports[0];
   if (event.source !== window.parent || !port) return;
   window.removeEventListener("message", accept);
-  port.onmessage = (message: MessageEvent<Show>) => {
+  let started = false;
+  port.onmessage = (message: MessageEvent<Show | { get: "camera" }>) => {
+    if ("get" in message.data) {
+      port.postMessage({ camera: shown ? cameraNow(shown) : null });
+      return;
+    }
     const target = document.getElementById("structure");
-    if (!target) return;
+    if (!target || started) return;
+    started = true;
+    if (!webgl()) {
+      port.postMessage({ unsupported: "webgl" });
+      return;
+    }
     show(target, message.data).then(
       () => {
         port.postMessage({ shown: true });

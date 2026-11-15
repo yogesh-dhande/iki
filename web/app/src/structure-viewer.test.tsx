@@ -101,6 +101,21 @@ describe("the structure viewer", () => {
     );
   });
 
+  it("says when the browser can't draw 3D, as on many virtual desktops", async () => {
+    await onStructure();
+    await renderApp("/entities/PST-000001/viewers/structure/");
+    const frame = await screen.findByTitle("Structure of Crambin");
+    const post = vi.fn();
+    Object.defineProperty(frame, "contentWindow", { value: { postMessage: post } });
+    fireEvent.load(frame);
+    const port = (post.mock.calls[0] as [unknown, string, MessagePort[]])[2][0];
+    port?.postMessage({ unsupported: "webgl" });
+    expect(await screen.findByText(/This browser can’t draw 3D structures/)).toHaveTextContent(
+      "Download 1crn.cif to open it in a desktop viewer",
+    );
+    expect(screen.queryByTitle("Structure of Crambin")).not.toBeInTheDocument();
+  });
+
   it("doesn't show bytes that aren't the file Iki stored", async () => {
     await onStructure({}, CIF_SHA256);
     await renderApp("/entities/PST-000001/viewers/structure/");

@@ -1,0 +1,70 @@
+# A saved look at an entity in one of Iki's viewers (ADR 0086): which entity, the
+# revision it showed, the viewer, and what the viewer showed. It opens on that
+# revision, so a figure made from it shows what was saved, whatever changed since;
+# saving it again is a new revision of the view. The server checks, on every save,
+# that the revision is one the entity has, that its type has the viewer, and that
+# the state is that viewer's.
+apiVersion: iki/v1
+kind: EntityType
+name: View
+label: View
+label_plural: Views
+schema_version: 1
+description: A saved look at an entity in one of Iki's viewers, at the revision it showed.
+hrid: { prefix: VIEW }
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  description: { type: text, max_length: 10000 }
+  target:
+    type: ref
+    to: core.Entity
+    required: true
+    immutable: true
+    indexed: true
+    description: The entity it shows.
+  target_revision:
+    type: int
+    label: Revision
+    required: true
+    min: 1
+    description: The revision of the entity it shows.
+  viewer:
+    type: enum
+    values: [sequence, structure]
+    required: true
+    immutable: true
+    description: Which of Iki's viewers shows it, as the entity's type configures it.
+  state:
+    type: json
+    required: true
+    description: >-
+      What the viewer showed, as that viewer saves it: for the sequence viewer,
+      the feature it showed; for the structure viewer, where the camera was.
+      `version` says which shape it is, so older views keep opening.
+    schema:
+      type: object
+      required: [version]
+      additionalProperties: false
+      properties:
+        version: { const: 1 }
+        feature:
+          type: object
+          required: [type, start, end]
+          additionalProperties: false
+          properties:
+            type: { type: string, minLength: 1, maxLength: 100 }
+            name: { type: string, maxLength: 200 }
+            start: { type: integer, minimum: 1 }
+            end: { type: integer, minimum: 1 }
+        camera:
+          type: object
+          required: [position, target, up]
+          additionalProperties: false
+          properties:
+            position: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
+            target: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
+            up: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
+            fov: { type: number, exclusiveMinimum: 0, maximum: 3.2 }
+            radius: { type: number, minimum: 0 }
+            mode: { enum: [perspective, orthographic] }
+display: { title: "{{ name }}" }

@@ -115,3 +115,4 @@ supersedes the old one, and update the old one's status.
 | [0083](0083-a-setting-can-name-a-host-an-action-reaches.md)                          | A setting can name a host an action reaches                                                         | Accepted |
 | [0084](0084-plugin-components-run-in-sandboxed-frames.md)                            | Plugin components run in sandboxed frames                                                           | Accepted |
 | [0085](0085-types-configure-ikis-own-viewers.md)                                     | Types configure Iki's own viewers                                                                   | Accepted |
+| [0086](0086-saved-views-are-entities-pinned-to-a-revision.md)                        | Saved views are entities pinned to a revision                                                       | Accepted |

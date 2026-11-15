@@ -6,7 +6,7 @@
 import type { Schemas } from "@ikisci/sdk";
 import { useParams } from "@tanstack/react-router";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { Entity, EntityType } from "../entities";
 import { usePageTitle } from "../layout";
@@ -25,27 +25,71 @@ import {
   type Kind,
 } from "../sequence";
 import { buttonClass } from "../ui";
+import type { Capture, FeatureRef, ViewState } from "../views";
 import { EntityTabs, useEntity } from "./entity";
 import { NotFound } from "./errors";
+import { SavedViews } from "./saved-views";
 import { StructureViewer } from "./structure-viewer";
 
 type Viewer = Schemas["SequenceViewerOut"];
+type AnyViewer = EntityType["viewers"][number];
+
+/** What a viewer shows: an entity now, or as it was at a revision (for a saved view). */
+export interface Source {
+  title: string;
+  values: Record<string, unknown>;
+  files: Entity["files"];
+}
 
 export function EntityViewer() {
   const { entity, type } = useEntity();
   const { viewer: name } = useParams({ from: "/entities/$ref/viewers/$viewer" });
   const viewer = type?.viewers.find((v) => v.viewer === name);
+  const capture = useRef<Capture | null>(null);
+  const onCapture = useCallback((fn: Capture | null) => {
+    capture.current = fn;
+  }, []);
   usePageTitle(viewer ? `${viewer.label} of ${entity.title} (${entity.hrid})` : undefined);
   if (!viewer || !type) return <NotFound />;
   return (
     <>
       <EntityTabs entity={entity} type={type} />
-      {viewer.viewer === "structure" ? (
-        <StructureViewer entity={entity} type={type} viewer={viewer} />
-      ) : (
-        <SequenceViewer entity={entity} type={type} viewer={viewer} />
-      )}
+      <ViewerBody source={entity} type={type} viewer={viewer} onCapture={onCapture} />
+      <SavedViews entity={entity} viewer={viewer} capture={capture} />
     </>
+  );
+}
+
+/** A viewer, showing `source` as `state` says: for a tab, or for a saved view. */
+export function ViewerBody({
+  source,
+  type,
+  viewer,
+  state,
+  onCapture,
+}: {
+  source: Source;
+  type: EntityType;
+  viewer: AnyViewer;
+  state?: ViewState | undefined;
+  onCapture?: ((capture: Capture | null) => void) | undefined;
+}) {
+  return viewer.viewer === "structure" ? (
+    <StructureViewer
+      source={source}
+      type={type}
+      viewer={viewer}
+      camera={state?.camera}
+      onCapture={onCapture}
+    />
+  ) : (
+    <SequenceViewer
+      source={source}
+      type={type}
+      viewer={viewer}
+      feature={state?.feature}
+      onCapture={onCapture}
+    />
   );
 }
 
@@ -60,22 +104,60 @@ const KIND_LABELS: Record<Kind, string> = {
 
 const number = new Intl.NumberFormat();
 
+function featureRef(feature: Feature): FeatureRef {
+  return {
+    type: feature.type,
+    start: feature.start,
+    end: feature.end,
+    ...(feature.name ? { name: feature.name } : {}),
+  };
+}
+
+/** Whether a feature is the one a view names: the same kind, place and name. */
+function sameFeature(feature: Feature, ref: FeatureRef): boolean {
+  return (
+    feature.type === ref.type &&
+    feature.start === ref.start &&
+    feature.end === ref.end &&
+    feature.name === (ref.name ?? "")
+  );
+}
+
 function SequenceViewer({
-  entity,
+  source,
   type,
   viewer,
+  feature,
+  onCapture,
 }: {
-  entity: Entity;
+  source: Source;
   type: EntityType;
   viewer: Viewer;
+  /** The feature a saved view showed. */
+  feature?: FeatureRef | undefined;
+  onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
-  const value = entity.values[viewer.sequence];
+  const value = source.values[viewer.sequence];
   const sequence = typeof value === "string" ? value : "";
   const features = useMemo(
-    () => (viewer.features ? readFeatures(entity.values[viewer.features], sequence.length) : []),
-    [entity.values, viewer.features, sequence.length],
+    () => (viewer.features ? readFeatures(source.values[viewer.features], sequence.length) : []),
+    [source.values, viewer.features, sequence.length],
   );
-  const [shown, setShown] = useState<Feature | null>(null);
+  const [shown, setShown] = useState<Feature | null>(() =>
+    feature ? (features.find((f) => sameFeature(f, feature)) ?? null) : null,
+  );
+  useEffect(() => {
+    if (!onCapture) return;
+    onCapture(() =>
+      Promise.resolve({
+        version: 1,
+        ...(shown ? { feature: featureRef(shown) } : {}),
+      }),
+    );
+    return () => {
+      onCapture(null);
+    };
+  }, [shown, onCapture]);
   const field = type.fields.find((f) => f.name === viewer.sequence);
   const unit = viewer.alphabet === "dna" ? "bp" : "residues";
   if (!sequence) {
@@ -104,7 +186,7 @@ function SequenceViewer({
         sequence={sequence}
         features={features}
         shown={shown}
-        label={`${field?.label ?? "Sequence"} of ${entity.title}`}
+        label={`${field?.label ?? "Sequence"} of ${source.title}`}
       />
       {viewer.features ? (
         <FeatureTable

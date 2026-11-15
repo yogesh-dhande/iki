@@ -567,6 +567,9 @@ with no network (ADR 0085). `label` names the tab. The validator checks that
 each field exists and is what its viewer shows, and that each viewer is given
 once.
 
+A viewer's tab lists the views saved of it and saves what it shows as a
+`core.View`, on the revision it shows (ADR 0086).
+
 ## Components
 
 A component is a piece of UI the plugin adds to Iki's pages, for what Iki's
@@ -605,7 +608,8 @@ the digest it had then, and the server checks it before serving it.
 A plugin lists the plugins whose types it uses, with the schema versions it
 works with. To check those references, pass the dependencies' directories
 with `--with`. Without them, the validator says it can't check them rather
-than guessing. Core types (`core.Entity`, `core.Sequence`, `core.Collection`)
+than guessing. Core types (`core.Entity`, `core.Sequence`, `core.Collection`,
+`core.View`)
 need no dependency.
 
 ## The core plugin
@@ -620,6 +624,10 @@ declaring a dependency, and no other plugin can be named `core`:
 - `core.Collection`: a named set of entities. A static collection lists its
   `members`; a dynamic one has a `search`, run as whoever reads it
   ([ADR 0038](../docs/adr/0038-core-plugin-app-and-collections.md)).
+- `core.View`: a saved look at an entity in one of Iki's viewers, pinned to
+  the revision it showed: its `target`, `target_revision`, `viewer`, and the
+  viewer's `state`
+  ([ADR 0086](../docs/adr/0086-saved-views-are-entities-pinned-to-a-revision.md)).
 
 The server ships the core plugin's app, generated like any plugin's. After
 changing these manifests, run `make core` to regenerate it and make its

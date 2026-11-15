@@ -610,7 +610,10 @@ def test_core_entity_needs_no_dependency(tmp_path: Path) -> None:
     assert make(tmp_path, fields("x: { type: ref, to: core.Entity }\n")).problems == []
     assert make(tmp_path, fields("x: { type: ref, to: core.Collection }\n")).problems == []
     result = make(tmp_path, fields("x: { type: ref, to: core.Sample }\n"))
-    provides = "In this version, core provides `core.Collection`, `core.Entity`, `core.Sequence`."
+    provides = (
+        "In this version, core provides "
+        "`core.Collection`, `core.Entity`, `core.Sequence`, `core.View`."
+    )
     assert provides in only(result, "unknown-type")
 
 

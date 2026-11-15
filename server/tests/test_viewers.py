@@ -4,11 +4,10 @@ the structure viewer runs Mol* in (ADR 0085)."""
 import base64
 import hashlib
 import re
-from pathlib import Path
 
 import pytest
 from browser import Browser
-from django.contrib.staticfiles import finders
+from conftest import FAKE_VIEWER_FILES
 from django.utils.csp import CSP
 from org_world import World
 from test_api_entities import api_as
@@ -47,12 +46,10 @@ def test_the_structure_frame_runs_mol_star_and_nothing_else() -> None:
     page = Browser().get("/viewers/structure/")
     assert page.status_code == 200
     html = page.content.decode()
-    name, integrity = viewers._module(viewers.STRUCTURE_ENTRY)
+    name = "viewers/assets/main-test.js"
     module = f"https://testserver/static/{name}"
-    found = finders.find(name)
-    assert isinstance(found, str)
-    digest = hashlib.sha384(Path(found).read_bytes()).digest()
-    assert integrity == "sha384-" + base64.b64encode(digest).decode()
+    digest = hashlib.sha384(FAKE_VIEWER_FILES[name]).digest()
+    integrity = "sha384-" + base64.b64encode(digest).decode()
     assert re.findall(r"<script[^>]*>", html) == [
         f'<script type="module" src="{module}" integrity="{integrity}" crossorigin="anonymous">'
     ]

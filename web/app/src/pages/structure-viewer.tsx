@@ -1,15 +1,18 @@
 /**
  * The structure viewer: Mol*, in a sandboxed frame of Iki's own (ADR 0085). The page
  * reads the file, checks its bytes are the ones Iki stored, and hands them to the frame,
- * which can't read anything itself: no network, and no origin that's anyone's.
+ * which can't read anything itself: no network, and no origin that's anyone's. For a saved
+ * view (ADR 0086), it also hands it where the camera was, and asks where it is to save it.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 
 import { iki } from "../api";
-import { formatSize, type Entity, type EntityType } from "../entities";
+import { formatSize, type EntityType } from "../entities";
 import { Loading } from "../ui";
+import { readCamera, type Camera, type Capture } from "../views";
+import type { Source } from "./entity-viewer";
 
 type Viewer = Schemas["StructureViewerOut"];
 
@@ -30,7 +33,11 @@ type State =
   | { phase: "starting"; bytes: ArrayBuffer }
   | { phase: "shown" }
   | { phase: "failed"; message: string }
+  | { phase: "unsupported" }
   | { phase: "left" };
+
+/** How long Mol* has to say where its camera is. */
+const CAMERA_TIMEOUT_MS = 5_000;
 
 async function hex(bytes: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -55,27 +62,37 @@ async function readFile(fileId: string, signal: AbortSignal): Promise<ArrayBuffe
   return bytes;
 }
 
+type Message =
+  { shown: true } | { failed: string } | { unsupported: "webgl" } | { camera: Camera | null };
+
 /** What Mol* said, if it's something it says: anything else is ignored. */
-function readMessage(data: unknown): { shown: true } | { failed: string } | null {
+function readMessage(data: unknown): Message | null {
   if (typeof data !== "object" || data === null) return null;
   const message = data as Record<string, unknown>;
   if (message["shown"] === true) return { shown: true };
   if (typeof message["failed"] === "string") return { failed: message["failed"].slice(0, 500) };
+  if (message["unsupported"] === "webgl") return { unsupported: "webgl" };
+  if ("camera" in message) return { camera: readCamera(message["camera"]) };
   return null;
 }
 
 export function StructureViewer({
-  entity,
+  source,
   type,
   viewer,
+  camera,
+  onCapture,
 }: {
-  entity: Entity;
+  source: Source;
   type: EntityType;
   viewer: Viewer;
+  /** Where a saved view's camera was. */
+  camera?: Camera | undefined;
+  onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
-  const value = entity.values[viewer.structure];
+  const value = source.values[viewer.structure];
   const fileId = typeof value === "string" ? value : null;
-  const file = fileId ? entity.files[fileId] : undefined;
+  const file = fileId ? source.files[fileId] : undefined;
   const field = type.fields.find((f) => f.name === viewer.structure);
   if (!fileId) {
     return <p className="muted">It has no {field?.label.toLowerCase() ?? "structure"} yet.</p>;
@@ -111,7 +128,9 @@ export function StructureViewer({
           fileId={fileId}
           name={file.name}
           format={format.format}
-          title={`${viewer.label} of ${entity.title}`}
+          title={`${viewer.label} of ${source.title}`}
+          camera={camera}
+          onCapture={onCapture}
         />
       )}
     </section>
@@ -123,15 +142,40 @@ function StructureFrame({
   name,
   format,
   title,
+  camera,
+  onCapture,
 }: {
   fileId: string;
   name: string;
   format: "mmcif" | "pdb";
   title: string;
+  camera?: Camera | undefined;
+  onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
   const [state, setState] = useState<State>({ phase: "reading" });
   const port = useRef<MessagePort | null>(null);
   const loads = useRef(0);
+  const asked = useRef<((camera: Camera | null) => void)[]>([]);
+
+  useEffect(() => {
+    if (state.phase !== "shown" || !onCapture) return;
+    onCapture(
+      () =>
+        new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            reject(new Error("The structure viewer didn’t say where its camera is."));
+          }, CAMERA_TIMEOUT_MS);
+          asked.current.push((now) => {
+            clearTimeout(timer);
+            resolve({ version: 1, ...(now ? { camera: now } : {}) });
+          });
+          port.current?.postMessage({ get: "camera" });
+        }),
+    );
+    return () => {
+      onCapture(null);
+    };
+  }, [state.phase, onCapture]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -179,18 +223,25 @@ function StructureFrame({
     channel.port1.onmessage = (incoming) => {
       const message = readMessage(incoming.data);
       if (!message) return;
+      if ("camera" in message) {
+        asked.current.shift()?.(message.camera);
+        return;
+      }
       setState((now) => {
         if (now.phase !== "starting") return now;
-        return "shown" in message
-          ? { phase: "shown" }
-          : { phase: "failed", message: `Mol* couldn’t read ${name}: ${message.failed}` };
+        if ("shown" in message) return { phase: "shown" };
+        if ("unsupported" in message) return { phase: "unsupported" };
+        return { phase: "failed", message: `Mol* couldn’t read ${name}: ${message.failed}` };
       });
     };
     port.current = channel.port1;
     // Its origin is no one's, so there's no origin to name but "*": the port is what's private.
     event.currentTarget.contentWindow?.postMessage({ type: "iki-connect" }, "*", [channel.port2]);
     const bytes = state.bytes;
-    channel.port1.postMessage({ structure: bytes, format, label: name }, [bytes]);
+    channel.port1.postMessage(
+      { structure: bytes, format, label: name, ...(camera ? { camera } : {}) },
+      [bytes],
+    );
   }
 
   if (state.phase === "left") {
@@ -198,6 +249,14 @@ function StructureFrame({
       <div className="alert alert-error" role="alert">
         <p>The structure viewer tried to open another page, so Iki closed it.</p>
       </div>
+    );
+  }
+  if (state.phase === "unsupported") {
+    return (
+      <p>
+        This browser can’t draw 3D structures: WebGL is off or unavailable, as it often is on
+        virtual desktops. Download {name} to open it in a desktop viewer, such as ChimeraX or PyMOL.
+      </p>
     );
   }
   if (state.phase === "failed") {

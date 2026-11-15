@@ -350,6 +350,303 @@
         "plugin": "core",
         "schema_version": 1,
         "viewers": []
+      },
+      "core.View": {
+        "abstract": false,
+        "description": "A saved look at an entity in one of Iki's viewers, at the revision it showed.",
+        "display_title": "{{ name }}",
+        "extends": null,
+        "fields": {
+          "description": {
+            "computed": false,
+            "default": null,
+            "description": null,
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": false,
+            "items": null,
+            "label": "Description",
+            "link": null,
+            "max": null,
+            "max_items": null,
+            "max_length": 10000,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "description",
+            "pattern": null,
+            "removed": false,
+            "required": false,
+            "schema": null,
+            "to": null,
+            "type": "text",
+            "unique": false,
+            "unit": null,
+            "values": []
+          },
+          "name": {
+            "computed": false,
+            "default": null,
+            "description": null,
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": true,
+            "items": null,
+            "label": "Name",
+            "link": null,
+            "max": null,
+            "max_items": null,
+            "max_length": 200,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "name",
+            "pattern": null,
+            "removed": false,
+            "required": true,
+            "schema": null,
+            "to": null,
+            "type": "string",
+            "unique": false,
+            "unit": null,
+            "values": []
+          },
+          "state": {
+            "computed": false,
+            "default": null,
+            "description": "What the viewer showed, as that viewer saves it: for the sequence viewer, the feature it showed; for the structure viewer, where the camera was. `version` says which shape it is, so older views keep opening.",
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": false,
+            "items": null,
+            "label": "State",
+            "link": null,
+            "max": null,
+            "max_items": null,
+            "max_length": null,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "state",
+            "pattern": null,
+            "removed": false,
+            "required": true,
+            "schema": {
+              "additionalProperties": false,
+              "properties": {
+                "camera": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "fov": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 3.2,
+                      "type": "number"
+                    },
+                    "mode": {
+                      "enum": [
+                        "perspective",
+                        "orthographic"
+                      ]
+                    },
+                    "position": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    },
+                    "radius": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "target": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    },
+                    "up": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "position",
+                    "target",
+                    "up"
+                  ],
+                  "type": "object"
+                },
+                "feature": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "end": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "name": {
+                      "maxLength": 200,
+                      "type": "string"
+                    },
+                    "start": {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "type": {
+                      "maxLength": 100,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "start",
+                    "end"
+                  ],
+                  "type": "object"
+                },
+                "version": {
+                  "const": 1
+                }
+              },
+              "required": [
+                "version"
+              ],
+              "type": "object"
+            },
+            "to": null,
+            "type": "json",
+            "unique": false,
+            "unit": null,
+            "values": []
+          },
+          "target": {
+            "computed": false,
+            "default": null,
+            "description": "The entity it shows.",
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": true,
+            "indexed": true,
+            "items": null,
+            "label": "Target",
+            "link": null,
+            "max": null,
+            "max_items": null,
+            "max_length": null,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "target",
+            "pattern": null,
+            "removed": false,
+            "required": true,
+            "schema": null,
+            "to": "core.Entity",
+            "type": "ref",
+            "unique": false,
+            "unit": null,
+            "values": []
+          },
+          "target_revision": {
+            "computed": false,
+            "default": null,
+            "description": "The revision of the entity it shows.",
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": false,
+            "indexed": false,
+            "items": null,
+            "label": "Revision",
+            "link": null,
+            "max": null,
+            "max_items": null,
+            "max_length": null,
+            "max_size": null,
+            "media_types": [],
+            "min": 1,
+            "min_items": null,
+            "min_length": null,
+            "name": "target_revision",
+            "pattern": null,
+            "removed": false,
+            "required": true,
+            "schema": null,
+            "to": null,
+            "type": "int",
+            "unique": false,
+            "unit": null,
+            "values": []
+          },
+          "viewer": {
+            "computed": false,
+            "default": null,
+            "description": "Which of Iki's viewers shows it, as the entity's type configures it.",
+            "display_unit": null,
+            "format": null,
+            "has_default": false,
+            "immutable": true,
+            "indexed": false,
+            "items": null,
+            "label": "Viewer",
+            "link": null,
+            "max": null,
+            "max_items": null,
+            "max_length": null,
+            "max_size": null,
+            "media_types": [],
+            "min": null,
+            "min_items": null,
+            "min_length": null,
+            "name": "viewer",
+            "pattern": null,
+            "removed": false,
+            "required": true,
+            "schema": null,
+            "to": null,
+            "type": "enum",
+            "unique": false,
+            "unit": null,
+            "values": [
+              "sequence",
+              "structure"
+            ]
+          }
+        },
+        "file": "types/view.yaml",
+        "hrid_digits": 6,
+        "hrid_prefix": "VIEW",
+        "identity": [],
+        "label": "View",
+        "label_plural": "Views",
+        "name": "View",
+        "on_duplicate": null,
+        "plugin": "core",
+        "schema_version": 1,
+        "viewers": []
       }
     },
     "version": "0.1.0",

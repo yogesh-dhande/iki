@@ -36,7 +36,9 @@ import {
   type Revision,
 } from "../entities";
 import { usePageTitle } from "../layout";
+import { VIEW_TYPE } from "../views";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
+import { SavedViewPanel } from "./view";
 import {
   Badge,
   Button,
@@ -459,6 +461,7 @@ export function EntityOverview() {
           </p>
         </div>
       ) : null}
+      {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}
       <section className="card" aria-labelledby="values-title">
         <h2 className="section-title" id="values-title">
           Values

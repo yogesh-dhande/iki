@@ -164,8 +164,13 @@ def playwright() -> Iterator[Playwright]:
 
 @pytest.fixture(scope="module", params=BROWSERS)
 def browser(request: pytest.FixtureRequest, playwright: Playwright) -> Iterator[Browser]:
+    # Headless Firefox on Linux turns WebGL off without a GPU; its software renderer
+    # draws Mol* well enough to test (Chromium and WebKit use theirs anyway).
+    options: dict[str, Any] = (
+        {"firefox_user_prefs": {"webgl.force-enabled": True}} if request.param == "firefox" else {}
+    )
     try:
-        launched = getattr(playwright, request.param).launch()
+        launched = getattr(playwright, request.param).launch(**options)
     except Exception as error:
         _require(False, f"{request.param}: {error}. Run: uv run playwright install")
         raise
@@ -578,6 +583,11 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
 
 
 @pytest.fixture
+def browser_name(browser: Browser) -> str:
+    return browser.browser_type.name
+
+
+@pytest.fixture
 def tasks(server: Server) -> Iterator[Server]:
     """A task runner beside the server, for work done after the request (checking uploads)."""
     with run_tasks(server.env) as runner:
@@ -855,9 +865,31 @@ def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_
     )
 
 
+#: What a frame's code finds when it tries to reach beyond it (SANDBOX_PROBES).
+ISOLATED = {
+    "origin": "null",
+    "api": "refused",
+    "cookie": "refused",
+    "storage": "refused",
+    "page": "refused",
+    "pageStorage": "refused",
+}
+
+#: Whether the frame's browser draws 3D.
+WEBGL = """() => {
+  const canvas = document.createElement("canvas");
+  return Boolean(canvas.getContext("webgl2") ?? canvas.getContext("webgl"));
+}"""
+
+
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_a_structure_in_mol_star_in_its_frame(
-    open_as: Any, world: World, color_scheme: str, _s3_endpoint: str, _s3_bucket: str
+    open_as: Any,
+    world: World,
+    color_scheme: str,
+    browser_name: str,
+    _s3_endpoint: str,
+    _s3_bucket: str,
 ) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
@@ -887,21 +919,39 @@ def test_a_structure_in_mol_star_in_its_frame(
     frame_element.wait_for()
     # Mol* has drawn it once the page stops saying it's drawing.
     page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
+    (frame,) = [f for f in page.frames if f.url.endswith("/viewers/structure/") and f.parent_frame]
+    if not frame.evaluate(WEBGL):
+        # Some browsers can't draw 3D at all (no GPU, WebGL off): the page says so.
+        assert browser_name == "firefox", f"{browser_name} has no WebGL"
+        page.get_by_text("This browser can’t draw 3D structures").wait_for()
+        assert_clean(page)
+        assert frame.evaluate(SANDBOX_PROBES) == ISOLATED
+        return
     shown = page.frame_locator("iframe.structure-frame")
     shown.locator("canvas").first.wait_for()
     shown.get_by_text("Sequence of").first.wait_for()
     assert_clean(page)
 
+    # A saved view keeps where the camera is, and opens on its revision.
+    page.get_by_role("button", name="Save view").click()
+    dialog = page.get_by_role("alertdialog", name="Save this view")
+    dialog.get_by_role("textbox", name="Name").fill("Crambin, N-terminus")
+    dialog.get_by_role("button", name="Save view").click()
+    page.wait_for_url(re.compile(r"/entities/VIEW-\d+/$"))
+    page.get_by_text(f"Revision 1 of {hrid}, as the view saved it.").wait_for()
+    page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
+    page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
+    saved = entities.current_values_of([Entity.objects.get(type="core.View")])
+    (state,) = [v["state"] for v in saved.values()]
+    assert set(state) == {"version", "camera"} and len(state["camera"]["position"]) == 3
+    assert_clean(page)
+    page.goto(page.url.split("/entities/")[0] + f"/entities/{hrid}/viewers/structure/")
+    page.get_by_role("link", name="Crambin, N-terminus").wait_for()
+
     # Mol* can't read Iki's cookies, storage or page, or call the API as the person.
+    page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
     (frame,) = [f for f in page.frames if f.url.endswith("/viewers/structure/") and f.parent_frame]
-    assert frame.evaluate(SANDBOX_PROBES) == {
-        "origin": "null",
-        "api": "refused",
-        "cookie": "refused",
-        "storage": "refused",
-        "page": "refused",
-        "pageStorage": "refused",
-    }
+    assert frame.evaluate(SANDBOX_PROBES) == ISOLATED
     frame.evaluate("() => { location.href = 'about:blank'; }")
     page.get_by_role("alert").get_by_text(
         "The structure viewer tried to open another page, so Iki closed it."
