@@ -5,7 +5,7 @@ name: Protein
 label: Protein
 label_plural: Proteins
 extends: core.Sequence
-schema_version: 1
+schema_version: 2
 description: >-
   A protein, by its amino acid sequence. Two with the same sequence are the same
   protein, so registering one again reuses it.
@@ -61,6 +61,18 @@ fields:
     description: >-
       Its grand average of hydropathy: the mean of its residues' Kyte–Doolittle
       values. Above zero, it's hydrophobic on the whole.
+  hydropathy:
+    type: json
+    computed: true
+    description: >-
+      Its hydropathy along its sequence, as ExPASy's ProtScale draws it: for
+      each residue, the mean of the Kyte–Doolittle values of the nine residues
+      centred on it. The first and last four residues have none (null). Above
+      zero, that stretch is hydrophobic, as a transmembrane helix is.
+    schema:
+      type: array
+      maxItems: 100000
+      items: { type: [number, "null"], minimum: -4.5, maximum: 4.5 }
   instability_index:
     type: float
     computed: true
@@ -86,4 +98,4 @@ fields:
 display:
   title: "{{ name or uniprot_accession or hrid }}"
   viewers:
-    - { viewer: sequence, sequence: sequence }
+    - { viewer: sequence, sequence: sequence, tracks: [{ field: hydropathy }] }

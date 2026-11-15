@@ -11,6 +11,9 @@ Properties are Biopython's ProtParam, which follows ExPASy's ProtParam tool:
 - extinction coefficients at 280 nm in water: Pace's values for W, Y and cystine (1995),
   with every pair of cysteines forming a cystine, and with none;
 - GRAVY: the mean of the residues' Kyte-Doolittle hydropathy values (1982);
+- hydropathy: ExPASy ProtScale's profile of those values, with its defaults: for each
+  residue, the mean over a window of nine centred on it, equally weighted. The first and
+  last four residues have none (null), as ProtScale draws none for them;
 - instability index: Guruprasad's dipeptide weights (1990).
 
 All but the length need a sequence of the 20 standard amino acids alone, and a final
@@ -33,6 +36,7 @@ from typing import Any
 from Bio.Data import CodonTable
 from Bio.Seq import Seq
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
+from Bio.SeqUtils.ProtParamData import kd
 
 STANDARD = frozenset("ACDEFGHIKLMNPQRSTVWY")
 #: The longest name a protein takes (core.Sequence's).
@@ -44,10 +48,24 @@ def nonstandard(sequence: str) -> tuple[int, str] | None:
     return next(((i, r) for i, r in enumerate(sequence, 1) if r not in STANDARD), None)
 
 
-def properties(sequence: str) -> tuple[dict[str, float], str | None]:
+#: ProtScale's default window: nine residues, centred on each.
+WINDOW = 9
+
+
+def hydropathy(residues: str) -> list[float | None]:
+    """Each residue's Kyte-Doolittle hydropathy, averaged over the window centred on it; None
+    for the residues too near either end for a whole window."""
+    edge = WINDOW // 2
+    if len(residues) < WINDOW:
+        return [None] * len(residues)
+    profile = ProteinAnalysis(residues).protein_scale(kd, WINDOW, 1.0)
+    return [None] * edge + [round(v, 2) for v in profile] + [None] * edge
+
+
+def properties(sequence: str) -> tuple[dict[str, Any], str | None]:
     """Its properties, and a warning when only its length could be computed."""
     sequence = sequence.upper()
-    values: dict[str, float] = {"length": len(sequence)}
+    values: dict[str, Any] = {"length": len(sequence)}
     residues = sequence.removesuffix("*")
     found = nonstandard(residues)
     if not residues:
@@ -68,6 +86,7 @@ def properties(sequence: str) -> tuple[dict[str, float], str | None]:
         "extinction_coefficient_reduced": reduced,
         "gravy": round(analysis.gravy(), 3),
         "instability_index": round(analysis.instability_index(), 2),
+        "hydropathy": hydropathy(residues),
     }
     return values, None
 
@@ -81,7 +100,8 @@ def compute_properties(run: dict[str, Any]) -> dict[str, Any]:
         updates.append({"entity": entity["id"], "values": values})
         if warning is not None:
             messages.append({"level": "warning", "text": warning, "entity": entity["id"]})
-        print(f"{entity['hrid']}: {', '.join(f'{k} {v}' for k, v in values.items())}")
+        shown = {k: v for k, v in values.items() if k != "hydropathy"}
+        print(f"{entity['hrid']}: {', '.join(f'{k} {v}' for k, v in shown.items())}")
         print(f"::progress {done / len(entities):.2f} {done} of {len(entities)}", flush=True)
     return {"updates": {"protein": updates}, "messages": messages}
 

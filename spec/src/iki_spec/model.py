@@ -190,6 +190,14 @@ class EntityType:
 
 
 @dataclass(frozen=True)
+class Track:
+    """Values along a sequence viewer's residues: a json field of one number per residue."""
+
+    field: str
+    label: str = ""  # the field's label if ""
+
+
+@dataclass(frozen=True)
 class Viewer:
     """One of Iki's own viewers on a type's pages, and the fields it shows (``display``)."""
 
@@ -198,6 +206,7 @@ class Viewer:
     sequence: str = ""  # a string field with a sequence format
     features: str = ""  # a json field of regions along it, or ""
     structure: str = ""  # a file field of mmCIF or PDB files
+    tracks: tuple[Track, ...] = ()  # the sequence viewer's per-residue values
 
 
 @dataclass(frozen=True)
@@ -658,6 +667,7 @@ _DATACLASSES = (
     Component,
     ComponentSlot,
     Viewer,
+    Track,
 )
 
 
@@ -676,6 +686,11 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
     return value
 
 
+def _viewer(data: dict[str, Any]) -> Viewer:
+    tracks = tuple(Track(**t) for t in data.get("tracks") or ())
+    return Viewer(**{**data, "tracks": tracks})
+
+
 def plugin_from_dict(data: dict[str, Any]) -> Plugin:
     return Plugin(
         **{
@@ -688,7 +703,7 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "identity": tuple(v["identity"]),
                         "fields": {n: _field(f) for n, f in v["fields"].items()},
                         # Plugins built before viewers have none.
-                        "viewers": tuple(Viewer(**x) for x in v.get("viewers") or ()),
+                        "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
                     }
                 )
                 for k, v in data["types"].items()

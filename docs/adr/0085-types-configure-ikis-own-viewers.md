@@ -56,8 +56,8 @@ to the frame. Iki builds Mol\* from its library, not its prebuilt viewer,
 which evaluates code as it loads (for its video exporter) and would need
 `unsafe-eval`. Files over 256 MiB are left to desktop viewers.
 
-**More viewers come the same way.** Tracks such as per-residue values are
-further entries under `display.viewers`, each with the fields it shows.
+**More viewers come the same way**, each with the fields it shows. (Tracks
+of per-residue values run along the sequence viewer instead: ADR 0087.)
 
 ## Consequences
 

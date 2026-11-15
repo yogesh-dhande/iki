@@ -1,6 +1,7 @@
 /**
  * Iki's own viewers on an entity's page, as its type configures them: the sequence
- * viewer, with the sequence's features as a track along it, and the structure viewer.
+ * viewer, with the sequence's features and its tracks of per-residue values along it, and
+ * the structure viewer.
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -11,6 +12,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Entity, EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import {
+  columnOf,
+  extremes,
   featureLength,
   featureName,
   GROUP,
@@ -19,10 +22,13 @@ import {
   locationText,
   piecesIn,
   readFeatures,
+  readTrack,
   ROW,
   spans,
+  trackScale,
   type Feature,
   type Kind,
+  type Values,
 } from "../sequence";
 import { buttonClass } from "../ui";
 import type { Capture, FeatureRef, ViewState } from "../views";
@@ -32,6 +38,14 @@ import { SavedViews } from "./saved-views";
 import { StructureViewer } from "./structure-viewer";
 
 type Viewer = Schemas["SequenceViewerOut"];
+
+/** A track as drawn: its values, one per residue, and the scale they're drawn on. */
+interface Drawn {
+  field: string;
+  label: string;
+  values: Values;
+  scale: [number, number];
+}
 type AnyViewer = EntityType["viewers"][number];
 
 /** What a viewer shows: an entity now, or as it was at a revision (for a saved view). */
@@ -103,6 +117,7 @@ const KIND_LABELS: Record<Kind, string> = {
 };
 
 const number = new Intl.NumberFormat();
+const decimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
 function featureRef(feature: Feature): FeatureRef {
   return {
@@ -143,6 +158,21 @@ function SequenceViewer({
     () => (viewer.features ? readFeatures(source.values[viewer.features], sequence.length) : []),
     [source.values, viewer.features, sequence.length],
   );
+  const tracks = useMemo(
+    () =>
+      viewer.tracks.map((track) => {
+        const values = readTrack(source.values[track.field], sequence.length);
+        return {
+          ...track,
+          given: source.values[track.field] != null,
+          drawn: values
+            ? { ...track, values, scale: trackScale(values, track.min, track.max) }
+            : null,
+        };
+      }),
+    [source.values, viewer.tracks, sequence.length],
+  );
+  const drawn = useMemo(() => tracks.flatMap((t) => (t.drawn ? [t.drawn] : [])), [tracks]);
   const [shown, setShown] = useState<Feature | null>(() =>
     feature ? (features.find((f) => sameFeature(f, feature)) ?? null) : null,
   );
@@ -182,9 +212,19 @@ function SequenceViewer({
           ))}
         </ul>
       ) : null}
+      {tracks.length ? (
+        <ul className="track-legend" aria-label="Tracks">
+          {tracks.map((track) => (
+            <li key={track.field}>
+              <TrackLegend label={track.label} drawn={track.drawn} given={track.given} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <Residues
         sequence={sequence}
         features={features}
+        tracks={drawn}
         shown={shown}
         label={`${field?.label ?? "Sequence"} of ${source.title}`}
       />
@@ -205,11 +245,13 @@ function SequenceViewer({
 function Residues({
   sequence,
   features,
+  tracks,
   shown,
   label,
 }: {
   sequence: string;
   features: Feature[];
+  tracks: Drawn[];
   shown: Feature | null;
   label: string;
 }) {
@@ -222,8 +264,9 @@ function Residues({
   const lanes = useMemo(() => lanesPerRow(features, sequence.length), [features, sequence.length]);
   const virtualizer = useWindowVirtualizer({
     count: rows,
-    // A line of residues, a lane per feature row under it, and the gap between rows.
-    estimateSize: (row) => 30 + (lanes[row] ?? 0) * 20,
+    // A line of residues, a lane per feature row under it, its tracks, and the gap between
+    // rows.
+    estimateSize: (row) => 30 + (lanes[row] ?? 0) * 20 + tracks.length * 44,
     overscan: 8,
     scrollMargin: margin,
   });
@@ -295,12 +338,98 @@ function Residues({
                     })}
                   </span>
                 ) : null}
+                {tracks.map((track) => (
+                  <TrackStrip
+                    key={track.field}
+                    track={track}
+                    start={start}
+                    end={Math.min(start + ROW - 1, sequence.length)}
+                  />
+                ))}
               </div>
             </div>
           );
         })}
       </div>
     </figure>
+  );
+}
+
+/** What a track is, its scale, and where its highest and lowest values are, which is how
+ * a screen reader learns what the bars show. */
+function TrackLegend({
+  label,
+  drawn,
+  given,
+}: {
+  label: string;
+  drawn: Drawn | null;
+  given: boolean;
+}) {
+  if (!drawn) {
+    return (
+      <>
+        <span className="track-swatch track-swatch-none" aria-hidden="true" />
+        {label}: {given ? "not drawn, as it doesn’t have one number per residue" : "none yet"}
+      </>
+    );
+  }
+  const [low, high] = drawn.scale;
+  const ends = extremes(drawn.values);
+  return (
+    <>
+      <span className="track-swatch" aria-hidden="true" />
+      {label}, on a scale from {decimal.format(low)} to {decimal.format(high)}
+      {ends
+        ? `: highest ${decimal.format(ends.highest[0])} at ${number.format(ends.highest[1])}, lowest ${decimal.format(ends.lowest[0])} at ${number.format(ends.lowest[1])}`
+        : ": no values"}
+    </>
+  );
+}
+
+/** One row's stretch of a track: a bar per residue, above the baseline for values over
+ * zero and below it for those under, in the residues' own columns. */
+function TrackStrip({ track, start, end }: { track: Drawn; start: number; end: number }) {
+  const width = columnOf(end - start) + 1;
+  const [low, high] = track.scale;
+  const y = (v: number) => (high - v) / (high - low);
+  const base = y(0);
+  const bars: ReactNode[] = [];
+  for (let at = start; at <= end; at++) {
+    const v = track.values[at - 1];
+    if (v === null || v === undefined) continue;
+    const top = Math.min(y(v), base);
+    bars.push(
+      <rect
+        key={at}
+        className={v >= 0 ? "track-above" : "track-below"}
+        x={columnOf(at - start) + 0.1}
+        width={0.8}
+        y={top}
+        height={Math.max(Math.abs(y(v) - base), 0.02)}
+      >
+        <title>{`${track.label} at ${number.format(at)}: ${decimal.format(v)}`}</title>
+      </rect>,
+    );
+  }
+  return (
+    <svg
+      className="value-track"
+      aria-hidden="true"
+      viewBox={`0 0 ${String(width)} 1`}
+      preserveAspectRatio="none"
+      style={{ width: `${String(width)}ch` }}
+    >
+      <line
+        className="track-baseline"
+        x1={0}
+        x2={width}
+        y1={base}
+        y2={base}
+        vectorEffect="non-scaling-stroke"
+      />
+      {bars}
+    </svg>
   );
 }
 

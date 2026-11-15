@@ -602,6 +602,8 @@ input:focus-visible {
   --feature-binding: #a36b00;
   --feature-other: #5f6b78;
   --feature-text: #ffffff;
+  --track-above: #b85a00;
+  --track-below: #2f6fb5;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -613,6 +615,8 @@ input:focus-visible {
     --feature-binding: #f2b75a;
     --feature-other: #a3b0bd;
     --feature-text: #0f141a;
+    --track-above: #f2a65a;
+    --track-below: #7fb0ff;
   }
 }
 
@@ -744,6 +748,54 @@ input:focus-visible {
   border-radius: 2px;
   background: var(--feature-other);
   vertical-align: -0.05rem;
+}
+
+/* Tracks: a bar per residue, above or below a baseline, in the residues' own columns. */
+.value-track {
+  display: block;
+  height: 2.5rem;
+  margin-top: 0.25rem;
+  overflow: visible;
+}
+
+.track-above {
+  fill: var(--track-above);
+}
+
+.track-below {
+  fill: var(--track-below);
+}
+
+.track-baseline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.track-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: -0.5rem 0 1rem;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.track-swatch {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.4rem;
+  border-radius: 2px;
+  background: linear-gradient(var(--track-above) 50%, var(--track-below) 50%);
+  vertical-align: -0.05rem;
+}
+
+.track-swatch-none {
+  background: none;
+  outline: 1px dashed var(--border);
+  outline-offset: -1px;
 }
 
 /* The structure viewer: Mol*, in a sandboxed frame of Iki's own (ADR 0085). */

@@ -8797,9 +8797,17 @@
             "title": "Sequence",
             "type": "string"
           },
+          "tracks": {
+            "description": "Values along its residues, each a track.",
+            "items": {
+              "$ref": "#/components/schemas/TrackOut"
+            },
+            "title": "Tracks",
+            "type": "array"
+          },
           "viewer": {
             "const": "sequence",
-            "description": "`sequence`: the sequence, with its features as a track along it.",
+            "description": "`sequence`: the sequence, with its features and tracks along it.",
             "title": "Viewer",
             "type": "string"
           }
@@ -8809,7 +8817,8 @@
           "label",
           "sequence",
           "alphabet",
-          "features"
+          "features",
+          "tracks"
         ],
         "title": "SequenceViewerOut",
         "type": "object"
@@ -9941,6 +9950,52 @@
           "slug"
         ],
         "title": "TeamRef",
+        "type": "object"
+      },
+      "TrackOut": {
+        "properties": {
+          "field": {
+            "description": "The json field holding one number per residue, or null.",
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "description": "What the track is called.",
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The greatest value its field's schema allows, or null to fit the values.",
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The least value its field's schema allows, which the track's scale starts from, or null to fit the values.",
+            "title": "Min"
+          }
+        },
+        "required": [
+          "field",
+          "label",
+          "min",
+          "max"
+        ],
+        "title": "TrackOut",
         "type": "object"
       },
       "TriggerFiredOut": {

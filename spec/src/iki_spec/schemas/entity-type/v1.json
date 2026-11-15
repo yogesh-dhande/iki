@@ -110,7 +110,7 @@
       "required": ["viewer"],
       "properties": {
         "viewer": {
-          "description": "Which viewer. `sequence`: the sequence, with its features as a track along it. `structure`: a 3D structure, in Mol*.",
+          "description": "Which viewer. `sequence`: the sequence, with its features and tracks along it. `structure`: a 3D structure, in Mol*.",
           "enum": ["sequence", "structure"]
         },
         "label": {
@@ -139,6 +139,26 @@
               "features": {
                 "description": "A json field listing regions along it, as GenBank features are: each with a `type`, a `start` and `end` (from 1), and optionally a `name` and a `strand` (`forward`, `reverse` or `none`).",
                 "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              },
+              "tracks": {
+                "description": "Json fields of values along it, one number per residue (or null where there's none), each drawn as a track under the residues, such as a hydropathy profile.",
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                  "type": "object",
+                  "required": ["field"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "field": {
+                      "description": "A json field whose schema is an array of numbers, or of numbers and nulls.",
+                      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                    },
+                    "label": {
+                      "description": "The track's name. The field's label if left out.",
+                      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+                    }
+                  }
+                }
               }
             },
             "additionalProperties": false

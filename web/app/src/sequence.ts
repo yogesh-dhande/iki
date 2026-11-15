@@ -173,3 +173,47 @@ export function locationText(feature: Feature): string {
   const at = `${String(feature.start)}..${String(feature.end)}`;
   return feature.end < feature.start ? `${at} (across the origin)` : at;
 }
+
+/** A track's values: one number per residue, or null where there's none. */
+export type Values = (number | null)[];
+
+/** The values, if `value` holds one per residue of a sequence of `length`. */
+export function readTrack(value: unknown, length: number): Values | null {
+  if (!Array.isArray(value) || value.length !== length) return null;
+  return value.every((v) => v === null || (typeof v === "number" && Number.isFinite(v)))
+    ? (value as Values)
+    : null;
+}
+
+/** Where a track's scale runs, from its field's bounds or else its values, always with zero
+ * in it so bars rise above or fall below a baseline. */
+export function trackScale(
+  values: Values,
+  min: number | null,
+  max: number | null,
+): [number, number] {
+  let low = min ?? 0;
+  let high = max ?? 0;
+  for (const v of values) {
+    if (v === null) continue;
+    if (min === null && v < low) low = v;
+    if (max === null && v > high) high = v;
+  }
+  low = Math.min(low, 0);
+  high = Math.max(high, 0);
+  return low === high ? [low, low + 1] : [low, high];
+}
+
+/** A track's highest and lowest values, and the residues (from 1) they're at. */
+export function extremes(
+  values: Values,
+): { highest: [number, number]; lowest: [number, number] } | null {
+  let highest: [number, number] | null = null;
+  let lowest: [number, number] | null = null;
+  for (const [i, v] of values.entries()) {
+    if (v === null) continue;
+    if (!highest || v > highest[0]) highest = [v, i + 1];
+    if (!lowest || v < lowest[0]) lowest = [v, i + 1];
+  }
+  return highest && lowest ? { highest, lowest } : null;
+}

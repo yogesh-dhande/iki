@@ -22,6 +22,10 @@ fields:
   temperature_optimum: { type: quantity, unit: Cel }
   uniprot_ids: { type: list, items: { type: string, pattern: "^[A-Z0-9]{6,10}$" } }
   summary: { type: text }
+  hydropathy:
+    type: json
+    computed: true
+    schema: { type: array, items: { type: [number, "null"], minimum: -4.5, maximum: 4.5 } }
 display:
   title: "{{ name or hrid }}"
-  viewers: [{ viewer: sequence, sequence: sequence }]
+  viewers: [{ viewer: sequence, sequence: sequence, tracks: [{ field: hydropathy }] }]

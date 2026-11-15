@@ -11,7 +11,8 @@ of pairs of proteins.
   - It keeps its UniProt accession and gene where it has them, and the DNA
     sequence it was translated from (`encoded_by`).
   - Its length, molecular weight, isoelectric point, extinction coefficients,
-    GRAVY and instability index are computed by the plugin's actions.
+    GRAVY, instability index and hydropathy along its sequence are computed by
+    the plugin's actions. Its Sequence tab draws the hydropathy as a track.
 
 - **`protein.ProteinStructure`** (`PST-000001`): a three-dimensional
   structure, experimental or predicted, in mmCIF or PDB format.
@@ -78,6 +79,9 @@ Properties are Biopython's ProtParam, which follows ExPASy's:
   Y and cystine (1995). One assumes every pair of cysteines forms a cystine;
   the other, that none does.
 - **GRAVY**: the mean Kyte–Doolittle hydropathy.
+- **Hydropathy**: ProtScale's Kyte–Doolittle profile with its defaults, a
+  window of nine residues centred on each, equally weighted. The first and
+  last four residues have none.
 - **Instability index**: Guruprasad's. Above 40, a protein is probably
   unstable in a test tube.
 

@@ -6436,7 +6436,12 @@ export interface components {
              */
             sequence: string;
             /**
-             * @description `sequence`: the sequence, with its features as a track along it. (enum property replaced by openapi-typescript)
+             * Tracks
+             * @description Values along its residues, each a track.
+             */
+            tracks: components["schemas"]["TrackOut"][];
+            /**
+             * @description `sequence`: the sequence, with its features and tracks along it. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             viewer: "sequence";
@@ -6952,6 +6957,29 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** TrackOut */
+        TrackOut: {
+            /**
+             * Field
+             * @description The json field holding one number per residue, or null.
+             */
+            field: string;
+            /**
+             * Label
+             * @description What the track is called.
+             */
+            label: string;
+            /**
+             * Max
+             * @description The greatest value its field's schema allows, or null to fit the values.
+             */
+            max: number | null;
+            /**
+             * Min
+             * @description The least value its field's schema allows, which the track's scale starts from, or null to fit the values.
+             */
+            min: number | null;
         };
         /** TriggerFiredOut */
         TriggerFiredOut: {

@@ -553,19 +553,29 @@ display:
     - { viewer: structure, structure: model } # on a type with a structure file
 ```
 
-| Viewer      | Fields                                                                                                                                                                     |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sequence`  | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. |
-| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                            |
+On a protein type with a per-residue profile:
+
+```yaml
+display:
+  viewers:
+    - { viewer: sequence, sequence: residues, tracks: [{ field: hydropathy }] }
+```
+
+| Viewer      | Fields                                                                                                                                                                                                                                                                |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence`  | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. `tracks` (optional): json fields of one number per residue, each with an optional `label`. |
+| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                                                                                                                       |
 
 The sequence viewer shows the residues in rows of 60, in groups of 10, with
 each feature as a bar under the residues it covers, coloured by its kind and
 pointing the way its strand runs, and lists the features in a table. A
 feature whose end comes before its start wraps the origin of a circular
-sequence. The structure viewer shows the file in Mol\*, in a sandboxed frame
-with no network (ADR 0085). `label` names the tab. The validator checks that
-each field exists and is what its viewer shows, and that each viewer is given
-once.
+sequence. Each track is drawn under the residues, a bar per residue above or
+below a baseline, on a scale from its field's schema's `minimum` and
+`maximum` if it gives them (ADR 0087). The structure viewer shows the file
+in Mol\*, in a sandboxed frame with no network (ADR 0085). `label` names the
+tab. The validator checks that each field exists and is what its viewer
+shows, and that each viewer is given once.
 
 A viewer's tab lists the views saved of it and saves what it shows as a
 `core.View`, on the revision it shows (ADR 0086).

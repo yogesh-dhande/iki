@@ -37,7 +37,7 @@ from iki_server.org.permissions import Action
 from iki_server.runs.models import ExternalOrigin, Lineage, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
-from iki_spec.model import EntityType, Viewer
+from iki_spec.model import EntityType, Track, Viewer
 from iki_spec.model import Field as SpecField
 
 router = Router(tags=["entities"])
@@ -86,9 +86,21 @@ class FieldOut(Schema):
     items: str | None = Field(description="Lists: the type of each item.")
 
 
+class TrackOut(Schema):
+    field: str = Field(description="The json field holding one number per residue, or null.")
+    label: str = Field(description="What the track is called.")
+    min: float | None = Field(
+        description="The least value its field's schema allows, which the track's scale starts "
+        "from, or null to fit the values."
+    )
+    max: float | None = Field(
+        description="The greatest value its field's schema allows, or null to fit the values."
+    )
+
+
 class SequenceViewerOut(Schema):
     viewer: Literal["sequence"] = Field(
-        description="`sequence`: the sequence, with its features as a track along it."
+        description="`sequence`: the sequence, with its features and tracks along it."
     )
     label: str = Field(description="What its tab is called.")
     sequence: str = Field(description="The field holding the sequence.")
@@ -98,6 +110,7 @@ class SequenceViewerOut(Schema):
     features: str | None = Field(
         description="A json field of regions along it (type, start, end, name, strand), or null."
     )
+    tracks: list[TrackOut] = Field(description="Values along its residues, each a track.")
 
 
 class StructureViewerOut(Schema):
@@ -366,6 +379,19 @@ def _viewer_out(form: Shape, viewer: Viewer) -> dict[str, Any]:
         "sequence": viewer.sequence,
         "alphabet": "protein" if spec is not None and spec.format == "protein_sequence" else "dna",
         "features": viewer.features or None,
+        "tracks": [_track_out(form, t) for t in viewer.tracks],
+    }
+
+
+def _track_out(form: Shape, track: Track) -> dict[str, Any]:
+    spec = form.fields().get(track.field)
+    items = ((spec.schema if spec else None) or {}).get("items") or {}
+    low, high = items.get("minimum"), items.get("maximum")
+    return {
+        "field": track.field,
+        "label": track.label or (spec.label if spec and spec.label else track.field),
+        "min": low if isinstance(low, int | float) else None,
+        "max": high if isinstance(high, int | float) else None,
     }
 
 

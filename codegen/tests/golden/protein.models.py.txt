@@ -45,6 +45,7 @@ class Protein(iki_plugin_dna.models.Sequence):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    hydropathy = models.JSONField(null=True)
 
     class Meta:
         db_table = 'protein_protein'
@@ -147,6 +148,7 @@ class Protein_History(models.Model):
     temperature_optimum = QuantityField(unit='Cel', null=True)
     uniprot_ids = ArrayField(models.TextField(), null=True)
     summary = models.TextField(null=True)
+    hydropathy = models.JSONField(null=True)
 
     class Meta:
         db_table = 'protein_protein__history'

@@ -24,6 +24,7 @@ const PLASMID = {
       sequence: "bases",
       alphabet: "dna" as const,
       features: "features",
+      tracks: [],
     },
   ],
 };

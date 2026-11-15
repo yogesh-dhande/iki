@@ -1,4 +1,4 @@
-/** Iki's own viewers on an entity's page: the sequence viewer, its track and its features. */
+/** Iki's own viewers on an entity's page: the sequence viewer, its features and its tracks. */
 
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -24,6 +24,7 @@ const PLASMID = {
       sequence: "bases",
       alphabet: "dna" as const,
       features: "features",
+      tracks: [],
     },
   ],
 };
@@ -70,6 +71,64 @@ describe("the sequence viewer", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("draws tracks of values under the residues, and says what they show", async () => {
+    const LONG = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHV";
+    const profile = Array.from({ length: LONG.length }, (_, i) =>
+      i < 4 || i >= LONG.length - 4 ? null : (i % 5) - 2,
+    );
+    profile[20] = 2.5;
+    profile[40] = -3.25;
+    withTypes();
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        fields: [
+          ...PROTEIN.fields,
+          field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
+          field({ name: "charge", label: "Charge", type: "json" }),
+          field({ name: "flexibility", label: "Flexibility", type: "json" }),
+        ],
+        viewers: [
+          {
+            viewer: "sequence" as const,
+            label: "Sequence",
+            sequence: "sequence",
+            alphabet: "protein" as const,
+            features: null,
+            tracks: [
+              { field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 },
+              { field: "charge", label: "Charge", min: null, max: null },
+              { field: "flexibility", label: "Flexibility", min: null, max: null },
+            ],
+          },
+        ],
+      },
+    ]);
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({
+        hrid: "PRT-000001",
+        values: { name: "HBA", sequence: LONG, hydropathy: profile, charge: [1, 2] },
+      }),
+    );
+    await renderApp("/entities/PRT-000001/viewers/sequence/");
+    const legend = await screen.findByRole("list", { name: "Tracks" });
+    expect(
+      within(legend)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual([
+      "Hydropathy, on a scale from -4.5 to 4.5: highest 2.5 at 21, lowest -3.25 at 41",
+      "Charge: not drawn, as it doesn’t have one number per residue",
+      "Flexibility: none yet",
+    ]);
+    const bars = document.querySelectorAll("svg.value-track rect");
+    expect(bars).toHaveLength(LONG.length - 8); // none for the first and last four
+    expect(bars[16]?.textContent).toBe("Hydropathy at 21: 2.5");
+    expect(bars[16]?.getAttribute("class")).toBe("track-above");
+    expect(bars[36]?.getAttribute("class")).toBe("track-below");
   });
 
   it("leaves out features it can't draw", async () => {

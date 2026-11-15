@@ -4,12 +4,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   columnOf,
+  extremes,
   featureLength,
   kindOf,
   lanesPerRow,
   locationText,
   piecesIn,
   readFeatures,
+  readTrack,
+  trackScale,
   type Feature,
 } from "./sequence";
 
@@ -66,5 +69,27 @@ describe("features", () => {
     expect(kindOf("CDS")).toBe("coding");
     expect(kindOf("rep_origin")).toBe("origin");
     expect(kindOf("misc_feature")).toBe("other");
+  });
+});
+
+describe("tracks", () => {
+  it("are read only when they hold one number, or null, per residue", () => {
+    expect(readTrack([null, 1.5, -2], 3)).toEqual([null, 1.5, -2]);
+    expect(readTrack([1, 2], 3)).toBeNull();
+    expect(readTrack([1, "2", 3], 3)).toBeNull();
+    expect(readTrack([1, Number.NaN, 3], 3)).toBeNull();
+    expect(readTrack("1,2,3", 3)).toBeNull();
+  });
+
+  it("scale from their field's bounds, or else their values, with zero in them", () => {
+    expect(trackScale([null, 1.5, -2], -4.5, 4.5)).toEqual([-4.5, 4.5]);
+    expect(trackScale([null, 1.5, -2], null, null)).toEqual([-2, 1.5]);
+    expect(trackScale([3, 5], null, null)).toEqual([0, 5]);
+    expect(trackScale([null, null], null, null)).toEqual([0, 1]);
+  });
+
+  it("say where their highest and lowest values are", () => {
+    expect(extremes([null, 1.5, -2, 1.5])).toEqual({ highest: [1.5, 2], lowest: [-2, 3] });
+    expect(extremes([null, null])).toBeNull();
   });
 });

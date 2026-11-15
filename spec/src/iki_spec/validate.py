@@ -42,6 +42,7 @@ from iki_spec.model import (
     Extension,
     Field,
     Plugin,
+    Track,
     Trigger,
     Viewer,
     Workflow,
@@ -700,7 +701,22 @@ def _viewer(body: dict[str, Any]) -> Viewer:
         sequence=body.get("sequence", ""),
         features=body.get("features", ""),
         structure=body.get("structure", ""),
+        tracks=tuple(
+            Track(field=t["field"], label=t.get("label", "")) for t in body.get("tracks") or ()
+        ),
     )
+
+
+def per_residue(field: Field) -> bool:
+    """Whether a field holds one number per residue, as a track shows: a json field whose
+    schema is an array of numbers, or of numbers and nulls."""
+    schema = field.schema or {}
+    items = schema.get("items")
+    if field.type != "json" or schema.get("type") != "array" or not isinstance(items, dict):
+        return False
+    kinds = items.get("type")
+    kinds = {kinds} if isinstance(kinds, str) else set(kinds or ())
+    return bool(kinds & {"number", "integer"}) and kinds <= {"number", "integer", "null"}
 
 
 def _words(name: str) -> str:
@@ -1089,6 +1105,32 @@ class _Semantics:
                         source,
                         (*path, role),
                     )
+            tracked: set[str] = set()
+            for at, track in enumerate(viewer.tracks):
+                where: Path = (*path, "tracks", at, "field")
+                found = fields.get(track.field)
+                if found is None:
+                    self.add(
+                        "unknown-field", f"This type has no field `{track.field}`.", source, where
+                    )
+                elif not per_residue(found):
+                    self.add(
+                        "viewer-field",
+                        f"`{track.field}` isn't a json field of one number per residue, which a "
+                        "track shows.",
+                        source,
+                        where,
+                        hint="Give it a schema such as "
+                        '{type: array, items: {type: [number, "null"]}}.',
+                    )
+                elif track.field in tracked:
+                    self.add(
+                        "viewer-field",
+                        f"This viewer shows `{track.field}` as a track already.",
+                        source,
+                        where,
+                    )
+                tracked.add(track.field)
 
     def hrid_prefixes(self) -> None:
         seen: dict[str, str] = {}

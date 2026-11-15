@@ -826,12 +826,29 @@ def test_a_proteins_sequence_in_its_viewer(open_as: Any, world: World, color_sch
     made = entities.create(
         admin, "protein.Protein", world.project, {"sequence": sequence, "name": "ABL1"}
     )
+    from iki_plugin_protein.models import Protein  # type: ignore[import-not-found]
+
+    # Its hydropathy, as compute_properties sets it: Kyte-Doolittle over a window of nine.
+    window = [KYTE_DOOLITTLE[r] for r in sequence]
+    profile = [
+        round(sum(window[i - 4 : i + 5]) / 9, 2) if 4 <= i < len(sequence) - 4 else None
+        for i in range(len(sequence))
+    ]
+    Protein.objects.filter(pk=made.entity.pk).update(hydropathy=profile)
     hrid = Entity.objects.get(pk=made.entity.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/", color_scheme)
     page.get_by_role("link", name="Sequence").click()
     page.get_by_text(f"{len(sequence)} residues").wait_for()
     figure = page.get_by_role("figure", name="Sequence of ABL1")
     figure.get_by_text("61", exact=True).wait_for()
+    legend = page.get_by_role("list", name="Tracks")
+    legend.get_by_text(
+        re.compile(r"^Hydropathy, on a scale from -4\.5 to 4\.5: highest ")
+    ).wait_for()
+    bars = figure.locator("svg.value-track rect")
+    assert bars.count() == len(sequence) - 8
+    box = bars.first.bounding_box()
+    assert box is not None and box["width"] > 0 and box["height"] > 0
     assert_clean(page)
 
 
@@ -864,6 +881,36 @@ def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_
         created_by=world.users["admin"],
     )
 
+
+#: Kyte and Doolittle's hydropathy values (1982).
+KYTE_DOOLITTLE = dict(
+    zip(
+        "ARNDCQEGHILKMFPSTWYV",
+        (
+            1.8,
+            -4.5,
+            -3.5,
+            -3.5,
+            2.5,
+            -3.5,
+            -3.5,
+            -0.4,
+            -3.2,
+            4.5,
+            3.8,
+            -3.9,
+            1.9,
+            2.8,
+            -1.6,
+            -0.8,
+            -0.7,
+            -0.9,
+            -1.3,
+            4.2,
+        ),
+        strict=True,
+    )
+)
 
 #: What a frame's code finds when it tries to reach beyond it (SANDBOX_PROBES).
 ISOLATED = {
@@ -919,14 +966,15 @@ def test_a_structure_in_mol_star_in_its_frame(
     frame_element.wait_for()
     # Mol* has drawn it once the page stops saying it's drawing.
     page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
-    (frame,) = [f for f in page.frames if f.url.endswith("/viewers/structure/") and f.parent_frame]
-    if not frame.evaluate(WEBGL):
-        # Some browsers can't draw 3D at all (no GPU, WebGL off): the page says so.
+    if page.get_by_text("This browser can’t draw 3D structures").count():
+        # Some browsers can't draw 3D at all (no GPU, WebGL off): the page says so, in place
+        # of the frame, and offers the file to open elsewhere.
         assert browser_name == "firefox", f"{browser_name} has no WebGL"
-        page.get_by_text("This browser can’t draw 3D structures").wait_for()
+        assert not page.locator("iframe.structure-frame").count()
         assert_clean(page)
-        assert frame.evaluate(SANDBOX_PROBES) == ISOLATED
         return
+    (frame,) = [f for f in page.frames if f.url.endswith("/viewers/structure/") and f.parent_frame]
+    assert frame.evaluate(WEBGL)
     shown = page.frame_locator("iframe.structure-frame")
     shown.locator("canvas").first.wait_for()
     shown.get_by_text("Sequence of").first.wait_for()

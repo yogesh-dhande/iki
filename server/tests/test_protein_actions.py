@@ -163,6 +163,7 @@ def properties(tmp_path: Path, *sequences: str) -> tuple[dict[str, Any], list[di
 
 def test_properties_are_protparams(tmp_path: Path) -> None:
     found = properties(tmp_path, HBA)[0]["0"]
+    profile = found.pop("hydropathy")
     # ExPASy's ProtParam gives 15257.40 (its residue masses differ in the last digits),
     # pI 8.72, 9970 M⁻¹cm⁻¹ (one cysteine: no cystine), GRAVY 0.048, instability 6.97.
     assert found == {
@@ -174,6 +175,16 @@ def test_properties_are_protparams(tmp_path: Path) -> None:
         "gravy": 0.048,
         "instability_index": 6.97,
     }
+    # ProtScale's Kyte-Doolittle profile, window 9: none for the first and last four residues;
+    # residue 5's window is MVLSPADKT, whose values sum to 1.2.
+    assert len(profile) == 142
+    assert profile[:4] == profile[-4:] == [None] * 4
+    assert profile[4] == 0.13
+    assert all(-4.5 <= v <= 4.5 for v in profile[4:-4])
+
+
+def test_a_protein_shorter_than_the_window_has_no_hydropathy(tmp_path: Path) -> None:
+    assert properties(tmp_path, "MKWV")[0]["0"]["hydropathy"] == [None] * 4
 
 
 def test_cystines_add_to_the_oxidized_extinction_coefficient(tmp_path: Path) -> None:

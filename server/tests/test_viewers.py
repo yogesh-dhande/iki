@@ -30,6 +30,7 @@ def test_a_type_lists_the_viewers_it_configures(world: World) -> None:
             "sequence": "sequence",
             "alphabet": "protein",
             "features": None,
+            "tracks": [{"field": "hydropathy", "label": "Hydropathy", "min": -4.5, "max": 4.5}],
         }
     ]
     assert types["dna.DNASequence"]["viewers"] == []

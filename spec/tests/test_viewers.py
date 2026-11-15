@@ -3,7 +3,7 @@
 import textwrap
 from pathlib import Path
 
-from iki_spec.model import Viewer, plugin_from_dict, plugin_to_dict
+from iki_spec.model import Track, Viewer, plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 
 PLUGIN = """\
@@ -26,6 +26,9 @@ fields:
   model: {{ type: file, media_types: [chemical/x-mmcif, chemical/x-pdb] }}
   map: {{ type: file, media_types: [chemical/x-mmcif, application/octet-stream] }}
   anything: {{ type: file }}
+  hydropathy: {{ type: json, schema: {{ type: array, items: {{ type: [number, "null"] }} }} }}
+  charge: {{ type: json, schema: {{ type: array, items: {{ type: integer }} }} }}
+  labels: {{ type: json, schema: {{ type: array, items: {{ type: string }} }} }}
 display:
   viewers: {viewers}
 """
@@ -110,3 +113,40 @@ def test_a_structure_viewers_file_holds_only_what_it_reads(tmp_path: Path) -> No
     assert codes(made(tmp_path, "[{ viewer: structure, structure: model, sequence: bases }]")) == [
         "schema"
     ]
+
+
+def test_a_sequence_viewer_shows_tracks_of_values_along_its_residues(tmp_path: Path) -> None:
+    result = made(
+        tmp_path,
+        "[{ viewer: sequence, sequence: bases,"
+        " tracks: [{ field: hydropathy }, { field: charge, label: Net charge }] }]",
+    )
+    assert result.problems == []
+    plugin = result.plugin
+    assert plugin is not None
+    assert plugin.types["acme.Plasmid"].viewers[0].tracks == (
+        Track(field="hydropathy"),
+        Track(field="charge", label="Net charge"),
+    )
+    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+
+
+def test_a_track_is_a_json_field_of_one_number_per_residue(tmp_path: Path) -> None:
+    def track(name: str) -> Result:
+        return made(
+            tmp_path, f"[{{ viewer: sequence, sequence: bases, tracks: [{{ field: {name} }}] }}]"
+        )
+
+    assert codes(track("hydropathz")) == ["unknown-field"]
+    for name in ("features", "labels", "name"):
+        result = track(name)
+        assert codes(result) == ["viewer-field"], name
+        assert result.problems[0].message == (
+            f"`{name}` isn't a json field of one number per residue, which a track shows."
+        )
+    twice = (
+        "[{ viewer: sequence, sequence: bases, tracks: [{ field: charge }, { field: charge }] }]"
+    )
+    assert codes(made(tmp_path, twice)) == ["viewer-field"]
+    structure = "[{ viewer: structure, structure: model, tracks: [{ field: charge }] }]"
+    assert codes(made(tmp_path, structure)) == ["schema"]
