@@ -3,6 +3,7 @@ browsers render them with."""
 
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -70,7 +71,26 @@ def test_each_thread_has_an_instance_of_its_own() -> None:
 
 def test_nothing_to_check_needs_no_module(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(expressions, "WASM", Path("/nowhere/iki_wasm.wasm"))
+    monkeypatch.setattr(expressions, "_compiled", None)
+    monkeypatch.setattr(expressions, "_local", threading.local())
     assert expressions.check([]) == []
+    # Text without braces has no expressions, so the module isn't needed for it.
+    assert expressions.check(["Hello.", ""]) == [expressions.Checked(), expressions.Checked()]
+
+
+def test_plain_text_reads_as_the_module_says() -> None:
+    texts = ["Hello.", "{{ a.b }} and", "", "x }} y", "plain { brace }"]
+    found = expressions.check(texts)
+    asked: dict[str, Any] = expressions._call("iki_check", {"templates": texts}, expressions.FUEL)
+    assert len(found) == len(texts) == len(asked["checked"])
+    plain = {"names": [], "fields": [], "whole": False}
+    for i in (0, 2, 4):
+        assert found[i] == expressions.Checked()
+        assert asked["checked"][i] == plain, asked
+    assert found[1] == expressions.Checked(names=("a",), fields=("a.b",))
+    # A stray closing pair still goes to the module, which reads it as text.
+    assert found[3] == expressions.Checked()
+    assert asked["checked"][3] == plain
 
 
 def test_a_missing_module_says_how_to_build_it(monkeypatch: pytest.MonkeyPatch) -> None:

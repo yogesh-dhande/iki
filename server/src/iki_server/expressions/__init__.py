@@ -13,6 +13,7 @@ import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 import wasmtime
 
@@ -119,12 +120,20 @@ def _call(export: str, request: dict[str, object], fuel: int) -> dict[str, objec
 def check(texts: Sequence[str]) -> list[Checked]:
     """Whether each text's expressions read, and the names and fields they use (those
     that `map`, `filter`, `all` and `exists` bind aside), as browsers will read them."""
-    if not texts:
-        return []
-    fuel = FUEL * (1 + sum(len(t) for t in texts) // MAX_LENGTH)
-    found = _call("iki_check", {"templates": list(texts)}, fuel)
+    # Text without braces has no expressions to read: plain, as iki-wasm would say.
+    asked = [t for t in texts if "{{" in t or "}}" in t]
+    if not asked:
+        return [Checked() for _ in texts]
+    fuel = FUEL * (1 + sum(len(t) for t in asked) // MAX_LENGTH)
+    found = iter(
+        cast("list[dict[str, Any]]", _call("iki_check", {"templates": asked}, fuel)["checked"])
+    )
     out = []
-    for each in found["checked"]:  # type: ignore[attr-defined]
+    for text in texts:
+        if "{{" not in text and "}}" not in text:
+            out.append(Checked())
+            continue
+        each = next(found)
         if "error" in each:
             out.append(Checked(error=str(each["error"])))
         else:
