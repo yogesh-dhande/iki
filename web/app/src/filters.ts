@@ -55,6 +55,7 @@ function builtIn(name: string, label: string, type: string): FieldDef {
     immutable: true,
     computed: false,
     unique: false,
+    detached: false,
     link: null,
     unit: null,
     unit_symbol: null,

@@ -3939,7 +3939,7 @@ export interface components {
         EntityCan: {
             /**
              * Edit
-             * @description Change it, archive or restore it.
+             * @description Change it, archive or restore it: false for everyone when its plugin is detached.
              */
             edit: boolean;
         };
@@ -4118,6 +4118,11 @@ export interface components {
             abstract: boolean;
             /** Description */
             description: string | null;
+            /**
+             * Detached
+             * @description Its plugin is detached (ADR 0091): its entities can be read, not changed, and no new ones can be made.
+             */
+            detached: boolean;
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -4244,6 +4249,11 @@ export interface components {
             computed: boolean;
             /** Description */
             description: string | null;
+            /**
+             * Detached
+             * @description Its plugin is detached (ADR 0091): it keeps its value, which can't change.
+             */
+            detached: boolean;
             /** Display Offset */
             display_offset: number | null;
             /**
@@ -5284,6 +5294,11 @@ export interface components {
             default?: unknown;
             /** Description */
             description: string | null;
+            /**
+             * Detached
+             * @description Its plugin is detached (ADR 0091): it keeps its value, which can't change.
+             */
+            detached: boolean;
             /** Display Offset */
             display_offset: number | null;
             /**

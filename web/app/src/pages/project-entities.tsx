@@ -334,10 +334,10 @@ export function ProjectEntities() {
           <Link
             to="/projects/$slug/entities/new/"
             params={{ slug: project.slug }}
-            search={type && !type.abstract ? { type: type.name } : {}}
+            search={type && !type.abstract && !type.detached ? { type: type.name } : {}}
             className={`${buttonClass("primary")} toolbar-end`}
           >
-            New {type && !type.abstract ? inSentence(type.label) : "entity"}
+            New {type && !type.abstract && !type.detached ? inSentence(type.label) : "entity"}
           </Link>
         ) : null}
       </div>

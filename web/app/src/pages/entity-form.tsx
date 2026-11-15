@@ -91,7 +91,9 @@ function Fields({
   locked: Set<string>;
   projectId: string;
 }) {
-  const computed = type.fields.filter((f) => f.computed);
+  const computed = type.fields.filter((f) => f.computed && !f.detached);
+  const kept = type.fields.filter((f) => f.detached);
+  const keptFrom = [...new Set(kept.map((f) => f.plugin))].join(", ");
   return (
     <>
       {formFields(type).map((field) => (
@@ -113,6 +115,13 @@ function Fields({
       {computed.length ? (
         <p className="muted">
           Actions set {computed.map((f) => inSentence(f.label)).join(", ")}: they aren’t typed in.
+        </p>
+      ) : null}
+      {kept.length ? (
+        <p className="muted">
+          {kept.map((f) => f.label).join(", ")} {kept.length === 1 ? "is" : "are"} from the{" "}
+          {keptFrom} plugin, which is detached:{" "}
+          {kept.length === 1 ? "it keeps its value" : "they keep their values"}.
         </p>
       ) : null}
     </>
@@ -171,7 +180,7 @@ export function NewEntity() {
   const project = useProject();
   const types = useSuspenseQuery(typesQuery).data;
   const { type: name } = useSearch({ from: "/projects/$slug/entities/new" });
-  const type = types.find((t) => t.name === name && !t.abstract);
+  const type = types.find((t) => t.name === name && !t.abstract && !t.detached);
   usePageTitle(`New ${type ? inSentence(type.label) : "entity"} · ${project.name}`);
   if (!type) return <ChooseType />;
   // A new form for each type: drafts don't carry between types.
@@ -182,7 +191,9 @@ function ChooseType() {
   const project = useProject();
   const types = useSuspenseQuery(typesQuery).data;
   const navigate = useNavigate({ from: "/projects/$slug/entities/new" });
-  const creatable = types.filter((t) => !t.abstract).sort((a, b) => a.label.localeCompare(b.label));
+  const creatable = types
+    .filter((t) => !t.abstract && !t.detached)
+    .sort((a, b) => a.label.localeCompare(b.label));
   const [choice, setChoice] = useState(creatable[0]?.name ?? "");
   return (
     <section className="card form-card" aria-labelledby="new-entity-title">

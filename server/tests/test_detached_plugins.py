@@ -355,3 +355,25 @@ def test_a_detached_plugins_triggers_are_skipped_and_stay_on(
     )
     assert refused.status_code == 409, refused.content
     assert "The protein plugin is detached" in refused.json()["detail"]
+
+
+# --- People can tell -----------------------------------------------------------------------
+
+
+def test_the_api_says_what_a_detached_plugin_keeps(
+    world: World, deployed: Callable[..., None]
+) -> None:
+    editor = api_as(world, "editor")
+    abl = protein(editor, world.project)
+    assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": True}
+    deployed("structure_prediction")
+    structure = editor.get("/entity-types/protein.ProteinStructure").json()
+    assert structure["detached"] is False
+    fields = {f["name"]: f["detached"] for f in structure["fields"]}
+    assert fields["job_id"] is True
+    assert fields["structure"] is False
+
+    deployed("protein", "structure_prediction")
+    assert editor.get("/entity-types/protein.Protein").json()["detached"] is True
+    assert editor.get("/entity-types/dna.DNASequence").json()["detached"] is False
+    assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": False}

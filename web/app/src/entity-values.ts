@@ -35,8 +35,9 @@ export interface Schemaed {
   values_schema: EntityType["values_schema"];
 }
 
+/** The fields people type in: not computed ones, nor a detached plugin's, which keep their values. */
 export function formFields(type: EntityType): FieldDef[] {
-  return type.fields.filter((f) => !f.computed);
+  return type.fields.filter((f) => !f.computed && !f.detached);
 }
 
 export function itemField(field: FieldDef): FieldDef {

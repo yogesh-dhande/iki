@@ -655,7 +655,7 @@ class EntityAppOut(TypedDict):
 
 
 class EntityCan(TypedDict):
-    #: Change it, archive or restore it.
+    #: Change it, archive or restore it: false for everyone when its plugin is detached.
     edit: bool
 
 
@@ -733,6 +733,8 @@ class EntityTypeOut(TypedDict):
     #: Abstract types have no entities of their own.
     abstract: bool
     description: str | None
+    #: Its plugin is detached (ADR 0091): its entities can be read, not changed, and no new ones can be made.
+    detached: bool
     extends: str | None
     fields: list[FieldOut]
     hrid_prefix: str | None
@@ -795,6 +797,8 @@ class FieldOut(TypedDict):
     #: Set only by actions.
     computed: bool
     description: str | None
+    #: Its plugin is detached (ADR 0091): it keeps its value, which can't change.
+    detached: bool
     display_offset: float | None
     #: With a display unit: shown as value * display_scale + display_offset.
     display_scale: float | None
@@ -1335,6 +1339,8 @@ class ParamOut(TypedDict):
     #: What it is when not given.
     default: NotRequired[Any]
     description: str | None
+    #: Its plugin is detached (ADR 0091): it keeps its value, which can't change.
+    detached: bool
     display_offset: float | None
     #: With a display unit: shown as value * display_scale + display_offset.
     display_scale: float | None

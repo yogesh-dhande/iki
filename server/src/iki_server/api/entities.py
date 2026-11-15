@@ -65,6 +65,9 @@ class FieldOut(Schema):
     unique: bool = Field(
         description="No two entities in a project have the same value, such as a LIMS record's ID."
     )
+    detached: bool = Field(
+        description="Its plugin is detached (ADR 0091): it keeps its value, which can't change.",
+    )
     link: str | None = Field(
         description="Where a value leads in another system: an https URL with `{value}` in it, "
         "for the value, URL-encoded."
@@ -150,6 +153,10 @@ class EntityTypeOut(Schema):
     description: str | None
     extends: str | None
     abstract: bool = Field(description="Abstract types have no entities of their own.")
+    detached: bool = Field(
+        description="Its plugin is detached (ADR 0091): its entities can be read, not changed, "
+        "and no new ones can be made."
+    )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
     hrid_prefix: str | None
     identity: list[str] = Field(description="The fields that tell two entities apart.")
@@ -167,7 +174,10 @@ class EntityTypeOut(Schema):
 
 
 class EntityCan(Schema):
-    edit: bool = Field(description="Change it, archive or restore it.")
+    edit: bool = Field(
+        description="Change it, archive or restore it: false for everyone when its plugin is "
+        "detached."
+    )
 
 
 class RefOut(Schema):
@@ -372,6 +382,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "required": f.required,
         "immutable": f.immutable,
         "unique": f.unique,
+        "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,
         "unit": f.unit,
@@ -438,6 +449,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "description": entity_type.description,
         "extends": entity_type.extends if entity_type.extends != "core.Entity" else None,
         "abstract": entity_type.abstract,
+        "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
         "identity": list(owner.identity) if owner is not None else [],
@@ -518,6 +530,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     }
     editable = {p.pk for p in projects.values() if permissions.can(user, Action.PROJECT_EDIT, p)}
     refs, files = _referenced(user, entities, values)
+    frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -539,7 +552,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "values": shown,
                 "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
-                "can": {"edit": entity.owner_project_id in editable},
+                "can": {"edit": entity.owner_project_id in editable and entity.type not in frozen},
             }
         )
     return out

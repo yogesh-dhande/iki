@@ -40,6 +40,7 @@ import { APP_TYPE, entityAppsQuery } from "../apps";
 import { VIEW_TYPE } from "../views";
 import { AppPanel, AppSpec } from "./app";
 import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collections";
+import { DetachedNote } from "./types";
 import { SavedViewPanel } from "./view";
 import {
   Badge,
@@ -395,6 +396,12 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
                 <Badge muted>Archived</Badge>
               </>
             ) : null}
+            {type?.detached ? (
+              <>
+                {" "}
+                <Badge muted>Detached plugin</Badge>
+              </>
+            ) : null}
           </>
         }
       />
@@ -473,6 +480,7 @@ export function EntityOverview() {
           <p>This entity is archived. Its values and history are kept, and it can’t change.</p>
         </div>
       ) : null}
+      {type?.detached ? <DetachedNote plugin={type.plugin} what="entity" /> : null}
       {!type ? (
         <div className="alert alert-warning" role="note">
           <p>

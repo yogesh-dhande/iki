@@ -604,3 +604,58 @@ describe("file fields", () => {
     expect(calls("POST", "/api/v1/uploads")).toEqual([]);
   });
 });
+
+describe("a detached plugin's data", () => {
+  const DETACHED: Schemas["EntityTypeOut"] = { ...SAMPLE, detached: true };
+  const EXTENDED: Schemas["EntityTypeOut"] = {
+    ...SAMPLE,
+    fields: [
+      ...SAMPLE.fields,
+      field({ name: "lims_id", label: "LIMS ID", type: "string", plugin: "lims", detached: true }),
+    ],
+  };
+
+  it("says so on its entities, which can't be edited", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, DETACHED]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities/SMP-000001", sample({ can: { edit: false } }));
+    answer("GET /api/v1/entities/SMP-000001/provenance", {});
+    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities", page([]));
+    await renderApp("/entities/SMP-000001/");
+    expect(await screen.findByRole("note")).toHaveTextContent(
+      "This entity is from the lab plugin, which is detached. Its values and history are kept " +
+        "and can be read, but can’t change.",
+    );
+    expect(screen.getByText("Detached plugin")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  });
+
+  it("isn't offered as a type to create", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, DETACHED]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities", page([]));
+    await renderApp("/projects/kinase-atlas/entities/new/");
+    const options = within(screen.getByRole("combobox", { name: "Type" })).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Protein"]);
+    await renderApp("/projects/kinase-atlas/entities/?type=lab.Sample");
+    expect(await screen.findByRole("link", { name: "New entity" })).toHaveAttribute(
+      "href",
+      "/projects/kinase-atlas/entities/new/",
+    );
+  });
+
+  it("keeps an extension's values, out of the form", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, EXTENDED]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
+    expect(screen.queryByRole("textbox", { name: "LIMS ID" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("LIMS ID is from the lims plugin, which is detached: it keeps its value."),
+    ).toBeInTheDocument();
+  });
+});

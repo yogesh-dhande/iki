@@ -2710,7 +2710,7 @@
       "EntityCan": {
         "properties": {
           "edit": {
-            "description": "Change it, archive or restore it.",
+            "description": "Change it, archive or restore it: false for everyone when its plugin is detached.",
             "title": "Edit",
             "type": "boolean"
           }
@@ -3062,6 +3062,11 @@
             ],
             "title": "Description"
           },
+          "detached": {
+            "description": "Its plugin is detached (ADR 0091): its entities can be read, not changed, and no new ones can be made.",
+            "title": "Detached",
+            "type": "boolean"
+          },
           "extends": {
             "anyOf": [
               {
@@ -3182,6 +3187,7 @@
           "description",
           "extends",
           "abstract",
+          "detached",
           "subtypes",
           "hrid_prefix",
           "identity",
@@ -3358,6 +3364,11 @@
             ],
             "title": "Description"
           },
+          "detached": {
+            "description": "Its plugin is detached (ADR 0091): it keeps its value, which can't change.",
+            "title": "Detached",
+            "type": "boolean"
+          },
           "display_offset": {
             "anyOf": [
               {
@@ -3521,6 +3532,7 @@
           "immutable",
           "computed",
           "unique",
+          "detached",
           "link",
           "unit",
           "unit_symbol",
@@ -5781,6 +5793,11 @@
             ],
             "title": "Description"
           },
+          "detached": {
+            "description": "Its plugin is detached (ADR 0091): it keeps its value, which can't change.",
+            "title": "Detached",
+            "type": "boolean"
+          },
           "display_offset": {
             "anyOf": [
               {
@@ -5999,6 +6016,7 @@
           "immutable",
           "computed",
           "unique",
+          "detached",
           "link",
           "unit",
           "unit_symbol",
