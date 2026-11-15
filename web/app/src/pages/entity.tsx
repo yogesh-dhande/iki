@@ -148,6 +148,16 @@ export function Value({
     case "ref": {
       const found = entity.refs[value as string];
       if (!found) return <span className="muted">An entity you can’t read</span>;
+      if (found.purged) {
+        return (
+          <span>
+            <Link to="/entities/$ref/" params={{ ref: found.hrid }}>
+              {found.hrid}
+            </Link>
+            <span className="muted"> (purged)</span>
+          </span>
+        );
+      }
       return (
         <span>
           <Link to="/entities/$ref/" params={{ ref: found.hrid }}>

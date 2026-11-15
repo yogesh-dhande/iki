@@ -20,7 +20,7 @@
 <section class="card" aria-labelledby="report-title">
   <h2 class="section-title" id="report-title">{% if scheduled %}What the purge deletes{% else %}What a purge would delete{% endif %}</h2>
   {% if report.entities %}
-  <p>{{ report.entities }} entit{{ report.entities|pluralize:"y,ies" }}, with their values, history and files’ uses:</p>
+  <p>{{ report.entities }} entit{{ report.entities|pluralize:"y,ies" }}, with their values and history:</p>
   <ul>{% for t in report.types %}<li>{{ t.count }} {{ t.label }} (<code>{{ t.type }}</code>)</li>{% endfor %}</ul>
   {% if report.projects %}
   <p>In {{ report.projects|length }} project{{ report.projects|length|pluralize }}: {% for p in report.projects %}{{ p.team }} / {{ p.name }}{% if p.held %} (on legal hold){% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
@@ -38,12 +38,16 @@
 <section class="card" aria-labelledby="scheduled-title">
   <h2 class="section-title" id="scheduled-title">Purge scheduled</h2>
   <p>{{ scheduled.requested_by.get_full_name }} asked for it on {{ scheduled.requested_at|date:"Y-m-d" }}: “{{ scheduled.reason }}”</p>
-  <p>It runs at the first deploy after {{ scheduled.run_after|date:"Y-m-d" }} whose lockfile sets <code>{{ plugin.name }}</code> to <code>state: purged</code>. A legal hold placed before then stops it.</p>
+  {% if scheduled.tombstoned_at %}
+  <p>Its entities were purged on {{ scheduled.tombstoned_at|date:"Y-m-d" }}, each leaving a tombstone. Their values go at the next deploy whose lockfile sets <code>{{ plugin.name }}</code> to <code>state: purged</code>, which drops its tables.</p>
+  {% else %}
+  <p>On {{ scheduled.run_after|date:"Y-m-d" }}, its entities are purged, each leaving a tombstone; then the next deploy whose lockfile sets <code>{{ plugin.name }}</code> to <code>state: purged</code> drops its tables. A legal hold placed before then stops it.</p>
   <form method="post" data-busy-form>
     {% csrf_token %}
     <input type="hidden" name="action" value="cancel">
     <button class="button" type="submit" data-busy-text="Cancelling…">Cancel the purge</button>
   </form>
+  {% endif %}
 </section>
 {% elif detached %}
 <section class="card card-danger" aria-labelledby="purge-title">

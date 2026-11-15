@@ -351,6 +351,7 @@ def test_new_entities_record_what_they_were_made_from(world: World, s3: Any) -> 
                 "hrid": run["inputs"][0]["hrid"],
                 "type": "protein.Protein",
                 "archived": False,
+                "purged": False,
             },
             "revision": 1,
             "input": "protein",

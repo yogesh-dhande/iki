@@ -152,6 +152,7 @@ describe("a saved view's page", () => {
             title: "pTest",
             type: "dna.DNASequence",
             archived: false,
+            purged: false,
           },
         },
       }),

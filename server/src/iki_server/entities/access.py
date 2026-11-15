@@ -41,11 +41,30 @@ def visible(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousU
 
 
 def visible_of[E: Entity](user: Any, model: type[E]) -> QuerySet[E]:  # noqa: ANN401 - User or AnonymousUser
-    """The entities of a type's model (its subtypes' included) the user can read."""
+    """The entities of a type's model (its subtypes' included) the user can read. A purged
+    entity's tombstone isn't one (ADR 0092): see :func:`tombstones`."""
     links = ProjectLink.objects.filter(
         entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
     )
-    return cast("QuerySet[E]", model._default_manager.filter(Exists(links)))
+    return cast("QuerySet[E]", model._default_manager.filter(Exists(links), purged_at__isnull=True))
+
+
+def traced(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
+    """The entities the user can read, and purged ones they could: lineage goes through
+    a tombstone, which it shows as purged (ADR 0092)."""
+    links = ProjectLink.objects.filter(
+        entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
+    )
+    return Entity.objects.filter(Exists(links))
+
+
+def tombstones(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
+    """What's left of purged entities the user could read (ADR 0092): their HRIDs, types
+    and when, but no values."""
+    links = ProjectLink.objects.filter(
+        entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
+    )
+    return Entity.objects.filter(Exists(links), purged_at__isnull=False)
 
 
 def readable_files(user: Any) -> QuerySet[File]:  # noqa: ANN401 - User or AnonymousUser
@@ -58,7 +77,8 @@ def readable_files(user: Any) -> QuerySet[File]:  # noqa: ANN401 - User or Anony
 def in_project(project: Project) -> QuerySet[Entity]:
     """The entities that belong to `project`: its own, and those linked into it."""
     return Entity.objects.filter(
-        Exists(ProjectLink.objects.filter(entity=OuterRef("pk"), project=project))
+        Exists(ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)),
+        purged_at__isnull=True,
     )
 
 

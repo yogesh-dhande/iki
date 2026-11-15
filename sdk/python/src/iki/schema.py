@@ -952,6 +952,8 @@ class LineageEntityOut(TypedDict):
     archived: bool
     hrid: str
     id: str
+    #: Its plugin's data was purged (ADR 0092).
+    purged: bool
     type: str
 
 
@@ -1004,6 +1006,8 @@ class LineageNodeOut(TypedDict):
     archived: bool
     hrid: str
     id: str
+    #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+    purged: bool
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
@@ -1616,6 +1620,8 @@ class ReadIn(TypedDict):
 class RefOut(TypedDict):
     archived: bool
     hrid: str
+    #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+    purged: bool
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str

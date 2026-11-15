@@ -659,3 +659,60 @@ describe("a detached plugin's data", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("a purged plugin's data", () => {
+  it("names a purged entity it refers to", async () => {
+    onLab();
+    const purged = "00000000-0000-7000-8000-00000000d001";
+    answer(
+      "GET /api/v1/entities/SMP-000001",
+      sample({
+        values: { ...sample().values, source: purged },
+        refs: {
+          [purged]: {
+            hrid: "DNA-000007",
+            title: "DNA-000007",
+            type: "dna.DNASequence",
+            archived: false,
+            purged: true,
+          },
+        },
+      }),
+    );
+    answer("GET /api/v1/entities/SMP-000001/provenance", {});
+    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities", page([]));
+    await renderApp("/entities/SMP-000001/");
+    const link = await screen.findByRole("link", { name: "DNA-000007" });
+    expect(link.parentElement).toHaveTextContent("DNA-000007 (purged)");
+  });
+
+  it("shows what's left of one", async () => {
+    onLab();
+    answer("GET /api/v1/entities/DNA-000007", () =>
+      problem(
+        410,
+        "purged",
+        "DNA-000007 was purged on 2026-12-15, with the rest of the dna plugin’s data.",
+        undefined,
+        {
+          entity: {
+            hrid: "DNA-000007",
+            type: "dna.DNASequence",
+            content_sha256: "ab".repeat(32),
+          },
+        },
+      ),
+    );
+    await renderApp("/entities/DNA-000007/");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "DNA-000007 was purged" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "DNA-000007 was purged on 2026-12-15, with the rest of the dna plugin’s data.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("ab".repeat(32))).toBeInTheDocument();
+  });
+});

@@ -302,6 +302,8 @@ def update(
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
         if locked.revision != expected_revision:
             raise Stale(locked.revision)
+        if locked.purged_at is not None:
+            raise Refused(purged(locked))
         if locked.archived_at is not None:
             raise Refused("The entity is archived: restore it before changing it.")
         form = shape(locked.type)
@@ -400,6 +402,8 @@ def set_archived(
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
         if expected_revision is not None and locked.revision != expected_revision:
             raise Stale(locked.revision)
+        if locked.purged_at is not None:
+            raise Refused(purged(locked))
         if (locked.archived_at is not None) == archived:
             return Saved(_specific(locked))
         why = frozen(shape(locked.type))
@@ -417,6 +421,8 @@ def link(user: User, entity: Entity, project: Project) -> bool:
 
     It changes who can read the entity, so it's audited. Raises :class:`Refused` if the
     entity's own project doesn't allow sharing it (ADR 0067)."""
+    if entity.purged_at is not None:
+        raise Refused(purged(entity))
     why = frozen(shape(entity.type))
     if why:
         raise Refused(why)
@@ -430,6 +436,10 @@ def link(user: User, entity: Entity, project: Project) -> bool:
         if created:
             log.record("entity.linked", actor=user, target=entity, project=project)
     return created
+
+
+def purged(entity: Entity) -> str:
+    return f"{entity.hrid} was purged: only its ID, HRID and type are left (ADR 0092)."
 
 
 def frozen(form: Shape) -> str | None:

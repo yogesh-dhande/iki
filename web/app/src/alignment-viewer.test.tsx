@@ -97,12 +97,14 @@ async function onAlignment(values: Record<string, unknown> = {}, size = FASTA.by
           title: "ABL1 kinase",
           type: "protein.Protein",
           archived: false,
+          purged: false,
         },
         [ABL2]: {
           hrid: "PRT-000002",
           title: "ABL2 kinase",
           type: "protein.Protein",
           archived: false,
+          purged: false,
         },
       },
       files: { [FILE]: { name: "abl.afa", media_type: "text/x-fasta", size } },
@@ -267,12 +269,19 @@ describe("the alignment viewer's parts", () => {
       ],
       [ABL1],
       {
-        [ABL1]: { hrid: "PRT-000001", title: "ABL1", type: "protein.Protein", archived: false },
+        [ABL1]: {
+          hrid: "PRT-000001",
+          title: "ABL1",
+          type: "protein.Protein",
+          archived: false,
+          purged: false,
+        },
         [ABL2]: {
           hrid: "PRT-000009",
           title: "Not listed",
           type: "protein.Protein",
           archived: false,
+          purged: false,
         },
       },
     );

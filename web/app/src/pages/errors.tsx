@@ -23,9 +23,12 @@ export function NotFound() {
 
 export function ErrorPage({ error, reset }: ErrorComponentProps) {
   const status = error instanceof ApiError ? error.status : 0;
-  usePageTitle(status === 403 ? "Not allowed" : "Something went wrong");
+  usePageTitle(status === 403 ? "Not allowed" : status === 410 ? "Purged" : "Something went wrong");
   if (status === 404) {
     return <NotFound />;
+  }
+  if (status === 410) {
+    return <Gone error={error as ApiError} />;
   }
   if (status === 403) {
     return (
@@ -57,6 +60,27 @@ export function ErrorPage({ error, reset }: ErrorComponentProps) {
             Try again
           </button>
         </p>
+      </section>
+    </>
+  );
+}
+
+/** What a purge left of an entity (ADR 0092): its HRID, type and a fingerprint of its values. */
+function Gone({ error }: { error: ApiError }) {
+  const entity = (
+    error.problem as { entity?: { hrid: string; type: string; content_sha256: string | null } }
+  ).entity;
+  return (
+    <>
+      <PageHeader eyebrow={entity?.type} title={entity ? `${entity.hrid} was purged` : "Purged"} />
+      <section className="card">
+        <p>{error.problem.detail}</p>
+        {entity?.content_sha256 ? (
+          <p className="muted">
+            A SHA-256 of its last values, to check an export against:{" "}
+            <code>{entity.content_sha256}</code>
+          </p>
+        ) : null}
       </section>
     </>
   );

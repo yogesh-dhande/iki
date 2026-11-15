@@ -11,6 +11,7 @@ from org_world import World, build_world, post
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import registry, services
+from iki_server.entities.models import Entity, Tombstone
 from iki_server.org import holds
 from iki_server.org.services import Refused
 from iki_server.plugins import purge
@@ -151,3 +152,72 @@ def test_the_plugins_page(world: World, deployed: Callable[..., None]) -> None:
 
     assert world.browser("auditor").get("/settings/plugins/").status_code == 403
     assert admin.get("/settings/plugins/nothing/").status_code == 404
+
+
+# --- Once the wait is over -----------------------------------------------------------------
+
+
+def due(world: World, deployed: Callable[..., None]) -> tuple[list[Any], PluginPurge]:
+    made = sequences(world)
+    deployed(*PLUGINS)
+    scheduled = purge.request(world.users["org_admin"], "dna", "Retention over", "dna")
+    PluginPurge.objects.filter(pk=scheduled.pk).update(run_after=timezone.now())
+    return made, scheduled
+
+
+def test_each_entity_leaves_a_tombstone_that_proves_what_it_was(
+    world: World, deployed: Callable[..., None]
+) -> None:
+    made, scheduled = due(world, deployed)
+    expected = {e.pk: purge.fingerprint(e, services.current_values(e)) for e in made}
+    assert purge.tombstone_due() == 2
+    assert purge.tombstone_due() == 0
+    stones = {t.entity_id: t for t in Tombstone.objects.filter(purge=scheduled)}
+    assert {pk: t.content_sha256 for pk, t in stones.items()} == expected
+    assert all(e.purged_at is not None for e in Entity.objects.filter(pk__in=expected))
+    scheduled.refresh_from_db()
+    assert scheduled.tombstoned_at is not None
+    event = AuditEvent.objects.get(action="plugin.purge_tombstoned")
+    assert event.data == {"plugin": "dna", "entities": 2}
+    with pytest.raises(Refused, match="already purged"):
+        purge.cancel(world.users["org_admin"], scheduled)
+
+
+def test_a_purged_entity_is_gone_but_named(world: World, deployed: Callable[..., None]) -> None:
+    made, _ = due(world, deployed)
+    purge.tombstone_due()
+    api = world.browser("viewer")
+    hrid = made[0].hrid
+    gone = api.get(f"/api/v1/entities/{hrid}")
+    assert gone.status_code == 410
+    body = gone.json()
+    assert body["code"] == "purged"
+    assert body["detail"].startswith(f"{hrid} was purged on ")
+    assert body["entity"]["hrid"] == hrid
+    assert len(body["entity"]["content_sha256"]) == 64
+    # It's in no list, and what referred to it still names it.
+    listed = api.get("/api/v1/entities", {"project": str(world.project.pk)}).json()["items"]
+    assert hrid not in {e["hrid"] for e in listed}
+    (collection,) = [e for e in listed if e["type"] == "core.Collection"]
+    assert collection["refs"][str(made[0].pk)] == {
+        "hrid": hrid,
+        "title": hrid,
+        "type": "dna.DNASequence",
+        "archived": False,
+        "purged": True,
+    }
+    # Outsiders aren't told it existed.
+    assert world.browser("outsider").get(f"/api/v1/entities/{hrid}").status_code == 404
+    with pytest.raises(Refused, match="was purged"):
+        services.set_archived(world.users["editor"], Entity.objects.get(pk=made[0].pk), True)
+
+
+def test_a_hold_placed_during_the_wait_stops_it(
+    world: World, deployed: Callable[..., None]
+) -> None:
+    due(world, deployed)
+    hold = holds.place(world.users["org_admin"], world.project, "Case 24-117")
+    assert purge.tombstone_due() == 0
+    assert not Tombstone.objects.exists()
+    holds.release(world.users["org_admin"], hold)
+    assert purge.tombstone_due() == 2

@@ -98,6 +98,8 @@ class PluginPurge(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    #: Every entity has its tombstone: their values wait for the deploy to drop them.
+    tombstoned_at = models.DateTimeField(null=True, blank=True)
     done_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

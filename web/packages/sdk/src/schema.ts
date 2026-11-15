@@ -4577,6 +4577,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092).
+             */
+            purged: boolean;
             /** Type */
             type: string;
         };
@@ -4685,6 +4690,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.
@@ -5874,6 +5884,11 @@ export interface components {
             archived: boolean;
             /** Hrid */
             hrid: string;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
             /**
              * Title
              * @description What it's called: its type's display title, or its HRID.

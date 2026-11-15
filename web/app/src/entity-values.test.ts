@@ -125,7 +125,13 @@ describe("drafts from values", () => {
   it("names references by their title", () => {
     const source = field({ name: "source", label: "Source", type: "ref", to: "protein.Protein" });
     const refs = {
-      e1: { hrid: "PRT-000001", title: "ABL1 kinase", type: "protein.Protein", archived: false },
+      e1: {
+        hrid: "PRT-000001",
+        title: "ABL1 kinase",
+        type: "protein.Protein",
+        archived: false,
+        purged: false,
+      },
     };
     expect(toDraft(source, "e1", { refs, files: {} })).toEqual({
       id: "e1",

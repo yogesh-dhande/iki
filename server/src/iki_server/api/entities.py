@@ -185,6 +185,9 @@ class RefOut(Schema):
     title: str = Field(description="What it's called: its type's display title, or its HRID.")
     type: str
     archived: bool
+    purged: bool = Field(
+        description="Its plugin's data was purged (ADR 0092): only its HRID and type are left."
+    )
 
 
 class FileRef(Schema):
@@ -516,8 +519,39 @@ def _find(user: User, ref: str) -> Entity:
     except ValueError:
         found = readable.filter(hrid=ref.upper()).first()
     if found is None:
+        _gone(user, ref)
         raise Problem(404, "No such entity, or you can’t read it.")
     return found
+
+
+def _gone(user: User, ref: str) -> None:
+    """Answers 410 for a purged entity the user could read (ADR 0092): its tombstone."""
+    gone = access.tombstones(user).select_related("tombstone__purge")
+    try:
+        found = gone.filter(pk=UUID(ref)).first()
+    except ValueError:
+        found = gone.filter(hrid=ref.upper()).first()
+    if found is None:
+        return
+    stone = getattr(found, "tombstone", None)
+    plugin = stone.purge.plugin if stone is not None else found.type.partition(".")[0]
+    assert found.purged_at is not None  # noqa: S101 - a tombstone has it
+    raise Problem(
+        410,
+        f"{found.hrid} was purged on {found.purged_at:%Y-%m-%d}, with the rest of the "
+        f"{plugin} plugin’s data. Its ID, HRID and type are kept, so what refers to it "
+        "still does.",
+        code="purged",
+        extensions={
+            "entity": {
+                "id": str(found.pk),
+                "hrid": found.hrid,
+                "type": found.type,
+                "purged_at": found.purged_at.isoformat(),
+                "content_sha256": stone.content_sha256 if stone is not None else None,
+            }
+        },
+    )
 
 
 def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
@@ -596,7 +630,19 @@ def _lookup(
             "title": _title(e, shown),
             "type": e.type,
             "archived": e.archived_at is not None,
+            "purged": False,
         }
+    missing = wanted["ref"] - set(refs)
+    if missing:
+        # What a purge left (ADR 0092): the reference still names it, as purged.
+        for e in access.tombstones(user).filter(pk__in=missing):
+            refs[e.pk] = {
+                "hrid": e.hrid,
+                "title": e.hrid,
+                "type": e.type,
+                "archived": e.archived_at is not None,
+                "purged": True,
+            }
     files = (
         {
             pk: {"name": name, "media_type": media_type, "size": size}
@@ -1080,6 +1126,7 @@ class LineageEntityOut(Schema):
     hrid: str
     type: str
     archived: bool
+    purged: bool = Field(description="Its plugin's data was purged (ADR 0092).")
 
 
 class LineageLinkOut(Schema):
@@ -1103,7 +1150,7 @@ def get_lineage(request: HttpRequest, ref: str) -> dict[str, Any]:
     those they made from it. Only entities you can read are listed."""
     me = caller(request)
     entity = _find(me, ref)
-    readable = access.visible(me).values("pk")
+    readable = access.traced(me).values("pk")
     runs = set(visible_runs(me).values_list("pk", flat=True))
 
     def link(row: Lineage, other: Entity) -> dict[str, Any]:
@@ -1113,6 +1160,7 @@ def get_lineage(request: HttpRequest, ref: str) -> dict[str, Any]:
                 "hrid": other.hrid,
                 "type": other.type,
                 "archived": other.archived_at is not None,
+                "purged": other.purged_at is not None,
             },
             "revision": row.parent_revision,
             "input": row.input,
@@ -1196,7 +1244,7 @@ def get_lineage_graph(
     it, and only runs whose project you can read are named."""
     me = caller(request)
     root = _find(me, ref)
-    readable = access.visible(me).values("pk")
+    readable = access.traced(me).values("pk")
     seen: set[Any] = {root.pk}
     rows: dict[int, Lineage] = {}
     capped = False

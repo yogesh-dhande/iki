@@ -469,6 +469,7 @@ def test_entities_name_what_their_values_refer_to(world: World, other: Project) 
             "title": protein["hrid"],
             "type": "protein.Protein",
             "archived": False,
+            "purged": False,
         }
     }
     assert seen["files"] == {

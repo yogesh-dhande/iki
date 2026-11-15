@@ -402,6 +402,7 @@ describe("an entity's page", () => {
             title: "ABL1 kinase",
             type: "protein.Protein",
             archived: false,
+            purged: false,
           },
         },
         files: { [FILE_ID]: { name: "1abc.pdb", media_type: "chemical/x-pdb", size: 52_428_800 } },

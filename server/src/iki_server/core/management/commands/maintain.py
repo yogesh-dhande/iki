@@ -24,6 +24,7 @@ from iki_server.accounts.models import UserSession
 from iki_server.entities import app_drafts
 from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
+from iki_server.plugins import purge
 from iki_server.runs import approvals, artifacts, checkpoints, queue
 from iki_server.tasks import maintenance as task_maintenance
 from iki_server.web import ratelimit
@@ -51,6 +52,7 @@ class Command(BaseCommand):
         checkpoints_deleted = checkpoints.delete_stale()
         drafts = app_drafts.prune()
         detached = queue.end_detached()
+        tombstoned = purge.tombstone_due()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -65,6 +67,7 @@ class Command(BaseCommand):
             deleted_checkpoints=checkpoints_deleted,
             expired_app_drafts=drafts,
             ended_detached_runs=detached,
+            tombstoned_entities=tombstoned,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
@@ -74,5 +77,6 @@ class Command(BaseCommand):
             f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
             f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "
             f"run checkpoint(s) nothing will resume from, deleted {drafts} expired app "
-            f"draft(s), and ended {detached} run(s) of detached plugins."
+            f"draft(s), ended {detached} run(s) of detached plugins, and tombstoned "
+            f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins."
         )

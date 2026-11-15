@@ -49,6 +49,11 @@ class Entity(models.Model):
     #: The latest revision's number. Edits name it, so two people's edits can't cross.
     revision = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(db_default=Now())
+    #: Its plugin's data was purged (ADR 0092): this row is its tombstone, and its values
+    #: are gone. It's in no list or search, and reading it says so.
+    purged_at = models.DateTimeField(
+        null=True, blank=True, db_comment="When its plugin's data was purged (ADR 0092)."
+    )
 
     class Meta:
         db_table = "iki_entity"
@@ -263,3 +268,32 @@ class Revision(models.Model):
 
     def __str__(self) -> str:
         return f"{self.entity_id} r{self.number}"
+
+
+class Tombstone(models.Model):
+    """What a purge keeps of an entity (ADR 0092), besides its core row: the purge that
+    deleted it, and a SHA-256 of its last values, which proves what existed without
+    keeping it. Only ever added to."""
+
+    APPEND_ONLY = True
+
+    entity = models.OneToOneField(
+        Entity, primary_key=True, on_delete=models.PROTECT, related_name="tombstone"
+    )
+    purge = models.ForeignKey("iki_plugins.PluginPurge", on_delete=models.PROTECT, related_name="+")
+    #: Of its last revision's values, as canonical JSON: see ``plugins.purge.fingerprint``.
+    content_sha256 = models.CharField(max_length=64)
+    revision = models.PositiveIntegerField()
+    purged_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_tombstone"
+        db_table_comment = "What a purge keeps of each entity it deleted (ADR 0092)."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(content_sha256__regex=r"^[0-9a-f]{64}$"), name="iki_tombstone_sha256"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Tombstone of {self.entity_id}"
