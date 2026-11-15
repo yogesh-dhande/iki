@@ -34,6 +34,7 @@ import {
   type Shown,
 } from "../alignment";
 import { formatSize, type EntityType } from "../entities";
+import { compared } from "../alignment-compare";
 import { MAX_READ_BYTES, readInWorker, type Reading } from "../reading";
 import { MAX_BATCH } from "../runs";
 import { readStoredFile } from "../stored";
@@ -311,6 +312,12 @@ function AlignmentGrid({
     [all, reference],
   );
   const pinned = reference ? 1 : 0;
+  // Compared with the reference, when there is one: what the others cover, and where they
+  // differ. Clustal's identical columns say little of reads, which cover only part of it.
+  const comparison = useMemo(
+    () => (reference ? compared(alignment.rows, reference.row, alignment.alphabet) : null),
+    [alignment.rows, alignment.alphabet, reference],
+  );
   const top = HEADER + pinned * ROW;
   const length = alignment.length;
 
@@ -466,11 +473,22 @@ function AlignmentGrid({
 
   return (
     <>
-      <p className="muted">
-        {number.format(alignment.rows.length)} rows, {number.format(length)} columns ·{" "}
-        {number.format(alignment.identical)} identical ({percent.format(identity)}) ·{" "}
-        {number.format(alignment.gapped)} with gaps
-      </p>
+      {reference && comparison ? (
+        <p className="muted">
+          {number.format(alignment.rows.length)} rows, {number.format(length)} columns · the others
+          cover {number.format(comparison.covered)} of {labelOf(reference)}’s{" "}
+          {number.format(comparison.residues)} residues (
+          {percent.format(comparison.residues ? comparison.covered / comparison.residues : 0)}) and
+          differ from it at {number.format(comparison.differing)}{" "}
+          {comparison.differing === 1 ? "column" : "columns"}
+        </p>
+      ) : (
+        <p className="muted">
+          {number.format(alignment.rows.length)} rows, {number.format(length)} columns ·{" "}
+          {number.format(alignment.identical)} identical ({percent.format(identity)}) ·{" "}
+          {number.format(alignment.gapped)} with gaps
+        </p>
+      )}
       {referenceHrid && !reference ? (
         <p className="muted">
           Its reference, {referenceHrid}, isn’t one of its rows: no row is headed by its HRID.

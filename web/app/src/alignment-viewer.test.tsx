@@ -130,7 +130,13 @@ describe("the alignment viewer", () => {
     const grid = await screen.findByRole("application", { name: "Alignment of abl.afa" });
     expect(read).toHaveBeenCalledTimes(1);
     expect(new TextDecoder().decode(read.mock.calls[0]?.[0])).toContain(">read_7");
-    expect(screen.getByText(/3 rows, 5 columns · 3 identical \(60%\) · 1 with gaps/)).toBeVisible();
+    // Compared with the reference: PRT-000001 has a gap at its A, read_7 that and an R.
+    expect(
+      screen.getByText(
+        "3 rows, 5 columns · the others cover 5 of PRT-000002’s 5 residues (100%) and differ " +
+          "from it at 2 columns",
+      ),
+    ).toBeVisible();
 
     const reference = within(grid).getByText("Reference").closest(".alignment-label");
     expect(reference).toHaveTextContent("PRT-000002");
@@ -193,6 +199,14 @@ describe("the alignment viewer", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
     expect(screen.queryByRole("link", { name: "Run action on them" })).not.toBeInTheDocument();
+  });
+
+  it("says how alike its columns are, as Clustal counts, without a reference", async () => {
+    await onAlignment({ reference: null });
+    await renderApp("/entities/ALN-000001/viewers/alignment/");
+    expect(
+      await screen.findByText("3 rows, 5 columns · 3 identical (60%) · 1 with gaps"),
+    ).toBeVisible();
   });
 
   it("says when its reference isn't one of its rows", async () => {

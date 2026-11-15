@@ -32,7 +32,10 @@ taken for one. Members and the file are immutable, as a run's result is.
 reference. It pins the reference at the top and can show the others only
 where they differ from it. It draws only what's in view on a canvas, with a
 ruler, the consensus, Clustal's conservation marks and a bar of how much
-each column agrees. Residues are coloured in Clustal X's hues by kind,
+each column agrees. With a reference, its summary says how much of the
+reference the other rows cover and at how many columns they differ from it,
+since reads covering part of it leave no column without a gap; without one,
+it counts identical columns as Clustal does. Residues are coloured in Clustal X's hues by kind,
 where their column agrees with its consensus, or everywhere, or not at all.
 Row labels link to the members, which can be picked to run an action on.
 A cursor moves with the arrow keys and its place is read out, so the
