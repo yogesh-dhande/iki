@@ -12,7 +12,13 @@ def test_the_core_plugin_is_valid_and_strict() -> None:
 
 
 def test_its_types_are_the_builtin_ones() -> None:
-    assert sorted(BUILTIN_TYPES) == ["core.Collection", "core.Entity", "core.Sequence", "core.View"]
+    assert sorted(BUILTIN_TYPES) == [
+        "core.Alignment",
+        "core.Collection",
+        "core.Entity",
+        "core.Sequence",
+        "core.View",
+    ]
     entity = BUILTIN_TYPES["core.Entity"]
     assert entity.abstract
     assert entity.fields == {}
@@ -36,6 +42,19 @@ def test_its_types_are_the_builtin_ones() -> None:
     assert view.fields["target"].immutable
     assert view.fields["viewer"].immutable
     assert view.hrid_prefix == "VIEW"
+    alignment = BUILTIN_TYPES["core.Alignment"]
+    assert set(alignment.fields) == {
+        "name",
+        "description",
+        "reference",
+        "members",
+        "aligned",
+        "method",
+    }
+    assert not alignment.fields["members"].required
+    assert alignment.fields["reference"].immutable
+    assert alignment.hrid_prefix == "ALN"
+    assert alignment.viewers[0].viewer == "alignment"
 
 
 def test_its_version_is_ikis() -> None:

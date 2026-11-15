@@ -66,7 +66,13 @@ export function SavedViewPanel({ view, types }: { view: Entity; types: EntityTyp
   const source: Source | undefined = latest
     ? current.data
     : revision.data
-      ? { title: target.title, values: revision.data.values, files: revision.data.files }
+      ? {
+          title: target.title,
+          values: revision.data.values,
+          files: revision.data.files,
+          refs: revision.data.refs,
+          owner_project: view.owner_project,
+        }
       : undefined;
   const behind = current.data && current.data.revision !== pinned;
   return (

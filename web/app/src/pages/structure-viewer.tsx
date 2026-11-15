@@ -5,11 +5,11 @@
  * view (ADR 0086), it also hands it where the camera was, and asks where it is to save it.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import type { Schemas } from "@ikisci/sdk";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 
-import { iki } from "../api";
 import { formatSize, type EntityType } from "../entities";
+import { readStoredFile } from "../stored";
 import { Loading } from "../ui";
 import { readCamera, type Camera, type Capture } from "../views";
 import type { Source } from "./entity-viewer";
@@ -38,29 +38,6 @@ type State =
 
 /** How long Mol* has to say where its camera is. */
 const CAMERA_TIMEOUT_MS = 5_000;
-
-async function hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** The file's bytes, read from the store with a link Iki signed, and checked against
- * the hash Iki recorded when it was stored. */
-async function readFile(fileId: string, signal: AbortSignal): Promise<ArrayBuffer> {
-  const link = unwrap(
-    await iki.GET("/api/v1/files/{file_id}/content-url", {
-      params: { path: { file_id: fileId } },
-      signal,
-    }),
-  );
-  const response = await fetch(link.url, { signal, credentials: "omit" });
-  if (!response.ok) throw new Error(`The file store answered ${String(response.status)}.`);
-  const bytes = await response.arrayBuffer();
-  if ((await hex(bytes)) !== link.sha256) {
-    throw new Error("What the file store sent isn’t the file Iki stored, so Iki didn’t show it.");
-  }
-  return bytes;
-}
 
 type Message =
   { shown: true } | { failed: string } | { unsupported: "webgl" } | { camera: Camera | null };
@@ -179,7 +156,7 @@ function StructureFrame({
 
   useEffect(() => {
     const abort = new AbortController();
-    readFile(fileId, abort.signal).then(
+    readStoredFile(fileId, abort.signal).then(
       (bytes) => {
         setState({ phase: "starting", bytes });
       },

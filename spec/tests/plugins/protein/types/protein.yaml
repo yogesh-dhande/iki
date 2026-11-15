@@ -10,7 +10,6 @@ on_duplicate: reuse
 fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
   molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }
-  organism: { type: string, max_length: 200, indexed: true }
   lims_id:
     type: string
     max_length: 64

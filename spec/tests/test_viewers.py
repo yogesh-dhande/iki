@@ -26,6 +26,10 @@ fields:
   model: {{ type: file, media_types: [chemical/x-mmcif, chemical/x-pdb] }}
   map: {{ type: file, media_types: [chemical/x-mmcif, application/octet-stream] }}
   anything: {{ type: file }}
+  aligned: {{ type: file, media_types: [chemical/seq-aa-fasta, text/plain] }}
+  members: {{ type: list, items: {{ type: ref, to: core.Sequence }} }}
+  names: {{ type: list, items: {{ type: string }} }}
+  plasmid: {{ type: ref, to: core.Sequence }}
   hydropathy: {{ type: json, schema: {{ type: array, items: {{ type: [number, "null"] }} }} }}
   charge: {{ type: json, schema: {{ type: array, items: {{ type: integer }} }} }}
   labels: {{ type: json, schema: {{ type: array, items: {{ type: string }} }} }}
@@ -150,3 +154,35 @@ def test_a_track_is_a_json_field_of_one_number_per_residue(tmp_path: Path) -> No
     assert codes(made(tmp_path, twice)) == ["viewer-field"]
     structure = "[{ viewer: structure, structure: model, tracks: [{ field: charge }] }]"
     assert codes(made(tmp_path, structure)) == ["schema"]
+
+
+def test_an_alignment_viewer_names_its_file_and_rows(tmp_path: Path) -> None:
+    result = made(
+        tmp_path,
+        "[{ viewer: alignment, alignment: aligned, rows: members, reference: plasmid }]",
+    )
+    assert result.problems == []
+    plugin = result.plugin
+    assert plugin is not None
+    assert plugin.types["acme.Plasmid"].viewers == (
+        Viewer(
+            viewer="alignment",
+            label="Alignment",
+            alignment="aligned",
+            rows="members",
+            reference="plasmid",
+        ),
+    )
+    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+    assert made(tmp_path, "[{ viewer: alignment, alignment: aligned }]").problems == []
+
+
+def test_an_alignment_is_a_fasta_file_and_its_rows_references(tmp_path: Path) -> None:
+    wrong_file = made(tmp_path, "[{ viewer: alignment, alignment: model }]")
+    assert codes(wrong_file) == ["viewer-field"]
+    assert "isn't a file field of FASTA files" in wrong_file.problems[0].message
+    wrong_rows = made(tmp_path, "[{ viewer: alignment, alignment: aligned, rows: names }]")
+    assert codes(wrong_rows) == ["viewer-field"]
+    wrong_reference = made(tmp_path, "[{ viewer: alignment, alignment: aligned, reference: name }]")
+    assert codes(wrong_reference) == ["viewer-field"]
+    assert codes(made(tmp_path, "[{ viewer: alignment, rows: members }]")) == ["schema"]

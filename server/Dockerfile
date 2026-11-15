@@ -10,8 +10,19 @@
 
 ARG PYTHON_IMAGE=python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 ARG NODE_IMAGE=node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
+# The worker's Rust image (worker/Dockerfile), for the web app's parsers.
+ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cbe45ff6425e3ea6e01241de3e14d08e
 
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
+
+# --- The web app's parsers: iki-wasm, Rust built for browsers (ADR 0088) ----
+FROM ${RUST_IMAGE} AS wasm
+WORKDIR /src/worker
+COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
+COPY worker/crates crates
+# rustup checks the target against the release's manifest as it installs it.
+RUN rustup target add wasm32-unknown-unknown \
+ && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release
 
 # --- Web app: the React app the server serves (web/app) ----------------------
 FROM ${NODE_IMAGE} AS web
@@ -28,8 +39,10 @@ COPY web/packages/sdk/package.json web/packages/sdk/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "@ikisci/app..."
 COPY web web
+COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm web/app/wasm/
 # Writes server/src/iki_server/web/static/app and, for the structure viewer's frame, viewers.
-RUN pnpm --filter @ikisci/app build \
+# The parsers are built above, so this builds the rest (`build` would build them too).
+RUN pnpm --filter @ikisci/app build:web \
  && test -f /src/server/src/iki_server/web/static/app/manifest.json \
  && test -f /src/server/src/iki_server/web/static/viewers/manifest.json
 

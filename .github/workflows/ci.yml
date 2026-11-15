@@ -105,6 +105,15 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
+      # Rust builds the web app's parsers (iki-wasm) and iki-worker.
+      - name: Install the pinned Rust toolchain (for the web app and the worker end-to-end tests)
+        if: matrix.rust || matrix.browsers
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: matrix.rust || matrix.browsers
+        with:
+          workspaces: worker
       - name: Build the web app (for the browser tests)
         if: matrix.browsers
         run: |
@@ -141,14 +150,6 @@ jobs:
         with:
           path: ~/.cache/ci-apt
           key: ${{ steps.apt-all.outputs.cache-primary-key }}
-      - name: Install the pinned Rust toolchain (for the worker end-to-end tests)
-        if: matrix.rust
-        working-directory: worker
-        run: rustup show active-toolchain || rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        if: matrix.rust
-        with:
-          workspaces: worker
       - name: Build iki-worker
         if: matrix.rust
         working-directory: worker
@@ -183,6 +184,15 @@ jobs:
           cache: pnpm
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
+      # The app's parsers are Rust built for browsers (iki-wasm): its tests and build use them.
+      - name: Install the pinned Rust toolchain
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: worker
+      - name: Build the parsers
+        run: pnpm --filter @ikisci/app build:wasm
       - name: ESLint
         run: pnpm lint
       - name: Prettier

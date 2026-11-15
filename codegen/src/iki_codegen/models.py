@@ -71,7 +71,7 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
     if imports:
         out.append("\n" + "".join(f"import {naming.package(name)}.models\n" for name in imports))
     for entity_type in _in_order(plugin):
-        out.extend(_type(entity_type, plugin))
+        out.extend(_type(entity_type, plugin, {**types, **plugin.types}))
     for extension in sorted(plugin.extensions, key=lambda e: e.extends_type):
         out.extend(_extension(extension, types))
     return "".join(out).rstrip() + "\n"
@@ -134,12 +134,21 @@ class _Model:
         return "\n".join(lines) + "\n"
 
 
-def _type(t: EntityType, plugin: Plugin) -> list[str]:
+def _links(name: str, types: Mapping[str, EntityType]) -> list[str]:
+    """The parent links along a type's ancestry, from the top down: its own last."""
+    t = types.get(name)
+    if t is None or t.extends is None or t.extends == "core.Entity":
+        return []
+    above = _links(t.extends, types)
+    return [*above, naming.parent_link(t.extends, above)]
+
+
+def _type(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> list[str]:
     if t.extends is None or t.extends == "core.Entity":
         base, link_name, link_to = "Entity", "entity", "Entity"
     else:
         base = _class_ref(t.extends, plugin.name)
-        link_name, link_to = naming.parent_link(t.extends), base
+        link_name, link_to = _links(t.qualified_name, types)[-1], base
     description = f" {t.description}" if t.description else ""
     model = _Model(
         name=t.name,

@@ -2583,6 +2583,34 @@ export interface components {
              */
             software: string | null;
         };
+        /** AlignmentViewerOut */
+        AlignmentViewerOut: {
+            /**
+             * Alignment
+             * @description The file field holding the alignment, as FASTA.
+             */
+            alignment: string;
+            /**
+             * Label
+             * @description What its tab is called.
+             */
+            label: string;
+            /**
+             * Reference
+             * @description A reference field naming the sequence the others were aligned to, which is shown first, or null.
+             */
+            reference: string | null;
+            /**
+             * Rows
+             * @description A list field of references to the sequences in Iki it aligns, or null. A row whose FASTA header is one's HRID links to it; others, such as reads, are named by their headers.
+             */
+            rows: string | null;
+            /**
+             * @description `alignment`: aligned sequences, a row each. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            viewer: "alignment";
+        };
         /** ApprovalCan */
         ApprovalCan: {
             /**
@@ -3810,7 +3838,7 @@ export interface components {
              * Viewers
              * @description Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.
              */
-            viewers: (components["schemas"]["SequenceViewerOut"] | components["schemas"]["StructureViewerOut"])[];
+            viewers: (components["schemas"]["SequenceViewerOut"] | components["schemas"]["StructureViewerOut"] | components["schemas"]["AlignmentViewerOut"])[];
         };
         /** EnvironmentVolumesOut */
         EnvironmentVolumesOut: {

@@ -21,6 +21,106 @@ from iki_server.entities.models import Entity
 from iki_server.files.models import File
 
 
+class Alignment(Entity):
+    """Alignment (core.Alignment), schema version 1. Sequences aligned, as aligned FASTA, with the ones in Iki linked."""
+
+    IKI_TYPE = 'core.Alignment'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=200, db_index=True)
+    description = models.TextField(null=True)
+    reference = models.ForeignKey('Sequence', models.PROTECT, related_name='+', null=True)
+    aligned = models.ForeignKey(File, models.PROTECT, related_name='+')
+    method = models.CharField(max_length=500, null=True)
+
+    class Meta:
+        db_table = 'core_alignment'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='core_alignment__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='core_alignment__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('description'), 1),
+                name='core_alignment__description__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=LessThanOrEqual(Length('description'), 10000),
+                name='core_alignment__description__max_length',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('method'), 1),
+                name='core_alignment__method__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(method__regex='[\\r\\n]'),
+                name='core_alignment__method__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['name'],
+                opclasses=['gin_trgm_ops'],
+                name='name_trgm_19f19fe97c8704149aaa',
+            ),
+            GinIndex(
+                SearchVector('description', config='simple'),
+                name='descriptio_fts_44ec61a8e166f61',
+            ),
+        ]
+
+
+class Alignment_History(models.Model):
+    """The history of core_alignment: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Alignment'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    description = models.TextField(null=True)
+    reference = models.UUIDField(db_column='reference_id', null=True)
+    members = ArrayField(models.UUIDField(), null=True)
+    aligned = models.UUIDField(db_column='aligned_id', null=True)
+    method = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'core_alignment__history'
+
+
+class Alignment_members(models.Model):
+    """The items of core.Alignment.members, in order."""
+
+    IKI_LIST_OF = ('Alignment', 'members')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey('Alignment', models.CASCADE, db_column='entity_id', related_name='+')
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey('Sequence', models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'core_alignment__members'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(position__lt=10000),
+                name='core_alignment__members__position__max_items',
+            ),
+        ]
+
+
 class Collection(Entity):
     """Collection (core.Collection), schema version 1. A named set of entities, listed one by one or found by a search."""
 
@@ -195,7 +295,7 @@ class Sequence_History(models.Model):
 
 
 class View(Entity):
-    """View (core.View), schema version 1. A saved look at an entity in one of Iki's viewers, at the revision it showed."""
+    """View (core.View), schema version 2. A saved look at an entity in one of Iki's viewers, at the revision it showed."""
 
     IKI_TYPE = 'core.View'
 
@@ -238,7 +338,7 @@ class View(Entity):
                 name='core_view__target_revision__min',
             ),
             models.CheckConstraint(
-                condition=Q(viewer__in=['sequence', 'structure']),
+                condition=Q(viewer__in=['sequence', 'structure', 'alignment']),
                 name='core_view__viewer__values',
             ),
         ]

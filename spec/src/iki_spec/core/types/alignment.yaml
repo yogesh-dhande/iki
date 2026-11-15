@@ -1,0 +1,51 @@
+# An alignment of sequences: a pairwise or multiple alignment, or reads
+# aligned to a reference, that a run made (or someone brought in), kept as a
+# result with its history and lineage. `aligned` holds it as FASTA. A row whose
+# header is the HRID of one of its `members` is that entity; other rows, such
+# as sequencing reads, are named by their headers. `reference`, if it has one,
+# is the sequence the others were aligned to. Iki's alignment viewer draws it
+# (ADR 0088).
+apiVersion: iki/v1
+kind: EntityType
+name: Alignment
+label: Alignment
+label_plural: Alignments
+schema_version: 1
+description: Sequences aligned, as aligned FASTA, with the ones in Iki linked.
+hrid: { prefix: ALN }
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  description: { type: text, max_length: 10000 }
+  reference:
+    type: ref
+    to: core.Sequence
+    immutable: true
+    description: >-
+      The sequence the others were aligned to, such as the plasmid a construct
+      should be, or a reference protein.
+  members:
+    type: list
+    label: Sequences
+    description: >-
+      The sequences in Iki that it aligns: each is the row headed by its HRID.
+      Rows that aren't sequences in Iki, such as reads, aren't listed.
+    items: { type: ref, to: core.Sequence }
+    max_items: 10000
+    immutable: true
+  aligned:
+    type: file
+    label: Aligned sequences
+    description: >-
+      The alignment as FASTA, a record per row with gaps as -: a sequence in
+      Iki is headed by its HRID, anything else by its own name.
+    media_types: [chemical/seq-aa-fasta, chemical/seq-na-fasta, text/plain]
+    max_size: 1GiB
+    required: true
+    immutable: true
+  method:
+    type: string
+    max_length: 500
+    description: How it was aligned, such as MAFFT 7.526 (--auto).
+display:
+  title: "{{ name }}"
+  viewers: [{ viewer: alignment, alignment: aligned, rows: members, reference: reference }]

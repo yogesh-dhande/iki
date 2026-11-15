@@ -65,7 +65,7 @@ def _pointed(pointer: str, detail: str) -> str:
 
 
 #: What each viewer keeps in a view's state, besides its version.
-VIEW_STATE = {"sequence": {"feature"}, "structure": {"camera"}}
+VIEW_STATE = {"sequence": {"feature"}, "structure": {"camera"}, "alignment": {"position"}}
 
 
 def _view(user: User, values: Mapping[str, Any]) -> Errors:

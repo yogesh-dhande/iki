@@ -1,7 +1,7 @@
 /**
  * Iki's own viewers on an entity's page, as its type configures them: the sequence
- * viewer, with the sequence's features and its tracks of per-residue values along it, and
- * the structure viewer.
+ * viewer, with the sequence's features and its tracks of per-residue values along it, the
+ * structure viewer, and the alignment viewer.
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -33,6 +33,7 @@ import {
 import { buttonClass } from "../ui";
 import type { Capture, FeatureRef, ViewState } from "../views";
 import { EntityTabs, useEntity } from "./entity";
+import { AlignmentViewer } from "./alignment-viewer";
 import { NotFound } from "./errors";
 import { SavedViews } from "./saved-views";
 import { StructureViewer } from "./structure-viewer";
@@ -53,6 +54,9 @@ export interface Source {
   title: string;
   values: Record<string, unknown>;
   files: Entity["files"];
+  refs: Entity["refs"];
+  /** The project to run actions in on what the viewer picks, if there's one. */
+  owner_project?: Entity["owner_project"] | undefined;
 }
 
 export function EntityViewer() {
@@ -88,6 +92,17 @@ export function ViewerBody({
   state?: ViewState | undefined;
   onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
+  if (viewer.viewer === "alignment") {
+    return (
+      <AlignmentViewer
+        source={source}
+        type={type}
+        viewer={viewer}
+        position={state?.position}
+        onCapture={onCapture}
+      />
+    );
+  }
   return viewer.viewer === "structure" ? (
     <StructureViewer
       source={source}

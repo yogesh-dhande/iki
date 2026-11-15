@@ -110,8 +110,8 @@
       "required": ["viewer"],
       "properties": {
         "viewer": {
-          "description": "Which viewer. `sequence`: the sequence, with its features and tracks along it. `structure`: a 3D structure, in Mol*.",
-          "enum": ["sequence", "structure"]
+          "description": "Which viewer. `sequence`: the sequence, with its features and tracks along it. `structure`: a 3D structure, in Mol*. `alignment`: aligned sequences, a row each.",
+          "enum": ["sequence", "structure", "alignment"]
         },
         "label": {
           "description": "The tab's name. The viewer's own name if left out, such as Sequence.",
@@ -179,6 +179,35 @@
               "label": true,
               "structure": {
                 "description": "The field it shows: a file field whose media types are chemical/x-mmcif or chemical/x-pdb, or both.",
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "viewer": {
+                "const": "alignment"
+              }
+            }
+          },
+          "then": {
+            "required": ["viewer", "alignment"],
+            "properties": {
+              "viewer": true,
+              "label": true,
+              "alignment": {
+                "description": "The field it shows: a file field of aligned FASTA, whose media types are chemical/seq-aa-fasta, chemical/seq-na-fasta or text/plain.",
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              },
+              "rows": {
+                "description": "A list of references to the sequences in Iki it aligns. A row whose FASTA header is one's HRID links to it; others, such as reads, are named by their headers.",
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              },
+              "reference": {
+                "description": "A reference to the sequence the others were aligned to, which the viewer shows first and can compare the others with.",
                 "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
               }
             },

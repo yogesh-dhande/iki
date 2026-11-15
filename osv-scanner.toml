@@ -87,6 +87,11 @@ name = "iki-worker"
 ecosystem = "crates.io"
 license.override = ["Apache-2.0"]
 
+[[PackageOverrides]]
+name = "iki-wasm"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
 # --- License exceptions --------------------------------------------------------
 # psycopg (LGPL-3.0) is the PostgreSQL driver Django supports; there is no
 # non-LGPL alternative. Iki uses it unmodified as a dynamically imported

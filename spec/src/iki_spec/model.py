@@ -201,11 +201,14 @@ class Track:
 class Viewer:
     """One of Iki's own viewers on a type's pages, and the fields it shows (``display``)."""
 
-    viewer: str  # "sequence" or "structure"
+    viewer: str  # "sequence", "structure" or "alignment"
     label: str
     sequence: str = ""  # a string field with a sequence format
     features: str = ""  # a json field of regions along it, or ""
     structure: str = ""  # a file field of mmCIF or PDB files
+    alignment: str = ""  # a file field of aligned FASTA
+    rows: str = ""  # a list of refs to the sequences it aligns, rows headed by their HRIDs
+    reference: str = ""  # a ref to the sequence the others were aligned to, or ""
     tracks: tuple[Track, ...] = ()  # the sequence viewer's per-residue values
 
 

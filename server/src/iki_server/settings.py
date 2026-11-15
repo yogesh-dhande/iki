@@ -267,11 +267,14 @@ SECURE_CSP = {
     "form-action": [CSP.SELF],
     # Plugins' components, in sandboxed frames of their own (ADR 0084).
     "frame-src": [CSP.SELF],
+    # The web app's Web Workers, such as iki-wasm's parsers (ADR 0088).
+    "worker-src": [CSP.SELF],
     "frame-ancestors": [CSP.NONE],
     "base-uri": [CSP.NONE],
     "object-src": [CSP.NONE],
     "require-trusted-types-for": ["'script'"],
-    "trusted-types": [CSP.NONE],
+    # The one policy the app makes: it creates its workers, from its own scripts only.
+    "trusted-types": ["iki-workers"],
     "upgrade-insecure-requests": HTTPS,
     "report-uri": ["/csp-report/"],
     "report-to": ["csp"],

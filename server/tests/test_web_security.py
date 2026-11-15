@@ -32,7 +32,7 @@ def test_pages_get_a_strict_content_security_policy(client: Browser) -> None:
     assert csp["base-uri"] == ["'none'"]
     assert csp["object-src"] == ["'none'"]
     assert csp["require-trusted-types-for"] == ["'script'"]
-    assert csp["trusted-types"] == ["'none'"]
+    assert csp["trusted-types"] == ["iki-workers"]
     assert "upgrade-insecure-requests" in csp
     assert csp["report-to"] == ["csp"]
     for values in csp.values():

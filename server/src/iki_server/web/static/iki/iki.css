@@ -798,6 +798,169 @@ input:focus-visible {
   outline-offset: -1px;
 }
 
+/* The alignment viewer: residues coloured by kind, in Clustal X's hues, light enough in the
+   light theme (and dark enough in the dark one) for their letters to read on them. */
+:root {
+  --residue-hydrophobic: #a8c1f5;
+  --residue-positive: #f5a39b;
+  --residue-negative: #dfa3df;
+  --residue-polar: #92dc92;
+  --residue-cysteine: #f5bcbc;
+  --residue-glycine: #f5c096;
+  --residue-proline: #dede7a;
+  --residue-aromatic: #86d4d4;
+  --residue-text: #16202c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --residue-hydrophobic: #2c4a85;
+    --residue-positive: #8a2f27;
+    --residue-negative: #74307a;
+    --residue-polar: #22662c;
+    --residue-cysteine: #874848;
+    --residue-glycine: #87521f;
+    --residue-proline: #636316;
+    --residue-aromatic: #1b6262;
+    --residue-text: #e7ecf1;
+  }
+}
+
+.alignment-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.alignment-go {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.alignment-go input {
+  width: 7rem;
+}
+
+.alignment-scroll {
+  position: relative;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overscroll-behavior: contain;
+}
+
+.alignment-scroll:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.alignment-space {
+  position: relative;
+}
+
+/* The canvas stays in view as the alignment scrolls under it. */
+.alignment-canvas {
+  position: sticky;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+.alignment-canvas canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}
+
+.alignment-labels {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+
+.alignment-corner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.alignment-corner > span {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0.5rem;
+  font-size: 0.7rem;
+}
+
+.alignment-label {
+  position: absolute;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.alignment-label > span,
+.alignment-label > a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alignment-label input {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
+.alignment-label-pinned {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.alignment-pin {
+  flex: none;
+  margin-left: auto;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.alignment-at {
+  min-height: 1.5rem;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.875rem;
+}
+
+.alignment-select {
+  margin: 0 0 0.75rem;
+}
+
+.alignment-records {
+  font-size: 0.875rem;
+}
+
 /* The structure viewer: Mol*, in a sandboxed frame of Iki's own (ADR 0085). */
 .structure-file {
   margin: 0 0 0.75rem;

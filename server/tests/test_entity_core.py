@@ -62,6 +62,8 @@ def test_creating_makes_revision_one_with_history(lab: dict[str, Any]) -> None:
     assert revision.user == lab["alice"]
     assert services.current_values(entity) == {
         "name": "pUC19",
+        "description": None,
+        "organism": None,
         "bases": "ACGT",
         "topology": "linear",
         "length": None,

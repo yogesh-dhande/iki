@@ -168,7 +168,11 @@ def test_makemigrations_needs_dependencies(plugins: Path) -> None:
 def test_check_fails_when_manifests_change(plugins: Path) -> None:
     made("dna", "--no-input", cwd=plugins)
     types = plugins / "dna" / "types" / "sequence.yaml"
-    types.write_text(types.read_text().replace("  name:", "  note: { type: text }\n  name:"))
+    types.write_text(
+        types.read_text().replace(
+            "extends: core.Sequence\n", "extends: core.Sequence\nfields:\n  note: { type: text }\n"
+        )
+    )
     result = iki("plugin", "makemigrations", "dna", "--check", cwd=plugins)
     assert result.returncode == 1
     assert "+ Add field note to sequence" in result.stdout
@@ -309,12 +313,14 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:4] == [
-        # The core plugin's collections, which every deployment has.
+    assert report.splitlines()[:6] == [
+        # The core plugin's alignments, collections and views, which every deployment has.
+        "  HRID sequence iki_hrid_aln",
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
         "  HRID sequence iki_hrid_prt",
         "  HRID sequence iki_hrid_pst",
+        "  HRID sequence iki_hrid_view",
     ]
     assert sync(out, database) == report  # idempotent
     result = orm(
@@ -399,11 +405,10 @@ def test_history_is_append_only_for_every_role(migrated: Path, database: str) ->
     migrate(out, database)
     with psycopg.connect(database, autocommit=True) as connection:
         connection.execute(
-            "INSERT INTO dna_sequence__history (entity_id, revision, name) "
-            "VALUES (gen_random_uuid(), 1, 'a')"
+            "INSERT INTO dna_sequence__history (entity_id, revision) VALUES (gen_random_uuid(), 1)"
         )
         for statement in (
-            "UPDATE dna_sequence__history SET name = 'b'",
+            "UPDATE dna_sequence__history SET revision = 2",
             "DELETE FROM dna_sequence__history",
             "TRUNCATE dna_sequence__history",
         ):
@@ -424,6 +429,8 @@ def test_an_analyst_role_reads_only_the_views(migrated: Path, database: str) -> 
         with psycopg.connect(database) as connection:
             connection.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role)))
             assert connection.execute("SELECT count(*) FROM iki_views.dna_dnasequence").fetchall()
+            # Core types too, and the core tables plugins' types extend (core.Sequence).
+            assert connection.execute("SELECT count(*) FROM iki_views.core_alignment").fetchall()
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("SELECT * FROM iki_audit_event")
     finally:
@@ -439,7 +446,7 @@ def test_an_analyst_role_reads_only_the_views(migrated: Path, database: str) -> 
 VIOLATIONS = {
     "bases": ("DNASequence", {"bases": "ACGU"}, "dna_dnasequence__bases__format"),
     "empty": ("DNASequence", {"bases": ""}, "dna_dnasequence__bases__not_empty"),
-    "two lines": ("DNASequence", {"name": "pUC\n19"}, "dna_sequence__name__one_line"),
+    "two lines": ("DNASequence", {"name": "pUC\n19"}, "core_sequence__name__one_line"),
     "topology": ("DNASequence", {"topology": "knotted"}, "dna_dnasequence__topology__values"),
     "gc": ("DNASequence", {"gc_content": 101.0}, "dna_dnasequence__gc_content__max"),
     "nan": ("DNASequence", {"gc_content": "nan"}, "dna_dnasequence__gc_content__finite"),

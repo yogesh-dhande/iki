@@ -1,7 +1,8 @@
 /**
  * Views (core.View, ADR 0086): a saved look at an entity in one of Iki's viewers, at the
  * revision it showed. Each viewer keeps its own part of the state: the sequence viewer the
- * feature it showed, the structure viewer where the camera was. `version` says which
+ * feature it showed, the structure viewer where the camera was, the alignment viewer the
+ * residue its cursor was on. `version` says which
  * shape the state is, so views saved now keep opening as the viewers grow.
  */
 
@@ -33,10 +34,17 @@ export interface Camera {
   mode?: "perspective" | "orthographic";
 }
 
+/** Where the alignment viewer's cursor was: a column and a row of the file, from 1. */
+export interface Position {
+  column: number;
+  row: number;
+}
+
 export interface ViewState {
   version: 1;
   feature?: FeatureRef;
   camera?: Camera;
+  position?: Position;
 }
 
 /** What a viewer shows now, as a view would save it. */
@@ -78,13 +86,30 @@ function readFeature(value: unknown): FeatureRef | null {
   };
 }
 
+function readPosition(value: unknown): Position | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { column, row } = value as Record<string, unknown>;
+  return Number.isInteger(column) &&
+    Number.isInteger(row) &&
+    (column as number) >= 1 &&
+    (row as number) >= 1
+    ? { column: column as number, row: row as number }
+    : null;
+}
+
 /** A view's state, as far as this version of Iki reads it. */
 export function readViewState(value: unknown): ViewState {
   if (typeof value !== "object" || value === null) return { version: 1 };
   const v = value as Record<string, unknown>;
   const feature = readFeature(v["feature"]);
   const camera = readCamera(v["camera"]);
-  return { version: 1, ...(feature ? { feature } : {}), ...(camera ? { camera } : {}) };
+  const position = readPosition(v["position"]);
+  return {
+    version: 1,
+    ...(feature ? { feature } : {}),
+    ...(camera ? { camera } : {}),
+    ...(position ? { position } : {}),
+  };
 }
 
 /** The saved views of an entity in a viewer, newest first. */

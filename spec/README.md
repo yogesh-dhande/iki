@@ -561,10 +561,11 @@ display:
     - { viewer: sequence, sequence: residues, tracks: [{ field: hydropathy }] }
 ```
 
-| Viewer      | Fields                                                                                                                                                                                                                                                                |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sequence`  | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. `tracks` (optional): json fields of one number per residue, each with an optional `label`. |
-| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                                                                                                                       |
+| Viewer      | Fields                                                                                                                                                                                                                                                                  |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence`  | `sequence`: a string with format `dna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. `tracks` (optional): json fields of one number per residue, each with an optional `label`.   |
+| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                                                                                                                         |
+| `alignment` | `alignment`: a file field whose `media_types` are FASTA (`chemical/seq-aa-fasta`, `chemical/seq-na-fasta`, `text/plain`). `rows` (optional): a list of references, the sequences headed by their HRIDs. `reference` (optional): a reference, the row pinned at the top. |
 
 The sequence viewer shows the residues in rows of 60, in groups of 10, with
 each feature as a bar under the residues it covers, coloured by its kind and
@@ -573,7 +574,11 @@ feature whose end comes before its start wraps the origin of a circular
 sequence. Each track is drawn under the residues, a bar per residue above or
 below a baseline, on a scale from its field's schema's `minimum` and
 `maximum` if it gives them (ADR 0087). The structure viewer shows the file
-in Mol\*, in a sandboxed frame with no network (ADR 0085). `label` names the
+in Mol\*, in a sandboxed frame with no network (ADR 0085). The alignment
+viewer reads the file with iki-wasm in a Web Worker and draws what's in
+view: the reference pinned, a consensus and how much each column agrees,
+and the rows linked to the sequences they are, to pick and run an action
+on (ADR 0088). `label` names the
 tab. The validator checks that each field exists and is what its viewer
 shows, and that each viewer is given once.
 
@@ -619,7 +624,7 @@ A plugin lists the plugins whose types it uses, with the schema versions it
 works with. To check those references, pass the dependencies' directories
 with `--with`. Without them, the validator says it can't check them rather
 than guessing. Core types (`core.Entity`, `core.Sequence`, `core.Collection`,
-`core.View`)
+`core.View`, `core.Alignment`)
 need no dependency.
 
 ## The core plugin
@@ -634,6 +639,12 @@ declaring a dependency, and no other plugin can be named `core`:
 - `core.Collection`: a named set of entities. A static collection lists its
   `members`; a dynamic one has a `search`, run as whoever reads it
   ([ADR 0038](../docs/adr/0038-core-plugin-app-and-collections.md)).
+- `core.Alignment`: sequences aligned, as FASTA in `aligned`. Its `members`
+  are the sequences in Iki it aligns, each the row headed by its HRID; other
+  rows, such as reads, go by their own names. Its `reference`, if it has
+  one, is the sequence the others were aligned to. Iki's alignment viewer
+  draws it
+  ([ADR 0088](../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
 - `core.View`: a saved look at an entity in one of Iki's viewers, pinned to
   the revision it showed: its `target`, `target_revision`, `viewer`, and the
   viewer's `state`

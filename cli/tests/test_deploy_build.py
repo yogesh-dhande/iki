@@ -345,7 +345,7 @@ def test_migrations_must_be_complete(
     types = repo / "plugins/dna/types/sequence.yaml"
     types.write_text(
         types.read_text().replace(
-            "  name: { type: string", "  notes: { type: text }\n  name: { type: string"
+            "extends: core.Sequence\n", "extends: core.Sequence\nfields:\n  notes: { type: text }\n"
         )
     )
     git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qam", "notes")

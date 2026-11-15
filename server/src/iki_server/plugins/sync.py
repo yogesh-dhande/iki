@@ -137,7 +137,9 @@ def _column(model: type[models.Model], name: str) -> str:
 def _tables() -> Iterable[tuple[str, type[models.Model], dict[str, Field], str]]:
     """(plugin, model, fields, description) for every type's and extension's own table."""
     for t in registry.types().values():
-        if t.plugin == "core":
+        # The core plugin's types are generated like any plugin's, but core.Entity is
+        # the server's own model.
+        if t.qualified_name == "core.Entity":
             continue
         described = f"{t.label} ({t.qualified_name}), schema version {t.schema_version}."
         yield t.plugin, _type_model(t), t.fields, _sentence(described, t.description)
@@ -239,7 +241,7 @@ def _views(cursor: Any) -> list[str]:  # noqa: ANN401 - Django's cursor
     drop_views(cursor)
     made = []
     for t in sorted(registry.types().values(), key=lambda t: t.qualified_name):
-        if t.plugin == "core":
+        if t.qualified_name == "core.Entity":
             continue
         name, select, comments = _view(t)
         cursor.execute(

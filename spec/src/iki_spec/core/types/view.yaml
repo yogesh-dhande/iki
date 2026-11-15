@@ -9,7 +9,7 @@ kind: EntityType
 name: View
 label: View
 label_plural: Views
-schema_version: 1
+schema_version: 2
 description: A saved look at an entity in one of Iki's viewers, at the revision it showed.
 hrid: { prefix: VIEW }
 fields:
@@ -30,7 +30,7 @@ fields:
     description: The revision of the entity it shows.
   viewer:
     type: enum
-    values: [sequence, structure]
+    values: [sequence, structure, alignment]
     required: true
     immutable: true
     description: Which of Iki's viewers shows it, as the entity's type configures it.
@@ -39,7 +39,8 @@ fields:
     required: true
     description: >-
       What the viewer showed, as that viewer saves it: for the sequence viewer,
-      the feature it showed; for the structure viewer, where the camera was.
+      the feature it showed; for the structure viewer, where the camera was;
+      for the alignment viewer, the first column and row it showed.
       `version` says which shape it is, so older views keep opening.
     schema:
       type: object
@@ -67,4 +68,11 @@ fields:
             fov: { type: number, exclusiveMinimum: 0, maximum: 3.2 }
             radius: { type: number, minimum: 0 }
             mode: { enum: [perspective, orthographic] }
+        position:
+          type: object
+          required: [column, row]
+          additionalProperties: false
+          properties:
+            column: { type: integer, minimum: 1 }
+            row: { type: integer, minimum: 1 }
 display: { title: "{{ name }}" }

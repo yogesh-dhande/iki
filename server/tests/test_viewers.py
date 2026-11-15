@@ -83,3 +83,22 @@ def test_viewers_code_is_for_frames_of_no_origin_too() -> None:
     others: dict[str, str] = {}
     static_headers.add_headers(others, "/x/app/assets/main-1.js", "/static/app/assets/main-1.js")
     assert others == {}
+
+
+def test_the_apps_workers_run_under_a_policy_of_their_own() -> None:
+    headers: dict[str, str] = {}
+    static_headers.add_headers(
+        headers,
+        "/x/app/assets/worker-reader-1.js",
+        "/static/app/assets/worker-reader-1.js",
+    )
+    csp = headers["Content-Security-Policy"]
+    assert "default-src 'none'" in csp
+    assert "script-src 'self' 'wasm-unsafe-eval'" in csp
+    assert "connect-src 'self'" in csp
+    assert "'unsafe-eval'" not in csp.replace("'wasm-unsafe-eval'", "")
+    maps: dict[str, str] = {}
+    static_headers.add_headers(
+        maps, "/x/app/assets/worker-reader-1.js.map", "/static/app/assets/worker-reader-1.js.map"
+    )
+    assert maps == {}

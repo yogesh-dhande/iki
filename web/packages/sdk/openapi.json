@@ -317,6 +317,59 @@
         "title": "AgentReportedOut",
         "type": "object"
       },
+      "AlignmentViewerOut": {
+        "properties": {
+          "alignment": {
+            "description": "The file field holding the alignment, as FASTA.",
+            "title": "Alignment",
+            "type": "string"
+          },
+          "label": {
+            "description": "What its tab is called.",
+            "title": "Label",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A reference field naming the sequence the others were aligned to, which is shown first, or null.",
+            "title": "Reference"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A list field of references to the sequences in Iki it aligns, or null. A row whose FASTA header is one's HRID links to it; others, such as reads, are named by their headers.",
+            "title": "Rows"
+          },
+          "viewer": {
+            "const": "alignment",
+            "description": "`alignment`: aligned sequences, a row each.",
+            "title": "Viewer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "viewer",
+          "label",
+          "alignment",
+          "rows",
+          "reference"
+        ],
+        "title": "AlignmentViewerOut",
+        "type": "object"
+      },
       "ApprovalCan": {
         "properties": {
           "decide": {
@@ -2767,6 +2820,7 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "alignment": "#/components/schemas/AlignmentViewerOut",
                   "sequence": "#/components/schemas/SequenceViewerOut",
                   "structure": "#/components/schemas/StructureViewerOut"
                 },
@@ -2778,6 +2832,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/StructureViewerOut"
+                },
+                {
+                  "$ref": "#/components/schemas/AlignmentViewerOut"
                 }
               ]
             },

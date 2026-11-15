@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from iki_spec import schemas
+from iki_spec import naming, schemas
 from iki_spec.model import FORMATS, Field, matches_format, parse_size
 from iki_spec.problems import Location, Severity
 from iki_spec.validate import (
@@ -611,7 +611,7 @@ def test_core_entity_needs_no_dependency(tmp_path: Path) -> None:
     assert make(tmp_path, fields("x: { type: ref, to: core.Collection }\n")).problems == []
     result = make(tmp_path, fields("x: { type: ref, to: core.Sample }\n"))
     provides = (
-        "In this version, core provides "
+        "In this version, core provides `core.Alignment`, "
         "`core.Collection`, `core.Entity`, `core.Sequence`, `core.View`."
     )
     assert provides in only(result, "unknown-type")
@@ -728,7 +728,7 @@ def test_extensions(tmp_path: Path) -> None:
 def test_extension_fields_cant_clash_with_the_types(tmp_path: Path) -> None:
     result = make(tmp_path, extension("name: { type: string }\n"), DNA_PIN, with_=(DNA,))
     message = only(result, "extension-field-conflict")
-    assert message == "`name` is already a field of `dna.DNASequence` (from `dna.Sequence`)."
+    assert message == "`name` is already a field of `dna.DNASequence` (from `core.Sequence`)."
     assert result.problems[0].hint == "Choose another name, for example `acme_name`."
 
 
@@ -826,6 +826,13 @@ def test_removed_fields(tmp_path: Path) -> None:
 
 def test_parent_link_names_are_reserved(tmp_path: Path) -> None:
     assert codes(make(tmp_path, fields("sequence_ptr: { type: int }\n"))) == ["reserved-name"]
+
+
+def test_a_type_named_like_its_ancestor_links_with_its_plugin() -> None:
+    # dna.Sequence's row links to core.Sequence's as `sequence_ptr`, so DNASequence's own
+    # link to dna.Sequence can't be called that too.
+    assert naming.parent_link("core.Sequence") == "sequence_ptr"
+    assert naming.parent_link("dna.Sequence", ["sequence_ptr"]) == "dna_sequence_ptr"
 
 
 @pytest.mark.parametrize(

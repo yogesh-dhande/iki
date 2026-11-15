@@ -1,0 +1,36 @@
+[package]
+name = "iki-wasm"
+description = "Parsers for Iki's web app, compiled to WebAssembly and run in a Web Worker: FASTA, and the layout of an alignment."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lib]
+# cdylib for the browser's module; rlib for its tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+# The workspace's lints, except that the module's exports need `no_mangle`, which the
+# unsafe_code lint counts. They're allowed in `exports` alone; there are no unsafe blocks.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "deny"
+dbg_macro = "deny"
+print_stdout = "warn"
+todo = "deny"

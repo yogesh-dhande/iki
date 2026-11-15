@@ -6,8 +6,10 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && vite build -c vite.structure.config.ts",
+    "dev": "pnpm build:wasm && vite",
+    "build": "pnpm build:wasm && pnpm build:web",
+    "build:wasm": "../../scripts/build-wasm.sh",
+    "build:web": "vite build && vite build -c vite.structure.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },

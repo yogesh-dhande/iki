@@ -67,7 +67,9 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert dna["identity"] == ["bases"] and dna["on_duplicate"] == "reuse"
     assert dna["hrid_prefix"] == "DNA"
     fields = {f["name"]: f for f in dna["fields"]}
-    assert fields["name"]["plugin"] == "dna"  # inherited from dna.Sequence
+    assert (
+        fields["name"]["plugin"] == "core"
+    )  # inherited from core.Sequence, by way of dna.Sequence
     assert fields["length"]["computed"] and fields["length"]["unit"] == "{bp}"
     schema = dna["values_schema"]
     jsonschema.Draft202012Validator.check_schema(schema)

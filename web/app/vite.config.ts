@@ -27,6 +27,12 @@ export default defineConfig({
     target: "es2023",
     rolldownOptions: { input: "src/main.tsx" },
   },
+  // Workers (the parsers' Web Worker, ADR 0088) are named apart from the app's other
+  // chunks, so the server can serve them with their own Content Security Policy.
+  worker: {
+    format: "es",
+    rolldownOptions: { output: { entryFileNames: "assets/worker-[name]-[hash].js" } },
+  },
   server: {
     port: 5173,
     strictPort: true,

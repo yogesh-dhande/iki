@@ -3,7 +3,9 @@
 [graph]
 all-features = true
 # The platforms iki-worker is built for. Dependencies only other targets use (such as
-# wasm32's bundled root certificates) aren't shipped, so they aren't judged.
+# wasm32's bundled root certificates) aren't shipped, so they aren't judged. iki-wasm,
+# the web app's parsers, is built for wasm32 too, but it's also a library on these, so
+# its dependencies (serde and serde_json alone) are judged here.
 targets = [
   "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
   "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl",

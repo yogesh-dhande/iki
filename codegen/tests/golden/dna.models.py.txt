@@ -20,41 +20,25 @@ from iki_server.entities.fields import QuantityField
 from iki_server.entities.models import Entity
 from iki_server.files.models import File
 
+import iki_plugin_core.models
 
-class Sequence(Entity):
-    """Sequence (dna.Sequence), schema version 1. Anything with a sequence of residues."""
+
+class Sequence(iki_plugin_core.models.Sequence):
+    """Sequence (dna.Sequence), schema version 1. Anything with a sequence of residues, as the fixtures have it under core.Sequence."""
 
     IKI_TYPE = 'dna.Sequence'
 
-    entity = models.OneToOneField(
-        Entity,
+    sequence_ptr = models.OneToOneField(
+        iki_plugin_core.models.Sequence,
         models.PROTECT,
         parent_link=True,
         primary_key=True,
         db_column='entity_id',
         related_name='+',
     )
-    name = models.CharField(max_length=255, null=True, db_index=True)
 
     class Meta:
         db_table = 'dna_sequence'
-        constraints = [
-            models.CheckConstraint(
-                condition=GreaterThanOrEqual(Length('name'), 1),
-                name='dna_sequence__name__not_empty',
-            ),
-            models.CheckConstraint(
-                condition=~Q(name__regex='[\\r\\n]'),
-                name='dna_sequence__name__one_line',
-            ),
-        ]
-        indexes = [
-            GinIndex(
-                fields=['name'],
-                opclasses=['gin_trgm_ops'],
-                name='name_trgm_b7235ac83d5ea378d286',
-            ),
-        ]
 
 
 class Sequence_History(models.Model):
@@ -66,7 +50,6 @@ class Sequence_History(models.Model):
     pk = models.CompositePrimaryKey('entity_id', 'revision')
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
-    name = models.TextField(null=True)
 
     class Meta:
         db_table = 'dna_sequence__history'
@@ -77,7 +60,7 @@ class DNASequence(Sequence):
 
     IKI_TYPE = 'dna.DNASequence'
 
-    sequence_ptr = models.OneToOneField(
+    dna_sequence_ptr = models.OneToOneField(
         Sequence,
         models.PROTECT,
         parent_link=True,

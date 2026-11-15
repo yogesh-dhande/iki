@@ -412,6 +412,12 @@ def test_the_first_admin_from_before_org_roles_becomes_an_org_admin() -> None:
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
 
+    from iki_server.plugins import sync
+
+    # As `migrate` does before it runs (pre_migrate): views would hold on to columns
+    # the migrations back drop.
+    with connection.cursor() as cursor:
+        sync.drop_views(cursor)
     executor = MigrationExecutor(connection)
     try:
         executor.migrate([("iki_accounts", "0001_initial"), ("iki_org", None)])

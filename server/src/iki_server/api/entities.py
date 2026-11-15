@@ -122,7 +122,24 @@ class StructureViewerOut(Schema):
     )
 
 
-ViewerOut = Annotated[SequenceViewerOut | StructureViewerOut, Field(discriminator="viewer")]
+class AlignmentViewerOut(Schema):
+    viewer: Literal["alignment"] = Field(description="`alignment`: aligned sequences, a row each.")
+    label: str = Field(description="What its tab is called.")
+    alignment: str = Field(description="The file field holding the alignment, as FASTA.")
+    rows: str | None = Field(
+        description="A list field of references to the sequences in Iki it aligns, or null. A "
+        "row whose FASTA header is one's HRID links to it; others, such as reads, are named by "
+        "their headers."
+    )
+    reference: str | None = Field(
+        description="A reference field naming the sequence the others were aligned to, which "
+        "is shown first, or null."
+    )
+
+
+ViewerOut = Annotated[
+    SequenceViewerOut | StructureViewerOut | AlignmentViewerOut, Field(discriminator="viewer")
+]
 
 
 class EntityTypeOut(Schema):
@@ -372,6 +389,14 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
 def _viewer_out(form: Shape, viewer: Viewer) -> dict[str, Any]:
     if viewer.viewer == "structure":
         return {"viewer": "structure", "label": viewer.label, "structure": viewer.structure}
+    if viewer.viewer == "alignment":
+        return {
+            "viewer": "alignment",
+            "label": viewer.label,
+            "alignment": viewer.alignment,
+            "rows": viewer.rows or None,
+            "reference": viewer.reference or None,
+        }
     spec = form.fields().get(viewer.sequence)
     return {
         "viewer": "sequence",

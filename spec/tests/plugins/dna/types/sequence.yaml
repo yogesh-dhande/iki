@@ -2,10 +2,9 @@ apiVersion: iki/v1
 kind: EntityType
 name: Sequence
 abstract: true
+extends: core.Sequence
 schema_version: 1
-description: Anything with a sequence of residues.
-fields:
-  name: { type: string, max_length: 255, indexed: true }
+description: Anything with a sequence of residues, as the fixtures have it under core.Sequence.
 ---
 apiVersion: iki/v1
 kind: EntityType

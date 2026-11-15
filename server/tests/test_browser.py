@@ -1007,6 +1007,120 @@ def test_a_structure_in_mol_star_in_its_frame(
     assert page.locator("iframe").count() == 0
 
 
+#: How many colours the canvas has drawn, sampled: a blank one has one.
+CANVAS_COLOURS = """() => {
+  const canvas = document.querySelector(".alignment-canvas canvas");
+  const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  const seen = new Set();
+  for (let i = 0; i < data.length; i += 4 * 7) {
+    seen.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+  }
+  return seen.size;
+}"""
+
+#: The policy the parsers' worker script was served with.
+WORKER_POLICY = """async () => {
+  const url = performance.getEntriesByType("resource").map((r) => r.name)
+    .find((name) => /\\/assets\\/worker-[\\w-]+\\.js$/.test(name));
+  return url ? (await fetch(url)).headers.get("Content-Security-Policy") : null;
+}"""
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_an_alignment_in_its_viewer(
+    open_as: Any,
+    world: World,
+    color_scheme: str,
+    tmp_path: Path,
+    _s3_endpoint: str,
+    _s3_bucket: str,
+) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    abl1 = entities.create(
+        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+    ).entity
+    abl2 = entities.create(
+        admin, "protein.Protein", world.project, {"sequence": "MLEVCLKLVGA", "name": "ABL2"}
+    ).entity
+    hrid1, hrid2 = (Entity.objects.get(pk=e.pk).hrid for e in (abl1, abl2))
+    fasta = tmp_path / "abl.afa"
+    # Wide enough to scroll: the viewer draws only what's in view.
+    tail = "ACDEFGHIKLMNPQRSTVWY" * 15
+    fasta.write_text(
+        f">{hrid2} ABL2\nMLEVCLKLVGA{tail}\n"
+        f">{hrid1} ABL1\nMLEICLKLVG-{tail}\n"
+        f">read_7 a Sanger read\nMLEICLR-VGA{tail}\n"
+    )
+    file = _stored_file(world, _s3_endpoint, _s3_bucket, fasta, "chemical/seq-aa-fasta")
+    made = entities.create(
+        admin,
+        "core.Alignment",
+        world.project,
+        {
+            "name": "ABL kinases",
+            "reference": abl2.pk,
+            "members": [abl1.pk, abl2.pk],
+            "aligned": file.pk,
+            "method": "By hand",
+        },
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/", color_scheme)
+    page.get_by_role("navigation", name="Entity").get_by_role("link", name="Alignment").click()
+    grid = page.get_by_role("application", name="Alignment of abl.afa")
+    grid.wait_for()
+    page.get_by_text("3 rows, 311 columns").wait_for()
+    # iki-wasm read it in its worker, which runs under a policy of its own.
+    policy = page.evaluate(WORKER_POLICY)
+    assert policy is not None and "script-src 'self' 'wasm-unsafe-eval'" in policy
+    assert page.evaluate(CANVAS_COLOURS) > 4
+    reference = page.locator(".alignment-label-pinned")
+    assert reference.get_by_role("link").inner_text() == hrid2
+    assert grid.get_by_role("link", name=hrid1).get_attribute("href") == f"/entities/{hrid1}/"
+    grid.get_by_text("read_7", exact=True).wait_for()
+    assert_clean(page)
+
+    # The keys move the cursor, which the page reads out.
+    grid.focus()
+    page.keyboard.press("ArrowDown")
+    for _ in range(10):
+        page.keyboard.press("ArrowRight")
+    at = page.locator(".alignment-at")
+    assert at.inner_text().startswith(f"{hrid1}, column 11: a gap.")
+    page.keyboard.press("End")
+    assert at.inner_text().startswith(f"{hrid1}, column 311: Y, residue 310 of 310.")
+    page.get_by_role("switch", name=f"Only where they differ from {hrid2}").check()
+    # By role, not label: Playwright's Firefox crashes finding a label once axe has run.
+    page.get_by_role("combobox", name="Colour").select_option("all")
+    assert page.evaluate(CANVAS_COLOURS) > 4
+    assert_clean(page)
+
+    # The sequences in Iki can be picked, to run an action on.
+    page.get_by_role("button", name="Select every sequence in Iki (2)").click()
+    run = page.get_by_role("link", name="Run action on them")
+    assert run.get_attribute("href") == (
+        f"/projects/{world.project.slug}/runs/new/?entities={hrid2}%2C{hrid1}"
+    )
+    assert_clean(page)
+
+    # A saved view keeps where the cursor is.
+    page.get_by_role("button", name="Save view").click()
+    dialog = page.get_by_role("alertdialog", name="Save this view")
+    dialog.get_by_role("textbox", name="Name").fill("ABL1's last residue")
+    dialog.get_by_role("button", name="Save view").click()
+    page.wait_for_url(re.compile(r"/entities/VIEW-\d+/$"))
+    page.get_by_text(f"Revision 1 of {hrid}, as the view saved it.").wait_for()
+    page.get_by_role("application", name="Alignment of abl.afa").wait_for()
+    assert page.locator(".alignment-at").inner_text().startswith(f"{hrid1}, column 311")
+    saved = entities.current_values_of([Entity.objects.get(type="core.View")])
+    (state,) = [v["state"] for v in saved.values()]
+    assert state == {"version": 1, "position": {"column": 311, "row": 2}}
+    assert_clean(page)
+
+
 # What a component's code could try, run in its frame, with its frame's origin and policy.
 SANDBOX_PROBES = """
 async () => {

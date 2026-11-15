@@ -666,6 +666,9 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
 #: The formats the structure viewer reads, by media type, as Mol* names them.
 STRUCTURE_MEDIA_TYPES = {"chemical/x-mmcif": "mmcif", "chemical/x-pdb": "pdb"}
 
+#: The formats the alignment viewer reads: FASTA, of amino acids or nucleotides.
+ALIGNMENT_MEDIA_TYPES = frozenset({"chemical/seq-aa-fasta", "chemical/seq-na-fasta", "text/plain"})
+
 #: What each viewer's fields must be: (role, as it reads, test).
 _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] = {
     "sequence": (
@@ -687,10 +690,28 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
             ),
         ),
     ),
+    "alignment": (
+        (
+            "alignment",
+            "a file field of FASTA files (media types chemical/seq-aa-fasta, "
+            "chemical/seq-na-fasta or text/plain)",
+            lambda f: (
+                f.type == "file"
+                and bool(f.media_types)
+                and set(f.media_types) <= ALIGNMENT_MEDIA_TYPES
+            ),
+        ),
+        (
+            "rows",
+            "a list of references",
+            lambda f: f.type == "list" and f.items is not None and f.items.type == "ref",
+        ),
+        ("reference", "a reference", lambda f: f.type == "ref"),
+    ),
 }
 
 #: Each viewer's name, when a type doesn't give it one.
-VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure"}
+VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure", "alignment": "Alignment"}
 
 
 def _viewer(body: dict[str, Any]) -> Viewer:
@@ -701,6 +722,9 @@ def _viewer(body: dict[str, Any]) -> Viewer:
         sequence=body.get("sequence", ""),
         features=body.get("features", ""),
         structure=body.get("structure", ""),
+        alignment=body.get("alignment", ""),
+        rows=body.get("rows", ""),
+        reference=body.get("reference", ""),
         tracks=tuple(
             Track(field=t["field"], label=t.get("label", "")) for t in body.get("tracks") or ()
         ),

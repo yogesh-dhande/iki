@@ -73,10 +73,12 @@ def test_app_pages_keep_the_strict_policy(world: World) -> None:
     assert csp["script-src"] == ["'self'"]
     assert csp["style-src"] == ["'self'"]
     assert csp["connect-src"] == ["'self'"]
-    assert csp["trusted-types"] == ["'none'"]
+    assert csp["trusted-types"] == ["iki-workers"]
     assert csp["require-trusted-types-for"] == ["'script'"]
     # Plugins' components: only in Iki's own frames, which sandbox them (ADR 0084).
     assert csp["frame-src"] == ["'self'"]
+    # Its workers: its own scripts, which carry policies of their own (ADR 0088).
+    assert csp["worker-src"] == ["'self'"]
 
 
 def test_app_pages_need_sign_in_and_come_back_after(world: World) -> None:

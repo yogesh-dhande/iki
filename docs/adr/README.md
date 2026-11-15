@@ -117,3 +117,4 @@ supersedes the old one, and update the old one's status.
 | [0085](0085-types-configure-ikis-own-viewers.md)                                     | Types configure Iki's own viewers                                                                   | Accepted |
 | [0086](0086-saved-views-are-entities-pinned-to-a-revision.md)                        | Saved views are entities pinned to a revision                                                       | Accepted |
 | [0087](0087-tracks-run-along-the-sequence-viewer.md)                                 | Tracks run along the sequence viewer                                                                | Accepted |
+| [0088](0088-alignments-are-entities-of-sequence-entities.md)                         | Alignments are entities of sequence entities                                                        | Accepted |

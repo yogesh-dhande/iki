@@ -19,6 +19,7 @@ so the double underscore marks what Iki adds to a name:
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Collection
 
 __all__ = [
     "MAX_IDENTIFIER",
@@ -79,9 +80,15 @@ def list_model(model: str, field: str) -> str:
     return f"{model}_{field}"
 
 
-def parent_link(parent: str) -> str:
-    """The field linking a subtype's row to its parent type's row (Django's own convention)."""
-    return f"{parent.split('.')[1].lower()}_ptr"
+def parent_link(parent: str, inherited: Collection[str] = ()) -> str:
+    """The field linking a subtype's row to its parent type's row (Django's own convention).
+
+    ``inherited`` is the links the parent's row already has, from its own ancestors. A
+    type named like one of them (``dna.Sequence``, extending ``core.Sequence``) would give
+    its subtypes a link of the same name, so theirs is named with its plugin too."""
+    plugin, name = parent.split(".")
+    link = f"{name.lower()}_ptr"
+    return f"{plugin}_{link}" if link in inherited else link
 
 
 def extension_related_name(plugin: str) -> str:
