@@ -9,6 +9,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import connection, transaction
 
+from iki_server.audit import log as audit
 from iki_server.entities import unique
 from iki_server.plugins import sync
 
@@ -30,7 +31,7 @@ class Command(BaseCommand):
                 if cursor.fetchone() is None:
                     raise CommandError(f"Postgres has no role {analyst!r}. Create it first.")
         try:
-            with transaction.atomic():
+            with audit.cli(), transaction.atomic():
                 report = sync.sync(analyst)
         except unique.Clash as error:
             raise CommandError(str(error)) from None
@@ -38,6 +39,8 @@ class Command(BaseCommand):
             self.stdout.write(f"  HRID sequence {name}")
         for key in report.unique:
             self.stdout.write(f"  unique {key}")
+        for change in report.plugins:
+            self.stdout.write(f"  plugin {change}")
         for name in report.views:
             self.stdout.write(f"  view {name}")
         if report.analyst:

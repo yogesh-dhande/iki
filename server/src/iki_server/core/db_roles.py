@@ -6,7 +6,8 @@ Two roles (ADR 0025):
   it, to run ``migrate`` and then ``grant_app_privileges``.
 - The **app** role (web pods, maintenance jobs) can read and write rows, but
   can't create, alter or drop anything. On append-only tables (the audit log)
-  it can only INSERT and SELECT. It can only read Django's migration history.
+  it can only INSERT and SELECT. It can only read Django's migration history,
+  and a detached plugin's tables (ADR 0091).
 
 :func:`problems` reports what is wrong with the current connection's role,
 so a web pod connected with too much power never turns ready.
@@ -19,8 +20,16 @@ from django.db import connection
 from django.db.backends.utils import CursorWrapper
 from psycopg import sql
 
-#: Tables the app may only read.
-READ_ONLY_TABLES = ("django_migrations", "iki_plugin_migration")
+#: Tables the app may only read, whatever is installed.
+READ_ONLY_TABLES = ("django_migrations", "iki_plugin_migration", "iki_plugin_state")
+
+
+def read_only_tables() -> list[str]:
+    """Tables the app may only read: Django's and plugins' migration history, the plugins'
+    states, and every table of a detached plugin (ADR 0091)."""
+    from iki_server.entities import registry
+
+    return sorted({*READ_ONLY_TABLES, *registry.detached_tables()})
 
 
 def append_only_tables() -> list[str]:
@@ -69,7 +78,7 @@ def grant(app_role: str) -> list[str]:
             sql.SQL("REVOKE INSERT, UPDATE, DELETE ON {} FROM {}").format(
                 sql.Identifier(table), role
             )
-            for table in _existing(cursor, READ_ONLY_TABLES)
+            for table in _existing(cursor, read_only_tables())
         ]
         rendered = []
         for statement in statements:
@@ -106,6 +115,13 @@ def problems() -> list[str]:
             found.append("owns tables (or is a member of their owner)")
         for table in _existing(cursor, append_only_tables()):
             for privilege in ("UPDATE", "DELETE", "TRUNCATE"):
+                cursor.execute(
+                    "SELECT has_table_privilege(current_user, %s, %s)", [table, privilege]
+                )
+                if cursor.fetchone()[0]:
+                    found.append(f"can {privilege} {table}")
+        for table in _existing(cursor, read_only_tables()):
+            for privilege in ("INSERT", "UPDATE", "DELETE", "TRUNCATE"):
                 cursor.execute(
                     "SELECT has_table_privilege(current_user, %s, %s)", [table, privilege]
                 )

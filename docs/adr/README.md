@@ -120,3 +120,4 @@ supersedes the old one, and update the old one's status.
 | [0088](0088-alignments-are-entities-of-sequence-entities.md)                         | Alignments are entities of sequence entities                                                        | Accepted |
 | [0089](0089-a-param-can-take-several-files.md)                                       | A param can take several files                                                                      | Accepted |
 | [0090](0090-apps-are-compositions-of-ikis-components.md)                             | Apps are compositions of Iki's components                                                           | Accepted |
+| [0091](0091-a-detached-plugins-data-is-kept-and-frozen.md)                           | A detached plugin's data is kept and frozen                                                         | Accepted |

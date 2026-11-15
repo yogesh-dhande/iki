@@ -22,7 +22,8 @@ not the root), the commit (`sha`, all 40 or 64 hex digits), its `state`, and
 optionally a settings file. A branch or tag can be moved; a commit can't.
 So the same lockfile always builds the same plugins, and reviewing a change
 to the lockfile is reviewing what changes in production. `state` is
-`active` for now; ADR 0008's detach and purge add `detached` and `purged`.
+`active`, or `detached` for a plugin whose data is kept but no longer
+changes (ADR 0091); ADR 0008's purge will add `purged`.
 
 **The core plugin isn't listed.** Its manifests ship inside `iki-spec`
 (`iki_spec/core`), are written and checked like any plugin's, and are

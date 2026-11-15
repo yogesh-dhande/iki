@@ -142,7 +142,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         fetched = _fetch_all(lock, workspace / "sources", args.cache, out, err)
         if fetched is None:
             return 1
-        if not _load_all(fetched, err):
+        if not _load_all(fetched, err) or not _detached_alone(fetched, err):
             return 1
         settings = _settings(lock, fetched, err)
         if settings is None:
@@ -255,6 +255,24 @@ def _load_all(fetched: list[_Fetched], err: TextIO) -> bool:
             ok = False
             continue
         item.plugin = result.plugin
+    return ok
+
+
+def _detached_alone(fetched: list[_Fetched], err: TextIO) -> bool:
+    """A detached plugin's tables are read-only (ADR 0091), so a plugin still active can't
+    build on its types: what depends on it must be detached first, or with it."""
+    detached = {f.entry.name for f in fetched if f.entry.state == "detached"}
+    ok = True
+    for item in fetched:
+        assert item.plugin is not None  # noqa: S101 - _load_all loaded every plugin
+        needs = sorted(detached & set(item.plugin.dependencies))
+        if item.entry.state != "detached" and needs:
+            names = " and ".join(needs)
+            err.write(
+                f"error: {item.entry.name} depends on {names}, which the lockfile detaches. "
+                f"Detach {item.entry.name} too, or keep {names} active.\n"
+            )
+            ok = False
     return ok
 
 

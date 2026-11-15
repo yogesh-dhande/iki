@@ -41,3 +41,35 @@ class PluginMigration(models.Model):
 
     def __str__(self) -> str:
         return f"{self.app}.{self.name}"
+
+
+class PluginState(models.Model):
+    """Each plugin a deploy has installed, as the last deploy left it (ADR 0091).
+
+    ``sync_plugins`` compares the build's lockfile with these, so each plugin installed,
+    updated, detached or reattached is audited once, by the deploy that did it. Only the
+    migrator writes them; the app can only read them.
+    """
+
+    class State(models.TextChoices):
+        ACTIVE = "active", "Active"
+        DETACHED = "detached", "Detached"
+
+    name = models.CharField(max_length=100, primary_key=True)
+    state = models.CharField(max_length=20, choices=State.choices)
+    version = models.CharField(max_length=100)
+    #: The commit installed, or ``local`` for a plugin from a directory (development).
+    sha = models.CharField(max_length=64)
+    changed_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_plugin_state"
+        db_table_comment = "Each installed plugin's state, version and commit, as deployed."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(state__in=["active", "detached"]), name="iki_plugin_state_state"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name

@@ -63,6 +63,14 @@ def test_reads_plugins_from_git_and_local_directories(tmp_path: Path) -> None:
     }
 
 
+def test_a_plugin_can_be_detached(tmp_path: Path) -> None:
+    file = lock(tmp_path, f"- {{name: dna, git: https://x.org/p, sha: {SHA}, state: detached}}\n")
+    result = load_lock(file)
+    assert result.problems == []
+    assert result.lock is not None
+    assert result.lock.plugins[0].state == "detached"
+
+
 def test_an_empty_deployment(tmp_path: Path) -> None:
     file = tmp_path / "plugins.lock.yaml"
     file.write_text("apiVersion: iki/v1\nkind: PluginLock\nplugins: []\n")

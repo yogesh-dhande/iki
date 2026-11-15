@@ -314,6 +314,25 @@ def test_dependencies_must_be_in_the_lockfile(
 
 
 @pytest.mark.usefixtures("allow_file")
+def test_what_depends_on_a_detached_plugin_is_detached_too(
+    tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = deployment(tmp_path, upstream[1])
+    lockfile = directory / "plugins.lock.yaml"
+    text = lockfile.read_text()
+    lockfile.write_text(text.replace("state: active", "state: detached", 1))
+    assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
+    assert capsys.readouterr().err == (
+        "error: protein depends on dna, which the lockfile detaches. "
+        "Detach protein too, or keep dna active.\n"
+    )
+    lockfile.write_text(text.replace("state: active", "state: detached"))
+    assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 0
+    record = json.loads((tmp_path / "o" / "iki_installed_plugins" / "lock.json").read_text())
+    assert [p["state"] for p in record["plugins"]] == ["detached", "detached"]
+
+
+@pytest.mark.usefixtures("allow_file")
 def test_the_name_must_match(
     tmp_path: Path, upstream: tuple[Path, str], capsys: pytest.CaptureFixture[str]
 ) -> None:

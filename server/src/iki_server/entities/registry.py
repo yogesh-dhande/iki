@@ -146,3 +146,23 @@ def installed() -> dict[str, Any] | None:
         return None
     record: dict[str, Any] = json.loads(file.read_text("utf-8"))
     return record
+
+
+def detached() -> frozenset[str]:
+    """Plugins the lockfile detaches (ADR 0091): their data stays and can be read, but
+    nothing changes it, and their actions and triggers are off."""
+    return frozenset(
+        entry["name"]
+        for entry in (installed() or {}).get("plugins", ())
+        if entry.get("state") == "detached"
+    )
+
+
+def detached_tables() -> list[str]:
+    """The tables of detached plugins, which the app's database role can only read."""
+    return sorted(
+        model._meta.db_table
+        for name in detached()
+        if name in plugins()
+        for model in apps.get_app_config(name).get_models(include_auto_created=True)
+    )

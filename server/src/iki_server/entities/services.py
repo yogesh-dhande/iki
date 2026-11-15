@@ -197,13 +197,19 @@ def prepare(
     entity_type = form.entity_type
     if entity_type.abstract:
         raise Invalid({"type": [f"{type_name} is abstract: create one of its subtypes."]})
+    why = frozen(form)
+    if why:
+        raise Invalid({"type": [why]})
     fields = form.fields()
+    kept = _kept(form)
     errors: dict[str, list[str]] = {}
     given: dict[str, Any] = {}
     for name, value in values.items():
         f = fields.get(name)
         if f is None:
             errors[name] = [f"{type_name} has no field `{name}`."]
+        elif name in kept:
+            errors[name] = [kept[name]]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         else:
@@ -212,6 +218,8 @@ def prepare(
             except ValueError as error:
                 errors[name] = [str(error)]
     for name, f in fields.items():
+        if name in kept:
+            continue
         if name not in values and f.has_default and not f.computed:
             given[name] = to_db(f, f.default, refs)
         if f.required and given.get(name) is None and name not in errors:
@@ -297,6 +305,10 @@ def update(
         if locked.archived_at is not None:
             raise Refused("The entity is archived: restore it before changing it.")
         form = shape(locked.type)
+        why = frozen(form)
+        if why:
+            raise Refused(why)
+        kept = _kept(form)
         fields = form.fields()
         instance = _specific(locked)
         rows = _extension_rows(form, instance.pk)
@@ -307,6 +319,9 @@ def update(
             f = fields.get(name)
             if f is None:
                 errors[name] = [f"{locked.type} has no field `{name}`."]
+                continue
+            if name in kept:
+                errors[name] = [kept[name]]
                 continue
             if f.computed and not by_run:
                 errors[name] = ["is computed: only actions set it."]
@@ -387,6 +402,9 @@ def set_archived(
             raise Stale(locked.revision)
         if (locked.archived_at is not None) == archived:
             return Saved(_specific(locked))
+        why = frozen(shape(locked.type))
+        if why:
+            raise Refused(why)
         locked.archived_at = dt.datetime.now(dt.UTC) if archived else None
         locked.save(update_fields=["archived_at"])
         kind = RevisionKind.ARCHIVED if archived else RevisionKind.RESTORED
@@ -399,6 +417,9 @@ def link(user: User, entity: Entity, project: Project) -> bool:
 
     It changes who can read the entity, so it's audited. Raises :class:`Refused` if the
     entity's own project doesn't allow sharing it (ADR 0067)."""
+    why = frozen(shape(entity.type))
+    if why:
+        raise Refused(why)
     with transaction.atomic():
         if not access.shareable_into(user, project).filter(pk=entity.pk).exists():
             owner = Project.objects.get(pk=entity.owner_project_id)
@@ -409,6 +430,30 @@ def link(user: User, entity: Entity, project: Project) -> bool:
         if created:
             log.record("entity.linked", actor=user, target=entity, project=project)
     return created
+
+
+def frozen(form: Shape) -> str | None:
+    """Why entities of ``form``'s type can't change, if they can't: their plugin is
+    detached (ADR 0091). Taking one out of a project still can."""
+    detached = registry.detached()
+    plugin = next((p.plugin for p in form.parts if not p.extension and p.plugin in detached), None)
+    if plugin is None:
+        return None
+    return (
+        f"{form.entity_type.qualified_name} is from the {plugin} plugin, which is detached: "
+        "its entities can be read but not changed."
+    )
+
+
+def _kept(form: Shape) -> dict[str, str]:
+    """The fields an extension from a detached plugin adds, which keep their values, with why."""
+    detached = registry.detached()
+    return {
+        name: f"is from the {part.plugin} plugin, which is detached: it can't change."
+        for part in form.parts
+        if part.extension and part.plugin in detached
+        for name in part.fields
+    }
 
 
 def not_shared(entity: Entity, owner: Project) -> str:

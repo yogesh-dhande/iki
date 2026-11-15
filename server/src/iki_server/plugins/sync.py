@@ -19,6 +19,8 @@ build installed (:mod:`iki_server.entities.registry`):
   step with a unique column, so the database refuses a second entity in a
   project with the same value. Values already there are filled in, and if
   entities already share one, the sync stops, saying which.
+- **Plugins' states** (ADR 0091): each plugin the lockfile installs, updates,
+  detaches or reattaches is audited, by the deploy that does it.
 - **An analyst role**, if ``IKI_DB_ANALYST_ROLE`` names one. It gets
   read-only access to the views and the tables behind them, current values
   and history, and nothing else.
@@ -33,9 +35,12 @@ from typing import Any
 
 from django.apps import apps
 from django.db import connection, models
+from django.db.models.functions import Now
 from psycopg import sql
 
+from iki_server.audit import log as audit
 from iki_server.entities import hrids, registry, unique
+from iki_server.plugins.models import PluginState
 from iki_spec import naming
 from iki_spec.model import EntityType, Extension, Field
 
@@ -58,6 +63,8 @@ class Report:
     sequences: list[str] = field(default_factory=list)
     views: list[str] = field(default_factory=list)
     comments: int = 0
+    #: What changed about each plugin, such as ``dna detached``.
+    plugins: list[str] = field(default_factory=list)
     unique: list[str] = field(default_factory=list)
     analyst: str | None = None
 
@@ -87,11 +94,49 @@ def sync(analyst_role: str | None = None) -> Report:
             cursor, unique.columns((model, fields) for _, model, fields, _ in _tables())
         )
         report.views = _views(cursor)
+        report.plugins = _states()
         if analyst_role:
             for statement in _analyst_grants(analyst_role):
                 cursor.execute(statement)
             report.analyst = analyst_role
     return report
+
+
+def _states() -> list[str]:
+    """Audits what this deploy changes about each plugin: installed, updated (another
+    version or commit), detached or reattached. A build without a lockfile has none."""
+    record = registry.installed()
+    if record is None:
+        return []
+    known = {row.name: row for row in PluginState.objects.select_for_update()}
+    changed = []
+    for entry in record.get("plugins", ()):
+        now = {
+            "state": entry.get("state", PluginState.State.ACTIVE),
+            "version": entry["version"],
+            "sha": entry.get("sha") or registry.LOCAL,
+        }
+        row = known.get(entry["name"])
+        if row is None:
+            row = PluginState.objects.create(name=entry["name"], **now)
+            action, data = "plugin.installed", now
+        else:
+            data = {k: [getattr(row, k), v] for k, v in now.items() if getattr(row, k) != v}
+            if not data:
+                continue
+            for key, value in now.items():
+                setattr(row, key, value)
+            row.changed_at = Now()
+            row.save()
+            if "state" not in data:
+                action = "plugin.updated"
+            elif now["state"] == PluginState.State.DETACHED:
+                action = "plugin.detached"
+            else:
+                action = "plugin.reattached"
+        audit.record(action, target=row, data=data)
+        changed.append(f"{row.name} {action.removeprefix('plugin.')}")
+    return changed
 
 
 def analyst_role() -> str | None:

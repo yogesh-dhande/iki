@@ -106,21 +106,21 @@ Plugins before M1 are the ones that prove a platform feature.
 
 ## Stage 7: Components, views and apps
 
-| Step | What                                                                                                                                                                                                                   | Status      | Commits                                                                                                                                                                   |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 40   | Component framework: plugins' Web Components in sandboxed frames (ADR 0084), slots, linked selection                                                                                                                   | done        | `e6245fe`, `b78ddd9`, `a798257`                                                                                                                                           |
-| 41   | Views and viewers: types configure Iki's viewers (ADR 0085), sequence and track viewer (ADR 0087), Mol\*, saved views (ADR 0086), alignments and their viewer with parsers in WebAssembly (ADR 0088), aligning actions | done        | `6d6ccb7` `c372574` `774f6a7` `e898307` `244ef81` `5ac6baf` `4fa347f` `5ebb583` `e885eb3` `bf0bb90` `3b49ae4` `2367fb4` `308d6e2` `c2c8f21` `7454a25` `83cd9cb` `62a65ce` |
-| 42   | Apps: composed pages with an expression language, and MCP tools to build them                                                                                                                                          | in progress | `76b93b2` `c3d6b0b` `5b6082d` `aca9fba` `a3e69c1` `30b03e7` `76360c9` `1319f4c` `fef4d04` `e3c60bb` `73c6137`                                                             |
+| Step | What                                                                                                                                                                                                                   | Status | Commits                                                                                                                                                                   |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 40   | Component framework: plugins' Web Components in sandboxed frames (ADR 0084), slots, linked selection                                                                                                                   | done   | `e6245fe`, `b78ddd9`, `a798257`                                                                                                                                           |
+| 41   | Views and viewers: types configure Iki's viewers (ADR 0085), sequence and track viewer (ADR 0087), Mol\*, saved views (ADR 0086), alignments and their viewer with parsers in WebAssembly (ADR 0088), aligning actions | done   | `6d6ccb7` `c372574` `774f6a7` `e898307` `244ef81` `5ac6baf` `4fa347f` `5ebb583` `e885eb3` `bf0bb90` `3b49ae4` `2367fb4` `308d6e2` `c2c8f21` `7454a25` `83cd9cb` `62a65ce` |
+| 42   | Apps: composed pages with an expression language, and MCP tools to build them                                                                                                                                          | done   | `76b93b2` `c3d6b0b` `5b6082d` `aca9fba` `a3e69c1` `30b03e7` `76360c9` `1319f4c` `fef4d04` `e3c60bb` `73c6137` `982186c`                                                   |
 
 ## Stage 8: Remaining plugins and lifecycle
 
-| Step | What                                                                    | Status   |
-| ---- | ----------------------------------------------------------------------- | -------- |
-| 43   | The antibody plugin                                                     | deferred |
-| 44   | The small_molecule plugin, with a 2D molecule component                 | deferred |
-| 45   | Detaching and purging plugins, with tombstones                          | planned  |
-| 46   | `iki plugin upgrade` codemods, a migration test harness, version checks | planned  |
-| 47   | Exporting and importing bundles between deployments                     | planned  |
+| Step | What                                                                    | Status      |
+| ---- | ----------------------------------------------------------------------- | ----------- |
+| 43   | The antibody plugin                                                     | deferred    |
+| 44   | The small_molecule plugin, with a 2D molecule component                 | deferred    |
+| 45   | Detaching and purging plugins, with tombstones                          | in progress |
+| 46   | `iki plugin upgrade` codemods, a migration test harness, version checks | planned     |
+| 47   | Exporting and importing bundles between deployments                     | planned     |
 
 ## Stage 9: Production readiness
 
