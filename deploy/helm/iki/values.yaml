@@ -59,6 +59,21 @@ encryptionKeys:
   existingSecret: ""
   key: keys
 
+bundles:
+  # Bundles carry a project's entities, with their history, to another
+  # deployment (ADR 0096). This deployment signs the ones it exports with its
+  # Ed25519 key, and imports only bundles signed by a deployment it trusts.
+  signingKey:
+    # Secret holding the key: its 32-byte seed in base64url. Make one with
+    #   iki-server bundle_key
+    # Empty: nothing can be exported.
+    existingSecret: ""
+    key: key
+  # The deployments whose bundles this one imports, each with its public keys
+  # (`iki-server bundle_key --public` there). Two keys while one is rotated.
+  #   trusted:
+  #     staging: ["ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4"]
+  trusted: {}
 sessions:
   # Sign-in sessions end after this much inactivity...
   idleTimeoutMinutes: 480

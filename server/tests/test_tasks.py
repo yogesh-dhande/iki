@@ -353,7 +353,8 @@ def test_the_runner_process_runs_tasks_answers_probes_and_stops_on_sigterm(
         try:
             status, body = _get(port, "/healthz/ready")
             break
-        except (urllib.error.URLError, ConnectionError):
+        # Starting, or slow to answer while the machine is busy (as under xdist).
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
             assert proc.poll() is None, proc.stdout.read() if proc.stdout else ""
             assert time.monotonic() < deadline, "the runner never answered its probes"
             time.sleep(0.2)

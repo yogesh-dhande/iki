@@ -1,0 +1,525 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/bundle/v1",
+  "title": "Iki bundle (iki/v1)",
+  "description": "A bundle's `bundle.json`: entities from one project of one deployment, with their history, for another deployment to import (ADR 0096). It lists the SHA-256 of every other member of the archive, and `bundle.json.sig` is the source deployment's Ed25519 signature of its bytes. The `$defs` are the lines of its NDJSON members.",
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "id",
+    "created_at",
+    "source",
+    "exported_by",
+    "reason",
+    "project",
+    "selection",
+    "plugins",
+    "counts",
+    "members"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "iki/v1"
+    },
+    "kind": {
+      "const": "Bundle"
+    },
+    "id": {
+      "description": "The bundle's own ID.",
+      "$ref": "#/$defs/uuid"
+    },
+    "created_at": {
+      "$ref": "#/$defs/time"
+    },
+    "source": {
+      "description": "The deployment it came from.",
+      "type": "object",
+      "required": ["deployment", "url", "iki", "key"],
+      "properties": {
+        "deployment": {
+          "description": "Its name, such as `staging` (`IKI_ENVIRONMENT`). The importing deployment trusts keys by this name.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "url": {
+          "description": "Its address, or empty if it has none configured.",
+          "type": "string",
+          "maxLength": 2000
+        },
+        "iki": {
+          "description": "Its Iki release, such as `0.1.0`.",
+          "type": "string",
+          "maxLength": 100
+        },
+        "key": {
+          "description": "The public key that signed it, as `ed25519:` and the key's 32 bytes in unpadded base64url.",
+          "$ref": "#/$defs/publicKey"
+        }
+      },
+      "additionalProperties": false
+    },
+    "exported_by": {
+      "description": "Who exported it.",
+      "$ref": "#/$defs/person"
+    },
+    "reason": {
+      "description": "Why, as they said.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "project": {
+      "description": "The project its entities belong to.",
+      "type": "object",
+      "required": ["id", "team", "name", "slug"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "team": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "slug": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "selection": {
+      "description": "What was picked, in words, such as `COL-000004 (Validated primers) and what its members refer to`.",
+      "type": "string",
+      "maxLength": 2000
+    },
+    "plugins": {
+      "description": "The plugins of the bundle's types, as installed when it was made.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/plugin"
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["entities", "revisions", "files", "outside"],
+      "properties": {
+        "entities": {
+          "$ref": "#/$defs/count"
+        },
+        "revisions": {
+          "$ref": "#/$defs/count"
+        },
+        "files": {
+          "$ref": "#/$defs/count"
+        },
+        "outside": {
+          "$ref": "#/$defs/count"
+        }
+      },
+      "additionalProperties": false
+    },
+    "members": {
+      "description": "Every other member of the archive, each once. A reader refuses an archive with a member that isn't here, or whose bytes don't match.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/member"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "time": {
+      "description": "An ISO 8601 date and time, with its offset.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "publicKey": {
+      "type": "string",
+      "pattern": "^ed25519:[A-Za-z0-9_-]{43}$"
+    },
+    "member": {
+      "type": "object",
+      "required": ["path", "sha256", "size"],
+      "properties": {
+        "path": {
+          "description": "`people.ndjson`, `agents.ndjson`, `files.ndjson`, `entities.ndjson`, `outside.ndjson`, or `blobs/sha256/` and a file's SHA-256 for its bytes.",
+          "type": "string",
+          "pattern": "^([a-z]+\\.ndjson|blobs/sha256/[0-9a-f]{64})$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "$ref": "#/$defs/count"
+        }
+      },
+      "additionalProperties": false
+    },
+    "plugin": {
+      "type": "object",
+      "required": ["name", "version", "sha", "types", "extensions"],
+      "properties": {
+        "name": {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName"
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "sha": {
+          "description": "The git commit it was built from, or empty for a local build.",
+          "type": "string",
+          "maxLength": 64
+        },
+        "extensions": {
+          "description": "Its extensions of the bundle's types, by the type each extends, with each quantity field's unit.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["units"],
+            "properties": {
+              "units": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "types": {
+          "description": "Its types the bundle has entities of, with their parents, by qualified name.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["schema_version", "units"],
+            "properties": {
+              "schema_version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "units": {
+                "description": "Each quantity field's unit, which its values (in history too) are in.",
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "person": {
+      "description": "A line of `people.ndjson`: someone a record names. The importing deployment matches them by email.",
+      "type": "object",
+      "required": ["id", "kind", "email", "name"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "kind": {
+          "enum": ["person", "service"]
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 320
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "agent": {
+      "description": "A line of `agents.ndjson`: an agent that acted for a person (ADR 0072), as the source stored it.",
+      "type": "object",
+      "required": [
+        "id",
+        "key",
+        "client_id",
+        "client_name",
+        "grant",
+        "session",
+        "software",
+        "model",
+        "first_seen_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "key": {
+          "$ref": "#/$defs/sha256"
+        },
+        "client_id": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "client_name": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "grant": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "session": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "software": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "first_seen_at": {
+          "$ref": "#/$defs/time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "file": {
+      "description": "A line of `files.ndjson`: a file a revision names. Iki's own files' bytes are the member `blobs/sha256/<sha256>`; a registered file's stay where they were registered.",
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "media_type",
+        "created_at",
+        "created_by",
+        "agent",
+        "sha256",
+        "size",
+        "registered"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "media_type": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "created_at": {
+          "$ref": "#/$defs/time"
+        },
+        "created_by": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "agent": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "$ref": "#/$defs/count"
+        },
+        "registered": {
+          "description": "For a file registered where it was (ADR 0055), not copied into Iki: its address and object version.",
+          "anyOf": [
+            {
+              "type": "object",
+              "required": ["uri", "version"],
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "maxLength": 2000
+                },
+                "version": {
+                  "type": "string",
+                  "maxLength": 1024
+                }
+              },
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "entity": {
+      "description": "A line of `entities.ndjson`: an entity, with every revision and the values each table of it held at each.",
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "hrid",
+        "created_at",
+        "created_by",
+        "archived_at",
+        "revisions",
+        "history"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "type": {
+          "description": "Its type, such as `protein.Protein`.",
+          "type": "string",
+          "maxLength": 81
+        },
+        "hrid": {
+          "description": "Its HRID on the source deployment.",
+          "type": "string",
+          "maxLength": 32
+        },
+        "created_at": {
+          "$ref": "#/$defs/time"
+        },
+        "created_by": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "archived_at": {
+          "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }]
+        },
+        "revisions": {
+          "description": "Every revision, 1 first.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/revision"
+          }
+        },
+        "history": {
+          "description": "Each table's values at each revision that changed it, as the source's history keeps them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/history"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "revision": {
+      "type": "object",
+      "required": [
+        "id",
+        "number",
+        "kind",
+        "changed_fields",
+        "user",
+        "via",
+        "client",
+        "agent",
+        "reason",
+        "created_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": ["created", "edited", "archived", "restored"]
+        },
+        "changed_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 63
+          }
+        },
+        "user": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "via": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "client": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "agent": {
+          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "created_at": {
+          "$ref": "#/$defs/time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "history": {
+      "type": "object",
+      "required": ["table", "revision", "values"],
+      "properties": {
+        "table": {
+          "description": "The type in the entity's chain whose table it is, such as `dna.Sequence`, or for an extension, its plugin and the type it extends, such as `protein:dna.DNASequence`.",
+          "type": "string",
+          "pattern": "^([a-z][a-z0-9_]*:)?[a-z][a-z0-9_]*\\.[A-Z][A-Za-z0-9]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "values": {
+          "description": "Every field the table has had, by name: refs and files by UUID, dates and times in ISO 8601, quantities in their field's unit, removed fields as null.",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outside": {
+      "description": "A line of `outside.ndjson`: an entity the bundle's values refer to that isn't in it. Its HRID and type are given only if the exporter could read it.",
+      "type": "object",
+      "required": ["id", "hrid", "type", "why"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "hrid": {
+          "type": ["string", "null"],
+          "maxLength": 32
+        },
+        "type": {
+          "type": ["string", "null"],
+          "maxLength": 81
+        },
+        "why": {
+          "description": "`another-project`: owned by another project. `history`: only an earlier revision refers to it. `purged`: its plugin's data was purged. `unreadable`: the exporter can't read it.",
+          "enum": ["another-project", "history", "purged", "unreadable"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

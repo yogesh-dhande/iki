@@ -18,6 +18,7 @@ import environ
 from django.utils.csp import CSP
 
 from iki_server import __version__
+from iki_server.bundles import keys as bundle_keys
 from iki_server.core.crypto import validate_keys as validate_encryption_keys
 from iki_server.observability.logging import configure_logging
 from iki_server.web.static_headers import add_headers as add_static_headers
@@ -64,6 +65,7 @@ INSTALLED_APPS = [
     "iki_server.searches",
     "iki_server.runs",
     "iki_server.plugins",
+    "iki_server.bundles",
     # The core plugin's types (core.Collection), which every deployment has
     # (ADR 0038). Its app is generated like any plugin's: `make core`.
     "iki_plugin_core.apps.PluginConfig",
@@ -291,6 +293,24 @@ try:
     validate_encryption_keys(IKI_ENCRYPTION_KEYS)
 except ValueError as error:
     raise environ.ImproperlyConfigured(f"IKI_ENCRYPTION_KEYS: {error}") from None
+
+# --- Bundles between deployments (ADR 0096) ---------------------------------
+# This deployment's Ed25519 key, which signs the bundles it exports: its 32-byte
+# seed in base64url. Make one with `iki-server bundle_key`. Without it, nothing
+# can be exported.
+IKI_BUNDLE_SIGNING_KEY: str = env.str("IKI_BUNDLE_SIGNING_KEY", default="")
+# The deployments whose bundles it imports, with their public keys, as
+# comma-separated name=ed25519:... pairs (`iki-server bundle_key --public` there).
+IKI_BUNDLE_TRUSTED_KEYS: dict[str, tuple[str, ...]] = {}
+# The most a bundle's members may come to uncompressed, against archives that
+# unpack to far more than they are.
+IKI_BUNDLE_MAX_BYTES: int = env.int("IKI_BUNDLE_MAX_BYTES", default=100 * 1024**3)
+try:
+    if IKI_BUNDLE_SIGNING_KEY:
+        bundle_keys.private_key(IKI_BUNDLE_SIGNING_KEY)
+    IKI_BUNDLE_TRUSTED_KEYS = bundle_keys.trusted(env.str("IKI_BUNDLE_TRUSTED_KEYS", default=""))
+except ValueError as error:
+    raise environ.ImproperlyConfigured(f"Bundle keys: {error}.") from None
 
 # --- Sign-in and sessions ---------------------------------------------------
 # Single sign-on only: there are no local passwords (see docs/adr/0023).

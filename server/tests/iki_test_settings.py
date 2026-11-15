@@ -21,6 +21,9 @@ _TEST_ENV = {
     # Tests own their throwaway database and connect as its superuser.
     "IKI_DB_REQUIRE_LEAST_PRIVILEGE": "false",
     "IKI_ENCRYPTION_KEYS": "dGVzdC1vbmx5LWtleS1kby1ub3QtdXNlLWFueXdoZXI=",
+    # Test-only bundle signing key (ADR 0096); its public key is
+    # ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4.
+    "IKI_BUNDLE_SIGNING_KEY": "kssNfFLUnM24rwMqVPyTSTj1Qamq8qIF_IbTnsVWWOw",
 }
 # The tests' deployment binds the fixture plugins' backend environment, and nothing else.
 _TEST_ENV["IKI_COMPUTE_FILE"] = str(Path(__file__).with_name("iki_test_compute.json"))

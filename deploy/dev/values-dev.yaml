@@ -22,6 +22,9 @@ secretKey:
 encryptionKeys:
   existingSecret: iki-encryption-keys
   key: keys
+bundles:
+  signingKey:
+    existingSecret: iki-bundle-key
 email:
   # Mailpit (deploy/dev/manifests/mailpit.yaml); read it at localhost:8025.
   existingSecret: iki-email

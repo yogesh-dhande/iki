@@ -103,6 +103,15 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   no database credentials, no cloud role, and a network policy that lets
   them reach just the server and object storage. Allow more destinations
   that actions need in `networkPolicy.egress.workers`.
+- Bundles move validated entities, with their history, from staging to
+  production ([ADR 0096](../../docs/adr/0096-bundles-carry-entities-between-deployments-with-their-history.md)).
+  In each deployment, run `iki-server bundle_key` in a web pod, store what it
+  prints in the `iki-bundle-key` Secret (key `key`, ideally through your
+  secrets manager), and keep the public key it reports. Production imports
+  only bundles signed by a key it trusts: put staging's under
+  `bundles.trusted` in production's `values.yaml`, where it gets a review.
+  `iki-server verify_bundle FILE` checks a bundle's bytes and signature,
+  and says whether this deployment trusts it.
 - Plugins' actions declare the secrets they need (an API key, a LIMS token).
   Keep them in your secret manager, sync them into one Kubernetes Secret
   (External Secrets, or the Vault or AWS Secrets Manager CSI driver) with a

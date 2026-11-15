@@ -117,6 +117,23 @@ schema, and knows the app's role so it can grant it privileges.
     secretKeyRef:
       name: {{ $ctx.Values.encryptionKeys.existingSecret }}
       key: {{ $ctx.Values.encryptionKeys.key }}
+{{- with $ctx.Values.bundles.signingKey.existingSecret }}
+- name: IKI_BUNDLE_SIGNING_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: {{ $ctx.Values.bundles.signingKey.key }}
+{{- end }}
+{{- with $ctx.Values.bundles.trusted }}
+{{- $pairs := list }}
+{{- range $name, $keys := . }}
+{{- range $keys }}
+{{- $pairs = append $pairs (printf "%s=%s" $name .) }}
+{{- end }}
+{{- end }}
+- name: IKI_BUNDLE_TRUSTED_KEYS
+  value: {{ join "," $pairs | quote }}
+{{- end }}
 - name: IKI_SESSION_IDLE_TIMEOUT_MINUTES
   value: {{ $ctx.Values.sessions.idleTimeoutMinutes | quote }}
 - name: IKI_SESSION_MAX_AGE_HOURS

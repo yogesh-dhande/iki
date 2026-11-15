@@ -50,6 +50,19 @@ def test_invalid_encryption_keys_are_rejected() -> None:
     assert "IKI_ENCRYPTION_KEYS: key 1 is not a Fernet key" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({"IKI_BUNDLE_SIGNING_KEY": "c2hvcnQ"}, "Bundle keys: The signing key is 5 bytes"),
+        ({"IKI_BUNDLE_TRUSTED_KEYS": "staging=rsa:abc"}, "Bundle keys: A public key starts with"),
+    ],
+)
+def test_invalid_bundle_keys_are_rejected(env: dict[str, str], expected: str) -> None:
+    result = run_manage("check", env={**PROD_ENV, **env})
+    assert result.returncode != 0
+    assert expected in result.stderr
+
+
 def test_cookies_use_host_prefixes_over_https() -> None:
     from django.conf import settings
 

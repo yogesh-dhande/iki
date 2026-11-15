@@ -48,6 +48,9 @@ class Part:
     #: Every field the table has had, removed ones included.
     fields: dict[str, Field]
     extension: bool
+    #: The table by what it holds: the type's qualified name, such as ``dna.Sequence``, or
+    #: for an extension, its plugin and the type it extends, ``protein:dna.DNASequence``.
+    name: str = ""
 
     def list_model(self, name: str) -> type[models.Model]:
         return apps.get_model(self.plugin, naming.list_model(self.model.__name__, name))
@@ -82,6 +85,7 @@ def shape(qualified: str) -> Shape:
             history=apps.get_model(t.plugin, naming.history_model(t.name)),
             fields=t.fields,
             extension=False,
+            name=t.qualified_name,
         )
         for t in chain
     ]
@@ -96,6 +100,7 @@ def shape(qualified: str) -> Shape:
                     history=apps.get_model(e.plugin, naming.history_model(model.__name__)),
                     fields=e.fields,
                     extension=True,
+                    name=f"{e.plugin}:{e.extends_type}",
                 )
             )
     return Shape(entity_type, tuple(parts))

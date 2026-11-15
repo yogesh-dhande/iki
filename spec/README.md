@@ -1159,6 +1159,27 @@ The run input has fixed IDs and seed, so a deterministic action writes the
 same every time. Every output is also checked against `run-output/v1`, and
 against the fields and types its action declares it changes.
 
+## Bundles
+
+A bundle carries entities from one project of one deployment to another,
+with every revision, the files they name and who made them
+([ADR 0096](../docs/adr/0096-bundles-carry-entities-between-deployments-with-their-history.md)).
+It's a `.tar.gz`:
+
+```text
+people.ndjson      # each person a record names, matched by email where it's imported
+agents.ndjson      # agents that acted for them (ADR 0072)
+files.ndjson       # the files revisions name, and their SHA-256
+entities.ndjson    # each entity: its revisions, and each table's values at each
+outside.ndjson     # what the values refer to that isn't in it
+blobs/sha256/<sha> # the bytes of Iki's own files, once each
+bundle.json        # who, when, why, the plugins and schema versions, every member's SHA-256
+bundle.json.sig    # the source deployment's Ed25519 signature of bundle.json
+```
+
+[`bundle/v1`](src/iki_spec/schemas/bundle/v1.json) is `bundle.json`'s
+schema, and its `$defs` are the NDJSON members' lines.
+
 ## YAML
 
 Manifests are read as YAML 1.2: only `true` and `false` are booleans, so

@@ -102,6 +102,8 @@ if ! kc -n "$NAMESPACE" get secret iki-db-runtime >/dev/null 2>&1; then
 fi
 # Fernet key: URL-safe base64 of 32 random bytes.
 ensure_secret iki-encryption-keys --from-literal=keys="$(openssl rand -base64 32 | tr '+/' '-_')"
+# Bundle signing key (ADR 0096): an Ed25519 seed, 32 random bytes in base64url.
+ensure_secret iki-bundle-key --from-literal=key="$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=')"
 ensure_secret keycloak-dev \
   --from-literal=KC_BOOTSTRAP_ADMIN_USERNAME=admin \
   --from-literal=KC_BOOTSTRAP_ADMIN_PASSWORD="$(rand 24 24)" \

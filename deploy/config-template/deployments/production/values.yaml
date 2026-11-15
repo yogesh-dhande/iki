@@ -7,6 +7,15 @@ secretKey:
   existingSecret: iki-secret-key
 encryptionKeys:
   existingSecret: iki-encryption-keys
+# Signs the bundles this deployment exports (ADR 0096): `iki-server bundle_key`
+# makes the key, under "key".
+bundles:
+  signingKey:
+    existingSecret: iki-bundle-key
+  # Staging's public key (`iki-server bundle_key --public` there), so
+  # production imports the bundles staging exports, and only those.
+  # trusted:
+  #   staging: ["ed25519:..."]
 database:
   existingSecret: iki-db-app
   migrator:

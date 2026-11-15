@@ -7,6 +7,11 @@ secretKey:
   existingSecret: iki-secret-key
 encryptionKeys:
   existingSecret: iki-encryption-keys
+# Signs the bundles this deployment exports (ADR 0096): `iki-server bundle_key`
+# makes the key, under "key".
+bundles:
+  signingKey:
+    existingSecret: iki-bundle-key
 database:
   existingSecret: iki-db-app
   migrator:

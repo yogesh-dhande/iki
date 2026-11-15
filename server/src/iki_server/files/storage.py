@@ -266,6 +266,15 @@ def digest_object(bucket_name: str, key: str, version: str = "") -> tuple[str, i
     return sha.hexdigest(), size
 
 
+def open_object(storage_uri: str, version: str = "") -> Any:  # noqa: ANN401 - botocore's StreamingBody
+    """A stored object's bytes, to read as a stream: ``s3://bucket/key``, at ``version``."""
+    bucket_name, key = split_uri(storage_uri)
+    params: dict[str, Any] = {"Bucket": bucket_name, "Key": key}
+    if version:
+        params["VersionId"] = version
+    return client_for(bucket_name).get_object(**params)["Body"]
+
+
 def exists(key: str) -> bool:
     try:
         client().head_object(Bucket=bucket(), Key=key)

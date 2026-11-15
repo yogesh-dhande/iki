@@ -105,6 +105,38 @@
         }
       }
     },
+    "bundles": {
+      "type": "object",
+      "properties": {
+        "signingKey": {
+          "type": "object",
+          "required": ["existingSecret", "key"],
+          "properties": {
+            "existingSecret": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "trusted": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "pattern": "^ed25519:[A-Za-z0-9_-]{43}$"
+            }
+          }
+        }
+      }
+    },
     "sessions": {
       "type": "object",
       "properties": {

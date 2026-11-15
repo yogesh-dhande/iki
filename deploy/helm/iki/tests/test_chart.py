@@ -426,6 +426,34 @@ def test_encryption_keys_and_public_url_reach_every_container() -> None:
             assert env["IKI_PUBLIC_URL"]["value"] == "https://iki.example.com", name
 
 
+def test_bundle_keys_reach_the_server_and_not_workers() -> None:
+    staging = "ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4"
+    qa = "ed25519:" + "A" * 43
+    docs = manifests(
+        {
+            "bundles": {
+                "signingKey": {"existingSecret": "iki-bundle-key"},
+                "trusted": {"staging": [staging], "qa": [qa, staging]},
+            }
+        }
+    )
+    for name, pod in pod_specs(docs):
+        for container in pod.get("initContainers", []) + pod["containers"]:
+            env = {e["name"]: e for e in container["env"]}
+            assert env["IKI_BUNDLE_SIGNING_KEY"]["valueFrom"]["secretKeyRef"] == {
+                "name": "iki-bundle-key",
+                "key": "key",
+            }, name
+            assert env["IKI_BUNDLE_TRUSTED_KEYS"]["value"] == (
+                f"qa={qa},qa={staging},staging={staging}"
+            ), name
+    names = {
+        e["name"] for _, pod in pod_specs(manifests()) for c in pod["containers"] for e in c["env"]
+    }
+    assert not {"IKI_BUNDLE_SIGNING_KEY", "IKI_BUNDLE_TRUSTED_KEYS"} & names  # neither by default
+    assert "not match" in render({"bundles": {"trusted": {"staging": ["rsa:x"]}}}, ok=False)
+
+
 def test_only_web_pods_reach_the_identity_provider_and_only_public_https() -> None:
     (policy,) = [
         p
