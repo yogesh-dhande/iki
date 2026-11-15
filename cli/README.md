@@ -1,9 +1,8 @@
 # iki-cli
 
 The `iki` command-line tool for plugin authors and deployments: the
-`iki plugin` commands `validate`, `build` and `makemigrations`, and
-`iki deploy build`. `test`, `upgrade` and `run` follow as the plugin system
-grows.
+`iki plugin` commands `validate`, `build`, `makemigrations` and `test`, and
+`iki deploy build`. `upgrade` and `run` follow as the plugin system grows.
 
 ## `iki plugin validate`
 
@@ -89,6 +88,35 @@ $ iki plugin build plugins/dna plugins/protein --output build/plugins
 Built build/plugins/iki_plugin_dna
 Built build/plugins/iki_plugin_protein
 ```
+
+## `iki plugin test`
+
+Runs the plugin's action tests: each `kind: ActionTest` fixture in its
+`tests/` directory ([ADR 0093](../docs/adr/0093-plugin-action-tests-run-fixtures-through-the-worker.md),
+and the [spec](../spec/README.md#action-tests)). For each, it makes the
+run input the server would, runs the action with `iki-worker run --local`,
+and checks what it writes: against `run-output/v1`, against what the action
+declares it changes, and against the test's `expect`.
+
+```console
+$ iki plugin test plugins/protein --with plugins/dna
+Running 2 test(s) of protein 0.8.0:
+  ok      haemoglobin_alpha  (0.3s)
+  FAILED  cystines  (0.2s)
+          tests/compute_properties.yaml
+          updates.protein[0].values.extinction_coefficient_oxidized: expected 7115, got 6990
+1 passed, 1 failed in 0.5s.
+```
+
+The commands run on this machine, so install what their environments need
+first. It exits 1 if any test fails, or if a fixture doesn't match the
+plugin, in which case nothing runs.
+
+| Option          | What it's for                                                        |
+| --------------- | -------------------------------------------------------------------- |
+| `--with DIR`    | A plugin this one depends on, directly or not. Repeat for each.      |
+| `-k TEXT`       | Run only the tests whose name contains this.                         |
+| `--worker PATH` | The `iki-worker` binary. `$IKI_WORKER`, or `iki-worker` on the PATH. |
 
 ## `iki deploy build`
 

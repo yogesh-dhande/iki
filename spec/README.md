@@ -1108,6 +1108,46 @@ params, settings, seed and input revisions. It writes nothing: its
 and metrics; files by their content) and environment build match the
 original's, and where they differ.
 
+## Action tests
+
+A plugin's `tests/` directory holds fixtures for its actions
+([`action-test/v1`](src/iki_spec/schemas/action-test/v1.json),
+[ADR 0093](../docs/adr/0093-plugin-action-tests-run-fixtures-through-the-worker.md)).
+`iki plugin test` runs each as a worker would and compares what it writes:
+
+```yaml
+apiVersion: iki/v1
+kind: ActionTest
+name: haemoglobin_alpha
+action: compute_properties
+inputs:
+  protein:
+    - values: { sequence: MVLSPADKTNVKAAWGKVGAHAGEYG… }
+expect:
+  output:
+    updates:
+      protein:
+        - values: { length: 142, isoelectric_point: 8.72 }
+  tolerance: 1.0e-6
+```
+
+- `params` and `settings` are given as a person and a deployment would
+  give them; settings left out take their defaults.
+- Each input is a list of entities, by their `values`, and optionally
+  their `hrid` and `type` (a subtype of the input's). An input that takes
+  one entity can take several for a batchable action: they're packed as
+  the server packs runs.
+- `files` names files in the plugin. A value or param uses one as
+  `{"$file": "name"}`.
+- `expect.output` is compared by what it gives: every key in a mapping,
+  every item of a list in order, numbers within `tolerance` (relative,
+  1e-9 unless given). With `expect.error`, the run must fail, and its last
+  `::error` line must contain that text.
+
+The run input has fixed IDs and seed, so a deterministic action writes the
+same every time. Every output is also checked against `run-output/v1`, and
+against the fields and types its action declares it changes.
+
 ## YAML
 
 Manifests are read as YAML 1.2: only `true` and `false` are booleans, so
@@ -1148,5 +1188,6 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `duplicate-environment`, `environment-needs-image`, `environment-needs-packages`, `unused-packages`, `unused-image` and `unused-environment` (warnings)                                                                                                                                                                                                                                                                                                                             | Environments                    |
 | `requirements-unpinned`, `requirements-include`, `conda-not-explicit`, `conda-unpinned`                                                                                                                                                                                                                                                                                                                                                                                             | Pinned packages                 |
 | `volumes-wrong-tier`, `overlapping-mounts`, `volume-needs-setup`, `setup-fills-nothing` (warning)                                                                                                                                                                                                                                                                                                                                                                                   | Volumes and setup               |
+| `not-a-test`, `duplicate-test`, `unknown-action`, `unknown-param`, `missing-param`, `unknown-input`, `missing-input`, `input-count`, `wrong-type`, `unknown-field`, `unknown-file`, `missing-file`, `unknown-setting`                                                                                                                                                                                                                                                               | Action tests                    |
 | `duplicate-template`, `duplicate-binding`, `unknown-kind`, `wrong-provisioner`, `gpu-wrong-tier`, `limit-needs-persistent`, `fallback-without-spot`, `root-disk-too-small`, `volume-strategy-unsupported`, `fast-restore-wrong-strategy`, `volume-option-kubernetes-only`, `snapshot-class-wrong-strategy`, `mixed-currencies`; `unpriced-template` (warning)                                                                                                                       | Compute templates               |
 | `unknown-environment`, `unknown-template`, `template-wrong-tier`, `template-too-small`, `action-does-not-fit`, `volume-strategy-missing`, `volume-strategy-access`; `lifecycle-unbound`, `unbound-environment` and `unused-template` (warnings)                                                                                                                                                                                                                                     | Bindings                        |

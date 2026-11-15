@@ -138,6 +138,9 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         "--empty", action="store_true", help="Write an empty migration, to fill in by hand."
     )
     makemigrations.set_defaults(handler=run_makemigrations)
+    from iki_cli import testing
+
+    testing.add_command(commands)
     plugin.set_defaults(handler=lambda _args: _help(plugin))
 
 

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/action-test/v1",
+  "title": "Iki action test (iki/v1)",
+  "description": "A fixture in a plugin's tests/ directory: an action run on given values, and how it should end (ADR 0093). `iki plugin test` makes the run input the server would, runs it with `iki-worker run --local`, and compares what it writes.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "action"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "ActionTest" },
+    "name": {
+      "description": "What the test is called in its report. Unique in the plugin. The file's name, and the document's number if it holds several, unless given.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "action": {
+      "description": "The plugin's action, by name, such as `compute_properties`.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "params": {
+      "description": "Its params' values, as a person would give them. A file param names one of `files` as `{\"$file\": \"name\"}`.",
+      "type": "object"
+    },
+    "settings": {
+      "description": "The plugin's settings for the run, over their defaults.",
+      "type": "object"
+    },
+    "inputs": {
+      "description": "Each input's entities, in order. A file field's value names one of `files` as `{\"$file\": \"name\"}`.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["values"],
+          "additionalProperties": false,
+          "properties": {
+            "hrid": {
+              "description": "Its HRID, if the command reads it. Made from the type's prefix unless given.",
+              "type": "string",
+              "maxLength": 100
+            },
+            "type": {
+              "description": "Its type, if it's a subtype of the input's: `plugin.Type`.",
+              "type": "string"
+            },
+            "values": { "type": "object" }
+          }
+        }
+      }
+    },
+    "files": {
+      "description": "The files the values and params name, each a path relative to the plugin's directory.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    },
+    "expect": {
+      "description": "How the run should end. With `output`, it succeeds and writes at least that; with `error`, it fails and says so. With neither, it only has to succeed.",
+      "type": "object",
+      "additionalProperties": false,
+      "not": { "required": ["output", "error"] },
+      "properties": {
+        "output": {
+          "description": "What output.json should contain: each key given, each list's items in order. Keys left out aren't compared.",
+          "type": "object"
+        },
+        "error": {
+          "description": "Text the command's last `::error` line should contain.",
+          "type": "string",
+          "minLength": 1
+        },
+        "tolerance": {
+          "description": "How far a number may be from the one given, relative to it. 1e-9 unless given.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

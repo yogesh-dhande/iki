@@ -157,3 +157,32 @@ def test_what_cant_be_run_is_a_usage_error(
     ran = run_local(worker_bin, tmp_path, {"kind": "RunInput"}, plugin=tmp_path)
     assert ran.returncode == 2
     assert "isn't a run input (run-input/v1)" in ran.stderr
+
+
+# --- iki plugin test (ADR 0093) --------------------------------------------------------------
+
+FIRST_PARTY = Path(__file__).resolve().parents[2] / "plugins"
+
+
+@pytest.mark.parametrize(
+    ("plugin", "dependencies"),
+    [("dna", []), ("protein", ["dna"]), ("../plugin-template", ["dna"])],
+)
+def test_first_party_plugins_and_the_template_pass_their_action_tests(
+    worker_bin: Path,  # noqa: F811 - the fixture
+    tmp_path: Path,
+    plugin: str,
+    dependencies: list[str],
+) -> None:
+    deps = [arg for name in dependencies for arg in ("--with", str(FIRST_PARTY / name))]
+    result = subprocess.run(  # noqa: S603 - this interpreter, the iki CLI
+        [sys.executable, "-m", "iki_cli", "plugin", "test", str(FIRST_PARTY / plugin), *deps],
+        env={**os.environ, "IKI_WORKER": str(worker_bin), "IKI_WORK_DIR": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert " passed in " in result.stdout
+    assert "FAILED" not in result.stdout

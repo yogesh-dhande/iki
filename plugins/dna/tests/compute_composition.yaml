@@ -1,0 +1,20 @@
+# Run with `iki plugin test plugins/dna` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: gc_among_known_pairings
+description: >-
+  GC content counts only bases whose pairing is known: an N is neither, an S
+  (G or C) is GC. A sequence of Ns has a length and no GC content.
+action: compute_composition
+inputs:
+  sequence:
+    - values: { bases: ATGCGC }
+    - values: { bases: atgcNNNNS }
+    - values: { bases: NNNN }
+expect:
+  output:
+    updates:
+      sequence:
+        - values: { length: 6, gc_content: 66.67 }
+        - values: { length: 9, gc_content: 60.0 }
+        - values: { length: 4 }

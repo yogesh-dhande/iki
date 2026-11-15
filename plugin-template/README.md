@@ -29,6 +29,8 @@ What's here:
   Iki runs it in a sandboxed frame with no network and no access to the
   person's session, and gives it the sample. Use a component only for what
   Iki's own pages can't show.
+- `tests/storage.yaml`: tests of the storage actions. `iki plugin test`
+  runs each as a worker would and compares what it writes.
 - `migrations/`: the database migrations for those types, made by
   `iki plugin makemigrations` and reviewed in pull requests like code.
 - `.github/workflows/ci.yml`: checks every change, the way a deployment's
@@ -64,7 +66,11 @@ complete and check it as you type.
    disappeared was renamed, so renaming keeps its data and history. It
    refuses to delete a field outright: mark it `removed: true` instead, so
    its history stays readable.
-4. Commit the manifests and the new migration together, in one pull request.
+4. Run `iki plugin test . --with …` to run your actions' tests in `tests/`,
+   with [`iki-worker`](https://github.com/yogesh-dhande/iki/tree/main/worker#readme)
+   installed. Add a test for each change in what an action writes.
+5. Commit the manifests, the new migration and the tests together, in one
+   pull request.
 
 ## Deploy it
 

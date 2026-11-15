@@ -1,0 +1,208 @@
+"""A plugin's action tests (ADR 0093): fixtures checked against it, the run input made from
+each, and outputs compared with what they expect."""
+
+import shutil
+from pathlib import Path
+
+import pytest
+
+from iki_spec import action_tests
+from iki_spec.builtin import core_plugin
+from iki_spec.model import EntityType, Plugin
+from iki_spec.validate import load_plugin
+
+PLUGINS = Path(__file__).parent / "plugins"
+
+
+@pytest.fixture
+def protein(tmp_path: Path) -> tuple[Path, Plugin, dict[str, EntityType]]:
+    shutil.copytree(PLUGINS / "protein", tmp_path / "protein")
+    result = load_plugin(tmp_path / "protein", dependencies=[PLUGINS / "dna"])
+    assert result.plugin is not None, result.problems
+    dna = load_plugin(PLUGINS / "dna").plugin
+    assert dna is not None
+    types = {t.qualified_name: t for t in core_plugin().types.values()}
+    types.update({t.qualified_name: t for t in dna.types.values()})
+    return tmp_path / "protein", result.plugin, types
+
+
+def write(directory: Path, name: str, text: str) -> None:
+    (directory / "tests").mkdir(exist_ok=True)
+    (directory / "tests" / name).write_text(text)
+
+
+HEADER = "apiVersion: iki/v1\nkind: ActionTest\n"
+
+
+def test_fixtures_are_checked_against_the_plugin(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    directory, plugin, types = protein
+    write(
+        directory,
+        "bad.yaml",
+        HEADER
+        + "action: compute_properties\n"
+        + "params: { ph: 7 }\n"
+        + "inputs:\n"
+        + "  protein:\n"
+        + "    - values: { sequence: MKV, weight: 1, structure: { $file: missing } }\n"
+        + "  target: []\n"
+        + "files: { pdb: data/abl.pdb }\n"
+        + "---\n"
+        + HEADER
+        + "action: fold\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert not loaded.ok
+    assert [(p.code, p.message) for p in loaded.problems] == [
+        ("unknown-param", "compute_properties has no param ph."),
+        ("unknown-field", "protein.Protein has no field weight."),
+        ("unknown-field", "protein.Protein has no field structure."),
+        ("unknown-file", "There's no file missing in `files`."),
+        ("unknown-input", "compute_properties has no input target."),
+        ("missing-file", "There's no file at `data/abl.pdb`."),
+        ("unknown-action", "protein has no action fold."),
+    ]
+    assert loaded.problems[0].location is not None
+    assert loaded.problems[0].file == "tests/bad.yaml"
+
+
+def test_a_batch_packs_as_many_as_the_action_does(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    directory, plugin, types = protein
+    entities = "".join(f"    - values: {{ sequence: MK{'V' * n} }}\n" for n in range(101))
+    write(
+        directory,
+        "many.yaml",
+        HEADER + "action: compute_properties\ninputs:\n  protein:\n" + entities,
+    )
+    (problem,) = action_tests.load_tests(directory, plugin, types).problems
+    assert problem.message == (
+        "protein takes one entity, not 101: compute_properties packs up to 100 runs into one "
+        "job, so give at most 100."
+    )
+
+
+def test_the_run_input_is_the_servers(
+    protein: tuple[Path, Plugin, dict[str, EntityType]], tmp_path: Path
+) -> None:
+    directory, plugin, types = protein
+    (directory / "data").mkdir()
+    (directory / "data" / "a.fasta").write_text(">a\nMKV\n")
+    write(
+        directory,
+        "import.yaml",
+        HEADER
+        + "action: import_proteins\n"
+        + "params: { file: { $file: fasta } }\n"
+        + "files: { fasta: data/a.fasta }\n"
+        + "---\n"
+        + HEADER
+        + "name: two\n"
+        + "action: compute_properties\n"
+        + "inputs:\n  protein:\n    - values: { sequence: MKV }\n"
+        + "    - { hrid: PRT-9, values: { sequence: MKW } }\n"
+        + "expect: { output: { updates: {} }, tolerance: 0.01 }\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert loaded.ok, loaded.problems
+    imported, two = loaded.tests
+    assert (imported.name, two.name) == ("import_1", "two")
+    assert two.tolerance == 0.01
+    work = tmp_path / "work"
+    work.mkdir()
+    made = action_tests.run_input(imported, plugin, types, directory, {"a": 1}, work)
+    (file_id,) = made["files"]
+    assert made["params"] == {"file": file_id}
+    assert made["files"][file_id] == {"path": "../protein/data/a.fasta"}
+    assert made["command"] == ["python", "./scripts/imports.py"]
+    assert made["environment"] == "protein.protein-tools"
+    assert made["settings"] == {"a": 1}
+    assert made["run"]["seed"] == action_tests.SEED
+    assert "pack" not in made
+
+    packed = action_tests.run_input(two, plugin, types, directory, {}, work)
+    first, second = packed["inputs"]["protein"]
+    assert (first["hrid"], second["hrid"]) == ("PRT-000001", "PRT-9")
+    assert first["schema_version"] == plugin.types["protein.Protein"].schema_version
+    assert [p["entity"] for p in packed["pack"]] == [first["id"], second["id"]]
+    assert [p["hrid"] for p in packed["pack"]] == ["RUN-000001", "RUN-000002"]
+
+
+def test_names_are_unique(protein: tuple[Path, Plugin, dict[str, EntityType]]) -> None:
+    directory, plugin, types = protein
+    one = HEADER + "name: same\naction: fetch_proteins\nparams: { accession: P1 }\n"
+    write(directory, "a.yaml", one)
+    write(directory, "b.yaml", one)
+    (problem,) = action_tests.load_tests(directory, plugin, types).problems
+    assert (problem.code, problem.file) == ("duplicate-test", "tests/b.yaml")
+    assert problem.message == "There's already a test called same, in tests/a.yaml."
+
+
+def test_required_params_and_inputs_must_be_given(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    directory, plugin, types = protein
+    write(
+        directory,
+        "a.yaml",
+        HEADER + "action: fetch_proteins\n---\n" + HEADER + "action: align_pair\n",
+    )
+    assert [p.message for p in action_tests.load_tests(directory, plugin, types).problems] == [
+        "Give fetch_proteins's accession.",
+        "Give align_pair's query input.",
+        "Give align_pair's target input.",
+    ]
+
+
+def test_outputs_are_compared_by_what_a_test_gives() -> None:
+    got = {
+        "updates": {"protein": [{"entity": "x", "values": {"weight": 15257.3601, "pi": 8.72}}]},
+        "metrics": {"score": 1},
+    }
+    assert action_tests.compare({"updates": {"protein": [{"values": {"pi": 8.72}}]}}, got) == []
+    assert (
+        action_tests.compare(
+            {"updates": {"protein": [{"values": {"weight": 15257.36}}]}}, got, 1e-6
+        )
+        == []
+    )
+    assert action_tests.compare(
+        {"updates": {"protein": [{"values": {"weight": 15257.36, "gravy": 0.1}}]}}, got
+    ) == [
+        "updates.protein[0].values.weight: expected 15257.36, got 15257.3601",
+        "updates.protein[0].values.gravy: missing (expected 0.1)",
+    ]
+    assert action_tests.compare({"updates": {"protein": [{}, {}]}}, got) == [
+        "updates.protein: expected 2 item(s), got 1"
+    ]
+    assert action_tests.compare({"metrics": {"score": True}}, got) == [
+        "metrics.score: expected true, got 1"
+    ]
+    assert action_tests.compare({"metrics": {"score": 0}}, {"metrics": {"score": 1e-12}}) == []
+
+
+def test_outputs_may_change_only_what_the_action_declares(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    _, plugin, _ = protein
+    action = plugin.actions["compute_properties"]
+    assert (
+        action_tests.effects(
+            action, {"updates": {"protein": [{"values": {"molecular_weight": 1}}]}}
+        )
+        == []
+    )
+    assert action_tests.effects(
+        action,
+        {
+            "updates": {"protein": [{"values": {"sequence": "M"}}], "other": []},
+            "creates": [{"type": "protein.Structure"}],
+        },
+    ) == [
+        "It sets sequence on protein, which compute_properties doesn't declare it updates.",
+        "It updates other, which compute_properties doesn't declare it updates.",
+        "It creates a protein.Structure, which compute_properties doesn't declare.",
+    ]

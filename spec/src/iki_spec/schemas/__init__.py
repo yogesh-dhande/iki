@@ -44,6 +44,7 @@ NAMES = (
     "run-input",
     "run-output",
     "setup-input",
+    "action-test",
 )
 
 BASE_URL = "https://ikisci.org/schemas"

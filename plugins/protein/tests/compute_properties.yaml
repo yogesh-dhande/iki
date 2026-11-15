@@ -1,0 +1,44 @@
+# Run with `iki plugin test plugins/protein --with plugins/dna` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: haemoglobin_alpha
+description: >-
+  Human haemoglobin's alpha chain (UniProt P69905), against ExPASy's
+  ProtParam: 15257.40 Da (its residue masses differ in the last digits),
+  pI 8.72, 9970 M⁻¹cm⁻¹ with its one cysteine, GRAVY 0.048, instability 6.97.
+action: compute_properties
+inputs:
+  protein:
+    - values:
+        sequence: >-
+          MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR
+expect:
+  output:
+    updates:
+      protein:
+        - values:
+            length: 142
+            molecular_weight: 15257.36
+            isoelectric_point: 8.72
+            extinction_coefficient_oxidized: 9970
+            extinction_coefficient_reduced: 9970
+            gravy: 0.048
+            instability_index: 6.97
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: cystines
+description: >-
+  Pace et al.: W 5500, Y 1490, and 125 for each cystine, here two of the
+  three cysteines, when oxidized.
+action: compute_properties
+inputs:
+  protein:
+    - values: { sequence: MCWCYC }
+expect:
+  output:
+    updates:
+      protein:
+        - values:
+            extinction_coefficient_reduced: 6990
+            extinction_coefficient_oxidized: 7115

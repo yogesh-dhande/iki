@@ -1,0 +1,9 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: no_accessions
+description: A fetch with nothing to fetch fails whole, before it asks NCBI.
+action: fetch_sequences
+params: { accessions: " , " }
+settings: { ncbi_email: lab@example.com }
+expect:
+  error: Give at least one accession

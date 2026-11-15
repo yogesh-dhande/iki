@@ -1,7 +1,9 @@
 # Checks every change to the plugin, as a deployment's build will:
 #   - its manifests are valid against the plugins it depends on;
 #   - its committed migrations match its manifests (run `iki plugin
-#     makemigrations .` and commit what it writes if not).
+#     makemigrations .` and commit what it writes if not);
+#   - its actions pass their tests in tests/, run by the iki-worker release
+#     of the same version.
 name: CI
 
 on:
@@ -54,3 +56,15 @@ jobs:
         run: iki plugin validate . --with .deps/iki/plugins/dna
       - name: Migrations match the manifests
         run: iki plugin makemigrations . --with .deps/iki/plugins/dna --check --no-input
+      - name: Action tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="iki-worker-${IKI_VERSION}-x86_64-unknown-linux-musl"
+          gh release download "v${IKI_VERSION}" --repo yogesh-dhande/iki \
+            --pattern "$name.tar.gz" --dir "$RUNNER_TEMP"
+          # Built and attested by Iki's release workflow, or it isn't run.
+          gh attestation verify "$RUNNER_TEMP/$name.tar.gz" --repo yogesh-dhande/iki \
+            --signer-workflow yogesh-dhande/iki/.github/workflows/release.yml
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          iki plugin test . --with .deps/iki/plugins/dna --worker "$RUNNER_TEMP/$name/iki-worker"
