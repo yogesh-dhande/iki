@@ -449,6 +449,32 @@ async def test_agents_show_their_person_an_app_first_and_place_it(world: World) 
     assert note(cleared) == "The project's page opens without an app now."
 
 
+@pytest.mark.wasm
+async def test_an_agent_drafts_and_places_apps_only_where_its_grant_reaches(
+    world: World,
+) -> None:
+    """A token for one project can't draft an app in another the person edits, nor set
+    that project's dashboard: the grant, not the person's roles, is the limit."""
+
+    def enzymes() -> Project:
+        other = Project.objects.create(team=world.team, name="Enzymes")
+        for who, role in (("editor", ProjectRole.EDITOR), ("admin", ProjectRole.ADMIN)):
+            ProjectMembership.objects.create(project=other, user=world.users[who], role=role)
+        return other
+
+    other = await sync_to_async(enzymes)()
+    spec = {
+        "version": 1,
+        "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
+    }
+    token = await token_for(world, projects=[world.project])
+    drafted = await tool(token, "preview_app", project=str(other.pk), name="X", spec=spec)
+    assert "(404" in error(drafted)
+    admin = await token_for(world, "admin", projects=[world.project])
+    placed = await tool(admin, "set_project_dashboard", project=str(other.pk), app="APP-000001")
+    assert "(404" in error(placed)
+
+
 # --- Writing ------------------------------------------------------------------------------------
 
 

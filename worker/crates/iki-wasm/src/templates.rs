@@ -135,6 +135,18 @@ pub enum Checked {
     },
 }
 
+/// The most of an expression a message quotes: enough to find it, never a page of it.
+const QUOTED: usize = 60;
+
+/// Where a failure is, for a person: "In `{{ size(rows) }}`", its start if it's long.
+fn quoted(source: &str) -> String {
+    if source.chars().count() <= QUOTED {
+        return format!("In `{{{{{source}}}}}`");
+    }
+    let start: String = source.chars().take(QUOTED).collect();
+    format!("In `{{{{{start}…}}}}`")
+}
+
 /// Whether each template reads, and the names and fields its expressions use.
 #[must_use]
 pub fn check(templates: &[String]) -> Vec<Checked> {
@@ -158,7 +170,7 @@ pub fn check(templates: &[String]) -> Vec<Checked> {
                     }
                     Err(error) => {
                         return Checked::Invalid {
-                            error: format!("In `{{{{{source}}}}}`: {error}"),
+                            error: format!("{}: {error}", quoted(source)),
                         };
                     }
                 }
@@ -269,7 +281,7 @@ fn assemble(parts: &[Part<'_>], values: &[Vec<Evaluated>], row: usize) -> Evalua
                     Evaluated::Value { value } => out.push_str(&text(value)),
                     Evaluated::Error { error } => {
                         return Evaluated::Error {
-                            error: format!("In `{{{{{source}}}}}`: {error}"),
+                            error: format!("{}: {error}", quoted(source)),
                         };
                     }
                 }
@@ -297,6 +309,23 @@ mod tests {
 
     fn value(v: serde_json::Value) -> Evaluated {
         Evaluated::Value { value: v }
+    }
+
+    #[test]
+    fn a_failure_quotes_a_long_expression_by_its_start() {
+        // Over the most an expression may be: 600 terms.
+        let body = format!(" {} ", ["1"; 600].join(" + "));
+        let checked = check(&[format!("{{{{{body}}}}}")]);
+        let start: String = body.chars().take(60).collect();
+        let quoted = format!("In `{{{{{start}…}}}}`: ");
+        assert!(
+            matches!(&checked[..], [Checked::Invalid { error }] if error.starts_with(&quoted) && error.len() < 200),
+            "{checked:?}"
+        );
+        let short = check(&["{{ 1 + }}".to_owned()]);
+        assert!(
+            matches!(&short[0], Checked::Invalid { error } if error.starts_with("In `{{ 1 + }}`: "))
+        );
     }
 
     #[test]

@@ -78,7 +78,8 @@ export const serverFetch: typeof fetch = async (input, init) => {
   if (route === undefined) {
     return problem(404, "not_found", `No fake for ${call.method} ${call.path}`);
   }
-  const value = typeof route === "function" ? (route as (r: Sent) => unknown)(call) : route;
+  // An answer may be a promise, to hold a response back until a test lets it go.
+  const value = typeof route === "function" ? await (route as (r: Sent) => unknown)(call) : route;
   return value instanceof Response ? value : respond(200, value);
 };
 

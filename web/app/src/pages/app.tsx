@@ -23,6 +23,7 @@ import {
   type Panel,
   type Rendered,
 } from "../apps";
+import { HRID } from "../components";
 import { ENTITIES, entityQuery, valueText, type Entity, type EntityType } from "../entities";
 import { Loading, ProblemAlert, RelativeTime } from "../ui";
 import { ViewerBody } from "./entity-viewer";
@@ -74,7 +75,8 @@ export function AppPanel({
         const before: Offers = { ...base };
         let ready = true;
         for (const p of spec.panels.slice(0, index)) {
-          const offered = offers[p.id];
+          // Its own offer, never something an object has anyway (`constructor`, say).
+          const offered = Object.hasOwn(offers, p.id) ? offers[p.id] : undefined;
           if (offered) before[p.id] = offered;
           else ready = false;
         }
@@ -394,14 +396,15 @@ function SearchProblem({ problem }: { problem: Problem }) {
 }
 
 /** Which entity an `entity` prop's value is: an HRID, an entity, or the first of a list. */
+/** The HRID an expression's value names, if it names one: an HRID, an entity, or a list
+ * of either. Anything else, a path or an address, say, names none, so it's never a link. */
 function hridOf(value: unknown): string | null {
   const first = Array.isArray(value) ? (value as unknown[])[0] : value;
-  if (typeof first === "string" && first) return first;
-  if (typeof first === "object" && first !== null && "hrid" in first) {
-    const { hrid } = first as EntityValue;
-    return typeof hrid === "string" ? hrid : null;
-  }
-  return null;
+  const hrid =
+    typeof first === "object" && first !== null && "hrid" in first
+      ? (first as EntityValue).hrid
+      : first;
+  return typeof hrid === "string" && HRID.test(hrid) ? hrid : null;
 }
 
 function ViewerPanel({
@@ -424,7 +427,19 @@ function ViewerPanel({
   if (rendered.error) return <p className="app-error">{rendered.error}</p>;
   if (value && "error" in value) return <p className="app-error">{value.error}</p>;
   if (!literal && !rendered.values) return <Loading label="Working it out…" />;
-  if (!hrid) return <p className="muted">Nothing to show yet.</p>;
+  if (!hrid) {
+    const named = value && "value" in value ? value.value : null;
+    const empty =
+      named === null ||
+      named === undefined ||
+      named === "" ||
+      (Array.isArray(named) && !named.length);
+    return empty ? (
+      <p className="muted">Nothing to show yet.</p>
+    ) : (
+      <p className="app-error">This names no entity: an entity, or an ID such as PRT-000001.</p>
+    );
+  }
   if (found.isError) return <ProblemAlert problem={problemOf(found.error)} />;
   if (!entity) return <Loading label={`Opening ${hrid}…`} />;
   const type = types.find((t) => t.name === entity.type);

@@ -2415,6 +2415,10 @@ input[type="file"]::file-selector-button {
 .dashboard-heading .section-title {
   margin: 0;
 }
+/* Below the form it previews, apart from it. */
+.app-preview {
+  margin-top: 2rem;
+}
 .app-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

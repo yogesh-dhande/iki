@@ -183,6 +183,41 @@ def guide() -> dict[str, Any]:
     }
 
 
+#: The longest value a schema problem quotes back.
+MAX_QUOTED = 60
+
+
+def _schema_message(error: Any) -> str:  # noqa: ANN401 - a jsonschema ValidationError
+    """What's wrong, quoting the value only if it's short: a spec's panels, say, aren't
+    repeated back to whoever sent them."""
+    if len(repr(error.instance)) <= MAX_QUOTED:
+        return str(error.message)
+    limit = error.validator_value
+    worded = {
+        "maxItems": f"It has more than {limit} items",
+        "minItems": f"It has fewer than {limit} items",
+        "maxLength": f"It’s over {limit} characters",
+        "maxProperties": f"It has more than {limit} keys",
+        "type": f"It should be {_kind(limit)}",
+        "pattern": f"It doesn’t match {limit}",
+    }
+    return worded.get(error.validator, f"It doesn’t fit the schema’s `{error.validator}`")
+
+
+def _kind(expected: Any) -> str:  # noqa: ANN401 - JSON Schema's `type`
+    names = {
+        "object": "an object",
+        "array": "a list",
+        "string": "text",
+        "integer": "a whole number",
+        "number": "a number",
+        "boolean": "true or false",
+        "null": "null",
+    }
+    kinds = expected if isinstance(expected, list) else [expected]
+    return " or ".join(names.get(str(k), str(k)) for k in kinds)
+
+
 def check(user: User, spec: Any) -> list[str]:  # noqa: ANN401 - JSON
     """Everything wrong with a spec, as saving it would say, but each schema problem on its
     own with where it is. Nothing if it would save."""
@@ -195,7 +230,8 @@ def check(user: User, spec: Any) -> list[str]:  # noqa: ANN401 - JSON
         out = []
         for error in errors[:MAX_SCHEMA_PROBLEMS]:
             where = ".".join(str(p) for p in error.absolute_path)
-            out.append(f"At `{where}`: {error.message}." if where else f"{error.message}.")
+            message = _schema_message(error)
+            out.append(f"At `{where}`: {message}." if where else f"{message}.")
         if len(errors) > MAX_SCHEMA_PROBLEMS:
             out.append(f"And {len(errors) - MAX_SCHEMA_PROBLEMS} more.")
         return out

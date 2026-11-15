@@ -56,7 +56,7 @@ export const MIN_FRAME_HEIGHT = 160;
 /** The most entities one selection may hold. */
 export const MAX_SELECTED = 1000;
 /** What a selection names entities by: their HRIDs, such as `PRT-000001`. */
-const HRID = /^[A-Za-z][A-Za-z0-9]{1,7}-[0-9]{1,20}$/;
+export const HRID = /^[A-Za-z][A-Za-z0-9]{1,7}-[0-9]{1,20}$/;
 
 export type FrameMessage =
   { type: "ready" } | { type: "resize"; height: number } | { type: "select"; entities: string[] };

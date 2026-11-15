@@ -1,7 +1,7 @@
 /** Apps (core.App, ADR 0090): panels that read the ones before them, rendered with the
  * real iki-wasm, run here without a worker. */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -536,5 +536,79 @@ describe("previewing an app as it's written", () => {
     const preview = screen.getByRole("region", { name: "Preview" });
     expect(await within(preview).findByRole("alert")).toHaveTextContent(refusal);
     expect(within(preview).queryByText("Hello.")).toBeNull();
+  });
+});
+
+/** What a spec could try, written by someone who can edit a project, against everyone
+ * who reads it (ADR 0090). An app shows text, never markup; links only to entities; and
+ * reads only what panels offer. */
+describe("an app can't", () => {
+  function text(value: string) {
+    return { id: "words", component: "iki.text", props: { text: value } };
+  }
+
+  it("put markup on the page, as text or from an expression", async () => {
+    onTypes();
+    const markup = '<img src=x onerror="alert(1)"><a href="javascript:alert(2)">x</a>';
+    answer(
+      "GET /api/v1/entities/APP-000001",
+      app([text(markup), { ...text(`{{ "<b>" + "bold</b>" }}`), id: "made" }]),
+    );
+    await renderApp("/entities/APP-000001/");
+    expect(await screen.findByText(markup)).toBeInTheDocument();
+    expect(await screen.findByText("<b>bold</b>")).toBeInTheDocument();
+    const grid = document.querySelector(".app-grid");
+    expect(grid?.querySelector("img, b, script")).toBeNull();
+    expect(grid?.querySelector('a[href^="javascript"]')).toBeNull();
+  });
+
+  it("link anywhere but an entity, whatever its viewer's expression names", async () => {
+    onTypes();
+    for (const [index, value] of [
+      "{{ '../../settings/webhooks' }}",
+      "{{ 'javascript:alert(1)' }}",
+      "{{ 'https://evil.example/PRT-000001' }}",
+      "{{ {'hrid': '//evil.example'} }}",
+    ].entries()) {
+      answer(
+        "GET /api/v1/entities/APP-000001",
+        app([{ id: "shown", component: "iki.viewer", props: { entity: value } }]),
+      );
+      await renderApp("/entities/APP-000001/");
+      const shown = await screen.findByText(/This names no entity/);
+      expect(shown, String(index)).toBeInTheDocument();
+      cleanup();
+    }
+    // Nothing was fetched for them.
+    expect(
+      calls("GET").filter(
+        (c) =>
+          !/^\/api\/v1\/(entities\/APP-000001|entity-types|me|components|notifications|project-roles)/.test(
+            c.path,
+          ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("read a panel that hasn't offered anything, whatever it's called", async () => {
+    onTypes();
+    let release: (value: unknown) => void = () => undefined;
+    answer(
+      "POST /api/v1/entities/search",
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const grid = { ...GRID, id: "constructor", title: "Constructor" };
+    answer(
+      "GET /api/v1/entities/APP-000001",
+      app([grid, text("{{ size(constructor.rows) }} rows.")]),
+    );
+    await renderApp("/entities/APP-000001/");
+    // `constructor` is something every object has: it still waits for the grid's offer.
+    expect(await screen.findByText("Waiting for the panels before it…")).toBeInTheDocument();
+    release(respond(200, { items: [PTEST], next_cursor: null }));
+    expect(await screen.findByText("1 rows.")).toBeInTheDocument();
   });
 });

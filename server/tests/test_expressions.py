@@ -46,8 +46,9 @@ def test_says_why_text_doesnt_read() -> None:
     assert [c.error for c in checked] == [
         "In `{{ 1 + }}`: It ends too soon, at line 1, column 6.",
         "In `{{ }}`: It's empty.",
-        f"In `{{{{{deep}}}}}`: It nests more than 32 deep.",
-        f"In `{{{{{'a' * 1001}}}}}`: It's over 1000 characters, the most an expression may be.",
+        # A long one is quoted by its start, so the message stays short.
+        f"In `{{{{{deep[:60]}…}}}}`: It nests more than 32 deep.",
+        f"In `{{{{{'a' * 60}…}}}}`: It's over 1000 characters, the most an expression may be.",
         "The `{{` at character 1 isn't closed.",
     ]
 

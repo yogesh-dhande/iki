@@ -116,6 +116,22 @@ stops a rendering that runs for longer than a second. The browser's worker
 renders once before it's used, since some browsers run a module's first
 calls slowly, and a cold start shouldn't count against an app.
 
+**What a spec can't do is tested as an attack.** Someone who can edit a
+project writes its apps for everyone who reads it, so the tests write
+specs as they might to reach past that:
+markup in text or made by an expression is shown as text; a viewer links
+only to something shaped like an HRID, never a path or an address; a panel
+reads only what a panel before it has offered, whatever its ID (even
+`constructor`, which every object has); keys the schema doesn't have,
+prototype ones included, are refused, as are a search's field written as
+an expression and a condition's value that isn't one; expressions are
+bounded in length, depth and number, checking them stays quick, and a
+problem quotes no more than an expression's start or a value's kind; and
+an expression reads nothing but what's offered, not the person, the page
+or the token. Drafts and dashboards keep to their people and to an
+agent's grant: a token for one project can't draft or place an app in
+another its person edits.
+
 ## Consequences
 
 - An app can't show anything its viewer couldn't find, nor write anything,

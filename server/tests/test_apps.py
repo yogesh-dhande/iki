@@ -505,3 +505,53 @@ def test_a_person_keeps_their_latest_drafts(world: World, monkeypatch: pytest.Mo
     # An archived project takes no drafts, as it takes no other changes.
     Project.objects.filter(pk=world.project.pk).update(archived_at=timezone.now())
     assert editor.post("/apps/drafts", {**body, "name": "Late"}).status_code == 403
+
+
+# --- What a spec could try (ADR 0090) ------------------------------------------------------
+
+
+def test_a_spec_cant_get_round_its_checks(world: World) -> None:
+    """Someone who can edit a project writes a spec to reach past what its readers may
+    see, or to slow Iki down. Each is refused, saying where."""
+    import time
+
+    editor = api_as(world)
+
+    def check(*panels: dict[str, Any], **top: Any) -> list[str]:
+        spec = {"version": 1, "panels": list(panels), **top}
+        found: list[str] = editor.post("/apps/check", {"spec": spec}).json()["problems"]
+        return found
+
+    # Keys the schema doesn't have, prototype ones included, go nowhere.
+    assert check(with_props(NOTE, __proto__={"admin": True}))
+    assert check({**NOTE, "constructor": {}})
+    assert check(NOTE, owner="someone")
+    # A search's field is a field of the type, never an expression.
+    sneaky = with_props(GRID, where={"field": "{{ proteins.rows }}", "op": "eq", "value": "x"})
+    assert any("where" in p for p in check(sneaky))
+    # A condition's value is a value, not an operator for the database.
+    raw = with_props(GRID, where={"field": "name", "op": "eq", "value": {"$gt": ""}})
+    assert check(raw)
+    # A column is a field of the type, or an expression: not another table's column.
+    assert any("columns" in p for p in check(with_props(GRID, columns=[{"field": "password"}])))
+    # Expressions are bounded, and checking them stays quick however they're written.
+    started = time.monotonic()
+    deep = "{{ " + "[" * 200 + "]" * 200 + " }}"
+    long = "{{ " + " + ".join(["1"] * 600) + " }}"
+    # Each says which, quoting no more than the start of it.
+    assert check(with_props(NOTE, text=deep)) == [
+        f"Panel `note`, `text`: In `{{{{{deep[2:62]}…}}}}`: It nests more than 32 deep."
+    ]
+    assert check(with_props(NOTE, text=long)) == [
+        f"Panel `note`, `text`: In `{{{{{long[2:62]}…}}}}`: It's over 1000 characters, "
+        "the most an expression may be."
+    ]
+    expression = "{{ " + "1 + " * 200 + "1 }}"
+    many = [{**NOTE, "id": f"n{i}", "props": {"text": expression}} for i in range(25)]
+    assert check(*many) == ["At `panels`: It has more than 24 items."]
+    assert time.monotonic() - started < 10
+    # An app reads only what's offered: not the person, the token or the page.
+    for name in ("user", "request", "window", "document"):
+        assert check(with_props(NOTE, text=f"{{{{ {name} }}}}")) == [
+            f"Panel `note`, `text`: `{name}` isn’t a panel before it."
+        ]

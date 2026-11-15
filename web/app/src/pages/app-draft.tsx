@@ -71,7 +71,7 @@ export function AppDraft() {
       <div className="alert alert-info" role="note">
         <p>
           <strong>A draft, not saved.</strong> {agent ? `${agent} drafted it for you. ` : null}
-          Only you can see it, until <RelativeTime value={expires_at} />.
+          Only you can see it, and it expires <RelativeTime value={expires_at} />.
           {entity.data ? ` It’s shown on ${entity.data.title} (${entity.data.hrid}).` : null}
         </p>
         {project.can.edit && !project.archived ? (
