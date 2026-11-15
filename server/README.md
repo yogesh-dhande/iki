@@ -169,7 +169,7 @@ and the server refuses to start without them.
 | `IKI_DB_REQUIRE_LEAST_PRIVILEGE`      | `true`        | Readiness fails if the database role has more power than the app needs                 |
 | `IKI_DB_SSLMODE`                      | `verify-full` | libpq `sslmode`                                                                        |
 | `IKI_DB_SSLROOTCERT`                  | unset         | CA bundle used to verify the database certificate                                      |
-| `IKI_DB_POOL`                         | `true`        | Use psycopg's connection pool                                                          |
+| `IKI_DB_POOL`                         | `true`        | Use psycopg's pool; a connection a thread drops goes back (`db.connection_dropped`)    |
 | `IKI_DB_POOL_MIN_SIZE` / `_MAX_SIZE`  | `2` / `10`    | Pool size per process                                                                  |
 | `IKI_HTTPS`                           | `true`        | Clients use HTTPS: redirects, secure cookies, HSTS                                     |
 | `IKI_FORWARDED_ALLOW_IPS`             | `127.0.0.1`   | Proxies trusted for `X-Forwarded-*` headers                                            |

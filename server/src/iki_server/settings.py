@@ -225,6 +225,8 @@ DATABASES = {
 }
 if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
     raise environ.ImproperlyConfigured("IKI_DATABASE_URL must point at PostgreSQL")
+# Django's backend, giving pooled connections back however a thread ends.
+DATABASES["default"]["ENGINE"] = "iki_server.core.postgresql"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
