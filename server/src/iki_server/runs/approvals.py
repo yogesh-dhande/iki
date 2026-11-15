@@ -251,9 +251,9 @@ def _end(
     return runs
 
 
-def settle(approval: RunApproval, by: User) -> None:
+def settle(approval: RunApproval, by: User | None) -> None:
     """After a run it holds was cancelled: with none left waiting, nothing is left to
-    decide. Call inside the cancelling transaction."""
+    decide. Call inside the cancelling transaction. ``by`` is None when Iki cancelled them."""
     if approval.state != ApprovalState.PENDING:
         return
     if ActionRun.objects.filter(approval=approval, status=RunStatus.AWAITING_APPROVAL).exists():

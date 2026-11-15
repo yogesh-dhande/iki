@@ -8,6 +8,10 @@ from typing import Any, cast
 import pytest
 from django.core.management import call_command
 from django.db import DatabaseError, connection, transaction
+from org_world import World
+from test_api_entities import api_as
+from test_runs import COMPUTE, launch, protein
+from test_workers import keep_connection, queued, worker, world
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
@@ -19,8 +23,19 @@ from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 from iki_server.org.services import Refused
 from iki_server.plugins import sync
 from iki_server.plugins.models import PluginState
+from iki_server.runs import catalog, queue
+from iki_server.runs.models import (
+    ActionRun,
+    FiringState,
+    ProjectTrigger,
+    RunStatus,
+    TriggerFiring,
+)
+from iki_server.tasks.runner import Runner
 
 pytestmark = pytest.mark.django_db
+
+__all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 
 APP_ROLE = f"iki_test_detached_{os.environ.get('PYTEST_XDIST_WORKER', 'main')}"
 PLUGINS = ("dna", "protein", "structure_prediction")
@@ -247,3 +262,96 @@ def test_a_build_without_a_lockfile_records_nothing() -> None:
     assert registry.installed() is None
     assert sync._states() == []
     assert registry.detached() == frozenset()
+
+
+# --- Nothing runs for it -------------------------------------------------------------------
+
+
+def test_a_detached_plugins_actions_cant_be_launched(
+    world: World, deployed: Callable[..., None]
+) -> None:
+    editor = api_as(world, "editor")
+    abl = protein(editor, world.project)
+    deployed("protein", "structure_prediction")
+    assert catalog.availability(catalog.action(COMPUTE)) == catalog.Availability(  # type: ignore[arg-type]
+        False,
+        "The protein plugin is detached, so its actions can't run. Its data can still be "
+        "read. An Iki administrator can reattach it in the deployment's lockfile.",
+    )
+    refused = launch(editor, world.project, {"protein": abl["id"]})
+    assert refused.status_code == 409, refused.content
+    assert "The protein plugin is detached" in refused.json()["detail"]
+    listed = {a["name"]: a for a in editor.get("/actions").json()}
+    assert listed[COMPUTE]["available"] is False
+
+
+def test_runs_queued_before_it_was_detached_end_saying_why(
+    world: World, deployed: Callable[..., None]
+) -> None:
+    first, second = queued(world), queued(world)
+    pod = worker(world)
+    deployed("protein", "structure_prediction")
+    why = "The protein plugin was detached before it started, so it didn't run."
+
+    # A worker that asks first is given nothing, and the run it would have had ends.
+    assert pod.lease().status_code == 204
+    leased = ActionRun.objects.get(pk=first["id"])
+    assert (leased.status, leased.error) == (
+        RunStatus.CANCELLED,
+        {"code": "plugin_detached", "message": why},
+    )
+    # The maintenance job ends the rest.
+    assert queue.end_detached() == 1
+    swept = ActionRun.objects.get(pk=second["id"])
+    assert (swept.status, swept.error) == (
+        RunStatus.CANCELLED,
+        {"code": "plugin_detached", "message": why},
+    )
+    events = AuditEvent.objects.filter(action="run.cancelled").order_by("occurred_at")
+    assert [(e.actor, e.data) for e in events] == [(None, {"reason": why})] * 2
+    assert queue.end_detached() == 0
+
+
+def test_a_running_run_is_asked_to_stop(world: World, deployed: Callable[..., None]) -> None:
+    run = queued(world)
+    pod = worker(world)
+    job = pod.lease().json()
+    deployed("protein", "structure_prediction")
+    assert queue.end_detached() == 1
+    stopping = ActionRun.objects.get(pk=run["id"])
+    assert stopping.cancel_requested_at is not None
+    assert AuditEvent.objects.get(action="run.cancel_requested").data == {
+        "reason": "The protein plugin was detached, so it was stopped."
+    }
+    assert pod.report(job, "heartbeat").json()["cancel_requested"] is True
+    assert pod.report(job, "fail", reason="interrupted").json() == {"run_status": "cancelled"}
+    assert ActionRun.objects.get(pk=run["id"]).status == RunStatus.CANCELLED
+    assert queue.end_detached() == 0
+
+
+def test_a_detached_plugins_triggers_are_skipped_and_stay_on(
+    world: World, deployed: Callable[..., None]
+) -> None:
+    turned_on = api_as(world, "admin").post(
+        f"/projects/{world.project.pk}/triggers/protein.weigh_new_proteins/enable", {}
+    )
+    assert turned_on.status_code == 200, turned_on.content
+    protein(api_as(world, "editor"), world.project)
+    deployed("protein", "structure_prediction")
+    Runner(queues=["default"]).run_ready()
+    firing = TriggerFiring.objects.get()
+    assert (firing.state, firing.error) == (
+        FiringState.SKIPPED,
+        {
+            "code": "plugin_detached",
+            "message": "The protein plugin is detached, so its triggers don't run.",
+        },
+    )
+    assert ProjectTrigger.objects.get().enabled
+    assert ActionRun.objects.count() == 0
+    # Nor can one be turned on.
+    refused = api_as(world, "admin").post(
+        f"/projects/{world.project.pk}/triggers/protein.weigh_changed_proteins/enable", {}
+    )
+    assert refused.status_code == 409, refused.content
+    assert "The protein plugin is detached" in refused.json()["detail"]

@@ -24,7 +24,7 @@ from iki_server.accounts.models import UserSession
 from iki_server.entities import app_drafts
 from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
-from iki_server.runs import approvals, artifacts, checkpoints
+from iki_server.runs import approvals, artifacts, checkpoints, queue
 from iki_server.tasks import maintenance as task_maintenance
 from iki_server.web import ratelimit
 from iki_server.webhooks import maintenance as webhook_maintenance
@@ -50,6 +50,7 @@ class Command(BaseCommand):
         artifacts_deleted = artifacts.delete_expired()
         checkpoints_deleted = checkpoints.delete_stale()
         drafts = app_drafts.prune()
+        detached = queue.end_detached()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -63,6 +64,7 @@ class Command(BaseCommand):
             deleted_artifacts=artifacts_deleted,
             deleted_checkpoints=checkpoints_deleted,
             expired_app_drafts=drafts,
+            ended_detached_runs=detached,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
@@ -71,6 +73,6 @@ class Command(BaseCommand):
             f"failed {registrations} stalled registration(s), expired "
             f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
             f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "
-            f"run checkpoint(s) nothing will resume from, and deleted {drafts} expired app "
-            "draft(s)."
+            f"run checkpoint(s) nothing will resume from, deleted {drafts} expired app "
+            f"draft(s), and ended {detached} run(s) of detached plugins."
         )

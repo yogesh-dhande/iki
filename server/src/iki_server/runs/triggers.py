@@ -166,6 +166,15 @@ def _fire(firing: TriggerFiring) -> None:
     if spec is None:
         _end(firing, FiringState.SKIPPED, "not_installed", "The trigger is no longer installed.")
         return
+    if spec.plugin in registry.detached():
+        # It stays on, so it runs again once its plugin is reattached (ADR 0091).
+        _end(
+            firing,
+            FiringState.SKIPPED,
+            "plugin_detached",
+            f"The {spec.plugin} plugin is detached, so its triggers don't run.",
+        )
+        return
     if firing.entity is not None and firing.entity.archived_at is not None:
         _end(firing, FiringState.SKIPPED, "archived", f"{firing.entity.hrid} was archived first.")
         return

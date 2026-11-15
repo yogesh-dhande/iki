@@ -38,16 +38,19 @@ from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
+from iki_server.audit import log as audit
 from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.runs import checkpoints, costs, endings, launches, live, quotas, secrets, workers
 from iki_server.runs.models import (
+    FINISHED,
     ActionRun,
     Job,
     JobLog,
     JobState,
+    RunApproval,
     RunInput,
     RunOutput,
     RunStatus,
@@ -100,6 +103,7 @@ _FINAL = {
     "worker_lost": RunStatus.FAILED,
     "machine_unavailable": RunStatus.FAILED,
     "not_allowed": RunStatus.REJECTED,
+    "plugin_detached": RunStatus.CANCELLED,
 }
 
 #: The permission running on each tier needs, as launching it did.
@@ -248,6 +252,11 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
                 f"{run.requested_by.name} can no longer run actions on the {run.tier} tier in "
                 f"{run.project.name}, so it didn't start.",
             )
+            return None
+        plugin = run.action.partition(".")[0]
+        if plugin in registry.detached():
+            # Queued before a deploy detached it, which the sweep hasn't reached yet.
+            _end_detached(job, plugin)
             return None
         members = _pack(job, run)
         build = _build(worker, job.environment)
@@ -685,6 +694,68 @@ def finish(
     live.changed(run.pk, run.batch_id)
     endings.ended(run)
     return run
+
+
+def end_detached() -> int:
+    """Ends the runs of detached plugins' actions (ADR 0091): those not started at once,
+    and running ones by asking their workers to stop. Each says why, and is audited.
+    The maintenance job runs it. Returns how many."""
+    detached = registry.detached()
+    if not detached:
+        return 0
+    of = Q()
+    for plugin in detached:
+        of |= Q(action__startswith=f"{plugin}.")
+    count = 0
+    with transaction.atomic():
+        waiting = (
+            Job.objects.select_for_update(skip_locked=True)
+            .filter(
+                run__in=ActionRun.objects.filter(of),
+                state__in=(JobState.QUEUED, JobState.AWAITING_APPROVAL),
+                packed_into__isnull=True,
+            )
+            .order_by("run_id")
+        )
+        for job in waiting:
+            _end_detached(job, job.environment.partition(".")[0])
+            count += 1
+        now = timezone.now()
+        running = (
+            ActionRun.objects.select_for_update(skip_locked=True)
+            .filter(of, cancel_requested_at__isnull=True)
+            .exclude(status__in=sorted(s.value for s in FINISHED))
+            .order_by("id")
+        )
+        for run in running:
+            run.cancel_requested_at = now
+            run.save(update_fields=["cancel_requested_at"])
+            audit.record(
+                "run.cancel_requested",
+                target=run,
+                project=run.project,
+                data={
+                    "reason": f"The {run.action.partition('.')[0]} plugin was detached, so it "
+                    "was stopped."
+                },
+            )
+            held = run.jobs.filter(state__in=HELD).order_by("-attempt").first()
+            if held is not None:
+                notify_job(held.packed_into_id or held.pk)
+            live.changed(run.pk, run.batch_id)
+            count += 1
+    return count
+
+
+def _end_detached(job: Job, plugin: str) -> None:
+    """Ends an attempt that hasn't started, its plugin detached. Call holding it."""
+    message = f"The {plugin} plugin was detached before it started, so it didn't run."
+    run = _end_attempt(job, JobState.CANCELLED, "plugin_detached", message)
+    audit.record("run.cancelled", target=run, project=run.project, data={"reason": message})
+    if run.approval_id is not None:
+        from iki_server.runs import approvals
+
+        approvals.settle(RunApproval.objects.select_for_update().get(pk=run.approval_id), None)
 
 
 def end_cancelled(job: Job) -> ActionRun:

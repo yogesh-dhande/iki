@@ -72,6 +72,8 @@ class Availability:
 
 
 def availability(of: Action) -> Availability:
+    if of.plugin in registry.detached():
+        return Availability(False, detached(of.plugin))
     if of.tier == "client":
         return Availability(True)
     missing = [s.name for s in of.secrets if s.required and not secrets.is_set(of.plugin, s.name)]
@@ -105,6 +107,14 @@ def availability(of: Action) -> Availability:
         )
     ordered = sorted(bound, key=lambda pair: (pair[0], _size(pair[1])))
     return Availability(True, templates=tuple(t for _, t in ordered))
+
+
+def detached(plugin: str) -> str:
+    """Why a detached plugin's actions can't run (ADR 0091)."""
+    return (
+        f"The {plugin} plugin is detached, so its actions can't run. Its data can still be "
+        "read. An Iki administrator can reattach it in the deployment's lockfile."
+    )
 
 
 def _list(names: list[str]) -> str:
