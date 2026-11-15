@@ -16,9 +16,17 @@ ARG BASE=python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c6593009394919
 FROM ${BASE}
 
 # MAFFT, and Debian's security updates: official base images can lag days behind them.
-RUN apt-get update \
+# The same source, 7.505-1, on both: Debian rebuilt it for arm64 alone (+b1), so each
+# architecture pins its own build.
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+      amd64) mafft=7.505-1 ;; \
+      arm64) mafft=7.505-1+b1 ;; \
+      *) echo "no MAFFT pinned for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && apt-get update \
  && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends mafft=7.505-1+b1 \
+ && apt-get install -y --no-install-recommends "mafft=${mafft}" \
  && rm -rf /var/lib/apt/lists/*
 
 # The same pinned, hashed packages as the plugin's backend environment. pip
