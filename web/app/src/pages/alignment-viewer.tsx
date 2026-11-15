@@ -527,7 +527,7 @@ function AlignmentGrid({
             autoComplete="off"
             spellCheck={false}
           />
-          <button type="submit" className={buttonClass("quiet")}>
+          <button type="submit" className={buttonClass()}>
             Go
           </button>
         </form>
@@ -840,12 +840,13 @@ function draw(
     context.stroke();
   }
 
-  // The cursor, and its column in the ruler.
+  // The cursor, and its column marked under the ruler's numbers (a box would hide them).
   const cx = xOf(cursor.column);
   const cy = cursor.row < pinned ? HEADER : top + (cursor.row - pinned) * ROW - scroll.top;
+  context.fillStyle = palette.focus;
+  context.fillRect(cx + 1, RULER - 4, CELL - 2, 4);
   context.strokeStyle = palette.focus;
   context.lineWidth = 2;
-  context.strokeRect(cx + 1, 1, CELL - 2, RULER - 2);
   if (cursor.row < pinned || cy >= top) context.strokeRect(cx + 1, cy + 1, CELL - 2, ROW - 2);
   context.restore();
 }

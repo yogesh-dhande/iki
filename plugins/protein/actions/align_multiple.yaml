@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: align_multiple
+label: Align many proteins (MAFFT)
+description: >-
+  Aligns proteins with MAFFT, into an alignment of them in Iki for the
+  alignment viewer, each row its protein, in the order given. A reference, if
+  chosen, is the first row, and the one the viewer shows the others' differences
+  from. Auto lets MAFFT choose its strategy by how many proteins there are and
+  how long; the alignment records the one it used.
+inputs:
+  proteins:
+    type: Protein
+    schema: ">=1"
+    cardinality: many
+    max: 2000
+    description: The proteins to align, in the order their rows should be.
+  reference:
+    type: Protein
+    schema: ">=1"
+    optional: true
+    description: The protein the others are compared with, such as the wild type. It's aligned too.
+params:
+  strategy:
+    type: enum
+    values: [auto, L-INS-i, G-INS-i, E-INS-i, FFT-NS-2]
+    default: auto
+    description: >-
+      Auto: MAFFT chooses. L-INS-i: most accurate, for up to 200 proteins with one
+      alignable domain. G-INS-i: for proteins similar over their whole length.
+      E-INS-i: for proteins with long unalignable regions. FFT-NS-2: fast, for
+      thousands.
+  name:
+    type: string
+    description: The alignment's name. Without one, it's named after its proteins.
+effects:
+  creates: [{ type: core.Alignment, derived_from: [proteins, reference] }]
+runs_on: { tier: container, environment: alignment-tools }
+command: [python, ./scripts/multiple.py]
+deterministic: true
+artifacts: { keep: ["alignment.fasta"] }
+metrics:
+  rows: { label: Rows, description: The proteins aligned. }
+  length: { label: Length, description: "The alignment's length, gaps included." }
+  identity_percent:
+    {
+      label: Identity (%),
+      description: The share of columns where every protein has the same residue.,
+    }
+  gaps_percent: { label: Gaps (%), description: The share of columns with a gap in any row. }
+timeout: 4h

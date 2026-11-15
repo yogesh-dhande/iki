@@ -998,7 +998,11 @@ def test_a_structure_in_mol_star_in_its_frame(
 
     # Mol* can't read Iki's cookies, storage or page, or call the API as the person.
     page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
-    (frame,) = [f for f in page.frames if f.url.endswith("/viewers/structure/") and f.parent_frame]
+    # The frame's element, then its page: under load, WebKit can list it before it's loaded.
+    handle = page.locator("iframe.structure-frame").element_handle()
+    frame = handle.content_frame() if handle else None
+    assert frame is not None
+    frame.wait_for_url("**/viewers/structure/")
     assert frame.evaluate(SANDBOX_PROBES) == ISOLATED
     frame.evaluate("() => { location.href = 'about:blank'; }")
     page.get_by_role("alert").get_by_text(

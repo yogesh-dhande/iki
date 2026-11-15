@@ -60,6 +60,21 @@ kind: EnvironmentBinding
 environment: protein.structure-tools
 templates: [{ template: container-structures }]
 ---
+# The protein plugin's MAFFT (alignment-tools): two threads, and memory for a
+# few hundred proteins aligned iteratively.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-alignments
+provisioner: k8s_job
+capacity: { cpu: 2, memory: 4Gi, scratch_disk: 2Gi }
+limits: { max_concurrent: 1 }
+price: { per_hour: 0.20, currency: USD }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: protein.alignment-tools
+templates: [{ template: container-alignments }]
+---
 # The plugin template's reference data (ADR 0075): a setup build fills a disk
 # from the CSI host-path driver, which is snapshotted; each run pod gets a
 # read-only copy of the newest snapshot.

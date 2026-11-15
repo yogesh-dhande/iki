@@ -3,7 +3,7 @@
 Iki's protein plugin: proteins, translated from DNA, imported or fetched from
 UniProt, with the properties of their sequences, and their structures, from
 the PDB or a lab's own files, with their secondary structure, and alignments
-of pairs of proteins.
+of proteins, two or many.
 
 - **`protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
   - Its identity is its sequence, so registering the same protein again
@@ -31,10 +31,11 @@ alongside DNA. The plugin depends on the [dna plugin](../dna) for
 
 Most run on backend workers, in the `protein-tools` environment (Python 3.12
 with Biopython and gemmi). The structure actions ask for 2 GiB of memory.
-DSSP runs on the container tier, in the `structure-tools` environment: the
-plugin's own image, which Iki's publish workflow builds from
-`images/structure-tools`, scans and signs
-([ADR 0065](../../docs/adr/0065-first-party-plugins-images-are-built-and-signed-like-ikis.md)).
+DSSP and MAFFT run on the container tier, in the plugin's own images, which
+Iki's publish workflow builds, scans and signs
+([ADR 0065](../../docs/adr/0065-first-party-plugins-images-are-built-and-signed-like-ikis.md)):
+`structure-tools`, from `images/structure-tools`, and `alignment-tools`, from
+`images/alignment-tools`, which asks for 2 CPUs and 4 GiB.
 
 - **`compute_properties`**: a protein's properties, as ExPASy's ProtParam
   computes them, for many at once.
@@ -71,6 +72,17 @@ plugin's own image, which Iki's publish workflow builds from
   Iki's alignment viewer shows
   ([ADR 0088](../../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
   Up to 100 million cells (10,000 residues by 10,000).
+- **`align_multiple`**: aligns up to 2,000 proteins with MAFFT 7.505 (from
+  Debian, without its GPL-licensed extensions) into a `core.Alignment` of them,
+  each row headed by its protein's HRID, in the order given. A reference, if
+  chosen, is the first row. MAFFT's strategy is the run's: Auto (the default)
+  lets MAFFT choose by how many proteins there are and how long, and the
+  alignment's method records the one it used; L-INS-i, G-INS-i and E-INS-i
+  take up to 200 proteins, FFT-NS-2 any number. A protein with a letter MAFFT
+  doesn't score (U, O or J) is aligned with `--anysymbol`, as the method says.
+  The run fails if MAFFT changes any row's residues rather than only adding
+  gaps. It keeps `alignment.fasta` as an artifact, which is also the
+  alignment's file. Proteins up to 40,000 residues, and 5 million in all.
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 
@@ -154,7 +166,8 @@ checks they match, and that each is at least 3 days old.
 `server/tests/test_first_party_plugins.py` checks that it's valid, that its
 migrations match its manifests, and that it migrates forwards and back.
 
-To change the structure-tools image, change `images/structure-tools` (CI
-builds it and runs its `check.py`). Once `main` has published it, pin the new
-digest that the publish workflow's summary gives in
-`environments/structure-tools.yaml`, and in `deploy/dev/sso.py`.
+To change an image, change `images/structure-tools` or
+`images/alignment-tools` (CI builds it and runs its `check.py`). Once `main`
+has published it, pin the new digest that the publish workflow's summary
+gives in its environment (`environments/structure-tools.yaml` or
+`environments/alignment-tools.yaml`), and in `deploy/dev/sso.py`.

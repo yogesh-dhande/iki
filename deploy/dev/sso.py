@@ -1212,7 +1212,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
         f"protein.compute_properties ran in Biopython's environment ({run['hrid']}): "
         f"{weight} Da, pI {point}"
     )
-    aligned(alice, project)
+    aligned_many(alice, project, aligned(alice, project))
     structures(alice, project)
 
 
@@ -1227,9 +1227,10 @@ HBB = (
 )
 
 
-def aligned(alice: requests.Session, project: dict[str, Any]) -> None:
+def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, Any]]:
     """protein.align_pair on haemoglobin's chains: its metrics on the run, and its alignment
-    kept as artifacts (ADR 0068), downloaded from where Iki's URL sends a browser."""
+    kept as artifacts (ADR 0068), downloaded from where Iki's URL sends a browser. The
+    chains, for aligned_many."""
     chains = []
     for name, sequence in (("HBA_HUMAN", HBA), ("HBB_HUMAN", HBB)):
         made = api_call(
@@ -1267,20 +1268,20 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     ]:
         fail(f"{run['hrid']} kept {kept}, not its alignment")
     # The FASTA is also an alignment of the two in Iki (ADR 0088), the target its reference.
-    made = [e for e in run.get("effects") or [] if e["kind"] == "created"]
-    if [e["type"] for e in made] != ["core.Alignment"]:
-        fail(f"{run['hrid']} created {made}, not one core.Alignment")
-    alignment = api_call(alice, "GET", f"/entities/{made[0]['hrid']}").json()
+    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in created] != ["core.Alignment"]:
+        fail(f"{run['hrid']} created {created}, not one core.Alignment")
+    alignment = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()
     values = alignment["values"]
     if (
         values["members"] != [chains[0]["id"], chains[1]["id"]]
         or values["reference"] != chains[1]["id"]
     ):
-        fail(f"{made[0]['hrid']} aligns {values['members']} to {values['reference']}")
+        fail(f"{created[0]['hrid']} aligns {values['members']} to {values['reference']}")
     fasta = next(k for k in kept if k["path"] == "alignment.fasta")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
     if stored["sha256"] != fasta["sha256"]:
-        fail(f"{made[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
+        fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
     text = next(k for k in kept if k["path"] == "alignment.txt")
     got = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts/{text['id']}/content")
     if got.status_code != 200 or hashlib.sha256(got.content).hexdigest() != text["sha256"]:
@@ -1290,7 +1291,76 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(
         f"protein.align_pair aligned haemoglobin's chains ({run['hrid']}): "
         f"{metrics['identity_percent']}% identical, kept {len(kept)} artifacts "
-        f"until {text['expires_at'][:10]}, and made {made[0]['hrid']} of the two"
+        f"until {text['expires_at'][:10]}, and made {created[0]['hrid']} of the two"
+    )
+    return chains
+
+
+#: Human myoglobin (UniProt P02144), a globin like haemoglobin's chains.
+MB = (
+    "MGLSDGEWQLVLNVWGKVEADIPGHGQEVLIRLFKGHPETLEKFDKFKHLKSEDEMKASEDLKKHGATVLTALGGILKKKGHHEAE"
+    "IKPLAQSHATKHKIPVKYLEFISECIIQVLQSKHPGDFGADAQGAMNKALELFRKDMASNYKELGFQG"
+)
+#: The protein plugin's alignment-tools image (plugins/protein/environments/alignment-tools.yaml).
+ALIGNMENT_TOOLS = (
+    "ghcr.io/yogesh-dhande/iki-protein-alignment-tools"
+    "@sha256:74cb2a5405950c42efa5a5edf049e2c571f8b7790338ab7eed3fcdf521e70dbd"
+)
+
+
+def aligned_many(
+    alice: requests.Session, project: dict[str, Any], chains: list[dict[str, Any]]
+) -> None:
+    """protein.align_multiple: haemoglobin's chains and myoglobin through MAFFT, in a pod of
+    its own with the plugin's image, into an alignment of the three, alpha its reference."""
+    made = api_call(
+        alice,
+        "POST",
+        "/entities",
+        {
+            "type": "protein.Protein",
+            "project": project["id"],
+            "values": {"name": "MB_HUMAN", "sequence": MB},
+        },
+    )
+    if made.status_code not in (200, 201):
+        fail(f"registering MB_HUMAN answered HTTP {made.status_code}: {made.text[:300]}")
+    alpha, beta = chains
+    myoglobin = made.json()
+    action = "protein.align_multiple"
+    # A pod of its own pulls the image first.
+    run = launch(
+        alice,
+        project,
+        action,
+        {"proteins": [beta["id"], myoglobin["id"]], "reference": alpha["id"]},
+        within=900,
+    )
+    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    if attempt["environment_build"] != ALIGNMENT_TOOLS.rpartition("@")[2]:
+        fail(f"{run['hrid']} didn't run in the alignment-tools image: {attempt}")
+    if attempt["template"] != "container-alignments":
+        fail(f"{run['hrid']} didn't run on the alignments' template: {attempt}")
+    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in created] != ["core.Alignment"]:
+        fail(f"{run['hrid']} created {created}, not one core.Alignment")
+    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
+    if (
+        values["members"] != [alpha["id"], beta["id"], myoglobin["id"]]
+        or values["reference"] != alpha["id"]
+        or not values["method"].startswith("MAFFT v7.505")
+    ):
+        fail(f"{created[0]['hrid']} is {values}")
+    (kept,) = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
+    if kept["path"] != "alignment.fasta" or stored["sha256"] != kept["sha256"]:
+        fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
+    metrics = run.get("metrics") or {}
+    if metrics.get("rows") != 3:
+        fail(f"{run['hrid']} measured {metrics}, not three rows")
+    ok(
+        f"{action} ran MAFFT in a pod of its own ({run['hrid']}): {values['method']}, "
+        f"{metrics['length']} columns, making {created[0]['hrid']} of three globins"
     )
 
 
