@@ -72,6 +72,8 @@ COPY server/src server/src
 COPY spec/src spec/src
 COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/web/static/app
 COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_server/web/static/viewers
+# The server checks apps' expressions with the module browsers run them with (ADR 0090).
+COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm server/src/iki_server/expressions/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable
 # Deployments add their plugins at /opt/iki/plugins (deploy/plugins.Dockerfile),

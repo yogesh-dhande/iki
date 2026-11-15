@@ -33,6 +33,15 @@ ecosystem = "PyPI"
 license.override = ["PSF-2.0"]
 
 # The AWS SDK, for object storage: Apache-2.0 (LICENSE in each repository).
+# wasmtime is Apache-2.0 WITH LLVM-exception: Apache-2.0, plus an exception that only
+# grants more (code compiled with it needn't carry Apache's attribution). The scanner
+# takes license IDs, not expressions, so it's matched to Apache-2.0 here, for wasmtime
+# alone.
+[[PackageOverrides]]
+name = "wasmtime"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0"]
+
 [[PackageOverrides]]
 name = "boto3"
 ecosystem = "PyPI"

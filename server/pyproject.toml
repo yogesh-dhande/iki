@@ -31,6 +31,8 @@ dependencies = [
   "mcp>=2.3.0",
   # Comparing worker versions, as Python and Cargo write them (ADR 0060).
   "packaging>=26.3",
+  # Runs iki-wasm to check apps' expressions as browsers will evaluate them (ADR 0090).
+  "wasmtime>=50.0.1",
 ]
 
 [project.optional-dependencies]

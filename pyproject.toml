@@ -195,6 +195,7 @@ testpaths = [
 xfail_strict = true
 markers = [
   "built_web_app: loads the web app's real build (run `make web` first) instead of a stand-in",
+  "wasm: runs iki-wasm, which scripts/build-wasm.sh builds (as the web app's build does)",
   "real_rate_limit_clock: lets rate limits see the real (or the test's patched) clock",
   "worker_e2e: runs the iki-worker binary (built with cargo) against the real server",
   "scale: a load test, such as importing 10M entities; runs only with --scale (make check-scale)",

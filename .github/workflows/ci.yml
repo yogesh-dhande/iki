@@ -60,11 +60,12 @@ jobs:
       matrix:
         # 3.12 is the oldest supported version; 3.14 is what servers run.
         # The browser tests don't depend on Python's version: they run once,
-        # on the version servers run.
+        # on the version servers run, as do the tests that run iki-wasm, which
+        # the web app's build makes.
         # So do the iki-worker end-to-end tests, which need Rust to build it.
         include:
           - python: "3.12"
-            markers: not built_web_app and not worker_e2e
+            markers: not built_web_app and not worker_e2e and not wasm
           - python: "3.14"
             browsers: true
             rust: true

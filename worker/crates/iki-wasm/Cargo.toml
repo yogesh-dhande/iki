@@ -1,6 +1,6 @@
 [package]
 name = "iki-wasm"
-description = "Parsers for Iki's web app, compiled to WebAssembly and run in a Web Worker: FASTA, and the layout of an alignment."
+description = "Parsers for Iki's web app, compiled to WebAssembly and run in a Web Worker: FASTA, the layout of an alignment, and apps' expressions."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,6 +17,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+# Apps' expressions (ADR 0090): Google's Common Expression Language. Without its regex,
+# time and encoder extras, which the module doesn't offer.
+cel = { version = "=0.15.0", default-features = false, features = ["json"] }
 
 # The workspace's lints, except that the module's exports need `no_mangle`, which the
 # unsafe_code lint counts. They're allowed in `exports` alone; there are no unsafe blocks.

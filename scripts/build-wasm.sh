@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds iki-wasm, the web app's parsers, for browsers, into web/app/wasm/ where the
-# app's worker imports it from. Run by `pnpm --filter @ikisci/app build`.
+# app's worker imports it from, and next to the server's expression checks. Run by
+# `pnpm --filter @ikisci/app build`.
 #
 # It needs Rust from rustup, which reads worker/rust-toolchain.toml and installs its
 # WebAssembly target. Homebrew's rustup is keg-only, so it's looked for where Homebrew
@@ -24,3 +25,6 @@ cd "$root/worker"
 cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release
 mkdir -p "$root/web/app/wasm"
 cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/web/app/wasm/iki_wasm.wasm"
+# The server checks apps' expressions with the same module (ADR 0090).
+cp target/wasm32-unknown-unknown/release/iki_wasm.wasm \
+  "$root/server/src/iki_server/expressions/iki_wasm.wasm"
