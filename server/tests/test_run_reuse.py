@@ -106,6 +106,24 @@ def test_a_file_param_counts_by_its_content(world: World) -> None:
     assert run["reused_from"]["hrid"] == first["hrid"]
 
 
+def test_a_list_of_files_counts_by_their_contents(world: World) -> None:
+    file_id = stored(world)
+    params = {"file": file_id, "more_files": [stored(world, "a.fasta")]}
+    first = launch(api_as(world), world.project, {}, IMPORT, params=params).json()
+    worker_ = pod(world)
+    job = worker_.lease().json()
+    creates = [{**c, "origin": origin(file_id, c["values"]["name"])} for c in KINASES]
+    assert done(worker_, job, output(creates=creates))["run_status"] == "succeeded"
+    # The same bytes, uploaded again as other files: reused.
+    again = {"file": stored(world, "x.fasta"), "more_files": [stored(world, "b.fasta")]}
+    run = launch(api_as(world), world.project, {}, IMPORT, params=again).json()
+    assert run["reused_from"]["hrid"] == first["hrid"]
+    # One more file: run.
+    more = {**again, "more_files": [*again["more_files"], stored(world, "c.fasta")]}
+    run = launch(api_as(world), world.project, {}, IMPORT, params=more).json()
+    assert run["status"] == "queued"
+
+
 def test_asking_to_run_again_runs_it(world: World) -> None:
     file_id = stored(world)
     ran_import(world, file_id)

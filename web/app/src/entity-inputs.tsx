@@ -576,7 +576,9 @@ function FileInput({
 }: InputProps) {
   const id = useId();
   const picked = draft as Picked | null;
-  const schema = propertySchema(type, field.name);
+  // In a list of files, the rules are its items'.
+  const own = propertySchema(type, field.name);
+  const schema = own.items ?? own;
   const files = useQuery(projectFilesQuery(projectId));
   const client = useQueryClient();
   const allowed = schema["x-iki-media-types"] ?? [];
@@ -601,12 +603,14 @@ function FileInput({
     setProblem(null);
     if (allowed.length && !media.allowed(media.of(file), allowed)) {
       setProblem(`${file.name} is ${media.of(file)}: choose ${media.either(allowed)}.`);
+      onChange(emptyDraft(field));
       return;
     }
     if (maxSize != null && file.size > maxSize) {
       setProblem(
         `${file.name} is ${formatSize(file.size)}: choose one up to ${formatSize(maxSize)}.`,
       );
+      onChange(emptyDraft(field));
       return;
     }
     const controller = new AbortController();
@@ -632,6 +636,18 @@ function FileInput({
     },
     [],
   );
+
+  // A file chosen with others, in a list: this input sends it.
+  const started = useRef<File | null>(null);
+  const given = picked?.file;
+  useEffect(() => {
+    if (given && started.current !== given) {
+      started.current = given;
+      void send(given);
+    }
+    // send is this render's; the file is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [given]);
 
   return (
     <fieldset
@@ -748,11 +764,25 @@ function UploadStatus({ name, progress }: { name: string; progress: Progress }) 
 }
 
 function ListInput(props: InputProps) {
-  const { field, draft, onChange, error, note, disabled } = props;
+  const { field, draft, onChange, error, note, disabled, type } = props;
   const id = useId();
   const items = draft as Draft[];
   const item: FieldDef = { ...field, type: field.items ?? "string", required: false };
   const help = helpText(field, note);
+  // Items change one by one as their files finish uploading, so each change starts from
+  // the list as the last one left it, not as this render saw it.
+  const latest = useRef(items);
+  useLayoutEffect(() => {
+    latest.current = items;
+  }, [items]);
+  const change = (next: Draft[]) => {
+    latest.current = next;
+    onChange(next);
+  };
+  const files = field.items === "file";
+  const most = propertySchema(type, field.name).maxItems;
+  const [tooMany, setTooMany] = useState<string | null>(null);
+  const shownError = tooMany ?? error;
   const list = useRef<HTMLDivElement>(null);
   const focusItem = (index: number) => {
     // After React draws the new row.
@@ -765,16 +795,16 @@ function ListInput(props: InputProps) {
   };
   return (
     <fieldset
-      className={error ? "field field-invalid" : "field"}
-      aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
+      className={shownError ? "field field-invalid" : "field"}
+      aria-describedby={describedBy(shownError && `${id}-error`, help && `${id}-help`)}
     >
       <legend>
         {field.label}
         {field.required ? null : <span className="optional"> (optional)</span>}
       </legend>
-      {error ? (
+      {shownError ? (
         <p className="field-error" id={`${id}-error`}>
-          {error}
+          {shownError}
         </p>
       ) : null}
       {help ? (
@@ -794,7 +824,7 @@ function ListInput(props: InputProps) {
               note={undefined}
               itemLabel={`${field.label}, item ${String(index + 1)}`}
               onChange={(next) => {
-                onChange(items.map((old, i) => (i === index ? next : old)));
+                change(latest.current.map((old, i) => (i === index ? next : old)));
               }}
             />
             <Button
@@ -802,7 +832,8 @@ function ListInput(props: InputProps) {
               disabled={disabled ?? false}
               label={`Remove ${field.label}, item ${String(index + 1)}`}
               onClick={() => {
-                onChange(items.filter((_, i) => i !== index));
+                setTooMany(null);
+                change(latest.current.filter((_, i) => i !== index));
                 focusItem(Math.max(0, index - 1));
               }}
             >
@@ -811,16 +842,57 @@ function ListInput(props: InputProps) {
           </div>
         ))}
       </div>
-      <Button
-        disabled={disabled ?? false}
-        label={`Add ${field.label}`}
-        onClick={() => {
-          onChange([...items, emptyDraft(item)]);
-          focusItem(items.length);
-        }}
-      >
-        Add
-      </Button>
+      <div className="list-input-add">
+        <Button
+          disabled={disabled ?? false}
+          label={`Add ${field.label}`}
+          onClick={() => {
+            change([...latest.current, emptyDraft(item)]);
+            focusItem(items.length);
+          }}
+        >
+          Add
+        </Button>
+        {files ? (
+          <div className="field-sub">
+            <label htmlFor={`${id}-several`}>Or upload several at once</label>
+            <input
+              id={`${id}-several`}
+              type="file"
+              multiple
+              disabled={disabled ?? false}
+              accept={media.accept(
+                propertySchema(type, field.name).items?.["x-iki-media-types"] ?? [],
+              )}
+              onChange={(event) => {
+                const chosen = [...(event.target.files ?? [])];
+                event.target.value = "";
+                if (!chosen.length) return;
+                const room = most == null ? chosen.length : most - latest.current.length;
+                if (chosen.length > room) {
+                  setTooMany(
+                    `${field.label} takes at most ${String(most)} files: choose ${
+                      room > 0 ? `up to ${String(room)} more` : "none more, or remove some"
+                    }.`,
+                  );
+                  return;
+                }
+                setTooMany(null);
+                change([
+                  ...latest.current,
+                  ...chosen.map((f) => ({
+                    id: "",
+                    hrid: "",
+                    title: f.name,
+                    uploading: true,
+                    file: f,
+                  })),
+                ]);
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
     </fieldset>
   );
 }

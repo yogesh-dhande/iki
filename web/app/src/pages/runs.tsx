@@ -770,8 +770,33 @@ function paramText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-/** A param's value: a file param's file by name, downloadable, when the reader can read it. */
-function ParamValue({ run, type, value }: { run: Run; type: string | undefined; value: unknown }) {
+/**
+ * A param's value: a file param's file by name, downloadable, when the reader can read it,
+ * and a list of files as a list of them.
+ */
+function ParamValue({
+  run,
+  type,
+  items,
+  value,
+}: {
+  run: Run;
+  type: string | undefined;
+  items?: string | null | undefined;
+  value: unknown;
+}) {
+  if (type === "list" && items === "file" && Array.isArray(value)) {
+    return (
+      <ul className="param-files">
+        {(value as unknown[]).map((each, index) => (
+          // Files are listed in the order chosen, which never changes.
+          <li key={index}>
+            <ParamValue run={run} type="file" value={each} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
   const file = typeof value === "string" ? run.files[value] : undefined;
   if (file && typeof value === "string") {
     return (
@@ -1071,6 +1096,7 @@ export function RunPage() {
 
   const paramLabels = new Map(action?.params.map((p) => [p.name, p.label]) ?? []);
   const paramTypes = new Map(action?.params.map((p) => [p.name, p.type]) ?? []);
+  const paramItems = new Map(action?.params.map((p) => [p.name, p.items]) ?? []);
   const inputLabels = new Map(action?.inputs.map((i) => [i.name, i.label]) ?? []);
   const metricLabels = new Map(action?.metrics.map((m) => [m.name, m.label]) ?? []);
   const params = Object.entries(run.params);
@@ -1229,7 +1255,12 @@ export function RunPage() {
             <div key={name} className="value-row">
               <dt>{paramLabels.get(name) ?? name}</dt>
               <dd>
-                <ParamValue run={run} type={paramTypes.get(name)} value={value} />
+                <ParamValue
+                  run={run}
+                  type={paramTypes.get(name)}
+                  items={paramItems.get(name)}
+                  value={value}
+                />
               </dd>
             </div>
           ))}

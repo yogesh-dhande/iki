@@ -467,12 +467,20 @@ def test_params_take_files_to_import(tmp_path: Path) -> None:
     assert make(tmp_path, action(params=params)).problems == []
 
 
+def test_params_take_several_files(tmp_path: Path) -> None:
+    params = (
+        "\n  reads: { type: list, required: true, max_items: 96,"
+        " items: { type: file, media_types: [application/octet-stream], max_size: 10MiB } }"
+    )
+    assert make(tmp_path, action(params=params)).problems == []
+
+
 @pytest.mark.parametrize(
     "param",
     [
         "{ type: ref, to: Assay }",  # entities are inputs, checked as inputs are
         "{ type: file, default: 0190e9a4-0000-7000-8000-000000000000 }",
-        "{ type: list, items: { type: file } }",
+        "{ type: list, items: { type: file }, default: [0190e9a4-0000-7000-8000-000000000000] }",
     ],
 )
 def test_params_cant_be_refs_or_default_files(tmp_path: Path, param: str) -> None:

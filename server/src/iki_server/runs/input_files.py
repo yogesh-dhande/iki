@@ -23,14 +23,19 @@ from iki_server.runs.models import ActionRun, RunInput, Worker
 from iki_server.runs.queue import held
 from iki_spec.model import Field
 
-__all__ = ["describe", "download", "file_ids", "of_params", "of_run"]
+__all__ = ["describe", "download", "file_ids", "is_file_list", "of_params", "of_run"]
+
+
+def is_file_list(f: Field) -> bool:
+    """A list of files: a field's, or a param of several files."""
+    return f.type == "list" and f.items is not None and f.items.type == "file"
 
 
 def file_ids(f: Field, value: Any) -> set[uuid.UUID]:  # noqa: ANN401 - a field's value
     """The file IDs in a value of field `f`; unreadable ones are left for its own check."""
     if value is None:
         return set()
-    if f.type == "list" and f.items is not None and f.items.type == "file":
+    if is_file_list(f):
         items = value if isinstance(value, list) else []
     elif f.type == "file":
         items = [value]
@@ -46,13 +51,19 @@ def file_ids(f: Field, value: Any) -> set[uuid.UUID]:  # noqa: ANN401 - a field'
 
 
 def of_params(run: ActionRun) -> set[uuid.UUID]:
-    """The files the run's file params name, as the action was when it was launched."""
+    """The files the run's file params name, single or in lists, as the action was when it
+    was launched."""
     declared = run.spec.get("params") or {}
-    return {
-        uuid.UUID(str(value))
-        for name, value in run.params.items()
-        if value is not None and (declared.get(name) or {}).get("type") == "file"
-    }
+    found: set[uuid.UUID] = set()
+    for name, value in run.params.items():
+        spec = declared.get(name) or {}
+        if value is None:
+            continue
+        if spec.get("type") == "file":
+            found.add(uuid.UUID(str(value)))
+        elif spec.get("type") == "list" and (spec.get("items") or {}).get("type") == "file":
+            found |= {uuid.UUID(str(v)) for v in value}
+    return found
 
 
 def of_run(run: ActionRun) -> set[uuid.UUID]:

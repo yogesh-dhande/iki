@@ -480,6 +480,90 @@ describe("file fields", () => {
     });
   });
 
+  it("uploads several files at once into a list of files, each checked", async () => {
+    vi.stubGlobal("XMLHttpRequest", Storage);
+    signedIn();
+    const traces: typeof STRUCTURE = {
+      ...STRUCTURE,
+      fields: [field({ name: "traces", label: "Traces", type: "list", items: "file" })],
+      values_schema: {
+        properties: {
+          traces: {
+            type: "array",
+            maxItems: 3,
+            items: { type: "string", "x-iki-media-types": ["chemical/x-pdb"] },
+          },
+        },
+      },
+    };
+    answer("GET /api/v1/entity-types", [PROTEIN, traces]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities", page([]));
+    answer("GET /api/v1/files", page([]));
+    const upload = {
+      id: UPLOAD,
+      project: KINASE.id,
+      name: "a.pdb",
+      media_type: "chemical/x-pdb",
+      size: 1,
+      sha256: "x".repeat(64),
+      part_size: 64,
+      part_count: 1,
+      error: "",
+      created_at: "2026-03-14T09:00:00Z",
+      expires_at: "2026-03-15T09:00:00Z",
+    };
+    const made = { ...upload, id: MADE, project: null, created_by: null, external: false };
+    // A new answer for each call: the files upload side by side.
+    answer("POST /api/v1/uploads", () =>
+      respond(201, {
+        ...upload,
+        state: "pending",
+        file: null,
+        parts: [{ number: 1, size: 1, url: "https://storage.example/1" }],
+      }),
+    );
+    answer("POST /api/v1/uploads/" + UPLOAD + "/complete", () =>
+      respond(202, { ...upload, state: "checking", file: null }),
+    );
+    answer("GET /api/v1/uploads/" + UPLOAD, { ...upload, state: "ready", file: made });
+    await renderApp("/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure");
+    const user = userEvent.setup({ applyAccept: false });
+    const group = screen.getByRole("group", { name: /^Traces/ });
+    const several = within(group).getByLabelText("Or upload several at once");
+    expect(several).toHaveAttribute("multiple");
+    expect(several).toHaveAttribute("accept", "chemical/x-pdb,.pdb,.ent");
+
+    // More than the list takes: none are added.
+    await user.upload(
+      several,
+      ["a", "b", "c", "d"].map((n) => new File(["x"], `${n}.pdb`)),
+    );
+    expect(
+      within(group).getByText("Traces takes at most 3 files: choose up to 3 more."),
+    ).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/uploads")).toEqual([]);
+
+    // Three, one of a type the list doesn't take: two upload, one is refused.
+    await user.upload(several, [
+      new File(["x"], "a.pdb"),
+      new File(["x"], "notes.txt", { type: "text/plain" }),
+      new File(["x"], "c.pdb"),
+    ]);
+    expect(
+      await within(group).findByText("notes.txt is text/plain: choose chemical/x-pdb."),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        within(group)
+          .getAllByRole("combobox", { name: /already in the project/ })
+          .map((c) => (c as HTMLSelectElement).value),
+      ).toEqual([MADE, "", MADE]);
+    });
+    expect(calls("POST", "/api/v1/uploads")).toHaveLength(2);
+    expect(within(group).queryByText("Traces takes at most 3 files", { exact: false })).toBeNull();
+  });
+
   it("refuses a file its field doesn't take, before uploading it", async () => {
     signedIn();
     const strict: typeof STRUCTURE = {

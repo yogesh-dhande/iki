@@ -25,6 +25,7 @@ from iki_server.entities import access, registry
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.files.models import File
 from iki_server.runs import live
+from iki_server.runs.input_files import is_file_list
 from iki_server.runs.models import (
     ActionRun,
     EffectKind,
@@ -67,30 +68,36 @@ def key(
     deterministic, or its plugin is local code, which may have changed since."""
     if not action.deterministic or not sha:
         return ""
-    # A file param counts by its content: the same file uploaded twice is the same.
-    files = {
+    # A file param counts by its content: the same file uploaded twice is the same. A list
+    # of files counts by theirs, in order.
+    single = {
         name
         for name, value in params.items()
         if value is not None and name in action.params and action.params[name].type == "file"
     }
+    lists = {
+        name
+        for name, value in params.items()
+        if isinstance(value, list) and name in action.params and is_file_list(action.params[name])
+    }
+    wanted = [params[n] for n in single] + [v for n in lists for v in params[n]]
     contents = {
         str(pk): sha
-        for pk, sha in File.objects.filter(pk__in=[params[n] for n in files]).values_list(
-            "pk", "blob__sha256"
-        )
+        for pk, sha in File.objects.filter(pk__in=wanted).values_list("pk", "blob__sha256")
     }
+
+    def counted(name: str, value: Any) -> Any:  # noqa: ANN401 - a param's JSON value
+        if name in single and str(value) in contents:
+            return f"sha256:{contents[str(value)]}"
+        if name in lists:
+            return [f"sha256:{contents[str(v)]}" if str(v) in contents else v for v in value]
+        return value
+
     types = registry.types()
     document = {
         "action": action.qualified_name,
         "plugin_sha": sha,
-        "params": {
-            name: (
-                f"sha256:{contents[str(value)]}"
-                if name in files and str(value) in contents
-                else value
-            )
-            for name, value in sorted(params.items())
-        },
+        "params": {name: counted(name, value) for name, value in sorted(params.items())},
         "settings": dict(settings),
         "inputs": {
             name: [[str(e.pk), e.revision, e.type, types[e.type].schema_version] for e in chosen]

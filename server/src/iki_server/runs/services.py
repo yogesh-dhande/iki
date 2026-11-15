@@ -47,6 +47,7 @@ from iki_server.runs import (
     quotas,
     reuse,
 )
+from iki_server.runs.input_files import is_file_list
 from iki_server.runs.models import (
     BATCH_HRID_PREFIX,
     BATCH_HRID_SEQUENCE,
@@ -657,23 +658,32 @@ def check_params(
     for name, f in action.params.items():
         key = f"params/{name}"
         if name in given and given[name] is not None:
-            if f.type == "file":
-                # A file the person can read, in the run's project, of a type and size
-                # the param takes.
+            if f.type == "file" or is_file_list(f):
+                # Files the person can read, in the run's project, of a type and size the
+                # param takes.
                 files = files or Refs(
                     access.visible(user),
                     access.readable_files(user) & access.project_files(project),
                 )
-                if _elsewhere(user, project, given[name]):
+                chosen = given[name] if isinstance(given[name], list) else [given[name]]
+                if any(_elsewhere(user, project, v) for v in chosen):
                     errors[key] = [
                         f"That file isn't in {project.name}: a run reads only what's in its "
                         "project. Upload it there, or choose one of its files."
+                        if not is_file_list(f)
+                        else f"Not all those files are in {project.name}: a run reads only "
+                        "what's in its project. Upload them there, or choose its files."
                     ]
                     continue
+                if is_file_list(f) and len({str(v) for v in chosen}) != len(chosen):
+                    errors[key] = ["Each file can be chosen once."]
+                    continue
                 try:
-                    values[name] = str(to_db(f, given[name], files))
+                    stored = to_db(f, given[name], files)
                 except ValueError as error:
                     errors[key] = [f"The value {error}"]
+                    continue
+                values[name] = [str(v) for v in stored] if is_file_list(f) else str(stored)
                 continue
             problems = value_problems(f, given[name])
             if problems:

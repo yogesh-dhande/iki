@@ -14,6 +14,8 @@ export interface Picked {
   title: string;
   /** A file still uploading: the form waits for it. */
   uploading?: boolean;
+  /** A file chosen from this computer with others, which its input starts uploading. */
+  file?: File;
 }
 
 export interface QuantityDraft {

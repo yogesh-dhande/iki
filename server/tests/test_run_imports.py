@@ -113,6 +113,59 @@ def test_a_file_param_takes_only_a_file_the_person_can_read_of_the_right_type(
     }
 
 
+def test_a_param_can_take_several_files_each_checked(world: World) -> None:
+    file_id = stored(world)
+    more = [stored(world, "src.fasta"), stored(world, "lck.fasta")]
+
+    made = launch(
+        api_as(world), world.project, {}, IMPORT, params={"file": file_id, "more_files": more}
+    )
+
+    assert made.status_code == 201, made.content
+    assert made.json()["params"] == {"file": file_id, "more_files": more}
+    pod = worker(world)
+    job = pod.lease().json()
+    assert not list(schemas.check("run-input", job))
+    assert job["params"]["more_files"] == more
+    assert sorted(job["files"]) == sorted([file_id, *more])
+    # Its worker may download each of them.
+    for each in more:
+        assert pod.report(job, f"files/{each}").status_code == 200
+
+
+def test_each_of_several_files_must_fit(world: World) -> None:
+    file_id = stored(world)
+    ok = stored(world, "src.fasta")
+
+    def given(more: Any) -> dict[str, str]:
+        return errors(
+            launch(
+                api_as(world),
+                world.project,
+                {},
+                IMPORT,
+                params={"file": file_id, "more_files": more},
+            )
+        )
+
+    assert given([ok, stored(world, "abl.pdb")]) == {
+        "#/params/more_files": "The value item 2 must be chemical/seq-aa-fasta or text/plain, "
+        "and this file is chemical/x-pdb."
+    }
+    assert given([ok, ok]) == {"#/params/more_files": "Each file can be chosen once."}
+    assert given(
+        [ok, stored(world, "b.fasta"), stored(world, "c.fasta"), stored(world, "d.fasta")]
+    ) == {"#/params/more_files": "The value can have at most 3 items."}
+    other = Project.objects.create(team=world.team, name="Lab B")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    assert given([ok, stored(world, project=other)]) == {
+        "#/params/more_files": f"Not all those files are in {world.project.name}: a run reads "
+        "only what's in its project. Upload them there, or choose its files."
+    }
+
+
 # --- Where imported entities came from ----------------------------------------------------------
 
 

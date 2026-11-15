@@ -8,6 +8,10 @@ params:
     required: true
     media_types: [chemical/seq-aa-fasta, text/plain]
     max_size: 1MiB
+  more_files:
+    type: list
+    max_items: 3
+    items: { type: file, media_types: [chemical/seq-aa-fasta, text/plain], max_size: 1MiB }
 effects:
   creates: [{ type: Protein, cardinality: many, match_on: lims_id }]
 runs_on: { tier: backend, environment: protein-tools }

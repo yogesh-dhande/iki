@@ -219,6 +219,17 @@
     "param": {
       "type": "object",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typed",
+      "if": {
+        "properties": {
+          "type": { "const": "list" },
+          "items": { "properties": { "type": { "const": "file" } }, "required": ["type"] }
+        },
+        "required": ["type", "items"]
+      },
+      "then": {
+        "description": "Files are the person's to choose: a list of files has no default, as a file has none.",
+        "not": { "required": ["default"] }
+      },
       "properties": {
         "type": {
           "description": "`file`: a file the person uploads or chooses, such as one to import. The command finds it in input.json's `files`, by the ID in `params`.",
@@ -243,7 +254,7 @@
         },
         "default": { "description": "The value when the person doesn't choose one." },
         "items": {
-          "properties": { "type": { "enum": ["string", "int", "float", "bool", "enum"] } }
+          "properties": { "type": { "enum": ["string", "int", "float", "bool", "enum", "file"] } }
         }
       },
       "unevaluatedProperties": false

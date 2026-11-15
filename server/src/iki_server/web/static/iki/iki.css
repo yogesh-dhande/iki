@@ -2078,6 +2078,24 @@ input.input-number {
   margin-bottom: 0;
 }
 
+/* Add one more, or, for a list of files, choose several at once. */
+.list-input-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: end;
+}
+
+.list-input-add > .field-sub {
+  margin: 0;
+}
+
+/* A run's list of files, one per line. */
+.param-files {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
 /* Reference pickers: a combo box whose list is a popover, opened on focus. A search icon,
    drawn by CSS so it's no element at all, says what the field does. */
 .combobox {
