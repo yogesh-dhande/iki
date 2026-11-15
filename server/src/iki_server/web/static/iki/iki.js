@@ -29,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const button = event.submitter || form.querySelector("button[type=submit]");
       if (button) {
         button.setAttribute("aria-disabled", "true");
+        button.setAttribute("aria-busy", "true");
         if (button.dataset.busyText) button.textContent = button.dataset.busyText;
       }
     });

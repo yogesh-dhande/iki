@@ -402,7 +402,9 @@ describe("a project's dashboard", () => {
     });
     expect(select).toHaveAccessibleDescription(/Apps about one entity are tabs/);
     const save = within(card).getByRole("button", { name: "Save" });
+    // Nothing to save yet: unavailable, not busy.
     expect(save).toHaveAttribute("aria-disabled", "true");
+    expect(save).not.toHaveAttribute("aria-busy");
     await user.selectOptions(select, "APP-000001");
     answer(`GET ${DASHBOARD}`, { app: CHOSEN, set_by: null, set_at: null });
     await user.click(save);

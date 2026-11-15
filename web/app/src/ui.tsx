@@ -60,6 +60,7 @@ export function Button({
       type={type}
       aria-label={label && !(busy && busyText) ? label : undefined}
       aria-disabled={busy || disabled ? "true" : undefined}
+      aria-busy={busy ? "true" : undefined}
       onClick={(event) => {
         if (busy || disabled) {
           event.preventDefault();
