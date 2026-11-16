@@ -5479,6 +5479,14 @@
             "title": "Archived",
             "type": "boolean"
           },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
           "hrid": {
             "title": "Hrid",
             "type": "string"
@@ -8588,6 +8596,14 @@
           "archived": {
             "title": "Archived",
             "type": "boolean"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
           },
           "hrid": {
             "title": "Hrid",

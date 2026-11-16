@@ -596,3 +596,53 @@ def test_an_unexpected_error_imports_nothing_and_says_so(
     assert done["error"] == applying.UNEXPECTED
     assert not Entity.objects.filter(pk=line["id"]).exists()
     assert AuditEvent.objects.filter(action="bundle.import_failed").exists()
+
+
+def test_an_apps_viewer_names_a_renumbered_entity_by_its_hrid_here(
+    world: World, tmp_path: Path
+) -> None:
+    admin = world.users["admin"]
+
+    def elsewhere() -> list[Any]:
+        shown = protein(world, "MKSHOWN", name="shown")
+        spec = {
+            "version": 1,
+            "panels": [
+                {
+                    "id": "shown",
+                    "component": "iki.viewer",
+                    "props": {"entity": shown.hrid, "viewer": "sequence"},
+                }
+            ],
+        }
+        app = services.create(
+            admin, "core.App", world.project, {"name": "Kinase", "spec": spec}
+        ).entity
+        return [Entity.objects.get(pk=app.pk), shown]
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    lines = {e["type"]: e for e in registry_lines(path)}
+    source_hrid = lines["protein.Protein"]["hrid"]
+    taken = protein(world, "MKTAKENHERE")
+    Entity.objects.filter(pk=taken.pk).update(hrid=source_hrid)
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "applied", done
+    shown = Entity.objects.get(pk=lines["protein.Protein"]["id"])
+    assert shown.hrid != source_hrid
+    app = Entity.objects.get(pk=lines["core.App"]["id"])
+    body = api.get(f"/entities/{app.hrid}").json()
+    assert body["values"]["spec"]["panels"][0]["props"]["entity"] == shown.hrid
+    assert body["revision"] == 2
+    latest = app.revisions.order_by("-number").first()
+    assert latest is not None and latest.user_id == admin.pk
+    assert (
+        latest.reason
+        == f"Imported from test: its viewers name {source_hrid} as {shown.hrid}, its HRID here."
+    )
+    assert AuditEvent.objects.get(action="bundle.imported").data["apps_renamed"] == 1
+    # What refers to it says what it was called there, so files made there still find it.
+    referrer = protein(world, "MKREFERS", source=str(shown.pk))
+    refs = api.get(f"/entities/{referrer.hrid}").json()["refs"]
+    assert refs[str(shown.pk)]["hrid"] == shown.hrid
+    assert refs[str(shown.pk)]["formerly"] == [source_hrid]

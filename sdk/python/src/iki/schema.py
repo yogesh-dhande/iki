@@ -1271,6 +1271,8 @@ class LineageLinkOut(TypedDict):
 
 class LineageNodeOut(TypedDict):
     archived: bool
+    #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+    formerly: NotRequired[list[str]]
     hrid: str
     id: str
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
@@ -1926,6 +1928,8 @@ class ReadIn(TypedDict):
 
 class RefOut(TypedDict):
     archived: bool
+    #: The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+    formerly: NotRequired[list[str]]
     hrid: str
     #: Its plugin's data was purged (ADR 0092): only its HRID and type are left.
     purged: bool

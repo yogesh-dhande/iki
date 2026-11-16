@@ -19,6 +19,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict
@@ -187,6 +188,11 @@ class RefOut(Schema):
     archived: bool
     purged: bool = Field(
         description="Its plugin's data was purged (ADR 0092): only its HRID and type are left."
+    )
+    formerly: list[str] = Field(
+        default_factory=list,
+        description="The HRIDs it had where it was imported from, when it got a new one here "
+        "(ADR 0096): files made there, such as an alignment's, name it by them.",
     )
 
 
@@ -632,6 +638,8 @@ def _lookup(
             "archived": e.archived_at is not None,
             "purged": False,
         }
+    for pk, hrids in _formerly(set(refs)).items():
+        refs[pk]["formerly"] = hrids
     missing = wanted["ref"] - set(refs)
     if missing:
         # What a purge left (ADR 0092): the reference still names it, as purged.
@@ -654,6 +662,25 @@ def _lookup(
         else {}
     )
     return refs, files
+
+
+def _formerly(ids: set[Any]) -> dict[Any, list[str]]:
+    """The HRIDs each had where it was imported from, when it got a new one here."""
+    if not ids:
+        return {}
+    from iki_server.bundles.models import ImportEntity, ImportState
+
+    out: dict[Any, list[str]] = {}
+    rows = (
+        ImportEntity.objects.filter(entity_id__in=ids, bundle_import__state=ImportState.APPLIED)
+        .exclude(hrid=F("hrid_here"))
+        .order_by("entity_id", "hrid")
+        .values_list("entity_id", "hrid")
+        .distinct()
+    )
+    for pk, hrid in rows:
+        out.setdefault(pk, []).append(hrid)
+    return out
 
 
 def _template(type_name: str) -> str | None:

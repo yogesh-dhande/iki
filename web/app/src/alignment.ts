@@ -23,7 +23,13 @@ export function shownRows(rows: AlignmentRow[], listed: string[], refs: Entity["
   const byHrid = new Map<string, Shown["entity"]>();
   for (const id of listed) {
     const ref = refs[id];
-    if (ref) byHrid.set(ref.hrid, { id, hrid: ref.hrid, title: ref.title, type: ref.type });
+    if (!ref) continue;
+    const shown = { id, hrid: ref.hrid, title: ref.title, type: ref.type };
+    // An entity imported with a new HRID: a file made where it's from names it by its old one.
+    for (const former of ref.formerly ?? []) {
+      if (!byHrid.has(former)) byHrid.set(former, shown);
+    }
+    byHrid.set(ref.hrid, shown);
   }
   return rows.map((row, index) => ({ index, row, entity: byHrid.get(row.id) ?? null }));
 }

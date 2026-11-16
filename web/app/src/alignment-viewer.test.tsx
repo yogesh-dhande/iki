@@ -288,6 +288,24 @@ describe("the alignment viewer's parts", () => {
     expect(rows.map((r) => r.entity?.hrid ?? null)).toEqual(["PRT-000001", null]);
   });
 
+  it("links a row named by the HRID an imported entity had where it was made", () => {
+    const rows = shownRows(
+      [{ id: "PRT-000012", description: "", aligned: "MK", residues: 2 }],
+      [ABL1],
+      {
+        [ABL1]: {
+          hrid: "PRT-000107",
+          title: "ABL1",
+          type: "protein.Protein",
+          archived: false,
+          purged: false,
+          formerly: ["PRT-000012"],
+        },
+      },
+    );
+    expect(rows.map((r) => r.entity?.hrid ?? null)).toEqual(["PRT-000107"]);
+  });
+
   it("numbers residues without their gaps", () => {
     expect(residueNumber("M-K-L", 0)).toBe(1);
     expect(residueNumber("M-K-L", 1)).toBeNull();

@@ -28,6 +28,7 @@ from typing import Any
 import structlog
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connection, transaction
+from django.db.models import F
 from django.utils import timezone
 
 from iki_server.accounts.models import SERVICE_ACCOUNT_DOMAIN, Kind, User
@@ -43,6 +44,8 @@ from iki_server.bundles.models import (
     ImportState,
 )
 from iki_server.entities import hrids, identity, registry
+from iki_server.entities import services as entity_services
+from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.services import (
     _set,
@@ -239,6 +242,7 @@ class _Writer:
                 self._append(line, row)
         for run in self.bundle.lines("runs.ndjson"):
             self._run(run)
+        self._rename_in_apps()
         return {
             "created": self.counts["created"],
             "updated": self.counts["updated"],
@@ -246,6 +250,7 @@ class _Writer:
             "files": self.counts["files"],
             "placeholders": self.counts["placeholders"],
             "runs": self.counts["runs"],
+            "apps_renamed": self.counts["apps_renamed"],
         }
 
     # Who --------------------------------------------------------------------------------
@@ -449,6 +454,54 @@ class _Writer:
                 {k: v for k, v in h["values"].items() if k in fields},
                 number,
             )
+
+    # HRIDs named in values --------------------------------------------------------------
+
+    def _rename_in_apps(self) -> None:
+        """An app's viewer that names an entity by its HRID there names it by its HRID here,
+        in a revision of the import's own: the app's own revisions stay as they were."""
+        renamed = dict(
+            ImportEntity.objects.filter(bundle_import=self.made, action=EntityPlan.NEW)
+            .exclude(hrid=F("hrid_here"))
+            .values_list("hrid", "hrid_here")
+        )
+        by = self.made.applied_by
+        if not renamed or by is None:
+            return
+        apps = list(
+            Entity.objects.filter(
+                pk__in=ImportEntity.objects.filter(
+                    bundle_import=self.made,
+                    type=APP,
+                    action__in=[EntityPlan.NEW, EntityPlan.UPDATE],
+                ).values("entity_id")
+            )
+        )
+        values = entity_services.current_values_of(apps)
+        for app in apps:
+            spec = values.get(app.pk, {}).get("spec")
+            if not isinstance(spec, dict):
+                continue
+            changed: list[str] = []
+            panels = []
+            for panel in spec.get("panels", []):
+                props = panel.get("props") or {}
+                named = props.get("entity")
+                if panel.get("component") == "iki.viewer" and named in renamed:
+                    changed.append(f"{named} as {renamed[named]}")
+                    panel = {**panel, "props": {**props, "entity": renamed[named]}}
+                panels.append(panel)
+            if not changed:
+                continue
+            entity_services.update(
+                by,
+                app,
+                {"spec": {**spec, "panels": panels}},
+                expected_revision=app.revision,
+                reason=f"Imported from {self.made.trusted_as}: its viewers name "
+                f"{', '.join(changed)}, its HRID{'s' if len(changed) > 1 else ''} here.",
+            )
+            self.counts["apps_renamed"] += 1
 
     # Runs -------------------------------------------------------------------------------
 

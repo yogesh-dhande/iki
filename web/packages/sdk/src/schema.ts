@@ -5499,6 +5499,11 @@ export interface components {
         LineageNodeOut: {
             /** Archived */
             archived: boolean;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
             /** Hrid */
             hrid: string;
             /**
@@ -6778,6 +6783,11 @@ export interface components {
         RefOut: {
             /** Archived */
             archived: boolean;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
             /** Hrid */
             hrid: string;
             /**

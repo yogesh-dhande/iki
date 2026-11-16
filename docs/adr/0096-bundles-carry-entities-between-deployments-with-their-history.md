@@ -98,7 +98,10 @@ anything changes:
   already;
 - HRIDs this deployment has already used are renumbered from its own
   sequences. The entity keeps its source HRID, and its page says "SMP-12 on
-  staging". Lookups by HRID, such as an alignment's rows, also match it.
+  staging". Files made there that name it by that HRID, such as an
+  alignment's rows, still find it: references to it list it as `formerly`.
+  An app whose viewer names it by HRID gets a revision of the import's own
+  that names it by its new one; the app's own revisions stay as they were.
 
 The bundle is uploaded as files are (ADR 0036), in parts straight to the
 file store, with `POST /projects/{id}/imports` and the import's own

@@ -63,6 +63,7 @@ def test_goes_back_and_on_as_many_generations_as_asked(world: World) -> None:
         "type": "protein.Protein",
         "archived": False,
         "purged": False,
+        "formerly": [],
     }
     assert [(link["parent"], link["entity"], link["run"]) for link in whole["links"]] == [
         (a["id"], b["id"], r1["hrid"]),
