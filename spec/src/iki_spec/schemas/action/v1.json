@@ -111,6 +111,32 @@
         "pattern": "^((\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}|\\{settings\\.[a-z][a-z0-9_]{0,62}\\})$"
       }
     },
+    "software": {
+      "description": "The tools its runs make entities with, by name and version, such as ImmuneBuilder 1.2: what its image or requirements install, for whoever reviews the plugin. Entities its runs create are recorded as made with them (ADR 0106). An action that only fetches or reads records lists none.",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["name", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/software_text",
+            "description": "As its authors name it, such as `AlphaFold` or `RDKit`."
+          },
+          "version": {
+            "$ref": "#/$defs/software_text",
+            "description": "The release it runs, such as `2.3.2`."
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "pattern": "^https://",
+            "description": "Its home page or repository."
+          }
+        }
+      }
+    },
     "metrics": {
       "description": "The numbers its runs report about themselves (`metrics` in their output), by name, such as a score. A workflow's conditions can read those declared here.",
       "type": "object",
@@ -173,6 +199,12 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "software_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\s](.*[^\\s])?$"
+    },
     "secret_name": {
       "type": "string",
       "pattern": "^[A-Z][A-Z0-9_]{0,62}$"

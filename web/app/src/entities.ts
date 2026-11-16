@@ -17,6 +17,7 @@ export type Revision = Schemas["RevisionOut"];
 export type RevisionDetail = Schemas["RevisionDetailOut"];
 export type EntityProject = Schemas["EntityProjectOut"];
 export type Origin = Schemas["OriginOut"];
+export type Making = Schemas["MakingOut"];
 
 export const ENTITIES = ["entities"] as const;
 
@@ -172,6 +173,15 @@ export function originsQuery(ref: string) {
     queryKey: [...ENTITIES, "origins", ref.toUpperCase()],
     queryFn: async () =>
       unwrap(await iki.GET("/api/v1/entities/{ref}/origins", { params: { path: { ref } } })),
+  });
+}
+
+/** How it was made, one tool at a time (ADR 0106): Iki's records first, then sources'. */
+export function makingQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...ENTITIES, "making", ref.toUpperCase()],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/entities/{ref}/making", { params: { path: { ref } } })),
   });
 }
 

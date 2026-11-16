@@ -60,14 +60,18 @@ from iki_server.files import storage
 from iki_server.files.models import Blob, File
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
+from iki_server.runs import makings
 from iki_server.runs import services as run_services
 from iki_server.runs.models import (
     HRID_PREFIX,
     ActionRun,
+    EntityMaking,
     ExternalOrigin,
     Job,
     JobLog,
     Lineage,
+    MadeBy,
+    Making,
     RunEffect,
     RunInclusion,
     RunInput,
@@ -648,7 +652,7 @@ class _Writer:
             for r in line["lineage"]
             if r["parent"] in here
         )
-        ExternalOrigin.objects.bulk_create(
+        kept = ExternalOrigin.objects.bulk_create(
             ExternalOrigin(
                 run=run,
                 entity_id=o["entity"],
@@ -660,9 +664,29 @@ class _Writer:
                 retrieved_at=o["retrieved_at"],
                 sha256=o["sha256"],
                 file_id=o["file"],
+                made=o.get("made"),
                 created_at=o["created_at"],
             )
             for o in line["origins"]
+        )
+        # How each was made (ADR 0106): Iki's records as the source deployment kept them,
+        # and each origin's statement, from the origin.
+        EntityMaking.objects.bulk_create(
+            [
+                *(
+                    EntityMaking(
+                        run=run,
+                        entity_id=m["entity"],
+                        by=MadeBy.IKI,
+                        kind=Making.COMPUTATIONAL,
+                        software=m["software"],
+                        version=m["version"],
+                        created_at=m["created_at"],
+                    )
+                    for m in line.get("made_with", ())
+                ),
+                *(row for origin in kept for row in makings.stated(origin)),
+            ]
         )
         self.counts["runs"] += 1
 

@@ -35,11 +35,13 @@ from iki_server.org.permissions import Action, can
 from iki_server.runs.models import (
     FINISHED,
     ActionRun,
+    EntityMaking,
     ExternalOrigin,
     Job,
     JobLog,
     JobState,
     Lineage,
+    MadeBy,
     RunEffect,
     RunInclusion,
     RunInput,
@@ -567,7 +569,20 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
                 "retrieved_at": _json(o.retrieved_at),
                 "sha256": o.sha256,
                 "file": _json(o.file_id),
+                "made": o.made,
                 "created_at": o.created_at.isoformat(),
+            }
+        )
+    made_with: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for m in EntityMaking.objects.filter(
+        run_id__in=ids, entity_id__in=going, by=MadeBy.IKI
+    ).order_by("id"):
+        made_with.setdefault(m.run_id, []).append(
+            {
+                "entity": str(m.entity_id),
+                "software": m.software,
+                "version": m.version,
+                "created_at": m.created_at.isoformat(),
             }
         )
     attempts: dict[uuid.UUID, list[dict[str, Any]]] = {}
@@ -605,6 +620,7 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
             effects=effects.get(run.pk, []),
             lineage=lineage.get(run.pk, []),
             origins=origins.get(run.pk, []),
+            **({"made_with": made_with[run.pk]} if run.pk in made_with else {}),
             attempts=attempts.get(run.pk, []),
             output=outputs.get(run.pk),
         )

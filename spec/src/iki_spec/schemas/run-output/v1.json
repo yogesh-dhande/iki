@@ -51,8 +51,60 @@
           "type": "string",
           "format": "uuid",
           "description": "The file it was read from: one of the run's file params."
+        },
+        "made": { "$ref": "#/$defs/made" }
+      }
+    },
+    "made": {
+      "type": "object",
+      "description": "How the source says it made the entity, as its record states it, never guessed: from mmCIF's `_exptl` and `_software`, say, or ModelCIF's `_ma_` categories. Iki shows it as the source's statement, not its own record (ADR 0106).",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["experimental", "computational"],
+          "description": "Measured, such as by X-ray diffraction, or computed, such as predicted by a model."
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "The method as the source names it, such as `X-RAY DIFFRACTION`."
+        },
+        "software": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "The tools it says made it, such as AlphaFold 2.3.2.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/software_text" },
+              "version": { "$ref": "#/$defs/software_text" }
+            }
+          }
+        },
+        "details": {
+          "type": "object",
+          "maxProperties": 20,
+          "description": "What else it states about the making, by name, such as a model's mean pLDDT.",
+          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,62}$" },
+          "additionalProperties": {
+            "anyOf": [
+              { "type": "string", "maxLength": 200 },
+              { "type": "number" },
+              { "type": "boolean" }
+            ]
+          }
         }
       }
+    },
+    "software_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\s](.*[^\\s])?$"
     },
     "create": {
       "type": "object",
@@ -79,7 +131,15 @@
           "uniqueItems": true,
           "description": "The input entities it was made from. Leave it out when the declared inputs it's derived from hold one entity (never in a job that runs several runs at once: see `pack` in input.json)."
         },
-        "origin": { "$ref": "#/$defs/origin" }
+        "origin": { "$ref": "#/$defs/origin" },
+        "made_with": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/software_text" },
+          "description": "Which of the action's `software` made it, by name, when the action lists more than one and the run chose. Leave it out to mean all of them (ADR 0106)."
+        }
       }
     }
   },

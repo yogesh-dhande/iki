@@ -288,6 +288,7 @@ checkpointable: true # saves progress in $IKI_CHECKPOINT_DIR and resumes
 batchable: 1 # more than 1 packs up to that many runs of a batch into one job (one input only)
 artifacts: { keep: ["msas/**", ranking_debug.json], retention: 365d }
 network: [] # hosts a run may reach; none by default
+software: [{ name: AlphaFold, version: 2.3.2 }] # what its runs make entities with (ADR 0106)
 metrics: # numbers its runs report under `metrics`, which workflow conditions read
   mean_plddt: { label: Mean pLDDT, description: The model's confidence, from 0 to 100. }
 secrets: [] # e.g. [LIMS_TOKEN, { name: NCBI_API_KEY, required: false, description: ... }]
@@ -1029,6 +1030,44 @@ An imported entity says where it came from in `origin`: a database's record
 one of its file params). Iki keeps it with the entity, for whoever reads
 it, and again each time an import finds the same entity.
 
+How an entity was made is kept too (ADR 0106), and says who says so:
+
+- **Iki's record.** An action lists the tools its runs make entities with, by
+  name and version, in `software`:
+
+  ```yaml
+  software: [{ name: ImmuneBuilder, version: "1.2", url: https://github.com/oxpig/ImmuneBuilder }]
+  ```
+
+  Each entity its runs create is recorded as computed with them, and the
+  run, with its environment build, proves it. An action that could make an
+  entity with one tool or another names which in the create's `made_with`
+  (`"made_with": ["Vina"]`), among its own `software` only.
+
+- **Its source's word.** An origin's `made` is what an imported record says
+  about how its source made the entity, read from the record, never guessed:
+  mmCIF's `_exptl` and `_software`, ModelCIF's `_ma_` categories.
+
+  ```json
+  "origin": {
+    "source": "AlphaFold DB",
+    "id": "AF-P69905-F1",
+    "version": "4",
+    "made": {
+      "kind": "computational",
+      "software": [{ "name": "AlphaFold", "version": "2.3.2" }],
+      "details": { "mean_plddt": 97.1 }
+    }
+  }
+  ```
+
+  `kind` is `experimental` or `computational`; `method` is the source's name
+  for it, such as `X-RAY DIFFRACTION`. Iki shows it as the source's word,
+  never as its own record.
+
+An entity's page, `GET /entities/{ref}/making` and MCP's `get_entity` give
+both, Iki's records first.
+
 An import from a LIMS or ELN matches its records to entities with
 `match_on`, one of the type's unique fields (ADR 0082). A create whose value
 an entity of the run's project has already updates that entity instead: a
@@ -1243,7 +1282,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                           | Dependencies                    |
 | `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                                                                                                                                                                                                                                                                 | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                       | Lockfiles                       |
-| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`                                                                                                                                                                                                                                                                       | Actions                         |
+| `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                                                 | Actions                         |
 | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                               | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `client-resources`, `client-secrets`, `client-network`, `reserved-secret`, `absolute-path-on-backend`, `absolute-path-on-client`, `missing-file`                                                                                                                                                                                                                                             | Where actions run               |
 | `network-unknown-setting`, `network-setting-not-hostname`, `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                 | Reuse and retries               |

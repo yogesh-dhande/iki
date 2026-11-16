@@ -932,6 +932,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/making": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How it was made
+         * @description How it was made, and who says so (ADR 0106), one tool at a time, Iki's own records
+         *     first: a run of an action that lists its software, or what a record it was imported
+         *     from says. Empty when it was made by hand, or its source doesn't say.
+         */
+        get: operations["iki_server_api_entities_get_making"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/origins": {
         parameters: {
             query?: never;
@@ -5661,6 +5683,80 @@ export interface components {
             /** Template */
             template: string;
         };
+        /** MadeOut */
+        MadeOut: {
+            /**
+             * Details
+             * @description What else the source states, such as a model's mean pLDDT.
+             */
+            details: {
+                [key: string]: string | number | boolean;
+            };
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "experimental" | "computational";
+            /**
+             * Method
+             * @description As the source names it, such as X-RAY DIFFRACTION.
+             */
+            method: string;
+            /** Software */
+            software: components["schemas"]["SoftwareOut"][];
+        };
+        /** MakingOut */
+        MakingOut: {
+            /**
+             * By
+             * @description `iki`: Iki's record, made by a run of an action that runs the software. `source`: what an imported record says about how its source made it.
+             * @enum {string}
+             */
+            by: "iki" | "source";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "experimental" | "computational";
+            /**
+             * Method
+             * @description As the source names it; empty for Iki's own record.
+             */
+            method: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** @description The run that made it, or imported the record, if you can read it. */
+            run: components["schemas"]["RunRefOut"] | null;
+            /**
+             * Software
+             * @description Empty when a source says how, but not with what.
+             */
+            software: string;
+            /** @description The record that says so, for `source`. */
+            source: components["schemas"]["MakingSourceOut"] | null;
+            /** Version */
+            version: string;
+        };
+        /** MakingSourceOut */
+        MakingSourceOut: {
+            /**
+             * Id
+             * @description The record there.
+             */
+            id: string;
+            /**
+             * Source
+             * @description The database or format, such as AlphaFold DB.
+             */
+            source: string;
+            /** Url */
+            url: string;
+            /** Version */
+            version: string;
+        };
         /** MarkAllIn */
         MarkAllIn: {
             /**
@@ -5883,6 +5979,8 @@ export interface components {
              * @description Its identifier there: an accession, or a record's name.
              */
             id: string;
+            /** @description How the record says its source made it (ADR 0106): its source's word. */
+            made: components["schemas"]["MadeOut"] | null;
             /**
              * Recorded At
              * Format: date-time
@@ -8258,6 +8356,16 @@ export interface components {
              * @description The entity type whose pages show it, with its subtypes.
              */
             type: string;
+        };
+        /** SoftwareOut */
+        SoftwareOut: {
+            /** Name */
+            name: string;
+            /**
+             * Version
+             * @description Empty when the source doesn't say.
+             */
+            version: string;
         };
         /** SortIn */
         SortIn: {
@@ -10716,6 +10824,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineageGraphOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_entities_get_making: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MakingOut"][];
                 };
             };
         };

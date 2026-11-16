@@ -938,6 +938,32 @@
             "additionalProperties": false
           }
         },
+        "made_with": {
+          "description": "The software Iki recorded it made each of the bundle's entities with (ADR 0106): its action's, or those its output named. Older bundles leave it out.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entity", "software", "version", "created_at"],
+            "additionalProperties": false,
+            "properties": {
+              "entity": {
+                "$ref": "#/$defs/uuid"
+              },
+              "software": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "created_at": {
+                "$ref": "#/$defs/time"
+              }
+            }
+          }
+        },
         "included": {
           "description": "What its inputs' references named, that it read too (ADR 0105): only on runs that read any.",
           "type": "array",
@@ -1089,6 +1115,17 @@
                 "anyOf": [
                   {
                     "$ref": "#/$defs/uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "made": {
+                "description": "How the record says its source made the entity (ADR 0106).",
+                "anyOf": [
+                  {
+                    "$ref": "https://ikisci.org/schemas/run-output/v1#/$defs/made"
                   },
                   {
                     "type": "null"

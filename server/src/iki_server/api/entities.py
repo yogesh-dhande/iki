@@ -35,7 +35,7 @@ from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
-from iki_server.runs.models import ExternalOrigin, Lineage, RunEffect
+from iki_server.runs.models import EntityMaking, ExternalOrigin, Lineage, MadeBy, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
 from iki_spec.model import EntityType, Track, Viewer
@@ -1085,6 +1085,20 @@ class OriginFileOut(Schema):
     name: str
 
 
+class SoftwareOut(Schema):
+    name: str
+    version: str = Field(description="Empty when the source doesn't say.")
+
+
+class MadeOut(Schema):
+    kind: Literal["experimental", "computational"]
+    method: str = Field(description="As the source names it, such as X-RAY DIFFRACTION.")
+    software: list[SoftwareOut]
+    details: dict[str, str | float | bool] = Field(
+        description="What else the source states, such as a model's mean pLDDT."
+    )
+
+
 class OriginOut(Schema):
     source: str = Field(description="The database or format, such as NCBI Nucleotide.")
     id: str = Field(description="Its identifier there: an accession, or a record's name.")
@@ -1096,6 +1110,9 @@ class OriginOut(Schema):
     run: RunRefOut | None = Field(description="The run that imported it, if you can read it.")
     revision: int | None = Field(
         description="The revision the run made; none if the entity was already there."
+    )
+    made: MadeOut | None = Field(
+        description="How the record says its source made it (ADR 0106): its source's word."
     )
     recorded_at: datetime
 
@@ -1140,6 +1157,89 @@ def get_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 else None
             ),
             "revision": row.revision,
+            "made": _made(row.made),
+            "recorded_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+
+def _made(made: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not made:
+        return None
+    return {
+        "kind": made["kind"],
+        "method": made.get("method", ""),
+        "software": [
+            {"name": t["name"], "version": t.get("version", "")} for t in made.get("software", [])
+        ],
+        "details": made.get("details", {}),
+    }
+
+
+class MakingSourceOut(Schema):
+    source: str = Field(description="The database or format, such as AlphaFold DB.")
+    id: str = Field(description="The record there.")
+    version: str
+    url: str
+
+
+class MakingOut(Schema):
+    by: Literal["iki", "source"] = Field(
+        description="`iki`: Iki's record, made by a run of an action that runs the software. "
+        "`source`: what an imported record says about how its source made it."
+    )
+    kind: Literal["experimental", "computational"]
+    method: str = Field(description="As the source names it; empty for Iki's own record.")
+    software: str = Field(description="Empty when a source says how, but not with what.")
+    version: str
+    run: RunRefOut | None = Field(
+        description="The run that made it, or imported the record, if you can read it."
+    )
+    source: MakingSourceOut | None = Field(description="The record that says so, for `source`.")
+    recorded_at: datetime
+
+
+@router.get(
+    "/entities/{ref}/making",
+    response=list[MakingOut],
+    summary="How it was made",
+)
+def get_making(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+    """How it was made, and who says so (ADR 0106), one tool at a time, Iki's own records
+    first: a run of an action that lists its software, or what a record it was imported
+    from says. Empty when it was made by hand, or its source doesn't say."""
+    me = caller(request)
+    entity = _find(me, ref)
+    rows = list(
+        EntityMaking.objects.filter(entity=entity).select_related("run", "origin").order_by("id")
+    )
+    runs = set(
+        visible_runs(me).filter(pk__in={r.run_id for r in rows}).values_list("pk", flat=True)
+    )
+    rows.sort(key=lambda r: (r.by != MadeBy.IKI, r.id))
+    return [
+        {
+            "by": row.by,
+            "kind": row.kind,
+            "method": row.method,
+            "software": row.software,
+            "version": row.version,
+            "run": (
+                {"id": row.run.pk, "hrid": row.run.hrid, "action": row.run.action}
+                if row.run_id in runs
+                else None
+            ),
+            "source": (
+                {
+                    "source": row.origin.source,
+                    "id": row.origin.identifier,
+                    "version": row.origin.version,
+                    "url": row.origin.url,
+                }
+                if row.origin is not None
+                else None
+            ),
             "recorded_at": row.created_at,
         }
         for row in rows

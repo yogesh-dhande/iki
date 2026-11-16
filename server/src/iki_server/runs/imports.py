@@ -56,7 +56,7 @@ from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, Part, Refs, is_list_table, shape
 from iki_server.files import storage
 from iki_server.files.models import File
-from iki_server.runs import live, results
+from iki_server.runs import live, makings, results
 from iki_server.runs.models import (
     ActionRun,
     EffectKind,
@@ -72,6 +72,7 @@ from iki_server.runs.models import (
 )
 from iki_server.runs.services import is_a
 from iki_spec import schemas
+from iki_spec.model import Software
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -545,6 +546,7 @@ def _row(number: int, form: Shape, given: dict[str, Any], create: Any) -> tuple[
             "file_id": str(create.origin["file_id"]) if create.origin["file_id"] else None,
         }
     parents = [[str(p), name, revision] for p, (name, revision) in create.parents.items()]
+    made_with = [[tool.name, tool.version] for tool in create.made_with]
     return (
         number,
         _uuid7(),
@@ -554,6 +556,7 @@ def _row(number: int, form: Shape, given: dict[str, Any], create: Any) -> tuple[
         sorted(n for n, v in given.items() if v is not None),
         _ENCODE(origin) if origin is not None else None,
         _ENCODE(parents) if parents else None,
+        _ENCODE(made_with) if made_with else None,
     )
 
 
@@ -577,7 +580,7 @@ def _copy(imported: RunImport, rows: list[tuple[Any, ...]]) -> None:
     with connection.cursor() as cursor:
         statement = (
             "COPY iki_import_line (bulk_import_id, round, line, entity_id, type,"
-            " identity_hash, parts, changed, origin, parents) FROM STDIN"
+            " identity_hash, parts, changed, origin, parents, made_with) FROM STDIN"
         )
         with cursor.copy(statement) as copy:
             for row in rows:
@@ -758,7 +761,7 @@ def _update_matches_of(
         if check.errors:
             return 0
         cursor.execute(
-            f"SELECT s.line, s.parts, s.origin, s.parents, u.entity_id FROM {table} s"  # noqa: S608 - ours; values are parameters
+            f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with, u.entity_id FROM {table} s"  # noqa: S608 - ours; values are parameters
             " JOIN iki_unique_value u ON u.project_id = %(project)s AND u.key = %(key)s"
             f" AND u.value = {value} WHERE s.type = %(type)s ORDER BY s.line",
             params,
@@ -771,11 +774,11 @@ def _update_matches_of(
     unchanged = 0
     done: list[int] = []
     with entities.quietly():
-        for line, parts_text, origin_text, parents_text, entity_id in matched:
+        for line, parts_text, origin_text, parents_text, made_text, entity_id in matched:
             # Django reads jsonb as text.
-            parts, origin, parents = (
+            parts, origin, parents, made_with = (
                 json.loads(t) if isinstance(t, str) else t
-                for t in (parts_text, origin_text, parents_text)
+                for t in (parts_text, origin_text, parents_text, made_text)
             )
             entity = Entity.objects.select_for_update().get(pk=entity_id)
             values = {n: v for fields in parts.values() for n, v in fields.items()}
@@ -791,11 +794,14 @@ def _update_matches_of(
                 kind=EffectKind.UPDATED if revision is not None else EffectKind.REUSED,
                 revision=revision,
             )
+            kept = None
             if origin is not None:
                 # As staged: ExternalOrigin's fields.
-                ExternalOrigin.objects.create(
+                kept = ExternalOrigin.objects.create(
                     run=run, entity_id=entity.pk, revision=revision, **origin
                 )
+            tools = [Software(name, version) for name, version in made_with or ()]
+            makings.record(run.pk, entity.pk, tools, kept)
             Lineage.objects.bulk_create(
                 Lineage(
                     entity_id=entity.pk,
@@ -854,8 +860,8 @@ def _claims(
                 "can't be two records.",
             )
     cursor.execute(
-        f"SELECT DISTINCT ON (s.line) s.line, s.parts, s.origin, s.parents, e.id, e.hrid,"  # noqa: S608 - ours; values are parameters
-        f" u.value FROM {table} s"
+        f"SELECT DISTINCT ON (s.line) s.line, s.parts, s.origin, s.parents, s.made_with,"  # noqa: S608 - ours; values are parameters
+        f" e.id, e.hrid, u.value FROM {table} s"
         " JOIN iki_entity e ON e.owner_project_id = %(project)s"
         "  AND e.identity_hash = s.identity_hash AND e.archived_at IS NULL"
         " LEFT JOIN iki_unique_value u ON u.entity_id = e.id AND u.key = %(key)s"
@@ -863,9 +869,9 @@ def _claims(
         params,
     )
     claims = []
-    for line, parts, origin, parents, entity_id, hrid, other in cursor.fetchall():
+    for line, parts, origin, parents, made_with, entity_id, hrid, other in cursor.fetchall():
         if other is None:
-            claims.append((line, parts, origin, parents, entity_id))
+            claims.append((line, parts, origin, parents, made_with, entity_id))
             continue
         check.error(
             results.pointer("creates_file", line, "values", field),
@@ -1005,13 +1011,39 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         reused = cursor.rowcount - created
         cursor.execute(
             "INSERT INTO iki_external_origin (run_id, entity_id, revision, source, identifier,"  # noqa: S608 - ours; values are parameters
-            " version, url, retrieved_at, sha256, file_id, created_at)"
+            " version, url, retrieved_at, sha256, file_id, made, created_at)"
             " SELECT %(run)s, r.target, CASE WHEN r.reused THEN NULL ELSE 1 END,"
             "  s.origin->>'source', s.origin->>'identifier', s.origin->>'version',"
             "  s.origin->>'url', (s.origin->>'retrieved_at')::timestamptz,"
-            "  s.origin->>'sha256', (s.origin->>'file_id')::uuid, now()"
+            "  s.origin->>'sha256', (s.origin->>'file_id')::uuid,"
+            "  NULLIF(s.origin->'made', 'null'::jsonb), now()"
             f" FROM {table} s JOIN iki_import_resolved r USING (line)"
             " WHERE r.first AND s.origin IS NOT NULL ORDER BY s.line",
+            params,
+        )
+        # How each was made (ADR 0106): Iki's record of the action's software, then what
+        # each origin's source says, skipping those the matched lines kept one by one.
+        cursor.execute(
+            "INSERT INTO iki_entity_making (entity_id, run_id, origin_id, by, kind, method,"  # noqa: S608 - ours; values are parameters
+            " software, version, created_at)"
+            " SELECT r.target, %(run)s, NULL, 'iki', 'computational', '', t->>0, t->>1, now()"
+            f" FROM {table} s JOIN iki_import_resolved r USING (line)"
+            " CROSS JOIN LATERAL jsonb_array_elements(s.made_with) t"
+            " WHERE r.first AND s.made_with IS NOT NULL ORDER BY s.line",
+            params,
+        )
+        cursor.execute(
+            "INSERT INTO iki_entity_making (entity_id, run_id, origin_id, by, kind, method,"
+            " software, version, created_at)"
+            " SELECT o.entity_id, o.run_id, o.id, 'source', o.made->>'kind',"
+            "  COALESCE(o.made->>'method', ''), COALESCE(t->>'name', ''),"
+            "  COALESCE(t->>'version', ''), now()"
+            " FROM iki_external_origin o CROSS JOIN LATERAL jsonb_array_elements("
+            "  CASE WHEN jsonb_array_length(COALESCE(o.made->'software', '[]'::jsonb)) > 0"
+            "  THEN o.made->'software' ELSE '[{}]'::jsonb END) t"
+            " WHERE o.run_id = %(run)s AND o.made IS NOT NULL"
+            " AND NOT EXISTS (SELECT 1 FROM iki_entity_making m WHERE m.origin_id = o.id)"
+            " ORDER BY o.id",
             params,
         )
         cursor.execute(

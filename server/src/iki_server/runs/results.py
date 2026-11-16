@@ -35,7 +35,7 @@ from iki_server.entities.models import Entity, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.org import permissions
 from iki_server.org.services import Refused
-from iki_server.runs import input_files
+from iki_server.runs import input_files, makings
 from iki_server.runs.models import (
     ActionRun,
     EffectKind,
@@ -47,7 +47,7 @@ from iki_server.runs.models import (
 )
 from iki_server.runs.services import TIER_PERMISSIONS, is_a
 from iki_spec import schemas
-from iki_spec.model import Action, Creates, action_from_dict
+from iki_spec.model import Action, Creates, Software, action_from_dict
 
 __all__ = [
     "Check",
@@ -302,6 +302,8 @@ class _Create:
     key: str | None = None
     #: The unique field an entity in the run's project it matches has (ADR 0082).
     match_on: str | None = None
+    #: The action's software that made it (ADR 0106): what Iki records it was made with.
+    made_with: tuple[Software, ...] = ()
 
 
 def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
@@ -335,7 +337,36 @@ def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> d
                 "Name a file the run was given in a file param.",
             )
         origin["file_id"] = file_id
+    origin["made"] = given.get("made")
     return origin
+
+
+def _made_with(
+    check: Check, at: tuple[object, ...], given: list[str] | None
+) -> tuple[Software, ...]:
+    """The action's software that made a create: all of it, unless the output names some."""
+    if given is None:
+        return check.action.software
+    declared = {tool.name.casefold(): tool for tool in check.action.software}
+    if not declared:
+        check.error(
+            _pointer(*at, "made_with"),
+            "The action lists no `software`: list what its runs make entities with, then name "
+            "which made this one.",
+        )
+        return ()
+    out: list[Software] = []
+    for index, name in enumerate(given):
+        tool = declared.get(name.casefold())
+        if tool is None:
+            listed = ", ".join(t.name for t in check.action.software)
+            check.error(
+                _pointer(*at, "made_with", index),
+                f"`{name}` isn't among the action's software ({listed}).",
+            )
+        else:
+            out.append(tool)
+    return tuple(out)
 
 
 def _creates(check: Check, given: list[Mapping[str, Any]]) -> list[_Create]:
@@ -445,6 +476,7 @@ def _create(
         _check_files(check, _pointer(*at), item["type"], item["values"])
     parents = _parents(check, effect, item.get("derived_from"), at)
     origin = _origin(check, at, item["origin"]) if "origin" in item else None
+    made_with = _made_with(check, at, item.get("made_with"))
     if parents is None:
         return None
     return _Create(
@@ -455,6 +487,7 @@ def _create(
         origin,
         item.get("key"),
         effect.match_on,
+        made_with,
     )
 
 
@@ -704,11 +737,13 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
             kind=_kind(saved, matched=match is not None),
             revision=revision,
         )
+        origin = None
         if create.origin is not None:
             # Kept for reused entities too: the run found the same record again.
-            ExternalOrigin.objects.create(
+            origin = ExternalOrigin.objects.create(
                 run=run, entity_id=entity_id, revision=revision, **create.origin
             )
+        makings.record(run.pk, entity_id, create.made_with, origin)
         Lineage.objects.bulk_create(
             Lineage(
                 entity_id=entity_id,

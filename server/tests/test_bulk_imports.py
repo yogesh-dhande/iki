@@ -81,12 +81,18 @@ def lines(*items: Any) -> bytes:
     return b"".join((i if isinstance(i, bytes) else json.dumps(i).encode()) + b"\n" for i in items)
 
 
-def started(world: World, make: Any, **extra: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+def started(
+    world: World, make: Any, software: list[dict[str, str]] | None = None, **extra: Any
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """An import run whose command wrote ``make(file_id)``'s lines to a creates file.
-    Returns the run and the worker's answer."""
+    Returns the run and the worker's answer. ``software``: what its action lists."""
     file_id = stored(world)
     run = launch(api_as(world, "editor"), world.project, {}, IMPORT, params={"file": file_id})
     assert run.status_code == 201, run.content
+    if software is not None:
+        kept = ActionRun.objects.get(pk=run.json()["id"])
+        kept.spec["software"] = software
+        kept.save(update_fields=["spec"])
     pod = worker(world)
     job = pod.lease().json()
     data = make(file_id)
@@ -331,6 +337,60 @@ def test_lines_that_match_entities_update_them(world: World) -> None:
     # One event for the import, none for each entity it changed.
     events = list(Delivery.objects.exclude(event="ping").values_list("event", flat=True))
     assert events == ["entity.imported"]
+
+
+def test_each_line_keeps_how_it_was_made_and_who_says_so(world: World) -> None:
+    """ADR 0106, through both ways a creates file is written: new entities in SQL, and
+    lines that match one by one."""
+    software = [{"name": "Fold", "version": "2"}, {"name": "Relax", "version": "1"}]
+    predicted = {"kind": "computational", "software": [{"name": "AlphaFold", "version": "2.3.2"}]}
+
+    def first_lines(f: str) -> bytes:
+        a = protein(KINASES[0], "A", f, lims_id="LIMS-1")
+        a["origin"]["made"] = predicted
+        return lines(
+            {**a, "made_with": ["fold"]},
+            protein(KINASES[1], "B", f),
+            protein(KINASES[1], "B again", f),  # found again: kept once, for its first line
+        )
+
+    first, _ = started(world, first_lines, software)
+    assert finished(world, first)["status"] == "succeeded"
+    api = api_as(world, "editor")
+
+    a, b = (e["hrid"] for e in seen(world, first)["effects"])
+
+    def making(hrid: str) -> list[tuple[str, str, str, str]]:
+        return [
+            (m["by"], m["kind"], m["software"], m["run"]["id"])
+            for m in api.get(f"/entities/{hrid}/making").json()
+        ]
+
+    run = first["id"]
+    assert making(a) == [
+        ("iki", "computational", "Fold", run),
+        ("source", "computational", "AlphaFold", run),
+    ]
+    assert making(b) == [
+        ("iki", "computational", "Fold", run),
+        ("iki", "computational", "Relax", run),
+    ]
+
+    # A line that matches LIMS-1 is written one by one: kept once, not again in SQL.
+    def matching(f: str) -> bytes:
+        a = protein(KINASES[0], "A2", f, lims_id="LIMS-1")
+        a["origin"]["made"] = {"kind": "experimental", "method": "X-RAY DIFFRACTION"}
+        return lines({**a, "made_with": ["Relax"]})
+
+    second, _ = started(world, matching, software)
+    assert finished(world, second)["status"] == "succeeded"
+    # Iki's records first, then each source's word.
+    assert making(a) == [
+        ("iki", "computational", "Fold", run),
+        ("iki", "computational", "Relax", second["id"]),
+        ("source", "computational", "AlphaFold", run),
+        ("source", "experimental", "", second["id"]),
+    ]
 
 
 def test_lines_claim_the_same_entities_without_a_record(world: World) -> None:

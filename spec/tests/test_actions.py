@@ -669,6 +669,32 @@ def test_secrets_can_be_optional_and_say_what_theyre_for(tmp_path: Path) -> None
     assert codes(make(tmp_path, action(secrets="[{ name: lims }]"))) == ["schema"]
 
 
+def test_an_action_lists_the_software_it_makes_entities_with(tmp_path: Path) -> None:
+    declared = (
+        "[{ name: ImmuneBuilder, version: '1.2', url: 'https://github.com/oxpig/ImmuneBuilder' },"
+        " { name: OpenMM, version: 8.6.1 }]"
+    )
+    result = make(tmp_path, action(software=declared))
+    assert result.problems == []
+    assert result.plugin is not None
+    (found,) = result.plugin.actions.values()
+    assert [(w.name, w.version, w.url) for w in found.software] == [
+        ("ImmuneBuilder", "1.2", "https://github.com/oxpig/ImmuneBuilder"),
+        ("OpenMM", "8.6.1", ""),
+    ]
+    # As a run keeps it.
+    from dataclasses import asdict
+
+    from iki_spec.model import action_from_dict
+
+    assert action_from_dict(asdict(found)).software == found.software
+    twice = "[{ name: OpenMM, version: '8.6' }, { name: openmm, version: 8.6.1 }]"
+    assert only(make(tmp_path, action(software=twice)), "duplicate-software")
+    # A tool needs its version, and names have no space at either end.
+    for bad in ("[{ name: OpenMM }]", "[{ name: ' OpenMM', version: '8' }]"):
+        assert codes(make(tmp_path, action(software=bad))) == ["schema"]
+
+
 def test_timeouts(tmp_path: Path) -> None:
     assert only(make(tmp_path, action(timeout="8d")), "timeout-too-long")
     assert make(tmp_path, action(timeout="7d")).problems == []

@@ -22,6 +22,7 @@ import {
   entityQuery,
   formatSize,
   originsQuery,
+  makingQuery,
   bundleOriginsQuery,
   personName,
   provenanceQuery,
@@ -33,6 +34,7 @@ import {
   type Entity,
   type EntityType,
   type FieldDef,
+  type Making,
   type Origin,
   type Revision,
 } from "../entities";
@@ -233,6 +235,75 @@ function FromBundle({ origin }: { origin: Schemas["BundleOriginOut"] }) {
           )
         </>
       ) : null}
+    </span>
+  );
+}
+
+/** One line per run, or per record that says so: what made it, and who says so. */
+function madeGroups(rows: Making[]): Making[][] {
+  const groups = new Map<string, Making[]>();
+  for (const row of rows) {
+    const key =
+      row.by === "iki"
+        ? ["iki", row.run?.hrid ?? ""].join(":")
+        : ["source", row.source?.source ?? "", row.source?.id ?? "", row.run?.hrid ?? ""].join(":");
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups.values()];
+}
+
+function tools(rows: Making[]): string {
+  return rows
+    .filter((r) => r.software)
+    .map((r) => (r.version ? `${r.software} ${r.version}` : r.software))
+    .join(", ");
+}
+
+function MadeHow({ rows }: { rows: Making[] }) {
+  const [first] = rows;
+  if (!first) return null;
+  const kind = first.kind === "experimental" ? "Experimental" : "Computed";
+  const what = [first.method, tools(rows)].filter(Boolean).join(", ");
+  if (first.by === "iki") {
+    return (
+      <span>
+        {kind} with {what}
+        {first.run ? (
+          <>
+            , by{" "}
+            <Link to="/runs/$ref/" params={{ ref: first.run.hrid }}>
+              {first.run.hrid}
+            </Link>{" "}
+            (<code>{first.run.action}</code>)
+          </>
+        ) : null}
+        <span className="cell-meta">Recorded by Iki</span>
+      </span>
+    );
+  }
+  const record = first.source
+    ? first.source.version && first.source.version !== first.source.id
+      ? `${first.source.id} (${first.source.version})`
+      : first.source.id
+    : "";
+  return (
+    <span>
+      {kind}
+      {what ? `: ${what}` : ""}, as {first.source?.source ?? "its source"}
+      {record ? (
+        <>
+          {" "}
+          {first.source?.url ? (
+            <a href={first.source.url} target="_blank" rel="noreferrer noopener">
+              {record}
+            </a>
+          ) : (
+            record
+          )}
+        </>
+      ) : null}{" "}
+      states
+      <span className="cell-meta">Stated by its source</span>
     </span>
   );
 }
@@ -506,6 +577,7 @@ export function EntityOverview() {
   const provenance = useQuery(provenanceQuery(entity.hrid)).data;
   const projects = useQuery(entityProjectsQuery(entity.hrid)).data;
   const origins = useQuery(originsQuery(entity.hrid)).data ?? [];
+  const making = useQuery(makingQuery(entity.hrid)).data ?? [];
   const bundles = useQuery(bundleOriginsQuery(entity.hrid)).data ?? [];
   const collection = isCollection(type, types);
   const app = type?.name === APP_TYPE;
@@ -603,6 +675,20 @@ export function EntityOverview() {
           <dd>
             <RelativeTime value={entity.updated_at} /> (revision {entity.revision})
           </dd>
+          {making.length ? (
+            <>
+              <dt>How it was made</dt>
+              <dd>
+                <ul className="value-list">
+                  {madeGroups(making).map((rows) => (
+                    <li key={[rows[0]?.by, rows[0]?.run?.hrid, rows[0]?.source?.id].join("-")}>
+                      <MadeHow rows={rows} />
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          ) : null}
           {origins.length || bundles.length ? (
             <>
               <dt>Imported from</dt>

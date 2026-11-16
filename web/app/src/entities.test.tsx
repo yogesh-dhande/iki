@@ -556,6 +556,80 @@ describe("an entity's page", () => {
     );
   });
 
+  it("says how it was made, and who says so", async () => {
+    withTypes();
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    const run = {
+      id: "r1",
+      hrid: "RUN-000009",
+      action: "antibody.predict_structure_with_immunebuilder",
+    };
+    const recorded = {
+      by: "iki",
+      kind: "computational",
+      method: "",
+      software: "ImmuneBuilder",
+      version: "1.2",
+      run,
+      source: null,
+      recorded_at: "2026-11-16T09:31:00Z",
+    };
+    const stated = {
+      ...recorded,
+      by: "source",
+      software: "AlphaFold",
+      version: "2.3.2",
+      run: null,
+      source: {
+        source: "AlphaFold DB",
+        id: "AF-P69905-F1",
+        version: "4",
+        url: "https://alphafold.ebi.ac.uk/entry/P69905",
+      },
+    };
+    const measured = {
+      ...stated,
+      kind: "experimental",
+      method: "X-RAY DIFFRACTION",
+      software: "",
+      version: "",
+      source: { source: "RCSB PDB", id: "4HHB", version: "", url: "" },
+    };
+    answer("GET /api/v1/entities/PRT-000001/making", [
+      recorded,
+      { ...recorded, software: "OpenMM", version: "8.6.1" },
+      stated,
+      measured,
+    ]);
+    await renderApp("/entities/PRT-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    await within(details).findByText("How it was made");
+    const [iki, alphafold, pdb] = within(details).getAllByRole("listitem") as [
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+    ];
+    // One line per run, its tools together.
+    expect(iki).toHaveTextContent(
+      "Computed with ImmuneBuilder 1.2, OpenMM 8.6.1, by RUN-000009 (antibody.predict_structure_with_immunebuilder)Recorded by Iki",
+    );
+    expect(within(iki).getByRole("link", { name: "RUN-000009" })).toHaveAttribute(
+      "href",
+      "/runs/RUN-000009/",
+    );
+    // A source's word is said to be its own.
+    expect(alphafold).toHaveTextContent(
+      "Computed: AlphaFold 2.3.2, as AlphaFold DB AF-P69905-F1 (4) statesStated by its source",
+    );
+    expect(within(alphafold).getByRole("link", { name: "AF-P69905-F1 (4)" })).toHaveAttribute(
+      "href",
+      "https://alphafold.ebi.ac.uk/entry/P69905",
+    );
+    expect(pdb).toHaveTextContent("Experimental: X-RAY DIFFRACTION, as RCSB PDB 4HHB states");
+  });
+
   it("says which bundle from another deployment it came in", async () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());

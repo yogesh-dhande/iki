@@ -205,6 +205,7 @@ def test_imported_entities_keep_where_they_came_from(world: World) -> None:
             "file": {"id": file_id, "name": "kinases.fasta"},
             "run": {"id": run["id"], "hrid": run["hrid"], "action": IMPORT},
             "revision": 1,
+            "made": None,
             "recorded_at": origins[0]["recorded_at"],
         }
     ]

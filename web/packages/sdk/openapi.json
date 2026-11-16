@@ -5718,6 +5718,160 @@
         "title": "MachinesOut",
         "type": "object"
       },
+      "MadeOut": {
+        "properties": {
+          "details": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "What else the source states, such as a model's mean pLDDT.",
+            "title": "Details",
+            "type": "object"
+          },
+          "kind": {
+            "enum": [
+              "experimental",
+              "computational"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "method": {
+            "description": "As the source names it, such as X-RAY DIFFRACTION.",
+            "title": "Method",
+            "type": "string"
+          },
+          "software": {
+            "items": {
+              "$ref": "#/components/schemas/SoftwareOut"
+            },
+            "title": "Software",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "method",
+          "software",
+          "details"
+        ],
+        "title": "MadeOut",
+        "type": "object"
+      },
+      "MakingOut": {
+        "properties": {
+          "by": {
+            "description": "`iki`: Iki's record, made by a run of an action that runs the software. `source`: what an imported record says about how its source made it.",
+            "enum": [
+              "iki",
+              "source"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "experimental",
+              "computational"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "method": {
+            "description": "As the source names it; empty for Iki's own record.",
+            "title": "Method",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The run that made it, or imported the record, if you can read it."
+          },
+          "software": {
+            "description": "Empty when a source says how, but not with what.",
+            "title": "Software",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MakingSourceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record that says so, for `source`."
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "kind",
+          "method",
+          "software",
+          "version",
+          "run",
+          "source",
+          "recorded_at"
+        ],
+        "title": "MakingOut",
+        "type": "object"
+      },
+      "MakingSourceOut": {
+        "properties": {
+          "id": {
+            "description": "The record there.",
+            "title": "Id",
+            "type": "string"
+          },
+          "source": {
+            "description": "The database or format, such as AlphaFold DB.",
+            "title": "Source",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "version",
+          "url"
+        ],
+        "title": "MakingSourceOut",
+        "type": "object"
+      },
       "MarkAllIn": {
         "properties": {
           "up_to": {
@@ -6209,6 +6363,17 @@
             "title": "Id",
             "type": "string"
           },
+          "made": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MadeOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the record says its source made it (ADR 0106): its source's word."
+          },
           "recorded_at": {
             "format": "date-time",
             "title": "Recorded At",
@@ -6281,6 +6446,7 @@
           "file",
           "run",
           "revision",
+          "made",
           "recorded_at"
         ],
         "title": "OriginOut",
@@ -11682,6 +11848,25 @@
           "label"
         ],
         "title": "SlotOut",
+        "type": "object"
+      },
+      "SoftwareOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "description": "Empty when the source doesn't say.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "SoftwareOut",
         "type": "object"
       },
       "SortIn": {
@@ -17110,6 +17295,51 @@
           }
         ],
         "summary": "Its ancestors and descendants",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/making": {
+      "get": {
+        "description": "How it was made, and who says so (ADR 0106), one tool at a time, Iki's own records\nfirst: a run of an action that lists its software, or what a record it was imported\nfrom says. Empty when it was made by hand, or its source doesn't say.",
+        "operationId": "iki_server_api_entities_get_making",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MakingOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "How it was made",
         "tags": [
           "entities"
         ]

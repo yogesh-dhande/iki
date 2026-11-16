@@ -21,7 +21,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Now
+from django.db.models.functions import Lower, Now
 
 from iki_server.core.ids import uuid7
 from iki_server.entities.models import Entity
@@ -1327,6 +1327,9 @@ class ExternalOrigin(models.Model):
     file = models.ForeignKey(
         "iki_files.File", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    #: How the source says it made the entity (ADR 0106): its kind, method, software and
+    #: details, as the run's output gave them. None when the record doesn't say.
+    made = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:
@@ -1346,6 +1349,61 @@ class ExternalOrigin(models.Model):
 
     def __str__(self) -> str:
         return f"{self.source} {self.identifier}"
+
+
+class Making(models.TextChoices):
+    EXPERIMENTAL = "experimental"
+    COMPUTATIONAL = "computational"
+
+
+class MadeBy(models.TextChoices):
+    #: Made by a run of an action that lists the software: Iki's own record.
+    IKI = "iki"
+    #: What a record the run imported says: its source's statement.
+    SOURCE = "source"
+
+
+class EntityMaking(models.Model):
+    """How an entity was made, and who says so (ADR 0106): one row per tool. Iki records
+    the software of the action whose run made it; an import keeps what its source states,
+    from the origin's ``made``. Search reads these, so one condition matches one row."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    #: The run that made it, or that imported the record saying so.
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="makings")
+    #: For a source's statement: the origin it's part of.
+    origin = models.ForeignKey(
+        ExternalOrigin, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    by = models.CharField(max_length=10, choices=MadeBy.choices)
+    kind = models.CharField(max_length=20, choices=Making.choices)
+    method = models.CharField(max_length=100, blank=True, default="")
+    #: Empty when a source says how, but not with what.
+    software = models.CharField(max_length=100, blank=True, default="")
+    version = models.CharField(max_length=100, blank=True, default="")
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "iki_entity_making"
+        db_table_comment = "How entities were made: Iki's record of its runs, or a source's word."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["entity", "id"], name="iki_entity_making_entity"),
+            # "Made with AlphaFold", case aside, without reading every entity's rows.
+            models.Index(Lower("software"), "entity", name="iki_entity_making_software"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(by="source", origin__isnull=False)
+                | Q(by="iki", origin__isnull=True, kind="computational") & ~Q(software=""),
+                name="iki_entity_making_by",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.entity_id} {self.kind} {self.software} {self.version} ({self.by})"
 
 
 class JobEgress(models.Model):
@@ -1615,6 +1673,8 @@ class ImportLine(models.Model):
     origin = models.JSONField(null=True)
     #: [[parent ID, input name, revision read], …]
     parents = models.JSONField(null=True)
+    #: [[name, version], …]: the action's software that made it (ADR 0106).
+    made_with = models.JSONField(null=True)
 
     class Meta:
         db_table = "iki_import_line"

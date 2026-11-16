@@ -25,6 +25,7 @@ from iki_spec.model import (
     Metric,
     Resources,
     Secret,
+    Software,
     Updates,
     Volume,
     parse_duration,
@@ -150,6 +151,10 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
             )
             for n, m in (body.get("metrics") or {}).items()
         },
+        software=tuple(
+            Software(name=w["name"], version=w["version"], url=w.get("url", ""))
+            for w in body.get("software") or ()
+        ),
         timeout=parse_duration(body["timeout"]) if "timeout" in body else 3600,
         # Runs whose machine went away are retried, unless they reach the network: a retry
         # could repeat what they did elsewhere, such as placing an order.
@@ -493,6 +498,7 @@ class _Rules:
                 hint="Batch small, quick runs; checkpoint long ones.",
             )
         self.retries(action, source)
+        self.software(action, source)
 
     def input(self, put: Input, source: Document, path: Path) -> None:
         target = self.s.reference(put.type, source, (*path, "type"))
@@ -837,6 +843,20 @@ class _Rules:
                 ("network", index),
                 hint=f"Give `{name}` `type: string` and `format: hostname`.",
             )
+
+    def software(self, action: Action, source: Document) -> None:
+        """Each tool once: what its runs record they made entities with goes by name."""
+        seen: set[str] = set()
+        for index, tool in enumerate(action.software):
+            if tool.name.casefold() in seen:
+                self.add(
+                    "duplicate-software",
+                    f"`{tool.name}` is listed twice.",
+                    source,
+                    ("software", index, "name"),
+                    hint="List each tool once, at the version the action runs.",
+                )
+            seen.add(tool.name.casefold())
 
     def retries(self, action: Action, source: Document) -> None:
         if action.deterministic and action.retry_max and "failed" in action.retry_on:

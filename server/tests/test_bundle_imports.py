@@ -492,12 +492,32 @@ def ran(world: World, made: Any, read: Any, *, hrid: str = "RUN-009001") -> Any:
 
 
 def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) -> None:
-    from iki_server.runs.models import ActionRun, JobLog, Lineage, RunEffect, RunInput
+    from iki_server.runs.models import (
+        ActionRun,
+        EntityMaking,
+        ExternalOrigin,
+        JobLog,
+        Lineage,
+        RunEffect,
+        RunInput,
+    )
+
+    said = {"kind": "computational", "software": [{"name": "AlphaFold", "version": "2.3.2"}]}
 
     def elsewhere() -> list[Any]:
         read = protein(world, "MKREADIN", name="read")
         made = protein(world, "MKMADEBY", name="made")
-        ran(world, made, read)
+        run = ran(world, made, read)
+        # How it was made (ADR 0106): Iki's record, and its source's word.
+        origin = ExternalOrigin.objects.create(
+            run=run, entity_id=made.pk, revision=1, source="AlphaFold DB", identifier="AF-1"
+        )
+        origin.made = said
+        origin.save(update_fields=["made"])
+        from iki_server.runs import makings
+        from iki_spec.model import Software
+
+        makings.record(run.pk, made.pk, [Software("PDBFixer", "1.12")], origin)
         return [made]  # what it read comes too
 
     path = bundle_of(world, tmp_path, elsewhere)
@@ -528,6 +548,10 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
     assert RunInput.objects.filter(run=run).count() == 1
     assert RunEffect.objects.filter(run=run, kind="created").count() == 1
     assert Lineage.objects.filter(run=run).count() == 1
+    assert ExternalOrigin.objects.get(run=run).made == said
+    assert sorted(
+        EntityMaking.objects.filter(run=run).values_list("by", "software", "version")
+    ) == [("iki", "PDBFixer", "1.12"), ("source", "AlphaFold", "2.3.2")]
     body = api.get(f"/runs/{run.hrid}").json()
     assert body["imported"]["deployment"] == "test"
     assert body["imported"]["hrid"] == "RUN-009001"

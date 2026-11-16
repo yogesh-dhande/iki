@@ -310,6 +310,7 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     assert entity["entity"]["id"] == abl["id"]
     assert entity["provenance"]["sequence"]["user"]["email"] == "editor@example.com"
     assert entity["origins"] == []  # made by hand, not imported
+    assert entity["making"] == []  # by hand: no run made it, and no source says how
     history = data(await tool(token, "get_entity_history", ref=abl["hrid"]))
     assert [r["number"] for r in history["items"]] == [2, 1]  # created, then tagged
     lineage = data(await tool(token, "get_lineage", ref=abl["hrid"], up=1))

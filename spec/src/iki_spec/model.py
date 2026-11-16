@@ -312,6 +312,15 @@ class Secret:
 
 
 @dataclass(frozen=True)
+class Software:
+    """A tool an action's runs make entities with, by name and version (ADR 0106)."""
+
+    name: str
+    version: str
+    url: str = ""
+
+
+@dataclass(frozen=True)
 class Metric:
     """A number an action's runs report about themselves (``metrics`` in their output), which
     a workflow's conditions can read (ADR 0079)."""
@@ -344,6 +353,7 @@ class Action:
     network: tuple[str, ...] = ()
     secrets: tuple[Secret, ...] = ()
     metrics: dict[str, Metric] = field(default_factory=dict)
+    software: tuple[Software, ...] = ()
     timeout: int = 3600  # seconds
     retry_max: int = 0
     retry_on: tuple[str, ...] = ()
@@ -793,6 +803,7 @@ def _action(data: dict[str, Any]) -> Action:
             ),
             "metrics": {n: Metric(**m) for n, m in (data.get("metrics") or {}).items()},
             "retry_on": tuple(data["retry_on"]),
+            "software": tuple(Software(**w) for w in data.get("software") or ()),
         }
     )
 
