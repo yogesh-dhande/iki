@@ -1,6 +1,7 @@
 {{- if .Values.maintenance.enabled }}
-# Daily housekeeping: deletes expired sessions (they're already ignored; this
-# keeps the table small).
+# Hourly housekeeping (iki-server maintain): expired sessions, tokens and
+# uploads, and stored files past their retention: artifacts, checkpoints and
+# exported bundles, every version of them.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -27,6 +28,7 @@ spec:
             {{- include "iki.selectorLabels" (dict "ctx" . "component" "maintenance") | nindent 12 }}
         spec:
           restartPolicy: Never
+          serviceAccountName: {{ include "iki.fullname" . }}-maintenance
           automountServiceAccountToken: false
           enableServiceLinks: false
           {{- with .Values.imagePullSecrets }}

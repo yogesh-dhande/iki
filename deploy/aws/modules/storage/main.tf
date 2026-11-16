@@ -1,6 +1,7 @@
 # The files bucket (ADR 0036, 0097): versioned, encrypted with a key of its own, private,
 # TLS only, its access logged, and every version replicated to the DR region. Iki never
-# overwrites what it stores, so versions are its history, not churn.
+# overwrites what it stores, so versions are its history, not churn. Its lifecycle rule
+# and CORS are Iki's own: `iki-server setup_storage` sets them, beside any others.
 
 data "aws_region" "here" {}
 
@@ -55,6 +56,7 @@ resource "aws_kms_alias" "files" {
 
 resource "aws_s3_bucket" "files" {
   #checkov:skip=CKV2_AWS_62:Iki learns of uploads through its own API, not S3 events.
+  #checkov:skip=CKV2_AWS_61:`iki-server setup_storage` owns the lifecycle rule (abandoned uploads) and CORS, merged with any others; OpenTofu would overwrite them. Nothing else expires here: Iki expires artifacts and bundles itself, and records it.
   bucket = local.files
   tags   = local.tags
 }
@@ -131,20 +133,6 @@ resource "aws_s3_bucket_policy" "files" {
   bucket     = aws_s3_bucket.files.id
   policy     = data.aws_iam_policy_document.tls_only["files"].json
   depends_on = [aws_s3_bucket_public_access_block.files]
-}
-
-# Uploads Iki began but never finished leave parts behind; nothing else expires here.
-# Artifacts and bundles expire through Iki itself (ADR 0068, 0096), which records it.
-resource "aws_s3_bucket_lifecycle_configuration" "files" {
-  bucket = aws_s3_bucket.files.id
-  rule {
-    id     = "abandoned-uploads"
-    status = "Enabled"
-    filter {}
-    abort_incomplete_multipart_upload {
-      days_after_initiation = 7
-    }
-  }
 }
 
 resource "aws_s3_bucket_logging" "files" {

@@ -85,6 +85,7 @@ def test_chart_renders_expected_resources() -> None:
         "NetworkPolicy/iki-web-identity-provider",
         "PodDisruptionBudget/iki-web",
         "Service/iki-web",
+        "ServiceAccount/iki-maintenance",
         "ServiceAccount/iki-tasks",
         "ServiceAccount/iki-web",
     ]
@@ -323,7 +324,13 @@ def test_maintenance_cronjob_runs_hourly() -> None:
     assert cron["spec"]["concurrencyPolicy"] == "Forbid"
     (container,) = cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
     assert container["args"] == ["maintain"]
-    assert not by_kind(manifests({"maintenance": {"enabled": False}}), "CronJob")
+    # Its own service account, so a cloud role for expiring files is its alone.
+    assert cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["serviceAccountName"] == (
+        "iki-maintenance"
+    )
+    off = manifests({"maintenance": {"enabled": False}})
+    assert not by_kind(off, "CronJob")
+    assert "iki-maintenance" not in [d["metadata"]["name"] for d in by_kind(off, "ServiceAccount")]
 
 
 def test_api_rate_limit_is_configurable() -> None:

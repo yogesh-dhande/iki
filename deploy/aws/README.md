@@ -11,12 +11,31 @@ team can read and qualify every resource they make.
 | [`cluster`](modules/cluster)   | EKS with private Bottlerocket nodes: a system pool, and dedicated pools for runs and GPUs                                  |
 | [`database`](modules/database) | RDS PostgreSQL, Multi-AZ, encrypted, TLS only, pgaudit, 35 days of point-in-time recovery, backups copied to the DR region |
 | [`storage`](modules/storage)   | The files bucket: versioned, encrypted, private, TLS only, access logged, every version replicated to the DR region        |
+| [`access`](modules/access)     | An IAM role for each pod that calls AWS, bound by EKS Pod Identity, each allowed only what it uses                         |
+| [`secrets`](modules/secrets)   | Secrets Manager entries for Iki's secrets, encrypted and replicated to the DR region, with no values in OpenTofu's state   |
+| [`vm-tier`](modules/vm-tier)   | The VM tier's machine role and instance profile, their disks' key, and a security group that lets nothing in               |
+| [`fsx`](modules/fsx)           | Optional: FSx for Lustre for shared reference data, encrypted, root squashed, a bucket linked read-only                    |
 
-Roles for Iki's pods, the VM tier, secrets, and a production deployment
-that puts them together come next (roadmap step 48).
+A production deployment that puts them together, with the chart's values,
+comes next (roadmap step 48).
 
-The database and storage modules take two AWS providers: the default one,
-and `aws.dr` for the disaster-recovery region their copies go to.
+The database, storage and secrets modules take two AWS providers: the
+default one, and `aws.dr` for the disaster-recovery region their copies go
+to.
+
+## Secrets
+
+OpenTofu makes the Secrets Manager entries, never their values. Once the
+`secrets` module is applied, generate the values straight into Secrets
+Manager:
+
+```console
+deploy/aws/scripts/put-secrets.sh iki-production <the database module's address>
+```
+
+It never overwrites a secret that has a value, so it's safe to run again.
+External Secrets then copies them into the cluster, with the role the
+`access` module gives it.
 
 ## What they promise
 
@@ -31,6 +50,14 @@ and `aws.dr` for the disaster-recovery region their copies go to.
   copied to the DR region as they're made. Its master password lives in
   Secrets Manager, never in OpenTofu's state.
 - Every version of every file is replicated to the DR region.
+- Each pod that calls AWS has its own role: web, task runners and the
+  maintenance job reach only the files bucket under Iki's prefix (and read
+  registered locations); the provisioner starts, tags and ends only
+  machines, disks and snapshots carrying its deployment's tag (ADR 0074,
+  0076); External Secrets reads only this deployment's secrets. Backend
+  workers and runs get no role.
+- The VM tier's machines can only pull their images, and their security
+  group lets nothing in.
 - Plugins' code runs on its own nodes. Pools other than `system` are
   tainted `iki.ikisci.org/pool=<pool>:NoSchedule`. Give backend workers
   and compute templates the pool's node selector and toleration, which the
@@ -59,3 +86,13 @@ checksums for Linux and macOS.
   keeps it. Where an expiry must reach every copy, delete it there too.
 - **S3 access logs use S3-managed keys.** S3 delivers access logs only to
   buckets encrypted that way; everything else has a key of its own.
+- **The VM tier's machines reach only the VPC, S3 and DNS.** Give them an
+  address for Iki's server inside the VPC (`vmTier.serverUrl`), or list
+  more networks in `extra_https_cidrs`. A public registry's images need its
+  networks there too, through the NAT gateways.
+- **The first spot machine needs EC2's spot service-linked role**, which
+  an account makes once: `aws iam create-service-linked-role
+--aws-service-name spot.amazonaws.com`.
+- **FSx squashes root.** Make `/iki` for runs' user (UID 10001) from a
+  machine listed in `root_squash.except_nids`, then take it off the list.
+  A linked bucket encrypted with a KMS key must let FSx use that key.

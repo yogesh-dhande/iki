@@ -54,16 +54,11 @@ run "buckets_are_named_for_the_deployment_and_the_account" {
 }
 
 run "every_version_is_kept" {
+  # Nothing expires by lifecycle here: setup_storage adds Iki's one rule, for abandoned
+  # uploads, and Iki expires artifacts and bundles itself.
   assert {
     condition     = one(aws_s3_bucket_versioning.files.versioning_configuration).status == "Enabled" && one(aws_s3_bucket_versioning.dr.versioning_configuration).status == "Enabled"
     error_message = "Both buckets should keep versions: a registered file pins one (ADR 0036)."
-  }
-  assert {
-    condition = alltrue([
-      for i in range(length(aws_s3_bucket_lifecycle_configuration.files.rule)) :
-      length(aws_s3_bucket_lifecycle_configuration.files.rule[i].expiration) == 0 && length(aws_s3_bucket_lifecycle_configuration.files.rule[i].noncurrent_version_expiration) == 0
-    ])
-    error_message = "Nothing in the files bucket should expire by lifecycle: Iki expires what it must, and records it."
   }
 }
 

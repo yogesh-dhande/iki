@@ -53,6 +53,9 @@ CHECKOV_VERSION := 3.4.5
 .PHONY: check-infra
 check-infra: ## OpenTofu: fmt, validate and tests (a mocked AWS) for the AWS modules; Checkov's checks
 	tofu fmt -recursive -check -diff deploy/aws
+	@# Secrets' values never enter OpenTofu's state: no module writes one (ADR 0097).
+	@! grep -rnE 'resource "aws_secretsmanager_secret_version"|resource "random_(password|bytes|string)"' deploy/aws \
+	  || (echo "A module writes a secret's value, which would put it in OpenTofu's state." && false)
 	@set -e; for module in $(INFRA_MODULES); do \
 	  echo "== $$module"; \
 	  tofu -chdir=$$module init -input=false -backend=false -lockfile=readonly -no-color >/dev/null; \

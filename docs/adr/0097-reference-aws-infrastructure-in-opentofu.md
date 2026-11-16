@@ -37,14 +37,14 @@ holds one module per concern, each a few hundred lines Iki's tests cover:
 
 | Module     | What it makes                                                                                                                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `network`  | A VPC over three zones: public, private and database subnets, a NAT gateway per zone, flow logs, VPC endpoints                                   |
+| `network`  | A VPC over two to four zones: public, private and database subnets, a NAT gateway per zone, flow logs, VPC endpoints                             |
 | `cluster`  | EKS with private nodes: a system pool, and dedicated pools for runs and GPUs; Kubernetes Secrets encrypted with KMS, control-plane logs, add-ons |
 | `database` | RDS PostgreSQL, Multi-AZ, encrypted, 35 days of point-in-time recovery, copied to the DR region                                                  |
 | `storage`  | The files bucket: versioned, encrypted with KMS, private, TLS only, replicated to the DR region                                                  |
 | `access`   | An IAM role per pod that calls AWS, bound by EKS Pod Identity, each allowed only what it uses                                                    |
-| `vm-tier`  | The VM tier's instance profile and security group (ADR 0074)                                                                                     |
+| `vm-tier`  | The VM tier's instance profile, disk key and security group (ADR 0074)                                                                           |
 | `secrets`  | Secrets Manager entries for Iki's secrets, read into the cluster by External Secrets                                                             |
-| `fsx`      | Optional FSx for Lustre, linked to a bucket, for large reference data such as AlphaFold's                                                        |
+| `fsx`      | Optional FSx for Lustre, root squashed, linked to a bucket, for large reference data such as AlphaFold's                                         |
 
 `deploy/aws/production/` composes them into one deployment: a starting
 point the platform team copies, with the chart's production values beside
@@ -79,15 +79,20 @@ pinned, and its checksums are in the committed lock file.
 service accounts. It needs no OIDC provider and no annotations in the
 chart, and a role's trust policy names only the Pod Identity service.
 Each pod that calls AWS gets its own role: web pods, task runners and the
-maintenance job reach the files bucket and its key; the provisioner may
-start and stop only machines tagged with its deployment (ADR 0074);
+maintenance job reach the files bucket under Iki's prefix and its key,
+each through a role of its own so CloudTrail says which did what; the
+provisioner may start and stop only machines, and make and delete only
+disks and snapshots, tagged with its deployment (ADR 0074, 0076);
 External Secrets reads only this deployment's secrets. Backend workers and
 run pods get no role at all (ADR 0043, 0061).
 
 **Secrets stay out of OpenTofu's state.** The `secrets` module creates the
 Secrets Manager entries, encrypted with their own key, but not their
-values. A script generates them (Django's secret key, the encryption keys,
-the bundle signing key) and writes them straight to Secrets Manager. RDS
+values. A script (`deploy/aws/scripts/put-secrets.sh`) generates them
+(Django's secret key, the encryption keys, the bundle signing key, the
+database roles' passwords) and writes them straight to Secrets Manager;
+`make check-infra` fails if any module writes a secret's value. Secrets
+are replicated to the DR region with a key there. RDS
 keeps its master password in Secrets Manager itself and rotates it. The
 state is still encrypted, with OpenTofu's state encryption and a KMS key,
 and stored in a versioned S3 bucket with S3 locking.
@@ -96,9 +101,9 @@ and stored in a versioned S3 bucket with S3 locking.
 the DR region, so the database can be restored there to any point in the
 last 7 days, minutes behind. The files bucket replicates every version
 there. Deleting a version doesn't replicate, by S3's design, so an
-artifact Iki expires stays in the copy unless it's deleted there too. Restoring takes a new cluster and a Helm install from the same
-code. The disaster-recovery runbook and its automated restore test come in
-step 49.
+artifact Iki expires stays in the copy unless it's deleted there too.
+Restoring takes a new cluster and a Helm install from the same code. The
+disaster-recovery runbook and its automated restore test come in step 49.
 
 **Tested without an AWS account.** `tofu test` runs each module against a
 mocked provider and asserts the properties above: a public subnet never

@@ -42,3 +42,8 @@ output "nat_public_ips" {
   description = "The addresses traffic from the VPC leaves by, for allowlists elsewhere."
   value       = aws_eip.nat[*].public_ip
 }
+
+output "s3_prefix_list_id" {
+  description = "The S3 gateway endpoint's prefix list, for security groups that let pods or machines reach S3."
+  value       = aws_vpc_endpoint.s3.prefix_list_id
+}
