@@ -43,3 +43,9 @@ server/src/iki_server/expressions/iki_wasm.wasm
 !.env.example
 *.pem
 *.key
+
+# OpenTofu: providers it downloads, and state, which never belongs in git.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

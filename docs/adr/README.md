@@ -126,3 +126,4 @@ supersedes the old one, and update the old one's status.
 | [0094](0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)                   | A plugin's upgrade is tested from an earlier commit                                                 | Accepted |
 | [0095](0095-a-plugin-says-which-iki-it-works-with-and-versions-its-changes.md)       | A plugin says which Iki it works with, and versions its changes                                     | Accepted |
 | [0096](0096-bundles-carry-entities-between-deployments-with-their-history.md)        | Bundles carry entities between deployments, with their history                                      | Accepted |
+| [0097](0097-reference-aws-infrastructure-in-opentofu.md)                             | Reference AWS infrastructure in OpenTofu                                                            | Accepted |

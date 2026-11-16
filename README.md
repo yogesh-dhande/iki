@@ -27,7 +27,7 @@ server.
 | `codegen/`         | Compiles plugin manifests into Django apps (`iki_codegen`)           |
 | `web/`             | React host app and the `@ikisci/*` TypeScript packages               |
 | `worker/`          | Rust workspace: the `iki-worker` agent and `iki-protocol` wire types |
-| `deploy/`          | Helm chart, dev cluster, and a deployment's config repo template     |
+| `deploy/`          | Helm chart, dev cluster, AWS modules, and a deployment's config repo |
 | `plugins/`         | Iki's first-party plugins, such as `dna`                             |
 | `plugin-template/` | Where a lab's own plugin starts: example types, migrations, CI       |
 | `docs/adr/`        | Architecture Decision Records                                        |
@@ -41,8 +41,9 @@ Requirements:
   (`corepack enable`), which provides the pinned pnpm
 - [rustup](https://rustup.rs/), which installs the Rust toolchain pinned in
   `worker/rust-toolchain.toml`
-- Helm, plus the supply-chain scanners used by `make check`:
-  `brew install helm osv-scanner cargo-deny grype syft`
+- Helm, OpenTofu (for the AWS modules in `deploy/aws`), and the supply-chain
+  scanners used by `make check`:
+  `brew install helm opentofu osv-scanner cargo-deny grype syft`
 
 ```console
 make setup   # install dependencies from the lockfiles

@@ -18,7 +18,7 @@ setup: ## Install all toolchains' dependencies from the lockfiles
 
 .PHONY: check
 # check-web builds the web app, which the browser tests in check-python load.
-check: check-workflows check-chart check-deps check-web check-python check-rust ## Run every CI check locally (except dev-ci)
+check: check-workflows check-chart check-infra check-deps check-web check-python check-rust ## Run every CI check locally (except dev-ci)
 
 .PHONY: check-workflows
 check-workflows: ## Lint GitHub workflows (actionlint, zizmor)
@@ -45,6 +45,21 @@ check-chart: ## Helm lint (strict) with the minimum required values
 	  --set encryptionKeys.existingSecret=e --set database.existingSecret=d \
 	  --set database.migrator.existingSecret=m
 	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml
+
+#: The AWS modules (ADR 0097): each is checked on its own, as the root a team copies it into.
+INFRA_MODULES := $(wildcard deploy/aws/modules/*)
+CHECKOV_VERSION := 3.4.5
+
+.PHONY: check-infra
+check-infra: ## OpenTofu: fmt, validate and tests (a mocked AWS) for the AWS modules; Checkov's checks
+	tofu fmt -recursive -check -diff deploy/aws
+	@set -e; for module in $(INFRA_MODULES); do \
+	  echo "== $$module"; \
+	  tofu -chdir=$$module init -input=false -backend=false -lockfile=readonly -no-color >/dev/null; \
+	  tofu -chdir=$$module validate -no-color; \
+	  tofu -chdir=$$module test -no-color; \
+	done
+	uvx checkov==$(CHECKOV_VERSION) --directory deploy/aws --framework terraform --quiet --compact --skip-path tests
 
 #: Tests run in parallel: workers take a file's tests in runs, and idle ones take over the rest.
 PYTEST_PARALLEL ?= -n auto --dist worksteal

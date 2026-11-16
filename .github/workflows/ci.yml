@@ -379,6 +379,31 @@ jobs:
       - name: Scan all lockfiles
         run: make check-deps
 
+  infrastructure:
+    name: AWS modules (OpenTofu)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.13.9
+          tofu_wrapper: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Format, validate, test against a mocked AWS, and Checkov
+        run: |
+          # Each module downloads the AWS provider once for the whole job.
+          export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/tofu-plugins"
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          make check-infra
+
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
@@ -470,6 +495,7 @@ jobs:
         worker-image,
         plugin-images,
         dependencies,
+        infrastructure,
         dependency-review,
         dev-cluster,
       ]
