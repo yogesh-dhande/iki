@@ -221,6 +221,8 @@ class _Writer:
     people: dict[str, User] = field(default_factory=dict)
     agents: dict[str, Agent] = field(default_factory=dict)
     counts: Counter[str] = field(default_factory=Counter)
+    #: The highest number kept from the source, by HRID sequence.
+    kept: dict[str, int] = field(default_factory=dict)
 
     def write(self) -> dict[str, int]:
         self._people()
@@ -243,6 +245,8 @@ class _Writer:
         for run in self.bundle.lines("runs.ndjson"):
             self._run(run)
         self._rename_in_apps()
+        for name, number in self.kept.items():
+            _advance(name, number)
         return {
             "created": self.counts["created"],
             "updated": self.counts["updated"],
@@ -353,7 +357,7 @@ class _Writer:
         self._set_values(form, instance, values)
         instance.save()
         if row.hrid_here:
-            _advance(form.entity_type.hrid_prefix, instance.hrid)
+            self._keep(form.entity_type.hrid_prefix, instance.hrid)
         else:
             row.hrid_here = instance.hrid
             row.save(update_fields=["hrid_here"])
@@ -514,7 +518,7 @@ class _Writer:
         if ActionRun.objects.filter(hrid=hrid).exists():
             hrid = run_services._next_hrid()
         else:
-            _advance(HRID_PREFIX, hrid)
+            self._keep(HRID_PREFIX, hrid)
         ids = [i["entity"] for i in line["inputs"]] + [r["parent"] for r in line["lineage"]]
         here = {str(i) for i in Entity.objects.filter(pk__in=ids).values_list("pk", flat=True)}
         approval = line["approval"]
@@ -638,6 +642,14 @@ class _Writer:
         )
         self.counts["runs"] += 1
 
+    def _keep(self, prefix: str | None, hrid: str) -> None:
+        """Notes that an HRID kept from the source took its number here."""
+        head, _, number = hrid.rpartition("-")
+        if prefix is None or head != prefix or not number.isdigit():
+            return
+        name = hrids.sequence_name(prefix)
+        self.kept[name] = max(self.kept.get(name, 0), int(number))
+
     def _requester(self, line: dict[str, Any]) -> User:
         user = self._user(line["requested_by"])
         if user is None:
@@ -675,16 +687,8 @@ def _placeholder(person: ImportPerson, source: str) -> User:
     return user
 
 
-def _advance(prefix: str | None, hrid: str) -> None:
-    """Makes sure the type's HRID sequence never hands out this number: an entity
-    imported with its own HRID took it."""
-    head, _, number = hrid.rpartition("-")
-    if prefix is None or head != prefix or not number.isdigit():
-        return
-    name = hrids.sequence_name(prefix)
+def _advance(sequence: str, number: int) -> None:
+    """Moves the HRID sequence past ``number``, which an HRID kept from the source took, so
+    it never hands that number out. Only forward: see migration 0004."""
     with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT setval(%s::regclass, %s) WHERE %s > COALESCE((SELECT last_value FROM "
-            "pg_sequences WHERE schemaname = current_schema() AND sequencename = %s), 0)",
-            [name, int(number), int(number), name],
-        )
+        cursor.execute("SELECT iki_hrid_advance(%s, %s)", [sequence, number])

@@ -61,6 +61,10 @@ Admins included, can't see it unless they also hold the Auditor role.
   - can't truncate;
   - can only read Django's migration history;
   - can only insert into append-only tables.
+  - can draw from sequences but not set them. One function the migrator
+    owns, `iki_hrid_advance`, moves an HRID sequence forward for it, past
+    an HRID an import kept (ADR 0096). It refuses any other sequence and
+    never moves one back.
 - **Readiness:** a web pod whose role has more power than that never turns
   ready, and the log names the problem. That covers a superuser, a role that
   can create roles or databases, a role with CREATE on the schema, the table

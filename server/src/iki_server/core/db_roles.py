@@ -68,6 +68,8 @@ def grant(app_role: str) -> list[str]:
             "REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM {}"
         ).format(role),
         sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(role),
+        # Moves an HRID sequence forward past one an import kept, and nothing else.
+        sql.SQL("GRANT EXECUTE ON FUNCTION iki_hrid_advance(text, bigint) TO {}").format(role),
     ]
     with connection.cursor() as cursor:
         statements += [

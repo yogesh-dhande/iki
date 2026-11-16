@@ -693,6 +693,7 @@ def test_importing_a_bundle_and_reading_its_plan(
 
     from iki_server.bundles import export
     from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
     from iki_server.org.models import OrgRole, OrgRoleAssignment
 
     admin = world.users["admin"]
@@ -702,11 +703,15 @@ def test_importing_a_bundle_and_reading_its_plan(
     class UndoError(Exception):
         pass
 
-    # A bundle of a protein this deployment doesn't have: made, exported, then undone.
+    # A bundle of a protein this deployment doesn't have: made, exported, then undone. Its
+    # HRID is ahead of this deployment's, so keeping it moves the sequence on, which the
+    # app's role can only do through iki_hrid_advance.
     with contextlib.suppress(UndoError), transaction.atomic():
         made: Any = entities.create(
             admin, "protein.Protein", world.project, {"sequence": "MKWWYYHH", "name": "ABL1"}
         ).entity
+        Entity.objects.filter(pk=made.pk).update(hrid="PRT-000900")
+        made.refresh_from_db()
         export.write(
             world.project, [made], out, by=admin, reason="For production", selection="ABL1"
         )
@@ -734,6 +739,10 @@ def test_importing_a_bundle_and_reading_its_plan(
     page.get_by_role("link", name="the import").wait_for()
     page.get_by_text(re.compile("^test’s Kinase Atlas, where it’s PRT-")).wait_for()
     assert_clean(page)
+    after: Any = entities.create(
+        admin, "protein.Protein", world.project, {"sequence": "MKAFTER"}
+    ).entity
+    assert int(after.hrid.removeprefix("PRT-")) > 900  # sequences outlive each test
 
 
 def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> None:

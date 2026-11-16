@@ -11,6 +11,7 @@ import pytest
 import requests
 from api_client import Api, problem
 from django.db import transaction
+from django.db.utils import ProgrammingError
 from org_world import World, build_world
 
 from iki_server.accounts.models import User
@@ -646,3 +647,35 @@ def test_an_apps_viewer_names_a_renumbered_entity_by_its_hrid_here(
     refs = api.get(f"/entities/{referrer.hrid}").json()["refs"]
     assert refs[str(shown.pk)]["hrid"] == shown.hrid
     assert refs[str(shown.pk)]["formerly"] == [source_hrid]
+
+
+def test_hrid_sequences_move_past_kept_hrids_as_the_app_role() -> None:
+    """The app's role has only USAGE on sequences (ADR 0025): moving one past an HRID an
+    import kept works with that, and never moves it back."""
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.db import connection
+
+    from iki_server.bundles import applying
+    from iki_server.runs.models import HRID_SEQUENCE
+
+    role = "iki_test_bundle_app"
+    with connection.cursor() as cursor:
+        cursor.execute(f"CREATE ROLE {role} NOLOGIN")
+    call_command("grant_app_privileges", "--role", role, stdout=StringIO())
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute(f"SET LOCAL ROLE {role}")
+        cursor.execute("SELECT nextval(%s::regclass)", [HRID_SEQUENCE])
+        start = cursor.fetchone()[0]
+        # However far off, at once: a bundle can't make it draw numbers one by one.
+        applying._advance(HRID_SEQUENCE, start + 10**12)
+        applying._advance(HRID_SEQUENCE, start + 10)  # behind it already: only draws one
+        cursor.execute("SELECT nextval(%s::regclass)", [HRID_SEQUENCE])
+        assert cursor.fetchone()[0] == start + 10**12 + 2
+        # It moves HRID sequences and nothing else, and the app can't setval itself.
+        with pytest.raises(ProgrammingError, match="not an HRID sequence"), transaction.atomic():
+            cursor.execute("SELECT iki_hrid_advance(%s, %s)", ["iki_audit_event_id_seq", 10])
+        with pytest.raises(ProgrammingError, match="permission denied"), transaction.atomic():
+            cursor.execute("SELECT setval(%s::regclass, 10)", [HRID_SEQUENCE])
+        cursor.execute("RESET ROLE")
