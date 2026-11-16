@@ -77,8 +77,10 @@ def test_invalid_keys_are_rejected(keys: list[str]) -> None:
 
 
 @pytest.mark.django_db
-def test_rotate_encryption_command_re_encrypts_stored_secrets(settings: object) -> None:
+def test_rotate_encryption_re_encrypts_every_stored_secret(settings: object) -> None:
     from iki_server.accounts.models import IdentityProvider
+    from iki_server.audit.models import AuditEvent
+    from iki_server.webhooks.models import Webhook
 
     provider = IdentityProvider(
         display_name="SSO",
@@ -88,14 +90,50 @@ def test_rotate_encryption_command_re_encrypts_stored_secrets(settings: object) 
     )
     provider.client_secret = "s3cret"
     provider.save()
+    # A webhook mid-rotation holds two secrets; one that isn't, only its own.
+    rotating = Webhook.objects.create(
+        url="https://lims.example.com/hook",
+        events=["run.finished"],
+        secret=crypto.encrypt("whsec_new"),
+        previous_secret=crypto.encrypt("whsec_old"),
+    )
+    plain = Webhook.objects.create(
+        url="https://eln.example.com/hook",
+        events=["run.finished"],
+        secret=crypto.encrypt("whsec_only"),
+    )
     new_key = Fernet.generate_key().decode()
     settings.IKI_ENCRYPTION_KEYS = [new_key, *settings.IKI_ENCRYPTION_KEYS]  # type: ignore[attr-defined]
     out = StringIO()
     call_command("rotate_encryption", stdout=out)
-    assert "Re-encrypted 1 secret" in out.getvalue()
+    assert "Re-encrypted 4 secret(s)" in out.getvalue()
+    # With the old key retired, every one still reads.
     settings.IKI_ENCRYPTION_KEYS = [new_key]  # type: ignore[attr-defined]
     provider.refresh_from_db()
     assert provider.client_secret == "s3cret"
+    rotating.refresh_from_db()
+    plain.refresh_from_db()
+    assert crypto.decrypt(rotating.secret) == "whsec_new"
+    assert crypto.decrypt(rotating.previous_secret) == "whsec_old"
+    assert crypto.decrypt(plain.secret) == "whsec_only"
+    assert plain.previous_secret == ""
+    assert AuditEvent.objects.get(action="encryption.rotated").data == {"secrets": 4}
+
+
+def test_every_encrypted_field_is_one_rotation_re_encrypts() -> None:
+    """A field named or described as encrypted that ENCRYPTED leaves out couldn't be read
+    once its key is retired."""
+    from django.apps import apps
+
+    found = {
+        (model._meta.label, field.name)
+        for model in apps.get_models()
+        if model._meta.app_label.startswith("iki_")
+        for field in model._meta.get_fields()
+        if field.name.endswith("_encrypted")
+        or str(getattr(field, "help_text", "")).startswith("Encrypted")
+    }
+    assert found == set(crypto.ENCRYPTED)
 
 
 @pytest.mark.django_db

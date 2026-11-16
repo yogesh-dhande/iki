@@ -10,12 +10,19 @@ encrypts; every key decrypts. To rotate: put a new key first, deploy, run
 ``iki-server rotate_encryption``, then drop the old key.
 """
 
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from django.conf import settings
 
 
 class DecryptionError(Exception):
     """A value couldn't be decrypted with any configured key."""
+
+
+if TYPE_CHECKING:
+    from django.db.models import Model
 
 
 def _fernet() -> MultiFernet:
@@ -33,6 +40,24 @@ def validate_keys(keys: list[str]) -> None:
             raise ValueError(
                 f"key {index + 1} is not a Fernet key (32 bytes, URL-safe base64)"
             ) from None
+
+
+#: Every stored value these keys encrypt, as (model, field). Rotating the keys re-encrypts
+#: each, and checking a restore decrypts each, so a value left off can't be read once its
+#: key is retired. A test fails if a model encrypts a field that isn't here.
+ENCRYPTED: tuple[tuple[str, str], ...] = (
+    ("iki_accounts.IdentityProvider", "client_secret_encrypted"),
+    ("iki_webhooks.Webhook", "secret"),
+    ("iki_webhooks.Webhook", "previous_secret"),
+)
+
+
+def encrypted_fields() -> Iterator[tuple[type[Model], str]]:
+    """Each model and field in :data:`ENCRYPTED`."""
+    for label, field in ENCRYPTED:
+        from django.apps import apps
+
+        yield apps.get_model(label), field
 
 
 def encrypt(plaintext: str) -> str:
