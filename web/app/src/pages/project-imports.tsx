@@ -220,7 +220,7 @@ export function Imports({ project }: { project: Project }) {
   }
 
   return (
-    <section className="card">
+    <section className={imports.data?.length ? "card card-wide" : "card"}>
       <h2 className="section-title">Import</h2>
       <p>
         Bring in a bundle exported from another Iki deployment that this one trusts, such as from

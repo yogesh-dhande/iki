@@ -165,7 +165,8 @@ export function Exports({ project }: { project: Project }) {
   }
 
   return (
-    <section className="card">
+    // Its list is a table: it gets the whole row once there's one.
+    <section className={exports.data?.length ? "card card-wide" : "card"}>
       <h2 className="section-title">Export</h2>
       <p>
         A bundle carries entities to another Iki deployment, such as from staging to production,

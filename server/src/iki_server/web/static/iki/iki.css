@@ -274,7 +274,8 @@ main:focus {
   margin-top: 1rem;
 }
 
-.stack > .card + .card {
+.stack > .card + .card,
+.columns > .card + .card {
   margin-top: 0;
 }
 
@@ -1182,6 +1183,22 @@ input:focus-visible {
 
 .form-card {
   max-width: 34rem;
+}
+
+/* A card in .columns whose table needs the room takes the whole row; its form stays narrow. */
+.columns > .card-wide {
+  grid-column: 1 / -1;
+}
+
+.card-wide > form,
+.card-wide > .field,
+.card-wide > p {
+  max-width: 44rem;
+}
+
+.card > form + .table,
+.card > .field + .table {
+  margin-top: 1.5rem;
 }
 
 textarea,
