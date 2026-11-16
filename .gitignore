@@ -54,3 +54,6 @@ server/src/iki_server/expressions/iki_wasm.wasm
 deploy/aws/production/terraform.tfvars
 deploy/aws/production/backend.hcl
 deploy/aws/production/values-aws.yaml
+
+# Claude Code's git worktrees: other checkouts of this repository.
+.claude/worktrees/

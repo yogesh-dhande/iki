@@ -13,6 +13,8 @@ export default tseslint.config(
       "**/node_modules/**",
       "worker/target/**",
       ".venv/**",
+      // Claude Code's git worktrees: other checkouts, each checked on its own.
+      ".claude/**",
       // Plugins the tests built.
       ".pytest_cache/**",
       "**/.static/**",

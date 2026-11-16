@@ -4,6 +4,8 @@ uv.lock
 **/coverage/
 worker/target/
 .venv/
+# Claude Code's git worktrees: other checkouts, each checked on its own.
+.claude/worktrees/
 # Helm templates are Go templates, not YAML.
 deploy/helm/*/templates/
 # Django templates: Prettier does not understand template tags.
