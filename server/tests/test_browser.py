@@ -275,6 +275,7 @@ PAGES = [
     ("admin", "/projects/kinase-atlas/webhooks/"),
     ("org_admin", "/settings/webhooks/"),
     ("compute_admin", "/compute/"),
+    ("compute_admin", "/compute/workers/"),
 ]
 
 

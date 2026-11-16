@@ -21,6 +21,9 @@ export function ComputeTabs() {
       <Link to="/compute/" activeOptions={{ exact: true }} activeProps={{ "aria-current": "page" }}>
         Overview
       </Link>
+      <Link to="/compute/workers/" activeProps={{ "aria-current": "page" }}>
+        Workers
+      </Link>
       <Link to="/compute/volumes/" activeProps={{ "aria-current": "page" }}>
         Volumes
       </Link>
@@ -64,7 +67,9 @@ function Overview({ overview }: { overview: ComputeOverview }) {
 function Queues({ queues }: { queues: ComputeOverview["queues"] }) {
   return (
     <section className="card" aria-labelledby="queues">
-      <h2 id="queues">Runs</h2>
+      <h2 className="section-title" id="queues">
+        Runs
+      </h2>
       {queues.length === 0 ? (
         <p className="muted">Nothing is waiting or running.</p>
       ) : (
@@ -104,7 +109,9 @@ function Queues({ queues }: { queues: ComputeOverview["queues"] }) {
 function Workers({ workers }: { workers: ComputeOverview["workers"] }) {
   return (
     <section className="card" aria-labelledby="workers">
-      <h2 id="workers">Workers</h2>
+      <h2 className="section-title" id="workers">
+        Workers
+      </h2>
       <p className="muted">
         Busy ones are running a job. Offline ones haven’t been heard from for two minutes.
       </p>
@@ -140,7 +147,9 @@ function Workers({ workers }: { workers: ComputeOverview["workers"] }) {
 function Machines({ machines }: { machines: ComputeOverview["machines"] }) {
   return (
     <section className="card" aria-labelledby="machines">
-      <h2 id="machines">Machines Iki started</h2>
+      <h2 className="section-title" id="machines">
+        Machines Iki started
+      </h2>
       {machines.length === 0 ? (
         <p className="muted">
           None now. Iki starts pods and virtual machines on its compute templates as runs need them.
