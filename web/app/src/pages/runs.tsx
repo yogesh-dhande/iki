@@ -972,16 +972,25 @@ function importNote(found: NonNullable<Attempt["bulk_import"]>) {
   return `Gave its creates in a file of ${formatSize(found.size)}, ${lines}.`;
 }
 
+/** Which worker an imported attempt ran on, on the deployment it came from. */
+function workedThere(imported: Run["imported"], attempt: number): string | null {
+  const worker = imported?.workers[String(attempt)];
+  return imported && worker ? `${worker} on ${imported.deployment}` : null;
+}
+
 function AttemptRow({
   runRef,
   attempt,
   size,
   latest,
   runError,
+  there,
 }: {
   runRef: string;
   attempt: Attempt;
   size: number;
+  /** Where an imported attempt ran, on the deployment it came from. */
+  there: string | null;
   latest: boolean;
   /** The run shows this attempt's error already. */
   runError: boolean;
@@ -995,10 +1004,16 @@ function AttemptRow({
           Attempt {attempt.attempt} <StatusBadge status={attempt.state} />
         </span>
         <span className="row-meta">
-          {attempt.worker ? `On ${attempt.worker}` : "Not picked up yet"}
+          {attempt.worker
+            ? `On ${attempt.worker}`
+            : there
+              ? `On ${there}`
+              : attempt.started_at
+                ? null
+                : "Not picked up yet"}
           {attempt.started_at ? (
             <>
-              {" · started "}
+              {attempt.worker || there ? " · started " : "Started "}
               <RelativeTime value={attempt.started_at} />
             </>
           ) : null}
@@ -1275,6 +1290,7 @@ export function RunPage() {
                 size={Math.max(attempt.log_size, sizes[attempt.attempt] ?? 0)}
                 latest={index === items.length - 1}
                 runError={run.error !== null}
+                there={workedThere(run.imported, attempt.attempt)}
               />
             ))}
           </ul>

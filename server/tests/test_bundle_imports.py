@@ -163,7 +163,7 @@ def test_a_taken_hrid_alone_is_renumbered(world: World, tmp_path: Path) -> None:
     made = upload(Api(world.browser("admin")), world.project, path)
     (row,) = entities_of(Api(world.browser("admin")), made)
     assert row["action"] == "new" and row["hrid_here"] == ""
-    assert row["why"] == f"{line['hrid']} is another entity's here, so it gets a new HRID."
+    assert row["why"] == f"{line['hrid']} is another entity's HRID here."
     assert made["plan"]["counts"]["renumbered"] == 1 and made["plan"]["applicable"] is True
 
 

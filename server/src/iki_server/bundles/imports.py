@@ -506,7 +506,7 @@ class _Planner:
             row.action, row.adds = EntityPlan.NEW, len(revisions)
             if line["hrid"] in taken:
                 row.hrid_here = ""
-                row.why = f"{line['hrid']} is another entity's here, so it gets a new HRID."
+                row.why = f"{line['hrid']} is another entity's HRID here."
                 self.counts.renumbered += 1
         entity_type = registry.types().get(line["type"])
         if row.action in (EntityPlan.NEW, EntityPlan.UPDATE) and entity_type is not None:

@@ -451,11 +451,15 @@ function Source({ made }: { made: Import }) {
 
 function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
   const c = plan.counts;
+  // Once applied, the plan is what it did: the same counts, said in the past.
+  const done = made.state === "applied";
+  const get = (n: number) =>
+    done ? `${n.toLocaleString()} of them got` : plural(n, "of them gets", "of them get");
   return (
     <>
       <section className="card">
-        <h3 className="section-title">The plan</h3>
-        {plan.problems.length ? (
+        <h3 className="section-title">{done ? "What it imported" : "The plan"}</h3>
+        {done ? null : plan.problems.length ? (
           <div className="alert alert-warning" role="status">
             <p>It can’t be imported as it is:</p>
             <ul>
@@ -472,13 +476,21 @@ function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
         <ul className="plain-list">
           <li>
             {plural(c.new, "new entity", "new entities")}
-            {c.renumbered
-              ? `, ${plural(c.renumbered, "of them gets", "of them get")} a new HRID`
-              : ""}
+            {c.renumbered ? `, ${get(c.renumbered)} a new HRID` : ""}
           </li>
-          <li>{plural(c.update, "entity gets", "entities get")} newer revisions</li>
-          <li>{plural(c.skip, "entity is", "entities are")} here already</li>
-          <li>{plural(c.conflict, "conflict", "conflicts")}</li>
+          <li>
+            {done
+              ? plural(c.update, "entity got", "entities got")
+              : plural(c.update, "entity gets", "entities get")}{" "}
+            newer revisions
+          </li>
+          <li>
+            {done
+              ? plural(c.skip, "entity was", "entities were")
+              : plural(c.skip, "entity is", "entities are")}{" "}
+            here already
+          </li>
+          {done ? null : <li>{plural(c.conflict, "conflict", "conflicts")}</li>}
           <li>
             {plural(c.revisions, "revision", "revisions")} added, with{" "}
             {plural(c.files, "file", "files")}
@@ -486,16 +498,18 @@ function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
           {c.runs || c.runs_here ? (
             <li>
               {plural(c.runs, "run", "runs")} that made or changed them, with their logs
-              {c.runs_renumbered
-                ? `, ${plural(c.runs_renumbered, "of them gets", "of them get")} a new HRID`
+              {c.runs_renumbered ? `, ${get(c.runs_renumbered)} a new HRID` : ""}
+              {c.runs_here
+                ? `; ${done ? plural(c.runs_here, "was", "were") : plural(c.runs_here, "is", "are")} here already`
                 : ""}
-              {c.runs_here ? `; ${plural(c.runs_here, "is", "are")} here already` : ""}
             </li>
           ) : null}
           <li>
             {plural(c.people, "person", "people")} named
             {c.placeholders
-              ? `: ${plural(c.placeholders, "is", "are")} nobody here, and become${c.placeholders === 1 ? "s a placeholder" : " placeholders"} who can’t sign in`
+              ? done
+                ? `: ${plural(c.placeholders, "was", "were")} nobody here, and became${c.placeholders === 1 ? " a placeholder" : " placeholders"} who can’t sign in`
+                : `: ${plural(c.placeholders, "is", "are")} nobody here, and become${c.placeholders === 1 ? "s a placeholder" : " placeholders"} who can’t sign in`
               : ", each matched by email to someone here"}
           </li>
         </ul>
@@ -535,7 +549,7 @@ function Entities({ made }: { made: Import }) {
             <tr>
               <th scope="col">Entity</th>
               <th scope="col">Here as</th>
-              <th scope="col">What happens</th>
+              <th scope="col">{made.state === "applied" ? "What happened" : "What happens"}</th>
             </tr>
           </thead>
           <tbody>

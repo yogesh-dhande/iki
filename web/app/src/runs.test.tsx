@@ -226,7 +226,8 @@ describe("a run's page", () => {
             project_slug: KINASE.slug,
           },
         }),
-      () => [],
+      // Its attempt ran on a worker there: nothing here picked it up.
+      () => [attempt({ worker: null, state: "succeeded", finished_at: "2026-03-14T09:01:00Z" })],
     );
     await renderApp("/runs/RUN-000001/");
     const details = screen.getByRole("region", { name: "Details" });
@@ -245,6 +246,9 @@ describe("a run's page", () => {
     expect(inputs).toHaveTextContent(
       "An entity on staging that didn’t come with it (00000000-0000-7000-8000-0000000000e9, revision 2)",
     );
+    const attempts = screen.getByRole("region", { name: "Attempts" });
+    expect(await within(attempts).findByText(/On pod-7 on staging · started/)).toBeVisible();
+    expect(within(attempts).queryByText(/Not picked up yet/)).not.toBeInTheDocument();
   });
 
   it("says what a run may reach, and what each attempt reached or was refused", async () => {

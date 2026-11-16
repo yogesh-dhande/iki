@@ -699,7 +699,7 @@ describe("an import", () => {
             action: "new" as const,
             revisions: 1,
             adds: 1,
-            why: "PRT-000012 is another entity’s here, so it gets a new HRID.",
+            why: "PRT-000012 is another entity’s HRID here.",
           },
           {
             id: "00000000-0000-7000-8000-0000000000a2",
@@ -840,6 +840,15 @@ describe("an import", () => {
     expect(within(done).getByText(new RegExp(ME.name))).toBeVisible();
     expect(screen.queryByRole("button", { name: "Discard import" })).toBeNull();
     expect(await within(card("People")).findByText("Their placeholder")).toBeVisible();
+    // What was the plan now says what it did.
+    expect(screen.queryByRole("heading", { name: "The plan" })).toBeNull();
+    const imported = card("What it imported");
+    expect(within(imported).getByText("2 new entities, 1 of them got a new HRID")).toBeVisible();
+    expect(within(imported).queryByText(/can be imported as planned/)).toBeNull();
+    expect(within(imported).queryByText(/conflicts?$/)).toBeNull();
+    expect(
+      await within(card("Entities")).findByRole("columnheader", { name: "What happened" }),
+    ).toBeVisible();
   });
 
   it("says why a bundle was refused", async () => {

@@ -732,7 +732,7 @@ def test_importing_a_bundle_and_reading_its_plan(
     dialog.get_by_text("1 new entity and 0 entities with newer revisions").wait_for()
     assert_clean(page)
     dialog.get_by_role("button", name="Import", exact=True).click()
-    page.get_by_role("heading", name="Imported").wait_for(timeout=60_000)
+    page.get_by_role("heading", name="Imported", exact=True).wait_for(timeout=60_000)
     page.get_by_text("Moving the kinase work").wait_for()
     assert_clean(page)
     page.get_by_role("link", name=re.compile(r"^PRT-\d+$")).click()
