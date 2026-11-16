@@ -299,11 +299,12 @@ async def _prepare_workflow(workflow_id: str, user: User, item: dict[str, Any]) 
 
 
 def _readable_setup(user: User, ref: str) -> str:
-    """The setup build's ID, if `user` manages compute (ADR 0075)."""
+    """The setup build's ID, if `user` manages compute (ADR 0075). Refused as reading it
+    is (GET /compute/setups/{ref}): setups aren't secret, only Compute admins' to follow."""
+    from iki_server.api.common import require
     from iki_server.runs.models import SetupBuild
 
-    if not permissions.can(user, permissions.Action.COMPUTE_MANAGE):
-        raise Problem(404, "No such setup build.")
+    require(user, permissions.Action.COMPUTE_MANAGE)
     try:
         found = SetupBuild.objects.filter(pk=UUID(ref)).values_list("pk", flat=True).first()
     except ValueError:

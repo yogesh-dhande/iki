@@ -59,19 +59,25 @@ class World:
         return browser
 
 
-def build_world() -> World:
+def build_world(prefix: str = "") -> World:
+    """The world. A ``prefix`` builds another beside it, with people, teams and projects
+    of its own that nobody in the first can reach: for requests that mix the two."""
     Installation.objects.update_or_create(
         pk=1, defaults={"organization_name": "Example Bio", "setup_completed_at": timezone.now()}
     )
     users = {
-        name: User.objects.create_user(f"{name}@example.com", name.replace("_", " ").title())
+        name: User.objects.create_user(
+            f"{prefix}{name}@example.com", prefix + name.replace("_", " ").title()
+        )
         for name in PRINCIPALS
         if name != "anonymous"
     }
-    team = Team.objects.create(name="Structural Biology")
-    other_team = Team.objects.create(name="Chemistry")
-    project = Project.objects.create(team=team, name="Kinase Atlas")
-    archived = Project.objects.create(team=team, name="Old Screens", archived_at=timezone.now())
+    team = Team.objects.create(name=f"{prefix}Structural Biology")
+    other_team = Team.objects.create(name=f"{prefix}Chemistry")
+    project = Project.objects.create(team=team, name=f"{prefix}Kinase Atlas")
+    archived = Project.objects.create(
+        team=team, name=f"{prefix}Old Screens", archived_at=timezone.now()
+    )
 
     TeamMembership.objects.create(team=team, user=users["team_member"])
     for name in ("via_team", "mixed"):

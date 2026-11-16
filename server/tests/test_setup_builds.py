@@ -19,10 +19,11 @@ from org_world import World, build_world
 from test_api_entities import api_as
 from test_container_tier import FakeCluster, register
 from test_runs import TEMPLATE, protein
-from test_workers import WorkerClient
+from test_workers import WorkerClient, worker
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
+from iki_server.core.ids import uuid7
 from iki_server.entities import registry
 from iki_server.org.models import OrgRole, OrgRoleAssignment
 from iki_server.runs import catalog, egress, provisioner, setups
@@ -360,6 +361,39 @@ def test_a_retired_version_is_given_to_no_new_machine_and_deleted_once_unused(
 
 
 # --- When it doesn't work ------------------------------------------------------------------------
+
+
+def test_only_a_setups_own_machine_reports_on_it(world: World) -> None:
+    """Authorization fuzzing for setups' routes (test_worker_idor does jobs'): another
+    worker, given the setup's lease token as if it leaked, is answered as for a setup
+    that doesn't exist, and the setup is left as it was."""
+    build = ask(world)
+    approve(world, build)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = setup_pod(cluster)
+    machine = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    lease = {"lease_token": machine.lease().json()["job"]["lease_token"]}
+    other = worker(world, name="pod-elsewhere")
+    before = SetupBuild.objects.filter(pk=build["id"]).values().get()
+    made_up = str(uuid7())
+    for route, body in (
+        ("heartbeat", {}),
+        ("progress", {"fraction": 0.5}),
+        ("logs", {"offset": 0, "text": "x"}),
+        ("finish", {"outcome": "succeeded"}),
+    ):
+        tried = other.post(f"/setups/{build['id']}/{route}", {**lease, **body})
+        nothing = other.post(f"/setups/{made_up}/{route}", {**lease, **body})
+        assert 400 <= tried.status_code < 500, (route, tried.content)
+        said = {**tried.json(), "request_id": None}
+        expected = {
+            **json.loads(nothing.content.decode().replace(made_up, build["id"])),
+            "request_id": None,
+        }
+        assert (tried.status_code, said) == (nothing.status_code, expected), route
+    assert SetupBuild.objects.filter(pk=build["id"]).values().get() == before
+    assert not SetupLog.objects.filter(build_id=build["id"]).exists()
 
 
 def test_a_failed_setup_ends_and_its_disk_is_deleted(world: World) -> None:
