@@ -131,6 +131,17 @@ pub fn sync_image(
     Ok(Have::in_image(code, dir, &image.environment))
 }
 
+/// Whether `plugin`'s code in `now` isn't what it was in `listed`: another commit, or (for a
+/// local directory, which has none) another bundle, or none at all.
+pub fn code_changed(listed: &[AvailableOut], now: &[AvailableOut], plugin: &str) -> bool {
+    let code = |all: &[AvailableOut]| {
+        all.iter()
+            .find(|p| p.name == plugin)
+            .map(|p| (p.sha.clone(), p.bundle.clone()))
+    };
+    code(listed) != code(now)
+}
+
 /// What a development server calls a plugin from a local directory, which has no commit.
 const LOCAL: &str = "local";
 
@@ -549,6 +560,38 @@ mod tests {
         }
         builder.into_inner().unwrap().finish().unwrap();
         path
+    }
+
+    fn available(name: &str, sha: &str, sha256: &str, size: i64) -> AvailableOut {
+        AvailableOut {
+            bundle: iki_protocol::BundleOut {
+                sha256: sha256.to_owned(),
+                size,
+            },
+            environments: std::collections::BTreeMap::new(),
+            name: name.to_owned(),
+            sha: sha.to_owned(),
+            version: "1.0.0".to_owned(),
+        }
+    }
+
+    #[test]
+    fn notices_when_a_plugins_code_changed_since_it_was_listed() {
+        let was = [
+            available("example", "local", "aa", 10),
+            available("dna", "b".repeat(40).as_str(), "cc", 20),
+        ];
+        // Another plugin's change, or a new environment build, isn't this one's.
+        let mut other = was.to_vec();
+        other[1].sha = "d".repeat(40);
+        other[0].version = "1.0.1".to_owned();
+        assert!(!code_changed(&was, &other, "example"));
+        // A local directory edited: same name, another bundle.
+        let edited = [available("example", "local", "ab", 11), was[1].clone()];
+        assert!(code_changed(&was, &edited, "example"));
+        // Upgraded to another commit, or no longer installed.
+        assert!(code_changed(&was, &other, "dna"));
+        assert!(code_changed(&was, &was[..1], "dna"));
     }
 
     #[test]

@@ -295,21 +295,62 @@ fn clean_up(
     config: &Config,
     listed: &[iki_protocol::AvailableOut],
     have: &mut plugins::Have,
-) -> Result<(), String> {
+) -> Result<Cleaned, String> {
     between::end_strays()?;
     if between::owns_processes() {
         between::empty(Path::new("/dev/shm"))?;
     }
     let Some(dir) = &config.clean_dir else {
-        return Ok(());
+        return Ok(Cleaned::Ready);
     };
     between::empty(dir)?;
     if let Some(image) = &config.image
         && config.cache_dir.starts_with(dir)
     {
-        *have = bundles::sync_image(api, &config.cache_dir, listed, image)?;
+        match bundles::sync_image(api, &config.cache_dir, listed, image) {
+            Ok(fetched) => *have = fetched,
+            // The code it started with may have changed since: an upgrade, or a local
+            // directory edited. A machine built for it can't take the new code.
+            Err(error) => {
+                let now = bundles::available(api).map_err(|e| e.to_string())?;
+                if bundles::code_changed(listed, &now, image.plugin()) {
+                    return Ok(Cleaned::Outdated);
+                }
+                return Err(error);
+            }
+        }
     }
-    Ok(())
+    Ok(Cleaned::Ready)
+}
+
+/// Cleans the machine for the next job: what the worker stops with, if it can't take one.
+fn ready_for_next(
+    api: &Api,
+    config: &Config,
+    listed: &[iki_protocol::AvailableOut],
+    have: &mut plugins::Have,
+) -> Option<Result<(), String>> {
+    match clean_up(api, config, listed, have) {
+        Ok(Cleaned::Ready) => None,
+        Ok(Cleaned::Outdated) => {
+            say::info(
+                "The plugin's code changed since this machine started; stopping, so one with \
+                 the new code takes over.",
+                &[],
+            );
+            Some(Ok(()))
+        }
+        // A machine that can't be made clean takes no more jobs.
+        Err(error) => Some(Err(error)),
+    }
+}
+
+/// Whether the machine is ready for the next job, once cleaned.
+#[derive(Debug, PartialEq, Eq)]
+enum Cleaned {
+    Ready,
+    /// Its plugin's code changed since it started: a machine with the new code takes over.
+    Outdated,
 }
 
 /// Warns about settings that work, but shouldn't be left that way.
@@ -378,9 +419,8 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
                 if once {
                     break;
                 }
-                if let Err(error) = clean_up(&api, config, &listed, &mut have) {
-                    // A machine that can't be made clean takes no more jobs.
-                    outcome = Err(error);
+                if let Some(stop) = ready_for_next(&api, config, &listed, &mut have) {
+                    outcome = stop;
                     break;
                 }
                 idle_since = std::time::Instant::now();

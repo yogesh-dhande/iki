@@ -163,7 +163,9 @@ one leaves reaches the next:
   and the provisioner for persistent pods.
 
 If it can't make the machine clean, the worker stops rather than take
-another job.
+another job. If that's because its plugin's code changed since it started
+(an upgrade, or a local directory edited), it says so, deregisters and
+exits cleanly, so a machine with the new code takes its place.
 
 ### Stopping
 
