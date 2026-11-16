@@ -425,6 +425,43 @@ def test_inputs_resolve_and_fit(tmp_path: Path) -> None:
     assert only(result, "max-needs-many")
 
 
+def test_an_input_includes_the_entities_its_references_name(tmp_path: Path) -> None:
+    plugin = PLUGIN + 'dependencies: { protein: { types: { Protein: ">=1" } } }\n'
+
+    def check(include: str) -> Result:
+        other = action(
+            inputs=f"{{ protein: {{ type: protein.Protein, include: {include} }} }}",
+            effects="",
+            artifacts="{ keep: [out.txt] }",
+        )
+        return make(tmp_path, other, files={"plugin.yaml": plugin}, with_=(DNA, PROTEIN))
+
+    # A reference, and one to any entity.
+    result = check("[encoded_by, source]")
+    assert result.ok, [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    made = result.plugin.actions["score"]
+    assert made.inputs["protein"].include == ("encoded_by", "source")
+    message = only(check("[nope]"), "include-unknown-field")
+    assert message == "`protein.Protein` has no field `nope`."
+    assert check("[nope]").problems[0].hint == "Name one of its references: `encoded_by`, `source`."
+    assert only(check("[sequence]"), "include-not-reference").startswith(
+        "`sequence` isn't a reference"
+    )
+    assert "schema" in codes(check("[encoded_by, encoded_by]"))[0]
+
+
+def test_a_list_of_references_is_included_item_by_item(tmp_path: Path) -> None:
+    plugin = PLUGIN + 'dependencies: { protein: { types: { ProteinStructure: ">=1" } } }\n'
+    other = action(
+        inputs="{ structure: { type: protein.ProteinStructure, include: [chains] } }",
+        effects="",
+        artifacts="{ keep: [out.txt] }",
+    )
+    result = make(tmp_path, other, files={"plugin.yaml": plugin}, with_=(DNA, PROTEIN))
+    assert result.ok, [(p.code, p.message) for p in result.problems]
+
+
 def test_inputs_from_other_plugins_need_a_dependency(tmp_path: Path) -> None:
     other = action(
         inputs="{ seq: { type: dna.DNASequence } }", effects="", artifacts="{ keep: [out.txt] }"

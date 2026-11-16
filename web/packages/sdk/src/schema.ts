@@ -5327,6 +5327,25 @@ export interface components {
             /** State */
             state: string;
         };
+        /** ImportedInclusionOut */
+        ImportedInclusionOut: {
+            /**
+             * Entity
+             * Format: uuid
+             * @description Its ID there: it isn't here.
+             */
+            entity: string;
+            /** Field */
+            field: string;
+            /** Index */
+            index: number;
+            /** Input */
+            input: string;
+            /** Position */
+            position: number;
+            /** Revision */
+            revision: number;
+        };
         /** ImportedInputOut */
         ImportedInputOut: {
             /**
@@ -7480,6 +7499,11 @@ export interface components {
              */
             hrid: string;
             /**
+             * Included Elsewhere
+             * @description What its inputs' references named there that didn't come with it.
+             */
+            included_elsewhere: components["schemas"]["ImportedInclusionOut"][];
+            /**
              * Inputs Elsewhere
              * @description What it read there that didn't come with it.
              */
@@ -7539,6 +7563,41 @@ export interface components {
              * @default true
              */
             reuse: boolean;
+        };
+        /** RunInclusionOut */
+        RunInclusionOut: {
+            /**
+             * Entity
+             * Format: uuid
+             */
+            entity: string;
+            /**
+             * Field
+             * @description The reference.
+             */
+            field: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Index
+             * @description Its place in the reference, from 0: a list's can be more.
+             */
+            index: number;
+            /**
+             * Input
+             * @description The input whose entity's reference named it.
+             */
+            input: string;
+            /**
+             * Position
+             * @description That entity's place among the input's, from 0.
+             */
+            position: number;
+            /**
+             * Revision
+             * @description The revision the run read.
+             */
+            revision: number;
         };
         /** RunInputOut */
         RunInputOut: {
@@ -7617,6 +7676,11 @@ export interface components {
             id: string;
             /** @description A run imported from another deployment in a bundle (ADR 0096): where it ran, and what it was tied to there that didn't come with it. */
             imported: components["schemas"]["RunImportedOut"] | null;
+            /**
+             * Included
+             * @description What its inputs' references named, that it read too, when its action's inputs include them (ADR 0105).
+             */
+            included: components["schemas"]["RunInclusionOut"][];
             /** Inputs */
             inputs: components["schemas"]["RunInputOut"][];
             /** Messages */

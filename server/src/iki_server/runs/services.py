@@ -42,6 +42,7 @@ from iki_server.runs import (
     budgets,
     catalog,
     endings,
+    included,
     live,
     queue,
     quotas,
@@ -59,6 +60,7 @@ from iki_server.runs.models import (
     JobState,
     RunApproval,
     RunBatch,
+    RunInclusion,
     RunInput,
     RunStatus,
     WorkflowRun,
@@ -188,14 +190,17 @@ def launch(
     values = check_params(user, action, project, params, errors)
     if errors:
         raise Invalid(errors)
-    outside = outside_project(user, project, entities, errors)
+    pins = _pins(user, action, entities)
+    outside = outside_project(user, project, included.reads(entities, pins), errors)
     if errors:
         raise Invalid(errors)
     if outside and not add_to_project:
         raise OutsideProject(project, outside)
     with transaction.atomic():
         link_into_project(user, project, outside)
-        made = _made(user, action, project, entities, values, reuse_results=reuse_results)
+        made = _made(
+            user, action, project, entities, values, reuse_results=reuse_results, pins=pins
+        )
         step = (workflow, workflow_step) if workflow is not None else None
         if made.original is not None:
             return _reuse(user, action, project, entities, values, reason, made, step=step)
@@ -249,7 +254,13 @@ def launch_each(
         errors["entities"] = errors.pop(f"inputs/{each}")
     if errors:
         raise Invalid(errors)
-    outside = outside_project(user, project, entities, errors, each=each)
+    try:
+        pins = included.resolve(user, action, entities)
+    except included.Unreadable as unreadable:
+        raise Invalid(
+            {"entities" if n == each else f"inputs/{n}": e for n, e in unreadable.errors.items()}
+        ) from None
+    outside = outside_project(user, project, included.reads(entities, pins), errors, each=each)
     if errors:
         raise Invalid(errors)
     if outside and not add_to_project:
@@ -265,8 +276,9 @@ def launch_each(
                 {**entities, each: [e]},
                 values,
                 reuse_results=reuse_results,
+                pins=included.of_each(pins, each, position),
             )
-            for e in chosen
+            for position, e in enumerate(chosen)
         ]
         to_run = sum(1 for m in made if m.original is None)
         if to_run:
@@ -421,12 +433,14 @@ def _queue(
             )
             for i in RunInput.objects.filter(run=copy_of).order_by("name", "position")
         )
+        included.copy(run, copy_of)
     else:
         RunInput.objects.bulk_create(
             RunInput(run=run, name=name, position=index, entity=entity, revision=entity.revision)
             for name, chosen in entities.items()
             for index, entity in enumerate(chosen)
         )
+        included.record(run, made.pins)
     Job.objects.create(
         run=run,
         project=project,
@@ -466,6 +480,8 @@ class _Made:
     settings: dict[str, Any]
     key: str
     original: ActionRun | None
+    #: What its inputs' references name, which it reads too (ADR 0105).
+    pins: list[included.Pin]
 
 
 def _made(
@@ -476,12 +492,26 @@ def _made(
     values: Mapping[str, Any],
     *,
     reuse_results: bool,
+    pins: list[included.Pin] | None = None,
 ) -> _Made:
     sha = plugin_sha(action.plugin)
     settings = plugin_settings(action)
-    key = reuse.key(action, sha, entities, values, settings)
+    if pins is None:
+        pins = _pins(user, action, entities)
+    key = reuse.key(action, sha, entities, values, settings, pins)
     original = reuse.find(user, key, project) if reuse_results and user is not None else None
-    return _Made(sha, settings, key, original)
+    return _Made(sha, settings, key, original, pins)
+
+
+def _pins(
+    user: User | None, action: Action, entities: Mapping[str, Sequence[Entity]]
+) -> list[included.Pin]:
+    """What the inputs' included references name (ADR 0105), or :class:`Invalid` for ones
+    `user` can't read."""
+    try:
+        return included.resolve(user, action, entities)
+    except included.Unreadable as unreadable:
+        raise Invalid({f"inputs/{n}": e for n, e in unreadable.errors.items()}) from None
 
 
 def _reuse(
@@ -509,6 +539,7 @@ def _reuse(
         hrid=_next_hrid(),
         batch=batch,
         step=step,
+        pins=made.pins,
     )
 
 
@@ -534,11 +565,14 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
     )
     if why:
         raise Refused(why)
+    # What it read: its inputs, and what their references named (ADR 0105).
+    read = (
+        RunInput.objects.filter(run=original)
+        .values("entity_id")
+        .union(RunInclusion.objects.filter(run=original).values("entity_id"))
+    )
     purged = list(
-        access.tombstones(user)
-        .filter(pk__in=RunInput.objects.filter(run=original).values("entity_id"))
-        .order_by("hrid")
-        .values_list("hrid", flat=True)
+        access.tombstones(user).filter(pk__in=read).order_by("hrid").values_list("hrid", flat=True)
     )
     if purged:
         verb = "were" if len(purged) > 1 else "was"
@@ -546,16 +580,11 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             f"{', '.join(purged)} {verb} purged, so this run can't be reproduced: only "
             f"{'their tombstones are' if len(purged) > 1 else 'its tombstone is'} left."
         )
-    readable = set(
-        access.visible(user)
-        .filter(pk__in=RunInput.objects.filter(run=original).values("entity_id"))
-        .values_list("pk", flat=True)
-    )
-    hidden = RunInput.objects.filter(run=original).exclude(entity_id__in=readable)
-    if hidden.exists():
+    readable = set(access.visible(user).filter(pk__in=read).values_list("pk", flat=True))
+    if Entity.objects.filter(pk__in=read).exclude(pk__in=readable).exists():
         raise PermissionDenied
     gone = list(
-        Entity.objects.filter(pk__in=RunInput.objects.filter(run=original).values("entity_id"))
+        Entity.objects.filter(pk__in=read)
         .exclude(pk__in=access.in_project(original.project).values("pk"))
         .order_by("hrid")
         .values_list("hrid", flat=True)
@@ -578,7 +607,7 @@ def reproduce(user: User, run: ActionRun, *, reason: str = "") -> ActionRun:
             dict(original.params),
             reason,
             approval,
-            made=_Made(original.plugin_sha, dict(original.plugin_settings), "", None),
+            made=_Made(original.plugin_sha, dict(original.plugin_settings), "", None, []),
             copy_of=original,
         )
         if approval is not None:

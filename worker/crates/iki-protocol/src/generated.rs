@@ -27,6 +27,9 @@ pub struct RunInputEntity {
     pub revision: i64,
     /// Field values as the REST API shows them: references and files as IDs.
     pub values: serde_json::Map<String, serde_json::Value>,
+    /// The entities its references name, when the action's input includes them: for each reference, a list (one entity for a reference, a list's in order, none when it's empty), at the revisions the run was launched on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub included: Option<std::collections::BTreeMap<String, Vec<RunInputEntity>>>,
 }
 
 /// What an action's command reads: the run, its params, and its inputs' values at the revisions the run was launched on. iki-worker gets it when it leases a job and writes it to input.json.

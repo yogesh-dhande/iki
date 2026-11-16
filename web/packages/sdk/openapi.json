@@ -5051,6 +5051,46 @@
         "title": "ImportedApprovalOut",
         "type": "object"
       },
+      "ImportedInclusionOut": {
+        "properties": {
+          "entity": {
+            "description": "Its ID there: it isn't here.",
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "input": {
+            "title": "Input",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input",
+          "position",
+          "field",
+          "index",
+          "entity",
+          "revision"
+        ],
+        "title": "ImportedInclusionOut",
+        "type": "object"
+      },
       "ImportedInputOut": {
         "properties": {
           "entity": {
@@ -9924,6 +9964,14 @@
             "title": "Hrid",
             "type": "string"
           },
+          "included_elsewhere": {
+            "description": "What its inputs' references named there that didn't come with it.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedInclusionOut"
+            },
+            "title": "Included Elsewhere",
+            "type": "array"
+          },
           "inputs_elsewhere": {
             "description": "What it read there that didn't come with it.",
             "items": {
@@ -9966,6 +10014,7 @@
           "batch",
           "workflow",
           "inputs_elsewhere",
+          "included_elsewhere",
           "workers",
           "project_slug"
         ],
@@ -10029,6 +10078,55 @@
           "project"
         ],
         "title": "RunIn",
+        "type": "object"
+      },
+      "RunInclusionOut": {
+        "properties": {
+          "entity": {
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "field": {
+            "description": "The reference.",
+            "title": "Field",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "index": {
+            "description": "Its place in the reference, from 0: a list's can be more.",
+            "title": "Index",
+            "type": "integer"
+          },
+          "input": {
+            "description": "The input whose entity's reference named it.",
+            "title": "Input",
+            "type": "string"
+          },
+          "position": {
+            "description": "That entity's place among the input's, from 0.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "revision": {
+            "description": "The revision the run read.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input",
+          "position",
+          "field",
+          "index",
+          "entity",
+          "hrid",
+          "revision"
+        ],
+        "title": "RunInclusionOut",
         "type": "object"
       },
       "RunInputOut": {
@@ -10217,6 +10315,14 @@
               }
             ],
             "description": "A run imported from another deployment in a bundle (ADR 0096): where it ran, and what it was tied to there that didn't come with it."
+          },
+          "included": {
+            "description": "What its inputs' references named, that it read too, when its action's inputs include them (ADR 0105).",
+            "items": {
+              "$ref": "#/components/schemas/RunInclusionOut"
+            },
+            "title": "Included",
+            "type": "array"
           },
           "inputs": {
             "items": {
@@ -10443,6 +10549,7 @@
           "settings",
           "network",
           "inputs",
+          "included",
           "files",
           "status",
           "attempts",

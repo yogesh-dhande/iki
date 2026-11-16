@@ -42,16 +42,32 @@
           "required": ["values"],
           "additionalProperties": false,
           "properties": {
-            "hrid": {
-              "description": "Its HRID, if the command reads it. Made from the type's prefix unless given.",
-              "type": "string",
-              "maxLength": 100
-            },
+            "hrid": { "$ref": "#/$defs/hrid" },
             "type": {
               "description": "Its type, if it's a subtype of the input's: `plugin.Type`.",
               "type": "string"
             },
-            "values": { "type": "object" }
+            "values": { "type": "object" },
+            "included": {
+              "description": "For an input that includes references (ADR 0105): the entities each names, by reference. Each gets an ID, which the reference holds; one left out is an empty list.",
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["values"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "hrid": { "$ref": "#/$defs/hrid" },
+                    "type": {
+                      "description": "Its type, if it's a subtype of the one the reference names.",
+                      "type": "string"
+                    },
+                    "values": { "type": "object" }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -83,6 +99,13 @@
           "minimum": 0
         }
       }
+    }
+  },
+  "$defs": {
+    "hrid": {
+      "description": "Its HRID, if the command reads it. Made from the type's prefix unless given.",
+      "type": "string",
+      "maxLength": 100
     }
   }
 }

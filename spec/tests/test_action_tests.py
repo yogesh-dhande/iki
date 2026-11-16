@@ -131,6 +131,48 @@ def test_the_run_input_is_the_servers(
     assert [p["hrid"] for p in packed["pack"]] == ["RUN-000001", "RUN-000002"]
 
 
+def test_an_input_gives_what_its_references_name(
+    protein: tuple[Path, Plugin, dict[str, EntityType]], tmp_path: Path
+) -> None:
+    directory, plugin, types = protein
+    (directory / "data").mkdir()
+    (directory / "data" / "abl.pdb").write_text("ATOM\n")
+    structure = (
+        "inputs:\n  structure:\n    - values: { structure: { $file: pdb }, method: xray }\n"
+        "      included:\n        chains:\n"
+        "          - values: { sequence: MKV }\n"
+        "          - { hrid: PRT-9, values: { sequence: MKW } }\n"
+    )
+    write(
+        directory,
+        "relax.yaml",
+        HEADER + "action: relax_structure\nfiles: { pdb: data/abl.pdb }\n" + structure,
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert loaded.ok, loaded.problems
+    (test,) = loaded.tests
+    work = tmp_path / "work"
+    work.mkdir()
+    made = action_tests.run_input(test, plugin, types, directory, {}, work)
+    (given,) = made["inputs"]["structure"]
+    first, second = given["included"]["chains"]
+    assert given["values"]["chains"] == [first["id"], second["id"]]
+    assert (first["hrid"], second["hrid"]) == ("PRT-000002", "PRT-9")
+    assert first["type"] == "protein.Protein" and first["values"] == {"sequence": "MKV"}
+
+    wrong = structure.replace("chains:", "source:").replace("sequence: MKV }", "weight: 1 }")
+    write(
+        directory,
+        "relax.yaml",
+        HEADER + "action: relax_structure\nfiles: { pdb: data/abl.pdb }\n" + wrong,
+    )
+    problems = action_tests.load_tests(directory, plugin, types).problems
+    assert [(p.code, p.message) for p in problems] == [
+        ("not-included", "The input doesn't include source.")
+    ]
+    assert problems[0].hint == "It includes: chains."
+
+
 def test_names_are_unique(protein: tuple[Path, Plugin, dict[str, EntityType]]) -> None:
     directory, plugin, types = protein
     one = HEADER + "name: same\naction: fetch_proteins\nparams: { accession: P1 }\n"

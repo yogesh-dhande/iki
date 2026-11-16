@@ -156,6 +156,35 @@ describe("a run's page", () => {
     );
   });
 
+  it("lists what it read through its inputs' references", async () => {
+    onRun(
+      () =>
+        run({
+          included: [
+            {
+              input: "protein",
+              position: 0,
+              field: "encoded_by",
+              index: 0,
+              entity: "00000000-0000-7000-8000-00000000d001",
+              hrid: "DNA-000004",
+              revision: 3,
+            },
+          ],
+        }),
+      () => [attempt()],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const inputs = await screen.findByRole("region", { name: "Inputs" });
+    const read = within(inputs).getByText("Encoded by").nextSibling;
+    expect(read).toHaveTextContent("DNA-000004 as of revision 3, which PRT-000001 names");
+    expect(within(inputs).getByRole("link", { name: "DNA-000004" })).toHaveAttribute(
+      "href",
+      "/entities/DNA-000004/",
+    );
+  });
+
   it("names an import's file, and the plugin settings it ran with", async () => {
     const FILE = "00000000-0000-7000-8000-00000000f001";
     const HIDDEN = "00000000-0000-7000-8000-00000000f002";
@@ -222,6 +251,16 @@ describe("a run's page", () => {
                 revision: 2,
               },
             ],
+            included_elsewhere: [
+              {
+                input: "protein",
+                position: 0,
+                field: "encoded_by",
+                index: 0,
+                entity: "00000000-0000-7000-8000-0000000000e8",
+                revision: 3,
+              },
+            ],
             workers: { "1": "pod-7" },
             project_slug: KINASE.slug,
           },
@@ -245,6 +284,9 @@ describe("a run's page", () => {
     const inputs = screen.getByRole("region", { name: "Inputs" });
     expect(inputs).toHaveTextContent(
       "An entity on staging that didn’t come with it (00000000-0000-7000-8000-0000000000e9, revision 2)",
+    );
+    expect(within(inputs).getByText("Encoded by").nextSibling).toHaveTextContent(
+      "An entity on staging that didn’t come with it (00000000-0000-7000-8000-0000000000e8, revision 3)",
     );
     const attempts = screen.getByRole("region", { name: "Attempts" });
     expect(await within(attempts).findByText(/On pod-7 on staging · started/)).toBeVisible();

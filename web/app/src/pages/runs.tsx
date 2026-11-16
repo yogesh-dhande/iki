@@ -788,6 +788,12 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
   );
 }
 
+/** A reference's name as a label: `heavy_chain` is "Heavy chain". */
+function referenceLabel(field: string) {
+  const words = field.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function approvalText(approval: Approval) {
   switch (approval.state) {
     case "approved":
@@ -1318,6 +1324,25 @@ export function RunPage() {
               </dd>
             </div>
           ))}
+          {run.included.map((read) => (
+            <div
+              key={[read.input, read.position, read.field, read.index].join("-")}
+              className="value-row"
+            >
+              <dt>{referenceLabel(read.field)}</dt>
+              <dd>
+                <Link to="/entities/$ref/" params={{ ref: read.hrid }}>
+                  {read.hrid}
+                </Link>{" "}
+                <span className="muted">
+                  as of revision {read.revision}, which{" "}
+                  {run.inputs.filter((i) => i.name === read.input)[read.position]?.hrid ??
+                    "an input"}{" "}
+                  names
+                </span>
+              </dd>
+            </div>
+          ))}
           {(run.imported?.inputs_elsewhere ?? []).map((input) => (
             <div key={`${input.name}-${input.entity}`} className="value-row">
               <dt>{inputLabels.get(input.name) ?? input.name}</dt>
@@ -1325,6 +1350,20 @@ export function RunPage() {
                 <span className="muted">
                   An entity on {run.imported?.deployment} that didn’t come with it (
                   <code>{input.entity}</code>, revision {input.revision})
+                </span>
+              </dd>
+            </div>
+          ))}
+          {(run.imported?.included_elsewhere ?? []).map((read) => (
+            <div
+              key={[read.input, read.position, read.field, read.index].join("-")}
+              className="value-row"
+            >
+              <dt>{referenceLabel(read.field)}</dt>
+              <dd>
+                <span className="muted">
+                  An entity on {run.imported?.deployment} that didn’t come with it (
+                  <code>{read.entity}</code>, revision {read.revision})
                 </span>
               </dd>
             </div>

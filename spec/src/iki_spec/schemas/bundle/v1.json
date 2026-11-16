@@ -938,6 +938,38 @@
             "additionalProperties": false
           }
         },
+        "included": {
+          "description": "What its inputs' references named, that it read too (ADR 0105): only on runs that read any.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entity", "field", "index", "input", "position", "revision"],
+            "properties": {
+              "input": {
+                "type": "string",
+                "maxLength": 63
+              },
+              "position": {
+                "$ref": "#/$defs/count"
+              },
+              "field": {
+                "type": "string",
+                "maxLength": 63
+              },
+              "index": {
+                "$ref": "#/$defs/count"
+              },
+              "entity": {
+                "$ref": "#/$defs/uuid"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
         "effects": {
           "description": "What it did to the bundle's entities.",
           "type": "array",

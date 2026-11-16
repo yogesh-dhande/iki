@@ -275,6 +275,7 @@ kind: Action
 name: predict_structure
 inputs: # leave out for actions that import or fetch
   protein: { type: protein.Protein, schema: ">=2" } # cardinality: one (default) or many
+  # include: [encoded_by] # references whose entities the run reads too (ADR 0105)
 params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
 effects: # what a run may write; anything else is refused
@@ -306,6 +307,7 @@ on it. The validator checks that:
   removed or `immutable`; updates reach inherited fields and fields this
   plugin adds to the type
 - every `derived_from` and `updates` names an input
+- an input's `include` names references of its type, its own or a parent's
 - a create's `match_on` is a unique field of the type, its own, a parent's,
   or one this plugin's extension adds
 - params follow the rules for settings, and also take `date`, `quantity`
@@ -315,6 +317,16 @@ on it. The validator checks that:
 - client-tier actions declare no `secrets`, `network` or `resources`, since
   Iki can't keep secrets from, or limit, a person's own machine
 - files the command names with `./` are in the plugin, and aren't symbolic links
+
+A run's input carries references as IDs. An input can `include` some of its
+type's references, or lists of them, and the run reads the entities they name
+too, under each input entity's `included`, by reference: an antibody's
+`heavy_chain` and `light_chain`, or a structure's `chains`. Like the inputs,
+they're pinned when the run is launched, at the revisions they have then, and
+the run keeps them. Whoever launches it must be able to read them, and they
+must be in its project, which the launch can add them to as it does inputs.
+They count in what makes two runs identical, so a change to one runs it again.
+Only the input's own references are included, not theirs.
 
 A run keeps as artifacts the files in its output directory (`$IKI_OUT_DIR`)
 that one of the `artifacts.keep` patterns matches, whether the command
@@ -917,9 +929,11 @@ When a worker leases a job, it gets the run input and writes it to
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
-with references and files given as IDs. A file param's value is the
-file's ID too. `files` describes every file the inputs hold and every file
-param names, by ID. The worker downloads each one before the command
+with references and files given as IDs. An input that includes references
+gives each entity an `included` object too: for each reference, a list of
+the entities it names, in the same form. A file param's value is the
+file's ID too. `files` describes every file the inputs and what they include
+hold and every file param names, by ID. The worker downloads each one before the command
 starts, checks its size and SHA-256, and adds its `path`. `settings` holds
 the plugin's settings as the deployment set them when the run was launched.
 An action with no inputs (an import) gets `"inputs": {}`.
@@ -1153,6 +1167,10 @@ expect:
   their `hrid` and `type` (a subtype of the input's). An input that takes
   one entity can take several for a batchable action: they're packed as
   the server packs runs.
+- For an input that includes references, an entity's `included` gives the
+  entities each names, in the same form:
+  `included: { heavy_chain: [{ values: { sequence: EVQ… } }] }`. Each gets
+  an ID, which the reference holds.
 - `files` names files in the plugin. A value or param uses one as
   `{"$file": "name"}`.
 - `expect.output` is compared by what it gives: every key in a mapping,

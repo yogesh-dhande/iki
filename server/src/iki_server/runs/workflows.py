@@ -29,13 +29,14 @@ from django.utils import timezone
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.entities import access, hrids, registry
+from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
 from iki_server.org import permissions
 from iki_server.org.models import Project, ProjectRole
 from iki_server.org.services import Refused
-from iki_server.runs import catalog, live, services
+from iki_server.runs import catalog, included, live, services
 from iki_server.runs.models import (
     APPROVAL_EXPIRES_AFTER,
     WORKFLOW_HRID_PREFIX,
@@ -168,7 +169,8 @@ def start(
     values = services.check_params(user, of, project, params, errors)
     if errors:
         raise Invalid(errors)
-    outside = services.outside_project(user, project, entities, errors)
+    reads = _reads(user, of, steps, entities)
+    outside = services.outside_project(user, project, reads, errors)
     if errors:
         raise Invalid(errors)
     if outside and not add_to_project:
@@ -186,6 +188,40 @@ def start(
         run = _create(user, of, project, spec, entities, values, reason=reason)
         _advance(run)
     return run
+
+
+def _reads(
+    user: User,
+    of: Workflow,
+    steps: Mapping[str, Action | None],
+    entities: Mapping[str, Sequence[Entity]],
+) -> dict[str, list[Entity]]:
+    """What the workflow's runs will read of its inputs, by input: the entities, and what
+    their references name for steps whose actions include them (ADR 0105). What steps take
+    from earlier steps is checked when they're launched."""
+    out = {name: list(chosen) for name, chosen in entities.items()}
+    errors: dict[str, list[str]] = {}
+    for i, declared in of.steps.items():
+        action = steps.get(i)
+        if action is None:
+            continue
+        given = {
+            name: entities[ref.split(".")[1]]
+            for name, ref in declared.inputs.items()
+            if ref.startswith("$inputs.") and ref.split(".")[1] in entities
+        }
+        from_input = {name: ref.split(".")[1] for name, ref in declared.inputs.items()}
+        try:
+            pins = included.resolve(user, action, given)
+        except included.Unreadable as unreadable:
+            for name, why in unreadable.errors.items():
+                errors.setdefault(f"inputs/{from_input[name]}", []).extend(why)
+            continue
+        for pin in pins:
+            out.setdefault(from_input[pin.input], []).append(pin.entity)
+    if errors:
+        raise Invalid({k: list(dict.fromkeys(v)) for k, v in errors.items()})
+    return out
 
 
 def may_rerun(user: User, run: WorkflowRun) -> bool:
@@ -221,7 +257,8 @@ def rerun(user: User, original: WorkflowRun, *, reason: str = "") -> WorkflowRun
     values = services.check_params(user, of, project, original.params, errors)
     if errors:
         raise Invalid(errors)
-    outside = services.outside_project(user, project, entities, errors)
+    reads = _reads(user, of, steps, entities)
+    outside = services.outside_project(user, project, reads, errors)
     if errors:
         raise Invalid(errors)
     if outside:

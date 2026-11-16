@@ -107,6 +107,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 optional=bool(spec.get("optional", False)),
                 label=spec.get("label") or n.replace("_", " ").capitalize(),
                 description=spec.get("description"),
+                include=tuple(spec.get("include") or ()),
             )
             for n, spec in (body.get("inputs") or {}).items()
         },
@@ -508,6 +509,8 @@ class _Rules:
                 (*path, "schema"),
                 hint="Update the action for the new version, then the constraint.",
             )
+        if target is not None:
+            self.include(put, target, source, path)
         if put.max is not None and put.cardinality != "many":
             self.add(
                 "max-needs-many",
@@ -517,6 +520,29 @@ class _Rules:
                 key=True,
                 hint="Add `cardinality: many`, or drop `max`.",
             )
+
+    def include(self, put: Input, target: EntityType, source: Document, path: Path) -> None:
+        """An input's `include`: its type's references, its own or a parent's."""
+        fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
+        for index, name in enumerate(put.include):
+            found = fields.get(name)
+            where = (*path, "include", index)
+            if found is None:
+                self.add(
+                    "include-unknown-field",
+                    f"`{put.type}` has no field `{name}`.",
+                    source,
+                    where,
+                    hint=f"Name one of its references: {_references(fields)}.",
+                )
+            elif not _reference(found):
+                self.add(
+                    "include-not-reference",
+                    f"`{name}` isn't a reference: only the entities references name can be "
+                    "included, and the input's own values are in its entities already.",
+                    source,
+                    where,
+                )
 
     def param(self, param: Field, source: Document, path: Path) -> None:
         if param.required and param.has_default:
@@ -848,3 +874,13 @@ def _logical_lines(text: str) -> list[tuple[int, str]]:
 def _nested(a: str, b: str) -> bool:
     a, b = a.rstrip("/") + "/", b.rstrip("/") + "/"
     return a.startswith(b) or b.startswith(a)
+
+
+def _reference(f: Field) -> bool:
+    """A reference, or a list of them."""
+    return f.type == "ref" or (f.type == "list" and f.items is not None and f.items.type == "ref")
+
+
+def _references(fields: dict[str, Field]) -> str:
+    names = sorted(n for n, f in fields.items() if _reference(f))
+    return ", ".join(f"`{n}`" for n in names) or "it has none"

@@ -726,6 +726,43 @@ class RunInput(models.Model):
         return f"{self.run_id} {self.name}[{self.position}]"
 
 
+class RunInclusion(models.Model):
+    """An entity a run reads because one of its inputs' references names it, at the
+    revision it read (ADR 0105): an antibody's heavy chain, say, when the action's input
+    includes ``heavy_chain``."""
+
+    APPEND_ONLY = True
+
+    id = models.BigAutoField(primary_key=True)
+    run = models.ForeignKey(ActionRun, on_delete=models.PROTECT, related_name="inclusions")
+    #: The input, and the place among its entities, of the entity whose reference it is.
+    input = models.CharField(max_length=63)
+    position = models.PositiveIntegerField()
+    #: The reference, and the entity's place in it (0 for a reference, not a list).
+    field = models.CharField(max_length=63)
+    index = models.PositiveIntegerField()
+    entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "iki_run_inclusion"
+        db_table_comment = (
+            "The entities each run read through its inputs' references, and at which revision."
+        )
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["run", "input", "position", "field", "index"],
+                name="iki_run_inclusion_place",
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["entity"], name="iki_run_inclusion_entity"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id} {self.input}[{self.position}].{self.field}[{self.index}]"
+
+
 class RegistrationToken(models.Model):
     """What a pool of workers on one tier registers with. Shown once, when made."""
 

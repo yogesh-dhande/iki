@@ -55,6 +55,7 @@ from iki_server.runs.models import (
     RunCheckpoint,
     RunEffect,
     RunImport,
+    RunInclusion,
     RunInput,
     RunOutput,
     RunStatus,
@@ -302,6 +303,16 @@ class RunInputOut(Schema):
     revision: int = Field(description="The revision the run read.")
 
 
+class RunInclusionOut(Schema):
+    input: str = Field(description="The input whose entity's reference named it.")
+    position: int = Field(description="That entity's place among the input's, from 0.")
+    field: str = Field(description="The reference.")
+    index: int = Field(description="Its place in the reference, from 0: a list's can be more.")
+    entity: UUID = Field(alias="entity_id")
+    hrid: str = Field(alias="entity.hrid")
+    revision: int = Field(description="The revision the run read.")
+
+
 class RunFileOut(Schema):
     name: str
     media_type: str
@@ -473,6 +484,15 @@ class ImportedInputOut(Schema):
     revision: int
 
 
+class ImportedInclusionOut(Schema):
+    input: str
+    position: int
+    field: str
+    index: int
+    entity: UUID = Field(description="Its ID there: it isn't here.")
+    revision: int
+
+
 class RunImportedOut(Schema):
     deployment: str = Field(description="The deployment it ran on.")
     hrid: str = Field(description="Its HRID there.")
@@ -487,6 +507,9 @@ class RunImportedOut(Schema):
     workflow: str | None = Field(description="The workflow run it was a step of there.")
     inputs_elsewhere: list[ImportedInputOut] = Field(
         description="What it read there that didn't come with it."
+    )
+    included_elsewhere: list[ImportedInclusionOut] = Field(
+        description="What its inputs' references named there that didn't come with it.",
     )
     workers: dict[str, str] = Field(description="Each attempt's worker there, by attempt.")
     project_slug: str = Field(description="The project it was imported into, for its link.")
@@ -528,6 +551,10 @@ class RunOut(Schema):
         description="The hosts it may reach, as its action declared them when it was launched."
     )
     inputs: list[RunInputOut]
+    included: list[RunInclusionOut] = Field(
+        description="What its inputs' references named, that it read too, when its action's "
+        "inputs include them (ADR 0105).",
+    )
     files: dict[str, RunFileOut] = Field(
         description="The files its file params name, by ID, that you can read."
     )
@@ -655,6 +682,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         .order_by("run_id", "name", "position")
     ):
         inputs.setdefault(row.run_id, []).append(row)
+    included: dict[Any, list[RunInclusion]] = {}
+    for inclusion in (
+        RunInclusion.objects.filter(run__in=runs)
+        .select_related("entity")
+        .order_by("run_id", "input", "position", "field", "index")
+    ):
+        included.setdefault(inclusion.run_id, []).append(inclusion)
     attempts = {
         row["run"]: row["count"]
         for row in Job.objects.filter(run__in=runs).values("run").annotate(count=Count("id"))
@@ -767,6 +801,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "trigger": fired.get(run.pk),
             "network": run.spec.get("network") or [],
             "inputs": inputs.get(run.pk, []),
+            "included": included.get(run.pk, []),
             "files": {
                 str(i): {
                     "name": readable[i].name,
@@ -831,6 +866,7 @@ def _imported(me: User, run: ActionRun, project: Any) -> dict[str, Any] | None: 
         "batch": (linked.get("batch") or {}).get("hrid"),
         "workflow": (linked.get("workflow") or {}).get("hrid"),
         "inputs_elsewhere": found.get("inputs") or [],
+        "included_elsewhere": found.get("included") or [],
         "workers": found.get("workers") or {},
         "project_slug": project.slug,
     }

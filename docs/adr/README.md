@@ -134,3 +134,4 @@ supersedes the old one, and update the old one's status.
 | [0102](0102-frames-take-away-what-no-policy-covers.md)                               | Frames take away what no policy covers, and exfiltration is tested in three browsers                | Accepted |
 | [0103](0103-the-grid-answers-a-page-in-the-same-time-at-any-size.md)                 | The grid answers a page in the same time at any size                                                | Accepted |
 | [0104](0104-an-identity-can-name-an-optional-field.md)                               | An identity can name an optional field, beside a required one                                       | Accepted |
+| [0105](0105-an-input-can-include-what-its-references-name.md)                        | An input can include what its references name                                                       | Accepted |

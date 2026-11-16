@@ -82,6 +82,19 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
         "schema_version": 1,
         "revision": 1,
         "values": {"structure": "f1", "method": "xray", "chains": ["c1"]},
+        # What it includes (ADR 0105): the protein its chain is.
+        "included": {
+            "chains": [
+                {
+                    "id": "c1",
+                    "hrid": "PRT-000001",
+                    "type": "protein.Protein",
+                    "schema_version": 1,
+                    "revision": 1,
+                    "values": {"sequence": "MKVLA"},
+                }
+            ]
+        },
     }
     given = run_input(
         [sys.executable, "./scripts/relax.py"],
@@ -92,6 +105,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
     ran = run_local(worker_bin, tmp_path, given, plugin=PLUGINS / "protein")
     assert ran.returncode == 0, ran.stderr
     assert f"Read abl.pdb: {len(PDB)} bytes" in ran.stderr
+    assert "Its chains: PRT-000001 (5 residues)" in ran.stderr
     output = json.loads(ran.stdout)
     made = output["creates"][0]["values"]["structure"]
     relaxed = b"REMARK   1 RELAXED BY IKI EXAMPLE\n" + PDB

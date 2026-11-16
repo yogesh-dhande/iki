@@ -280,6 +280,8 @@ class Input:
     optional: bool = False
     label: str = ""
     description: str | None = None
+    #: Its type's reference fields whose entities the run reads too.
+    include: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -744,7 +746,7 @@ def _workflow(data: dict[str, Any]) -> Workflow:
     return Workflow(
         **{
             **data,
-            "inputs": {n: Input(**i) for n, i in data["inputs"].items()},
+            "inputs": {n: _input(i) for n, i in data["inputs"].items()},
             "params": {n: _field(f) for n, f in data["params"].items()},
             "steps": {
                 i: WorkflowStep(
@@ -761,6 +763,10 @@ def _workflow(data: dict[str, Any]) -> Workflow:
     )
 
 
+def _input(data: dict[str, Any]) -> Input:
+    return Input(**{**data, "include": tuple(data.get("include") or ())})
+
+
 def action_from_dict(data: dict[str, Any]) -> Action:
     """An action from its JSON form (``dataclasses.asdict``), as a run keeps it."""
     return _action(data)
@@ -771,7 +777,7 @@ def _action(data: dict[str, Any]) -> Action:
         **{
             **data,
             "command": tuple(data["command"]),
-            "inputs": {n: Input(**i) for n, i in data["inputs"].items()},
+            "inputs": {n: _input(i) for n, i in data["inputs"].items()},
             "params": {n: _field(f) for n, f in data["params"].items()},
             "creates": tuple(
                 Creates(**{**c, "derived_from": tuple(c["derived_from"])}) for c in data["creates"]

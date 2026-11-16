@@ -69,6 +69,7 @@ from iki_server.runs.models import (
     JobLog,
     Lineage,
     RunEffect,
+    RunInclusion,
     RunInput,
     RunOutput,
 )
@@ -519,7 +520,12 @@ class _Writer:
             hrid = run_services._next_hrid()
         else:
             self._keep(HRID_PREFIX, hrid)
-        ids = [i["entity"] for i in line["inputs"]] + [r["parent"] for r in line["lineage"]]
+        inclusions = line.get("included") or []
+        ids = (
+            [i["entity"] for i in line["inputs"]]
+            + [c["entity"] for c in inclusions]
+            + [r["parent"] for r in line["lineage"]]
+        )
         here = {str(i) for i in Entity.objects.filter(pk__in=ids).values_list("pk", flat=True)}
         approval = line["approval"]
         if approval is not None:
@@ -563,6 +569,11 @@ class _Writer:
                 "approval": approval,
                 # What it read that isn't here: kept as it was there.
                 "inputs": [i for i in line["inputs"] if i["entity"] not in here],
+                **(
+                    {"included": gone}
+                    if (gone := [c for c in inclusions if c["entity"] not in here])
+                    else {}
+                ),
                 "lineage": [r for r in line["lineage"] if r["parent"] not in here],
                 "workers": {str(a["attempt"]): a["worker"] for a in line["attempts"]},
             },
@@ -608,6 +619,19 @@ class _Writer:
             )
             for i in line["inputs"]
             if i["entity"] in here
+        )
+        RunInclusion.objects.bulk_create(
+            RunInclusion(
+                run=run,
+                input=c["input"],
+                position=c["position"],
+                field=c["field"],
+                index=c["index"],
+                entity_id=c["entity"],
+                revision=c["revision"],
+            )
+            for c in inclusions
+            if c["entity"] in here
         )
         RunEffect.objects.bulk_create(
             RunEffect(run=run, entity_id=e["entity"], kind=e["kind"], revision=e["revision"])

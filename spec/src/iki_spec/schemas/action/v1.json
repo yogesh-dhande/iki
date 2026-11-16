@@ -211,6 +211,14 @@
           "maximum": 100000
         },
         "optional": { "type": "boolean" },
+        "include": {
+          "description": "Its type's references whose entities the run reads too, such as an antibody's `heavy_chain` and `light_chain`: each one or list of them, at the revision it had when the run was launched, under each input entity's `included`. Whoever launches the run must be able to read them.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 16
+        },
         "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
         "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" }
       },

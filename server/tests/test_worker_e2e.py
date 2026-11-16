@@ -548,6 +548,8 @@ def test_input_files_are_staged_and_result_files_uploaded(
     body = api_as(world).get(f"/runs/{run['id']}").json()
     assert body["status"] == "succeeded", body
     assert f"Read abl.pdb: {len(pdb)} bytes" in log_of(run)
+    # Through the worker, the command read the chain the input's reference names.
+    assert f"Its chains: {abl['hrid']} ({len(abl['values']['sequence'])} residues)" in log_of(run)
     relaxed = api_as(world).get(f"/entities/{body['effects'][0]['entity']}").json()
     file_id = relaxed["values"]["structure"]
     assert file_id != added["file"]["id"]

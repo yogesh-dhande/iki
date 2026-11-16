@@ -44,7 +44,17 @@ from iki_server.entities import registry, services
 from iki_server.entities.values import shape, to_json
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
-from iki_server.runs import checkpoints, costs, endings, launches, live, quotas, secrets, workers
+from iki_server.runs import (
+    checkpoints,
+    costs,
+    endings,
+    included,
+    launches,
+    live,
+    quotas,
+    secrets,
+    workers,
+)
 from iki_server.runs.models import (
     FINISHED,
     ActionRun,
@@ -375,6 +385,10 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         {"run": str(row.run_id), "hrid": hrids[row.run_id], "entity": str(row.entity_id)}
         for row in rows
     ]
+    # What the inputs' references name, for inputs that include them (ADR 0105).
+    nested, included_files = included.documents(runs)
+    files |= included_files
+    includes = {name: tuple(i.get("include") or ()) for name, i in run.spec["inputs"].items()}
     for row in rows:
         entity = row.entity
         values = services.values_at(entity, row.revision)
@@ -382,16 +396,18 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         for name, value in values.items():
             if name in fields:
                 files |= input_files.file_ids(fields[name], value)
-        inputs.setdefault(row.name, []).append(
-            {
-                "id": str(entity.pk),
-                "hrid": entity.hrid,
-                "type": entity.type,
-                "schema_version": registry.types()[entity.type].schema_version,
-                "revision": row.revision,
-                "values": {n: to_json(fields[n], v) for n, v in values.items() if n in fields},
-            }
-        )
+        document: dict[str, Any] = {
+            "id": str(entity.pk),
+            "hrid": entity.hrid,
+            "type": entity.type,
+            "schema_version": registry.types()[entity.type].schema_version,
+            "revision": row.revision,
+            "values": {n: to_json(fields[n], v) for n, v in values.items() if n in fields},
+        }
+        if includes.get(row.name):
+            pinned = nested.get((row.run_id, row.name, row.position), {})
+            document["included"] = {f: pinned.get(f, []) for f in includes[row.name]}
+        inputs.setdefault(row.name, []).append(document)
     assert job.lease_token is not None and job.lease_expires_at is not None  # noqa: S101
     given = secrets.for_run(run.action.split(".")[0], run.spec.get("secrets") or [])
     if sorted(given) != job.secrets:

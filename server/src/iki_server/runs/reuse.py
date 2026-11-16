@@ -24,7 +24,7 @@ from iki_server.audit import log as audit
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.files.models import File
-from iki_server.runs import live
+from iki_server.runs import included, live
 from iki_server.runs.input_files import is_file_list
 from iki_server.runs.models import (
     ActionRun,
@@ -63,9 +63,11 @@ def key(
     entities: Mapping[str, Sequence[Entity]],
     params: Mapping[str, Any],
     settings: Mapping[str, Any],
+    pins: Sequence[included.Pin] = (),
 ) -> str:
     """The run's reuse key, or ``""`` when its results can't be reused: its action isn't
-    deterministic, or its plugin is local code, which may have changed since."""
+    deterministic, or its plugin is local code, which may have changed since. What its
+    inputs' references name counts too, at its revisions (ADR 0105)."""
     if not action.deterministic or not sha:
         return ""
     # A file param counts by its content: the same file uploaded twice is the same. A list
@@ -94,7 +96,7 @@ def key(
         return value
 
     types = registry.types()
-    document = {
+    document: dict[str, Any] = {
         "action": action.qualified_name,
         "plugin_sha": sha,
         "params": {name: counted(name, value) for name, value in sorted(params.items())},
@@ -104,6 +106,9 @@ def key(
             for name, chosen in sorted(entities.items())
         },
     }
+    if pins:
+        # Only when there are any, so keys made before inputs could include stay the same.
+        document["included"] = included.keyed(pins)
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode()).hexdigest()
 
@@ -153,6 +158,7 @@ def reuse(
     hrid: str,
     batch: RunBatch | None = None,
     step: tuple[WorkflowRun, str] | None = None,
+    pins: Sequence[included.Pin] = (),
 ) -> ActionRun:
     """A run that ends at once with `original`'s results: the entities it made (or reused)
     are linked into `project` and listed as this run's, reused. Call inside a transaction,
@@ -192,6 +198,7 @@ def reuse(
         for name, chosen in entities.items()
         for index, entity in enumerate(chosen)
     )
+    included.record(run, pins)
     made = list(
         RunEffect.objects.filter(
             run=original, kind__in=[EffectKind.CREATED, EffectKind.REUSED]

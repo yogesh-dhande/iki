@@ -41,6 +41,7 @@ from iki_server.runs.models import (
     JobState,
     Lineage,
     RunEffect,
+    RunInclusion,
     RunInput,
     RunOutput,
 )
@@ -325,12 +326,22 @@ def _runs(project: Project, found: _Found) -> list[uuid.UUID]:
         return []
     for run in runs:
         found.runs[run.pk] = run
-    read = set(
-        RunInput.objects.filter(run_id__in=[r.pk for r in runs]).values_list("entity_id", flat=True)
-    ) | set(
-        Lineage.objects.filter(
-            run_id__in=[r.pk for r in runs], entity_id__in=list(found.entities)
-        ).values_list("parent_id", flat=True)
+    read = (
+        set(
+            RunInput.objects.filter(run_id__in=[r.pk for r in runs]).values_list(
+                "entity_id", flat=True
+            )
+        )
+        | set(
+            RunInclusion.objects.filter(run_id__in=[r.pk for r in runs]).values_list(
+                "entity_id", flat=True
+            )
+        )
+        | set(
+            Lineage.objects.filter(
+                run_id__in=[r.pk for r in runs], entity_id__in=list(found.entities)
+            ).values_list("parent_id", flat=True)
+        )
     )
     found.run_refs |= read
     origin_files = ExternalOrigin.objects.filter(
@@ -513,6 +524,21 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
                 "revision": i.revision,
             }
         )
+    # What their inputs' references named (ADR 0105): only runs that read any have them.
+    included: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for c in RunInclusion.objects.filter(run_id__in=ids).order_by(
+        "run_id", "input", "position", "field", "index"
+    ):
+        included.setdefault(c.run_id, []).append(
+            {
+                "input": c.input,
+                "position": c.position,
+                "field": c.field,
+                "index": c.index,
+                "entity": str(c.entity_id),
+                "revision": c.revision,
+            }
+        )
     effects: dict[uuid.UUID, list[dict[str, Any]]] = {}
     for e in RunEffect.objects.filter(run_id__in=ids, entity_id__in=going).order_by("id"):
         effects.setdefault(e.run_id, []).append(
@@ -575,6 +601,7 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
         _run(
             run,
             inputs=inputs.get(run.pk, []),
+            **({"included": included[run.pk]} if run.pk in included else {}),
             effects=effects.get(run.pk, []),
             lineage=lineage.get(run.pk, []),
             origins=origins.get(run.pk, []),

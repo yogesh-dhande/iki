@@ -1,7 +1,8 @@
 """Write a relaxed copy of a structure (an example: it marks the file rather than
 minimizing anything).
 
-It reads its input file from where iki-worker put it (input.json's `files`), and writes
+It reads its input file from where iki-worker put it (input.json's `files`), and its
+chains' sequences from what its input includes (each entity's `included`), and writes
 the new one to $IKI_OUT_DIR, naming it in output.json with `{"$file": …}`, which
 iki-worker uploads and replaces with the file's ID.
 """
@@ -17,6 +18,10 @@ def main() -> None:
     source = run["files"][structure["values"]["structure"]]
     original = Path(source["path"]).read_bytes()
     print(f"Read {source['name']}: {len(original)} bytes")
+    # The input includes its chains: the proteins they are, as of launch.
+    chains = structure["included"]["chains"]
+    named = ", ".join(f"{c['hrid']} ({len(c['values']['sequence'])} residues)" for c in chains)
+    print(f"Its chains: {named}")
     relaxed = b"REMARK   1 RELAXED BY IKI EXAMPLE\n" + original
     (Path(os.environ["IKI_OUT_DIR"]) / "relaxed.pdb").write_bytes(relaxed)
     made = {

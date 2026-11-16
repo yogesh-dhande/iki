@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from iki_spec import API_VERSION, schemas
-from iki_spec.model import Action, EntityType, Field, Plugin
+from iki_spec.model import Action, EntityType, Field, Input, Plugin
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
 from iki_spec.yamlsource import Document, read_documents
@@ -275,9 +275,58 @@ class _Check:
                             hint=_known("Its fields", fields),
                         )
                 self._files_named(entity["values"], files, (*at, index, "values"))
+                self._included(given, fields, entity, files, (*at, index, "included"))
         for name, given in action.inputs.items():
             if name not in inputs and not given.optional:
                 self.add("missing-input", f"Give {action.name}'s {name} input.", ("inputs",))
+
+    def _included(
+        self,
+        given: Input,
+        fields: Mapping[str, Field],
+        entity: dict[str, Any],
+        files: dict[str, str],
+        at: DocPath,
+    ) -> None:
+        """An input entity's ``included``: the entities its references name, for the
+        references the input includes (ADR 0105)."""
+        for reference, named in (entity.get("included") or {}).items():
+            if reference not in given.include:
+                self.add(
+                    "not-included",
+                    f"The input doesn't include {reference}.",
+                    (*at, reference),
+                    hint=_known("It includes", dict.fromkeys(given.include)),
+                )
+                continue
+            to = target_of(fields[reference]) if reference in fields else None
+            one = reference in fields and fields[reference].type == "ref"
+            if one and len(named) > 1:
+                self.add(
+                    "input-count",
+                    f"{reference} is one reference, so give at most one entity.",
+                    (*at, reference),
+                )
+            for index, other in enumerate(named):
+                type_name = other.get("type") or to
+                other_type = self.types.get(type_name or "")
+                if other_type is None or (to and not self._is_a(other_type, to)):
+                    self.add(
+                        "wrong-type",
+                        f"{type_name} isn't a {to}, which {reference} names.",
+                        (*at, reference, index, "type"),
+                    )
+                    continue
+                other_fields = self.fields(other_type)
+                for field_name in other["values"]:
+                    if field_name not in other_fields:
+                        self.add(
+                            "unknown-field",
+                            f"{type_name} has no field {field_name}.",
+                            (*at, reference, index, "values", field_name),
+                            hint=_known("Its fields", other_fields),
+                        )
+                self._files_named(other["values"], files, (*at, reference, index, "values"))
 
     def _files_named(self, values: Any, files: dict[str, str], at: DocPath) -> None:  # noqa: ANN401 - YAML data
         for path, key in _file_names(values, at):
@@ -309,6 +358,13 @@ def fields_of(entity_type: EntityType, types: Mapping[str, EntityType]) -> dict[
         out = {**current.current_fields, **out}
         current = types.get(current.extends) if current.extends else None
     return out
+
+
+def target_of(f: Field) -> str | None:
+    """The type a reference, or a list of them, names."""
+    if f.type == "list" and f.items is not None:
+        return f.items.to
+    return f.to
 
 
 def _file_names(values: Any, at: DocPath) -> Iterator[tuple[DocPath, str]]:  # noqa: ANN401 - YAML data
@@ -351,22 +407,41 @@ def run_input(
     action = test.action
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in action.inputs}
     n = 0
+
+    def made(entity: dict[str, Any], type_name: str) -> dict[str, Any]:
+        nonlocal n
+        n += 1
+        entity_type = every[type_name]
+        prefix = entity_type.hrid_prefix or "ENT"
+        return {
+            "id": _id(3, n),
+            "hrid": entity.get("hrid") or f"{prefix}-{n:0{entity_type.hrid_digits}d}",
+            "type": type_name,
+            "schema_version": entity_type.schema_version,
+            "revision": 1,
+            "values": _with_ids(entity["values"], file_ids),
+        }
+
     for name, entities in test.inputs.items():
+        put = action.inputs[name]
         for entity in entities:
-            n += 1
-            type_name = entity.get("type") or action.inputs[name].type
-            entity_type = every[type_name]
-            prefix = entity_type.hrid_prefix or "ENT"
-            inputs[name].append(
-                {
-                    "id": _id(3, n),
-                    "hrid": entity.get("hrid") or f"{prefix}-{n:0{entity_type.hrid_digits}d}",
-                    "type": type_name,
-                    "schema_version": entity_type.schema_version,
-                    "revision": 1,
-                    "values": _with_ids(entity["values"], file_ids),
-                }
-            )
+            document = made(entity, entity.get("type") or put.type)
+            if put.include:
+                # What its references name: each given one gets an ID, which the reference
+                # holds, as the server gives them (ADR 0105).
+                fields = fields_of(every[document["type"]], every)
+                given = entity.get("included") or {}
+                included: dict[str, list[dict[str, Any]]] = {}
+                for reference in put.include:
+                    to = target_of(fields[reference]) or ""
+                    named = given.get(reference) or []
+                    included[reference] = [made(o, o.get("type") or to) for o in named]
+                    if reference in given:
+                        ids = [o["id"] for o in included[reference]]
+                        list_of = fields[reference].type == "list"
+                        document["values"][reference] = ids if list_of else (ids or [None])[0]
+                document["included"] = included
+            inputs[name].append(document)
     packed = [
         entity
         for name, entities in inputs.items()
