@@ -230,6 +230,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/bundles/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An export */
+        get: operations["iki_server_api_bundles_get_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bundles/{export_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an export
+         * @description Redirects to the archive, for a few minutes. Each download is in the audit log.
+         */
+        get: operations["iki_server_api_bundles_download_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collections": {
         parameters: {
             query?: never;
@@ -1263,6 +1300,33 @@ export interface paths {
          *     way, since restricting it only protects them.
          */
         patch: operations["iki_server_api_projects_patch_project"];
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/bundles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's exports
+         * @description Newest first: who asked for each, why, and whether it's ready.
+         */
+        get: operations["iki_server_api_bundles_list_exports"];
+        put?: never;
+        /**
+         * Export a bundle
+         * @description Asks for a bundle of a collection or of entities, with every revision, the files they
+         *     name and who made them, and what they refer to in the project (ADR 0096). It's written in
+         *     the background (202): read the export until it's ready, then download it. Needs the
+         *     project's Admin role, and a token's admin scope.
+         */
+        post: operations["iki_server_api_bundles_start_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/projects/{project_id}/costs": {
@@ -4240,6 +4304,94 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** ExportCounts */
+        ExportCounts: {
+            /** Entities */
+            entities: number;
+            /** Files */
+            files: number;
+            /**
+             * Outside
+             * @description Entities its values refer to that aren't in it.
+             */
+            outside: number;
+            /** Revisions */
+            revisions: number;
+        };
+        /** ExportIn */
+        ExportIn: {
+            /**
+             * Collection
+             * @description A collection in the project, by ID or HRID. A static one's members go with it; a dynamic one's, what its search finds for you now in this project.
+             */
+            collection?: string | null;
+            /**
+             * Entities
+             * @description Or entities owned by the project, by ID or HRID.
+             */
+            entities?: string[];
+            /**
+             * Reason
+             * @description Why: the bundle, the export and the audit log keep it.
+             */
+            reason: string;
+        };
+        /** ExportOut */
+        ExportOut: {
+            counts: components["schemas"]["ExportCounts"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed, if it did.
+             */
+            error: string;
+            /**
+             * Expires At
+             * @description When its archive is deleted. Exports from a project under a legal hold are kept until the hold is released.
+             */
+            expires_at: string | null;
+            /** File Name */
+            file_name: string;
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /** Reason */
+            reason: string;
+            requested_by: components["schemas"]["PersonRef"];
+            /**
+             * Selection
+             * @description What was picked, in words.
+             */
+            selection: string;
+            /**
+             * Sha256
+             * @description The archive's SHA-256, once it's ready.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description The archive's size in bytes, once it's ready.
+             */
+            size: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "writing" | "ready" | "failed" | "expired";
+        };
         /** FieldOut */
         FieldOut: {
             /**
@@ -5087,6 +5239,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[ExportOut] */
+        Page_ExportOut_: {
+            /** Items */
+            items: components["schemas"]["ExportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[FileOut] */
         Page_FileOut_: {
             /** Items */
@@ -5458,6 +5620,11 @@ export interface components {
              * @description Add entities and files, and change its entities.
              */
             edit: boolean;
+            /**
+             * Export
+             * @description Export its entities, with their history, in a bundle for another deployment.
+             */
+            export: boolean;
             /**
              * Manage
              * @description Rename, describe, archive or restore it, and allow or restrict sharing.
@@ -8569,6 +8736,48 @@ export interface operations {
             };
         };
     };
+    iki_server_api_bundles_get_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_download_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Found */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     iki_server_api_collections_create_collection: {
         parameters: {
             query?: never;
@@ -10042,6 +10251,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_list_exports: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ExportOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_start_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportIn"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportOut"];
                 };
             };
         };

@@ -102,10 +102,21 @@ and each imported entity's page links to it. Imported runs are history: they
 read as they ran, and can be reproduced when this deployment has the
 plugin's commit, as any run can.
 
-Exports and imports are in the audit log (`bundle.exported`,
-`bundle.imported`), with the bundle's SHA-256. Exporting needs the
-project's Admin role, and importing an org admin who is also an Admin of
-the target project. Tokens need the `admin` scope.
+A project's Admin exports from its settings, or with
+`POST /projects/{id}/bundles`: a collection (a static one with its members,
+a dynamic one with what its search finds for them now in the project), or
+entities by ID or HRID, with a reason. A task writes the bundle in the
+background, and keeps it in the file store for a week, as GitHub keeps
+migration archives. Then `maintain` deletes it, unless the project is under
+a legal hold (ADR 0008). A download is a short-lived link
+(`GET /bundles/{id}/content`).
+
+Exports and imports are in the audit log, with the bundle's SHA-256:
+asking for an export (`bundle.export_requested`), writing it
+(`bundle.exported`), each download (`bundle.downloaded`), and importing
+(`bundle.imported`). Exporting needs the project's Admin role, and
+importing an org admin who is also an Admin of the target project. Tokens
+need the `admin` scope.
 
 ## Consequences
 

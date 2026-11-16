@@ -12,6 +12,8 @@
 - Deletes checkpoints no attempt will resume from (ADR 0069): those of ended runs, and those
   a newer one replaced, in case the task that deletes them didn't.
 - Deletes apps' drafts (ADR 0090) once they expire, a day after they're made.
+- Deletes exported bundles' archives (ADR 0096) a week after they're written, except in
+  projects under a legal hold.
 """
 
 from typing import Any
@@ -21,6 +23,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from iki_server.accounts.models import UserSession
+from iki_server.bundles import exports as bundle_exports
 from iki_server.entities import app_drafts
 from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
@@ -51,6 +54,7 @@ class Command(BaseCommand):
         artifacts_deleted = artifacts.delete_expired()
         checkpoints_deleted = checkpoints.delete_stale()
         drafts = app_drafts.prune()
+        bundles = bundle_exports.expire()
         detached = queue.end_detached()
         tombstoned = purge.tombstone_due()
         logger.info(
@@ -66,6 +70,7 @@ class Command(BaseCommand):
             deleted_artifacts=artifacts_deleted,
             deleted_checkpoints=checkpoints_deleted,
             expired_app_drafts=drafts,
+            expired_bundles=bundles,
             ended_detached_runs=detached,
             tombstoned_entities=tombstoned,
         )
@@ -77,6 +82,7 @@ class Command(BaseCommand):
             f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
             f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "
             f"run checkpoint(s) nothing will resume from, deleted {drafts} expired app "
-            f"draft(s), ended {detached} run(s) of detached plugins, and tombstoned "
+            f"draft(s), deleted {bundles} expired bundle(s), ended {detached} run(s) of "
+            f"detached plugins, and tombstoned "
             f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins."
         )

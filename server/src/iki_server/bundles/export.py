@@ -73,6 +73,8 @@ def write(
     by: User,
     reason: str,
     selection: str,
+    agent: Agent | None = None,
+    export_id: uuid.UUID | None = None,
 ) -> Exported:
     """Writes the bundle of ``picked`` (all owned by ``project``) and what they refer to in
     it to ``out``, and records it in the audit log."""
@@ -188,8 +190,10 @@ def write(
     audit.record(
         "bundle.exported",
         actor=by,
+        agent=agent,
         project=project,
         data={
+            **({"export": str(export_id)} if export_id else {}),
             "bundle": str(bundle_id),
             "sha256": sha,
             "size": size,

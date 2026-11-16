@@ -26,9 +26,16 @@ ADMIN = RUNNER | {
     A.PROJECT_MEMBERS_MANAGE,
     A.PROJECT_WEBHOOKS_MANAGE,
     A.PROJECT_TRIGGERS_MANAGE,
+    A.PROJECT_EXPORT,
 }
 #: Still allowed on an archived project.
-ARCHIVED_OK = {A.PROJECT_SEE, A.PROJECT_READ, A.PROJECT_MANAGE, A.PROJECT_MEMBERS_MANAGE}
+ARCHIVED_OK = {
+    A.PROJECT_SEE,
+    A.PROJECT_READ,
+    A.PROJECT_MANAGE,
+    A.PROJECT_MEMBERS_MANAGE,
+    A.PROJECT_EXPORT,
+}
 
 #: principal -> (organization actions, actions on the owning team, actions on the project)
 EXPECTED: dict[str, tuple[set[Action], set[Action], set[Action]]] = {

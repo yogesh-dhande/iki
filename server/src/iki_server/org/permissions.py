@@ -81,6 +81,9 @@ class Action(StrEnum):
     """The project's webhooks, which send its changes to other systems."""
     PROJECT_TRIGGERS_MANAGE = "project.triggers.manage"
     """Turn plugins' triggers on and off in the project: their runs are launched as you."""
+    PROJECT_EXPORT = "project.export"
+    """Export the project's entities, with their history, in a bundle for another deployment
+    (ADR 0096)."""
 
 
 ORG_ACTIONS = frozenset(
@@ -119,6 +122,8 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.ORG_WEBHOOKS_MANAGE: "webhooks",
     Action.PROJECT_WEBHOOKS_MANAGE: "webhooks",
     Action.PROJECT_TRIGGERS_MANAGE: "write",
+    # A bundle takes a project's data out of the deployment: tokens need the admin scope.
+    Action.PROJECT_EXPORT: "admin",
 }
 
 
@@ -177,6 +182,7 @@ _PROJECT_ACTION_ROLE = {
     Action.PROJECT_MEMBERS_MANAGE: ProjectRole.ADMIN,
     Action.PROJECT_WEBHOOKS_MANAGE: ProjectRole.ADMIN,
     Action.PROJECT_TRIGGERS_MANAGE: ProjectRole.ADMIN,
+    Action.PROJECT_EXPORT: ProjectRole.ADMIN,
 }
 
 #: Project actions an Org Admin may take without a project role.
@@ -189,6 +195,8 @@ _ARCHIVED_PROJECT_ACTIONS = frozenset(
         Action.PROJECT_READ,
         Action.PROJECT_MANAGE,
         Action.PROJECT_MEMBERS_MANAGE,
+        # Exporting only reads.
+        Action.PROJECT_EXPORT,
     }
 )
 

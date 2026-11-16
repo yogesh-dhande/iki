@@ -75,6 +75,11 @@ def kept_key(kind: str, upload_id: Any) -> str:  # noqa: ANN401 - a UUID
     return checkpoint_key(upload_id) if kind == "checkpoint" else artifact_key(upload_id)
 
 
+def bundle_key(export_id: Any) -> str:  # noqa: ANN401 - a UUID
+    """Where an export's archive is kept until it expires (ADR 0096)."""
+    return _key("bundles", f"{export_id}.tar.gz")
+
+
 def uri(key: str) -> str:
     return f"s3://{bucket()}/{key}"
 
@@ -319,6 +324,11 @@ def head(bucket_name: str, key: str, version: str = "") -> dict[str, Any] | None
 def copy(source: str, target: str) -> None:
     """Copies within the bucket; large objects are copied in parts, by the store."""
     client().copy({"Bucket": bucket(), "Key": source}, bucket(), target)
+
+
+def upload_file(path: Any, key: str, media_type: str) -> None:  # noqa: ANN401 - a Path
+    """Stores a local file, in parts if it's large."""
+    client().upload_file(str(path), bucket(), key, ExtraArgs={"ContentType": media_type})
 
 
 def delete(key: str) -> None:

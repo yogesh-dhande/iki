@@ -148,6 +148,8 @@ def server(
             IKI_COMPUTE_FILE=os.environ["IKI_COMPUTE_FILE"],
             AWS_ACCESS_KEY_ID=S3_ACCESS_KEY,
             AWS_SECRET_ACCESS_KEY=S3_SECRET_KEY,
+            # It signs the bundles it exports with the tests' key.
+            IKI_BUNDLE_SIGNING_KEY=settings.IKI_BUNDLE_SIGNING_KEY,
         )
         env["IKI_PUBLIC_URL"] = f"http://127.0.0.1:{env['IKI_PORT']}"
         for command in (["collectstatic", "--noinput"], ["setup_storage"]):
@@ -640,6 +642,45 @@ def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: S
     assert values["structure"] == stored.pk and values["chains"] == [protein.pk]
     page.get_by_role("link", name="1abc.pdb").wait_for()
     assert_clean(page)
+
+
+def test_exporting_a_collection_and_downloading_its_bundle(
+    open_as: Any, world: World, tasks: Server, tmp_path: Path
+) -> None:
+    from iki_server.bundles import keys, reading
+    from iki_server.entities import services as entities
+
+    protein: Any = entities.create(
+        world.users["admin"], "protein.Protein", world.project, {"sequence": "MKVL", "name": "ABL1"}
+    ).entity
+    kinases: Any = entities.create(
+        world.users["admin"],
+        "core.Collection",
+        world.project,
+        {"name": "Validated kinases", "members": [str(protein.pk)]},
+    ).entity
+    page = open_as("admin", "/projects/kinase-atlas/settings/")
+    exporting = page.locator("section", has=page.get_by_role("heading", name="Export", exact=True))
+    exporting.get_by_role("combobox", name="Collection").select_option(kinases.hrid)
+    exporting.get_by_role("textbox", name="Why").fill("For production")
+    assert_clean(page)
+    exporting.get_by_role("button", name="Export").click()
+    page.get_by_text(f"Exporting {kinases.hrid} (Validated kinases), with its members.").wait_for()
+    link = exporting.get_by_role("link", name=re.compile(r"^Download "))
+    link.wait_for(timeout=60_000)
+    exporting.get_by_text("2 entities, 2 revisions, 0 files").wait_for()
+    assert_clean(page)
+    with page.expect_download() as downloading:
+        link.click()
+    saved = tmp_path / downloading.value.suggested_filename
+    downloading.value.save_as(saved)
+    assert saved.name.startswith("kinase-atlas-") and saved.name.endswith(".iki-bundle.tar.gz")
+    public = keys.public_text(keys.private_key(settings.IKI_BUNDLE_SIGNING_KEY))
+    checked = reading.read(saved, {}, limit=1024**3)
+    source = checked.manifest["source"]["deployment"]
+    bundle = reading.read(saved, {source: (public,)}, limit=1024**3)
+    assert bundle.trusted_as == source
+    assert {e["hrid"] for e in bundle.lines("entities.ndjson")} == {kinases.hrid, protein.hrid}
 
 
 def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> None:

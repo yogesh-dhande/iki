@@ -10,7 +10,10 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { Schemas } from "@ikisci/sdk";
+
 import { queryClient } from "./api";
+import { entity } from "./entity-fixtures";
 import { createAppRouter } from "./router";
 import {
   answer,
@@ -48,6 +51,26 @@ function card(heading: string): HTMLElement {
   const found = screen.getByRole("heading", { name: heading }).closest("section");
   if (!found) throw new Error(`no ${heading} card`);
   return found;
+}
+
+function exported(overrides: Partial<Schemas["ExportOut"]> = {}): Schemas["ExportOut"] {
+  return {
+    id: "00000000-0000-7000-8000-0000000000e1",
+    project: PROJECT.id,
+    state: "ready",
+    requested_by: { id: ME.id, name: ME.name },
+    reason: "For production",
+    selection: "COL-000001 (Validated kinases), with its members",
+    error: "",
+    sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    size: 48_213,
+    counts: { entities: 3, revisions: 5, files: 1, outside: 0 },
+    file_name: "kinase-atlas-20261115-090000.iki-bundle.tar.gz",
+    created_at: "2026-11-15T09:00:00Z",
+    finished_at: "2026-11-15T09:00:04Z",
+    expires_at: "2026-11-22T09:00:04Z",
+    ...overrides,
+  };
 }
 
 function onProjectPage(overrides: Parameters<typeof project>[0] = {}) {
@@ -293,6 +316,7 @@ describe("a project", () => {
         manage: false,
         manage_members: true,
         manage_webhooks: false,
+        export: false,
         run: [],
       },
     });
@@ -357,6 +381,7 @@ describe("members", () => {
         manage: false,
         manage_members: false,
         manage_webhooks: false,
+        export: false,
         run: [],
       },
     });
@@ -497,6 +522,67 @@ describe("settings", () => {
     expect(calls("PATCH")[0]?.body).toEqual({ allow_sharing: true });
   });
 
+  it("exports a collection with a reason, and lists it until it's downloaded", async () => {
+    signedIn();
+    onProjectPage();
+    const collection = entity({
+      id: "00000000-0000-7000-8000-0000000000c1",
+      hrid: "COL-000001",
+      type: "core.Collection",
+      title: "Validated kinases",
+    });
+    answer("POST /api/v1/entities/search", page([collection]));
+    answer(`GET /api/v1/projects/${PROJECT.id}/bundles`, page([]));
+    const queued = exported({ state: "queued", sha256: "", size: null, counts: null });
+    answer(`POST /api/v1/projects/${PROJECT.id}/bundles`, respond(202, queued));
+    const { user } = await renderApp("/projects/kinase-atlas/settings/");
+    const exporting = card("Export");
+    await within(exporting).findByRole("combobox", { name: "Collection" });
+    await user.click(within(exporting).getByRole("button", { name: "Export" }));
+    expect(within(exporting).getByRole("textbox", { name: "Why" })).toHaveAccessibleDescription(
+      /Say why you’re exporting it/,
+    );
+    expect(calls("POST", `/api/v1/projects/${PROJECT.id}/bundles`)).toEqual([]);
+    await user.selectOptions(
+      within(exporting).getByRole("combobox", { name: "Collection" }),
+      "COL-000001",
+    );
+    await user.type(within(exporting).getByRole("textbox", { name: "Why" }), "For production");
+    answer(`GET /api/v1/projects/${PROJECT.id}/bundles`, page([exported()]));
+    await user.click(within(exporting).getByRole("button", { name: "Export" }));
+    expect(
+      await screen.findByText(
+        "Exporting COL-000001 (Validated kinases), with its members. It’s listed below once it’s written.",
+      ),
+    ).toBeVisible();
+    expect(calls("POST", `/api/v1/projects/${PROJECT.id}/bundles`)[0]?.body).toEqual({
+      collection: "COL-000001",
+      reason: "For production",
+    });
+    const download = await within(exporting).findByRole("link", { name: /^Download/ });
+    expect(download).toHaveAccessibleName(
+      "Download kinase-atlas-20261115-090000.iki-bundle.tar.gz",
+    );
+    expect(download).toHaveAttribute("href", `/api/v1/bundles/${queued.id}/content`);
+    expect(within(exporting).getByText(/3 entities, 5 revisions, 1 file/)).toBeVisible();
+  });
+
+  it("says why an export failed", async () => {
+    signedIn();
+    onProjectPage();
+    answer("POST /api/v1/entities/search", page([]));
+    answer(
+      `GET /api/v1/projects/${PROJECT.id}/bundles`,
+      page([exported({ state: "failed", error: "This deployment has no bundle signing key." })]),
+    );
+    await renderApp("/projects/kinase-atlas/settings/");
+    const exporting = card("Export");
+    expect(await within(exporting).findByText("Failed")).toBeVisible();
+    expect(within(exporting).getByText("This deployment has no bundle signing key.")).toBeVisible();
+    expect(within(exporting).getByText(/Make a collection of what you want to send/)).toBeVisible();
+    expect(within(exporting).queryByRole("link", { name: /Download/ })).toBeNull();
+  });
+
   it("is for Admins only", async () => {
     signedIn();
     onProjectPage({
@@ -507,6 +593,7 @@ describe("settings", () => {
         manage: false,
         manage_members: false,
         manage_webhooks: false,
+        export: false,
         run: [],
       },
     });
@@ -747,6 +834,7 @@ describe("webhooks", () => {
         manage: false,
         manage_members: false,
         manage_webhooks: false,
+        export: false,
         run: [],
       },
     });

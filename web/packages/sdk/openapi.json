@@ -3346,6 +3346,193 @@
         "title": "EventTypeOut",
         "type": "object"
       },
+      "ExportCounts": {
+        "properties": {
+          "entities": {
+            "title": "Entities",
+            "type": "integer"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "outside": {
+            "description": "Entities its values refer to that aren't in it.",
+            "title": "Outside",
+            "type": "integer"
+          },
+          "revisions": {
+            "title": "Revisions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entities",
+          "revisions",
+          "files",
+          "outside"
+        ],
+        "title": "ExportCounts",
+        "type": "object"
+      },
+      "ExportIn": {
+        "properties": {
+          "collection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A collection in the project, by ID or HRID. A static one's members go with it; a dynamic one's, what its search finds for you now in this project.",
+            "title": "Collection"
+          },
+          "entities": {
+            "description": "Or entities owned by the project, by ID or HRID.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Entities",
+            "type": "array"
+          },
+          "reason": {
+            "description": "Why: the bundle, the export and the audit log keep it.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ExportIn",
+        "type": "object"
+      },
+      "ExportOut": {
+        "properties": {
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed, if it did.",
+            "title": "Error",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its archive is deleted. Exports from a project under a legal hold are kept until the hold is released.",
+            "title": "Expires At"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "selection": {
+            "description": "What was picked, in words.",
+            "title": "Selection",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The archive's SHA-256, once it's ready.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The archive's size in bytes, once it's ready.",
+            "title": "Size"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "writing",
+              "ready",
+              "failed",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "state",
+          "requested_by",
+          "reason",
+          "selection",
+          "error",
+          "sha256",
+          "size",
+          "counts",
+          "file_name",
+          "created_at",
+          "finished_at",
+          "expires_at"
+        ],
+        "title": "ExportOut",
+        "type": "object"
+      },
       "FieldOut": {
         "properties": {
           "computed": {
@@ -5202,6 +5389,35 @@
         "title": "Page[EntityOut]",
         "type": "object"
       },
+      "Page_ExportOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ExportOut]",
+        "type": "object"
+      },
       "Page_FileOut_": {
         "properties": {
           "items": {
@@ -6182,6 +6398,11 @@
             "title": "Edit",
             "type": "boolean"
           },
+          "export": {
+            "description": "Export its entities, with their history, in a bundle for another deployment.",
+            "title": "Export",
+            "type": "boolean"
+          },
           "manage": {
             "description": "Rename, describe, archive or restore it, and allow or restrict sharing.",
             "title": "Manage",
@@ -6223,6 +6444,7 @@
           "manage",
           "manage_members",
           "manage_webhooks",
+          "export",
           "run"
         ],
         "title": "ProjectCan",
@@ -13146,6 +13368,82 @@
         ]
       }
     },
+    "/api/v1/bundles/{export_id}": {
+      "get": {
+        "operationId": "iki_server_api_bundles_get_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An export",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
+    "/api/v1/bundles/{export_id}/content": {
+      "get": {
+        "description": "Redirects to the archive, for a few minutes. Each download is in the audit log.",
+        "operationId": "iki_server_api_bundles_download_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download an export",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
     "/api/v1/collections": {
       "post": {
         "description": "Keep the search (a dynamic collection), or the members it finds for you now, in its\norder (a fixed list). Either way it's checked as you.",
@@ -16382,6 +16680,130 @@
         "summary": "Rename, describe, archive or restore, or allow or restrict sharing",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/bundles": {
+      "get": {
+        "description": "Newest first: who asked for each, why, and whether it's ready.",
+        "operationId": "iki_server_api_bundles_list_exports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ExportOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The project's exports",
+        "tags": [
+          "bundles"
+        ]
+      },
+      "post": {
+        "description": "Asks for a bundle of a collection or of entities, with every revision, the files they\nname and who made them, and what they refer to in the project (ADR 0096). It's written in\nthe background (202): read the export until it's ready, then download it. Needs the\nproject's Admin role, and a token's admin scope.",
+        "operationId": "iki_server_api_bundles_start_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Export a bundle",
+        "tags": [
+          "bundles"
         ]
       }
     },

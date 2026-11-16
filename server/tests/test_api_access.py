@@ -161,6 +161,25 @@ def linked_into_archived(w: World) -> tuple[str, Any]:
     return f"/entities/{found.pk}/projects/{w.archived.pk}", None
 
 
+def export_request(w: World) -> tuple[str, Any]:
+    hrid = _entity(w).hrid
+    return f"/projects/{w.project.pk}/bundles", {"entities": [hrid], "reason": "For production"}
+
+
+def bundle_export(suffix: str = "") -> Build:
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.bundles import exports
+        from iki_server.bundles.models import BundleExport
+
+        made = exports.start(
+            w.users["admin"], w.project, reason="For production", entities=[_entity(w).hrid]
+        )
+        BundleExport.objects.filter(pk=made.pk).update(state="ready", sha256="0" * 64, size=1)
+        return f"/bundles/{made.pk}{suffix}", None
+
+    return build
+
+
 def _protein(w: World) -> Any:
     from iki_server.entities import services as entities
 
@@ -944,6 +963,10 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         project("/trigger-firings"),
         readers(200, org_admin=403),
     ),
+    ("GET", "/projects/{project_id}/bundles", project("/bundles"), visible(403, admin=200)),
+    ("POST", "/projects/{project_id}/bundles", export_request, visible(403, admin=202)),
+    ("GET", "/bundles/{export_id}", bundle_export(), row(404, admin=200)),
+    ("GET", "/bundles/{export_id}/content", bundle_export("/content"), row(404, admin=302)),
     ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),
     (
         "POST",
@@ -1069,7 +1092,9 @@ def test_operation_matrix(
     expected: dict[str, int],
     request: pytest.FixtureRequest,
 ) -> None:
-    if template.startswith(("/uploads", "/files", "/registrations")):
+    if template.startswith(("/uploads", "/files", "/registrations", "/bundles")) or (
+        template.endswith("/bundles")
+    ):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")
         settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]
