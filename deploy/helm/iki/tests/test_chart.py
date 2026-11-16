@@ -1335,3 +1335,113 @@ def test_machines_reach_the_server_over_https_and_are_tagged_as_this_deployments
     error = render(values, ok=False)
     assert isinstance(error, str)
     assert message in error
+
+
+AWS = CHART.parents[1] / "aws" / "production"
+
+
+def _merged(*files: Path) -> dict[str, Any]:
+    """Values files merged as Helm merges them: maps key by key, the later winning."""
+
+    def merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+        out = dict(base)
+        for key, value in over.items():
+            both = isinstance(value, dict) and isinstance(out.get(key), dict)
+            out[key] = merge(out[key], value) if both else value
+        return out
+
+    merged: dict[str, Any] = {}
+    for file in files:
+        merged = merge(merged, yaml.safe_load(file.read_text()))
+    return merged
+
+
+def _secrets_read(node: Any) -> Iterator[str]:
+    """Every Secret a manifest names: in env (secretKeyRef, secretRef) and volumes."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("secretKeyRef", "secretRef") and isinstance(value, dict):
+                yield value["name"]
+            elif key == "secret" and isinstance(value, dict) and "secretName" in value:
+                yield value["secretName"]
+            else:
+                yield from _secrets_read(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _secrets_read(item)
+
+
+def test_the_aws_production_values_render_a_locked_down_deployment() -> None:
+    # The values deploy/aws/production writes for its test inputs (its own test checks
+    # they're what it writes), with values-production.yaml, as the runbook installs them.
+    values = _merged(AWS / "values-production.yaml", AWS / "tests" / "helm-values.yaml")
+    docs = manifests(values)
+
+    ingress = named(docs, "Ingress", "iki-web")
+    assert ingress["spec"]["ingressClassName"] == "alb"
+    (rule,) = ingress["spec"]["rules"]
+    assert rule["host"] == "iki.example.com"
+    assert rule["http"]["paths"][0]["backend"]["service"] == {
+        "name": "iki-web",
+        "port": {"name": "http"},
+    }
+    notes = ingress["metadata"]["annotations"]
+    assert notes["alb.ingress.kubernetes.io/listen-ports"] == '[{"HTTPS":443}]'
+    assert notes["alb.ingress.kubernetes.io/target-type"] == "ip"
+
+    # The ALB reaches web pods from its subnets, and nothing else does.
+    web_in = named(docs, "NetworkPolicy", "iki-web-ingress")["spec"]["ingress"]
+    peers = [p["ipBlock"]["cidr"] for rule in web_in for p in rule.get("from", [])]
+    assert peers == ["10.40.192.0/22", "10.40.196.0/22", "10.40.200.0/22"]
+
+    # Pods with an AWS role reach the node's Pod Identity agent, and only they do.
+    identity = named(docs, "NetworkPolicy", "iki-pod-identity")["spec"]
+    (components,) = [
+        e["values"]
+        for e in identity["podSelector"]["matchExpressions"]
+        if e["key"] == "app.kubernetes.io/component"
+    ]
+    assert components == ["web", "tasks", "maintenance"]
+    assert [p["ipBlock"]["cidr"] for p in identity["egress"][0]["to"]] == [
+        "169.254.170.23/32",
+        "fd00:ec2::23/128",
+    ]
+    assert identity["egress"][0]["ports"] == [{"protocol": "TCP", "port": 80}]
+
+    # Every Secret a pod reads is one External Secrets makes, or the database's CA.
+    made = {
+        values["secretKey"]["existingSecret"],
+        values["encryptionKeys"]["existingSecret"],
+        values["bundles"]["signingKey"]["existingSecret"],
+        values["runSecrets"]["existingSecret"],
+        values["database"]["existingSecret"],
+        values["database"]["migrator"]["existingSecret"],
+        "iki-database-ca",
+    }
+    names = set(_secrets_read(docs))
+    assert {"iki-secret-key", "iki-database", "iki-database-migrator"} <= names
+    assert names <= made, names - made
+
+    # The autoscaler owns web's replicas: at least 3, one per zone.
+    assert "replicas" not in named(docs, "Deployment", "iki-web")["spec"]
+    assert named(docs, "HorizontalPodAutoscaler", "iki-web")["spec"]["minReplicas"] == 3
+    assert named(docs, "PodDisruptionBudget", "iki-web")["spec"]["minAvailable"] == 2
+    assert named(docs, "Deployment", "iki-egress-proxy")["spec"]["replicas"] == 2
+
+
+def test_an_ingress_routes_public_urls_host_when_asked() -> None:
+    assert not by_kind(manifests(), "Ingress")
+    docs = manifests({"ingress": {"enabled": True, "className": "nginx", "tlsSecret": "iki-tls"}})
+    spec = named(docs, "Ingress", "iki-web")["spec"]
+    assert spec["ingressClassName"] == "nginx"
+    assert spec["rules"][0]["host"] == "iki.example.com"
+    assert spec["tls"] == [{"hosts": ["iki.example.com"], "secretName": "iki-tls"}]
+
+
+def test_service_accounts_that_reach_object_storage_take_annotations() -> None:
+    role = {"eks.amazonaws.com/role-arn": "arn:aws:iam::123456789012:role/iki-server"}
+    docs = manifests({"serviceAccount": {"annotations": role}})
+    for name in ("iki-web", "iki-tasks", "iki-maintenance"):
+        assert named(docs, "ServiceAccount", name)["metadata"]["annotations"] == role
+    # No AWS role means no route to the Pod Identity agent.
+    assert "iki-pod-identity" not in [p["metadata"]["name"] for p in by_kind(docs, "NetworkPolicy")]

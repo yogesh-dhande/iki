@@ -1,0 +1,34 @@
+# Copy to terraform.tfvars and fill in. Nothing here is secret.
+
+region    = "eu-west-1"
+dr_region = "eu-central-1"
+zones     = ["eu-west-1a", "eu-west-1b", "eu-west-1c"]
+
+kubernetes_version   = "1.35"
+admin_principal_arns = ["arn:aws:iam::123456789012:role/platform-admins"]
+
+# From deploy/aws/bootstrap: tofu output state_kms_key_arn.
+state_kms_key_arn = "arn:aws:kms:eu-west-1:123456789012:key/..."
+
+public_host     = "iki.example.com"
+certificate_arn = "arn:aws:acm:eu-west-1:123456789012:certificate/..."
+
+# Reachable only from your network, through a VPN or Direct Connect:
+# internal = true
+# Or from the internet, but only your company's ranges:
+# ingress_cidrs = ["203.0.113.0/24"]
+
+# The VM tier (ADR 0074), pulling from your ECR repositories:
+# vm_tier = {
+#   ecr_repository_arns = ["arn:aws:ecr:eu-west-1:123456789012:repository/iki/worker"]
+# }
+
+# Shared reference data on FSx for Lustre (ADR 0077):
+# fsx = {
+#   reference_bucket        = { arn = "arn:aws:s3:::acme-reference-data" }
+#   root_squash_except_nids = ["10.40.1.5@tcp"]
+# }
+
+tags = {
+  "cost-centre" = "research-it"
+}

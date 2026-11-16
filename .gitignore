@@ -49,3 +49,8 @@ server/src/iki_server/expressions/iki_wasm.wasm
 *.tfstate
 *.tfstate.*
 *.tfplan
+
+# deploy/aws/production: a deployment's own inputs and what it writes out.
+deploy/aws/production/terraform.tfvars
+deploy/aws/production/backend.hcl
+deploy/aws/production/values-aws.yaml

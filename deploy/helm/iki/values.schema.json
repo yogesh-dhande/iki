@@ -334,6 +334,17 @@
         }
       }
     },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "database": {
       "type": "object",
       "required": ["existingSecret", "uriKey", "sslmode", "migrator"],
@@ -418,6 +429,29 @@
         },
         "devServer": {
           "type": "boolean"
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "host": {
+          "type": "string"
+        },
+        "tlsSecret": {
+          "type": "string"
         }
       }
     },

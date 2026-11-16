@@ -66,6 +66,8 @@ variable "node_pools" {
     gpu            = optional(bool, false)
     capacity_type  = optional(string, "ON_DEMAND")
   }))
+  # Null keeps these defaults, so a root can pass its own variable through.
+  nullable = false
   default = {
     system = { instance_types = ["m7i.xlarge"], min_size = 3, max_size = 6, disk_size_gib = 50 }
     runs   = { instance_types = ["m7i.2xlarge"], min_size = 1, max_size = 20, disk_size_gib = 200 }

@@ -48,7 +48,11 @@ holds one module per concern, each a few hundred lines Iki's tests cover:
 
 `deploy/aws/production/` composes them into one deployment: a starting
 point the platform team copies, with the chart's production values beside
-it. We use no third-party modules. The community's are good, but each
+it. What the chart must be told about the infrastructure (the bucket, the
+Secrets' names, the ALB's settings, the networks pods may reach) comes out
+of OpenTofu as a values file, so it can't drift from what was applied. Its
+README is the runbook. `deploy/aws/bootstrap/` makes the state's bucket and
+key first. We use no third-party modules. The community's are good, but each
 brings far more than Iki uses into what a team must review and qualify,
 and a new release of one changes what is applied. The AWS provider is
 pinned, and its checksums are in the committed lock file.
@@ -77,7 +81,10 @@ pinned, and its checksums are in the committed lock file.
 
 **Pods get AWS credentials through EKS Pod Identity**, not IAM roles for
 service accounts. It needs no OIDC provider and no annotations in the
-chart, and a role's trust policy names only the Pod Identity service.
+chart, and a role's trust policy names only the Pod Identity service. Pods
+reach the node's agent for them at a link-local address, which the chart's
+NetworkPolicies otherwise keep out; `networkPolicy.egress.podIdentity`
+lets only the pods that have a role reach it.
 Each pod that calls AWS gets its own role: web pods, task runners and the
 maintenance job reach the files bucket under Iki's prefix and its key,
 each through a role of its own so CloudTrail says which did what; the
@@ -105,12 +112,20 @@ artifact Iki expires stays in the copy unless it's deleted there too.
 Restoring takes a new cluster and a Helm install from the same code. The
 disaster-recovery runbook and its automated restore test come in step 49.
 
+**Iki is served through an ALB** that the AWS Load Balancer Controller
+makes from the chart's Ingress: HTTPS only, TLS 1.2 or later, malformed
+headers dropped, deletion protection on, sending straight to web pods,
+which admit traffic only from its subnets. It can be internal, or limited
+to the company's networks, and take a WAF web ACL.
+
 **Tested without an AWS account.** `tofu test` runs each module against a
 mocked provider and asserts the properties above: a public subnet never
 holds nodes, the database is Multi-AZ and encrypted, the bucket blocks
-public access, a pod's role can't reach another deployment's bucket. CI
-also runs `tofu fmt`, `tofu validate`, and Checkov's AWS checks, with each
-skipped check given a reason in the code.
+public access, a pod's role can't reach another deployment's bucket. The
+production root's test checks the chart's values it writes against a file
+the chart's own tests render the chart with. CI also runs `tofu fmt`,
+`tofu validate`, and Checkov's AWS checks, with each skipped check given a
+reason in the code.
 
 ## Consequences
 

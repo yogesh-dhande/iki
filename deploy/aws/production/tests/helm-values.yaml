@@ -1,0 +1,72 @@
+# What deploy/aws/production's helm_values output is for its test inputs: its
+# test checks that, and the chart's tests render the chart with it.
+"allowedHosts":
+  - "iki.example.com"
+"backendWorkers":
+  "nodeSelector":
+    "iki.ikisci.org/pool": "runs"
+  "tolerations":
+    - "effect": "NoSchedule"
+      "key": "iki.ikisci.org/pool"
+      "operator": "Equal"
+      "value": "runs"
+"bundles":
+  "signingKey":
+    "existingSecret": "iki-bundle-signing-key"
+"database":
+  "caSecret":
+    "key": "ca.crt"
+    "name": "iki-database-ca"
+  "existingSecret": "iki-database"
+  "migrator":
+    "existingSecret": "iki-database-migrator"
+"encryptionKeys":
+  "existingSecret": "iki-encryption-keys"
+"files":
+  "bucket": "iki-test-files-123456789012"
+  "prefix": ""
+  "region": "eu-west-1"
+"ingress":
+  "annotations":
+    "alb.ingress.kubernetes.io/certificate-arn": "arn:aws:acm:eu-west-1:123456789012:certificate/abc"
+    "alb.ingress.kubernetes.io/healthcheck-path": "/healthz/ready"
+    "alb.ingress.kubernetes.io/inbound-cidrs": "0.0.0.0/0"
+    "alb.ingress.kubernetes.io/listen-ports": '[{"HTTPS":443}]'
+    "alb.ingress.kubernetes.io/load-balancer-attributes": "routing.http.drop_invalid_header_fields.enabled=true,deletion_protection.enabled=true,idle_timeout.timeout_seconds=60"
+    "alb.ingress.kubernetes.io/scheme": "internet-facing"
+    "alb.ingress.kubernetes.io/ssl-policy": "ELBSecurityPolicy-TLS13-1-2-Res-2021-06"
+    "alb.ingress.kubernetes.io/subnets": "subnet-0000000000public,subnet-0000000000public,subnet-0000000000public"
+    "alb.ingress.kubernetes.io/target-type": "ip"
+  "className": "alb"
+  "enabled": true
+  "host": "iki.example.com"
+"networkPolicy":
+  "egress":
+    "database":
+      "to":
+        - "ipBlock":
+            "cidr": "10.40.208.0/22"
+        - "ipBlock":
+            "cidr": "10.40.212.0/22"
+        - "ipBlock":
+            "cidr": "10.40.216.0/22"
+    "podIdentity":
+      "to":
+        - "ipBlock":
+            "cidr": "169.254.170.23/32"
+        - "ipBlock":
+            "cidr": "fd00:ec2::23/128"
+  "ingressFrom":
+    - "ipBlock":
+        "cidr": "10.40.192.0/22"
+    - "ipBlock":
+        "cidr": "10.40.196.0/22"
+    - "ipBlock":
+        "cidr": "10.40.200.0/22"
+"publicUrl": "https://iki.example.com"
+"runSecrets":
+  "existingSecret": "iki-run-secrets"
+"secretKey":
+  "existingSecret": "iki-secret-key"
+"vmTier":
+  "enabled": false

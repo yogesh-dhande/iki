@@ -38,6 +38,11 @@ output "database_subnet_ids" {
   value       = aws_subnet.database[*].id
 }
 
+output "database_subnet_cidrs" {
+  description = "The database subnets' ranges: what pods may reach the database at (the chart's networkPolicy.egress.database)."
+  value       = aws_subnet.database[*].cidr_block
+}
+
 output "nat_public_ips" {
   description = "The addresses traffic from the VPC leaves by, for allowlists elsewhere."
   value       = aws_eip.nat[*].public_ip

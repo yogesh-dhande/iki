@@ -102,6 +102,31 @@ spec:
         - { protocol: TCP, port: {{ . }} }
         {{- end }}
 {{- end }}
+{{- if $egress.podIdentity.to }}
+---
+# Pods with an AWS role reach the node's EKS Pod Identity agent for its
+# credentials. Workers, runs and the migrate Job have no role, so don't.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "iki.fullname" $ }}-pod-identity
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [{{ include "iki.name" $ }}] }
+      - { key: app.kubernetes.io/instance, operator: In, values: [{{ $.Release.Name }}] }
+      - { key: app.kubernetes.io/component, operator: In, values: [web, tasks, maintenance{{ if $.Values.vmTier.enabled }}, provisioner{{ end }}] }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- toYaml $egress.podIdentity.to | nindent 8 }}
+      ports:
+        {{- range $egress.podIdentity.ports }}
+        - { protocol: TCP, port: {{ . }} }
+        {{- end }}
+{{- end }}
 {{- if and .Values.oauth.clientMetadataDocuments $egress.clientMetadataDocuments.to }}
 ---
 # Only web pods fetch apps' Client ID Metadata Documents.

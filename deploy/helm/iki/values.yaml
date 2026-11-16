@@ -130,6 +130,15 @@ email:
   # inside your own network.
   allowPlaintext: false
 
+serviceAccount:
+  # Annotations on the service accounts of the pods that reach object storage
+  # (web, tasks, maintenance), such as an IAM role for EKS IAM roles for
+  # service accounts:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/iki-server
+  # EKS Pod Identity needs none: deploy/aws's access module binds a role to
+  # each service account.
+  annotations: {}
+
 webhooks:
   # Project Admins and Org Admins add webhooks in Iki; task runners send them.
   # Iki refuses receivers at private, loopback and link-local addresses unless
@@ -162,7 +171,8 @@ files:
   # address inside the cluster. Signed URLs for workers name it.
   workerEndpoint: ""
   # A Secret holding an access key. Leave it empty on AWS and give the
-  # service account an IAM role instead (serviceAccount.annotations).
+  # service accounts an IAM role instead: EKS Pod Identity (deploy/aws), or
+  # serviceAccount.annotations.
   credentials:
     existingSecret: ""
     accessKeyIdKey: access-key-id
@@ -242,6 +252,22 @@ web:
   tolerations: []
   affinity: {}
   podAnnotations: {}
+
+ingress:
+  # An Ingress routing publicUrl's host to the web pods. Off: route to the
+  # iki-web Service yourself. Admit your controller in networkPolicy.ingressFrom.
+  enabled: false
+  # Your ingress controller's class, such as alb (the AWS Load Balancer
+  # Controller) or nginx.
+  className: ""
+  # Its settings, such as the ALB's certificate and TLS policy;
+  # deploy/aws/production writes those for AWS.
+  annotations: {}
+  # Defaults to publicUrl's host.
+  host: ""
+  # A Secret with the certificate, for controllers that serve it from the
+  # cluster (ingress-nginx). Empty for an ALB, which serves ACM's.
+  tlsSecret: ""
 
 tasks:
   # Runs background tasks (email, webhooks, ...) from the Postgres queue.
@@ -567,6 +593,14 @@ networkPolicy:
             except:
               - fe80::/10
               - fd00:ec2::254/128
+    # Pods with an AWS role (web, tasks, maintenance, and the provisioner with
+    # vmTier) get its credentials from the node's EKS Pod Identity agent, at a
+    # link-local address the rules above keep out. Nothing by default; on EKS
+    # with Pod Identity:
+    #   to: [{ipBlock: {cidr: 169.254.170.23/32}}, {ipBlock: {cidr: fd00:ec2::23/128}}]
+    podIdentity:
+      ports: [80]
+      to: []
     database:
       ports: [5432]
       to: []

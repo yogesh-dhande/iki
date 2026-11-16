@@ -1,0 +1,37 @@
+{{- if .Values.ingress.enabled }}
+{{- $host := .Values.ingress.host | default (urlParse .Values.publicUrl).host }}
+# Routes publicUrl's host to the web pods, through your ingress controller: the AWS
+# Load Balancer Controller's ALB (className alb), ingress-nginx, or another. Admit the
+# controller's traffic in networkPolicy.ingressFrom.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "iki.fullname" . }}-web
+  labels:
+    {{- include "iki.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tlsSecret }}
+  tls:
+    - hosts: [{{ $host | quote }}]
+      secretName: {{ . }}
+  {{- end }}
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "iki.fullname" . }}-web
+                port:
+                  name: http
+{{- end }}

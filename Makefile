@@ -46,12 +46,13 @@ check-chart: ## Helm lint (strict) with the minimum required values
 	  --set database.migrator.existingSecret=m
 	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml
 
-#: The AWS modules (ADR 0097): each is checked on its own, as the root a team copies it into.
-INFRA_MODULES := $(wildcard deploy/aws/modules/*)
+#: The AWS modules (ADR 0097), each checked on its own as the root a team copies it into,
+#: and the bootstrap and production roots that put them together.
+INFRA_MODULES := $(wildcard deploy/aws/modules/*) deploy/aws/bootstrap deploy/aws/production
 CHECKOV_VERSION := 3.4.5
 
 .PHONY: check-infra
-check-infra: ## OpenTofu: fmt, validate and tests (a mocked AWS) for the AWS modules; Checkov's checks
+check-infra: ## OpenTofu: fmt, validate and tests (a mocked AWS) for the AWS modules and roots; Checkov's checks
 	tofu fmt -recursive -check -diff deploy/aws
 	@# Secrets' values never enter OpenTofu's state: no module writes one (ADR 0097).
 	@! grep -rnE 'resource "aws_secretsmanager_secret_version"|resource "random_(password|bytes|string)"' deploy/aws \

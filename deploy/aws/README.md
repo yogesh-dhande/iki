@@ -16,8 +16,10 @@ team can read and qualify every resource they make.
 | [`vm-tier`](modules/vm-tier)   | The VM tier's machine role and instance profile, their disks' key, and a security group that lets nothing in               |
 | [`fsx`](modules/fsx)           | Optional: FSx for Lustre for shared reference data, encrypted, root squashed, a bucket linked read-only                    |
 
-A production deployment that puts them together, with the chart's values,
-comes next (roadmap step 48).
+[`production`](production) puts them together into one deployment, with
+the chart's production values, and its README is the runbook: from an
+empty account to Iki serving, in five steps. [`bootstrap`](bootstrap)
+makes the bucket and key its state is kept in, first.
 
 The database, storage and secrets modules take two AWS providers: the
 default one, and `aws.dr` for the disaster-recovery region their copies go
@@ -25,17 +27,12 @@ to.
 
 ## Secrets
 
-OpenTofu makes the Secrets Manager entries, never their values. Once the
-`secrets` module is applied, generate the values straight into Secrets
-Manager:
-
-```console
-deploy/aws/scripts/put-secrets.sh iki-production <the database module's address>
-```
-
-It never overwrites a secret that has a value, so it's safe to run again.
-External Secrets then copies them into the cluster, with the role the
-`access` module gives it.
+OpenTofu makes the Secrets Manager entries, never their values.
+`scripts/put-secrets.sh` generates the values straight into Secrets
+Manager, and `scripts/create-database-roles.sh` creates the database's two
+roles with them. Neither overwrites what exists, so both are safe to run
+again. External Secrets then copies the secrets into the cluster, with the
+role the `access` module gives it. The production runbook runs all three.
 
 ## What they promise
 
@@ -69,7 +66,8 @@ External Secrets then copies them into the cluster, with the role the
 make check-infra
 ```
 
-It runs `tofu fmt`, `tofu validate` and `tofu test` for each module, then
+It runs `tofu fmt`, `tofu validate` and `tofu test` for each module and
+root, then
 Checkov's AWS checks. The tests run against a mocked AWS provider, so they
 need no account or credentials: they check what would be applied (a
 database subnet has no route out, the API isn't open to the internet), not
