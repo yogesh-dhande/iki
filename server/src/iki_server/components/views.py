@@ -31,6 +31,7 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET
 
 from iki_server.components import installed
+from iki_server.web import frames
 from iki_spec.model import Component
 
 logger = structlog.get_logger("iki.components")
@@ -83,6 +84,7 @@ def _page(label: str, element: str, module: str, integrity: str) -> str:
         '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="color-scheme" content="light dark">\n'
         f"<title>{escape(label)}</title>\n"
+        f"{frames.HARDEN_TAG}"
         "<style>html { font-family: system-ui, sans-serif; } body { margin: 0; }</style>\n"
         f'<script type="application/json" id="iki-component">{config}</script>\n'
         f'<script type="module" src="{escape(module)}" integrity="{integrity}" '
@@ -103,7 +105,12 @@ def frame(request: HttpRequest, name: str, digest: str) -> HttpResponse:
     response._csp_config = {  # type: ignore[attr-defined]
         "default-src": [CSP.NONE],
         # The bridge and the module; WebAssembly may be compiled, nothing else evaluated.
-        "script-src": [f"'{_hash_source(BRIDGE.encode())}'", module, CSP.WASM_UNSAFE_EVAL],
+        "script-src": [
+            frames.HARDEN_SOURCE,
+            f"'{_hash_source(BRIDGE.encode())}'",
+            module,
+            CSP.WASM_UNSAFE_EVAL,
+        ],
         # Its own code builds its styles: there's nothing of anyone else's to restyle.
         "style-src": [CSP.UNSAFE_INLINE],
         "img-src": ["data:", "blob:"],

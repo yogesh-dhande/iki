@@ -14,7 +14,7 @@ from test_api_entities import api_as
 from test_web_security import csp_directives
 from test_workers import world
 
-from iki_server.web import static_headers, viewers
+from iki_server.web import frames, static_headers, viewers
 
 __all__ = ["world"]
 
@@ -51,11 +51,14 @@ def test_the_structure_frame_runs_mol_star_and_nothing_else() -> None:
     module = f"https://testserver/static/{name}"
     digest = hashlib.sha384(FAKE_VIEWER_FILES[name]).digest()
     integrity = "sha384-" + base64.b64encode(digest).decode()
+    # First, what takes WebRTC and frames away (ADR 0102); then Mol*.
     assert re.findall(r"<script[^>]*>", html) == [
-        f'<script type="module" src="{module}" integrity="{integrity}" crossorigin="anonymous">'
+        "<script>",
+        f'<script type="module" src="{module}" integrity="{integrity}" crossorigin="anonymous">',
     ]
+    assert frames.HARDEN_TAG in html
     csp = csp_directives(page[CSP.HEADER_ENFORCE])
-    assert csp["script-src"] == [module]
+    assert csp["script-src"] == [frames.HARDEN_SOURCE, module]
     assert csp["default-src"] == ["'none'"]
     assert csp["connect-src"] == ["'none'"]
     assert csp["form-action"] == ["'none'"]

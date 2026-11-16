@@ -29,6 +29,7 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET
 
 from iki_server.components.views import public_origin
+from iki_server.web import frames
 
 MANIFEST = "viewers/manifest.json"
 STRUCTURE_ENTRY = "src/structure-frame/main.ts"
@@ -72,6 +73,7 @@ def _page(module: str, integrity: str) -> str:
         '<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="color-scheme" content="light dark">\n'
         "<title>Structure viewer</title>\n"
+        f"{frames.HARDEN_TAG}"
         "<style>html, body { margin: 0; height: 100%; } "
         "#structure { position: absolute; inset: 0; }</style>\n"
         f'<script type="module" src="{module}" integrity="{integrity}" '
@@ -91,7 +93,7 @@ def structure_frame(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(_page(module, integrity), content_type="text/html; charset=utf-8")
     response._csp_config = {  # type: ignore[attr-defined]
         "default-src": [CSP.NONE],
-        "script-src": [module],
+        "script-src": [frames.HARDEN_SOURCE, module],
         # Mol*'s own styles, which its module adds: there's nothing of anyone else's here.
         "style-src": [CSP.UNSAFE_INLINE],
         "img-src": ["data:", "blob:"],

@@ -131,3 +131,4 @@ supersedes the old one, and update the old one's status.
 | [0099](0099-restores-are-checked-and-tested-automatically.md)                        | Restores are checked, and tested automatically                                                      | Accepted |
 | [0100](0100-recovering-from-a-lost-region-from-the-same-code.md)                     | Recovering from a lost region, from the same code                                                   | Accepted |
 | [0101](0101-authorization-is-fuzzed-with-another-projects-objects.md)                | Authorization is fuzzed with another project's objects                                              | Accepted |
+| [0102](0102-frames-take-away-what-no-policy-covers.md)                               | Frames take away what no policy covers, and exfiltration is tested in three browsers                | Accepted |

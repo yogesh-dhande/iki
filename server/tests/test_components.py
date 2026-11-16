@@ -14,6 +14,7 @@ from test_web_security import csp_directives
 from test_workers import world
 
 from iki_server.components import installed, views
+from iki_server.web import frames
 
 __all__ = ["world"]
 
@@ -82,7 +83,14 @@ def test_a_frame_runs_the_bridge_and_the_module_and_nothing_else() -> None:
     assert scripts == [views.BRIDGE]
     csp = csp_directives(page[CSP.HEADER_ENFORCE])
     bridge = "'sha256-" + base64.b64encode(hashlib.sha256(views.BRIDGE.encode()).digest()).decode()
-    assert csp["script-src"] == [bridge + "'", module_src, "'wasm-unsafe-eval'"]
+    assert csp["script-src"] == [
+        frames.HARDEN_SOURCE,
+        bridge + "'",
+        module_src,
+        "'wasm-unsafe-eval'",
+    ]
+    # First of all, before any module: what takes WebRTC and frames away (ADR 0102).
+    assert html.index(frames.HARDEN_TAG) < html.index('<script type="module"')
     assert csp["default-src"] == ["'none'"]
     assert csp["connect-src"] == ["'none'"]
     assert csp["form-action"] == ["'none'"]

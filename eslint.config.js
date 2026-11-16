@@ -84,6 +84,24 @@ export default tseslint.config(
     },
   },
   {
+    // What every sandboxed frame runs first: a classic script, in the browser (ADR 0102).
+    files: ["server/src/iki_server/web/frame_harden.js"],
+    languageOptions: {
+      sourceType: "script",
+      globals: {
+        DOMException: "readonly",
+        Document: "readonly",
+        Element: "readonly",
+        MutationObserver: "readonly",
+        ShadowRoot: "readonly",
+        document: "readonly",
+        location: "readonly",
+        setInterval: "readonly",
+        window: "readonly",
+      },
+    },
+  },
+  {
     // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084).
     files: ["**/plugins/**/components/**/*.{js,mjs}", "plugin-template/components/**/*.{js,mjs}"],
     languageOptions: {
