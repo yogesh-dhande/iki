@@ -15,10 +15,17 @@
 FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 # hmmscan, and Debian's security updates: official base images can lag days
-# behind them.
-RUN apt-get update \
+# behind them. The same source, 3.4+dfsg-2, on both: Debian rebuilt it for arm64
+# alone (+b2), so each architecture pins its own build.
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+      amd64) hmmer=3.4+dfsg-2 ;; \
+      arm64) hmmer=3.4+dfsg-2+b2 ;; \
+      *) echo "no HMMER pinned for ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && apt-get update \
  && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends hmmer=3.4+dfsg-2+b2 \
+ && apt-get install -y --no-install-recommends "hmmer=${hmmer}" \
  && rm -rf /var/lib/apt/lists/*
 
 # The same pinned, hashed packages as the plugin's backend environment. pip
