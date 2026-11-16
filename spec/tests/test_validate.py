@@ -531,8 +531,19 @@ def test_identity(tmp_path: Path) -> None:
         + "  name: { type: string }\n",
     )
     assert codes(result) == ["identity-type", "identity-not-fixed", "unknown-field"]
-    assert result.problems[1].message == (
-        "`name` is part of the identity, so it must be required and immutable."
+    assert result.problems[1].message == "`name` is part of the identity, so it must be immutable."
+
+
+def test_an_identity_can_have_optional_fields_beside_a_required_one(tmp_path: Path) -> None:
+    pair = (
+        "fields:\n  heavy: { type: string, required: true, immutable: true }\n"
+        "  light: { type: string, immutable: true }\n"
+    )
+    assert codes(make(tmp_path, TYPE + "identity: [heavy, light]\n" + pair)) == []
+    result = make(tmp_path, TYPE + "identity: [light]\n" + pair)
+    assert codes(result) == ["identity-not-required"]
+    assert result.problems[0].message == (
+        "The identity needs a required field: each of its fields could be empty."
     )
 
 

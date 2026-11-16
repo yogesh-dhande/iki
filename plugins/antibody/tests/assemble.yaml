@@ -1,0 +1,82 @@
+# Run with `iki plugin test plugins/antibody --with plugins/dna --with plugins/protein` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: trastuzumab
+description: >-
+  Trastuzumab's variable domains (PDB 1N8Z): a heavy chain and a light chain
+  make an IgG1, named after them, from both.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab VH
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSS
+  light_chain:
+    - values:
+        name: trastuzumab VL
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIK
+params: { isotype: igg1, target: HER2 }
+expect:
+  output:
+    creates:
+      - type: antibody.Antibody
+        values:
+          heavy_chain: 00000000-0000-7000-8003-000000000001
+          light_chain: 00000000-0000-7000-8003-000000000002
+          name: trastuzumab VH / trastuzumab VL
+          format: igg
+          isotype: igg1
+          target: HER2
+        derived_from:
+          - 00000000-0000-7000-8003-000000000001
+          - 00000000-0000-7000-8003-000000000002
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_vhh
+description: A single domain is one chain, with no light chain and no isotype.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: caplacizumab domain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGRTFSYNPMGWFRQAPGKGRELVAAISRTGGSTYYPDSVEGRFTISRDNAKRMVYLQMNSLRAEDTAVYYCAAAGVRAEDGRVRTLPSEYTFWGQGTQVTVSS
+params: { format: vhh, name: caplacizumab }
+expect:
+  output:
+    creates:
+      - values:
+          heavy_chain: 00000000-0000-7000-8003-000000000001
+          name: caplacizumab
+          format: vhh
+        derived_from: [00000000-0000-7000-8003-000000000001]
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_igg_needs_a_light_chain
+action: assemble
+inputs:
+  heavy_chain: [{ values: { sequence: EVQLVESGGGLVQPGGSLRLSCAAS } }]
+expect:
+  error: "A whole antibody (IgG) has a light chain: give one, or choose vhh or scfv"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_vhh_has_one_chain
+action: assemble
+inputs:
+  heavy_chain: [{ values: { sequence: EVQLVESGGGLVQPGGSLRLSCAAS } }]
+  light_chain: [{ values: { sequence: DIQMTQSPSSLSASVGDRVTITC } }]
+params: { format: vhh }
+expect:
+  error: "A VHH has one chain: leave out the light chain."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_vhh_has_no_isotype
+action: assemble
+inputs:
+  heavy_chain: [{ values: { sequence: EVQLVESGGGLVQPGGSLRLSCAAS } }]
+params: { format: vhh, isotype: igg1 }
+expect:
+  error: "A VHH has no constant region, so no isotype: leave it out."

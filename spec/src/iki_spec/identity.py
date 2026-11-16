@@ -20,6 +20,9 @@ Each value is encoded by its field's type:
 ``ref``                         the entity's UUID, lower case
 ``file``                        the SHA-256 of the file's content, lower-case hex
 =============================  ===============================================
+
+An optional field without a value is ``null``: an antibody's light chain, which a
+single-domain antibody hasn't got. Every identity has a required field too.
 """
 
 from __future__ import annotations
@@ -35,10 +38,18 @@ from typing import Any
 __all__ = ["VERSION", "canonical", "encode", "identity_hash"]
 
 VERSION = 1
+#: The field types an identity can name: they compare exactly.
+IDENTITY_TYPES = frozenset(
+    {"string", "text", "enum", "int", "bool", "date", "datetime", "ref", "file"}
+)
 
 
-def canonical(field_type: str, value: Any) -> str | int | bool:  # noqa: ANN401 - any field value
+def canonical(field_type: str, value: Any) -> str | int | bool | None:  # noqa: ANN401 - any value
     """``value`` as the encoding has it. Raises ``ValueError`` for values it can't take."""
+    if value is None:
+        if field_type not in IDENTITY_TYPES:
+            raise ValueError(f"{field_type} fields can't be part of an identity")
+        return None
     if field_type in ("string", "text", "enum"):
         if not isinstance(value, str):
             raise ValueError(f"a {field_type} identity value must be text, not {value!r}")

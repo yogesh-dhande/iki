@@ -166,7 +166,12 @@ FIRST_PARTY = Path(__file__).resolve().parents[2] / "plugins"
 
 @pytest.mark.parametrize(
     ("plugin", "dependencies"),
-    [("dna", []), ("protein", ["dna"]), ("../plugin-template", ["dna"])],
+    [
+        ("dna", []),
+        ("protein", ["dna"]),
+        ("antibody", ["dna", "protein"]),
+        ("../plugin-template", ["dna"]),
+    ],
 )
 def test_first_party_plugins_and_the_template_pass_their_action_tests(
     worker_bin: Path,  # noqa: F811 - the fixture

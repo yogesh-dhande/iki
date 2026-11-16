@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Environment
+name: antibody-tools
+label: Antibody tools
+description: Python alone, for what the plugin does with its standard library.
+tiers: [backend, client]
+resources: { cpu: 0.25, memory: 256Mi }
+python: { version: "3.12", requirements: requirements.txt }

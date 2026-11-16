@@ -133,3 +133,4 @@ supersedes the old one, and update the old one's status.
 | [0101](0101-authorization-is-fuzzed-with-another-projects-objects.md)                | Authorization is fuzzed with another project's objects                                              | Accepted |
 | [0102](0102-frames-take-away-what-no-policy-covers.md)                               | Frames take away what no policy covers, and exfiltration is tested in three browsers                | Accepted |
 | [0103](0103-the-grid-answers-a-page-in-the-same-time-at-any-size.md)                 | The grid answers a page in the same time at any size                                                | Accepted |
+| [0104](0104-an-identity-can-name-an-optional-field.md)                               | An identity can name an optional field, beside a required one                                       | Accepted |

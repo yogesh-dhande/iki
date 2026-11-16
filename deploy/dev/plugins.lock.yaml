@@ -8,6 +8,7 @@ kind: PluginLock
 plugins:
   - { name: dna, local: ../../plugins/dna, state: active }
   - { name: protein, local: ../../plugins/protein, state: active }
+  - { name: antibody, local: ../../plugins/antibody, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
   - name: example_lims
     local: ../../plugins/example_lims

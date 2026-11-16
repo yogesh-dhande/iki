@@ -73,18 +73,18 @@ display:
   title: "{{ name or hrid }}"
 ```
 
-| Key                     | Meaning                                                                                             |
-| ----------------------- | --------------------------------------------------------------------------------------------------- |
-| `name`                  | PascalCase. Elsewhere the type is `plugin.Name`; in the same plugin, `Name` is enough.              |
-| `label`, `label_plural` | What people see. Default: the name split into words, and that plus "s".                             |
-| `schema_version`        | A whole number from 1. Dependencies and actions name the versions they work with.                   |
-| `extends`               | A parent type. Entities of this type are also entities of the parent, with its fields.              |
-| `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.      |
-| `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12).   |
-| `identity`              | Fields that make an entity the same as another. Each must be `required` and `immutable`. See below. |
-| `on_duplicate`          | When someone creates a duplicate: `reuse` the existing entity, `warn` and let them choose, `allow`. |
-| `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                  |
-| `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.     |
+| Key                     | Meaning                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `name`                  | PascalCase. Elsewhere the type is `plugin.Name`; in the same plugin, `Name` is enough.                   |
+| `label`, `label_plural` | What people see. Default: the name split into words, and that plus "s".                                  |
+| `schema_version`        | A whole number from 1. Dependencies and actions name the versions they work with.                        |
+| `extends`               | A parent type. Entities of this type are also entities of the parent, with its fields.                   |
+| `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.           |
+| `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12).        |
+| `identity`              | Fields that make an entity the same as another. Each must be `immutable`, and one `required`. See below. |
+| `on_duplicate`          | When someone creates a duplicate: `reuse` the existing entity, `warn` and let them choose, `allow`.      |
+| `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                       |
+| `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.          |
 
 ### Identities
 
@@ -109,6 +109,11 @@ type that declares the identity. Each value is encoded by its field's type:
 | `datetime`               | UTC: `"YYYY-MM-DDTHH:MM:SS.ffffffZ"`      |
 | `ref`                    | The entity's UUID, lower case             |
 | `file`                   | The SHA-256 of the file's content, in hex |
+
+An optional field without a value is `null`. An antibody is its heavy chain
+and its light chain, which a single-domain antibody hasn't got:
+`{"type":"antibody.Antibody","v":1,"values":{"heavy_chain":"…","light_chain":null}}`.
+Every identity has at least one required field.
 
 [`iki_spec.identity`](src/iki_spec/identity.py) implements it.
 
@@ -1203,7 +1208,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                              | Names                           |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                           | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                         | HRIDs                           |
-| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                                                                                                                                                                                                                                                                         | Identities                      |
+| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                                                                                                                                                                                                                                                | Identities                      |
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                 | Field options                   |
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                             | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                             | Units                           |

@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: assemble
+label: Assemble an antibody
+description: >-
+  Registers the antibody that a heavy chain and a light chain make, or that one
+  chain is for a VHH or an scFv. An antibody already in Iki with the same chains
+  is reused.
+inputs:
+  heavy_chain: { type: protein.Protein, schema: ">=2", label: Heavy chain }
+  light_chain: { type: protein.Protein, schema: ">=2", label: Light chain, optional: true }
+params:
+  name:
+    type: string
+    max_length: 255
+    description: Its name. Without one, it's named after its chains.
+  format:
+    type: enum
+    values: [igg, fab, scfv, vhh, other]
+    default: igg
+  isotype:
+    type: enum
+    values: [igg1, igg2, igg3, igg4, iga1, iga2, igm, ige, igd]
+  target: { type: string, max_length: 255, description: What it binds. }
+effects:
+  creates: [{ type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain] }]
+runs_on: { tier: backend, environment: antibody-tools }
+command: [python, ./scripts/antibodies.py, assemble]
+deterministic: true
+timeout: 5m

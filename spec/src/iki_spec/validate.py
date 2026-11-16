@@ -34,6 +34,7 @@ from iki_spec import (
     units,
     workflows,
 )
+from iki_spec.identity import IDENTITY_TYPES
 from iki_spec.model import (
     BUILTIN_TYPES,
     Action,
@@ -173,9 +174,6 @@ SECRET_PAIRS = (("api", "key"), ("private", "key"), ("access", "key"), ("client"
 
 INDEXABLE = frozenset(
     {"string", "int", "float", "bool", "enum", "date", "datetime", "quantity", "ref"}
-)
-IDENTITY_TYPES = frozenset(
-    {"string", "text", "int", "bool", "enum", "date", "datetime", "ref", "file"}
 )
 TITLE_TYPES = frozenset(
     {"string", "text", "int", "float", "enum", "date", "datetime", "quantity", "bool"}
@@ -1081,19 +1079,25 @@ class _Semantics:
                     hint="Identities compare values exactly, so they use text, numbers, enums, "
                     "dates, files or references, not floats, quantities, lists or JSON.",
                 )
-            if not (f.required and f.immutable):
-                missing = " and ".join(
-                    word
-                    for word, ok in (("required", f.required), ("immutable", f.immutable))
-                    if not ok
-                )
+            if not f.immutable:
                 self.add(
                     "identity-not-fixed",
-                    f"`{name}` is part of the identity, so it must be {missing}.",
+                    f"`{name}` is part of the identity, so it must be immutable.",
                     source,
                     path,
-                    hint="An identity that could be empty or change can't tell entities apart.",
+                    hint="An identity that could change can't tell entities apart.",
                 )
+        named = [every[name][0] for name in entity_type.identity if name in every]
+        if named and not any(f.required for f in named):
+            self.add(
+                "identity-not-required",
+                "The identity needs a required field: each of its fields could be empty.",
+                source,
+                ("identity",),
+                hint="An identity that could be empty can't tell entities apart. Optional "
+                "fields can be part of one beside a required field (an antibody's heavy "
+                "and light chains).",
+            )
         if entity_type.on_duplicate and not entity_type.identity:
             inherited = next((a for a in self.ancestors(entity_type) if a.identity), None)
             if inherited is None:

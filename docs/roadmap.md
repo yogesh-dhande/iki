@@ -114,14 +114,14 @@ Plugins before M1 are the ones that prove a platform feature.
 
 ## Stage 8: Remaining plugins and lifecycle
 
-| Step | What                                                                                                   | Status   | Commits                                                                         |
-| ---- | ------------------------------------------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------------- |
-| 43   | The antibody plugin                                                                                    | deferred |                                                                                 |
-| 44   | The small_molecule plugin, with a 2D molecule component                                                | deferred |                                                                                 |
-| 45   | Detaching and purging plugins, with tombstones                                                         | done     | `cc26659` `657a64a` `2a66d86` `8fd7c5e` `5ddcab5` `bea8b12` `31ddc81`           |
-| 46   | Plugin action tests, upgrade tests from an earlier commit, version checks with Iki and between plugins | done     | `8f07927` `6c0aedb` `40eb23d`                                                   |
-| 46c  | `iki plugin upgrade` codemods, once a manifest form is deprecated (nothing in v1 is yet)               | to scope |                                                                                 |
-| 47   | Exporting and importing bundles between deployments                                                    | done     | `3653335` `ce8f404` `35e37f2` `ab9873a` `7980925` `722a88b` `1346534` `5da93d2` |
+| Step | What                                                                                                   | Status      | Commits                                                                         |
+| ---- | ------------------------------------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------- |
+| 43   | The antibody plugin                                                                                    | in progress |                                                                                 |
+| 44   | The small_molecule plugin, with a 2D molecule component                                                | deferred    |                                                                                 |
+| 45   | Detaching and purging plugins, with tombstones                                                         | done        | `cc26659` `657a64a` `2a66d86` `8fd7c5e` `5ddcab5` `bea8b12` `31ddc81`           |
+| 46   | Plugin action tests, upgrade tests from an earlier commit, version checks with Iki and between plugins | done        | `8f07927` `6c0aedb` `40eb23d`                                                   |
+| 46c  | `iki plugin upgrade` codemods, once a manifest form is deprecated (nothing in v1 is yet)               | to scope    |                                                                                 |
+| 47   | Exporting and importing bundles between deployments                                                    | done        | `3653335` `ce8f404` `35e37f2` `ab9873a` `7980925` `722a88b` `1346534` `5da93d2` |
 
 ## Stage 9: Production readiness
 
@@ -129,7 +129,7 @@ Plugins before M1 are the ones that prove a platform feature.
 | ---- | ------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | 48   | OpenTofu modules for AWS, and production Helm values                                                                      | done        | `d247f30`, `360d863`, `46e5825`, `2305220`                                                          |
 | 49   | Dashboards and alerts, compute admin pages, a disaster-recovery runbook with an automated restore test                    | done        | `4be943a` `28cf1a6` `52432c8` `6411d84` `a726f4c` `b4f0035` `d46f255` `6de7211` `e326d24` `0f0e813` |
-| 50   | Hardening and release: authorization fuzzing, a cross-browser CSP suite, load tests, the docs site, the signed M1 release | in progress | `b33dc75` `ec72e96`                                                                                 |
+| 50   | Hardening and release: authorization fuzzing, a cross-browser CSP suite, load tests, the docs site, the signed M1 release | in progress | `b33dc75` `ec72e96` `cf46d5f`                                                                       |
 
 ## After M1
 

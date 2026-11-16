@@ -23,6 +23,22 @@ def test_a_known_hash() -> None:
     assert identity_hash("dna.DNASequence", {"bases": ("string", "ACGT")}) == (expected.hexdigest())
 
 
+def test_an_optional_field_without_a_value_is_null() -> None:
+    """A test vector: an antibody without a light chain (a single-domain one)."""
+    heavy = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8057")
+    values = {"heavy_chain": ("ref", heavy), "light_chain": ("ref", None)}
+    assert encode("antibody.Antibody", values) == (
+        b'{"type":"antibody.Antibody","v":1,"values":'
+        b'{"heavy_chain":"01890a5d-ac96-774b-bcce-b302099a8057","light_chain":null}}'
+    )
+    # Without one isn't with one.
+    light = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8058")
+    paired = {**values, "light_chain": ("ref", light)}
+    assert identity_hash("antibody.Antibody", values) != identity_hash("antibody.Antibody", paired)
+    with pytest.raises(ValueError, match="float fields can't be part of an identity"):
+        canonical("float", None)
+
+
 def test_the_type_is_part_of_the_hash() -> None:
     values = {"code": ("string", "A1")}
     assert identity_hash("lab.Sample", values) != identity_hash("lab.Specimen", values)
