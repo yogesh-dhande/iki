@@ -2,8 +2,14 @@
 # point to copy into your own repository and change, not a module to call. What the chart
 # needs from it comes out as values: tofu output -raw helm_values > values-aws.yaml.
 
+data "aws_caller_identity" "here" {}
+
 locals {
   vm_tier = var.vm_tier != null
+  # Recovering from a lost region: the lost deployment's files bucket, and its copy here.
+  # These are the storage module's names.
+  account = data.aws_caller_identity.here.account_id
+  lost    = var.recovery == null ? null : { files = "${var.recovery.name}-files-${local.account}", copy = "${var.recovery.name}-files-dr-${local.account}", key = "alias/${var.recovery.name}-files-dr" }
 }
 
 module "network" {
@@ -33,13 +39,18 @@ module "database" {
   vpc_id                    = module.network.vpc_id
   subnet_ids                = module.network.database_subnet_ids
   client_security_group_ids = [module.cluster.security_group_id]
-  tags                      = var.tags
+  restore_from = var.recovery == null ? null : {
+    automated_backups_arn = var.recovery.database_backups_arn
+    restore_time          = var.recovery.restore_time
+  }
+  tags = var.tags
 }
 
 module "storage" {
   source    = "../modules/storage"
   providers = { aws = aws, aws.dr = aws.dr }
   name      = var.name
+  adopt     = local.lost == null ? null : { bucket = local.lost.copy, kms_key = local.lost.key }
   tags      = var.tags
 }
 

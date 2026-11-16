@@ -31,6 +31,8 @@ output "helm_values" {
       bucket = module.storage.bucket
       prefix = var.files_prefix
       region = module.storage.region
+      # Recovering: records name the lost bucket; its objects are in this one (ADR 0099).
+      bucketAliases = local.lost == null ? {} : { (local.lost.files) = module.storage.bucket }
     }
     # An ALB, made by the AWS Load Balancer Controller: HTTPS only, TLS 1.2 or later,
     # sending straight to web pods' addresses, dropping malformed headers.
@@ -111,6 +113,16 @@ output "external_secrets" {
 output "put_secrets" {
   description = "The command that fills the secrets, once."
   value       = "deploy/aws/scripts/put-secrets.sh ${var.name} ${module.database.address}"
+}
+
+output "database_address" {
+  description = "The database's host name, which its roles' URIs name."
+  value       = module.database.address
+}
+
+output "database_security_group_id" {
+  description = "The database's security group, for an instance restored beside it (docs/disaster-recovery.md)."
+  value       = module.database.security_group_id
 }
 
 output "database_master_secret_arn" {

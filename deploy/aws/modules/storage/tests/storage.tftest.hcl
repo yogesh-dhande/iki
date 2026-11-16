@@ -24,6 +24,13 @@ mock_provider "aws" {
   mock_resource "aws_s3_bucket" {
     defaults = { arn = "arn:aws:s3:::iki-test-files-123456789012" }
   }
+  # Recovering: the lost deployment's copy, in the region recovering.
+  mock_data "aws_s3_bucket" {
+    defaults = { id = "iki-lost-files-dr-123456789012", arn = "arn:aws:s3:::iki-lost-files-dr-123456789012" }
+  }
+  mock_data "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:eu-west-1:123456789012:key/22222222-2222-2222-2222-222222222222" }
+  }
 }
 
 mock_provider "aws" {
@@ -48,7 +55,7 @@ variables {
 
 run "buckets_are_named_for_the_deployment_and_the_account" {
   assert {
-    condition     = aws_s3_bucket.files.bucket == "iki-test-files-123456789012" && aws_s3_bucket.dr.bucket == "iki-test-files-dr-123456789012"
+    condition     = aws_s3_bucket.files[0].bucket == "iki-test-files-123456789012" && aws_s3_bucket.dr.bucket == "iki-test-files-dr-123456789012"
     error_message = "Bucket names are global: they should carry the account's ID."
   }
 }
@@ -64,7 +71,7 @@ run "every_version_is_kept" {
 
 run "files_are_encrypted_with_keys_of_their_own" {
   assert {
-    condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.files.rule).apply_server_side_encryption_by_default).kms_master_key_id == aws_kms_key.files.arn
+    condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.files.rule).apply_server_side_encryption_by_default).kms_master_key_id == aws_kms_key.files[0].arn
     error_message = "Files should be encrypted with the files key."
   }
   assert {
@@ -136,4 +143,33 @@ run "refuses_a_dr_storage_class_too_slow_to_recover_from" {
     dr_storage_class = "DEEP_ARCHIVE"
   }
   expect_failures = [var.dr_storage_class]
+}
+
+run "recovering_it_takes_on_the_lost_deployments_copy_as_its_files_bucket" {
+  variables {
+    adopt = { bucket = "iki-lost-files-dr-123456789012", kms_key = "alias/iki-lost-files-dr" }
+  }
+  assert {
+    condition     = length(aws_s3_bucket.files) == 0 && length(aws_kms_key.files) == 0
+    error_message = "Recovering, it shouldn't make a files bucket or key: the copy already holds every file."
+  }
+  assert {
+    condition     = output.bucket == "iki-lost-files-dr-123456789012" && output.bucket_arn == "arn:aws:s3:::iki-lost-files-dr-123456789012" && output.kms_key_arn == data.aws_kms_key.adopted[0].arn
+    error_message = "Iki and the pods' roles should be given the copy and its key."
+  }
+  assert {
+    condition = alltrue([
+      for b in [aws_s3_bucket_versioning.files.bucket, aws_s3_bucket_server_side_encryption_configuration.files.bucket, aws_s3_bucket_public_access_block.files.bucket, aws_s3_bucket_ownership_controls.files.bucket, aws_s3_bucket_policy.files.bucket, aws_s3_bucket_logging.files.bucket, aws_s3_bucket_replication_configuration.files.bucket] :
+      b == "iki-lost-files-dr-123456789012"
+    ])
+    error_message = "The copy should get every setting a files bucket has: versions, encryption, TLS only, no public access, logging, and its own copy elsewhere."
+  }
+  assert {
+    condition     = one(one(aws_s3_bucket_server_side_encryption_configuration.files.rule).apply_server_side_encryption_by_default).kms_master_key_id == data.aws_kms_key.adopted[0].arn
+    error_message = "New files should be encrypted with the key the copy's files already are."
+  }
+  assert {
+    condition     = aws_s3_bucket_replication_configuration.files.rule[0].destination[0].bucket == aws_s3_bucket.dr.arn
+    error_message = "The recovered deployment's files should be copied to its own DR region."
+  }
 }

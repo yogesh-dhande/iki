@@ -191,11 +191,12 @@ resource "aws_db_instance" "this" {
   engine         = "postgres"
   engine_version = var.engine_version
   instance_class = var.instance_class
-  db_name        = "iki"
+  # A restore brings the database, its roles and its master user with it.
+  db_name = var.restore_from == null ? "iki" : null
 
   # The master user only creates Iki's two roles (ADR 0025): its password lives in
   # Secrets Manager, where RDS rotates it, and never in OpenTofu's state.
-  username                      = "iki_admin"
+  username                      = var.restore_from == null ? "iki_admin" : null
   manage_master_user_password   = true
   master_user_secret_kms_key_id = aws_kms_key.database.arn
 
@@ -238,8 +239,24 @@ resource "aws_db_instance" "this" {
   monitoring_interval                   = 30
   monitoring_role_arn                   = aws_iam_role.monitoring.arn
 
+  # Recovering from a lost region: the lost database, from its backups copied here.
+  dynamic "restore_to_point_in_time" {
+    for_each = var.restore_from == null ? [] : [var.restore_from]
+    content {
+      source_db_instance_automated_backups_arn = restore_to_point_in_time.value.automated_backups_arn
+      restore_time                             = restore_to_point_in_time.value.restore_time
+      use_latest_restorable_time               = restore_to_point_in_time.value.restore_time == null ? true : null
+    }
+  }
+
   tags       = local.tags
   depends_on = [aws_cloudwatch_log_group.database, aws_iam_role_policy_attachment.monitoring]
+
+  lifecycle {
+    # How the database began, which a later apply mustn't redo: replacing it would
+    # lose it (and deletion protection refuses).
+    ignore_changes = [restore_to_point_in_time, db_name, username]
+  }
 }
 
 # --- The DR region -----------------------------------------------------------------------

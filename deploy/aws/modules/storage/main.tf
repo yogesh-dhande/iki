@@ -22,6 +22,13 @@ locals {
   files     = "${var.name}-files-${local.account}"
   logs      = "${var.name}-s3-logs-${local.account}"
   dr        = "${var.name}-files-dr-${local.account}"
+  # The files bucket and its key: made here, or adopted when recovering (var.adopt). Its
+  # settings name the bucket by the same condition, written out: Checkov follows that to
+  # the bucket it checks, not a local.
+  adopted     = var.adopt != null
+  bucket      = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
+  bucket_arn  = local.adopted ? data.aws_s3_bucket.adopted[0].arn : aws_s3_bucket.files[0].arn
+  kms_key_arn = local.adopted ? data.aws_kms_key.adopted[0].arn : aws_kms_key.files[0].arn
 }
 
 data "aws_iam_policy_document" "account_key" {
@@ -40,6 +47,7 @@ data "aws_iam_policy_document" "account_key" {
 }
 
 resource "aws_kms_key" "files" {
+  count                   = local.adopted ? 0 : 1
   description             = "${var.name}: files"
   enable_key_rotation     = true
   deletion_window_in_days = 30
@@ -48,8 +56,22 @@ resource "aws_kms_key" "files" {
 }
 
 resource "aws_kms_alias" "files" {
+  count         = local.adopted ? 0 : 1
   name          = "alias/${var.name}-files"
-  target_key_id = aws_kms_key.files.key_id
+  target_key_id = aws_kms_key.files[0].key_id
+}
+
+# Recovering: the lost deployment's copy, which this deployment's state didn't make. Its
+# versioning, encryption, public access, ownership, policy, logging and replication are
+# settings on it, and this state owns them from now on, as for a bucket it made.
+data "aws_s3_bucket" "adopted" {
+  count  = local.adopted ? 1 : 0
+  bucket = var.adopt.bucket
+}
+
+data "aws_kms_key" "adopted" {
+  count  = local.adopted ? 1 : 0
+  key_id = var.adopt.kms_key
 }
 
 # --- The files bucket --------------------------------------------------------------------
@@ -57,23 +79,24 @@ resource "aws_kms_alias" "files" {
 resource "aws_s3_bucket" "files" {
   #checkov:skip=CKV2_AWS_62:Iki learns of uploads through its own API, not S3 events.
   #checkov:skip=CKV2_AWS_61:`iki-server setup_storage` owns the lifecycle rule (abandoned uploads) and CORS, merged with any others; OpenTofu would overwrite them. Nothing else expires here: Iki expires artifacts and bundles itself, and records it.
+  count  = local.adopted ? 0 : 1
   bucket = local.files
   tags   = local.tags
 }
 
 resource "aws_s3_bucket_versioning" "files" {
-  bucket = aws_s3_bucket.files.id
+  bucket = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
   versioning_configuration {
     status = "Enabled"
   }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "files" {
-  bucket = aws_s3_bucket.files.id
+  bucket = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.files.arn
+      kms_master_key_id = local.kms_key_arn
     }
     # One data key per bucket rather than per object: far fewer KMS calls.
     bucket_key_enabled = true
@@ -81,7 +104,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "files" {
 }
 
 resource "aws_s3_bucket_public_access_block" "files" {
-  bucket                  = aws_s3_bucket.files.id
+  bucket                  = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -89,14 +112,14 @@ resource "aws_s3_bucket_public_access_block" "files" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "files" {
-  bucket = aws_s3_bucket.files.id
+  bucket = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
   rule {
     object_ownership = "BucketOwnerEnforced"
   }
 }
 
 data "aws_iam_policy_document" "tls_only" {
-  for_each = { files = aws_s3_bucket.files.arn, logs = aws_s3_bucket.logs.arn }
+  for_each = { files = local.bucket_arn, logs = aws_s3_bucket.logs.arn }
   statement {
     sid       = "DenyWithoutTLS"
     effect    = "Deny"
@@ -130,13 +153,13 @@ data "aws_iam_policy_document" "tls_only" {
 }
 
 resource "aws_s3_bucket_policy" "files" {
-  bucket     = aws_s3_bucket.files.id
+  bucket     = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
   policy     = data.aws_iam_policy_document.tls_only["files"].json
   depends_on = [aws_s3_bucket_public_access_block.files]
 }
 
 resource "aws_s3_bucket_logging" "files" {
-  bucket        = aws_s3_bucket.files.id
+  bucket        = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
   target_bucket = aws_s3_bucket.logs.id
   target_prefix = "files/"
   target_object_key_format {
@@ -201,7 +224,7 @@ data "aws_iam_policy_document" "logs" {
     condition {
       test     = "ArnLike"
       variable = "aws:SourceArn"
-      values   = [aws_s3_bucket.files.arn]
+      values   = [local.bucket_arn]
     }
     condition {
       test     = "StringEquals"
@@ -368,12 +391,12 @@ data "aws_iam_policy_document" "replication" {
   statement {
     sid       = "ReadTheConfiguration"
     actions   = ["s3:GetReplicationConfiguration", "s3:ListBucket"]
-    resources = [aws_s3_bucket.files.arn]
+    resources = [local.bucket_arn]
   }
   statement {
     sid       = "ReadVersions"
     actions   = ["s3:GetObjectVersionForReplication", "s3:GetObjectVersionAcl", "s3:GetObjectVersionTagging"]
-    resources = ["${aws_s3_bucket.files.arn}/*"]
+    resources = ["${local.bucket_arn}/*"]
   }
   statement {
     sid       = "WriteThem"
@@ -383,7 +406,7 @@ data "aws_iam_policy_document" "replication" {
   statement {
     sid       = "Decrypt"
     actions   = ["kms:Decrypt"]
-    resources = [aws_kms_key.files.arn]
+    resources = [local.kms_key_arn]
     condition {
       test     = "StringEquals"
       variable = "kms:ViaService"
@@ -409,7 +432,7 @@ resource "aws_iam_role_policy" "replication" {
 }
 
 resource "aws_s3_bucket_replication_configuration" "files" {
-  bucket = aws_s3_bucket.files.id
+  bucket = local.adopted ? data.aws_s3_bucket.adopted[0].id : aws_s3_bucket.files[0].id
   role   = aws_iam_role.replication.arn
 
   rule {

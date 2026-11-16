@@ -44,6 +44,13 @@ mock_provider "aws" {
   mock_resource "aws_db_instance" {
     defaults = { arn = "arn:aws:rds:eu-west-1:123456789012:db:iki-test" }
   }
+  # Recovering: the lost deployment's copy of the files, here.
+  mock_data "aws_s3_bucket" {
+    defaults = { id = "iki-lost-files-dr-123456789012", arn = "arn:aws:s3:::iki-lost-files-dr-123456789012" }
+  }
+  mock_data "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:eu-west-1:123456789012:key/22222222-2222-2222-2222-222222222222" }
+  }
 }
 
 mock_provider "aws" {

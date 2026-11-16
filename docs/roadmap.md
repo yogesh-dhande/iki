@@ -125,11 +125,11 @@ Plugins before M1 are the ones that prove a platform feature.
 
 ## Stage 9: Production readiness
 
-| Step | What                                                                                                                      | Status      |
-| ---- | ------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| 48   | OpenTofu modules for AWS, and production Helm values                                                                      | done        | `d247f30`, `360d863`, `46e5825`, `2305220`                                      |
-| 49   | Dashboards and alerts, compute admin pages, a disaster-recovery runbook with an automated restore test                    | in progress | `4be943a` `28cf1a6` `52432c8` `6411d84` `a726f4c` `b4f0035` `d46f255` `6de7211` |
-| 50   | Hardening and release: authorization fuzzing, a cross-browser CSP suite, load tests, the docs site, the signed M1 release | planned     |
+| Step | What                                                                                                                      | Status  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 48   | OpenTofu modules for AWS, and production Helm values                                                                      | done    | `d247f30`, `360d863`, `46e5825`, `2305220`                                                |
+| 49   | Dashboards and alerts, compute admin pages, a disaster-recovery runbook with an automated restore test                    | done    | `4be943a` `28cf1a6` `52432c8` `6411d84` `a726f4c` `b4f0035` `d46f255` `6de7211` `e326d24` |
+| 50   | Hardening and release: authorization fuzzing, a cross-browser CSP suite, load tests, the docs site, the signed M1 release | planned |
 
 ## After M1
 

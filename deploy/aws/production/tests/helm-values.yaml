@@ -24,6 +24,7 @@
   "existingSecret": "iki-encryption-keys"
 "files":
   "bucket": "iki-test-files-123456789012"
+  "bucketAliases": {}
   "prefix": ""
   "region": "eu-west-1"
 "ingress":

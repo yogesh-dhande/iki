@@ -32,3 +32,8 @@ output "dr_backups_arn" {
   description = "The automated backups in the DR region, to restore from there."
   value       = aws_db_instance_automated_backups_replication.dr.id
 }
+
+output "restored_from" {
+  description = "The automated backups this database was restored from, recovering from a lost region; null for a database made new."
+  value       = one(aws_db_instance.this.restore_to_point_in_time[*].source_db_instance_automated_backups_arn)
+}

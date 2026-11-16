@@ -92,6 +92,24 @@ variable "maintenance_window" {
   default     = "sun:04:30-sun:05:30"
 }
 
+variable "restore_from" {
+  description = "Recovering from a lost region (docs/disaster-recovery.md): the lost database's automated backups, copied here, and the moment to restore to (RFC 3339), or null for the latest they reach. Null: a new, empty database."
+  type = object({
+    automated_backups_arn = string
+    restore_time          = optional(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.restore_from == null || can(regex("^arn:[^:]+:rds:[^:]+:[0-9]{12}:auto-backup:ab-", var.restore_from.automated_backups_arn))
+    error_message = "restore_from.automated_backups_arn should be an automated backup's ARN, arn:aws:rds:<region>:<account>:auto-backup:ab-...: describe-db-instance-automated-backups gives it."
+  }
+  validation {
+    condition     = var.restore_from == null || try(var.restore_from.restore_time == null || can(formatdate("YYYY", var.restore_from.restore_time)), false)
+    error_message = "restore_from.restore_time should be an RFC 3339 time, such as 2026-11-16T09:41:00Z."
+  }
+}
+
 variable "tags" {
   description = "Tags on everything this module makes."
   type        = map(string)

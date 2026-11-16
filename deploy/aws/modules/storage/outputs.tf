@@ -1,11 +1,11 @@
 output "bucket" {
   description = "The files bucket's name: the chart's files.bucket."
-  value       = aws_s3_bucket.files.id
+  value       = local.bucket
 }
 
 output "bucket_arn" {
   description = "The files bucket's ARN, for the pods' roles."
-  value       = aws_s3_bucket.files.arn
+  value       = local.bucket_arn
 }
 
 output "region" {
@@ -15,7 +15,7 @@ output "region" {
 
 output "kms_key_arn" {
   description = "The key files are encrypted with: the pods' roles need to use it."
-  value       = aws_kms_key.files.arn
+  value       = local.kms_key_arn
 }
 
 output "dr_bucket" {

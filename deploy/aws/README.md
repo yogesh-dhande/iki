@@ -23,15 +23,18 @@ makes the bucket and key its state is kept in, first.
 
 The database, storage and secrets modules take two AWS providers: the
 default one, and `aws.dr` for the disaster-recovery region their copies go
-to.
+to. After losing a region, `production` stands Iki up again in the DR
+region from those copies, with `recovery` set
+([the disaster-recovery runbook](../../docs/disaster-recovery.md)).
 
 ## Secrets
 
 OpenTofu makes the Secrets Manager entries, never their values.
 `scripts/put-secrets.sh` generates the values straight into Secrets
 Manager, and `scripts/create-database-roles.sh` creates the database's two
-roles with them. Neither overwrites what exists, so both are safe to run
-again. External Secrets then copies the secrets into the cluster, with the
+roles with them. Recovering from a lost region,
+`scripts/recover-secrets.sh` copies them from their replicas instead.
+None of them overwrites what exists, so each is safe to run again. External Secrets then copies the secrets into the cluster, with the
 role the `access` module gives it. The production runbook runs all three.
 
 ## What they promise

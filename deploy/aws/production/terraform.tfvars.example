@@ -29,6 +29,13 @@ certificate_arn = "arn:aws:acm:eu-west-1:123456789012:certificate/..."
 #   root_squash_except_nids = ["10.40.1.5@tcp"]
 # }
 
+# Only to recover from losing the region this deployment ran in, under a new name
+# (docs/disaster-recovery.md):
+# recovery = {
+#   name                 = "iki-production"
+#   database_backups_arn = "arn:aws:rds:eu-central-1:123456789012:auto-backup:ab-..."
+# }
+
 tags = {
   "cost-centre" = "research-it"
 }

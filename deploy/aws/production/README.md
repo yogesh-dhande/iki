@@ -110,6 +110,12 @@ Otherwise import `deploy/helm/iki/files/dashboards/iki.json` into Grafana
 and load `deploy/helm/iki/files/alerts.yaml` as a rules file. ADR 0098 lists
 the metrics and what each alert means.
 
+## Recovering
+
+[The disaster-recovery runbook](../../../docs/disaster-recovery.md):
+restoring the database in this region, or standing Iki up again in the DR
+region after losing this one, and the drills that prove both.
+
 ## Checking it
 
 `make check-infra` plans this root against a mocked AWS and checks the

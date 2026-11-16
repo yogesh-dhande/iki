@@ -31,6 +31,15 @@ variable "replication_time_control" {
   default     = false
 }
 
+variable "adopt" {
+  description = "Recovering from a lost region (docs/disaster-recovery.md): the lost deployment's copy here, its bucket and its key's ARN or alias, taken on as this deployment's files bucket rather than a new one made. Every file and run artifact is already in it. Null: a new bucket."
+  type = object({
+    bucket  = string
+    kms_key = string
+  })
+  default = null
+}
+
 variable "tags" {
   description = "Tags on everything this module makes."
   type        = map(string)

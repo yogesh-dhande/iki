@@ -129,3 +129,4 @@ supersedes the old one, and update the old one's status.
 | [0097](0097-reference-aws-infrastructure-in-opentofu.md)                             | Reference AWS infrastructure in OpenTofu                                                            | Accepted |
 | [0098](0098-metrics-dashboards-and-alerts.md)                                        | Iki's metrics, dashboards and alerts                                                                | Accepted |
 | [0099](0099-restores-are-checked-and-tested-automatically.md)                        | Restores are checked, and tested automatically                                                      | Accepted |
+| [0100](0100-recovering-from-a-lost-region-from-the-same-code.md)                     | Recovering from a lost region, from the same code                                                   | Accepted |

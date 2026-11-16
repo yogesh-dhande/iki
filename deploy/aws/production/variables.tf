@@ -102,6 +102,21 @@ variable "fsx" {
   default = null
 }
 
+variable "recovery" {
+  description = "Set only to stand Iki up again here after losing the region it ran in (docs/disaster-recovery.md): the lost deployment's name, and its database's automated backups copied to this region. The database is restored from them, the lost deployment's copy of the files becomes this one's files bucket, and the chart is told its old bucket's objects are there. Keep it set as long as this deployment runs."
+  type = object({
+    name                 = string
+    database_backups_arn = string
+    restore_time         = optional(string)
+  })
+  default = null
+
+  validation {
+    condition     = var.recovery == null || try(var.recovery.name != var.name, false)
+    error_message = "Recover under a new name, such as iki-production-r1: bucket and role names are global, and the lost deployment's still exist."
+  }
+}
+
 variable "tags" {
   description = "Tags on everything made, such as your cost centre's."
   type        = map(string)
