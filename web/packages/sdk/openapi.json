@@ -8699,6 +8699,38 @@
         "title": "QuotaPatch",
         "type": "object"
       },
+      "QuotaScopeOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project's team; null for a team.",
+            "title": "Team"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "team"
+        ],
+        "title": "QuotaScopeOut",
+        "type": "object"
+      },
       "ReadIn": {
         "properties": {
           "read": {
@@ -10652,6 +10684,37 @@
           "name"
         ],
         "title": "ScopeOut",
+        "type": "object"
+      },
+      "ScopeSearch": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "team",
+              "project"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "search": {
+            "default": "",
+            "description": "Part of the name.",
+            "maxLength": 100,
+            "title": "Search",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ScopeSearch",
         "type": "object"
       },
       "SearchIn": {
@@ -15343,6 +15406,80 @@
           }
         ],
         "summary": "What compute is doing now",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/quota-scopes": {
+      "get": {
+        "description": "The teams or projects with `search` in their names, by name, archived ones left out.\nCompute Admins set quotas on any of them, member or not, so this gives names only.",
+        "operationId": "iki_server_api_compute_quota_scopes",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "team",
+                "project"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Part of the name.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "Part of the name.",
+              "maxLength": 100,
+              "title": "Search",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QuotaScopeOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Teams or projects to limit",
         "tags": [
           "compute"
         ]

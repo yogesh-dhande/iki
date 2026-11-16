@@ -276,6 +276,7 @@ PAGES = [
     ("org_admin", "/settings/webhooks/"),
     ("compute_admin", "/compute/"),
     ("compute_admin", "/compute/workers/"),
+    ("compute_admin", "/compute/quotas/"),
 ]
 
 

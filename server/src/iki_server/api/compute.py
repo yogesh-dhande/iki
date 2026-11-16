@@ -396,6 +396,41 @@ def _limits_given(max_running: int | None, max_queued: int | None) -> None:
         )
 
 
+class QuotaScopeOut(Schema):
+    id: UUID
+    name: str
+    team: str | None = Field(description="A project's team; null for a team.")
+
+
+class ScopeSearch(Schema):
+    kind: Literal["team", "project"]
+    search: str = Field("", max_length=100, description="Part of the name.")
+    limit: int = Field(20, ge=1, le=50)
+
+
+@router.get(
+    "/compute/quota-scopes", response=list[QuotaScopeOut], summary="Teams or projects to limit"
+)
+def quota_scopes(request: HttpRequest, params: Query[ScopeSearch]) -> list[dict[str, Any]]:
+    """The teams or projects with `search` in their names, by name, archived ones left out.
+    Compute Admins set quotas on any of them, member or not, so this gives names only."""
+    require(caller(request), Action.COMPUTE_MANAGE)
+    term = params.search.strip()
+    if params.kind == "team":
+        teams = Team.objects.filter(archived_at__isnull=True, name__icontains=term)
+        return [
+            {"id": t.pk, "name": t.name, "team": None}
+            for t in teams.order_by("name", "id")[: params.limit]
+        ]
+    projects = Project.objects.filter(
+        archived_at__isnull=True, team__archived_at__isnull=True, name__icontains=term
+    ).select_related("team")
+    return [
+        {"id": p.pk, "name": p.name, "team": p.team.name}
+        for p in projects.order_by("name", "team__name", "id")[: params.limit]
+    ]
+
+
 @router.get("/compute/quotas", response=list[QuotaOut], summary="Run quotas")
 def list_quotas(request: HttpRequest) -> list[dict[str, Any]]:
     """Every quota, the organization's first, with how much of each is in use."""

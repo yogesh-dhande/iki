@@ -826,6 +826,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         COMPUTE_ONLY,
     ),
     ("GET", "/compute/quotas", fixed("/compute/quotas"), COMPUTE_ONLY),
+    (
+        "GET",
+        "/compute/quota-scopes",
+        fixed("/compute/quota-scopes?kind=project"),
+        COMPUTE_ONLY,
+    ),
     # What runs cost: for those who answer for it (ADR 0070).
     (
         "GET",

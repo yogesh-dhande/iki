@@ -47,6 +47,10 @@ const ComputeWorkersPage = lazyRouteComponent(
   () => import("./pages/compute-workers"),
   "ComputeWorkersPage",
 );
+const ComputeQuotasPage = lazyRouteComponent(
+  () => import("./pages/compute-quotas"),
+  "ComputeQuotasPage",
+);
 const ComputeOverviewPage = lazyRouteComponent(
   () => import("./pages/compute"),
   "ComputeOverviewPage",
@@ -132,6 +136,12 @@ const computeWorkersRoute = createRoute({
   getParentRoute: () => computeRoute,
   path: "workers",
   component: ComputeWorkersPage,
+});
+
+const computeQuotasRoute = createRoute({
+  getParentRoute: () => computeRoute,
+  path: "quotas",
+  component: ComputeQuotasPage,
 });
 
 const computeVolumesRoute = createRoute({
@@ -419,7 +429,12 @@ const routeTree = rootRoute.addChildren([
   homeRoute,
   notificationsRoute,
   costsRoute,
-  computeRoute.addChildren([computeOverviewRoute, computeWorkersRoute, computeVolumesRoute]),
+  computeRoute.addChildren([
+    computeOverviewRoute,
+    computeWorkersRoute,
+    computeQuotasRoute,
+    computeVolumesRoute,
+  ]),
   projectsRoute.addChildren([
     projectListRoute,
     projectNewRoute,

@@ -75,3 +75,27 @@ export const registrationsQuery = queryOptions({
       await iki.GET("/api/v1/compute/registration-tokens", { params: { query: { limit: 100 } } }),
     ).items,
 });
+
+export type Quota = Schemas["QuotaOut"];
+export type QuotaScopeKind = "team" | "project";
+
+/** Every quota, the organization's first, with how much of each is in use now. */
+export const quotasQuery = queryOptions({
+  queryKey: [...COMPUTE, "quotas"],
+  queryFn: async () => unwrap(await iki.GET("/api/v1/compute/quotas")),
+  refetchInterval: OVERVIEW_POLL_MS,
+});
+
+/** Teams or projects to set a quota on, any of them, by part of the name. */
+export function quotaScopesQuery(kind: QuotaScopeKind, search: string) {
+  return queryOptions({
+    queryKey: [...COMPUTE, "quota-scopes", kind, search.trim()],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/compute/quota-scopes", {
+          params: { query: { kind, search: search.trim() } },
+        }),
+      ),
+    placeholderData: (previous) => previous,
+  });
+}

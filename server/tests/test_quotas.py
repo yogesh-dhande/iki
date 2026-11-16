@@ -6,13 +6,14 @@ from typing import Any
 
 import pytest
 from api_client import problem
+from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
 from test_runs import launch, protein
 from test_workers import keep_connection, queued, worker
 
 from iki_server.audit.models import AuditEvent
-from iki_server.org.models import Project, ProjectMembership, ProjectRole
+from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 from iki_server.runs import catalog
 from iki_server.runs.models import RunQuota
 
@@ -119,3 +120,29 @@ def test_compute_admins_manage_quotas(world: World) -> None:
     updated = AuditEvent.objects.get(action="quota.updated")
     assert updated.data["before"]["max_running"] == 4
     assert updated.data["after"] == {"tier": None, "max_running": 8, "max_queued": None}
+
+
+def test_compute_admins_find_any_team_or_project_to_limit(world: World) -> None:
+    """Member or not: a Compute Admin limits whatever floods the queue. Names only."""
+    admin = api_as(world, "compute_admin")
+    team = world.project.team
+    hidden = Project.objects.create(team=team, name="Cryo-EM screening")
+    Project.objects.create(team=team, name="Cryo-EM pilot", archived_at=timezone.now())
+    other_team = Team.objects.create(name="Cryo-EM core")
+    Team.objects.create(name="Cryo-EM old", archived_at=timezone.now())
+    assert not ProjectMembership.objects.filter(
+        project=hidden, user=world.users["compute_admin"]
+    ).exists()
+
+    projects = admin.get("/compute/quota-scopes", kind="project", search=" cryo ")
+    assert projects.status_code == 200, projects.content
+    assert projects.json() == [{"id": str(hidden.pk), "name": hidden.name, "team": team.name}]
+    teams = admin.get("/compute/quota-scopes", kind="team", search="CRYO").json()
+    assert teams == [{"id": str(other_team.pk), "name": "Cryo-EM core", "team": None}]
+    every = admin.get("/compute/quota-scopes", kind="project", limit=1).json()
+    assert len(every) == 1
+
+    made = quota(world, project=str(hidden.pk), max_running=2)
+    assert made["project"] == {"id": str(hidden.pk), "name": hidden.name}
+    nobody = api_as(world, "editor").get("/compute/quota-scopes", kind="team")
+    assert nobody.status_code == 403

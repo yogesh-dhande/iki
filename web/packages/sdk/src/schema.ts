@@ -437,6 +437,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/quota-scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Teams or projects to limit
+         * @description The teams or projects with `search` in their names, by name, archived ones left out.
+         *     Compute Admins set quotas on any of them, member or not, so this gives names only.
+         */
+        get: operations["iki_server_api_compute_quota_scopes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/quotas": {
         parameters: {
             query?: never;
@@ -6849,6 +6870,21 @@ export interface components {
             /** Max Running */
             max_running?: number | null;
         };
+        /** QuotaScopeOut */
+        QuotaScopeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Team
+             * @description A project's team; null for a team.
+             */
+            team: string | null;
+        };
         /** ReadIn */
         ReadIn: {
             /** Read */
@@ -7767,6 +7803,25 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /** ScopeSearch */
+        ScopeSearch: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "team" | "project";
+            /**
+             * Limit
+             * @default 20
+             */
+            limit: number;
+            /**
+             * Search
+             * @description Part of the name.
+             * @default
+             */
+            search: string;
         };
         /** SearchIn */
         SearchIn: {
@@ -9900,6 +9955,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverviewOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_quota_scopes: {
+        parameters: {
+            query: {
+                kind: "team" | "project";
+                /** @description Part of the name. */
+                search?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaScopeOut"][];
                 };
             };
         };
