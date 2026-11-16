@@ -56,8 +56,16 @@ k8s_resource(
     labels=['deps'],
     links=[link('http://localhost:8091/requests', 'Fake LIMS requests')],
 )
+# Iki's Grafana dashboard (ADR 0098), from the chart's own file, for otel-lgtm to load.
+watch_file('deploy/helm/iki/files/dashboards')
+k8s_yaml(local(
+    'kubectl create configmap iki-dashboards --namespace iki'
+    + ' --from-file=deploy/helm/iki/files/dashboards --dry-run=client -o yaml',
+    quiet=True,
+))
 k8s_resource(
     'otel-lgtm',
+    objects=['grafana-iki-dashboards:configmap', 'iki-dashboards:configmap'],
     port_forwards=['3300:3000'],
     labels=['observability'],
     links=[link('http://localhost:3300', 'Grafana')],

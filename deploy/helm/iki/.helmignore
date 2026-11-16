@@ -1,3 +1,4 @@
 tests/
 *.md
 .DS_Store
+files/alerts.test.yaml

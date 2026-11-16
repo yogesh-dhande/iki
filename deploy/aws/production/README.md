@@ -93,6 +93,23 @@ Point your DNS name at the ALB (`kubectl -n iki get ingress iki-web`), then
 open the one-time setup link
 `kubectl -n iki exec deploy/iki-web -- iki-server setup_link` prints.
 
+## 6. Metrics, dashboards and alerts
+
+Iki sends traces and metrics over OTLP to your collector: set
+`otel.endpoint` in `values-production.yaml` (an OpenTelemetry Collector,
+or Amazon Managed Service for Prometheus through one). With
+kube-prometheus-stack in the cluster, also set:
+
+```yaml
+monitoring:
+  dashboards: { enabled: true } # for Grafana's dashboard sidecar
+  alerts: { enabled: true, labels: { release: kube-prometheus-stack } }
+```
+
+Otherwise import `deploy/helm/iki/files/dashboards/iki.json` into Grafana
+and load `deploy/helm/iki/files/alerts.yaml` as a rules file. ADR 0098 lists
+the metrics and what each alert means.
+
 ## Checking it
 
 `make check-infra` plans this root against a mocked AWS and checks the

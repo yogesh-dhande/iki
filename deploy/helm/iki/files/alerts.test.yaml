@@ -1,0 +1,130 @@
+# Unit tests for alerts.yaml: `promtool test rules` (make check-alerts).
+rule_files: [alerts.yaml]
+evaluation_interval: 1m
+tests:
+  - name: a run waiting over 30 minutes alerts after 10 more
+    interval: 1m
+    input_series:
+      # Two task runners report the same number.
+      - series: 'iki_runs_oldest_queued_seconds{tier="vm", environment="alphafold", instance="a"}'
+        values: "1700+60x20"
+      - series: 'iki_runs_oldest_queued_seconds{tier="vm", environment="alphafold", instance="b"}'
+        values: "1700+60x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: IkiRunsWaitingLong
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: IkiRunsWaitingLong
+        exp_alerts:
+          - exp_labels: { severity: warning, tier: vm, environment: alphafold }
+            exp_annotations:
+              summary: "Runs on the vm tier have waited over 30 minutes"
+              description: >-
+                The oldest queued run for alphafold on the vm tier has waited 43m 20s.
+                Compute → Overview shows the queue and the workers; a run also says why it
+                waits (a quota, approval, or no worker with its environment).
+  - name: queued runs with no worker online alert, and stop once one is
+    interval: 1m
+    input_series:
+      - series: 'iki_runs_attempts{tier="backend", environment="dna", state="queued"}'
+        values: "3x40"
+      - series: 'iki_workers{tier="backend", state="idle"}'
+        values: "0x25 1x15"
+      - series: 'iki_workers{tier="backend", state="busy"}'
+        values: "0x40"
+      # Another tier with workers is no help, and doesn't alert.
+      - series: 'iki_runs_attempts{tier="vm", environment="alphafold", state="queued"}'
+        values: "2x40"
+      - series: 'iki_workers{tier="vm", state="busy"}'
+        values: "1x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: IkiNoWorkersForQueuedRuns
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: IkiNoWorkersForQueuedRuns
+        exp_alerts:
+          - exp_labels: { severity: critical, tier: backend }
+            exp_annotations:
+              summary: "Runs are queued on the backend tier, and no worker is online"
+              description: >-
+                3 runs wait on the backend tier with no worker online to take them. Backend
+                workers may be down or their token revoked; on the container and VM tiers,
+                the provisioner may be failing to start machines (see its logs).
+      - eval_time: 30m
+        alertname: IkiNoWorkersForQueuedRuns
+        exp_alerts: []
+  - name: offline workers alert, except people's own machines
+    interval: 1m
+    input_series:
+      - series: 'iki_workers{tier="backend", state="offline"}'
+        values: "2x40"
+      - series: 'iki_workers{tier="client", state="offline"}'
+        values: "5x40"
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: IkiWorkersOffline
+        exp_alerts:
+          - exp_labels: { severity: warning, tier: backend }
+            exp_annotations:
+              summary: "2 backend workers have stopped reporting"
+              description: >-
+                Workers that registered haven't been heard from for over 30 minutes. Compute
+                → Workers lists them; revoke the ones that are gone for good.
+  - name: a high share of server errors alerts
+    interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="iki-server", http_response_status_code="200"}'
+        values: "0+90x30"
+      - series: 'http_server_request_duration_seconds_count{job="iki-server", http_response_status_code="500"}'
+        values: "0+10x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: IkiServerErrors
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "Over 5% of Iki's requests are failing"
+              description: >-
+                10% of requests got a 5xx answer in the last 5 minutes. The web pods' logs
+                and traces say why.
+  - name: a failed task alerts; retries don't
+    interval: 1m
+    input_series:
+      - series: 'iki_tasks_attempts_total{iki_task="iki_server.webhooks.tasks.deliver", iki_task_outcome="failed"}'
+        values: "0 0 0 1 1 1 1 1 1 1"
+      - series: 'iki_tasks_attempts_total{iki_task="iki_server.email.tasks.send", iki_task_outcome="retrying"}'
+        values: "0+1x9"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: IkiTasksFailing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: IkiTasksFailing
+        exp_alerts:
+          - exp_labels: { severity: warning, iki_task: iki_server.webhooks.tasks.deliver }
+            exp_annotations:
+              summary: "Background task iki_server.webhooks.tasks.deliver failed"
+              description: >-
+                Failed with no retries left, in the last 30 minutes: 1. The task runners'
+                logs carry each failure, with its trace.
+  - name: no task runner reporting alerts
+    interval: 1m
+    input_series:
+      - series: 'iki_workers{tier="backend", state="idle"}'
+        values: "1x5 _x30"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: IkiTaskRunnersSilent
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: IkiTaskRunnersSilent
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "No task runner is reporting Iki's metrics"
+              description: >-
+                Task runners export the queue and worker numbers every minute. None has for 15
+                minutes: they're down, can't reach the database, or can't reach the collector.
+                Background work (email, webhooks, run scheduling) may be stopped too.

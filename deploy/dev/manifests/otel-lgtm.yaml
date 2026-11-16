@@ -52,10 +52,38 @@ spec:
             - { name: data, mountPath: /data }
             - { name: tmp, mountPath: /tmp }
             - { name: tempo, mountPath: /var/tempo }
+            # Iki's dashboard (ADR 0098): the chart's file, in a ConfigMap Tilt makes.
+            - name: dashboards-provider
+              mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/iki.yaml
+              subPath: iki.yaml
+              readOnly: true
+            - { name: dashboards, mountPath: /var/lib/iki-dashboards, readOnly: true }
       volumes:
         - { name: data, emptyDir: { sizeLimit: 4Gi } }
         - { name: tmp, emptyDir: { sizeLimit: 512Mi } }
         - { name: tempo, emptyDir: { sizeLimit: 2Gi } }
+        - name: dashboards-provider
+          configMap: { name: grafana-iki-dashboards }
+        - name: dashboards
+          configMap: { name: iki-dashboards, optional: true }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-iki-dashboards
+  namespace: iki
+  labels: { app.kubernetes.io/name: otel-lgtm }
+data:
+  iki.yaml: |
+    apiVersion: 1
+    providers:
+      - name: Iki
+        folder: Iki
+        type: file
+        allowUiUpdates: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/iki-dashboards
 ---
 apiVersion: v1
 kind: Service

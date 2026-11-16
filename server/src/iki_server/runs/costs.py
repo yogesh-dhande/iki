@@ -25,8 +25,10 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Count, F, Q, QuerySet, Sum
 from django.utils import timezone
+from opentelemetry import metrics
 
 from iki_server.runs import catalog
 from iki_server.runs.models import (
@@ -41,6 +43,20 @@ from iki_server.runs.models import (
     Worker,
 )
 from iki_spec.model import Action
+
+#: What's recorded, for dashboards (ADR 0098): by template, tier and kind (a run's share, or
+#: idle), never by project, which Compute → Costs has.
+_meter = metrics.get_meter("iki.compute")
+machine_time = _meter.create_counter(
+    "iki.compute.machine_time",
+    unit="s",
+    description="Machine time recorded for machines Iki started, by template, tier and kind.",
+)
+spend = _meter.create_counter(
+    "iki.compute.cost",
+    description="What machines Iki started cost, in the template's currency, by template, tier, "
+    "kind and currency.",
+)
 
 __all__ = [
     "PRICED_TIERS",
@@ -103,7 +119,7 @@ def _record(
             "team_id": run.project.team_id,
             "action": run.action,
         }
-    return CostRecord.objects.create(
+    record = CostRecord.objects.create(
         launch=launch,
         kind=CostKind.RUN if job is not None else CostKind.IDLE,
         template=launch.template,
@@ -116,6 +132,15 @@ def _record(
         amount=costs.of(seconds) if costs else None,
         **whose,
     )
+    transaction.on_commit(lambda: _count(record))
+    return record
+
+
+def _count(record: CostRecord) -> None:
+    labels = {"template": record.template, "tier": record.tier, "kind": record.kind}
+    machine_time.add(float(record.seconds), labels)
+    if record.amount is not None:
+        spend.add(float(record.amount), {**labels, "currency": record.currency})
 
 
 def _tier(launch: Launch) -> str:

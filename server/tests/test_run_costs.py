@@ -31,7 +31,7 @@ from test_runs import COMPUTE, launch, protein
 from test_workers import WorkerClient
 
 from iki_server.org.models import ProjectMembership, ProjectRole
-from iki_server.runs import launches, provisioner
+from iki_server.runs import costs, launches, provisioner, queue
 from iki_server.runs.kubernetes import RUN_LABELS
 from iki_server.runs.models import (
     ActionRun,
@@ -123,6 +123,45 @@ def test_an_ephemeral_pods_whole_life_is_its_runs(priced: World) -> None:
     done = cost(priced, run["id"])
     assert done["amount"] == pytest.approx(float(record.amount or 0))
     assert done["seconds"] == pytest.approx(float(record.seconds))
+
+
+class Recorded:
+    """Stands in for a counter or histogram, keeping what it's given."""
+
+    def __init__(self) -> None:
+        self.values: list[tuple[float, dict[str, str]]] = []
+
+    def add(self, value: float, attributes: dict[str, str]) -> None:
+        self.values.append((value, attributes))
+
+    record = add
+
+
+def test_metrics_count_machine_time_and_spend_once_recorded(
+    priced: World, monkeypatch: pytest.MonkeyPatch, django_capture_on_commit_callbacks: Any
+) -> None:
+    """By template, tier and kind, never by project (ADR 0098); the wait, by its template."""
+    machine_time, spend, waits = Recorded(), Recorded(), Recorded()
+    monkeypatch.setattr(costs, "machine_time", machine_time)
+    monkeypatch.setattr(costs, "spend", spend)
+    monkeypatch.setattr(queue, "queue_wait", waits)
+    queue_run(priced)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    launch, pod = started(cluster)
+    Launch.objects.filter(pk=launch.pk).update(created_at=ago(2))
+    with django_capture_on_commit_callbacks(execute=True):
+        leased(pod)
+    assert [labels for _, labels in waits.values] == [{"tier": "container", "template": "gpu-t4"}]
+    with django_capture_on_commit_callbacks(execute=True):
+        assert pod.post("/deregister").status_code == 204
+    labels = {"template": "gpu-t4", "tier": "container", "kind": "run"}
+    ((seconds, counted),) = machine_time.values
+    assert counted == labels
+    assert seconds == pytest.approx(7200, abs=60)
+    ((amount, priced_labels),) = spend.values
+    assert priced_labels == {**labels, "currency": "USD"}
+    assert amount == pytest.approx(2 * PER_HOUR, abs=0.05)
 
 
 def test_a_pod_that_never_ran_a_job_is_the_organizations(priced: World) -> None:

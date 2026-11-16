@@ -37,6 +37,9 @@ check-image: ## Build the server image and scan it (grype)
 	docker build -f server/Dockerfile -t iki-server:scan .
 	grype iki-server:scan --config .grype.yaml
 
+#: For promtool, to test the alerts: the version otel-lgtm (deploy/dev) runs.
+PROMETHEUS_IMAGE := prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+
 .PHONY: check-chart
 check-chart: ## Helm lint (strict) with the minimum required values
 	helm lint --strict deploy/helm/iki \
@@ -45,6 +48,10 @@ check-chart: ## Helm lint (strict) with the minimum required values
 	  --set encryptionKeys.existingSecret=e --set database.existingSecret=d \
 	  --set database.migrator.existingSecret=m
 	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml
+	@# Iki's alerts (ADR 0098): valid, and each fires when and how its tests say.
+	docker run --rm --network none --user "$$(id -u):$$(id -g)" \
+	  -v "$(CURDIR)/deploy/helm/iki/files:/rules:ro" -w /rules --entrypoint promtool \
+	  $(PROMETHEUS_IMAGE) test rules alerts.test.yaml
 
 #: The AWS modules (ADR 0097), each checked on its own as the root a team copies it into,
 #: and the bootstrap and production roots that put them together.

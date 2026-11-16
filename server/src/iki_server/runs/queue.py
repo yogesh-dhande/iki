@@ -85,7 +85,8 @@ __all__ = [
 queue_wait = metrics.get_meter("iki.compute").create_histogram(
     "iki.runs.queue_wait",
     unit="s",
-    description="How long attempts waited in the queue before a worker leased them, by tier.",
+    description="How long attempts waited in the queue before a worker leased them, by tier "
+    "and, for a machine Iki started, its template.",
 )
 
 CHANNEL = "iki_jobs"
@@ -309,7 +310,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             .order_by("id"),
         ]
         waits = [max((now - j.queued_at).total_seconds(), 0.0) for j in [job, *members]]
-        transaction.on_commit(lambda: _record_waits(job.tier, waits))
+        transaction.on_commit(lambda: _record_waits(job.tier, template, waits))
         for each in runs:
             each.status = RunStatus.RUNNING
             each.started_at = each.started_at or now
@@ -321,9 +322,10 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         return job, payload(job, run)
 
 
-def _record_waits(tier: str, waits: list[float]) -> None:
+def _record_waits(tier: str, template: str, waits: list[float]) -> None:
+    labels = {"tier": tier, "template": template} if template else {"tier": tier}
     for wait in waits:
-        queue_wait.record(wait, {"tier": tier})
+        queue_wait.record(wait, labels)
 
 
 def _pack(job: Job, run: ActionRun) -> list[Job]:

@@ -2,6 +2,7 @@
 the security properties every Iki workload must have.
 """
 
+import json
 import re
 import shutil
 import subprocess
@@ -1445,3 +1446,69 @@ def test_service_accounts_that_reach_object_storage_take_annotations() -> None:
         assert named(docs, "ServiceAccount", name)["metadata"]["annotations"] == role
     # No AWS role means no route to the Pod Identity agent.
     assert "iki-pod-identity" not in [p["metadata"]["name"] for p in by_kind(docs, "NetworkPolicy")]
+
+
+# --- Dashboards and alerts (ADR 0098) -------------------------------------------------------
+
+CHART_FILES = CHART / "files"
+SERVER = CHART.parents[2] / "server" / "src" / "iki_server"
+
+
+def test_dashboards_and_alerts_are_off_unless_asked_for() -> None:
+    docs = manifests()
+    assert not by_kind(docs, "PrometheusRule")
+    assert not [d for d in by_kind(docs, "ConfigMap") if d["metadata"]["name"] == "iki-dashboards"]
+
+
+def test_dashboards_and_alerts_render_the_charts_files_as_they_are() -> None:
+    docs = manifests(
+        {
+            "monitoring": {
+                "dashboards": {
+                    "enabled": True,
+                    "annotations": {"grafana_folder": "Iki"},
+                    "namespace": "monitoring",
+                },
+                "alerts": {"enabled": True, "labels": {"release": "kube-prometheus-stack"}},
+            }
+        }
+    )
+    dashboards = named(docs, "ConfigMap", "iki-dashboards")
+    assert dashboards["metadata"]["namespace"] == "monitoring"
+    assert dashboards["metadata"]["labels"]["grafana_dashboard"] == "1"
+    assert dashboards["metadata"]["annotations"] == {"grafana_folder": "Iki"}
+    assert dashboards["data"] == {
+        "iki.json": (CHART_FILES / "dashboards" / "iki.json").read_text().rstrip("\n")
+    }
+    alerts = named(docs, "PrometheusRule", "iki-alerts")
+    assert alerts["metadata"]["labels"]["release"] == "kube-prometheus-stack"
+    # Its {{ $labels... }} are the alert's, left for Prometheus, not Helm's.
+    assert alerts["spec"] == yaml.safe_load((CHART_FILES / "alerts.yaml").read_text())
+
+
+def _queries() -> list[str]:
+    dashboard = json.loads((CHART_FILES / "dashboards" / "iki.json").read_text())
+    exprs = [t["expr"] for p in dashboard["panels"] for t in p.get("targets", [])]
+    rules = yaml.safe_load((CHART_FILES / "alerts.yaml").read_text())
+    return exprs + [r["expr"] for g in rules["groups"] for r in g["rules"]]
+
+
+def _metrics_only(query: str) -> str:
+    """The query without its label matchers, groupings and strings: what's left names metrics."""
+    query = re.sub(r'"[^"]*"', "", query)
+    query = re.sub(r"\{[^}]*\}", "", query)
+    return re.sub(r"\b(by|without|on|ignoring)\s*\([^)]*\)", "", query)
+
+
+def test_dashboards_and_alerts_read_only_metrics_iki_exports() -> None:
+    """A misspelt metric draws an empty panel and an alert that never fires."""
+    # Prometheus' name for each of Iki's metrics, as its OTLP translation gives it.
+    suffixes = ("_seconds_bucket", "_seconds_count", "_seconds_total", "_seconds", "_total")
+    used = {m for q in map(_metrics_only, _queries()) for m in re.findall(r"\biki_[a-z_]+", q)}
+    assert used
+    source = "\n".join(p.read_text() for p in SERVER.rglob("*.py"))
+    for metric in sorted(used):
+        base = next((metric.removesuffix(s) for s in suffixes if metric.endswith(s)), metric)
+        dotted = base.replace("iki_runs_", "iki.runs.").replace("iki_compute_", "iki.compute.")
+        dotted = dotted.replace("iki_tasks_", "iki.tasks.").replace("iki_", "iki.", 1)
+        assert f'"{dotted}"' in source, f"{metric}: no metric named {dotted} in the server"

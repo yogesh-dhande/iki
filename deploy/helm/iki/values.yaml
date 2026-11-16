@@ -228,6 +228,27 @@ otel:
   # Extra resource attributes, e.g. "k8s.cluster.name=prod-us-east-1".
   resourceAttributes: ""
 
+# Dashboards and alerts for Iki's metrics (ADR 0098). Both read the metrics as Prometheus
+# stores what Iki sends over OTLP (otel.endpoint), with its default name translation.
+monitoring:
+  dashboards:
+    # A ConfigMap holding Iki's Grafana dashboard, for a Grafana sidecar that loads
+    # dashboards from labelled ConfigMaps (as kube-prometheus-stack's does).
+    enabled: false
+    # The label the sidecar looks for.
+    labels:
+      grafana_dashboard: "1"
+    # E.g. grafana_folder: Iki, for a sidecar that reads folders from an annotation.
+    annotations: {}
+    # Where the sidecar looks, if not in Iki's namespace and it doesn't watch them all.
+    namespace: ""
+  alerts:
+    # Iki's alerts as a PrometheusRule, for the Prometheus Operator (it needs its CRDs).
+    # Without the operator, load files/alerts.yaml as a rules file.
+    enabled: false
+    # Labels the operator's ruleSelector matches, e.g. release: kube-prometheus-stack.
+    labels: {}
+
 web:
   replicas: 2
   # Seconds an idle connection stays open. Must be longer than your load

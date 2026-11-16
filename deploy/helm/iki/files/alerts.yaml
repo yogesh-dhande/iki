@@ -1,0 +1,72 @@
+# Iki's alerts (ADR 0098), as a Prometheus rules file. The chart renders it as a
+# PrometheusRule when monitoring.alerts.enabled; anything else that reads rules files can
+# load it as it is. Every task runner exports the same database numbers, so these take max.
+# Tested by deploy/helm/iki/files/alerts.test.yaml (`make check-alerts`).
+groups:
+  - name: iki.compute
+    rules:
+      - alert: IkiRunsWaitingLong
+        expr: max by (tier, environment) (iki_runs_oldest_queued_seconds) > 1800
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Runs on the {{ $labels.tier }} tier have waited over 30 minutes"
+          description: >-
+            The oldest queued run for {{ $labels.environment }} on the {{ $labels.tier }}
+            tier has waited {{ $value | humanizeDuration }}. Compute → Overview shows the
+            queue and the workers; a run also says why it waits (a quota, approval, or no
+            worker with its environment).
+      - alert: IkiNoWorkersForQueuedRuns
+        expr: >-
+          max by (tier) (iki_runs_attempts{state="queued"}) > 0
+          unless on (tier)
+          max by (tier) (iki_workers{state=~"busy|idle"}) > 0
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "Runs are queued on the {{ $labels.tier }} tier, and no worker is online"
+          description: >-
+            {{ $value }} runs wait on the {{ $labels.tier }} tier with no worker online to
+            take them. Backend workers may be down or their token revoked; on the container
+            and VM tiers, the provisioner may be failing to start machines (see its logs).
+      - alert: IkiWorkersOffline
+        expr: max by (tier) (iki_workers{state="offline", tier!="client"}) > 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} {{ $labels.tier }} workers have stopped reporting"
+          description: >-
+            Workers that registered haven't been heard from for over 30 minutes. Compute →
+            Workers lists them; revoke the ones that are gone for good.
+  - name: iki.server
+    rules:
+      - alert: IkiServerErrors
+        expr: >-
+          sum(rate(http_server_request_duration_seconds_count{job="iki-server", http_response_status_code=~"5.."}[5m]))
+          / sum(rate(http_server_request_duration_seconds_count{job="iki-server"}[5m]))
+          > 0.05
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Over 5% of Iki's requests are failing"
+          description: >-
+            {{ $value | humanizePercentage }} of requests got a 5xx answer in the last 5
+            minutes. The web pods' logs and traces say why.
+      - alert: IkiTasksFailing
+        expr: sum by (iki_task) (increase(iki_tasks_attempts_total{iki_task_outcome="failed"}[30m])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "Background task {{ $labels.iki_task }} failed"
+          description: >-
+            Failed with no retries left, in the last 30 minutes: {{ $value | humanize }}.
+            The task runners' logs carry each failure, with its trace.
+      - alert: IkiTaskRunnersSilent
+        expr: absent(iki_workers)
+        for: 15m
+        labels: { severity: critical }
+        annotations:
+          summary: "No task runner is reporting Iki's metrics"
+          description: >-
+            Task runners export the queue and worker numbers every minute. None has for 15
+            minutes: they're down, can't reach the database, or can't reach the collector.
+            Background work (email, webhooks, run scheduling) may be stopped too.

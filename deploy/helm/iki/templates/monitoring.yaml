@@ -1,0 +1,44 @@
+{{- /* Iki's Grafana dashboards and Prometheus alerts (ADR 0098), from files/. */ -}}
+{{- with .Values.monitoring.dashboards }}
+{{- if .enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "iki.fullname" $ }}-dashboards
+  {{- with .namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    {{- with .labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{- range $path, $_ := $.Files.Glob "files/dashboards/*.json" }}
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- with .Values.monitoring.alerts }}
+{{- if .enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "iki.fullname" $ }}-alerts
+  labels:
+    {{- include "iki.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    {{- with .labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- $.Files.Get "files/alerts.yaml" | nindent 2 }}
+{{- end }}
+{{- end }}
