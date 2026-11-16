@@ -58,7 +58,7 @@
       "additionalProperties": false
     },
     "identity": {
-      "description": "The fields that make an entity the same as another. They must be required and immutable.",
+      "description": "The fields that make an entity the same as another. They must be immutable, and at least one required: an optional one without a value is null in the identity (ADR 0104).",
       "type": "array",
       "minItems": 1,
       "maxItems": 10,

@@ -25,3 +25,5 @@ server/src/iki_plugin_core/
 
 # Vendored unchanged, so it can be compared with its upstream release.
 deploy/aws/modules/access/policies/
+# What ANARCI said, recorded byte for byte by server/tests/data/record_anarci.py.
+server/tests/data/anarci.json

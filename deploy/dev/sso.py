@@ -1320,6 +1320,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     dashboard(alice, project, relatives_app(alice, project))
     app_draft(alice, project)
     structures(alice, project)
+    antibodies(alice, project)
 
 
 #: Human haemoglobin's alpha and beta chains (UniProt P69905, P68871).
@@ -1467,6 +1468,21 @@ MB = (
 ALIGNMENT_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-protein-alignment-tools"
     "@sha256:74cb2a5405950c42efa5a5edf049e2c571f8b7790338ab7eed3fcdf521e70dbd"
+)
+
+#: Trastuzumab's variable domains (PDB 1N8Z), a humanized IgG1 against HER2.
+TRASTUZUMAB_VH = (
+    "EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLR"
+    "AEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSS"
+)
+TRASTUZUMAB_VL = (
+    "DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYY"
+    "CQQHYTTPPTFGQGTKVEIK"
+)
+#: The antibody plugin's numbering-tools image (plugins/antibody/environments/numbering-tools.yaml).
+NUMBERING_TOOLS = (
+    "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
+    "@sha256:c314f625ee3c381add9a9cfcba3596cd7e0b61529764dc906c4fb09902007384"
 )
 
 
@@ -1643,6 +1659,76 @@ def relatives_app(alice: requests.Session, project: dict[str, Any]) -> str:
     ok(f"{made.json()['hrid']}: an app about a protein, a tab on {found[0]['hrid']}'s page")
     hrid: str = made.json()["hrid"]
     return hrid
+
+
+def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
+    """The antibody plugin: trastuzumab assembled from its chains, on the backend; then its
+    chains numbered by ANARCI, in a pod of their own with the plugin's image."""
+    chains = []
+    for name, sequence in (("Trastuzumab VH", TRASTUZUMAB_VH), ("Trastuzumab VL", TRASTUZUMAB_VL)):
+        made = api_call(
+            alice,
+            "POST",
+            "/entities",
+            {
+                "type": "protein.Protein",
+                "project": project["id"],
+                "values": {"name": name, "sequence": sequence},
+            },
+        )
+        if made.status_code not in (200, 201):
+            fail(f"registering {name} answered HTTP {made.status_code}: {made.text[:300]}")
+        chains.append(made.json())
+    heavy, light = chains
+    params = {"name": "Trastuzumab", "format": "igg", "isotype": "igg1", "target": "HER2"}
+    run = launch(
+        alice,
+        project,
+        "antibody.assemble",
+        {"heavy_chain": heavy["id"], "light_chain": light["id"]},
+        params,
+    )
+    effects = [e for e in run.get("effects") or [] if e["kind"] in ("created", "reused")]
+    if [e["type"] for e in effects] != ["antibody.Antibody"]:
+        fail(f"{run['hrid']} made {effects}, not one antibody.Antibody")
+    antibody = api_call(alice, "GET", f"/entities/{effects[0]['hrid']}").json()["values"]
+    if (antibody["heavy_chain"], antibody.get("light_chain"), antibody["isotype"]) != (
+        heavy["id"],
+        light["id"],
+        "igg1",
+    ):
+        fail(f"{effects[0]['hrid']} is {antibody}")
+    ok(
+        f"antibody.assemble made {effects[0]['hrid']} of {heavy['hrid']} and {light['hrid']} "
+        f"({run['hrid']})"
+    )
+    expected = {
+        heavy["id"]: ("heavy", "cdr_h3", "SRWGGDGFYAMDY", "heavy_v_gene", "IGHV3-66*01"),
+        light["id"]: ("kappa", "cdr_l3", "QQHYTTPPT", "light_v_gene", "IGKV1-39*01"),
+    }
+    for chain in chains:
+        # The first pulls the image into a pod of its own.
+        run = launch(alice, project, "antibody.number_chains", {"protein": chain["id"]}, within=900)
+        (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        if attempt["environment_build"] != NUMBERING_TOOLS.rpartition("@")[2]:
+            fail(f"{run['hrid']} didn't run in the numbering-tools image: {attempt}")
+        if attempt["template"] != "container-numbering":
+            fail(f"{run['hrid']} didn't run on the numbering template: {attempt}")
+        got = api_call(alice, "GET", f"/entities/{chain['id']}").json()["values"]
+        kind, cdr, cdr3, gene, v_gene = expected[chain["id"]]
+        identity = got.get(gene.replace("v_gene", "germline_identity"))
+        if (
+            (got.get("chain_type"), got.get(cdr), got.get(gene), got.get("species"))
+            != (kind, cdr3, v_gene, "human")
+            or got.get("numbering_scheme") != "imgt"
+            or not isinstance(identity, (int, float))
+            or not 80 < identity < 90
+        ):
+            fail(f"{run['hrid']} numbered {chain['hrid']} as {got}")
+        ok(
+            f"antibody.number_chains ran ANARCI in a pod of its own ({run['hrid']}): "
+            f"{chain['hrid']} is a {kind} chain, CDR3 {cdr3}, {v_gene} ({identity}%)"
+        )
 
 
 def aligned_many(

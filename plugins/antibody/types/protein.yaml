@@ -1,0 +1,116 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# What numbering an antibody's chain finds: its variable domains, their CDRs, and how
+# close they are to human germlines. The fields live in this plugin's table, so the
+# protein plugin's proteins are untouched without it.
+apiVersion: iki/v1
+kind: EntityTypeExtension
+extends_type: protein.Protein
+fields:
+  chain_type:
+    type: enum
+    values: [heavy, kappa, lambda, heavy_and_light]
+    computed: true
+    indexed: true
+    description: >-
+      The variable domains numbering found: a heavy chain's, a kappa or a lambda
+      light chain's, or both a heavy and a light one (an scFv).
+  species:
+    type: enum
+    label: Closest species
+    values: [human, mouse, rat, rabbit, rhesus, pig, cow, alpaca]
+    computed: true
+    indexed: true
+    description: >-
+      The species whose germline V gene its first variable domain is closest
+      to, among those ANARCI has: a humanized antibody's is usually human, a
+      nanobody's alpaca.
+  numbering_scheme:
+    type: enum
+    values: [imgt, kabat, chothia]
+    computed: true
+    description: The scheme its domains were numbered in, which says where its CDRs are.
+  cdr_h1: { type: string, label: CDR-H1, max_length: 64, computed: true }
+  cdr_h2: { type: string, label: CDR-H2, max_length: 64, computed: true }
+  cdr_h3: { type: string, label: CDR-H3, max_length: 64, computed: true, indexed: true }
+  cdr_l1: { type: string, label: CDR-L1, max_length: 64, computed: true }
+  cdr_l2: { type: string, label: CDR-L2, max_length: 64, computed: true }
+  cdr_l3: { type: string, label: CDR-L3, max_length: 64, computed: true, indexed: true }
+  heavy_v_gene:
+    type: string
+    label: Heavy V gene
+    max_length: 64
+    computed: true
+    indexed: true
+    description: The human germline V gene its heavy domain is closest to, such as IGHV3-66*01.
+  heavy_germline_identity:
+    type: quantity
+    label: Heavy human germline identity
+    unit: "%"
+    min: 0
+    max: 100
+    computed: true
+    indexed: true
+    description: >-
+      How much of its heavy domain's V region is the same as that gene's: its
+      humanness. A human antibody is usually above 90%, a humanized one above 80%.
+  heavy_j_gene: { type: string, label: Heavy J gene, max_length: 64, computed: true }
+  light_v_gene:
+    type: string
+    label: Light V gene
+    max_length: 64
+    computed: true
+    indexed: true
+    description: The human germline V gene its light domain is closest to, such as IGKV1-39*01.
+  light_germline_identity:
+    type: quantity
+    label: Light human germline identity
+    unit: "%"
+    min: 0
+    max: 100
+    computed: true
+    indexed: true
+    description: How much of its light domain's V region is the same as that gene's.
+  light_j_gene: { type: string, label: Light J gene, max_length: 64, computed: true }
+  variable_domains:
+    type: json
+    computed: true
+    description: >-
+      Each variable domain numbering found, in order along the chain: its chain
+      type, where it starts and ends (from 1), each residue's number and
+      insertion code, the closest species, and the germline genes it's closest
+      to, among every species' and among human's.
+    schema:
+      type: array
+      maxItems: 8
+      $defs:
+        germlines:
+          type: object
+          additionalProperties: false
+          properties:
+            v_gene: { type: string, maxLength: 64 }
+            v_identity: { type: number, minimum: 0, maximum: 100 }
+            j_gene: { type: string, maxLength: 64 }
+            j_identity: { type: number, minimum: 0, maximum: 100 }
+      items:
+        type: object
+        additionalProperties: false
+        required: [chain, start, end, numbering, closest, human]
+        properties:
+          chain: { enum: [H, K, L] }
+          start: { type: integer, minimum: 1 }
+          end: { type: integer, minimum: 1 }
+          species: { enum: [human, mouse, rat, rabbit, rhesus, pig, cow, alpaca] }
+          numbering:
+            type: array
+            maxItems: 200
+            items:
+              type: array
+              prefixItems:
+                - { type: integer, minimum: 1 }
+                - { type: string, maxLength: 1 }
+                - { type: string, minLength: 1, maxLength: 1 }
+              minItems: 3
+              maxItems: 3
+          closest: { $ref: "#/$defs/germlines" }
+          human: { $ref: "#/$defs/germlines" }

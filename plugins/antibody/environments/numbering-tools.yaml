@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# ANARCI and HMMER on the container tier: the image built from
+# images/numbering-tools, which Iki's publish workflow signed (ADR 0065). Pinned by
+# its multi-arch digest; changing the image is a commit to its Dockerfile, then one
+# here.
+apiVersion: iki/v1
+kind: Environment
+name: numbering-tools
+label: Numbering tools
+description: ANARCI 2026.2.13.2, HMMER 3.4 and IMGT's germlines, and the plugin's Python packages.
+tiers: [container]
+resources: { cpu: 1, memory: 1Gi }
+image: ghcr.io/yogesh-dhande/iki-antibody-numbering-tools@sha256:c314f625ee3c381add9a9cfcba3596cd7e0b61529764dc906c4fb09902007384

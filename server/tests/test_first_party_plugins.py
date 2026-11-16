@@ -85,10 +85,21 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         fab = Antibody.objects.create(
             owner_project=project, heavy_chain=bla, light_chain=light, format="fab",
         )
+        # Giving the VHH a light chain would make it another antibody: it's refused.
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        try:
+            services.update(
+                User.objects.create_user("alice@example.com"), vhh,
+                {"light_chain": str(light.pk)}, expected_revision=vhh.revision,
+            )
+            refused = None
+        except services.Invalid as invalid:
+            refused = invalid.errors
         result = {"types": [puc.type, primer.type, sample.type, bla.type, vhh.type],
                   "hrids": [puc.hrid, primer.hrid, sample.hrid, bla.hrid, vhh.hrid],
                   "heavy": str(bla.pk), "light": str(light.pk),
-                  "identities": [vhh.identity_hash, fab.identity_hash]}
+                  "identities": [vhh.identity_hash, fab.identity_hash], "refused": refused}
         """,
     )
     assert result["types"] == [
@@ -106,6 +117,12 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         identity_hash("antibody.Antibody", chains),
         identity_hash("antibody.Antibody", paired),
     ]
+    assert result["refused"] == {
+        "light_chain": [
+            "is part of what makes it this one, so it can't be added later: "
+            "register another with it instead."
+        ]
+    }
     for app in ("antibody", "example", "protein", "dna"):
         migrate(out, database, app, "zero")
     left = query(

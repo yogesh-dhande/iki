@@ -21,6 +21,11 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: antibody.antibody-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: example_lims.lims-tools
 templates: [{ template: backend-small }]
 ---
@@ -75,6 +80,21 @@ apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: protein.alignment-tools
 templates: [{ template: container-alignments }]
+---
+# The antibody plugin's ANARCI (numbering-tools): on one CPU and in 1 GiB, a
+# batch of 500 chains takes about 12 seconds, both passes. The image is 347 MB.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-numbering
+provisioner: k8s_job
+capacity: { cpu: 1, memory: 1Gi, scratch_disk: 1Gi }
+limits: { max_concurrent: 1 }
+price: { per_hour: 0.10, currency: USD }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: antibody.numbering-tools
+templates: [{ template: container-numbering }]
 ---
 # The plugin template's reference data (ADR 0075): a setup build fills a disk
 # from the CSI host-path driver, which is snapshotted; each run pod gets a

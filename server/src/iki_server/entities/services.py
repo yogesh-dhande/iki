@@ -312,6 +312,8 @@ def update(
             raise Refused(why)
         kept = _kept(form)
         fields = form.fields()
+        owner = registry.identity_owner(registry.types()[locked.type])
+        identifying = set(owner.identity) if owner is not None else set()
         instance = _specific(locked)
         rows = _extension_rows(form, instance.pk)
         refs = access.refs_for(user, locked.owner_project)
@@ -328,13 +330,21 @@ def update(
             if f.computed and not by_run:
                 errors[name] = ["is computed: only actions set it."]
                 continue
+            part = form.part_of(name)
+            current = _current(part, f, instance, rows)
+            if name in identifying and current is None and value is not None:
+                # An optional identity field left empty is part of the identity too (ADR
+                # 0104): filling it in would make another entity, not change this one.
+                errors[name] = [
+                    "is part of what makes it this one, so it can't be added later: "
+                    "register another with it instead."
+                ]
+                continue
             try:
                 converted = to_db(f, value, refs)
             except ValueError as error:
                 errors[name] = [str(error)]
                 continue
-            part = form.part_of(name)
-            current = _current(part, f, instance, rows)
             if converted == current:
                 continue
             if f.immutable and current is not None:
@@ -378,7 +388,7 @@ def update(
                     _set(target, f, value)
             if part.extension:
                 target.save()
-        # Identity fields are required and immutable (the spec checks), so the hash stays put.
+        # Identity fields can't change, nor be filled in once empty, so the hash stays put.
         if any(not p.extension for p in touched):
             instance.save()
         revision = _revise(

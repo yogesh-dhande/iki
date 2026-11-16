@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: number_chains
+label: Number antibody chains (ANARCI)
+description: >-
+  Finds the antibody variable domains in proteins, with ANARCI, numbers them in
+  the scheme chosen, and gives their CDRs, the species they're closest to, the
+  human germline V and J genes they're closest to, and how much of the V region
+  is the same: their humanness. An
+  scFv's chain has two domains, a heavy and a light one. A protein without one
+  is left as it was, and the run says so.
+inputs:
+  protein: { type: protein.Protein, schema: ">=2", label: Chain }
+params:
+  scheme:
+    type: enum
+    values: [imgt, kabat, chothia]
+    default: imgt
+    description: >-
+      Where the CDRs are: IMGT's, Kabat's or Chothia's definitions, each in
+      its own numbering.
+effects:
+  updates:
+    - input: protein
+      fields:
+        - chain_type
+        - species
+        - numbering_scheme
+        - cdr_h1
+        - cdr_h2
+        - cdr_h3
+        - cdr_l1
+        - cdr_l2
+        - cdr_l3
+        - heavy_v_gene
+        - heavy_germline_identity
+        - heavy_j_gene
+        - light_v_gene
+        - light_germline_identity
+        - light_j_gene
+        - variable_domains
+runs_on: { tier: container, environment: numbering-tools }
+command: [python, ./scripts/numbering.py]
+deterministic: true
+batchable: 500
+timeout: 10m

@@ -138,6 +138,11 @@ module = ["environ", "environ.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# ANARCI (the antibody plugin's numbering) ships no type information.
+module = ["anarci", "anarci.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 # django-allauth ships no type information.
 module = ["allauth", "allauth.*"]
 ignore_missing_imports = true
