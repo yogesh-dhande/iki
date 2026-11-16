@@ -38,6 +38,7 @@ from opentelemetry import metrics, trace
 from iki_server import health
 from iki_server.runs import budgets as runs_budgets
 from iki_server.runs import imports as runs_imports
+from iki_server.runs import overview as runs_overview
 from iki_server.runs import queue as runs_queue
 from iki_server.runs import setups as runs_setups
 from iki_server.runs import triggers as runs_triggers
@@ -405,6 +406,9 @@ class Runner:
         return not stale and all(thread.is_alive() for thread in self._threads)
 
     def start(self) -> None:
+        # The queues, workers and machines as gauges (runs.overview): from task runners,
+        # which every deployment runs, read only as metrics are exported.
+        runs_overview.observe()
         targets = [(self._listen, "listen"), (self._housekeep, "housekeep")]
         targets += [(self._work, f"work-{n}") for n in range(self.concurrency)]
         for target, name in targets:

@@ -5650,6 +5650,34 @@
         "title": "LookupParams",
         "type": "object"
       },
+      "MachinesOut": {
+        "properties": {
+          "provisioner": {
+            "title": "Provisioner",
+            "type": "string"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          },
+          "starting": {
+            "title": "Starting",
+            "type": "integer"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "provisioner",
+          "starting",
+          "running"
+        ],
+        "title": "MachinesOut",
+        "type": "object"
+      },
       "MarkAllIn": {
         "properties": {
           "up_to": {
@@ -6292,6 +6320,44 @@
           "here"
         ],
         "title": "OutsideRef",
+        "type": "object"
+      },
+      "OverviewOut": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "machines": {
+            "items": {
+              "$ref": "#/components/schemas/MachinesOut"
+            },
+            "title": "Machines",
+            "type": "array"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/components/schemas/QueueOut"
+            },
+            "title": "Queues",
+            "type": "array"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/WorkersOut"
+            },
+            "title": "Workers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "queues",
+          "workers",
+          "machines",
+          "as_of"
+        ],
+        "title": "OverviewOut",
         "type": "object"
       },
       "PageParams": {
@@ -8359,6 +8425,61 @@
           }
         },
         "title": "QueryIn",
+        "type": "object"
+      },
+      "QueueOut": {
+        "properties": {
+          "awaiting_approval": {
+            "description": "Waiting for a person's approval (ADR 0013).",
+            "title": "Awaiting Approval",
+            "type": "integer"
+          },
+          "environment": {
+            "description": "plugin.environment",
+            "title": "Environment",
+            "type": "string"
+          },
+          "oldest_queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the longest-waiting queued attempt was queued.",
+            "title": "Oldest Queued At"
+          },
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "integer"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          },
+          "waiting_seconds": {
+            "description": "How long it has waited; 0 when none is queued.",
+            "title": "Waiting Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tier",
+          "environment",
+          "awaiting_approval",
+          "queued",
+          "running",
+          "oldest_queued_at",
+          "waiting_seconds"
+        ],
+        "title": "QueueOut",
         "type": "object"
       },
       "QuotaIn": {
@@ -13277,6 +13398,37 @@
         "title": "WorkerRegistrationOut",
         "type": "object"
       },
+      "WorkersOut": {
+        "properties": {
+          "busy": {
+            "description": "Online and holding a job.",
+            "title": "Busy",
+            "type": "integer"
+          },
+          "idle": {
+            "description": "Online with nothing to do.",
+            "title": "Idle",
+            "type": "integer"
+          },
+          "offline": {
+            "description": "Not heard from for two minutes; not revoked.",
+            "title": "Offline",
+            "type": "integer"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier",
+          "busy",
+          "idle",
+          "offline"
+        ],
+        "title": "WorkersOut",
+        "type": "object"
+      },
       "WorkflowErrorOut": {
         "properties": {
           "code": {
@@ -15162,6 +15314,37 @@
         "summary": "Download what runs cost",
         "tags": [
           "costs"
+        ]
+      }
+    },
+    "/api/v1/compute/overview": {
+      "get": {
+        "description": "Each tier and environment's runs waiting and running, every tier's workers, and the\nmachines Iki started that haven't ended. Iki exports the same numbers as metrics.",
+        "operationId": "iki_server_api_compute_compute_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What compute is doing now",
+        "tags": [
+          "compute"
         ]
       }
     },

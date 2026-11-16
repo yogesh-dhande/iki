@@ -1,5 +1,5 @@
-"""Compute admin: the tokens workers register with, the workers themselves (ADR 0043), and
-quotas on runs (ADR 0045).
+"""Compute admin: what compute is doing now, the tokens workers register with, the workers
+themselves (ADR 0043), and quotas on runs (ADR 0045).
 
 All of it takes the Compute admin role. A registration token's value is
 shown once, when it's made; only a hash is kept.
@@ -23,7 +23,7 @@ from iki_server.audit import log as audit
 from iki_server.org.models import Project, Team
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.runs import queue, workers
+from iki_server.runs import overview, queue, workers
 from iki_server.runs.models import (
     TIERS,
     ActionRun,
@@ -39,6 +39,60 @@ router = Router(tags=["compute"])
 
 #: A worker not heard from for this long is shown as offline.
 OFFLINE_AFTER = workers.OFFLINE_AFTER
+
+
+# --- Overview ------------------------------------------------------------------------------
+
+
+class QueueOut(Schema):
+    tier: str
+    environment: str = Field(description="plugin.environment")
+    awaiting_approval: int = Field(description="Waiting for a person's approval (ADR 0013).")
+    queued: int
+    running: int
+    oldest_queued_at: datetime | None = Field(
+        description="When the longest-waiting queued attempt was queued."
+    )
+    waiting_seconds: int = Field(description="How long it has waited; 0 when none is queued.")
+
+
+class WorkersOut(Schema):
+    tier: str
+    busy: int = Field(description="Online and holding a job.")
+    idle: int = Field(description="Online with nothing to do.")
+    offline: int = Field(description="Not heard from for two minutes; not revoked.")
+
+
+class MachinesOut(Schema):
+    template: str
+    provisioner: str
+    starting: int
+    running: int
+
+
+class OverviewOut(Schema):
+    queues: list[QueueOut]
+    workers: list[WorkersOut]
+    machines: list[MachinesOut]
+    as_of: datetime
+
+
+@router.get("/compute/overview", response=OverviewOut, summary="What compute is doing now")
+def compute_overview(request: HttpRequest) -> dict[str, Any]:
+    """Each tier and environment's runs waiting and running, every tier's workers, and the
+    machines Iki started that haven't ended. Iki exports the same numbers as metrics."""
+    require(caller(request), Action.COMPUTE_MANAGE)
+    now = timezone.now()
+    found = overview.overview(now)
+    return {
+        "queues": [
+            {**vars(q), "waiting_seconds": int(q.waiting(now).total_seconds())}
+            for q in found.queues
+        ],
+        "workers": [vars(w) for w in found.workers],
+        "machines": [vars(m) for m in found.machines],
+        "as_of": now,
+    }
 
 
 class WorkerRegistrationIn(Schema):

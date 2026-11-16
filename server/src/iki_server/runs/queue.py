@@ -37,6 +37,7 @@ from django.db import connection, transaction
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
+from opentelemetry import metrics
 
 from iki_server.audit import log as audit
 from iki_server.entities import registry, services
@@ -77,6 +78,15 @@ __all__ = [
     "progress",
     "recover_expired",
 ]
+
+#: How long each attempt waited before a worker leased it, recorded as the lease commits:
+#: it sums across the pods that lease, so dashboards add them up (Compute → Overview shows
+#: the queue as it is now).
+queue_wait = metrics.get_meter("iki.compute").create_histogram(
+    "iki.runs.queue_wait",
+    unit="s",
+    description="How long attempts waited in the queue before a worker leased them, by tier.",
+)
 
 CHANNEL = "iki_jobs"
 #: A lease lasts this long unless a heartbeat renews it.
@@ -298,6 +308,8 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             .filter(pk__in=[m.run_id for m in members])
             .order_by("id"),
         ]
+        waits = [max((now - j.queued_at).total_seconds(), 0.0) for j in [job, *members]]
+        transaction.on_commit(lambda: _record_waits(job.tier, waits))
         for each in runs:
             each.status = RunStatus.RUNNING
             each.started_at = each.started_at or now
@@ -307,6 +319,11 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             each.save(update_fields=["status", "started_at", "seed"])
             live.changed(each.pk, each.batch_id)
         return job, payload(job, run)
+
+
+def _record_waits(tier: str, waits: list[float]) -> None:
+    for wait in waits:
+        queue_wait.record(wait, {"tier": tier})
 
 
 def _pack(job: Job, run: ActionRun) -> list[Job]:

@@ -274,6 +274,7 @@ PAGES = [
     ("org_admin", "/settings/email/"),
     ("admin", "/projects/kinase-atlas/webhooks/"),
     ("org_admin", "/settings/webhooks/"),
+    ("compute_admin", "/compute/"),
 ]
 
 

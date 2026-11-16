@@ -783,6 +783,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         lambda w: (f"/compute/registration-tokens/{_registration(w).pk}/revoke", {}),
         COMPUTE_ONLY,
     ),
+    ("GET", "/compute/overview", fixed("/compute/overview"), COMPUTE_ONLY),
     ("GET", "/compute/workers", fixed("/compute/workers"), COMPUTE_ONLY),
     # Environments' volumes and the setup builds that fill them (ADR 0075).
     ("GET", "/compute/volumes", fixed("/compute/volumes"), COMPUTE_ONLY),

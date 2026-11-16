@@ -123,7 +123,7 @@ export function Layout() {
                 </Link>
               ) : null}
               {me.can.manage_compute ? (
-                <Link to="/compute/volumes/" activeProps={{ "aria-current": "page" }}>
+                <Link to="/compute/" activeProps={{ "aria-current": "page" }}>
                   Compute
                 </Link>
               ) : null}

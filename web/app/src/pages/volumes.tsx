@@ -38,6 +38,7 @@ import {
   type SetupBuild,
   type SetupState,
 } from "../volumes";
+import { ComputeTabs } from "./compute";
 import { NotFound } from "./errors";
 
 const INTRO =
@@ -55,6 +56,7 @@ export function ComputeVolumes() {
   return (
     <>
       <PageHeader title="Volumes" eyebrow="Compute" />
+      <ComputeTabs />
       <p className="muted">{INTRO}</p>
       {environments.isPending ? (
         <Loading label="Loading environments…" />

@@ -416,6 +416,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What compute is doing now
+         * @description Each tier and environment's runs waiting and running, every tier's workers, and the
+         *     machines Iki started that haven't ended. Iki exports the same numbers as metrics.
+         */
+        get: operations["iki_server_api_compute_compute_overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/quotas": {
         parameters: {
             query?: never;
@@ -5589,6 +5610,17 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** MachinesOut */
+        MachinesOut: {
+            /** Provisioner */
+            provisioner: string;
+            /** Running */
+            running: number;
+            /** Starting */
+            starting: number;
+            /** Template */
+            template: string;
+        };
         /** MarkAllIn */
         MarkAllIn: {
             /**
@@ -5883,6 +5915,20 @@ export interface components {
              * @enum {string}
              */
             why: "another-project" | "history" | "purged" | "run" | "unreadable";
+        };
+        /** OverviewOut */
+        OverviewOut: {
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /** Machines */
+            machines: components["schemas"]["MachinesOut"][];
+            /** Queues */
+            queues: components["schemas"]["QueueOut"][];
+            /** Workers */
+            workers: components["schemas"]["WorkersOut"][];
         };
         /** PageParams */
         PageParams: {
@@ -6698,6 +6744,35 @@ export interface components {
             /** Type */
             type?: string | null;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** QueueOut */
+        QueueOut: {
+            /**
+             * Awaiting Approval
+             * @description Waiting for a person's approval (ADR 0013).
+             */
+            awaiting_approval: number;
+            /**
+             * Environment
+             * @description plugin.environment
+             */
+            environment: string;
+            /**
+             * Oldest Queued At
+             * @description When the longest-waiting queued attempt was queued.
+             */
+            oldest_queued_at: string | null;
+            /** Queued */
+            queued: number;
+            /** Running */
+            running: number;
+            /** Tier */
+            tier: string;
+            /**
+             * Waiting Seconds
+             * @description How long it has waited; 0 when none is queued.
+             */
+            waiting_seconds: number;
         };
         /** QuotaIn */
         QuotaIn: {
@@ -8921,6 +8996,26 @@ export interface components {
              */
             workers: number;
         };
+        /** WorkersOut */
+        WorkersOut: {
+            /**
+             * Busy
+             * @description Online and holding a job.
+             */
+            busy: number;
+            /**
+             * Idle
+             * @description Online with nothing to do.
+             */
+            idle: number;
+            /**
+             * Offline
+             * @description Not heard from for two minutes; not revoked.
+             */
+            offline: number;
+            /** Tier */
+            tier: string;
+        };
         /** WorkflowErrorOut */
         WorkflowErrorOut: {
             /**
@@ -9785,6 +9880,26 @@ export interface operations {
                 };
                 content: {
                     "text/csv": unknown;
+                };
+            };
+        };
+    };
+    iki_server_api_compute_compute_overview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewOut"];
                 };
             };
         };
