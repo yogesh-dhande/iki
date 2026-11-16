@@ -10,6 +10,8 @@ encrypts; every key decrypts. To rotate: put a new key first, deploy, run
 ``iki-server rotate_encryption``, then drop the old key.
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 

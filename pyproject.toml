@@ -76,6 +76,7 @@ select = [
   "DTZ",           # timezone-aware datetimes only
   "T20",           # no stray print()
   "ANN",           # annotations everywhere
+  "TC004",         # a type-only import used at runtime: Python 3.12 evaluates annotations
 ]
 # UI copy uses typographic apostrophes and quotes, and en dashes for ranges (12–40).
 allowed-confusables = ["’", "“", "”", "–"]
