@@ -218,3 +218,20 @@ def test_a_chain_immunebuilder_refuses_fails_the_run_saying_why(tmp_path: Path) 
         "::error Trastuzumab: Sequence provided as an L chain is not recognised as an L chain."
         in result.stdout
     )
+
+
+def test_it_uses_as_many_threads_as_its_container_has_cpus(tmp_path: Path) -> None:
+    """A pod's CPU limit, not the machine's CPUs: more threads would only wait their turn."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("structure", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    quota = tmp_path / "cpu.max"
+    for written, cpus in (("150000 100000\n", 2), ("100000 100000\n", 1), ("50000 100000", 1)):
+        quota.write_text(written)
+        assert script.cpus(quota) == cpus
+    quota.write_text("max 100000\n")
+    assert script.cpus(quota) >= 1
+    assert script.cpus(tmp_path / "missing") >= 1

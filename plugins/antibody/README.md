@@ -73,8 +73,7 @@ with OpenMM. It makes a `protein.ProteinStructure` of the antibody's chains
 disagree: `predicted_error` over every residue and `cdr_h3_predicted_error` over
 CDR-H3, in Å, and each residue's in the file as its B-factor. Refining isn't
 exactly repeatable, so the action isn't deterministic: running it again makes a
-new structure, with the same estimated errors. On four CPUs an antibody takes
-about 15 seconds.
+new structure, with the same estimated errors. An antibody takes about a minute on one CPU, and about 15 seconds on four.
 
 The image carries OpenMM's licences, which its wheel doesn't: OpenMM is MIT, and
 the OpenCL platform its wheel carries, which these runs don't use, LGPL-3.0.

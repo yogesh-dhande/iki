@@ -11,5 +11,7 @@ description: >-
   ImmuneBuilder 1.2 with its ABodyBuilder2 and NanoBodyBuilder2 weights, PyTorch
   2.15 (CPU), OpenMM 8.6.1, PDBFixer, ANARCI and HMMER.
 tiers: [container]
-resources: { cpu: 4, memory: 4Gi }
+# What it needs at least: one CPU models an antibody in about a minute, four in about
+# 15 seconds, and its memory peaks under 2.5 GiB. Bind larger templates to go faster.
+resources: { cpu: 1, memory: 3Gi }
 image: ghcr.io/yogesh-dhande/iki-antibody-structure-tools@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85

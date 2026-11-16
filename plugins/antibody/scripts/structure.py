@@ -13,6 +13,7 @@ its results to $IKI_OUTPUT, as every action's command does.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -55,11 +56,23 @@ def errors(model: Any, numbered: dict[str, list[Any]]) -> tuple[float, float | N
     return mean, (sum(h3) / len(h3) if h3 else None)
 
 
+def cpus(quota: Path = Path("/sys/fs/cgroup/cpu.max")) -> int:
+    """The CPUs the run may use: its container's quota (cgroup v2), not the machine's, which
+    os.cpu_count() gives; more threads than that only wait their turn."""
+    try:
+        limit, period = quota.read_text().split()
+        if limit != "max":
+            return max(1, math.ceil(int(limit) / int(period)))
+    except (OSError, ValueError):
+        pass
+    return max(1, len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1)
+
+
 def predict(run: dict[str, Any]) -> dict[str, Any]:
     import torch
     from ImmuneBuilder import ABodyBuilder2, NanoBodyBuilder2
 
-    torch.set_num_threads(max(1, os.cpu_count() or 1))
+    torch.set_num_threads(cpus())
     (antibody,) = run["inputs"]["antibody"]
     label = _label(antibody)
     sequences, proteins, ids = chains(antibody)

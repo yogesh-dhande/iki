@@ -96,14 +96,15 @@ kind: EnvironmentBinding
 environment: antibody.numbering-tools
 templates: [{ template: container-numbering }]
 ---
-# The antibody plugin's ImmuneBuilder (structure-tools): on four CPUs, an
-# antibody takes about 15 seconds, its peak memory under 2.5 GiB. The image is
-# 2.7 GB, half of it weights, so a node pulls it once.
+# The antibody plugin's ImmuneBuilder (structure-tools): on one CPU, an antibody
+# takes about a minute, its peak memory under 2.5 GiB. One CPU, so it fits CI's
+# kind cluster beside everything else. The image is 2.7 GB, half of it weights,
+# so a node pulls it once.
 apiVersion: iki/v1
 kind: ComputeTemplate
 name: container-antibody-structures
 provisioner: k8s_job
-capacity: { cpu: 4, memory: 4Gi, scratch_disk: 1Gi }
+capacity: { cpu: 1, memory: 3Gi, scratch_disk: 1Gi }
 limits: { max_concurrent: 1 }
 price: { per_hour: 0.20, currency: USD }
 ---
