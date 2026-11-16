@@ -59,7 +59,8 @@ pinned, and its checksums are in the committed lock file.
   unless the team lists networks that may reach it.
 - One customer-managed KMS key per purpose, rotated yearly: Kubernetes
   Secrets, the database, files, logs and backups. Nothing uses AWS's
-  default keys.
+  default keys, except S3's access logs, which S3 delivers only to buckets
+  with S3-managed keys.
 - Nodes require IMDSv2 with a hop limit of 1, so pods can't take the
   node's role, and their disks are encrypted.
 - The VPC CNI enforces NetworkPolicies, which the chart relies on.
@@ -94,7 +95,8 @@ and stored in a versioned S3 bucket with S3 locking.
 **Recovering from a lost region.** RDS replicates its automated backups to
 the DR region, so the database can be restored there to any point in the
 last 7 days, minutes behind. The files bucket replicates every version
-there. Restoring takes a new cluster and a Helm install from the same
+there. Deleting a version doesn't replicate, by S3's design, so an
+artifact Iki expires stays in the copy unless it's deleted there too. Restoring takes a new cluster and a Helm install from the same
 code. The disaster-recovery runbook and its automated restore test come in
 step 49.
 
