@@ -40,6 +40,9 @@ effects:
         - light_germline_identity
         - light_j_gene
         - variable_domains
+software:
+  - { name: ANARCI, version: "2026.2.13.2", url: https://github.com/oxpig/ANARCI }
+  - { name: HMMER, version: "3.4", url: https://github.com/EddyRivasLab/hmmer }
 runs_on: { tier: container, environment: numbering-tools }
 command: [python, ./scripts/numbering.py]
 deterministic: true

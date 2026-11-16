@@ -23,6 +23,8 @@ effects:
         - gravy
         - hydropathy
         - instability_index
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/proteins.py, properties]
 deterministic: true

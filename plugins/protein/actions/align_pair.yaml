@@ -39,6 +39,8 @@ params:
     default: 0.5
 effects:
   creates: [{ type: core.Alignment, derived_from: [query, target] }]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/align.py]
 deterministic: true

@@ -37,6 +37,8 @@ params:
     description: Otherwise each stop codon is kept, as *.
 effects:
   creates: [{ type: Protein, cardinality: one, derived_from: [sequence] }]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/proteins.py, translate]
 deterministic: true

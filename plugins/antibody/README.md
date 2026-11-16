@@ -45,6 +45,13 @@ and on the [dna plugin](../dna), which the protein plugin depends on.
 | `number_chains`                        | Numbers proteins' variable domains with ANARCI: CDRs, species and humanness. | container |
 | `predict_structure_with_immunebuilder` | Predicts an antibody's structure with ImmuneBuilder, and how sure it is.     | container |
 
+`number_chains` and `predict_structure_with_immunebuilder` list the software
+they run, with the versions their images install, so what they make is recorded
+as made with it
+([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)):
+ANARCI 2026.2.13.2 and HMMER 3.4, and for the structure ImmuneBuilder 1.2,
+OpenMM 8.6.1 and PDBFixer 1.12.0 as well. `assemble` runs none.
+
 `assemble` checks that the format and the chains agree: an IgG or a Fab needs a
 light chain, a VHH or an scFv has none, and only a format with a constant
 region has an isotype. It names the antibody after its chains unless it's given

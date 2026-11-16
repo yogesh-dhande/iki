@@ -688,6 +688,9 @@ def test_an_action_lists_the_software_it_makes_entities_with(tmp_path: Path) -> 
     from iki_spec.model import action_from_dict
 
     assert action_from_dict(asdict(found)).software == found.software
+    # As a build's manifest keeps it.
+    data = json.loads(json.dumps(plugin_to_dict(result.plugin)))
+    assert plugin_from_dict(data).actions[found.name].software == found.software
     twice = "[{ name: OpenMM, version: '8.6' }, { name: openmm, version: 8.6.1 }]"
     assert only(make(tmp_path, action(software=twice)), "duplicate-software")
     # A tool needs its version, and names have no space at either end.

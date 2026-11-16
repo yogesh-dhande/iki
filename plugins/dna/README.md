@@ -31,7 +31,9 @@ proteins and other plugins' sequences.
 
 They run on backend workers, in the `sequence-tools` environment (Python 3.12
 with Biopython, which `align_reads` uses; the others need only Python's standard
-library).
+library). `align_reads` lists Biopython 1.88 as its software, so each alignment it
+makes is recorded as made with it
+([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)).
 
 - **`compute_composition`**: a DNA sequence's length and GC content, for
   many at once.

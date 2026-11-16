@@ -12,6 +12,10 @@ inputs:
 effects:
   updates: [{ input: sample, fields: [storage] }]
 runs_on: { tier: container, environment: tools }
+# An action that runs a tool lists it, with the version its environment
+# installs, so what its runs make is recorded as made with it (ADR 0106). This
+# one runs only its own script, so it lists none. One that ran Biopython would say
+# software: [{ name: Biopython, version: "1.88", url: https://biopython.org }]
 command: [python, ./scripts/storage.py]
 deterministic: true
 batchable: 50

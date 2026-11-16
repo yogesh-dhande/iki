@@ -38,6 +38,14 @@ Iki's publish workflow builds, scans and signs
 `images/alignment-tools`, which asks for at least 1 CPU and 2 GiB
 (MAFFT uses as many CPUs as it's given).
 
+Each action that computes lists its software, by name and the version its
+environment installs, so what it makes is recorded as made with it
+([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)):
+Biopython 1.88 for `compute_properties`, `translate`, `align_pair` and
+`align_reads`, MAFFT 7.505 for `align_multiple`, and DSSP 4.4.10 for
+`assign_secondary_structure`. The imports and fetches compute nothing, so
+they list none.
+
 - **`compute_properties`**: a protein's properties, as ExPASy's ProtParam
   computes them, for many at once.
 - **`translate`**: translates a DNA sequence in the strand, frame and NCBI
@@ -59,7 +67,7 @@ Iki's publish workflow builds, scans and signs
 - **`import_structure`**: registers an mmCIF or PDB file (up to 1 GiB) as a
   structure, with the proteins its chains are. The structure keeps the file
   itself.
-- **`assign_secondary_structure`**: runs DSSP (mkdssp 4.4) on structures'
+- **`assign_secondary_structure`**: runs DSSP (mkdssp 4.4.10) on structures'
   first models, up to 20 at once, and sets their secondary structure.
 - **`align_pair`**: aligns two proteins, globally as EMBOSS needle does or
   locally as water does, with needle's default scoring unless the run says

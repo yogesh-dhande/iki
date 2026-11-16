@@ -669,6 +669,7 @@ _DATACLASSES = (
     Plugin,
     Action,
     Metric,
+    Software,
     Secret,
     Input,
     Creates,

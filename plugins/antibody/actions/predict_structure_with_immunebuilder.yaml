@@ -18,6 +18,12 @@ effects:
     - type: protein.ProteinStructure
       cardinality: one
       derived_from: [antibody]
+software:
+  - { name: ImmuneBuilder, version: "1.2", url: https://github.com/oxpig/ImmuneBuilder }
+  - { name: OpenMM, version: "8.6.1", url: https://openmm.org }
+  - { name: PDBFixer, version: "1.12.0", url: https://github.com/openmm/pdbfixer }
+  - { name: ANARCI, version: "2026.2.13.2", url: https://github.com/oxpig/ANARCI }
+  - { name: HMMER, version: "3.4", url: https://github.com/EddyRivasLab/hmmer }
 runs_on: { tier: container, environment: structure-tools }
 command: [python, ./scripts/structure.py]
 metrics:

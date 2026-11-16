@@ -20,6 +20,8 @@ effects:
         - strand_fraction
         - accessible_surface_area
         - dssp
+software:
+  - { name: DSSP, version: "4.4.10", url: https://github.com/PDB-REDO/dssp }
 runs_on: { tier: container, environment: structure-tools }
 command: [python, ./scripts/secondary.py]
 deterministic: true
