@@ -141,10 +141,11 @@ dev-up: ## Create the kind cluster and start Tilt (interactive)
 	tilt up
 
 .PHONY: dev-ci
-dev-ci: ## Bring the dev cluster up headless and run the end-to-end checks
+dev-ci: ## Bring the dev cluster up headless; run the end-to-end checks, then the restore test
 	deploy/dev/up.sh
 	tilt ci --timeout 20m
 	deploy/dev/e2e.sh
+	deploy/dev/restore-test.sh
 
 .PHONY: dev-sso
 dev-sso: ## Set up sign-in on the dev cluster through the wizard (bob becomes admin)
@@ -153,6 +154,10 @@ dev-sso: ## Set up sign-in on the dev cluster through the wizard (bob becomes ad
 .PHONY: dev-e2e
 dev-e2e: ## Run the end-to-end checks against a running dev cluster
 	deploy/dev/e2e.sh
+
+.PHONY: dev-restore-test
+dev-restore-test: ## Back the dev database up, restore it into a new one, and check it (ADR 0099)
+	deploy/dev/restore-test.sh
 
 .PHONY: dev-creds
 dev-creds: ## Print the generated dev credentials
