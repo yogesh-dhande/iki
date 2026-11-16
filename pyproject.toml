@@ -52,6 +52,9 @@ dev = [
   "biopython==1.88",
   # Its structure actions read mmCIF and PDB files with it, pinned likewise.
   "gemmi==0.7.5",
+  # The antibody plugin numbers chains with it (plugins/antibody/requirements.txt pins the
+  # same release for its image, where hmmscan is).
+  "anarci==2026.2.13.2",
   "pytest-xdist>=3.8.0",
 ]
 

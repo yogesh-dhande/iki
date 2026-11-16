@@ -319,6 +319,9 @@ jobs:
           - image: iki-protein-alignment-tools
             plugin: plugins/protein
             dir: plugins/protein/images/alignment-tools
+          - image: iki-antibody-numbering-tools
+            plugin: plugins/antibody
+            dir: plugins/antibody/images/numbering-tools
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

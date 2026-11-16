@@ -1,9 +1,13 @@
-# The antibody plugin's packages: none yet, as assembling an antibody needs only Python's
-# standard library. Compile the pinned, hashed requirements.txt from it (from this
-# directory) with:
+# The antibody tools' packages. Compile the pinned, hashed requirements.txt from it
+# (from this directory) with:
 #
 #   uv pip compile requirements.in --python-version 3.12 --universal --generate-hashes \
 #     --exclude-newer "$(date -u -v-3d +%Y-%m-%dT%H:%M:%SZ)" -o requirements.txt
 #
 # and keep the same releases in the repository's dev dependencies (pyproject.toml),
 # where its tests run: `make check-deps` checks they match.
+#
+# ANARCI numbers antibody domains, with HMMER's hmmscan (from Debian, in the image) and
+# IMGT's germlines (CC BY 4.0), which its wheel carries.
+anarci==2026.2.13.2
+biopython==1.88

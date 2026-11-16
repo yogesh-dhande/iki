@@ -27,6 +27,13 @@ ecosystem = "PyPI"
 license.override = ["BSD-3-Clause"]
 
 [[PackageOverrides]]
+# The antibody plugin's numbering: its wheel's LICENCE is BSD-3-Clause (OPIG), with
+# MUSCLE's public-domain notice. Its germlines are IMGT's, which are CC BY 4.0.
+name = "anarci"
+ecosystem = "PyPI"
+license.override = ["BSD-3-Clause"]
+
+[[PackageOverrides]]
 # Windows-only transitive dependency of the Docker SDK used by tests.
 name = "pywin32"
 ecosystem = "PyPI"

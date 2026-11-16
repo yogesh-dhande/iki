@@ -29,7 +29,12 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        image: [iki-server, iki-worker, iki-protein-structure-tools, iki-protein-alignment-tools]
+        image:
+          - iki-server
+          - iki-worker
+          - iki-protein-structure-tools
+          - iki-protein-alignment-tools
+          - iki-antibody-numbering-tools
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -50,6 +55,9 @@ jobs:
           - image: iki-protein-alignment-tools
             file: plugins/protein/images/alignment-tools/Dockerfile
             context: plugins/protein
+          - image: iki-antibody-numbering-tools
+            file: plugins/antibody/images/numbering-tools/Dockerfile
+            context: plugins/antibody
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
@@ -117,7 +125,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [iki-server, iki-worker, iki-protein-structure-tools, iki-protein-alignment-tools]
+        image:
+          - iki-server
+          - iki-worker
+          - iki-protein-structure-tools
+          - iki-protein-alignment-tools
+          - iki-antibody-numbering-tools
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

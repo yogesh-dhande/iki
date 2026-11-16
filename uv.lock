@@ -28,6 +28,18 @@ members = [
 ]
 
 [[package]]
+name = "anarci"
+version = "2026.2.13.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "biopython" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/31/8db2bb1f75c54a774129b02a7c81377809c4486fefdde0ff8d9fd3f8d1a3/anarci-2026.2.13.2.tar.gz", hash = "sha256:0b383e7abd2c4f65231f15b1b80cad6b8aad223c693c90c173b8b062da3d493b", size = 2250461, upload-time = "2026-02-13T02:59:17.909Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/50/1345543216a281cab84030a73ee4918b87e7249679926392d8fa44cb9420/anarci-2026.2.13.2-py3-none-any.whl", hash = "sha256:8f88d49857abc2c5427c6cc903ebdac7b35e6636635eaa9d60bd8f0d4e7d14b7", size = 1166101, upload-time = "2026-02-13T02:59:15.665Z" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1127,6 +1139,7 @@ source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "anarci" },
     { name = "biopython" },
     { name = "django-stubs", extra = ["compatible-mypy"] },
     { name = "gemmi" },
@@ -1156,6 +1169,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "anarci", specifier = "==2026.2.13.2" },
     { name = "biopython", specifier = "==1.88" },
     { name = "django-stubs", extras = ["compatible-mypy"], specifier = ">=6.1.2" },
     { name = "gemmi", specifier = "==0.7.5" },
