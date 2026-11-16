@@ -120,6 +120,9 @@
         },
         "outside": {
           "$ref": "#/$defs/count"
+        },
+        "runs": {
+          "$ref": "#/$defs/count"
         }
       },
       "additionalProperties": false
@@ -283,7 +286,14 @@
           "maxLength": 255
         },
         "grant": {
-          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "session": {
           "type": "string",
@@ -334,10 +344,24 @@
           "$ref": "#/$defs/time"
         },
         "created_by": {
-          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "agent": {
-          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "sha256": {
           "$ref": "#/$defs/sha256"
@@ -363,7 +387,9 @@
               },
               "additionalProperties": false
             },
-            { "type": "null" }
+            {
+              "type": "null"
+            }
           ]
         }
       },
@@ -400,10 +426,24 @@
           "$ref": "#/$defs/time"
         },
         "created_by": {
-          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "archived_at": {
-          "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "revisions": {
           "description": "Every revision, 1 first.",
@@ -456,7 +496,14 @@
           }
         },
         "user": {
-          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "via": {
           "type": "string",
@@ -467,7 +514,14 @@
           "maxLength": 255
         },
         "agent": {
-          "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "reason": {
           "type": "string"
@@ -499,7 +553,7 @@
       "additionalProperties": false
     },
     "outside": {
-      "description": "A line of `outside.ndjson`: an entity the bundle's values refer to that isn't in it. Its HRID and type are given only if the exporter could read it.",
+      "description": "A line of `outside.ndjson`: an entity the bundle's values or runs refer to that isn't in it. Its HRID and type are given only if the exporter could read it.",
       "type": "object",
       "required": ["id", "hrid", "type", "why"],
       "properties": {
@@ -515,8 +569,628 @@
           "maxLength": 81
         },
         "why": {
-          "description": "`another-project`: owned by another project. `history`: only an earlier revision refers to it. `purged`: its plugin's data was purged. `unreadable`: the exporter can't read it.",
-          "enum": ["another-project", "history", "purged", "unreadable"]
+          "description": "`another-project`: owned by another project. `history`: only an earlier revision refers to it. `purged`: its plugin's data was purged. `run`: only a run's inputs or lineage refer to it. `unreadable`: the exporter can't read it.",
+          "enum": ["another-project", "history", "purged", "run", "unreadable"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "run": {
+      "description": "A line of `runs.ndjson`: a finished run that made or changed the bundle's entities, with what it read, each attempt and its log, and what it made of what.",
+      "type": "object",
+      "required": [
+        "action",
+        "agent",
+        "approval",
+        "attempts",
+        "client",
+        "created_at",
+        "effects",
+        "environment",
+        "error",
+        "finished_at",
+        "hrid",
+        "id",
+        "inputs",
+        "lineage",
+        "linked",
+        "max_attempts",
+        "origins",
+        "output",
+        "params",
+        "plugin_settings",
+        "plugin_sha",
+        "plugin_version",
+        "reason",
+        "reproduction",
+        "requested_by",
+        "retry_on",
+        "seed",
+        "spec",
+        "started_at",
+        "status",
+        "tier",
+        "timeout",
+        "via"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "hrid": {
+          "description": "Its HRID on the source deployment, such as RUN-000123.",
+          "type": "string",
+          "maxLength": 32
+        },
+        "action": {
+          "description": "Such as `protein.compute_properties`.",
+          "type": "string",
+          "maxLength": 200
+        },
+        "plugin_version": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "plugin_sha": {
+          "description": "The plugin's commit, for reproducing it.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "spec": {
+          "description": "The action as it was when it ran.",
+          "type": "object"
+        },
+        "requested_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "via": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "client": {
+          "type": "string",
+          "maxLength": 255
+        },
+        "agent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "environment": {
+          "type": "string",
+          "maxLength": 63
+        },
+        "params": {
+          "type": "object"
+        },
+        "plugin_settings": {
+          "description": "The plugin's settings at launch (never secrets).",
+          "type": "object"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "description": "How it ended: only finished runs go.",
+          "enum": ["cancelled", "declined", "failed", "rejected", "succeeded", "timed_out"]
+        },
+        "created_at": {
+          "$ref": "#/$defs/time"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "description": "Why it failed, if it did."
+        },
+        "timeout": {
+          "$ref": "#/$defs/count"
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry_on": {
+          "type": "array"
+        },
+        "reproduction": {
+          "description": "How it compared with the run it reproduced, if it reproduced one."
+        },
+        "linked": {
+          "description": "Runs and their groups it's tied to on the source deployment, which don't go with it.",
+          "type": "object",
+          "required": ["batch", "reproduces", "reused_from", "workflow"],
+          "properties": {
+            "batch": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["hrid", "id"],
+                  "properties": {
+                    "id": {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    "hrid": {
+                      "type": "string",
+                      "maxLength": 32
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "workflow": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["hrid", "id", "step"],
+                  "properties": {
+                    "id": {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    "hrid": {
+                      "type": "string",
+                      "maxLength": 32
+                    },
+                    "step": {
+                      "type": "string",
+                      "maxLength": 63
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reused_from": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["hrid", "id"],
+                  "properties": {
+                    "id": {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    "hrid": {
+                      "type": "string",
+                      "maxLength": 32
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reproduces": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": ["hrid", "id"],
+                  "properties": {
+                    "id": {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    "hrid": {
+                      "type": "string",
+                      "maxLength": 32
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "description": "Who approved it, when an agent asked for it (ADR 0072).",
+              "type": "object",
+              "required": [
+                "agent",
+                "client",
+                "created_at",
+                "decided_at",
+                "decided_by",
+                "note",
+                "requested_by",
+                "state"
+              ],
+              "properties": {
+                "state": {
+                  "type": "string",
+                  "maxLength": 16
+                },
+                "requested_by": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "agent": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "client": {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                "created_at": {
+                  "$ref": "#/$defs/time"
+                },
+                "decided_by": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "decided_at": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/time"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entity", "name", "position", "revision"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 63
+              },
+              "position": {
+                "$ref": "#/$defs/count"
+              },
+              "entity": {
+                "$ref": "#/$defs/uuid"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "effects": {
+          "description": "What it did to the bundle's entities.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entity", "kind", "revision"],
+            "properties": {
+              "entity": {
+                "$ref": "#/$defs/uuid"
+              },
+              "kind": {
+                "type": "string",
+                "maxLength": 16
+              },
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "lineage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["entity", "input", "parent", "parent_revision"],
+            "properties": {
+              "entity": {
+                "$ref": "#/$defs/uuid"
+              },
+              "parent": {
+                "$ref": "#/$defs/uuid"
+              },
+              "parent_revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "input": {
+                "type": "string",
+                "maxLength": 63
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "origins": {
+          "description": "The public records it read the bundle's entities from.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "created_at",
+              "entity",
+              "file",
+              "identifier",
+              "retrieved_at",
+              "revision",
+              "sha256",
+              "source",
+              "url",
+              "version"
+            ],
+            "properties": {
+              "entity": {
+                "$ref": "#/$defs/uuid"
+              },
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "identifier": {
+                "type": "string",
+                "maxLength": 255
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "retrieved_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sha256": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "file": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/time"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "attempt",
+              "environment",
+              "environment_build",
+              "error",
+              "finished_at",
+              "id",
+              "log",
+              "owner",
+              "queued_at",
+              "resources",
+              "started_at",
+              "state",
+              "tier",
+              "volumes",
+              "worker"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "attempt": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "state": {
+                "enum": ["cancelled", "failed", "interrupted", "rejected", "succeeded", "timed_out"]
+              },
+              "tier": {
+                "type": "string",
+                "maxLength": 16
+              },
+              "environment": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "environment_build": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "resources": {
+                "type": "object"
+              },
+              "worker": {
+                "description": "The worker's name.",
+                "type": "string",
+                "maxLength": 255
+              },
+              "queued_at": {
+                "$ref": "#/$defs/time"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/time"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {},
+              "log": {
+                "description": "Everything it printed.",
+                "type": "string"
+              },
+              "owner": {
+                "description": "Whose machine ran it, for the client tier.",
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "volumes": {
+                "description": "The versions of its environment's volumes it had (ADR 0075).",
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "output": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": ["document", "job", "received_at"],
+              "properties": {
+                "job": {
+                  "$ref": "#/$defs/uuid"
+                },
+                "document": {
+                  "type": "object"
+                },
+                "received_at": {
+                  "$ref": "#/$defs/time"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false

@@ -122,7 +122,19 @@ this deployment's sequences past them. Webhooks get one `bundle.imported`
 event with counts, in place of `entity.created` for each. The import is a
 record of its own (the bundle's SHA-256, its source, who imported it, when
 and why), and each imported entity's page links to it
-(`GET /entities/{ref}/bundles`). Imported runs are history: they
+(`GET /entities/{ref}/bundles`).
+
+Runs come as the record of what made or changed the entities: the
+project's finished runs with an effect on them (one still going doesn't
+go), with their action spec, params, settings, seed, plugin commit, each
+attempt with its log, the output document, the inputs read, the lineage
+and the public records read. What a run read in the same project goes
+too; what it read elsewhere is kept on the run, and doesn't need to be
+here. A run keeps its ID and, unless another run has it, its HRID. What it
+was tied to there that doesn't come (its batch, workflow and approval) is
+kept on it, and its page says where it ran. Artifacts and costs stay
+behind: they're kept for a while where they were made (ADR 0068, ADR
+0070). Imported runs are history: they
 read as they ran, and can be reproduced when this deployment has the
 plugin's commit, as any run can.
 

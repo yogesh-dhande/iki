@@ -430,3 +430,169 @@ def test_applying_needs_a_reason_and_a_plan_that_can_be(world: World, tmp_path: 
         404,
         "not_found",
     )
+
+
+# --- Runs --------------------------------------------------------------------------------
+
+
+def ran(world: World, made: Any, read: Any, *, hrid: str = "RUN-009001") -> Any:
+    """A finished run that read ``read`` and made ``made``, as a worker leaves it."""
+    from django.utils import timezone
+
+    from iki_server.runs.models import (
+        ActionRun,
+        Job,
+        JobLog,
+        Lineage,
+        RunEffect,
+        RunInput,
+        RunOutput,
+    )
+
+    now = timezone.now()
+    run = ActionRun.objects.create(
+        hrid=hrid,
+        action="protein.compute_properties",
+        plugin_version="1.0.0",
+        plugin_sha="a" * 40,
+        spec={"name": "compute_properties"},
+        project=world.project,
+        requested_by=world.users["admin"],
+        via="web",
+        reason="Weigh them",
+        tier="backend",
+        environment="python",
+        params={"window": 9},
+        seed=42,
+        status="succeeded",
+        started_at=now,
+        finished_at=now,
+        timeout=600,
+        max_attempts=1,
+    )
+    job = Job.objects.create(
+        run=run,
+        attempt=1,
+        state="succeeded",
+        project=world.project,
+        tier="backend",
+        environment="protein.python",
+        started_at=now,
+        finished_at=now,
+    )
+    JobLog.objects.create(job=job, offset=0, text="Weighing ABL1\n")
+    RunOutput.objects.create(run=run, job=job, document={"creates": []})
+    RunInput.objects.create(run=run, name="protein", position=0, entity_id=read.pk, revision=1)
+    RunEffect.objects.create(run=run, entity_id=made.pk, kind="created", revision=1)
+    Lineage.objects.create(
+        entity_id=made.pk, parent_id=read.pk, parent_revision=1, run=run, input="protein"
+    )
+    return run
+
+
+def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) -> None:
+    from iki_server.runs.models import ActionRun, JobLog, Lineage, RunEffect, RunInput
+
+    def elsewhere() -> list[Any]:
+        read = protein(world, "MKREADIN", name="read")
+        made = protein(world, "MKMADEBY", name="made")
+        ran(world, made, read)
+        return [made]  # what it read comes too
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    from iki_server.bundles import reading
+
+    bundle = reading.read(path, {}, limit=1024**3)
+    assert bundle.manifest["counts"]["entities"] == 2
+    assert bundle.manifest["counts"]["runs"] == 1
+    (line,) = bundle.lines("runs.ndjson")
+    assert line["attempts"][0]["log"] == "Weighing ABL1\n"
+    api = Api(world.browser("admin"))
+    made = upload(api, world.project, path)
+    assert made["plan"]["counts"]["runs"] == 1, made["plan"]
+    done = applied(api, made)
+    assert done["state"] == "applied", done
+    run = ActionRun.objects.get(pk=line["id"])
+    assert (run.hrid, run.status, run.seed, run.reason) == (
+        "RUN-009001",
+        "succeeded",
+        42,
+        "Weigh them",
+    )
+    assert run.project_id == world.project.pk
+    assert run.imported["from"] == "test" and run.imported["inputs"] == []
+    (job,) = run.jobs.all()
+    assert JobLog.objects.get(job=job).text == "Weighing ABL1\n"
+    assert run.output.document == {"creates": []}
+    assert RunInput.objects.filter(run=run).count() == 1
+    assert RunEffect.objects.filter(run=run, kind="created").count() == 1
+    assert Lineage.objects.filter(run=run).count() == 1
+    body = api.get(f"/runs/{run.hrid}").json()
+    assert body["imported"]["deployment"] == "test"
+    assert body["imported"]["hrid"] == "RUN-009001"
+    assert body["imported"]["bundle_import"] == made["id"]
+    # Runs here later aren't given its number.
+    from iki_server.runs import services as run_services
+
+    assert run_services._next_hrid() > "RUN-009001"
+
+
+def reading_runs(path: Path) -> list[dict[str, Any]]:
+    from iki_server.bundles import reading
+
+    return list(reading.read(path, {}, limit=1024**3).lines("runs.ndjson"))
+
+
+def test_a_run_whose_input_isnt_coming_keeps_it_on_record(world: World, tmp_path: Path) -> None:
+    from iki_server.runs.models import ActionRun, RunInput
+
+    other = Project.objects.create(team=world.team, name="Screens 3")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["admin"], role=ProjectRole.ADMIN
+    )
+
+    def elsewhere() -> list[Any]:
+        read = services.create(
+            world.users["admin"], "protein.Protein", other, {"sequence": "MKOTHER"}
+        ).entity
+        made = protein(world, "MKMADEHERE")
+        ran(world, made, read, hrid="RUN-009002")
+        return [made]
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    (line,) = reading_runs(path)
+    mine = protein(world, "MKMINEHERE")
+    ran(world, mine, mine, hrid="RUN-009002")  # its HRID is another run's here
+    api = Api(world.browser("admin"))
+    made = upload(api, world.project, path)
+    assert made["plan"]["applicable"], made["plan"]
+    assert made["plan"]["outside"]["items"][0]["why"] == "run"
+    assert made["plan"]["counts"]["runs_renumbered"] == 1
+    done = applied(api, made)
+    assert done["state"] == "applied", done
+    run = ActionRun.objects.get(pk=line["id"])
+    assert run.hrid != "RUN-009002" and run.imported["hrid"] == "RUN-009002"
+    assert not RunInput.objects.filter(run=run).exists()
+    elsewhere_inputs = api.get(f"/runs/{run.hrid}").json()["imported"]["inputs_elsewhere"]
+    assert [i["name"] for i in elsewhere_inputs] == ["protein"]
+
+
+def test_an_unexpected_error_imports_nothing_and_says_so(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iki_server.bundles import applying
+
+    path = bundle_of(world, tmp_path, lambda: [protein(world, "MKCRASH")])
+    (line,) = registry_lines(path)
+    api = Api(world.browser("admin"))
+    made = upload(api, world.project, path)
+
+    def crash(self: Any) -> dict[str, int]:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(applying._Writer, "write", crash)
+    done = applied(api, made)
+    assert done["state"] == "failed"
+    assert done["error"] == applying.UNEXPECTED
+    assert not Entity.objects.filter(pk=line["id"]).exists()
+    assert AuditEvent.objects.filter(action="bundle.import_failed").exists()

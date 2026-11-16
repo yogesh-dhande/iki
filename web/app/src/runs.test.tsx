@@ -197,6 +197,56 @@ describe("a run's page", () => {
     );
   });
 
+  it("says where an imported run ran, and what it read there that didn't come", async () => {
+    onRun(
+      () =>
+        run({
+          imported: {
+            deployment: "staging",
+            hrid: "RUN-000042",
+            bundle_import: "00000000-0000-7000-8000-0000000000i1",
+            approval: {
+              state: "approved",
+              requested_by: "Rosalind Franklin",
+              decided_by: "Ada Lovelace",
+              decided_at: "2026-03-14T08:59:00Z",
+              note: "",
+            },
+            batch: "BAT-000003",
+            workflow: null,
+            inputs_elsewhere: [
+              {
+                name: "protein",
+                position: 0,
+                entity: "00000000-0000-7000-8000-0000000000e9",
+                revision: 2,
+              },
+            ],
+            workers: { "1": "pod-7" },
+            project_slug: KINASE.slug,
+          },
+        }),
+      () => [],
+    );
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    const from = await within(details).findByText("Imported from");
+    expect(from.nextSibling).toHaveTextContent(
+      "staging, where it’s RUN-000042 (the import), launched in BAT-000003 there. It ran on pod-7.",
+    );
+    expect(within(details).getByRole("link", { name: "the import" })).toHaveAttribute(
+      "href",
+      `/projects/${KINASE.slug}/imports/00000000-0000-7000-8000-0000000000i1/`,
+    );
+    expect(within(details).getByText("Approval there").nextSibling).toHaveTextContent(
+      /^Approved by Ada Lovelace .+, for Rosalind Franklin$/,
+    );
+    const inputs = screen.getByRole("region", { name: "Inputs" });
+    expect(inputs).toHaveTextContent(
+      "An entity on staging that didn’t come with it (00000000-0000-7000-8000-0000000000e9, revision 2)",
+    );
+  });
+
   it("says what a run may reach, and what each attempt reached or was refused", async () => {
     const at = "2026-03-14T09:00:10Z";
     const reached = { port: 443, first_at: at, last_at: at };

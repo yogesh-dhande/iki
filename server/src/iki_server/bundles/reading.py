@@ -34,6 +34,7 @@ _LINES = {
     "files.ndjson": "file",
     "entities.ndjson": "entity",
     "outside.ndjson": "outside",
+    "runs.ndjson": "run",
 }
 
 

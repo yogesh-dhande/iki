@@ -32,11 +32,35 @@ from iki_server.files import storage
 from iki_server.files.models import File
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action, can
+from iki_server.runs.models import (
+    FINISHED,
+    ActionRun,
+    ExternalOrigin,
+    Job,
+    JobLog,
+    JobState,
+    Lineage,
+    RunEffect,
+    RunInput,
+    RunOutput,
+)
 from iki_spec import releases
 from iki_spec.model import Field
 
 #: How much of a blob is read at a time.
 CHUNK = 1024 * 1024
+#: A finished run's attempts have all ended; a run still with one of these doesn't go.
+_UNFINISHED_JOBS = frozenset(
+    {
+        JobState.AWAITING_APPROVAL,
+        JobState.QUEUED,
+        JobState.LEASED,
+        JobState.STAGING,
+        JobState.RUNNING,
+        JobState.UPLOADING,
+        JobState.COMMITTING,
+    }
+)
 
 
 class ExportError(Exception):
@@ -63,6 +87,12 @@ class _Found:
     files: set[uuid.UUID] = field(default_factory=set)
     #: Entities referred to that aren't going, and why.
     outside: dict[uuid.UUID, str] = field(default_factory=dict)
+    #: The project's finished runs that made or changed them.
+    runs: dict[uuid.UUID, ActionRun] = field(default_factory=dict)
+    #: What only those runs refer to: their inputs, and their lineage's parents.
+    run_refs: set[uuid.UUID] = field(default_factory=set)
+    #: What the entities' current values refer to.
+    value_refs: set[uuid.UUID] = field(default_factory=set)
 
 
 def write(
@@ -100,16 +130,23 @@ def write(
             Revision.objects.filter(entity_id__in=found.entities).order_by("entity_id", "number")
         )
         files = list(File.objects.filter(id__in=found.files).select_related("blob"))
-        people = {by.pk} | {
-            u
-            for u in [
-                *(e.created_by_id for e in found.entities.values()),
-                *(r.user_id for r in revisions),
-                *(f.created_by_id for f in files),
-            ]
-            if u is not None
-        }
-        agents = {a for a in [*(r.agent_id for r in revisions), *(f.agent_id for f in files)] if a}
+        runs = _run_lines(found)
+        people = (
+            {by.pk}
+            | _run_people(runs)
+            | {
+                u
+                for u in [
+                    *(e.created_by_id for e in found.entities.values()),
+                    *(r.user_id for r in revisions),
+                    *(f.created_by_id for f in files),
+                ]
+                if u is not None
+            }
+        )
+        agents = {
+            a for a in [*(r.agent_id for r in revisions), *(f.agent_id for f in files)] if a
+        } | _run_agents(runs)
         by_entity: dict[uuid.UUID, list[Revision]] = {}
         for r in revisions:
             by_entity.setdefault(r.entity_id, []).append(r)
@@ -128,6 +165,7 @@ def write(
             "outside.ndjson": (
                 _outside(i, why, by) for i, why in sorted(found.outside.items(), key=str)
             ),
+            "runs.ndjson": iter(runs),
         }
         paths = {}
         for name, rows in lines.items():
@@ -162,6 +200,7 @@ def write(
                 "revisions": len(revisions),
                 "files": len(files),
                 "outside": len(found.outside),
+                "runs": len(runs),
             },
             "members": [
                 *members,
@@ -218,8 +257,9 @@ def _find(project: Project, picked: list[Entity], by: User) -> _Found:
         if entity.purged_at is not None:
             raise ExportError(f"{entity.hrid}'s plugin was purged: only its tombstone is left.")
     queue = [e.pk for e in picked]
+    found.value_refs |= set(queue)
     referred: set[uuid.UUID] = set()
-    while queue:
+    while queue or (queue := _runs(project, found)):
         batch = [
             i for i in dict.fromkeys(queue) if i not in found.entities and i not in found.outside
         ]
@@ -253,12 +293,51 @@ def _find(project: Project, picked: list[Entity], by: User) -> _Found:
                 for target in _uuids(value)
             }
             queue.extend(current)
+            found.value_refs |= current
         missing = set(batch) - set(found.entities) - set(found.outside)
         for gone in missing:
             found.outside[gone] = "unreadable"
     for target in referred - set(found.entities) - set(found.outside):
         found.outside[target] = "history"
+    for target, why in list(found.outside.items()):
+        if target in found.run_refs and target not in found.value_refs and why != "history":
+            # Only a run read it: the run's record keeps it, and importing doesn't need it.
+            found.outside[target] = "run"
     return found
+
+
+def _runs(project: Project, found: _Found) -> list[uuid.UUID]:
+    """Takes in the project's finished runs that made or changed what's going, and gives
+    the entities they read that haven't been looked at yet."""
+    ids = set(
+        RunEffect.objects.filter(entity_id__in=list(found.entities))
+        .exclude(run_id__in=list(found.runs))
+        .values_list("run_id", flat=True)
+    )
+    if not ids:
+        return []
+    runs = list(
+        ActionRun.objects.filter(pk__in=ids, project=project, status__in=list(FINISHED))
+        .exclude(jobs__state__in=list(_UNFINISHED_JOBS))
+        .distinct()
+    )
+    if not runs:
+        return []
+    for run in runs:
+        found.runs[run.pk] = run
+    read = set(
+        RunInput.objects.filter(run_id__in=[r.pk for r in runs]).values_list("entity_id", flat=True)
+    ) | set(
+        Lineage.objects.filter(
+            run_id__in=[r.pk for r in runs], entity_id__in=list(found.entities)
+        ).values_list("parent_id", flat=True)
+    )
+    found.run_refs |= read
+    origin_files = ExternalOrigin.objects.filter(
+        run_id__in=[r.pk for r in runs], entity_id__in=list(found.entities), file__isnull=False
+    ).values_list("file_id", flat=True)
+    found.files |= set(origin_files)
+    return [i for i in read if i not in found.entities and i not in found.outside]
 
 
 def _history(form: Shape, entity: uuid.UUID) -> list[tuple[Part, dict[str, Any]]]:
@@ -410,6 +489,191 @@ def _entity(
             for part, row in rows
         ],
     }
+
+
+def _run_lines(found: _Found) -> list[dict[str, Any]]:
+    """Each run, with what it read, its attempts and their logs, and what it did to what's
+    going, oldest first."""
+    ids = sorted(found.runs)
+    if not ids:
+        return []
+    going = set(found.entities)
+    runs = (
+        ActionRun.objects.filter(pk__in=ids)
+        .select_related("batch", "workflow", "reused_from", "reproduces", "approval")
+        .order_by("created_at", "id")
+    )
+    inputs: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for i in RunInput.objects.filter(run_id__in=ids).order_by("run_id", "name", "position"):
+        inputs.setdefault(i.run_id, []).append(
+            {
+                "name": i.name,
+                "position": i.position,
+                "entity": str(i.entity_id),
+                "revision": i.revision,
+            }
+        )
+    effects: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for e in RunEffect.objects.filter(run_id__in=ids, entity_id__in=going).order_by("id"):
+        effects.setdefault(e.run_id, []).append(
+            {"entity": str(e.entity_id), "kind": e.kind, "revision": e.revision}
+        )
+    lineage: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for row in Lineage.objects.filter(run_id__in=ids, entity_id__in=going).order_by("id"):
+        lineage.setdefault(row.run_id, []).append(
+            {
+                "entity": str(row.entity_id),
+                "parent": str(row.parent_id),
+                "parent_revision": row.parent_revision,
+                "input": row.input,
+            }
+        )
+    origins: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for o in ExternalOrigin.objects.filter(run_id__in=ids, entity_id__in=going).order_by("id"):
+        origins.setdefault(o.run_id, []).append(
+            {
+                "entity": str(o.entity_id),
+                "revision": o.revision,
+                "source": o.source,
+                "identifier": o.identifier,
+                "version": o.version,
+                "url": o.url,
+                "retrieved_at": _json(o.retrieved_at),
+                "sha256": o.sha256,
+                "file": _json(o.file_id),
+                "created_at": o.created_at.isoformat(),
+            }
+        )
+    attempts: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for job in (
+        Job.objects.filter(run_id__in=ids).select_related("worker").order_by("attempt", "id")
+    ):
+        log = "".join(
+            JobLog.objects.filter(job=job).order_by("offset").values_list("text", flat=True)
+        )
+        attempts.setdefault(job.run_id, []).append(
+            {
+                "id": str(job.pk),
+                "attempt": job.attempt,
+                "state": job.state,
+                "tier": job.tier,
+                "environment": job.environment,
+                "environment_build": job.environment_build,
+                "resources": job.resources,
+                "worker": job.worker.name if job.worker is not None else "",
+                "owner": _json(job.owner_id),
+                "volumes": job.volumes,
+                "queued_at": job.queued_at.isoformat(),
+                "started_at": _json(job.started_at),
+                "finished_at": _json(job.finished_at),
+                "error": job.error,
+                "log": log,
+            }
+        )
+    outputs = {o.run_id: o for o in RunOutput.objects.filter(run_id__in=ids)}
+    return [
+        _run(
+            run,
+            inputs=inputs.get(run.pk, []),
+            effects=effects.get(run.pk, []),
+            lineage=lineage.get(run.pk, []),
+            origins=origins.get(run.pk, []),
+            attempts=attempts.get(run.pk, []),
+            output=outputs.get(run.pk),
+        )
+        for run in runs
+    ]
+
+
+def _run(
+    run: ActionRun, *, output: RunOutput | None, **parts: list[dict[str, Any]]
+) -> dict[str, Any]:
+    approval = run.approval
+    workflow = run.workflow
+    return {
+        "id": str(run.pk),
+        "hrid": run.hrid,
+        "action": run.action,
+        "plugin_version": run.plugin_version,
+        "plugin_sha": run.plugin_sha,
+        "spec": run.spec,
+        "requested_by": _json(run.requested_by_id),
+        "via": run.via,
+        "client": run.client,
+        "agent": _json(run.agent_id),
+        "reason": run.reason,
+        "tier": run.tier,
+        "environment": run.environment,
+        "params": run.params,
+        "plugin_settings": run.plugin_settings,
+        "seed": run.seed,
+        "status": run.status,
+        "created_at": run.created_at.isoformat(),
+        "started_at": _json(run.started_at),
+        "finished_at": _json(run.finished_at),
+        "error": run.error,
+        "timeout": run.timeout,
+        "max_attempts": run.max_attempts,
+        "retry_on": run.retry_on,
+        "reproduction": run.reproduction,
+        "linked": {
+            "batch": _ref(run.batch),
+            "workflow": (
+                {"id": str(workflow.pk), "hrid": workflow.hrid, "step": run.workflow_step}
+                if workflow is not None
+                else None
+            ),
+            "reused_from": _ref(run.reused_from),
+            "reproduces": _ref(run.reproduces),
+        },
+        "approval": (
+            {
+                "state": approval.state,
+                "requested_by": _json(approval.requested_by_id),
+                "agent": _json(approval.agent_id),
+                "client": approval.client,
+                "created_at": approval.created_at.isoformat(),
+                "decided_by": _json(approval.decided_by_id),
+                "decided_at": _json(approval.decided_at),
+                "note": approval.note,
+            }
+            if approval is not None
+            else None
+        ),
+        **parts,
+        "output": (
+            {
+                "job": str(output.job_id),
+                "document": output.document,
+                "received_at": output.received_at.isoformat(),
+            }
+            if output is not None
+            else None
+        ),
+    }
+
+
+def _ref(row: Any) -> dict[str, str] | None:  # noqa: ANN401 - a batch or a run
+    return {"id": str(row.pk), "hrid": row.hrid} if row is not None else None
+
+
+def _run_people(runs: list[dict[str, Any]]) -> set[uuid.UUID]:
+    found = (
+        {r["requested_by"] for r in runs}
+        | {a["owner"] for r in runs for a in r["attempts"]}
+        | {
+            p
+            for r in runs
+            if r["approval"]
+            for p in (r["approval"]["requested_by"], r["approval"]["decided_by"])
+        }
+    )
+    return {uuid.UUID(p) for p in found if p}
+
+
+def _run_agents(runs: list[dict[str, Any]]) -> set[uuid.UUID]:
+    found = {r["agent"] for r in runs} | {r["approval"]["agent"] for r in runs if r["approval"]}
+    return {uuid.UUID(a) for a in found if a}
 
 
 def _outside(entity_id: uuid.UUID, why: str, by: User) -> dict[str, Any]:

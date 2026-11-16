@@ -50,7 +50,8 @@ class ExportCounts(Schema):
     entities: int
     revisions: int
     files: int
-    outside: int = Field(description="Entities its values refer to that aren't in it.")
+    outside: int = Field(description="Entities its values or runs refer to that aren't in it.")
+    runs: int = Field(0, description="The runs that made or changed its entities.")
 
 
 class ExportOut(Schema):
@@ -180,6 +181,9 @@ class ImportCounts(Schema):
     people: int
     placeholders: int = Field(description="People nobody here matches by email.")
     files: int
+    runs: int = Field(0, description="The runs that made or changed them, new here.")
+    runs_here: int = Field(0, description="Runs here already, from an earlier import.")
+    runs_renumbered: int = Field(0, description="New runs whose HRID is another run's here.")
 
 
 class ImportType(Schema):
@@ -200,7 +204,7 @@ class OutsideRef(Schema):
     id: UUID
     hrid: str | None = Field(description="Given when the exporter could read it.")
     type: str | None
-    why: Literal["another-project", "history", "purged", "unreadable"]
+    why: Literal["another-project", "history", "purged", "run", "unreadable"]
     here: bool = Field(description="Whether an entity with its ID is here.")
 
 

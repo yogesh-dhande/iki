@@ -458,6 +458,40 @@ class RunCostOut(Schema):
     )
 
 
+class ImportedApprovalOut(Schema):
+    state: str
+    requested_by: str | None = Field(description="Who asked for it there, by name.")
+    decided_by: str | None = Field(description="Who approved or declined it there, by name.")
+    decided_at: datetime | None
+    note: str
+
+
+class ImportedInputOut(Schema):
+    name: str
+    position: int
+    entity: UUID = Field(description="Its ID there: it isn't here.")
+    revision: int
+
+
+class RunImportedOut(Schema):
+    deployment: str = Field(description="The deployment it ran on.")
+    hrid: str = Field(description="Its HRID there.")
+    bundle_import: UUID | None = Field(
+        description="The import that brought it, if you may see it: an Org Admin who is the "
+        "project's Admin."
+    )
+    approval: ImportedApprovalOut | None = Field(
+        description="Who approved it there, when an agent asked for it."
+    )
+    batch: str | None = Field(description="The batch it was launched in there, by HRID.")
+    workflow: str | None = Field(description="The workflow run it was a step of there.")
+    inputs_elsewhere: list[ImportedInputOut] = Field(
+        description="What it read there that didn't come with it."
+    )
+    workers: dict[str, str] = Field(description="Each attempt's worker there, by attempt.")
+    project_slug: str = Field(description="The project it was imported into, for its link.")
+
+
 class RunOut(Schema):
     id: UUID
     hrid: str
@@ -553,6 +587,10 @@ class RunOut(Schema):
     cost: RunCostOut | None = Field(
         description="On the container and VM tiers: what the machines it ran on cost "
         "(ADR 0070). Null on tiers whose machines run anyway."
+    )
+    imported: RunImportedOut | None = Field(
+        description="A run imported from another deployment in a bundle (ADR 0096): where it "
+        "ran, and what it was tied to there that didn't come with it."
     )
     can: RunCan
 
@@ -761,6 +799,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "reproduces": _ref_out(refs.get(run.reproduces_id)),
             "reproduction": run.reproduction,
             "cost": costs.of_run(run),
+            "imported": _imported(me, run, projects[run.project_id]),
             "can": {
                 "cancel": not run.finished
                 and run.cancel_requested_at is None
@@ -773,6 +812,28 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         }
         for run in runs
     ]
+
+
+def _imported(me: User, run: ActionRun, project: Any) -> dict[str, Any] | None:  # noqa: ANN401 - a Project
+    found = run.imported
+    if not found:
+        return None
+    linked = found.get("linked") or {}
+    return {
+        "deployment": found["from"],
+        "hrid": found["hrid"],
+        "bundle_import": (
+            found["import"]
+            if permissions.can(me, permissions.Action.PROJECT_IMPORT, project)
+            else None
+        ),
+        "approval": found.get("approval"),
+        "batch": (linked.get("batch") or {}).get("hrid"),
+        "workflow": (linked.get("workflow") or {}).get("hrid"),
+        "inputs_elsewhere": found.get("inputs") or [],
+        "workers": found.get("workers") or {},
+        "project_slug": project.slug,
+    }
 
 
 def _ref_out(run: ActionRun | None) -> dict[str, Any] | None:

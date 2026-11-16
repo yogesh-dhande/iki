@@ -3465,12 +3465,18 @@
             "type": "integer"
           },
           "outside": {
-            "description": "Entities its values refer to that aren't in it.",
+            "description": "Entities its values or runs refer to that aren't in it.",
             "title": "Outside",
             "type": "integer"
           },
           "revisions": {
             "title": "Revisions",
+            "type": "integer"
+          },
+          "runs": {
+            "default": 0,
+            "description": "The runs that made or changed its entities.",
+            "title": "Runs",
             "type": "integer"
           }
         },
@@ -4250,6 +4256,24 @@
             "title": "Revisions",
             "type": "integer"
           },
+          "runs": {
+            "default": 0,
+            "description": "The runs that made or changed them, new here.",
+            "title": "Runs",
+            "type": "integer"
+          },
+          "runs_here": {
+            "default": 0,
+            "description": "Runs here already, from an earlier import.",
+            "title": "Runs Here",
+            "type": "integer"
+          },
+          "runs_renumbered": {
+            "default": 0,
+            "description": "New runs whose HRID is another run's here.",
+            "title": "Runs Renumbered",
+            "type": "integer"
+          },
           "skip": {
             "description": "Here already: nothing changes.",
             "title": "Skip",
@@ -4968,6 +4992,93 @@
           "here"
         ],
         "title": "ImportType",
+        "type": "object"
+      },
+      "ImportedApprovalOut": {
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who approved or declined it there, by name.",
+            "title": "Decided By"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who asked for it there, by name.",
+            "title": "Requested By"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "requested_by",
+          "decided_by",
+          "decided_at",
+          "note"
+        ],
+        "title": "ImportedApprovalOut",
+        "type": "object"
+      },
+      "ImportedInputOut": {
+        "properties": {
+          "entity": {
+            "description": "Its ID there: it isn't here.",
+            "format": "uuid",
+            "title": "Entity",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "position",
+          "entity",
+          "revision"
+        ],
+        "title": "ImportedInputOut",
         "type": "object"
       },
       "InboxFilters": {
@@ -6158,6 +6269,7 @@
               "another-project",
               "history",
               "purged",
+              "run",
               "unreadable"
             ],
             "title": "Why",
@@ -9595,6 +9707,102 @@
         "title": "RunFilters",
         "type": "object"
       },
+      "RunImportedOut": {
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportedApprovalOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who approved it there, when an agent asked for it."
+          },
+          "batch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The batch it was launched in there, by HRID.",
+            "title": "Batch"
+          },
+          "bundle_import": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The import that brought it, if you may see it: an Org Admin who is the project's Admin.",
+            "title": "Bundle Import"
+          },
+          "deployment": {
+            "description": "The deployment it ran on.",
+            "title": "Deployment",
+            "type": "string"
+          },
+          "hrid": {
+            "description": "Its HRID there.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "inputs_elsewhere": {
+            "description": "What it read there that didn't come with it.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedInputOut"
+            },
+            "title": "Inputs Elsewhere",
+            "type": "array"
+          },
+          "project_slug": {
+            "description": "The project it was imported into, for its link.",
+            "title": "Project Slug",
+            "type": "string"
+          },
+          "workers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each attempt's worker there, by attempt.",
+            "title": "Workers",
+            "type": "object"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The workflow run it was a step of there.",
+            "title": "Workflow"
+          }
+        },
+        "required": [
+          "deployment",
+          "hrid",
+          "bundle_import",
+          "approval",
+          "batch",
+          "workflow",
+          "inputs_elsewhere",
+          "workers",
+          "project_slug"
+        ],
+        "title": "RunImportedOut",
+        "type": "object"
+      },
       "RunIn": {
         "properties": {
           "add_to_project": {
@@ -9829,6 +10037,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "imported": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunImportedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A run imported from another deployment in a bundle (ADR 0096): where it ran, and what it was tied to there that didn't come with it."
           },
           "inputs": {
             "items": {
@@ -10076,6 +10295,7 @@
           "reproduces",
           "reproduction",
           "cost",
+          "imported",
           "can"
         ],
         "title": "RunOut",

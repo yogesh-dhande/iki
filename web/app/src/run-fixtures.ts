@@ -57,6 +57,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     reused_from: null,
     reproduces: null,
     reproduction: null,
+    imported: null,
     can: { cancel: true, reproduce: false, run_again: false },
     cost: null,
     ...overrides,

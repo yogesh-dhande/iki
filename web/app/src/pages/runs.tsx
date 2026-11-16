@@ -702,6 +702,54 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
 }
 
 /** The trigger that launched a run, and the change or time that fired it (ADR 0080). */
+/** A run imported from another deployment (ADR 0096): where it ran, and what it was tied
+ * to there that didn't come with it. */
+function ImportedRows({ imported }: { imported: NonNullable<Run["imported"]> }) {
+  const approval = imported.approval;
+  const workers = [...new Set(Object.values(imported.workers).filter(Boolean))];
+  return (
+    <>
+      <dt>Imported from</dt>
+      <dd>
+        {imported.deployment}, where it’s <code>{imported.hrid}</code>
+        {imported.bundle_import ? (
+          <>
+            {" "}
+            (
+            <Link
+              to="/projects/$slug/imports/$importId/"
+              params={{ slug: imported.project_slug, importId: imported.bundle_import }}
+            >
+              the import
+            </Link>
+            )
+          </>
+        ) : null}
+        {imported.batch ? `, launched in ${imported.batch} there` : ""}
+        {imported.workflow ? `, a step of ${imported.workflow} there` : ""}
+        {workers.length ? `. It ran on ${workers.join(", ")}.` : ""}
+      </dd>
+      {approval ? (
+        <>
+          <dt>Approval there</dt>
+          <dd>
+            {approval.state === "approved" ? "Approved" : "Not approved"}
+            {approval.decided_by ? ` by ${approval.decided_by}` : ""}
+            {approval.decided_at ? (
+              <>
+                {" "}
+                <RelativeTime value={approval.decided_at} />
+              </>
+            ) : null}
+            {approval.requested_by ? `, for ${approval.requested_by}` : ""}
+            {approval.note ? `: ${approval.note}` : ""}
+          </dd>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trigger"]> }) {
   if (trigger.entity === null) {
     return (
@@ -1237,7 +1285,9 @@ export function RunPage() {
         <h2 className="section-title" id="inputs-title">
           Inputs
         </h2>
-        {run.inputs.length === 0 && params.length === 0 ? (
+        {run.inputs.length === 0 &&
+        params.length === 0 &&
+        !run.imported?.inputs_elsewhere.length ? (
           <p className="muted">It took no inputs.</p>
         ) : null}
         <dl className="summary">
@@ -1249,6 +1299,17 @@ export function RunPage() {
                   {input.hrid}
                 </Link>{" "}
                 <span className="muted">as of revision {input.revision}</span>
+              </dd>
+            </div>
+          ))}
+          {(run.imported?.inputs_elsewhere ?? []).map((input) => (
+            <div key={`${input.name}-${input.entity}`} className="value-row">
+              <dt>{inputLabels.get(input.name) ?? input.name}</dt>
+              <dd>
+                <span className="muted">
+                  An entity on {run.imported?.deployment} that didn’t come with it (
+                  <code>{input.entity}</code>, revision {input.revision})
+                </span>
               </dd>
             </div>
           ))}
@@ -1291,6 +1352,7 @@ export function RunPage() {
               <dd>{approvalText(run.approval)}</dd>
             </>
           ) : null}
+          {run.imported ? <ImportedRows imported={run.imported} /> : null}
           {run.reason ? (
             <>
               <dt>Reason</dt>

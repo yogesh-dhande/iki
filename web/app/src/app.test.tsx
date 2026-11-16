@@ -64,7 +64,7 @@ function exported(overrides: Partial<Schemas["ExportOut"]> = {}): Schemas["Expor
     error: "",
     sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
     size: 48_213,
-    counts: { entities: 3, revisions: 5, files: 1, outside: 0 },
+    counts: { entities: 3, revisions: 5, files: 1, outside: 0, runs: 0 },
     file_name: "kinase-atlas-20261115-090000.iki-bundle.tar.gz",
     created_at: "2026-11-15T09:00:00Z",
     finished_at: "2026-11-15T09:00:04Z",
@@ -107,6 +107,9 @@ function planned(overrides: Partial<Schemas["ImportOut"]> = {}): Schemas["Import
         people: 2,
         placeholders: 1,
         files: 0,
+        runs: 1,
+        runs_here: 0,
+        runs_renumbered: 0,
       },
       types: [{ type: "protein.Protein", plugin: "protein", schema_version: 2, here: 2 }],
       files: { files: 0, here: 0, carried: 0, registered: 0 },
@@ -746,6 +749,7 @@ describe("an import", () => {
     expect(screen.getByText("Validated primers, for production")).toBeVisible();
     expect(screen.getByText("1 entity is in conflict: see each one’s reason.")).toBeVisible();
     expect(screen.getByText("2 new entities, 1 of them gets a new HRID")).toBeVisible();
+    expect(screen.getByText("1 run that made or changed them, with their logs")).toBeVisible();
     const entities = card("Entities");
     expect(await within(entities).findByText("A new HRID")).toBeVisible();
     expect(

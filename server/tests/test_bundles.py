@@ -116,7 +116,7 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert m["reason"] == "Validated structures, for production"
     assert m["project"]["name"] == "Kinases"
     # The structure, and the protein its chains name now; the others only as references.
-    assert m["counts"] == {"entities": 2, "revisions": 4, "files": 1, "outside": 2}
+    assert m["counts"] == {"entities": 2, "revisions": 4, "files": 1, "outside": 2, "runs": 0}
     assert made.counts == m["counts"]
     plugins = {p["name"]: p for p in m["plugins"]}
     assert plugins["protein"]["types"]["protein.Protein"]["schema_version"] == 3

@@ -538,6 +538,10 @@ class ActionRun(models.Model):
     max_attempts = models.PositiveSmallIntegerField()
     #: The failures it's retried after.
     retry_on = models.JSONField(default=list)
+    #: A run imported from another deployment (ADR 0096): where from, its HRID there,
+    #: the import, and what it was tied to there that didn't come with it. Empty for
+    #: this deployment's own runs.
+    imported = models.JSONField(default=dict, blank=True)
 
     class Meta:
         db_table = "iki_action_run"

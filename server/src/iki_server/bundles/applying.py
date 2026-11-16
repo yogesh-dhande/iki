@@ -57,10 +57,26 @@ from iki_server.files import storage
 from iki_server.files.models import Blob, File
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
+from iki_server.runs import services as run_services
+from iki_server.runs.models import (
+    HRID_PREFIX,
+    ActionRun,
+    ExternalOrigin,
+    Job,
+    JobLog,
+    Lineage,
+    RunEffect,
+    RunInput,
+    RunOutput,
+)
 from iki_server.tasks import task
 
 logger = structlog.get_logger("iki.bundles")
 
+UNEXPECTED = (
+    "Something went wrong on Iki's side, so nothing was imported. Try again; if it happens "
+    "again, your administrator can find what went wrong in Iki's logs."
+)
 CHANGED = (
     "Something here changed since it was planned, so nothing was imported: read the new "
     "plan, then apply it again."
@@ -98,8 +114,8 @@ def apply_import(import_id: str) -> str:
         return made.state
     with tempfile.TemporaryDirectory(prefix="iki-import-") as tmp:
         path = Path(tmp) / "bundle.tar.gz"
-        storage.download_file(storage.imported_key(made.upload_id), path)
         try:
+            storage.download_file(storage.imported_key(made.upload_id), path)
             bundle = reading.read(
                 path, settings.IKI_BUNDLE_TRUSTED_KEYS, limit=settings.IKI_BUNDLE_MAX_BYTES
             )
@@ -112,6 +128,12 @@ def apply_import(import_id: str) -> str:
         except (reading.BundleError, IntegrityError, DatabaseError) as error:
             logger.warning("bundle_import_failed", import_id=import_id, error=str(error))
             return _failed(made, _said(error))
+        except Exception:
+            # Not one it can explain: nothing changed, and it says so, rather than seem to
+            # go on applying. The task's record and the logs keep what went wrong.
+            logger.exception("bundle_import_crashed", import_id=import_id)
+            _failed(made, UNEXPECTED)
+            raise
 
 
 def _said(error: Exception) -> str:
@@ -215,12 +237,15 @@ class _Writer:
                 self._create(line, row)
             else:
                 self._append(line, row)
+        for run in self.bundle.lines("runs.ndjson"):
+            self._run(run)
         return {
             "created": self.counts["created"],
             "updated": self.counts["updated"],
             "revisions": self.counts["revisions"],
             "files": self.counts["files"],
             "placeholders": self.counts["placeholders"],
+            "runs": self.counts["runs"],
         }
 
     # Who --------------------------------------------------------------------------------
@@ -424,6 +449,153 @@ class _Writer:
                 {k: v for k, v in h["values"].items() if k in fields},
                 number,
             )
+
+    # Runs -------------------------------------------------------------------------------
+
+    def _run(self, line: dict[str, Any]) -> None:
+        """A run, as the record of what made or changed the entities: its attempts, logs and
+        output, what it read and made, and what it was tied to there that didn't come."""
+        if ActionRun.objects.filter(pk=line["id"]).exists():
+            return
+        hrid = line["hrid"]
+        if ActionRun.objects.filter(hrid=hrid).exists():
+            hrid = run_services._next_hrid()
+        else:
+            _advance(HRID_PREFIX, hrid)
+        ids = [i["entity"] for i in line["inputs"]] + [r["parent"] for r in line["lineage"]]
+        here = {str(i) for i in Entity.objects.filter(pk__in=ids).values_list("pk", flat=True)}
+        approval = line["approval"]
+        if approval is not None:
+            approval = {
+                **approval,
+                "requested_by": self._name(approval["requested_by"]),
+                "decided_by": self._name(approval["decided_by"]),
+            }
+        run = ActionRun.objects.create(
+            id=line["id"],
+            hrid=hrid,
+            action=line["action"],
+            plugin_version=line["plugin_version"],
+            plugin_sha=line["plugin_sha"],
+            spec=line["spec"],
+            project=self.made.project,
+            requested_by=self._requester(line),
+            via=line["via"],
+            client=line["client"],
+            agent=self._agent(line["agent"]),
+            reason=line["reason"],
+            tier=line["tier"],
+            environment=line["environment"],
+            params=line["params"],
+            plugin_settings=line["plugin_settings"],
+            seed=line["seed"],
+            status=line["status"],
+            created_at=line["created_at"],
+            started_at=line["started_at"],
+            finished_at=line["finished_at"],
+            error=line["error"],
+            timeout=line["timeout"],
+            max_attempts=line["max_attempts"],
+            retry_on=line["retry_on"],
+            reproduction=line["reproduction"],
+            imported={
+                "from": self.made.trusted_as,
+                "hrid": line["hrid"],
+                "import": str(self.made.pk),
+                "linked": line["linked"],
+                "approval": approval,
+                # What it read that isn't here: kept as it was there.
+                "inputs": [i for i in line["inputs"] if i["entity"] not in here],
+                "lineage": [r for r in line["lineage"] if r["parent"] not in here],
+                "workers": {str(a["attempt"]): a["worker"] for a in line["attempts"]},
+            },
+        )
+        for a in line["attempts"]:
+            job = Job.objects.create(
+                id=a["id"],
+                run=run,
+                attempt=a["attempt"],
+                state=a["state"],
+                project=self.made.project,
+                tier=a["tier"],
+                environment=a["environment"],
+                environment_build=a["environment_build"],
+                resources=a["resources"],
+                owner=self._user(a["owner"]),
+                queued_at=a["queued_at"],
+                started_at=a["started_at"],
+                finished_at=a["finished_at"],
+                error=a["error"],
+                volumes=a["volumes"],
+                log_size=len(a["log"].encode()),
+            )
+            if a["log"]:
+                JobLog.objects.create(
+                    job=job, offset=0, text=a["log"], created_at=a["finished_at"] or a["queued_at"]
+                )
+        output = line["output"]
+        if output is not None:
+            RunOutput.objects.create(
+                run=run,
+                job_id=output["job"],
+                document=output["document"],
+                received_at=output["received_at"],
+            )
+        RunInput.objects.bulk_create(
+            RunInput(
+                run=run,
+                name=i["name"],
+                position=i["position"],
+                entity_id=i["entity"],
+                revision=i["revision"],
+            )
+            for i in line["inputs"]
+            if i["entity"] in here
+        )
+        RunEffect.objects.bulk_create(
+            RunEffect(run=run, entity_id=e["entity"], kind=e["kind"], revision=e["revision"])
+            for e in line["effects"]
+        )
+        Lineage.objects.bulk_create(
+            Lineage(
+                run=run,
+                entity_id=r["entity"],
+                parent_id=r["parent"],
+                parent_revision=r["parent_revision"],
+                input=r["input"],
+            )
+            for r in line["lineage"]
+            if r["parent"] in here
+        )
+        ExternalOrigin.objects.bulk_create(
+            ExternalOrigin(
+                run=run,
+                entity_id=o["entity"],
+                revision=o["revision"],
+                source=o["source"],
+                identifier=o["identifier"],
+                version=o["version"],
+                url=o["url"],
+                retrieved_at=o["retrieved_at"],
+                sha256=o["sha256"],
+                file_id=o["file"],
+                created_at=o["created_at"],
+            )
+            for o in line["origins"]
+        )
+        self.counts["runs"] += 1
+
+    def _requester(self, line: dict[str, Any]) -> User:
+        user = self._user(line["requested_by"])
+        if user is None:
+            raise reading.BundleError(
+                f"{line['hrid']} names nobody in the bundle who asked for it."
+            )
+        return user
+
+    def _name(self, source_id: str | None) -> str | None:
+        user = self._user(source_id)
+        return user.get_full_name() if user is not None else None
 
 
 def _placeholder(person: ImportPerson, source: str) -> User:

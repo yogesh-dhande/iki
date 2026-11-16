@@ -69,7 +69,7 @@ def test_an_admin_exports_a_collection_and_downloads_it(world: World, tmp_path: 
     assert run_tasks() == 1
     ready = api.get(f"/bundles/{started['id']}").json()
     assert ready["state"] == "ready", ready
-    assert ready["counts"] == {"entities": 3, "revisions": 3, "files": 0, "outside": 0}
+    assert ready["counts"] == {"entities": 3, "revisions": 3, "files": 0, "outside": 0, "runs": 0}
     assert ready["file_name"].endswith(".iki-bundle.tar.gz")
     expires = datetime.fromisoformat(ready["expires_at"])
     assert timedelta(days=6, hours=23) < expires - timezone.now() <= timedelta(days=7)

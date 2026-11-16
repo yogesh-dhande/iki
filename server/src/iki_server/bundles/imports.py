@@ -50,6 +50,7 @@ from iki_server.files.models import Blob, File, Upload, UploadKind
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
+from iki_server.runs.models import ActionRun
 from iki_server.tasks import task
 from iki_spec import titles
 from iki_spec.model import EntityType, Field
@@ -148,6 +149,22 @@ def plan_import(import_id: str) -> str:
     made = BundleImport.objects.select_related("project", "requested_by").get(pk=import_id)
     if made.state != ImportState.PLANNING:
         return made.state
+    try:
+        return _plan(made)
+    except Exception:
+        # Not one it can explain: it says so, rather than seem to go on planning. The
+        # task's record and the logs keep what went wrong.
+        logger.exception("bundle_plan_crashed", import_id=import_id)
+        BundleImport.objects.filter(pk=made.pk).update(
+            state=ImportState.FAILED,
+            error="Something went wrong on Iki's side while checking it. Discard it and upload "
+            "it again; if it happens again, your administrator can find what went wrong in "
+            "Iki's logs.",
+        )
+        raise
+
+
+def _plan(made: BundleImport) -> str:
     with tempfile.TemporaryDirectory(prefix="iki-import-") as tmp:
         path = Path(tmp) / "bundle.tar.gz"
         storage.download_file(storage.imported_key(made.upload_id), path)
@@ -235,6 +252,9 @@ class _Counts:
     conflict: int = 0
     renumbered: int = 0
     revisions: int = 0
+    runs: int = 0
+    runs_here: int = 0
+    runs_renumbered: int = 0
 
 
 @dataclass
@@ -255,6 +275,7 @@ class _Planner:
             self.ids |= {uuid.UUID(e["id"]) for e in batch}
             self._entities(batch)
         outside = self._outside()
+        self._runs()
         c = self.counts
         if c.conflict:
             self.problems.append(
@@ -274,6 +295,9 @@ class _Planner:
                 "people": people["people"],
                 "placeholders": people["placeholders"],
                 "files": stored["files"],
+                "runs": c.runs,
+                "runs_here": c.runs_here,
+                "runs_renumbered": c.runs_renumbered,
             },
             "types": types,
             "files": stored,
@@ -281,6 +305,27 @@ class _Planner:
             "problems": self.problems,
             "applicable": not self.problems,
         }
+
+    # Runs ---------------------------------------------------------------------------------
+
+    def _runs(self) -> None:
+        """Runs are records: one here already stays as it is, and a new one gets a new HRID
+        when its own is another run's here. The plugin that ran it needn't be here."""
+        for batch in _batched(self.bundle.lines("runs.ndjson"), BATCH):
+            ids = [r["id"] for r in batch]
+            here = set(ActionRun.objects.filter(pk__in=ids).values_list("pk", flat=True))
+            taken = set(
+                ActionRun.objects.filter(hrid__in=[r["hrid"] for r in batch])
+                .exclude(pk__in=ids)
+                .values_list("hrid", flat=True)
+            )
+            for run in batch:
+                if uuid.UUID(run["id"]) in here:
+                    self.counts.runs_here += 1
+                    continue
+                self.counts.runs += 1
+                if run["hrid"] in taken:
+                    self.counts.runs_renumbered += 1
 
     # Types --------------------------------------------------------------------------------
 
@@ -535,7 +580,7 @@ class _Planner:
         )
         items = [{**o, "here": uuid.UUID(o["id"]) in here} for o in lines]
         # Values refer to them now (history's references needn't resolve): they must be here.
-        missing = [i for i in items if not i["here"] and i["why"] != "history"]
+        missing = [i for i in items if not i["here"] and i["why"] not in ("history", "run")]
         if missing:
             named = ", ".join(i["hrid"] or i["id"] for i in missing[:5])
             more = f" and {len(missing) - 5:,} more" if len(missing) > 5 else ""

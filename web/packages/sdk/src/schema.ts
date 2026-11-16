@@ -4537,11 +4537,17 @@ export interface components {
             files: number;
             /**
              * Outside
-             * @description Entities its values refer to that aren't in it.
+             * @description Entities its values or runs refer to that aren't in it.
              */
             outside: number;
             /** Revisions */
             revisions: number;
+            /**
+             * Runs
+             * @description The runs that made or changed its entities.
+             * @default 0
+             */
+            runs: number;
         };
         /** ExportIn */
         ExportIn: {
@@ -4888,6 +4894,24 @@ export interface components {
              * @description The revisions importing adds.
              */
             revisions: number;
+            /**
+             * Runs
+             * @description The runs that made or changed them, new here.
+             * @default 0
+             */
+            runs: number;
+            /**
+             * Runs Here
+             * @description Runs here already, from an earlier import.
+             * @default 0
+             */
+            runs_here: number;
+            /**
+             * Runs Renumbered
+             * @description New runs whose HRID is another run's here.
+             * @default 0
+             */
+            runs_renumbered: number;
             /**
              * Skip
              * @description Here already: nothing changes.
@@ -5241,6 +5265,40 @@ export interface components {
             schema_version: number;
             /** Type */
             type: string;
+        };
+        /** ImportedApprovalOut */
+        ImportedApprovalOut: {
+            /** Decided At */
+            decided_at: string | null;
+            /**
+             * Decided By
+             * @description Who approved or declined it there, by name.
+             */
+            decided_by: string | null;
+            /** Note */
+            note: string;
+            /**
+             * Requested By
+             * @description Who asked for it there, by name.
+             */
+            requested_by: string | null;
+            /** State */
+            state: string;
+        };
+        /** ImportedInputOut */
+        ImportedInputOut: {
+            /**
+             * Entity
+             * Format: uuid
+             * @description Its ID there: it isn't here.
+             */
+            entity: string;
+            /** Name */
+            name: string;
+            /** Position */
+            position: number;
+            /** Revision */
+            revision: number;
         };
         /** InboxFilters */
         InboxFilters: {
@@ -5819,7 +5877,7 @@ export interface components {
              * Why
              * @enum {string}
              */
-            why: "another-project" | "history" | "purged" | "unreadable";
+            why: "another-project" | "history" | "purged" | "run" | "unreadable";
         };
         /** PageParams */
         PageParams: {
@@ -7276,6 +7334,53 @@ export interface components {
              */
             workflow?: string | null;
         };
+        /** RunImportedOut */
+        RunImportedOut: {
+            /** @description Who approved it there, when an agent asked for it. */
+            approval: components["schemas"]["ImportedApprovalOut"] | null;
+            /**
+             * Batch
+             * @description The batch it was launched in there, by HRID.
+             */
+            batch: string | null;
+            /**
+             * Bundle Import
+             * @description The import that brought it, if you may see it: an Org Admin who is the project's Admin.
+             */
+            bundle_import: string | null;
+            /**
+             * Deployment
+             * @description The deployment it ran on.
+             */
+            deployment: string;
+            /**
+             * Hrid
+             * @description Its HRID there.
+             */
+            hrid: string;
+            /**
+             * Inputs Elsewhere
+             * @description What it read there that didn't come with it.
+             */
+            inputs_elsewhere: components["schemas"]["ImportedInputOut"][];
+            /**
+             * Project Slug
+             * @description The project it was imported into, for its link.
+             */
+            project_slug: string;
+            /**
+             * Workers
+             * @description Each attempt's worker there, by attempt.
+             */
+            workers: {
+                [key: string]: string;
+            };
+            /**
+             * Workflow
+             * @description The workflow run it was a step of there.
+             */
+            workflow: string | null;
+        };
         /** RunIn */
         RunIn: {
             /**
@@ -7389,6 +7494,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** @description A run imported from another deployment in a bundle (ADR 0096): where it ran, and what it was tied to there that didn't come with it. */
+            imported: components["schemas"]["RunImportedOut"] | null;
             /** Inputs */
             inputs: components["schemas"]["RunInputOut"][];
             /** Messages */

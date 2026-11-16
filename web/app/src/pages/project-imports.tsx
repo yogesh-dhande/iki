@@ -59,6 +59,7 @@ const WHY_OUTSIDE: Record<Schemas["OutsideRef"]["why"], string> = {
   "another-project": "in another project there",
   history: "named only by earlier revisions",
   purged: "its plugin was purged there",
+  run: "only a run read it: the run’s record keeps it",
   unreadable: "the exporter couldn’t read it",
 };
 
@@ -482,6 +483,15 @@ function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
             {plural(c.revisions, "revision", "revisions")} added, with{" "}
             {plural(c.files, "file", "files")}
           </li>
+          {c.runs || c.runs_here ? (
+            <li>
+              {plural(c.runs, "run", "runs")} that made or changed them, with their logs
+              {c.runs_renumbered
+                ? `, ${plural(c.runs_renumbered, "of them gets", "of them get")} a new HRID`
+                : ""}
+              {c.runs_here ? `; ${plural(c.runs_here, "is", "are")} here already` : ""}
+            </li>
+          ) : null}
           <li>
             {plural(c.people, "person", "people")} named
             {c.placeholders
