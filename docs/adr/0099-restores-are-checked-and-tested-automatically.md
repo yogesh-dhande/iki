@@ -40,6 +40,18 @@ change is audited, so the newest audit event says how far the data
 reaches, which measures the recovery point. `--json` prints the report for
 a script to compare with the deployment the backup came from.
 
+**A restore elsewhere reads the replicas through bucket aliases.** Each
+file's record names its bucket (`s3://iki-files-use1/…`). S3 bucket names
+are global, so the replica in the DR region has another name, and a
+deployment restored there would read the lost region's bucket.
+`files.bucketAliases` (`IKI_FILES_BUCKET_ALIASES`) maps a bucket's old name
+to the one its objects are in now. Iki resolves every stored location
+through it, for downloads, runs' inputs, imports and this check. Version
+IDs survive replication, so a file pinned to a version still resolves. No
+record is rewritten: the tables stay append-only, the audit trail names
+the bucket as it was, and failing back means removing the alias. The same
+works for a lab's own bucket, replicated elsewhere.
+
 **The restore test runs on every change**, in CI's dev cluster job, after
 the end-to-end checks have made data (`deploy/dev/restore-test.sh`). It:
 

@@ -1512,3 +1512,25 @@ def test_dashboards_and_alerts_read_only_metrics_iki_exports() -> None:
         dotted = base.replace("iki_runs_", "iki.runs.").replace("iki_compute_", "iki.compute.")
         dotted = dotted.replace("iki_tasks_", "iki.tasks.").replace("iki_", "iki.", 1)
         assert f'"{dotted}"' in source, f"{metric}: no metric named {dotted} in the server"
+
+
+def test_bucket_aliases_reach_the_pods_as_old_equals_new() -> None:
+    docs = manifests(
+        {
+            "files": {
+                "bucket": "iki-files-usw2",
+                "bucketAliases": {"iki-files-use1": "iki-files-usw2", "lab-data": "lab-data-dr"},
+            }
+        }
+    )
+    env = {
+        e["name"]: e.get("value")
+        for e in named(docs, "Deployment", "iki-web")["spec"]["template"]["spec"]["containers"][0][
+            "env"
+        ]
+    }
+    assert env["IKI_FILES_BUCKET_ALIASES"] == "iki-files-use1=iki-files-usw2,lab-data=lab-data-dr"
+    message = render(
+        {"files": {"bucket": "iki-files", "bucketAliases": {"S3://old": "new-files"}}}, ok=False
+    )
+    assert "invalid propertyName 'S3://old'" in str(message)

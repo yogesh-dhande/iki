@@ -300,9 +300,10 @@ def exists(key: str) -> bool:
 
 
 def split_uri(storage_uri: str) -> tuple[str, str]:
-    """``s3://bucket/some/key`` → ``("bucket", "some/key")``."""
+    """``s3://bucket/some/key`` → ``("bucket", "some/key")``, in the bucket the object is in
+    now: after a restore elsewhere, an aliased bucket's replica (IKI_FILES_BUCKET_ALIASES)."""
     bucket_name, _, key = storage_uri.removeprefix("s3://").partition("/")
-    return bucket_name, key
+    return settings.IKI_FILES_BUCKET_ALIASES.get(bucket_name, bucket_name), key
 
 
 def versioned(bucket_name: str) -> bool:

@@ -636,6 +636,22 @@ except ValueError as _error:
     ) from None
 if IKI_RUNS_CHECKPOINT_INTERVAL < 60:
     raise environ.ImproperlyConfigured("IKI_RUNS_CHECKPOINT_INTERVAL must be at least 1m.")
+#: Buckets whose objects are now in another, as ``old=new`` entries (ADR 0099): a record
+#: naming ``s3://old/key`` is read from ``s3://new/key``. A deployment restored in its
+#: disaster-recovery region reads the files' replicas this way, without a record rewritten.
+IKI_FILES_BUCKET_ALIASES: dict[str, str] = {}
+for _alias in env.list("IKI_FILES_BUCKET_ALIASES", default=[]):
+    import re as _re
+
+    _pair = _re.fullmatch(
+        r"([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])=([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])", _alias.strip()
+    )
+    if _pair is None or _pair.group(1) == _pair.group(2):
+        raise environ.ImproperlyConfigured(
+            f"IKI_FILES_BUCKET_ALIASES: {_alias!r} isn't two buckets, such as "
+            "iki-files-use1=iki-files-usw2"
+        )
+    IKI_FILES_BUCKET_ALIASES[_pair.group(1)] = _pair.group(2)
 #: Where files may be registered in place, rather than uploaded: ``s3://bucket/prefix/``
 #: entries. Each bucket must keep versions; Iki pins each file to its version.
 IKI_FILES_REGISTER_LOCATIONS: list[str] = []

@@ -183,3 +183,27 @@ def test_it_reads_for_people_too(world: World) -> None:
     assert said.startswith("Data until ")
     assert "    ok  Files in storage: 1 checked" in said
     assert "Holds " in said and " 1 files," in said
+
+
+def test_restored_elsewhere_it_reads_the_files_replicas_through_an_alias(
+    world: World, settings: Any
+) -> None:
+    """In the DR region, the records still name the lost region's bucket; the objects are in
+    its replica, here the test's bucket."""
+    gone = "iki-files-lost-region"
+    data = b"replicated"
+    sha = hashlib.sha256(data).hexdigest()
+    key = storage.blob_key(sha)
+    storage.client().put_object(Bucket=storage.bucket(), Key=key, Body=data)
+    blob = Blob.objects.create(sha256=sha, size=len(data), storage_uri=f"s3://{gone}/{key}")
+    File.objects.create(blob=blob, name="r.txt", media_type="text/plain", project=world.project)
+    ok, report = checked()
+    assert not ok
+    assert gone in by_name(report)["Files in storage"]["shown"][0]
+
+    settings.IKI_FILES_BUCKET_ALIASES = {gone: storage.bucket()}
+    ok, report = checked("--hashes")
+    assert ok, report
+    # Downloads go to the replica too.
+    url = storage.download_url(blob.storage_uri, "", "r.txt", "text/plain")
+    assert storage.bucket() in url and gone not in url

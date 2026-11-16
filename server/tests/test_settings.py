@@ -231,6 +231,22 @@ def test_register_locations_name_folders() -> None:
     assert result.stdout.splitlines()[-1] == "['s3://lab-data/runs/', 's3://archive/']"
 
 
+def test_bucket_aliases_name_where_each_buckets_objects_are_now() -> None:
+    result = run_manage(
+        "shell",
+        "-c",
+        "from django.conf import settings as s; print(s.IKI_FILES_BUCKET_ALIASES)",
+        env={
+            **PROD_ENV,
+            "IKI_FILES_BUCKET_ALIASES": "iki-files-use1=iki-files-usw2, lab-data=lab-data-dr",
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == (
+        "{'iki-files-use1': 'iki-files-usw2', 'lab-data': 'lab-data-dr'}"
+    )
+
+
 @pytest.mark.parametrize(
     ("env", "message"),
     [
@@ -244,6 +260,9 @@ def test_register_locations_name_folders() -> None:
         ({"IKI_FILES_REGISTER_LOCATIONS": "lab-data/runs"}, "isn't a location such as"),
         ({"IKI_FILES_REGISTER_LOCATIONS": "s3://Lab_Data/"}, "isn't a location such as"),
         ({"IKI_FILES_REGISTER_LOCATIONS": "s3://lab/runs/../"}, "can't contain `..`"),
+        ({"IKI_FILES_BUCKET_ALIASES": "iki-files-use1"}, "isn't two buckets"),
+        ({"IKI_FILES_BUCKET_ALIASES": "iki-files=iki-files"}, "isn't two buckets"),
+        ({"IKI_FILES_BUCKET_ALIASES": "s3://old=new-bucket"}, "isn't two buckets"),
     ],
 )
 def test_file_storage_settings_are_checked(env: dict[str, str], message: str) -> None:

@@ -198,6 +198,12 @@ which version of an environment's volumes machines there get (ADR 0075). */}}
   value: {{ .artifactMinRetention | quote }}
 - name: IKI_FILES_REGISTER_LOCATIONS
   value: {{ join "," (.registerLocations | default list) | quote }}
+{{- $aliases := list }}
+{{- range $old, $new := (.bucketAliases | default dict) }}
+{{- $aliases = append $aliases (printf "%s=%s" $old $new) }}
+{{- end }}
+- name: IKI_FILES_BUCKET_ALIASES
+  value: {{ join "," $aliases | quote }}
 {{- if .credentials.existingSecret }}
 - name: AWS_ACCESS_KEY_ID
   valueFrom:
