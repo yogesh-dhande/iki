@@ -33,6 +33,35 @@ name = "anarci"
 ecosystem = "PyPI"
 license.override = ["BSD-3-Clause"]
 
+# The antibody plugin's structure-tools image (images/structure-tools/uv.lock),
+# each checked against its wheel's metadata and licence files.
+[[PackageOverrides]]
+# BSD-3-Clause: its LICENSE.txt, and its classifier says BSD.
+name = "jinja2"
+ecosystem = "PyPI"
+license.override = ["BSD-3-Clause"]
+
+[[PackageOverrides]]
+# BSD-3-Clause: its LICENSE.txt; the libraries its wheels bundle are listed there.
+name = "scipy"
+ecosystem = "PyPI"
+license.override = ["BSD-3-Clause"]
+
+[[PackageOverrides]]
+# BSD-3-Clause ("New BSD"): its LICENSE.
+name = "sympy"
+ecosystem = "PyPI"
+license.override = ["BSD-3-Clause"]
+
+[[PackageOverrides]]
+# PyTorch's CPU build, from PyTorch's index, which osv-scanner has no licence for. Its
+# PyPI release declares "Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause
+# AND BSD-3-Clause AND BSL-1.0 AND ISC AND MIT AND Zlib": the LLVM exception only adds
+# permissions to Apache-2.0.
+name = "torch"
+ecosystem = "PyPI"
+license.override = ["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSL-1.0", "ISC", "MIT", "Zlib"]
+
 [[PackageOverrides]]
 # Windows-only transitive dependency of the Docker SDK used by tests.
 name = "pywin32"
@@ -131,6 +160,21 @@ license.ignore = true
 
 [[PackageOverrides]]
 name = "psycopg-pool"
+ecosystem = "PyPI"
+license.ignore = true
+
+# openmm, in the antibody plugin's structure-tools image, refines predicted
+# antibody structures. Its API and its Reference and CPU platforms, which those
+# runs use, are MIT; its CUDA and OpenCL platforms are LGPL-3.0, and its wheel
+# carries the OpenCL one, unmodified and unused. What it bundles is BSD-3-Clause,
+# Zlib, MIT, CC-BY-3.0 (a PDBx parser) and a notice of Rice University's (Hilbert
+# curves). Its PyPI metadata says otherwise ("Python Software Foundation License")
+# and its wheel ships no licence text, so the image adds OpenMM's own licence
+# files, at the commit the wheel was built from. This exception covers openmm
+# alone.
+
+[[PackageOverrides]]
+name = "openmm"
 ecosystem = "PyPI"
 license.ignore = true
 

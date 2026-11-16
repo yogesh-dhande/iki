@@ -11,6 +11,22 @@ lockfiles=(--lockfile uv.lock --lockfile pnpm-lock.yaml --lockfile worker/Cargo.
 for requirements in plugins/*/requirements.txt; do
   lockfiles+=(--lockfile "$requirements")
 done
+# And what their images install, when an image locks its own packages.
+for lock in plugins/*/images/*/uv.lock; do
+  [ -e "$lock" ] && lockfiles+=(--lockfile "$lock")
+done
+
+echo "==> Plugin images install what they lock (requirements.txt is uv.lock, exported)"
+for lock in plugins/*/images/*/uv.lock; do
+  [ -e "$lock" ] || continue
+  image=$(dirname "$lock")
+  if ! (cd "$image" && uv export --frozen --no-emit-project --no-header --quiet | diff -q - requirements.txt >/dev/null); then
+    echo "$image/requirements.txt isn't its uv.lock: run" \
+      "\`uv export --frozen --no-emit-project --no-header -o requirements.txt\` there." >&2
+    exit 1
+  fi
+  echo "$image: requirements.txt matches uv.lock."
+done
 
 echo "==> Known vulnerabilities (OSV)"
 osv-scanner scan source --config osv-scanner.toml "${lockfiles[@]}"
@@ -21,7 +37,7 @@ osv-scanner scan source --config osv-scanner.toml --licenses="$licenses" "${lock
 echo "==> Rust: advisories, licenses, banned crates and sources (cargo-deny)"
 (cd worker && cargo deny --locked check)
 
-echo "==> Releases at least 3 days old (uv.lock, Cargo.lock, plugins' pins; pnpm refuses them itself)"
+echo "==> Releases at least 3 days old (uv.lock, Cargo.lock, plugins' pins and images; pnpm refuses them itself)"
 uv run --no-project --quiet python scripts/supply-chain/release-age.py
 
 echo "==> Image scan exceptions (.grype.yaml) haven't expired"

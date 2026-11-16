@@ -1,0 +1,36 @@
+# What the antibody plugin's structure-tools image installs, locked in uv.lock and
+# exported, hashed, to requirements.txt (see the Dockerfile). Recompile with:
+#   uv lock --upgrade && uv export --frozen --no-emit-project --no-header -o requirements.txt
+[project]
+name = "antibody-structure-tools"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+  "immunebuilder==1.2",
+  "anarci==2026.2.13.2",
+  "torch==2.15.0",
+  "openmm==8.6.1",
+  "pdbfixer==1.12.0",
+]
+
+[tool.uv]
+package = false
+# The image's Linux machines, on Intel and ARM.
+environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+exclude-newer = "2026-11-13T19:30:30Z"
+
+# PyTorch's CPU build, from its own index: PyPI's pulls in CUDA.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }

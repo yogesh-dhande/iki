@@ -9,6 +9,8 @@ BSD-2-Clause
 # BSD-2-Clause plus the FreeBSD disclaimer that views are the authors' own.
 BSD-2-Clause-Views
 BSD-3-Clause
+# The Boost Software License: permissive, like MIT (parts of PyTorch).
+BSL-1.0
 ISC
 MIT
 MIT-0

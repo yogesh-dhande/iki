@@ -10,6 +10,9 @@ which has no such setting.
 - ``worker/Cargo.lock``: each crate's publish time, from the crates.io index.
 - ``plugins/*/requirements.txt``: each pin must be the release uv.lock has, so the
   plugin's tests run what its environment installs, and its age is checked there.
+- ``plugins/*/images/*/uv.lock``: what a plugin's image installs, checked as uv.lock is.
+  A package from an index that doesn't say when it was uploaded (PyTorch's CPU builds)
+  is as old as the same release on PyPI, which it's built from.
 
 Usage: ``scripts/supply-chain/release-age.py`` from anywhere. Needs network for cargo.
 """
@@ -28,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MINIMUM_AGE = timedelta(days=3)
 CRATES_REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 INDEX = "https://index.crates.io"
+PYPI = "https://pypi.org/simple"
 
 #: Releases allowed in though they're new, each with why. Keep uv's matching
 #: ``exclude-newer-package`` entry (pyproject.toml) in step. Once a release is 3 days old
@@ -49,6 +53,8 @@ def python_releases(lock: Path) -> list[tuple[str, str, datetime]]:
             continue
         files = [package.get("sdist", {}), *package.get("wheels", [])]
         times = [_when(f["upload-time"]) for f in files if "upload-time" in f]
+        if not times and package["source"]["registry"] != PYPI:
+            times = [pypi_released(package["name"], package["version"])]
         if not times:
             raise SystemExit(
                 f"uv.lock doesn't record when {package['name']} {package['version']} was "
@@ -56,6 +62,21 @@ def python_releases(lock: Path) -> list[tuple[str, str, datetime]]:
             )
         found.append((package["name"], package["version"], min(times)))
     return found
+
+
+def pypi_released(name: str, version: str) -> datetime:
+    """When a release's first file was uploaded to PyPI: for a local build of it, such as
+    torch 2.15.0+cpu, the release it was built from."""
+    public = version.split("+", 1)[0]
+    request = urllib.request.Request(
+        f"https://pypi.org/pypi/{name}/{public}/json",
+        headers={"User-Agent": "iki-release-age-check"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        files = json.load(response)["urls"]
+    if not files:
+        raise SystemExit(f"PyPI has no files for {name} {public}, to tell how old it is.")
+    return min(_when(f["upload_time_iso_8601"]) for f in files)
 
 
 def _index_path(name: str) -> str:
@@ -121,9 +142,14 @@ def main() -> int:
     now = datetime.now(UTC)
     failed = False
     locked: set[tuple[str, str]] = set()
+    images = [
+        (f"Python ({lock.relative_to(ROOT)})", lock, python_releases)
+        for lock in sorted(ROOT.glob("plugins/*/images/*/uv.lock"))
+    ]
     for label, lock, read in (
         ("Python (uv.lock)", ROOT / "uv.lock", python_releases),
         ("Rust (worker/Cargo.lock)", ROOT / "worker" / "Cargo.lock", crate_releases),
+        *images,
     ):
         releases = read(lock)
         locked.update((name, version) for name, version, _ in releases)

@@ -116,7 +116,7 @@ Plugins before M1 are the ones that prove a platform feature.
 
 | Step | What                                                                                                   | Status      | Commits                                                                         |
 | ---- | ------------------------------------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------- |
-| 43   | The antibody plugin                                                                                    | in progress | `6db539d` `5986fdd` `3e59e13` `888e2de`                                         |
+| 43   | The antibody plugin                                                                                    | in progress | `6db539d` `5986fdd` `3e59e13` `888e2de` `e6a4641`                               |
 | 44   | The small_molecule plugin, with a 2D molecule component                                                | deferred    |                                                                                 |
 | 45   | Detaching and purging plugins, with tombstones                                                         | done        | `cc26659` `657a64a` `2a66d86` `8fd7c5e` `5ddcab5` `bea8b12` `31ddc81`           |
 | 46   | Plugin action tests, upgrade tests from an earlier commit, version checks with Iki and between plugins | done        | `8f07927` `6c0aedb` `40eb23d`                                                   |

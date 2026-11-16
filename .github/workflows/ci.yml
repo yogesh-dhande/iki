@@ -322,6 +322,9 @@ jobs:
           - image: iki-antibody-numbering-tools
             plugin: plugins/antibody
             dir: plugins/antibody/images/numbering-tools
+          - image: iki-antibody-structure-tools
+            plugin: plugins/antibody
+            dir: plugins/antibody/images/structure-tools
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
