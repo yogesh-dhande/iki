@@ -61,6 +61,50 @@ describe("the filter panel", () => {
     expect(within(panel).getByLabelText("Filter 2: field")).toBeInTheDocument();
   });
 
+  it("filters by how entities were made, all of one making", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(<Panel applied={[]} onApply={onApply} />);
+    const panel = screen.getByRole("region", { name: "Filters" });
+    await user.click(within(panel).getByRole("button", { name: "Add a filter" }));
+    await user.selectOptions(within(panel).getByLabelText("Filter 1: field"), "How it was made");
+    await user.type(within(panel).getByLabelText("Filter 1: software"), "AlphaFold");
+    await waitFor(() => {
+      expect(onApply).toHaveBeenLastCalledWith([
+        { field: "made", op: "has", value: { software: "AlphaFold" } },
+      ]);
+    });
+    await user.selectOptions(within(panel).getByLabelText("Filter 1: how"), "computed");
+    await user.selectOptions(
+      within(panel).getByLabelText("Filter 1: who says so"),
+      "as Iki recorded",
+    );
+    await waitFor(() => {
+      expect(onApply).toHaveBeenLastCalledWith([
+        {
+          field: "made",
+          op: "has",
+          value: { software: "AlphaFold", kind: "computational", by: "iki" },
+        },
+      ]);
+    });
+    await user.selectOptions(within(panel).getByLabelText("Filter 1: condition"), "isn’t recorded");
+    await waitFor(() => {
+      expect(onApply).toHaveBeenLastCalledWith([{ field: "made", op: "is_set", value: false }]);
+    });
+  });
+
+  it("shows a making's filter from the address", () => {
+    const applied: Filter[] = [
+      { field: "made", op: "has", value: { software: "Boltz", by: "source" } },
+    ];
+    render(<Panel applied={applied} onApply={vi.fn()} />);
+    const panel = screen.getByRole("region", { name: "Filters" });
+    expect(within(panel).getByLabelText("Filter 1: software")).toHaveValue("Boltz");
+    expect(within(panel).getByLabelText("Filter 1: how")).toHaveValue("");
+    expect(within(panel).getByLabelText("Filter 1: who says so")).toHaveValue("source");
+  });
+
   it("shows the address's filters when it changes by other means", () => {
     const onApply = vi.fn();
     const { rerender } = render(<Panel applied={[]} onApply={onApply} />);

@@ -4,8 +4,9 @@ A search names a type, and its conditions name that type's fields: its own,
 its parents', and those extensions add. Entities of every subtype match too,
 since each type's table holds its subtypes' rows. Without a type (or with
 ``core.Entity``), only the columns every entity has can be named: ``hrid``,
-``type``, ``owner_project``, ``created_by``, ``created_at``, ``updated_at``
-and ``archived_at``.
+``type``, ``owner_project``, ``created_by``, ``created_at``, ``updated_at``,
+``archived_at``, and ``made``: how it was made (ADR 0106), matched with ``has``
+against one making at a time, ``{"software": "AlphaFold", "by": "iki"}``.
 
 Conditions are JSON, so the same search can be sent, saved and shared::
 
@@ -45,6 +46,7 @@ from django.contrib.postgres.search import SearchQuery, SearchVector, SearchVect
 from django.core import signing
 from django.db import OperationalError, connection, transaction
 from django.db.models import Exists, F, Model, OuterRef, Q, QuerySet
+from django.db.models.functions import Lower
 
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
@@ -82,6 +84,8 @@ OPERATORS: Mapping[str, tuple[str, ...]] = {
     "user": EQUALITY,
     "project": EQUALITY,
     "type": EQUALITY,
+    # How it was made (ADR 0106): one of its makings has every key the value gives.
+    "making": ("has",),
 }
 ALL_OPERATORS = ("is_set", *dict.fromkeys(op for ops in OPERATORS.values() for op in ops))
 
@@ -132,6 +136,7 @@ _BUILT_IN = {
     "created_at": Column("created_at", "datetime", "created_at"),
     "updated_at": Column("updated_at", "datetime", "updated_at"),
     "archived_at": Column("archived_at", "datetime", "archived_at"),
+    "made": Column("made", "making", "pk"),
 }
 
 
@@ -292,6 +297,8 @@ class _Compiler:
             if col.kind in ("float", "quantity"):
                 return _any(_equal(col, v) for v in converted)
             return Q(**{f"{col.path}__in": converted})
+        if op == "has" and col.kind == "making":
+            return self.making(value, at)
         if op == "has":
             assert col.field is not None and col.field.items is not None  # noqa: S101 - lists
             item = Column(col.name, col.field.items.type, col.path, col.field.items)
@@ -328,6 +335,30 @@ class _Compiler:
             return equal if op == "eq" else ~equal
         return Q(**{f"{col.path}__{op}": converted})
 
+    def making(self, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
+        """Entities one of whose makings (ADR 0106) has every key ``value`` gives: one row,
+        so "AlphaFold, recorded by Iki" can't match a source's AlphaFold and Iki's
+        ImmuneBuilder. Software is matched whatever its case; the rest exactly."""
+        from iki_server.runs.models import EntityMaking, MadeBy, Making
+
+        if not isinstance(value, Mapping) or not value:
+            return self.fail(at, f"must be an object with any of {_either(_MAKING_KEYS)}.")
+        extra = sorted(set(value) - set(_MAKING_KEYS))
+        if extra:
+            return self.fail(f"{at}/{extra[0]}", f"isn't one: give {_either(_MAKING_KEYS)}.")
+        allowed = {"kind": Making.values, "by": MadeBy.values}
+        rows = EntityMaking.objects.filter(entity=OuterRef("pk"))
+        for key, given in value.items():
+            if not isinstance(given, str) or not given.strip() or len(given) > 100:
+                return self.fail(f"{at}/{key}", "must be some text, up to 100 characters.")
+            if key in allowed and given not in allowed[key]:
+                return self.fail(f"{at}/{key}", f"must be {_either(tuple(allowed[key]))}.")
+            if key == "software":
+                rows = rows.alias(named=Lower("software")).filter(named=given.strip().lower())
+            else:
+                rows = rows.filter(**{key: given})
+        return Q(Exists(rows))
+
     def value(self, col: Column, value: Any, pointer: str) -> Any:  # noqa: ANN401 - JSON
         try:
             return _CONVERT[col.kind](self, col, value)
@@ -356,7 +387,15 @@ def _any(conditions: Iterable[Q]) -> Q:
     return out
 
 
+#: What a condition on ``made`` may give: each must match the same making.
+_MAKING_KEYS = ("software", "version", "kind", "by")
+
+
 def _is_set(col: Column) -> Q:
+    if col.kind == "making":
+        from iki_server.runs.models import EntityMaking
+
+        return Q(Exists(EntityMaking.objects.filter(entity=OuterRef("pk"))))
     if col.items is not None:
         return Q(Exists(col.items._default_manager.filter(entity=OuterRef("pk"))))
     if col.kind == "list":

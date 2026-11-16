@@ -1642,6 +1642,18 @@ input[type="date"] {
   margin: 0;
 }
 
+/* How it was made: its software, then how and who says so, wrapping on a narrow screen. */
+.filter-making {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.filter-making > :first-child {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
 .filters > .button {
   margin-bottom: 0.75rem;
 }

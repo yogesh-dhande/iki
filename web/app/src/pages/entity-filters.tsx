@@ -10,10 +10,11 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import type { EntityType, FieldDef } from "../entities";
 import { FieldInput } from "../entity-inputs";
-import { emptyDraft } from "../entity-values";
 import {
+  emptyValue,
   MAX_FILTERS,
   NO_RULES,
+  SOFTWARE,
   newDraft,
   operators,
   takesValue,
@@ -22,6 +23,7 @@ import {
   valueField,
   type Filter,
   type FilterDraft,
+  type MakingDraft,
   type Op,
 } from "../filters";
 import { buttonClass, Button, SelectField } from "../ui";
@@ -174,12 +176,21 @@ export function FilterPanel({
                     onChange={(op) => {
                       change(row.key, {
                         op,
-                        draft: takesValue(op) ? (row.draft ?? emptyDraft(valueField(field))) : null,
+                        draft: takesValue(op) ? (row.draft ?? emptyValue(field)) : null,
                       });
                     }}
                   />
                 ) : null}
-                {takesValue(row.op) ? (
+                {takesValue(row.op) && field.type === "making" ? (
+                  <MakingInput
+                    n={n}
+                    projectId={projectId}
+                    draft={(row.draft ?? emptyValue(field)) as MakingDraft}
+                    onChange={(draft) => {
+                      change(row.key, { draft });
+                    }}
+                  />
+                ) : takesValue(row.op) ? (
                   <div className="filter-value">
                     <FieldInput
                       field={valueField(field)}
@@ -221,6 +232,68 @@ export function FilterPanel({
         </button>
       ) : null}
     </section>
+  );
+}
+
+const KINDS = [
+  { value: "", label: "made in any way" },
+  { value: "computational", label: "computed" },
+  { value: "experimental", label: "measured" },
+] as const;
+
+const SAYS = [
+  { value: "", label: "whoever says so" },
+  { value: "iki", label: "as Iki recorded" },
+  { value: "source", label: "as its source says" },
+] as const;
+
+/** How it was made (ADR 0106): with what software, in what way, and who says so, all of
+ * one making. */
+function MakingInput({
+  n,
+  projectId,
+  draft,
+  onChange,
+}: {
+  n: string;
+  projectId: string;
+  draft: MakingDraft;
+  onChange: (draft: MakingDraft) => void;
+}) {
+  const [software, kind, by] = draft;
+  return (
+    <div className="filter-value filter-making">
+      <FieldInput
+        field={SOFTWARE}
+        type={NO_RULES}
+        types={[]}
+        draft={software}
+        onChange={(typed) => {
+          onChange([typeof typed === "string" ? typed : "", kind, by]);
+        }}
+        error={undefined}
+        projectId={projectId}
+        itemLabel={`Filter ${n}: software`}
+      />
+      <SelectField
+        compact
+        label={`Filter ${n}: how`}
+        value={kind}
+        options={KINDS}
+        onChange={(chosen) => {
+          onChange([software, chosen, by]);
+        }}
+      />
+      <SelectField
+        compact
+        label={`Filter ${n}: who says so`}
+        value={by}
+        options={SAYS}
+        onChange={(chosen) => {
+          onChange([software, kind, chosen]);
+        }}
+      />
+    </div>
   );
 }
 

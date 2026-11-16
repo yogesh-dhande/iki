@@ -73,10 +73,18 @@ function builtIn(name: string, label: string, type: string): FieldDef {
 export const HRID = builtIn("hrid", "ID", "string");
 const CREATED = builtIn("created_at", "Created", "datetime");
 export const UPDATED = builtIn("updated_at", "Last changed", "datetime");
+/** How it was made (ADR 0106): the software, the kind and who says so, of one making. */
+export const MADE: FieldDef = { ...builtIn("made", "How it was made", "making"), required: false };
+/** The software a making's filter names, typed as a string field is. */
+export const SOFTWARE = builtIn("software", "Software", "string");
 
-/** What a grid can filter by: every entity's ID and times, and the type's fields. */
+/** The parts of a making's draft, in order. */
+export type MakingDraft = [software: string, kind: string, by: string];
+
+/** What a grid can filter by: every entity's ID and times, the type's fields, and how
+ * each was made. */
 export function filterable(type: EntityType | undefined): FieldDef[] {
-  return [HRID, ...(type?.fields ?? []), CREATED, UPDATED];
+  return [HRID, ...(type?.fields ?? []), CREATED, UPDATED, MADE];
 }
 
 const ORDERED = new Set(["int", "float", "quantity", "date", "datetime"]);
@@ -121,6 +129,12 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
         ];
       case "list":
         return [["has", "has"]];
+      case "making":
+        return [
+          ["has", "was"],
+          ["set", "is recorded"],
+          ["unset", "isn’t recorded"],
+        ];
       case "file":
       case "json":
         return [];
@@ -137,12 +151,13 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
           : [];
     }
   })();
-  const presence: [Op, string][] = field.required
-    ? []
-    : [
-        ["set", "is set"],
-        ["unset", "is empty"],
-      ];
+  const presence: [Op, string][] =
+    field.required || field.type === "making"
+      ? []
+      : [
+          ["set", "is set"],
+          ["unset", "is empty"],
+        ];
   return [...own, ...presence].map(([value, label]) => ({ value, label }));
 }
 
@@ -174,9 +189,14 @@ export interface FilterDraft {
 
 let keys = 0;
 
+/** A filter's empty value: a making's has three parts. */
+export function emptyValue(field: FieldDef): Draft {
+  return field.type === "making" ? ["", "", ""] : emptyDraft(valueField(field));
+}
+
 export function newDraft(field: FieldDef): FilterDraft {
   const op = operators(field)[0]?.value ?? "set";
-  return { key: ++keys, field: field.name, op, draft: emptyDraft(valueField(field)) };
+  return { key: ++keys, field: field.name, op, draft: emptyValue(field) };
 }
 
 /** The address's filters as rows to edit. Ones that no longer fit the type are dropped. */
@@ -200,6 +220,11 @@ export function toDrafts(filters: Filter[], fields: FieldDef[]): FilterDraft[] {
 
 function draftOf(field: FieldDef, value: unknown): Draft {
   switch (field.type) {
+    case "making": {
+      const given = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+      const text = (key: string) => (typeof given[key] === "string" ? given[key] : "");
+      return [text("software"), text("kind"), text("by")] satisfies MakingDraft;
+    }
     case "quantity": {
       if (typeof value === "number")
         return { number: String(value), unit: field.unit ?? "", other: "" };
@@ -234,6 +259,13 @@ export function toFilter(
   if (!field) return null;
   if (row.op === "set" || row.op === "unset") {
     return { filter: { field: field.name, op: "is_set", value: row.op === "set" } };
+  }
+  if (field.type === "making") {
+    const [software, kind, by] = (row.draft ?? ["", "", ""]) as MakingDraft;
+    const value = Object.fromEntries(
+      Object.entries({ software: software.trim(), kind, by }).filter(([, v]) => v !== ""),
+    );
+    return Object.keys(value).length ? { filter: { field: field.name, op: "has", value } } : null;
   }
   const typed = valueField(field);
   if (isBlank(typed, row.draft)) return null;

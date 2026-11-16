@@ -196,3 +196,85 @@ def test_an_entity_found_again_keeps_each_making(world: World) -> None:
 def test_makings_are_append_only() -> None:
     # The app's database role may only insert them, as for origins (ADR 0025).
     assert "iki_entity_making" in db_roles.append_only_tables()
+
+
+# --- Searching on it ----------------------------------------------------------------------------
+
+
+def found(world: World, made: Any, op: str = "has") -> list[str]:
+    body = {"type": "protein.Protein", "where": {"field": "made", "op": op, "value": made}}
+    response = api_as(world, "viewer").post("/entities/search", body)
+    assert response.status_code == 200, response.content
+    return sorted(e["values"]["name"] for e in response.json()["items"])
+
+
+def protein(name: str, sequence: str, **origin: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "type": "protein.Protein",
+        "values": {"name": name, "sequence": sequence},
+    }
+    if origin:
+        out["origin"] = {**ALPHAFOLD_DB, **origin}
+    return out
+
+
+def test_a_search_finds_entities_by_how_they_were_made(world: World) -> None:
+    alphafold = {"kind": "computational", "software": [{"name": "AlphaFold", "version": "2.3.2"}]}
+    xray = {"kind": "experimental", "method": "X-RAY DIFFRACTION"}
+    ran(world, [{"name": "ImmuneBuilder", "version": "1.2"}], protein("predicted here", "MKA"))
+    ran(world, [], protein("from AlphaFold DB", "MKB", made=alphafold))
+    ran(world, [], protein("from the PDB", "MKC", id="4HHB", made=xray))
+    # One of each in one entity: Iki ran PDBFixer on a structure AlphaFold predicted.
+    ran(
+        world,
+        [{"name": "PDBFixer", "version": "1.12"}],
+        protein("fixed here", "MKD", id="AF-2", made=alphafold),
+    )
+    ran(world, [], protein("by hand", "MKE"))
+
+    assert found(world, {"software": "alphafold"}) == ["fixed here", "from AlphaFold DB"]
+    assert found(world, {"software": "AlphaFold", "version": "2.3.2"}) == [
+        "fixed here",
+        "from AlphaFold DB",
+    ]
+    assert found(world, {"software": "AlphaFold", "version": "3.0"}) == []
+    assert found(world, {"kind": "experimental"}) == ["from the PDB"]
+    assert found(world, {"by": "iki"}) == ["fixed here", "predicted here"]
+    # One condition, one making: AlphaFold is a source's word, not Iki's record.
+    assert found(world, {"software": "AlphaFold", "by": "iki"}) == []
+    assert found(world, {"software": "PDBFixer", "by": "iki"}) == ["fixed here"]
+    # Made in any way it records, or not.
+    assert "by hand" not in found(world, True, "is_set")
+    assert found(world, False, "is_set") == ["by hand"]
+
+
+@pytest.mark.parametrize(
+    ("value", "pointer", "detail"),
+    [
+        (
+            "AlphaFold",
+            "#/where/value",
+            "must be an object with any of `software`, `version`, `kind` or `by`.",
+        ),
+        (
+            {},
+            "#/where/value",
+            "must be an object with any of `software`, `version`, `kind` or `by`.",
+        ),
+        (
+            {"tool": "x"},
+            "#/where/value/tool",
+            "isn't one: give `software`, `version`, `kind` or `by`.",
+        ),
+        ({"by": "me"}, "#/where/value/by", "must be `iki` or `source`."),
+        ({"kind": "guessed"}, "#/where/value/kind", "must be `experimental` or `computational`."),
+        ({"software": ""}, "#/where/value/software", "must be some text, up to 100 characters."),
+    ],
+)
+def test_a_search_on_how_it_was_made_says_whats_wrong(
+    world: World, value: Any, pointer: str, detail: str
+) -> None:
+    body = {"where": {"field": "made", "op": "has", "value": value}}
+    response = api_as(world, "viewer").post("/entities/search", body)
+    assert response.status_code == 422, response.content
+    assert response.json()["errors"] == [{"pointer": pointer, "detail": detail}]

@@ -812,7 +812,11 @@ export interface paths {
          *     - bool: ``eq``; file: ``eq``, ``ne``; list: ``has``
          *
          *     ``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,
-         *     ``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``.
+         *     ``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,
+         *     and ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,
+         *     ``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's
+         *     record of its run; ``source``, an imported record's word), all matching one making,
+         *     as ``{"software": "AlphaFold", "by": "iki"}``; ``is_set``, made in any way it records.
          *     A search may run for 15 seconds: conditions on indexed fields keep it fast.
          */
         post: operations["iki_server_api_entities_search_entities"];
