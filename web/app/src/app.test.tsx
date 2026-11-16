@@ -116,6 +116,9 @@ function planned(overrides: Partial<Schemas["ImportOut"]> = {}): Schemas["Import
     },
     created_at: "2026-11-15T10:00:00Z",
     planned_at: "2026-11-15T10:00:05Z",
+    applied_by: null,
+    reason: "",
+    applied_at: null,
     ...overrides,
   };
 }
@@ -718,6 +721,7 @@ describe("an import", () => {
           name: "Ada Lovelace",
           email: "ada@example.com",
           user: { id: ME.id, name: ME.name },
+          placeholder: false,
         },
         {
           id: "00000000-0000-7000-8000-0000000000b2",
@@ -725,6 +729,7 @@ describe("an import", () => {
           name: "Grace Hopper",
           email: "grace@example.com",
           user: null,
+          placeholder: true,
         },
       ]),
     );
@@ -780,6 +785,57 @@ describe("an import", () => {
       await screen.findByText(`Discarded the import of ${made.name} into Kinase Atlas.`),
     ).toBeVisible();
     expect(calls("DELETE")).toHaveLength(1);
+  });
+
+  it("asks why, then confirms, before applying it", async () => {
+    const plan = planned().plan;
+    if (!plan) throw new Error("planned() has a plan");
+    const made = onImport(
+      planned({
+        plan: { ...plan, problems: [], applicable: true, counts: { ...plan.counts, conflict: 0 } },
+      }),
+    );
+    answer(`POST /api/v1/imports/${made.id}/apply`, respond(202, { ...made, state: "applying" }));
+    const { user } = await renderApp(PATH);
+    const apply = await screen.findByRole("button", { name: "Import" });
+    await user.click(apply);
+    expect(await screen.findByText("Say why you’re importing it.")).toBeVisible();
+    await user.type(screen.getByRole("textbox", { name: "Why" }), "Moving the kinase work");
+    await user.click(apply);
+    const dialog = screen.getByRole("alertdialog", { name: "Import into Kinase Atlas?" });
+    expect(dialog).toHaveTextContent("2 new entities and 0 entities with newer revisions");
+    expect(dialog).toHaveTextContent("1 placeholder is added for people nobody here is.");
+    expect(calls("POST", `/api/v1/imports/${made.id}/apply`)).toEqual([]);
+    await user.click(within(dialog).getByRole("button", { name: "Import" }));
+    expect(await screen.findByText(`Importing ${made.name} into Kinase Atlas.`)).toBeVisible();
+    expect(calls("POST", `/api/v1/imports/${made.id}/apply`).at(-1)?.body).toEqual({
+      reason: "Moving the kinase work",
+    });
+  });
+
+  it("offers no import while something keeps it from being applied", async () => {
+    onImport();
+    await renderApp(PATH);
+    await screen.findByText("1 entity is in conflict: see each one’s reason.");
+    expect(screen.queryByRole("button", { name: "Import" })).toBeNull();
+  });
+
+  it("says who applied it and why", async () => {
+    onImport(
+      planned({
+        state: "applied",
+        applied_by: { id: ME.id, name: ME.name },
+        reason: "Moving the kinase work",
+        applied_at: "2026-11-15T11:00:00Z",
+      }),
+    );
+    await renderApp(PATH);
+    await screen.findByRole("heading", { name: "Imported" });
+    const done = card("Imported");
+    expect(await within(done).findByText("Moving the kinase work")).toBeVisible();
+    expect(within(done).getByText(new RegExp(ME.name))).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Discard import" })).toBeNull();
+    expect(await within(card("People")).findByText("Their placeholder")).toBeVisible();
   });
 
   it("says why a bundle was refused", async () => {

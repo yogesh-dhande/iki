@@ -25,7 +25,13 @@ from django.db.models import Q
 from django.http import HttpRequest
 from django.shortcuts import render
 
-from iki_server.accounts.models import IdentityProvider, Protocol, User
+from iki_server.accounts.models import (
+    IdentityProvider,
+    Kind,
+    Protocol,
+    User,
+    claim_placeholder,
+)
 from iki_server.audit import log as audit
 
 logger = structlog.get_logger("iki.accounts")
@@ -202,14 +208,23 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
                     data={"provider_id": provider.provider_id, "protocol": provider.protocol},
                 )
                 user = provisioned
-            elif email_owners.exists():
-                raise sign_in_error(request, "email_in_use", email=email)
             else:
+                placeholder = (
+                    email_owners.filter(kind=Kind.PERSON).exclude(imported_from="").first()
+                )
+                if placeholder is None and email_owners.exists():
+                    raise sign_in_error(request, "email_in_use", email=email)
                 grant = grants.current(request)
                 setting_up = grant is not None and grant.identity_provider() == provider
                 if scim_enabled() and not setting_up:
                     raise sign_in_error(request, "not_provisioned", email=email)
-                user = sociallogin.user
+                if placeholder is not None:
+                    # Someone a bundle's records named (ADR 0096): they're this person.
+                    claim_placeholder(placeholder)
+                    sociallogin.connect(request, placeholder)
+                    user = placeholder
+                else:
+                    user = sociallogin.user
         if sociallogin.is_existing and (user.email, user.name) != (email, name):
             user.email, user.name = email, name
             user.save(update_fields=["email", "name"])

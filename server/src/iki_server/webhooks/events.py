@@ -90,6 +90,13 @@ _register(
         project=True,
         org=True,
     ),
+    EventType(
+        "bundle.imported",
+        "An Org Admin imports a bundle from another deployment: one event for all its "
+        "entities, with counts, in place of entity.created or entity.updated for each.",
+        project=True,
+        org=True,
+    ),
     EventType("entity.archived", "Someone archives an entity.", project=True, org=True),
     EventType("entity.restored", "Someone restores an entity.", project=True, org=True),
     EventType("entity.linked", "Someone adds an entity to the project.", project=True, org=True),

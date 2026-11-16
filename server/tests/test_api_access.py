@@ -638,6 +638,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
+    ("GET", "/entities/{ref}/bundles", entity("/bundles"), readers(200)),
     ("GET", "/entities/{ref}/lineage", entity("/lineage"), readers(200)),
     ("GET", "/entities/{ref}/lineage/graph", entity("/lineage/graph"), readers(200)),
     ("GET", "/entities/{ref}/projects", entity("/projects"), readers(200)),
@@ -998,6 +999,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("POST", "/imports/{import_id}/complete", bundle_import("/complete"), row(404)),
     ("GET", "/imports/{import_id}/entities", bundle_import("/entities"), row(404)),
     ("GET", "/imports/{import_id}/people", bundle_import("/people"), row(404)),
+    (
+        "POST",
+        "/imports/{import_id}/apply",
+        bundle_import("/apply", {"reason": "Moving the work"}),
+        row(404),
+    ),
     ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),
     (
         "POST",

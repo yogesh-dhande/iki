@@ -826,6 +826,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/bundles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which bundles it was imported from
+         * @description The imports from other deployments that made it here, or added to its history,
+         *     newest first (ADR 0096).
+         */
+        get: operations["iki_server_api_entities_get_bundle_origins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/lineage": {
         parameters: {
             query?: never;
@@ -1127,6 +1148,27 @@ export interface paths {
          * @description Before it's applied: its archive and plan are deleted, and the record stays.
          */
         delete: operations["iki_server_api_bundles_discard_import"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{import_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply an import
+         * @description Applies its plan, whole, or nothing of it (202). Iki plans it again first: if what
+         *     it would do changed, nothing is imported, and it's planned again, with the new plan.
+         */
+        post: operations["iki_server_api_bundles_apply_import"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3090,6 +3132,14 @@ export interface components {
              */
             type: string;
         };
+        /** ApplyIn */
+        ApplyIn: {
+            /**
+             * Reason
+             * @description Why: the import and the audit log keep it.
+             */
+            reason: string;
+        };
         /** ApprovalCan */
         ApprovalCan: {
             /**
@@ -3493,6 +3543,53 @@ export interface components {
              * @description The one the reproduction ran in.
              */
             reproduced: string;
+        };
+        /** BundleOriginOut */
+        BundleOriginOut: {
+            /**
+             * Action
+             * @description Whether the import made it, or added revisions it didn't have.
+             * @enum {string}
+             */
+            action: "new" | "update";
+            /** Applied At */
+            applied_at: string | null;
+            applied_by: components["schemas"]["PersonRef"] | null;
+            /**
+             * Bundle Import
+             * @description The import, if you may see it: an Org Admin who is the project's Admin.
+             */
+            bundle_import: string | null;
+            /**
+             * Deployment
+             * @description The trusted deployment the bundle was from.
+             */
+            deployment: string;
+            /**
+             * Hrid
+             * @description Its HRID there.
+             */
+            hrid: string;
+            /**
+             * Project
+             * @description Its project there.
+             */
+            project: string;
+            /**
+             * Project Slug
+             * @description The project it was imported into, for its link.
+             */
+            project_slug: string;
+            /**
+             * Reason
+             * @description Why it was imported.
+             */
+            reason: string;
+            /**
+             * Revisions
+             * @description How many revisions the import added.
+             */
+            revisions: number;
         };
         /** CancelIn */
         CancelIn: {
@@ -4898,6 +4995,10 @@ export interface components {
         };
         /** ImportOut */
         ImportOut: {
+            /** Applied At */
+            applied_at: string | null;
+            /** @description Who confirmed applying it. */
+            applied_by: components["schemas"]["PersonRef"] | null;
             /**
              * Created At
              * Format: date-time
@@ -4927,6 +5028,11 @@ export interface components {
              * Format: uuid
              */
             project: string;
+            /**
+             * Reason
+             * @description Why they applied it.
+             */
+            reason: string;
             requested_by: components["schemas"]["PersonRef"];
             /** Sha256 */
             sha256: string;
@@ -4986,7 +5092,12 @@ export interface components {
             kind: "person" | "service";
             /** Name */
             name: string;
-            /** @description Who they are here; none means a placeholder. */
+            /**
+             * Placeholder
+             * @description Nobody here is them: a placeholder who can't sign in stands for them, until someone with their email does.
+             */
+            placeholder: boolean;
+            /** @description Who they are here: someone matched by email, or, once it's applied, their placeholder. */
             user: components["schemas"]["PersonRef"] | null;
         };
         /** ImportPlan */
@@ -5047,6 +5158,10 @@ export interface components {
         };
         /** ImportStartedOut */
         ImportStartedOut: {
+            /** Applied At */
+            applied_at: string | null;
+            /** @description Who confirmed applying it. */
+            applied_by: components["schemas"]["PersonRef"] | null;
             /**
              * Created At
              * Format: date-time
@@ -5081,6 +5196,11 @@ export interface components {
              * Format: uuid
              */
             project: string;
+            /**
+             * Reason
+             * @description Why they applied it.
+             */
+            reason: string;
             requested_by: components["schemas"]["PersonRef"];
             /** Sha256 */
             sha256: string;
@@ -5484,6 +5604,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Imported From
+             * @description A placeholder's: the deployment their records were imported from. They can't sign in until someone with their email address does (ADR 0096).
+             */
+            imported_from: string;
             /**
              * Kind
              * @enum {string}
@@ -7573,6 +7698,11 @@ export interface components {
              */
             id: string;
             /**
+             * Imported From
+             * @description A placeholder's: the deployment their records were imported from. They can't sign in until someone with their email address does (ADR 0096).
+             */
+            imported_from: string;
+            /**
              * Kind
              * @enum {string}
              */
@@ -8323,6 +8453,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Imported From
+             * @description A placeholder's: the deployment their records were imported from. They can't sign in until someone with their email address does (ADR 0096).
+             */
+            imported_from: string;
             /**
              * Kind
              * @enum {string}
@@ -10138,6 +10273,28 @@ export interface operations {
             };
         };
     };
+    iki_server_api_entities_get_bundle_origins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundleOriginOut"][];
+                };
+            };
+        };
+    };
     iki_server_api_entities_get_lineage: {
         parameters: {
             query?: never;
@@ -10531,6 +10688,32 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_bundles_apply_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyIn"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportOut"];
+                };
             };
         };
     };

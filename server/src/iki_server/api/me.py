@@ -28,6 +28,7 @@ def me(request: HttpRequest) -> dict[str, Any]:
         "name": user.name,
         "kind": user.kind,
         "is_active": user.is_active,
+        "imported_from": user.imported_from,
         "agent": agent_out(audit.current_agent_info()),
         "delegation": _delegation(request),
         "org_roles": sorted(str(role) for role in permissions.org_roles(user)),

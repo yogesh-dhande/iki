@@ -599,6 +599,22 @@
         "title": "AppGuideOut",
         "type": "object"
       },
+      "ApplyIn": {
+        "properties": {
+          "reason": {
+            "description": "Why: the import and the audit log keep it.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ApplyIn",
+        "type": "object"
+      },
       "ApprovalCan": {
         "properties": {
           "decide": {
@@ -1345,6 +1361,98 @@
           "reproduced"
         ],
         "title": "BuildsOut",
+        "type": "object"
+      },
+      "BundleOriginOut": {
+        "properties": {
+          "action": {
+            "description": "Whether the import made it, or added revisions it didn't have.",
+            "enum": [
+              "new",
+              "update"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "applied_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bundle_import": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The import, if you may see it: an Org Admin who is the project's Admin.",
+            "title": "Bundle Import"
+          },
+          "deployment": {
+            "description": "The trusted deployment the bundle was from.",
+            "title": "Deployment",
+            "type": "string"
+          },
+          "hrid": {
+            "description": "Its HRID there.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "project": {
+            "description": "Its project there.",
+            "title": "Project",
+            "type": "string"
+          },
+          "project_slug": {
+            "description": "The project it was imported into, for its link.",
+            "title": "Project Slug",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why it was imported.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "revisions": {
+            "description": "How many revisions the import added.",
+            "title": "Revisions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deployment",
+          "project",
+          "hrid",
+          "action",
+          "revisions",
+          "applied_by",
+          "applied_at",
+          "reason",
+          "bundle_import",
+          "project_slug"
+        ],
+        "title": "BundleOriginOut",
         "type": "object"
       },
       "CancelIn": {
@@ -4339,6 +4447,29 @@
       },
       "ImportOut": {
         "properties": {
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "applied_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who confirmed applying it."
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -4385,6 +4516,11 @@
           "project": {
             "format": "uuid",
             "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why they applied it.",
+            "title": "Reason",
             "type": "string"
           },
           "requested_by": {
@@ -4449,7 +4585,10 @@
           "trusted_as",
           "plan",
           "created_at",
-          "planned_at"
+          "planned_at",
+          "applied_by",
+          "reason",
+          "applied_at"
         ],
         "title": "ImportOut",
         "type": "object"
@@ -4507,6 +4646,11 @@
             "title": "Name",
             "type": "string"
           },
+          "placeholder": {
+            "description": "Nobody here is them: a placeholder who can't sign in stands for them, until someone with their email does.",
+            "title": "Placeholder",
+            "type": "boolean"
+          },
           "user": {
             "anyOf": [
               {
@@ -4516,7 +4660,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who they are here; none means a placeholder."
+            "description": "Who they are here: someone matched by email, or, once it's applied, their placeholder."
           }
         },
         "required": [
@@ -4524,7 +4668,8 @@
           "kind",
           "name",
           "email",
-          "user"
+          "user",
+          "placeholder"
         ],
         "title": "ImportPersonOut",
         "type": "object"
@@ -4633,6 +4778,29 @@
       },
       "ImportStartedOut": {
         "properties": {
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "applied_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who confirmed applying it."
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -4687,6 +4855,11 @@
           "project": {
             "format": "uuid",
             "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why they applied it.",
+            "title": "Reason",
             "type": "string"
           },
           "requested_by": {
@@ -4752,6 +4925,9 @@
           "plan",
           "created_at",
           "planned_at",
+          "applied_by",
+          "reason",
+          "applied_at",
           "parts"
         ],
         "title": "ImportStartedOut",
@@ -5497,6 +5673,11 @@
             "title": "Id",
             "type": "string"
           },
+          "imported_from": {
+            "description": "A placeholder's: the deployment their records were imported from. They can't sign in until someone with their email address does (ADR 0096).",
+            "title": "Imported From",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "person",
@@ -5528,6 +5709,7 @@
           "name",
           "kind",
           "active",
+          "imported_from",
           "org_roles",
           "can",
           "agent",
@@ -10364,6 +10546,11 @@
             "title": "Id",
             "type": "string"
           },
+          "imported_from": {
+            "description": "A placeholder's: the deployment their records were imported from. They can't sign in until someone with their email address does (ADR 0096).",
+            "title": "Imported From",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "person",
@@ -10395,6 +10582,7 @@
           "name",
           "kind",
           "active",
+          "imported_from",
           "description",
           "org_roles",
           "created_at",
@@ -11968,6 +12156,11 @@
             "title": "Id",
             "type": "string"
           },
+          "imported_from": {
+            "description": "A placeholder's: the deployment their records were imported from. They can't sign in until someone with their email address does (ADR 0096).",
+            "title": "Imported From",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "person",
@@ -11986,7 +12179,8 @@
           "email",
           "name",
           "kind",
-          "active"
+          "active",
+          "imported_from"
         ],
         "title": "UserOut",
         "type": "object"
@@ -16103,6 +16297,51 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/bundles": {
+      "get": {
+        "description": "The imports from other deployments that made it here, or added to its history,\nnewest first (ADR 0096).",
+        "operationId": "iki_server_api_entities_get_bundle_origins",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BundleOriginOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Which bundles it was imported from",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/lineage": {
       "get": {
         "description": "One step each way: the entities runs made it from (at the revisions they read), and\nthose they made from it. Only entities you can read are listed.",
@@ -16928,6 +17167,58 @@
           }
         ],
         "summary": "An import, and its plan",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
+    "/api/v1/imports/{import_id}/apply": {
+      "post": {
+        "description": "Applies its plan, whole, or nothing of it (202). Iki plans it again first: if what\nit would do changed, nothing is imported, and it's planned again, with the new plan.",
+        "operationId": "iki_server_api_bundles_apply_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Apply an import",
         "tags": [
           "bundles"
         ]

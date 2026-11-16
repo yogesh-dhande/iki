@@ -144,6 +144,7 @@ export const ALICE = {
   name: ME.name,
   active: true,
   kind: "person" as const,
+  imported_from: "",
 };
 export const PROTEIN_ID = "00000000-0000-7000-8000-00000000e001";
 export const FILE_ID = "00000000-0000-7000-8000-00000000f001";

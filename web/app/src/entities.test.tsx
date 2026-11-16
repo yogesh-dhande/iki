@@ -556,6 +556,37 @@ describe("an entity's page", () => {
     );
   });
 
+  it("says which bundle from another deployment it came in", async () => {
+    withTypes();
+    answer("GET /api/v1/entities/PRT-000001", entity());
+    answer("GET /api/v1/entities/PRT-000001/provenance", {});
+    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/bundles", [
+      {
+        deployment: "staging",
+        project: "Kinase Atlas",
+        hrid: "PRT-000012",
+        action: "new",
+        revisions: 2,
+        applied_by: { id: "u1", name: "Ada Lovelace" },
+        applied_at: "2026-11-15T11:00:00Z",
+        reason: "Moving the kinase work",
+        bundle_import: "00000000-0000-7000-8000-0000000000i1",
+        project_slug: "kinase-atlas",
+      },
+    ]);
+    await renderApp("/entities/PRT-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    const link = await within(details).findByRole("link", { name: "the import" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/projects/kinase-atlas/imports/00000000-0000-7000-8000-0000000000i1/",
+    );
+    expect(within(details).getByRole("listitem")).toHaveTextContent(
+      /^staging’s Kinase Atlas, where it’s PRT-000012: 2 revisions, imported .+ by Ada Lovelace \(the import\)$/,
+    );
+  });
+
   it("shows its history, and what each revision changed", async () => {
     onStructure();
     answer(

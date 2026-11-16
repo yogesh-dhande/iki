@@ -13,7 +13,7 @@ from iki_server.api.files import PartOut, PartsIn, _invalid, _storage
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
-from iki_server.bundles import exports, imports
+from iki_server.bundles import applying, exports, imports
 from iki_server.bundles.models import (
     BundleExport,
     BundleImport,
@@ -239,6 +239,9 @@ class ImportOut(Schema):
     )
     created_at: datetime
     planned_at: datetime | None
+    applied_by: PersonRef | None = Field(description="Who confirmed applying it.")
+    reason: str = Field(description="Why they applied it.")
+    applied_at: datetime | None
 
     @staticmethod
     def resolve_state(made: BundleImport) -> str:
@@ -286,7 +289,24 @@ class ImportPersonOut(Schema):
     kind: Literal["person", "service"]
     name: str
     email: str
-    user: PersonRef | None = Field(description="Who they are here; none means a placeholder.")
+    user: PersonRef | None = Field(
+        description="Who they are here: someone matched by email, or, once it's applied, "
+        "their placeholder."
+    )
+    placeholder: bool = Field(
+        description="Nobody here is them: a placeholder who can't sign in stands for them, "
+        "until someone with their email does."
+    )
+
+    @staticmethod
+    def resolve_placeholder(person: ImportPerson) -> bool:
+        return person.user is None or person.user.is_placeholder
+
+
+class ApplyIn(Schema):
+    reason: str = Field(
+        min_length=1, max_length=2000, description="Why: the import and the audit log keep it."
+    )
 
 
 class ImportEntityParams(PageParams):
@@ -296,7 +316,7 @@ class ImportEntityParams(PageParams):
 def _import(request: HttpRequest, import_id: UUID) -> BundleImport:
     me = caller(request)
     made = (
-        BundleImport.objects.select_related("project__team", "requested_by", "upload")
+        BundleImport.objects.select_related("project__team", "requested_by", "applied_by", "upload")
         .filter(pk=import_id)
         .first()
     )
@@ -306,7 +326,9 @@ def _import(request: HttpRequest, import_id: UUID) -> BundleImport:
 
 
 def _imported(made: BundleImport) -> BundleImport:
-    return BundleImport.objects.select_related("requested_by", "upload").get(pk=made.pk)
+    return BundleImport.objects.select_related("requested_by", "applied_by", "upload").get(
+        pk=made.pk
+    )
 
 
 @router.post(
@@ -366,7 +388,9 @@ def list_imports(
     """Newest first."""
     me = caller(request)
     target = project(me, project_id, Action.PROJECT_IMPORT)
-    found = BundleImport.objects.filter(project=target).select_related("requested_by", "upload")
+    found = BundleImport.objects.filter(project=target).select_related(
+        "requested_by", "applied_by", "upload"
+    )
     return page(found, params, newest_first=True)
 
 
@@ -402,6 +426,21 @@ def import_people(
     """Matched by email to someone here, or a placeholder who can't sign in."""
     made = _import(request, import_id)
     return page(ImportPerson.objects.filter(bundle_import=made).select_related("user"), params)
+
+
+@router.post("/imports/{import_id}/apply", response={202: ImportOut}, summary="Apply an import")
+def apply_import(request: HttpRequest, import_id: UUID, payload: ApplyIn) -> Status[BundleImport]:
+    """Applies its plan, whole, or nothing of it (202). Iki plans it again first: if what
+    it would do changed, nothing is imported, and it's planned again, with the new plan."""
+    made = _import(request, import_id)
+    _storage()
+    try:
+        applying.apply(caller(request), made, payload.reason)
+    except Refused as error:
+        if error.field:
+            raise _invalid(error) from None
+        raise Problem(409, str(error), code="refused") from None
+    return Status(202, _imported(made))
 
 
 @router.delete("/imports/{import_id}", response={204: None}, summary="Discard an import")

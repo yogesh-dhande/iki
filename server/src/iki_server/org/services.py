@@ -126,6 +126,11 @@ def set_active(user: User, active: bool, *, by: User) -> None:
             f"{user.email} is managed by your identity provider. "
             "Assign or unassign Iki for them there."
         )
+    if user.is_placeholder:
+        raise Refused(
+            f"{user.email} stands for someone from {user.imported_from}: they can sign in once "
+            "someone with that email address does."
+        )
     with transaction.atomic():
         if not active:
             if user.pk == by.pk:

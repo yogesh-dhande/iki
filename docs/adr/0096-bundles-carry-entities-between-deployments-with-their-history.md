@@ -77,8 +77,9 @@ deployment must be able to read it there.
 and picks the project it goes into. Iki checks it and shows the plan before
 anything changes:
 
-- every type is installed, active, and at the bundle's schema version or
-  later; otherwise it says which plugin to deploy first;
+- every type is installed, active, and at the bundle's schema version;
+  otherwise it says which plugin release to deploy, here or where the
+  bundle is from (importing doesn't migrate values);
 - each entity is new, already here as it is (skipped), or here at an
   earlier revision from an earlier import, when the bundle's newer
   revisions are added after it. One changed here since it was imported has
@@ -86,10 +87,15 @@ anything changes:
 - each value a unique field or an identity can't share with an entity
   already in the project is a conflict;
 - each person is matched by email to someone on this deployment. Anyone
-  else becomes a mannequin: a person with their name and email who can't
-  sign in, shown as "imported". When the identity provider later
-  provisions someone with that email, they take over the mannequin's
-  records, as GitHub's reclaiming does;
+  else becomes a placeholder: a person with their name and email who can't
+  sign in, shown as "imported". When someone with that email first signs
+  in, or the identity provider provisions them, they take over the
+  placeholder and its records, as GitHub's mannequin reclaiming does
+  (`user.placeholder_claimed`);
+- each file is here already, or its bytes are in the bundle, or it's
+  registered where this deployment may register files from;
+- what the entities' current values refer to outside the bundle is here
+  already;
 - HRIDs this deployment has already used are renumbered from its own
   sequences. The entity keeps its source HRID, and its page says "SMP-12 on
   staging". Lookups by HRID, such as an alignment's rows, also match it.
@@ -105,11 +111,18 @@ applied can be discarded, and its archive is deleted. Planning, refusals
 and discards are in the audit log (`bundle.import_planned`,
 `bundle.import_refused`, `bundle.import_discarded`).
 
-The admin confirms with a reason, and the whole import is applied in one
-transaction, or not at all, as bulk imports are (ADR 0056). Imported
-revisions keep their authors, times and reasons. The import is a record of
-its own (the bundle's SHA-256, its source, who imported it, when and why),
-and each imported entity's page links to it. Imported runs are history: they
+The admin confirms with a reason (`POST /imports/{id}/apply`), and a task
+applies the whole import in one transaction, or nothing of it, as bulk
+imports are (ADR 0056). It holds the types' identity locks and plans again
+first: if what it would do changed since the admin saw the plan, nothing is
+imported, and the new plan is shown to confirm. Imported entities keep
+their IDs, and revisions keep their authors, times, means and reasons.
+Files' bytes are stored once by SHA-256. HRIDs kept from the source move
+this deployment's sequences past them. Webhooks get one `bundle.imported`
+event with counts, in place of `entity.created` for each. The import is a
+record of its own (the bundle's SHA-256, its source, who imported it, when
+and why), and each imported entity's page links to it
+(`GET /entities/{ref}/bundles`). Imported runs are history: they
 read as they ran, and can be reproduced when this deployment has the
 plugin's commit, as any run can.
 
@@ -125,7 +138,7 @@ a legal hold (ADR 0008). A download is a short-lived link
 Exports and imports are in the audit log, with the bundle's SHA-256:
 asking for an export (`bundle.export_requested`), writing it
 (`bundle.exported`), each download (`bundle.downloaded`), and importing
-(`bundle.imported`). Exporting needs the project's Admin role, and
+(`bundle.imported`, or `bundle.import_failed` when nothing changed). Exporting needs the project's Admin role, and
 importing an org admin who is also an Admin of the target project. Tokens
 need the `admin` scope.
 

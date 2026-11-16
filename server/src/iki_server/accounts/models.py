@@ -87,6 +87,9 @@ class User(AbstractBaseUser):
     scim_user_name = models.CharField(max_length=254, blank=True, db_collation=CASE_INSENSITIVE)
     #: The SCIM name parts (``givenName``, ``familyName``, ...) the name is built from.
     scim_name = models.JSONField(default=dict, blank=True)
+    #: A placeholder's: the deployment their records were imported from (ADR 0096). They
+    #: can't sign in until someone with their email does, and takes them over.
+    imported_from = models.CharField(max_length=100, blank=True, default="")
 
     objects: ClassVar[UserManager] = UserManager()
 
@@ -121,6 +124,11 @@ class User(AbstractBaseUser):
 
     def __str__(self) -> str:
         return self.email
+
+    @property
+    def is_placeholder(self) -> bool:
+        """Someone a bundle's records named, whom nobody here was (ADR 0096)."""
+        return bool(self.imported_from)
 
     def get_full_name(self) -> str:
         return self.name or self.email
@@ -304,3 +312,15 @@ class IdentityProvider(models.Model):
                 "fetch_userinfo": True,
             },
         )
+
+
+def claim_placeholder(user: User) -> None:
+    """The person a placeholder stood for signs in, or is provisioned: the account, and the
+    records imported under it, are theirs (ADR 0096)."""
+    from iki_server.audit import log as audit
+
+    source = user.imported_from
+    user.imported_from = ""
+    user.is_active = True
+    user.save(update_fields=["imported_from", "is_active"])
+    audit.record("user.placeholder_claimed", actor=user, target=user, data={"from": source})

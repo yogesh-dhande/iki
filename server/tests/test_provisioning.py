@@ -86,6 +86,58 @@ def test_without_scim_people_get_accounts_on_first_sign_in(
     assert User.objects.filter(email="rosalind@example.com").exists()
 
 
+def placeholder(email: str) -> User:
+    """Someone a bundle from another deployment named, whom nobody here was (ADR 0096)."""
+    made = User(email=email, name="Rosalind Franklin", is_active=False, imported_from="lab-a")
+    made.set_unusable_password()
+    made.save()
+    return made
+
+
+def test_signing_in_takes_over_ones_placeholder(admin_browser: Browser, fake_idp: FakeIdP) -> None:
+    stood_in = placeholder("rosalind@example.com")
+    browser = Browser()
+    assert (
+        path_of(sign_in(browser, fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})) == "/"
+    )
+    assert str(browser.session["_auth_user_id"]) == str(stood_in.pk)
+    stood_in.refresh_from_db()
+    assert stood_in.is_active and not stood_in.is_placeholder
+    claimed = AuditEvent.objects.get(action="user.placeholder_claimed")
+    assert claimed.data == {"from": "lab-a"}
+    assert User.objects.filter(email="rosalind@example.com").count() == 1
+
+
+def test_provisioning_takes_over_a_placeholder(token: str, fake_idp: FakeIdP) -> None:
+    stood_in = placeholder("rosalind@example.com")
+    assert provision(token, "rosalind@example.com", "Rosalind Franklin") == str(stood_in.pk)
+    stood_in.refresh_from_db()
+    assert stood_in.is_active and stood_in.is_provisioned and not stood_in.is_placeholder
+    browser = Browser()
+    assert (
+        path_of(sign_in(browser, fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})) == "/"
+    )
+    assert str(browser.session["_auth_user_id"]) == str(stood_in.pk)
+
+
+def test_a_placeholder_isnt_activated_by_hand(admin_browser: Browser, admin: User) -> None:
+    stood_in = placeholder("rosalind@example.com")
+    with pytest.raises(org_services.Refused, match="stands for someone from lab-a"):
+        org_services.set_active(stood_in, True, by=admin)
+    stood_in.refresh_from_db()
+    assert not stood_in.is_active
+
+
+def test_while_scim_is_on_a_placeholder_isnt_taken_over_by_signing_in(
+    token: str, fake_idp: FakeIdP
+) -> None:
+    stood_in = placeholder("rosalind@example.com")
+    response = sign_in(Browser(), fake_idp, {"sub": "r-1", "email": "rosalind@example.com"})
+    refused(response, "haven’t been given access yet")
+    stood_in.refresh_from_db()
+    assert stood_in.is_placeholder and not stood_in.is_active
+
+
 def test_a_provisioned_persons_first_sign_in_links_to_their_account(
     token: str, fake_idp: FakeIdP
 ) -> None:

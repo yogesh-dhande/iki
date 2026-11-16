@@ -3,7 +3,7 @@
  * projects it's in; and its history, revision by revision.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
 import {
   useInfiniteQuery,
   useQuery,
@@ -22,6 +22,7 @@ import {
   entityQuery,
   formatSize,
   originsQuery,
+  bundleOriginsQuery,
   personName,
   provenanceQuery,
   quantity,
@@ -205,6 +206,37 @@ export function Value({
 }
 
 /** One record an import read it from: which, where, when, by which run, and its checksum. */
+function FromBundle({ origin }: { origin: Schemas["BundleOriginOut"] }) {
+  const what =
+    origin.action === "new"
+      ? `${origin.revisions.toLocaleString()} revision${origin.revisions === 1 ? "" : "s"}`
+      : `${origin.revisions.toLocaleString()} newer revision${origin.revisions === 1 ? "" : "s"}`;
+  return (
+    <span>
+      {origin.deployment}’s {origin.project}, where it’s {origin.hrid}: {what}
+      {origin.applied_at ? (
+        <>
+          , imported <RelativeTime value={origin.applied_at} />
+        </>
+      ) : null}
+      {origin.applied_by ? <> by {origin.applied_by.name}</> : null}
+      {origin.bundle_import ? (
+        <>
+          {" "}
+          (
+          <Link
+            to="/projects/$slug/imports/$importId/"
+            params={{ slug: origin.project_slug, importId: origin.bundle_import }}
+          >
+            the import
+          </Link>
+          )
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 function ImportedFrom({ origin }: { origin: Origin }) {
   const record =
     origin.version && origin.version !== origin.id ? `${origin.id} (${origin.version})` : origin.id;
@@ -474,6 +506,7 @@ export function EntityOverview() {
   const provenance = useQuery(provenanceQuery(entity.hrid)).data;
   const projects = useQuery(entityProjectsQuery(entity.hrid)).data;
   const origins = useQuery(originsQuery(entity.hrid)).data ?? [];
+  const bundles = useQuery(bundleOriginsQuery(entity.hrid)).data ?? [];
   const collection = isCollection(type, types);
   const app = type?.name === APP_TYPE;
   // A collection's members and search have a section of their own, as an app's spec does.
@@ -570,11 +603,16 @@ export function EntityOverview() {
           <dd>
             <RelativeTime value={entity.updated_at} /> (revision {entity.revision})
           </dd>
-          {origins.length ? (
+          {origins.length || bundles.length ? (
             <>
               <dt>Imported from</dt>
               <dd>
                 <ul className="value-list">
+                  {bundles.map((b, index) => (
+                    <li key={`bundle-${String(index)}`}>
+                      <FromBundle origin={b} />
+                    </li>
+                  ))}
                   {origins.map((o, index) => (
                     <li key={index}>
                       <ImportedFrom origin={o} />

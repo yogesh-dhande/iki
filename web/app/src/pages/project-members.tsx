@@ -182,7 +182,11 @@ function MemberRow({
             </span>
             <span className="row-meta">
               {member.user.email}
-              {member.user.active ? "" : " · deactivated"}
+              {member.user.imported_from
+                ? ` · imported from ${member.user.imported_from}`
+                : member.user.active
+                  ? ""
+                  : " · deactivated"}
             </span>
           </>
         ) : (
@@ -303,6 +307,11 @@ function AddPerson({ project, roles }: { project: Project; roles: Role[] }) {
     if (!person) {
       throw lookupFailed(
         "No one with that email address has signed in to Iki yet. Ask them to sign in once, then add them.",
+      );
+    }
+    if (person.imported_from) {
+      throw lookupFailed(
+        `They’re only known here from records imported from ${person.imported_from}: add them once they’ve signed in.`,
       );
     }
     if (!person.active) {

@@ -175,6 +175,15 @@ export function originsQuery(ref: string) {
   });
 }
 
+/** The bundles from other deployments that made it here, or added to its history. */
+export function bundleOriginsQuery(ref: string) {
+  return queryOptions({
+    queryKey: [...ENTITIES, "bundles", ref.toUpperCase()],
+    queryFn: async () =>
+      unwrap(await iki.GET("/api/v1/entities/{ref}/bundles", { params: { path: { ref } } })),
+  });
+}
+
 export function entityProjectsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "projects", ref.toUpperCase()],

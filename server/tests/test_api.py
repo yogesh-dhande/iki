@@ -202,6 +202,7 @@ def test_me(world: World) -> None:
         "name": "Org Admin",
         "kind": "person",
         "active": True,
+        "imported_from": "",
         "agent": None,  # the web app's session, not an agent
         "delegation": None,
         "org_roles": ["org_admin"],

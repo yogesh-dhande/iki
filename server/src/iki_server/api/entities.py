@@ -27,7 +27,7 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
+from iki_server.api.schemas import AgentOut, Page, PersonRef, ProjectRef, UserOut, agent_out
 from iki_server.entities import access, registry, schema, search, services, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
@@ -1116,6 +1116,66 @@ def get_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+class BundleOriginOut(Schema):
+    deployment: str = Field(description="The trusted deployment the bundle was from.")
+    project: str = Field(description="Its project there.")
+    hrid: str = Field(description="Its HRID there.")
+    action: Literal["new", "update"] = Field(
+        description="Whether the import made it, or added revisions it didn't have."
+    )
+    revisions: int = Field(description="How many revisions the import added.")
+    applied_by: PersonRef | None
+    applied_at: datetime | None
+    reason: str = Field(description="Why it was imported.")
+    bundle_import: UUID | None = Field(
+        description="The import, if you may see it: an Org Admin who is the project's Admin."
+    )
+    project_slug: str = Field(description="The project it was imported into, for its link.")
+
+
+@router.get(
+    "/entities/{ref}/bundles",
+    response=list[BundleOriginOut],
+    summary="Which bundles it was imported from",
+)
+def get_bundle_origins(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+    """The imports from other deployments that made it here, or added to its history,
+    newest first (ADR 0096)."""
+    from iki_server.bundles.models import EntityPlan, ImportEntity, ImportState
+
+    me = caller(request)
+    entity = _find(me, ref)
+    rows = (
+        ImportEntity.objects.filter(
+            entity_id=entity.pk,
+            bundle_import__state=ImportState.APPLIED,
+            action__in=[EntityPlan.NEW, EntityPlan.UPDATE],
+        )
+        .select_related("bundle_import__project__team", "bundle_import__applied_by")
+        .order_by("-bundle_import__applied_at")
+    )
+    out = []
+    for row in rows:
+        made = row.bundle_import
+        out.append(
+            {
+                "deployment": made.trusted_as,
+                "project": made.source.get("project", {}).get("name", ""),
+                "hrid": row.hrid,
+                "action": row.action,
+                "revisions": row.revisions if row.action == EntityPlan.NEW else row.adds,
+                "applied_by": made.applied_by,
+                "applied_at": made.applied_at,
+                "reason": made.reason,
+                "bundle_import": made.pk
+                if permissions.can(me, Action.PROJECT_IMPORT, made.project)
+                else None,
+                "project_slug": made.project.slug,
+            }
+        )
+    return out
 
 
 # --- Lineage -------------------------------------------------------------------------------------

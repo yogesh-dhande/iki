@@ -12,7 +12,7 @@
       <span class="row-meta">{{ person.email }} · {{ person.team_count }} team{{ person.team_count|pluralize }}</span>
     </div>
     <div class="row-tags">
-      {% if not person.is_active %}<span class="badge badge-muted">Deactivated</span>{% endif %}
+      {% if person.is_placeholder %}<span class="badge badge-muted">Imported</span>{% elif not person.is_active %}<span class="badge badge-muted">Deactivated</span>{% endif %}
       {% for assignment in person.org_roles.all %}<span class="badge">{{ assignment.get_role_display }}</span>{% endfor %}
     </div>
   </li>

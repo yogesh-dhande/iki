@@ -720,6 +720,21 @@ def test_importing_a_bundle_and_reading_its_plan(
     page.get_by_role("cell", name=re.compile("ABL1")).wait_for()
     assert_clean(page)
 
+    # Applying it asks why, and to confirm: then it's here, and its page says where from.
+    page.get_by_role("textbox", name="Why").fill("Moving the kinase work")
+    page.get_by_role("button", name="Import", exact=True).click()
+    dialog = page.get_by_role("alertdialog", name="Import into Kinase Atlas?")
+    dialog.get_by_text("1 new entity and 0 entities with newer revisions").wait_for()
+    assert_clean(page)
+    dialog.get_by_role("button", name="Import", exact=True).click()
+    page.get_by_role("heading", name="Imported").wait_for(timeout=60_000)
+    page.get_by_text("Moving the kinase work").wait_for()
+    assert_clean(page)
+    page.get_by_role("link", name=re.compile(r"^PRT-\d+$")).click()
+    page.get_by_role("link", name="the import").wait_for()
+    page.get_by_text(re.compile("^test’s Kinase Atlas, where it’s PRT-")).wait_for()
+    assert_clean(page)
+
 
 def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> None:
     from test_workers import LOCAL, ROOMY

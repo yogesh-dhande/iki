@@ -35,6 +35,10 @@ class UserOut(Schema):
     name: str
     kind: KindName
     active: bool = Field(alias="is_active")
+    imported_from: str = Field(
+        description="A placeholder's: the deployment their records were imported from. They "
+        "can't sign in until someone with their email address does (ADR 0096)."
+    )
 
 
 class AgentReportedOut(Schema):

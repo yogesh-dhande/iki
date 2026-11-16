@@ -121,7 +121,7 @@ Plugins before M1 are the ones that prove a platform feature.
 | 45   | Detaching and purging plugins, with tombstones                                                         | done        | `cc26659` `657a64a` `2a66d86` `8fd7c5e` `5ddcab5` `bea8b12` `31ddc81` |
 | 46   | Plugin action tests, upgrade tests from an earlier commit, version checks with Iki and between plugins | done        | `8f07927` `6c0aedb` `40eb23d`                                         |
 | 46c  | `iki plugin upgrade` codemods, once a manifest form is deprecated (nothing in v1 is yet)               | to scope    |                                                                       |
-| 47   | Exporting and importing bundles between deployments                                                    | in progress | `3653335` `ce8f404`                                                   |
+| 47   | Exporting and importing bundles between deployments                                                    | in progress | `3653335` `ce8f404` `35e37f2`                                         |
 
 ## Stage 9: Production readiness
 

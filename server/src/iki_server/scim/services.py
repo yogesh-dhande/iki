@@ -16,7 +16,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from iki_server.accounts.models import User
+from iki_server.accounts.models import User, claim_placeholder
 from iki_server.audit import log as audit
 from iki_server.org.models import Team, TeamMembership
 from iki_server.scim.models import ScimGroup, ScimGroupMember
@@ -123,6 +123,9 @@ def provision(profile: Profile) -> User:
         user.scim_name = _names(profile)
         user.name = _full_name(user.scim_name) or user.name
         user.provisioned_at = timezone.now()
+        if user.is_placeholder:
+            # Someone a bundle's records named (ADR 0096): the identity provider says who.
+            claim_placeholder(user)
         was_active = user.is_active
         user.is_active = True if not adopted else was_active
         user.save()

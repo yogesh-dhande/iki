@@ -126,6 +126,12 @@ class BundleImport(models.Model):
     plan = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(db_default=Now())
     planned_at = models.DateTimeField(null=True, blank=True)
+    #: Who confirmed applying it, and why.
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    reason = models.TextField(blank=True, default="")
+    applied_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "iki_bundle_import"
@@ -172,6 +178,9 @@ class ImportEntity(models.Model):
         ]
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["bundle_import", "action", "id"], name="iki_import_entity_action"),
+            # Finding an entity by the HRID it had where it was imported from.
+            models.Index(fields=["hrid"], name="iki_import_entity_hrid"),
+            models.Index(fields=["entity_id"], name="iki_import_entity_entity"),
         ]
 
     def __str__(self) -> str:

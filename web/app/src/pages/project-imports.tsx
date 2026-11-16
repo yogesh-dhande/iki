@@ -11,10 +11,11 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type SubmitEvent } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
 import { formatSize } from "../entities";
+import { required, useForm } from "../forms";
 import { UploadStatus } from "../entity-inputs";
 import { usePageTitle } from "../layout";
 import {
@@ -25,6 +26,7 @@ import {
   ProblemAlert,
   RelativeTime,
   SelectField,
+  TextField,
   Time,
   useMessages,
 } from "../ui";
@@ -84,15 +86,18 @@ function importQuery(id: string) {
     queryFn: async () =>
       unwrap(await iki.GET("/api/v1/imports/{import_id}", { params: { path: { import_id: id } } })),
     refetchInterval: (query) =>
-      query.state.data?.state === "planning" || query.state.data?.state === "uploading"
+      query.state.data?.state === "planning" ||
+      query.state.data?.state === "uploading" ||
+      query.state.data?.state === "applying"
         ? 2000
         : false,
   });
 }
 
-function plannedQuery(id: string, action: Action | undefined) {
+// Keyed by its state too: applying it gives renumbered entities their HRIDs, and placeholders.
+function plannedQuery(id: string, state: Import["state"], action: Action | undefined) {
   return infiniteQueryOptions({
-    queryKey: [IMPORTS, id, "entities", action ?? "all"],
+    queryKey: [IMPORTS, id, state, "entities", action ?? "all"],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       unwrap(
@@ -111,9 +116,9 @@ function plannedQuery(id: string, action: Action | undefined) {
   });
 }
 
-function peopleQuery(id: string) {
+function peopleQuery(id: string, state: Import["state"]) {
   return infiniteQueryOptions({
-    queryKey: [IMPORTS, id, "people"],
+    queryKey: [IMPORTS, id, state, "people"],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       unwrap(
@@ -380,13 +385,20 @@ export function ImportPage() {
       {made.state === "uploading" || made.state === "planning" ? (
         <Loading label="Iki is checking the bundle and planning the import…" />
       ) : null}
+      {made.state === "applying" ? (
+        <Loading label="Iki is importing it: everything at once, or nothing…" />
+      ) : null}
       {made.error ? (
         <div className="alert alert-error" role="alert">
           <p>{made.error}</p>
         </div>
       ) : null}
+      {made.state === "applied" ? <Applied made={made} /> : null}
       <Source made={made} />
       {made.plan ? <Plan made={made} plan={made.plan} /> : null}
+      {made.plan?.applicable && (made.state === "planned" || made.state === "failed") ? (
+        <Apply made={made} plan={made.plan} project={project} />
+      ) : null}
       <Discard made={made} project={project} />
     </>
   );
@@ -488,7 +500,7 @@ function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
 
 function Entities({ made }: { made: Import }) {
   const [action, setAction] = useState<Action | "">("");
-  const list = useInfiniteQuery(plannedQuery(made.id, action || undefined));
+  const list = useInfiniteQuery(plannedQuery(made.id, made.state, action || undefined));
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <section className="card">
@@ -527,7 +539,17 @@ function Entities({ made }: { made: Import }) {
                     <code>{row.type}</code>, {plural(row.revisions, "revision", "revisions")}
                   </span>
                 </td>
-                <td>{row.hrid_here || <span className="muted">A new HRID</span>}</td>
+                <td>
+                  {made.state === "applied" &&
+                  row.hrid_here &&
+                  (row.action === "new" || row.action === "update") ? (
+                    <Link to="/entities/$ref/" params={{ ref: row.hrid_here }}>
+                      {row.hrid_here}
+                    </Link>
+                  ) : (
+                    row.hrid_here || <span className="muted">A new HRID</span>
+                  )}
+                </td>
                 <td>
                   <Badge muted={row.action !== "conflict"}>{ACTIONS[row.action]}</Badge>
                   {row.action === "update"
@@ -558,7 +580,7 @@ function Entities({ made }: { made: Import }) {
 }
 
 function People({ made }: { made: Import }) {
-  const list = useInfiniteQuery(peopleQuery(made.id));
+  const list = useInfiniteQuery(peopleQuery(made.id, made.state));
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <section className="card">
@@ -586,7 +608,15 @@ function People({ made }: { made: Import }) {
                   {p.kind === "service" ? <span className="muted"> (service account)</span> : null}
                 </td>
                 <td>{p.email}</td>
-                <td>{p.user ? p.user.name : <span className="muted">A placeholder</span>}</td>
+                <td>
+                  {p.user && !p.placeholder ? (
+                    p.user.name
+                  ) : (
+                    <span className="muted">
+                      {made.state === "applied" ? "Their placeholder" : "A placeholder"}
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -666,6 +696,112 @@ function Outside({ plan }: { plan: Schemas["ImportPlan"] }) {
       {o.count > o.items.length ? (
         <p className="muted">And {(o.count - o.items.length).toLocaleString()} more.</p>
       ) : null}
+    </section>
+  );
+}
+
+function Applied({ made }: { made: Import }) {
+  return (
+    <section className="card">
+      <h3 className="section-title">Imported</h3>
+      <dl className="summary">
+        <dt>By</dt>
+        <dd>
+          {made.applied_by?.name ?? "Someone"}{" "}
+          {made.applied_at ? <RelativeTime value={made.applied_at} /> : null}
+        </dd>
+        <dt>Why</dt>
+        <dd>{made.reason}</dd>
+      </dl>
+      <p className="muted">
+        Each entity it made, or added revisions to, says on its page where it’s from.
+      </p>
+    </section>
+  );
+}
+
+function Apply({
+  made,
+  plan,
+  project,
+}: {
+  made: Import;
+  plan: NonNullable<Import["plan"]>;
+  project: Project;
+}) {
+  const { say } = useMessages();
+  const [reason, setReason] = useState("");
+  const [asking, setAsking] = useState(false);
+  const apply = useApiMutation(
+    async (why: string) =>
+      unwrap(
+        await iki.POST("/api/v1/imports/{import_id}/apply", {
+          params: { path: { import_id: made.id } },
+          body: { reason: why },
+        }),
+      ),
+    [[IMPORTS]],
+  );
+  // While asking, the dialog shows what went wrong.
+  const form = useForm(asking ? null : apply.error);
+  const c = plan.counts;
+
+  function submit(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!form.validate({ reason: required(reason, "Say why you’re importing it.") })) return;
+    setAsking(true);
+  }
+
+  return (
+    <section className="card">
+      <h3 className="section-title">Import</h3>
+      <p>
+        Iki imports it whole, or nothing of it, and checks the plan again first: if anything here
+        changed since, it shows you the new plan instead.
+      </p>
+      {form.alert}
+      <form {...form.props} onSubmit={submit}>
+        <TextField
+          label="Why"
+          value={reason}
+          onChange={setReason}
+          error={form.errors["reason"]}
+          maxLength={2000}
+          help="Such as “Moving the kinase work to production”. The import and the audit log keep it."
+        />
+        <Button type="submit" variant="primary">
+          Import
+        </Button>
+      </form>
+      <ConfirmDialog
+        isOpen={asking}
+        title={`Import into ${project.name}?`}
+        confirmLabel="Import"
+        confirmVariant="primary"
+        busy={apply.isPending}
+        problem={apply.error ? problemOf(apply.error) : undefined}
+        onCancel={() => {
+          setAsking(false);
+        }}
+        onConfirm={() => {
+          apply.mutate(reason.trim(), {
+            onSuccess: () => {
+              setAsking(false);
+              setReason("");
+              say(`Importing ${made.name} into ${project.name}.`);
+            },
+          });
+        }}
+      >
+        <p>
+          {plural(c.new, "new entity", "new entities")} and {plural(c.update, "entity", "entities")}{" "}
+          with newer revisions, from {made.trusted_as || "another deployment"}.
+          {c.placeholders
+            ? ` ${plural(c.placeholders, "placeholder is", "placeholders are")} added for people nobody here is.`
+            : ""}
+        </p>
+        <p>What it imports stays, with its history: it can’t be undone.</p>
+      </ConfirmDialog>
     </section>
   );
 }

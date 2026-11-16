@@ -91,6 +91,7 @@ export const ME: Schemas["MeOut"] = {
   name: "Rosalind Franklin",
   kind: "person",
   active: true,
+  imported_from: "",
   agent: null,
   delegation: null,
   org_roles: [],

@@ -307,6 +307,14 @@ class _Planner:
                         f"{type_name} is at schema version {found.schema_version} here, and "
                         f"{wanted['schema_version']} in the bundle: {deploy}."
                     )
+                elif found.schema_version > wanted["schema_version"]:
+                    # Its values would need this deployment's plugin migrations, which
+                    # importing doesn't run.
+                    self.problems.append(
+                        f"{type_name} is at schema version {found.schema_version} here, and "
+                        f"{wanted['schema_version']} in the bundle: deploy the same {name} "
+                        "release where the bundle is from, then export it again."
+                    )
                 if why := frozen(shape(type_name)):
                     self.problems.append(why)
                 self._units(type_name, wanted["units"], found.fields)
@@ -375,11 +383,21 @@ class _Planner:
         existing = dict(
             File.objects.filter(pk__in=[f["id"] for f in lines]).values_list("pk", "blob__sha256")
         )
+        existing_uris = set(
+            Blob.objects.filter(sha256__in=shas).values_list("storage_uri", flat=True)
+        )
         registered = 0
+        allowed = files.locations()
         for f in lines:
             self.file_sha[f["id"]] = f["sha256"]
             if f["registered"]:
                 registered += 1
+                uri = f["registered"]["uri"]
+                if uri not in existing_uris and not any(uri.startswith(a) for a in allowed):
+                    self.problems.append(
+                        f"{f['name']} is registered at {uri}, where this deployment doesn't "
+                        "register files from: an administrator adds the location first."
+                    )
             elif f["sha256"] not in carried and f["sha256"] not in here:
                 raise reading.BundleError(f"It names {f['name']}, but doesn't carry its bytes.")
             sha = existing.get(uuid.UUID(f["id"]))
@@ -516,6 +534,15 @@ class _Planner:
             Entity.objects.filter(pk__in=[o["id"] for o in lines]).values_list("pk", flat=True)
         )
         items = [{**o, "here": uuid.UUID(o["id"]) in here} for o in lines]
+        # Values refer to them now (history's references needn't resolve): they must be here.
+        missing = [i for i in items if not i["here"] and i["why"] != "history"]
+        if missing:
+            named = ", ".join(i["hrid"] or i["id"] for i in missing[:5])
+            more = f" and {len(missing) - 5:,} more" if len(missing) > 5 else ""
+            self.problems.append(
+                f"Its entities refer to {named}{more}, which aren't in it or here: import "
+                "them first, or export what refers to them with them."
+            )
         return {
             "count": len(items),
             "here": sum(1 for i in items if i["here"]),

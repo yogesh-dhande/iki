@@ -5,7 +5,7 @@
 <div class="page-header">
   <div>
     <p class="eyebrow"><a href="{% url 'org:people' %}">People</a></p>
-    <h1>{{ subject.get_full_name }}{% if not subject.is_active %} <span class="badge badge-muted">Deactivated</span>{% endif %}</h1>
+    <h1>{{ subject.get_full_name }}{% if subject.is_placeholder %} <span class="badge badge-muted">Imported</span>{% elif not subject.is_active %} <span class="badge badge-muted">Deactivated</span>{% endif %}</h1>
   </div>
 </div>
 <dl class="summary">
@@ -27,7 +27,10 @@
     </form>
   </section>
   <section class="card">
-    {% if subject.is_provisioned %}
+    {% if subject.is_placeholder %}
+    <h2 class="section-title">Imported</h2>
+    <p>{{ subject.get_short_name }} made records on {{ subject.imported_from }} that were imported here, and nobody here was them. They can’t sign in until someone with their email address does{% if provider %}, or {{ provider.display_name }} provisions them{% endif %}: then the account, and its records, are theirs.</p>
+    {% elif subject.is_provisioned %}
     <h2 class="section-title">{% if subject.is_active %}Deactivate{% else %}Reactivate{% endif %}</h2>
     <p>{{ subject.get_short_name }}’s access is managed by {{ provider.display_name|default:"your identity provider" }}. To {% if subject.is_active %}deactivate{% else %}reactivate{% endif %} them, {% if subject.is_active %}unassign Iki from{% else %}assign Iki to{% endif %} them there; Iki follows as soon as the provider tells it.</p>
     {% elif subject.is_active %}
