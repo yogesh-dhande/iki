@@ -1111,6 +1111,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/{import_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An import, and its plan */
+        get: operations["iki_server_api_bundles_get_import"];
+        put?: never;
+        post?: never;
+        /**
+         * Discard an import
+         * @description Before it's applied: its archive and plan are deleted, and the record stays.
+         */
+        delete: operations["iki_server_api_bundles_discard_import"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{import_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish uploading an import
+         * @description Once every part has arrived. Iki checks the bytes, then the bundle, and plans it
+         *     (202). Finishing it again changes nothing.
+         */
+        post: operations["iki_server_api_bundles_complete_import"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{import_id}/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What importing does to each entity
+         * @description In the bundle's order; ``action`` narrows them to new ones, conflicts, and so on.
+         */
+        get: operations["iki_server_api_bundles_import_entities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{import_id}/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign an import's parts again
+         * @description New URLs, when the earlier ones expired before every part was sent.
+         */
+        post: operations["iki_server_api_bundles_sign_import_parts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{import_id}/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who the bundle's people are here
+         * @description Matched by email to someone here, or a placeholder who can't sign in.
+         */
+        get: operations["iki_server_api_bundles_import_people"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -1415,6 +1517,32 @@ export interface paths {
         get: operations["iki_server_api_projects_grantable_teams"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's imports
+         * @description Newest first.
+         */
+        get: operations["iki_server_api_bundles_list_imports"];
+        put?: never;
+        /**
+         * Start importing a bundle
+         * @description Answers with the parts of the archive to send, as an upload does. Once they're in,
+         *     complete it: Iki checks the bundle and plans the import, changing nothing (ADR 0096).
+         *     Needs an Org Admin who is also the project's Admin, and a token's admin scope.
+         */
+        post: operations["iki_server_api_bundles_start_import"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4636,6 +4764,364 @@ export interface components {
              */
             reason: string;
         };
+        /** ImportCounts */
+        ImportCounts: {
+            /** Conflict */
+            conflict: number;
+            /** Entities */
+            entities: number;
+            /** Files */
+            files: number;
+            /** New */
+            new: number;
+            /** People */
+            people: number;
+            /**
+             * Placeholders
+             * @description People nobody here matches by email.
+             */
+            placeholders: number;
+            /**
+             * Renumbered
+             * @description New ones whose HRID is another entity's here.
+             */
+            renumbered: number;
+            /**
+             * Revisions
+             * @description The revisions importing adds.
+             */
+            revisions: number;
+            /**
+             * Skip
+             * @description Here already: nothing changes.
+             */
+            skip: number;
+            /**
+             * Update
+             * @description Here from an earlier import: their newer revisions are added.
+             */
+            update: number;
+        };
+        /** ImportEntityOut */
+        ImportEntityOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "new" | "update" | "skip" | "conflict";
+            /**
+             * Adds
+             * @description How many of them importing adds.
+             */
+            adds: number;
+            /**
+             * Hrid
+             * @description Its HRID where it's from.
+             */
+            hrid: string;
+            /**
+             * Hrid Here
+             * @description Its HRID here, or empty when it gets a new one.
+             */
+            hrid_here: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Its ID, which importing keeps.
+             */
+            id: string;
+            /**
+             * Revisions
+             * @description How many it has in the bundle.
+             */
+            revisions: number;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+            /** Why */
+            why: string;
+        };
+        /** ImportEntityParams */
+        ImportEntityParams: {
+            /** Action */
+            action?: ("new" | "update" | "skip" | "conflict") | null;
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+        };
+        /** ImportFiles */
+        ImportFiles: {
+            /**
+             * Carried
+             * @description The distinct contents the bundle carries.
+             */
+            carried: number;
+            /** Files */
+            files: number;
+            /**
+             * Here
+             * @description Here already.
+             */
+            here: number;
+            /**
+             * Registered
+             * @description Registered where they are (ADR 0055), not carried.
+             */
+            registered: number;
+        };
+        /** ImportIn */
+        ImportIn: {
+            /**
+             * Name
+             * @description The archive's file name.
+             */
+            name: string;
+            /**
+             * Sha256
+             * @description Of the archive's bytes, as hex: Iki checks them.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description The archive's size in bytes.
+             */
+            size: number;
+        };
+        /** ImportOut */
+        ImportOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it was refused or failed, if it was.
+             */
+            error: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Name
+             * @description The archive's file name, as uploaded.
+             */
+            name: string;
+            /** @description Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be). */
+            plan: components["schemas"]["ImportPlan"] | null;
+            /** Planned At */
+            planned_at: string | null;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            requested_by: components["schemas"]["PersonRef"];
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /** @description Where it's from, once it's been read. */
+            source: components["schemas"]["ImportSource"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "uploading" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
+            /**
+             * Trusted As
+             * @description The trusted deployment its signature is from.
+             */
+            trusted_as: string;
+            /**
+             * Upload
+             * Format: uuid
+             * @description Its archive's upload.
+             */
+            upload: string;
+        };
+        /** ImportOutside */
+        ImportOutside: {
+            /**
+             * Count
+             * @description The entities its values refer to that aren't in it.
+             */
+            count: number;
+            /**
+             * Here
+             * @description How many of them are here.
+             */
+            here: number;
+            /**
+             * Items
+             * @description The first 200.
+             */
+            items: components["schemas"]["OutsideRef"][];
+        };
+        /** ImportPersonOut */
+        ImportPersonOut: {
+            /** Email */
+            email: string;
+            /**
+             * Id
+             * Format: uuid
+             * @description Their ID where the bundle is from.
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "person" | "service";
+            /** Name */
+            name: string;
+            /** @description Who they are here; none means a placeholder. */
+            user: components["schemas"]["PersonRef"] | null;
+        };
+        /** ImportPlan */
+        ImportPlan: {
+            /**
+             * Applicable
+             * @description Whether it can be applied as planned.
+             */
+            applicable: boolean;
+            counts: components["schemas"]["ImportCounts"];
+            files: components["schemas"]["ImportFiles"];
+            outside: components["schemas"]["ImportOutside"];
+            /**
+             * Problems
+             * @description What keeps it from being applied.
+             */
+            problems: string[];
+            /** Types */
+            types: components["schemas"]["ImportType"][];
+        };
+        /** ImportSource */
+        ImportSource: {
+            /**
+             * Deployment
+             * @description The deployment it's from, as its signature says.
+             */
+            deployment: string;
+            /**
+             * Exported At
+             * Format: date-time
+             */
+            exported_at: string;
+            /**
+             * Exported By
+             * @description Their name and email address.
+             */
+            exported_by: {
+                [key: string]: string;
+            };
+            /**
+             * Iki
+             * @description The Iki release that made it.
+             */
+            iki: string;
+            /**
+             * Project
+             * @description Its id, team, name and slug there.
+             */
+            project: {
+                [key: string]: string;
+            };
+            /** Reason */
+            reason: string;
+            /** Selection */
+            selection: string;
+            /** Url */
+            url: string;
+        };
+        /** ImportStartedOut */
+        ImportStartedOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it was refused or failed, if it was.
+             */
+            error: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Name
+             * @description The archive's file name, as uploaded.
+             */
+            name: string;
+            /**
+             * Parts
+             * @description Every part of the archive, with where to send it.
+             */
+            parts: components["schemas"]["PartOut"][];
+            /** @description Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be). */
+            plan: components["schemas"]["ImportPlan"] | null;
+            /** Planned At */
+            planned_at: string | null;
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            requested_by: components["schemas"]["PersonRef"];
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /** @description Where it's from, once it's been read. */
+            source: components["schemas"]["ImportSource"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "uploading" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
+            /**
+             * Trusted As
+             * @description The trusted deployment its signature is from.
+             */
+            trusted_as: string;
+            /**
+             * Upload
+             * Format: uuid
+             * @description Its archive's upload.
+             */
+            upload: string;
+        };
+        /** ImportType */
+        ImportType: {
+            /**
+             * Here
+             * @description Its schema version here; none if it isn't here.
+             */
+            here: number | null;
+            /** Plugin */
+            plugin: string;
+            /**
+             * Schema Version
+             * @description Its schema version in the bundle.
+             */
+            schema_version: number;
+            /** Type */
+            type: string;
+        };
         /** InboxFilters */
         InboxFilters: {
             /**
@@ -5185,6 +5671,31 @@ export interface components {
              */
             pointer: string;
         };
+        /** OutsideRef */
+        OutsideRef: {
+            /**
+             * Here
+             * @description Whether an entity with its ID is here.
+             */
+            here: boolean;
+            /**
+             * Hrid
+             * @description Given when the exporter could read it.
+             */
+            hrid: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Type */
+            type: string | null;
+            /**
+             * Why
+             * @enum {string}
+             */
+            why: "another-project" | "history" | "purged" | "unreadable";
+        };
         /** PageParams */
         PageParams: {
             /**
@@ -5263,6 +5774,36 @@ export interface components {
         Page_FiringOut_: {
             /** Items */
             items: components["schemas"]["FiringOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ImportEntityOut] */
+        Page_ImportEntityOut_: {
+            /** Items */
+            items: components["schemas"]["ImportEntityOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ImportOut] */
+        Page_ImportOut_: {
+            /** Items */
+            items: components["schemas"]["ImportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[ImportPersonOut] */
+        Page_ImportPersonOut_: {
+            /** Items */
+            items: components["schemas"]["ImportPersonOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -5625,6 +6166,11 @@ export interface components {
              * @description Export its entities, with their history, in a bundle for another deployment.
              */
             export: boolean;
+            /**
+             * Import Bundles
+             * @description Import bundles from other deployments into it: an Org Admin who is also its Admin (ADR 0096).
+             */
+            import_bundles: boolean;
             /**
              * Manage
              * @description Rename, describe, archive or restore it, and allow or restrict sharing.
@@ -9946,6 +10492,160 @@ export interface operations {
             };
         };
     };
+    iki_server_api_bundles_get_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_discard_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_bundles_complete_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportOut"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_import_entities: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                action?: ("new" | "update" | "skip" | "conflict") | null;
+            };
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ImportEntityOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_sign_import_parts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_import_people: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                import_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ImportPersonOut_"];
+                };
+            };
+        };
+    };
     iki_server_api_me_me: {
         parameters: {
             query?: never;
@@ -10449,6 +11149,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_TeamRef_"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_list_imports: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ImportOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_bundles_start_import: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportStartedOut"];
                 };
             };
         };

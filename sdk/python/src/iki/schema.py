@@ -947,6 +947,170 @@ class FreezeIn(TypedDict):
     reason: NotRequired[str]
 
 
+class ImportCounts(TypedDict):
+    conflict: int
+    entities: int
+    files: int
+    new: int
+    people: int
+    #: People nobody here matches by email.
+    placeholders: int
+    #: New ones whose HRID is another entity's here.
+    renumbered: int
+    #: The revisions importing adds.
+    revisions: int
+    #: Here already: nothing changes.
+    skip: int
+    #: Here from an earlier import: their newer revisions are added.
+    update: int
+
+
+class ImportEntityOut(TypedDict):
+    action: Literal['new', 'update', 'skip', 'conflict']
+    #: How many of them importing adds.
+    adds: int
+    #: Its HRID where it's from.
+    hrid: str
+    #: Its HRID here, or empty when it gets a new one.
+    hrid_here: str
+    #: Its ID, which importing keeps.
+    id: str
+    #: How many it has in the bundle.
+    revisions: int
+    title: str
+    type: str
+    why: str
+
+
+class ImportEntityParams(TypedDict):
+    action: NotRequired[Literal['new', 'update', 'skip', 'conflict'] | None]
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+
+
+class ImportFiles(TypedDict):
+    #: The distinct contents the bundle carries.
+    carried: int
+    files: int
+    #: Here already.
+    here: int
+    #: Registered where they are (ADR 0055), not carried.
+    registered: int
+
+
+class ImportIn(TypedDict):
+    #: The archive's file name.
+    name: str
+    #: Of the archive's bytes, as hex: Iki checks them.
+    sha256: str
+    #: The archive's size in bytes.
+    size: int
+
+
+class ImportOut(TypedDict):
+    created_at: str
+    #: Why it was refused or failed, if it was.
+    error: str
+    id: str
+    #: The archive's file name, as uploaded.
+    name: str
+    #: Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be).
+    plan: ImportPlan | None
+    planned_at: str | None
+    project: str
+    requested_by: PersonRef
+    sha256: str
+    size: int
+    #: Where it's from, once it's been read.
+    source: ImportSource | None
+    state: Literal['uploading', 'planning', 'planned', 'refused', 'applying', 'applied', 'failed', 'discarded']
+    #: The trusted deployment its signature is from.
+    trusted_as: str
+    #: Its archive's upload.
+    upload: str
+
+
+class ImportOutside(TypedDict):
+    #: The entities its values refer to that aren't in it.
+    count: int
+    #: How many of them are here.
+    here: int
+    #: The first 200.
+    items: list[OutsideRef]
+
+
+class ImportPersonOut(TypedDict):
+    email: str
+    #: Their ID where the bundle is from.
+    id: str
+    kind: Literal['person', 'service']
+    name: str
+    #: Who they are here; none means a placeholder.
+    user: PersonRef | None
+
+
+class ImportPlan(TypedDict):
+    #: Whether it can be applied as planned.
+    applicable: bool
+    counts: ImportCounts
+    files: ImportFiles
+    outside: ImportOutside
+    #: What keeps it from being applied.
+    problems: list[str]
+    types: list[ImportType]
+
+
+class ImportSource(TypedDict):
+    #: The deployment it's from, as its signature says.
+    deployment: str
+    exported_at: str
+    #: Their name and email address.
+    exported_by: dict[str, str]
+    #: The Iki release that made it.
+    iki: str
+    #: Its id, team, name and slug there.
+    project: dict[str, str]
+    reason: str
+    selection: str
+    url: str
+
+
+class ImportStartedOut(TypedDict):
+    created_at: str
+    #: Why it was refused or failed, if it was.
+    error: str
+    id: str
+    #: The archive's file name, as uploaded.
+    name: str
+    #: Every part of the archive, with where to send it.
+    parts: list[PartOut]
+    #: Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be).
+    plan: ImportPlan | None
+    planned_at: str | None
+    project: str
+    requested_by: PersonRef
+    sha256: str
+    size: int
+    #: Where it's from, once it's been read.
+    source: ImportSource | None
+    state: Literal['uploading', 'planning', 'planned', 'refused', 'applying', 'applied', 'failed', 'discarded']
+    #: The trusted deployment its signature is from.
+    trusted_as: str
+    #: Its archive's upload.
+    upload: str
+
+
+class ImportType(TypedDict):
+    #: Its schema version here; none if it isn't here.
+    here: int | None
+    plugin: str
+    #: Its schema version in the bundle.
+    schema_version: int
+    type: str
+
+
 class InboxFilters(TypedDict):
     #: From the previous page's next_cursor.
     cursor: NotRequired[str | None]
@@ -1224,6 +1388,16 @@ class OutputErrorOut(TypedDict):
     pointer: str
 
 
+class OutsideRef(TypedDict):
+    #: Whether an entity with its ID is here.
+    here: bool
+    #: Given when the exporter could read it.
+    hrid: str | None
+    id: str
+    type: str | None
+    why: Literal['another-project', 'history', 'purged', 'unreadable']
+
+
 class PageBatchOut(TypedDict):
     items: list[BatchOut]
     #: Pass as cursor for the next page; null at the end.
@@ -1262,6 +1436,24 @@ class PageFileOut(TypedDict):
 
 class PageFiringOut(TypedDict):
     items: list[FiringOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
+class PageImportEntityOut(TypedDict):
+    items: list[ImportEntityOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
+class PageImportOut(TypedDict):
+    items: list[ImportOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
+class PageImportPersonOut(TypedDict):
+    items: list[ImportPersonOut]
     #: Pass as cursor for the next page; null at the end.
     next_cursor: str | None
 
@@ -1466,6 +1658,8 @@ class ProjectCan(TypedDict):
     edit: bool
     #: Export its entities, with their history, in a bundle for another deployment.
     export: bool
+    #: Import bundles from other deployments into it: an Org Admin who is also its Admin (ADR 0096).
+    import_bundles: bool
     #: Rename, describe, archive or restore it, and allow or restrict sharing.
     manage: bool
     #: Give and remove access.
@@ -2786,4 +2980,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunIn', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']

@@ -180,6 +180,29 @@ def bundle_export(suffix: str = "") -> Build:
     return build
 
 
+def bundle_import(suffix: str = "", body: Any = None) -> Build:
+    """An import someone started: nobody in the world is both an Org Admin and the
+    project's Admin, as importing needs, so nobody sees it."""
+
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.bundles import imports
+        from iki_server.org import permissions
+        from iki_server.org.models import OrgRole, OrgRoleAssignment
+
+        admin = w.users["admin"]
+        role = OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
+        permissions.forget(admin)
+        made = imports.start(admin, w.project, name="b.tar.gz", size=10, sha256="0" * 64)
+        role.delete()
+        permissions.forget(admin)
+        return f"/imports/{made.pk}{suffix}", body
+
+    return build
+
+
+IMPORT_BODY = {"name": "b.tar.gz", "size": 10, "sha256": "0" * 64}
+
+
 def _protein(w: World) -> Any:
     from iki_server.entities import services as entities
 
@@ -967,6 +990,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("POST", "/projects/{project_id}/bundles", export_request, visible(403, admin=202)),
     ("GET", "/bundles/{export_id}", bundle_export(), row(404, admin=200)),
     ("GET", "/bundles/{export_id}/content", bundle_export("/content"), row(404, admin=302)),
+    ("GET", "/projects/{project_id}/imports", project("/imports"), visible(403)),
+    ("POST", "/projects/{project_id}/imports", project("/imports", IMPORT_BODY), visible(403)),
+    ("GET", "/imports/{import_id}", bundle_import(), row(404)),
+    ("DELETE", "/imports/{import_id}", bundle_import(), row(404)),
+    ("POST", "/imports/{import_id}/parts", bundle_import("/parts", {}), row(404)),
+    ("POST", "/imports/{import_id}/complete", bundle_import("/complete"), row(404)),
+    ("GET", "/imports/{import_id}/entities", bundle_import("/entities"), row(404)),
+    ("GET", "/imports/{import_id}/people", bundle_import("/people"), row(404)),
     ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),
     (
         "POST",
@@ -1092,8 +1123,8 @@ def test_operation_matrix(
     expected: dict[str, int],
     request: pytest.FixtureRequest,
 ) -> None:
-    if template.startswith(("/uploads", "/files", "/registrations", "/bundles")) or (
-        template.endswith("/bundles")
+    if template.startswith(("/uploads", "/files", "/registrations", "/bundles", "/imports")) or (
+        template.endswith(("/bundles", "/imports"))
     ):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")

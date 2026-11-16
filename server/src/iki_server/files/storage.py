@@ -70,9 +70,18 @@ def checkpoint_key(upload_id: Any) -> str:  # noqa: ANN401 - a UUID
     return _key("checkpoints", str(upload_id))
 
 
+def imported_key(upload_id: Any) -> str:  # noqa: ANN401 - a UUID
+    """Where a bundle uploaded to import is kept (ADR 0096), until it's applied or discarded."""
+    return _key("imports", f"{upload_id}.tar.gz")
+
+
 def kept_key(kind: str, upload_id: Any) -> str:  # noqa: ANN401 - a UUID
     """Where an upload that isn't a file keeps its bytes, by its kind."""
-    return checkpoint_key(upload_id) if kind == "checkpoint" else artifact_key(upload_id)
+    if kind == "checkpoint":
+        return checkpoint_key(upload_id)
+    if kind == "bundle":
+        return imported_key(upload_id)
+    return artifact_key(upload_id)
 
 
 def bundle_key(export_id: Any) -> str:  # noqa: ANN401 - a UUID
@@ -324,6 +333,11 @@ def head(bucket_name: str, key: str, version: str = "") -> dict[str, Any] | None
 def copy(source: str, target: str) -> None:
     """Copies within the bucket; large objects are copied in parts, by the store."""
     client().copy({"Bucket": bucket(), "Key": source}, bucket(), target)
+
+
+def download_file(key: str, path: Any) -> None:  # noqa: ANN401 - a Path
+    """Copies a stored object to a local file, in parts if it's large."""
+    client().download_file(bucket(), key, str(path))
 
 
 def upload_file(path: Any, key: str, media_type: str) -> None:  # noqa: ANN401 - a Path

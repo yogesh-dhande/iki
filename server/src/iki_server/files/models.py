@@ -144,6 +144,9 @@ class UploadKind(models.TextChoices):
     ARTIFACT = "artifact", "Artifact"
     #: A run's saved progress (ADR 0069): kept apart, under its own key, until the run ends.
     CHECKPOINT = "checkpoint", "Checkpoint"
+    #: A bundle to import (ADR 0096): kept apart, under its own key, until it's applied or
+    #: discarded.
+    BUNDLE = "bundle", "Bundle"
 
 
 class UploadState(models.TextChoices):
@@ -183,7 +186,7 @@ class Upload(models.Model):
         default=UploadKind.FILE,
         db_default=UploadKind.FILE,
         db_comment="What it becomes: a file, a run's artifact (ADR 0068) or its checkpoint "
-        "(ADR 0069).",
+        "(ADR 0069), or a bundle to import (ADR 0096).",
     )
     #: The staging object the parts go to, and the store's ID for the multipart upload.
     staging_key = models.TextField()
@@ -217,12 +220,12 @@ class Upload(models.Model):
             models.CheckConstraint(
                 condition=Q(kind__in=[k.value for k in UploadKind]), name="iki_upload_kind"
             ),
-            # A file upload is ready once its file exists; artifacts and checkpoints never
-            # have one.
+            # A file upload is ready once its file exists; artifacts, checkpoints and bundles
+            # never have one.
             models.CheckConstraint(
                 condition=Q(kind="file", state="ready", file__isnull=False)
                 | Q(kind="file") & ~Q(state="ready")
-                | Q(kind__in=["artifact", "checkpoint"], file__isnull=True),
+                | Q(kind__in=["artifact", "checkpoint", "bundle"], file__isnull=True),
                 name="iki_upload_ready_has_file",
             ),
         ]

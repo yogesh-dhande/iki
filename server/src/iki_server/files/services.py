@@ -96,9 +96,14 @@ def start(
     name, media_type, sha256 = clean_name(name), clean_media_type(media_type), sha256.lower()
     if not re.fullmatch(r"[0-9a-f]{64}", sha256):
         raise Refused("The SHA-256 must be 64 hexadecimal digits.", field="sha256")
-    limit = settings.IKI_FILES_MAX_UPLOAD_BYTES
-    if size > limit:
-        raise Refused(f"Files can be at most {human_size(limit)} here.", field="size")
+    if kind == UploadKind.BUNDLE:
+        limit = settings.IKI_BUNDLE_MAX_BYTES
+        if size > limit:
+            raise Refused(f"Bundles can be at most {human_size(limit)} here.", field="size")
+    else:
+        limit = settings.IKI_FILES_MAX_UPLOAD_BYTES
+        if size > limit:
+            raise Refused(f"Files can be at most {human_size(limit)} here.", field="size")
     upload = Upload(
         project=project,
         created_by=user,
@@ -231,6 +236,10 @@ def _finish(upload: Upload, sha256: str, size: int) -> None:
             locked = Upload.objects.select_for_update().get(pk=upload.pk)
             if locked.state in (UploadState.PENDING, UploadState.CHECKING):
                 _end(locked, UploadState.READY)
+                if locked.kind == UploadKind.BUNDLE:
+                    from iki_server.bundles import imports
+
+                    imports.uploaded(locked)
                 return
         # Cancelled while it was checked (its run's checkpoints were deleted, say): keep none.
         storage.delete_for_good(kept)

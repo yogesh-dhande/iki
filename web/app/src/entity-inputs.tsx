@@ -772,7 +772,7 @@ function FileInput({
   );
 }
 
-function UploadStatus({ name, progress }: { name: string; progress: Progress }) {
+export function UploadStatus({ name, progress }: { name: string; progress: Progress }) {
   if (progress.phase === "checking") return <>Iki is checking {name}’s bytes…</>;
   const percent = progress.total ? Math.floor((progress.done / progress.total) * 100) : 100;
   return (

@@ -1,6 +1,7 @@
 """The real server in a subprocess: production settings, collected static files,
 uvicorn, and the least-privileged database role, as a deployment runs it."""
 
+import contextlib
 import io
 import os
 import secrets
@@ -102,16 +103,30 @@ def serve(env: dict[str, str]) -> Iterator[Server]:
         yield server
 
 
+class _PortTakenError(RuntimeError):
+    """The free port it was given was taken before it could listen (tests run in parallel)."""
+
+
 @contextmanager
 def run_tasks(env: dict[str, str]) -> Iterator[Server]:
-    """Runs ``iki-server tasks`` beside a server, until the block ends."""
-    port = str(free_port())
-    with _running(
-        ["tasks", "--health-port", port, "--grace", "5"],
-        env,
-        f"http://127.0.0.1:{port}/healthz/live",
-        f"http://127.0.0.1:{port}",
-    ) as runner:
+    """Runs ``iki-server tasks`` beside a server, until the block ends. Another port is
+    tried when the one it was given is taken first."""
+    with contextlib.ExitStack() as stack:
+        for attempt in range(1, 4):
+            port = str(free_port())
+            try:
+                runner = stack.enter_context(
+                    _running(
+                        ["tasks", "--health-port", port, "--grace", "5"],
+                        env,
+                        f"http://127.0.0.1:{port}/healthz/live",
+                        f"http://127.0.0.1:{port}",
+                    )
+                )
+                break
+            except _PortTakenError:
+                if attempt == 3:
+                    raise
         yield runner
 
 
@@ -137,7 +152,12 @@ def _running(args: list[str], env: dict[str, str], health: str, url: str) -> Ite
                     break
             except (urllib.error.URLError, ConnectionError):
                 if time.monotonic() > deadline or proc.poll() is not None:
-                    raise RuntimeError(f"{args[0]} did not start\n{server.text}") from None
+                    if proc.poll() is not None:
+                        reader.join(timeout=5)
+                    error = (
+                        _PortTakenError if "Address already in use" in server.text else RuntimeError
+                    )
+                    raise error(f"{args[0]} did not start\n{server.text}") from None
                 time.sleep(0.2)
         yield server
     finally:

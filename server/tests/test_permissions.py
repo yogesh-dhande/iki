@@ -198,3 +198,20 @@ def test_leaving_a_team_removes_its_grants(world: World) -> None:
     permissions.forget(user)
     assert permissions.project_role(user, world.project) is None
     assert not permissions.can(user, A.PROJECT_SEE, world.project)
+
+
+def test_importing_needs_an_org_admin_who_is_the_projects_admin(world: World) -> None:
+    """An import can add people (as placeholders), so it needs both roles (ADR 0096)."""
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+
+    admin, org_admin = world.users["admin"], world.users["org_admin"]
+    assert not permissions.can(admin, Action.PROJECT_IMPORT, world.project)
+    assert not permissions.can(org_admin, Action.PROJECT_IMPORT, world.project)
+    OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
+    ProjectMembership.objects.create(project=world.project, user=org_admin, role=ProjectRole.EDITOR)
+    for user in (admin, org_admin):
+        permissions.forget(user)
+    assert permissions.can(admin, Action.PROJECT_IMPORT, world.project)
+    assert not permissions.can(org_admin, Action.PROJECT_IMPORT, world.project)
+    # Archived projects are read-only: nothing comes in.
+    assert not permissions.can(admin, Action.PROJECT_IMPORT, world.archived)

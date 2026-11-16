@@ -94,6 +94,17 @@ anything changes:
   sequences. The entity keeps its source HRID, and its page says "SMP-12 on
   staging". Lookups by HRID, such as an alignment's rows, also match it.
 
+The bundle is uploaded as files are (ADR 0036), in parts straight to the
+file store, with `POST /projects/{id}/imports` and the import's own
+`parts` and `complete`. A task then reads it and writes the plan:
+`GET /imports/{id}` gives where it's from, its counts, types, files and
+what it refers to outside it, and the problems that keep it from being
+applied. `/imports/{id}/entities` and `/people` list each one's fate. An
+untrusted or broken bundle is refused, with why. An import that isn't
+applied can be discarded, and its archive is deleted. Planning, refusals
+and discards are in the audit log (`bundle.import_planned`,
+`bundle.import_refused`, `bundle.import_discarded`).
+
 The admin confirms with a reason, and the whole import is applied in one
 transaction, or not at all, as bulk imports are (ADR 0056). Imported
 revisions keep their authors, times and reasons. The import is a record of

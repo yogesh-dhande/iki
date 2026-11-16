@@ -135,6 +135,7 @@ export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas
       manage_members: true,
       manage_webhooks: true,
       export: true,
+      import_bundles: false,
       run: ["client", "backend", "container", "vm"],
     },
     ...overrides,

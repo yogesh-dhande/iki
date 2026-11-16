@@ -8,6 +8,7 @@ and browsers (``uv run playwright install``); without them these tests skip
 locally and fail in CI.
 """
 
+import contextlib
 import itertools
 import os
 import re
@@ -150,6 +151,8 @@ def server(
             AWS_SECRET_ACCESS_KEY=S3_SECRET_KEY,
             # It signs the bundles it exports with the tests' key.
             IKI_BUNDLE_SIGNING_KEY=settings.IKI_BUNDLE_SIGNING_KEY,
+            # ...and imports those the test process signs, as "test".
+            IKI_BUNDLE_TRUSTED_KEYS="test=ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4",
         )
         env["IKI_PUBLIC_URL"] = f"http://127.0.0.1:{env['IKI_PORT']}"
         for command in (["collectstatic", "--noinput"], ["setup_storage"]):
@@ -681,6 +684,41 @@ def test_exporting_a_collection_and_downloading_its_bundle(
     bundle = reading.read(saved, {source: (public,)}, limit=1024**3)
     assert bundle.trusted_as == source
     assert {e["hrid"] for e in bundle.lines("entities.ndjson")} == {kinases.hrid, protein.hrid}
+
+
+def test_importing_a_bundle_and_reading_its_plan(
+    open_as: Any, world: World, tasks: Server, tmp_path: Path
+) -> None:
+    from django.db import transaction
+
+    from iki_server.bundles import export
+    from iki_server.entities import services as entities
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+
+    admin = world.users["admin"]
+    OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
+    out = tmp_path / "staging.iki-bundle.tar.gz"
+
+    class UndoError(Exception):
+        pass
+
+    # A bundle of a protein this deployment doesn't have: made, exported, then undone.
+    with contextlib.suppress(UndoError), transaction.atomic():
+        made: Any = entities.create(
+            admin, "protein.Protein", world.project, {"sequence": "MKWWYYHH", "name": "ABL1"}
+        ).entity
+        export.write(
+            world.project, [made], out, by=admin, reason="For production", selection="ABL1"
+        )
+        raise UndoError
+    page = open_as("admin", "/projects/kinase-atlas/settings/")
+    importing = page.locator("section", has=page.get_by_role("heading", name="Import", exact=True))
+    importing.locator("input[type=file]").set_input_files(str(out))
+    page.wait_for_url(re.compile(r"/imports/[0-9a-f-]+/$"), timeout=60_000)
+    page.get_by_text("Nothing in it conflicts with what’s here").wait_for(timeout=60_000)
+    page.get_by_text("1 new entity").wait_for()
+    page.get_by_role("cell", name=re.compile("ABL1")).wait_for()
+    assert_clean(page)
 
 
 def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> None:

@@ -160,6 +160,12 @@ CASES: list[Case] = [
     ("project_triggers", "GET", project_url("triggers/"), row(OK)),
     ("project_settings", "GET", project_url("settings/"), row(OK)),
     (
+        "project_import",
+        "GET",
+        project_url("imports/01a1c452-a14b-7195-acd0-4b6ba266a654/"),
+        row(OK),
+    ),
+    (
         "project_app_draft",
         "GET",
         project_url("apps/drafts/01a1c452-a14b-7195-acd0-4b6ba266a653/"),

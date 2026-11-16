@@ -244,6 +244,12 @@ const projectSettingsRoute = createRoute({
   component: ProjectSettings,
 });
 
+const projectImportRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "imports/$importId",
+  component: lazyRouteComponent(() => import("./pages/project-imports"), "ImportPage"),
+});
+
 const projectAppDraftRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "apps/drafts/$draft",
@@ -408,6 +414,7 @@ const routeTree = rootRoute.addChildren([
       projectWorkflowNewRoute,
       projectTriggersRoute,
       projectSettingsRoute,
+      projectImportRoute,
       projectAppDraftRoute,
       projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
     ]),

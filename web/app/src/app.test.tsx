@@ -73,6 +73,59 @@ function exported(overrides: Partial<Schemas["ExportOut"]> = {}): Schemas["Expor
   };
 }
 
+function planned(overrides: Partial<Schemas["ImportOut"]> = {}): Schemas["ImportOut"] {
+  return {
+    id: "00000000-0000-7000-8000-0000000000i1",
+    project: PROJECT.id,
+    state: "planned",
+    error: "",
+    requested_by: { id: ME.id, name: ME.name },
+    name: "kinase-atlas-20261115-090000.iki-bundle.tar.gz",
+    sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    size: 48_213,
+    upload: "00000000-0000-7000-8000-0000000000u1",
+    source: {
+      deployment: "staging",
+      url: "https://iki.staging.example.com",
+      iki: "0.2.0",
+      exported_at: "2026-11-15T09:00:00Z",
+      exported_by: { name: "Ada Lovelace", email: "ada@example.com" },
+      reason: "Validated primers, for production",
+      project: { id: "p", team: "Structural Biology", name: "Kinase Atlas", slug: "kinase-atlas" },
+      selection: "COL-000001 (Validated kinases), with its members",
+    },
+    trusted_as: "staging",
+    plan: {
+      counts: {
+        entities: 3,
+        new: 2,
+        update: 0,
+        skip: 0,
+        conflict: 1,
+        renumbered: 1,
+        revisions: 2,
+        people: 2,
+        placeholders: 1,
+        files: 0,
+      },
+      types: [{ type: "protein.Protein", plugin: "protein", schema_version: 2, here: 2 }],
+      files: { files: 0, here: 0, carried: 0, registered: 0 },
+      outside: { count: 0, here: 0, items: [] },
+      problems: ["1 entity is in conflict: see each one’s reason."],
+      applicable: false,
+    },
+    created_at: "2026-11-15T10:00:00Z",
+    planned_at: "2026-11-15T10:00:05Z",
+    ...overrides,
+  };
+}
+
+function importer() {
+  return onProjectPage({
+    can: { ...project().can, import_bundles: true },
+  });
+}
+
 function onProjectPage(overrides: Parameters<typeof project>[0] = {}) {
   const found = project(overrides);
   answer("GET /api/v1/projects", ({ query }: { query: URLSearchParams }) =>
@@ -317,6 +370,7 @@ describe("a project", () => {
         manage_members: true,
         manage_webhooks: false,
         export: false,
+        import_bundles: false,
         run: [],
       },
     });
@@ -382,6 +436,7 @@ describe("members", () => {
         manage_members: false,
         manage_webhooks: false,
         export: false,
+        import_bundles: false,
         run: [],
       },
     });
@@ -583,6 +638,22 @@ describe("settings", () => {
     expect(within(exporting).queryByRole("link", { name: /Download/ })).toBeNull();
   });
 
+  it("lists imports for an Org Admin who is the project's Admin, linking to each", async () => {
+    signedIn();
+    importer();
+    answer("POST /api/v1/entities/search", page([]));
+    answer(`GET /api/v1/projects/${PROJECT.id}/bundles`, page([]));
+    answer(`GET /api/v1/projects/${PROJECT.id}/imports`, page([planned()]));
+    await renderApp("/projects/kinase-atlas/settings/");
+    const importing = card("Import");
+    expect(within(importing).getByLabelText("Bundle")).toHaveAccessibleDescription(
+      /from another deployment’s Export card/,
+    );
+    const link = await within(importing).findByRole("link", { name: planned().name });
+    expect(link).toHaveAttribute("href", `/projects/kinase-atlas/imports/${planned().id}/`);
+    expect(within(importing).getByText("staging")).toBeVisible();
+  });
+
   it("is for Admins only", async () => {
     signedIn();
     onProjectPage({
@@ -594,11 +665,136 @@ describe("settings", () => {
         manage_members: false,
         manage_webhooks: false,
         export: false,
+        import_bundles: false,
         run: [],
       },
     });
     await renderApp("/projects/kinase-atlas/settings/");
     expect(screen.getByText("Only the project’s Admins can change its settings.")).toBeVisible();
+  });
+});
+
+describe("an import", () => {
+  const PATH = `/projects/kinase-atlas/imports/${planned().id}/`;
+
+  function onImport(made = planned()) {
+    signedIn();
+    importer();
+    answer(`GET /api/v1/imports/${made.id}`, made);
+    answer(`GET /api/v1/imports/${made.id}/entities`, ({ query }: { query: URLSearchParams }) =>
+      page(
+        [
+          {
+            id: "00000000-0000-7000-8000-0000000000a1",
+            type: "protein.Protein",
+            hrid: "PRT-000012",
+            hrid_here: "",
+            title: "ABL1",
+            action: "new" as const,
+            revisions: 1,
+            adds: 1,
+            why: "PRT-000012 is another entity’s here, so it gets a new HRID.",
+          },
+          {
+            id: "00000000-0000-7000-8000-0000000000a2",
+            type: "protein.Protein",
+            hrid: "PRT-000013",
+            hrid_here: "PRT-000013",
+            title: "SRC",
+            action: "conflict" as const,
+            revisions: 1,
+            adds: 0,
+            why: "It’s the same as PRT-000099 here (their identity fields match).",
+          },
+        ].filter((r) => !query.get("action") || r.action === query.get("action")),
+      ),
+    );
+    answer(
+      `GET /api/v1/imports/${made.id}/people`,
+      page([
+        {
+          id: "00000000-0000-7000-8000-0000000000b1",
+          kind: "person" as const,
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          user: { id: ME.id, name: ME.name },
+        },
+        {
+          id: "00000000-0000-7000-8000-0000000000b2",
+          kind: "person" as const,
+          name: "Grace Hopper",
+          email: "grace@example.com",
+          user: null,
+        },
+      ]),
+    );
+    return made;
+  }
+
+  it("shows where the bundle is from, the plan, and what keeps it from being applied", async () => {
+    onImport();
+    await renderApp(PATH);
+    expect(
+      await screen.findByRole("heading", { name: /Import of kinase-atlas-20261115/ }),
+    ).toBeVisible();
+    expect(screen.getByText(/staging, a trusted deployment/)).toBeVisible();
+    expect(screen.getByText("Validated primers, for production")).toBeVisible();
+    expect(screen.getByText("1 entity is in conflict: see each one’s reason.")).toBeVisible();
+    expect(screen.getByText("2 new entities, 1 of them gets a new HRID")).toBeVisible();
+    const entities = card("Entities");
+    expect(await within(entities).findByText("A new HRID")).toBeVisible();
+    expect(
+      within(entities).getByText("It’s the same as PRT-000099 here (their identity fields match)."),
+    ).toBeVisible();
+    const people = card("People");
+    expect(await within(people).findByText("A placeholder")).toBeVisible();
+    expect(within(people).getByText(ME.name)).toBeVisible();
+  });
+
+  it("shows only the entities of one kind when asked", async () => {
+    onImport();
+    const { user } = await renderApp(PATH);
+    await screen.findByRole("heading", { name: "Entities" });
+    const entities = card("Entities");
+    await within(entities).findByText("ABL1");
+    await user.selectOptions(within(entities).getByRole("combobox", { name: "Show" }), "conflict");
+    await waitFor(() => {
+      expect(within(entities).queryByText("ABL1")).toBeNull();
+    });
+    expect(within(entities).getByText("SRC")).toBeVisible();
+    expect(
+      calls("GET", `/api/v1/imports/${planned().id}/entities`).at(-1)?.query.get("action"),
+    ).toBe("conflict");
+  });
+
+  it("asks before discarding it", async () => {
+    const made = onImport();
+    answer(`DELETE /api/v1/imports/${made.id}`, respond(204));
+    const { user } = await renderApp(PATH);
+    await user.click(await screen.findByRole("button", { name: "Discard import" }));
+    const dialog = screen.getByRole("alertdialog", { name: `Discard ${made.name}?` });
+    expect(calls("DELETE")).toEqual([]);
+    answer(`GET /api/v1/imports/${made.id}`, planned({ state: "discarded" }));
+    await user.click(within(dialog).getByRole("button", { name: "Discard import" }));
+    expect(
+      await screen.findByText(`Discarded the import of ${made.name} into Kinase Atlas.`),
+    ).toBeVisible();
+    expect(calls("DELETE")).toHaveLength(1);
+  });
+
+  it("says why a bundle was refused", async () => {
+    onImport(
+      planned({
+        state: "refused",
+        error: "It’s signed with staging’s key ed25519:abc, which this deployment doesn’t trust.",
+        plan: null,
+      }),
+    );
+    await renderApp(PATH);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /which this deployment doesn’t trust/,
+    );
+    expect(screen.queryByRole("heading", { name: "The plan" })).toBeNull();
   });
 });
 
@@ -835,6 +1031,7 @@ describe("webhooks", () => {
         manage_members: false,
         manage_webhooks: false,
         export: false,
+        import_bundles: false,
         run: [],
       },
     });

@@ -147,6 +147,7 @@ def test_members_see_the_member_list_read_only(world: World) -> None:
         "manage_members": False,
         "manage_webhooks": False,
         "export": False,
+        "import_bundles": False,
         "run": [],
     }
     outsider = world.users["outsider"]
@@ -197,6 +198,7 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
         "manage_members": True,
         "manage_webhooks": False,
         "export": False,
+        "import_bundles": False,
         "run": [],
     }
 
@@ -212,6 +214,8 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
         "manage_members": True,
         "manage_webhooks": True,
         "export": True,
+        # An Org Admin and now its Admin: they can import into it.
+        "import_bundles": True,
         "run": ["client", "backend", "container", "vm"],
     }
 

@@ -4105,6 +4105,695 @@
         "title": "FreezeIn",
         "type": "object"
       },
+      "ImportCounts": {
+        "properties": {
+          "conflict": {
+            "title": "Conflict",
+            "type": "integer"
+          },
+          "entities": {
+            "title": "Entities",
+            "type": "integer"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "new": {
+            "title": "New",
+            "type": "integer"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          },
+          "placeholders": {
+            "description": "People nobody here matches by email.",
+            "title": "Placeholders",
+            "type": "integer"
+          },
+          "renumbered": {
+            "description": "New ones whose HRID is another entity's here.",
+            "title": "Renumbered",
+            "type": "integer"
+          },
+          "revisions": {
+            "description": "The revisions importing adds.",
+            "title": "Revisions",
+            "type": "integer"
+          },
+          "skip": {
+            "description": "Here already: nothing changes.",
+            "title": "Skip",
+            "type": "integer"
+          },
+          "update": {
+            "description": "Here from an earlier import: their newer revisions are added.",
+            "title": "Update",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entities",
+          "new",
+          "update",
+          "skip",
+          "conflict",
+          "renumbered",
+          "revisions",
+          "people",
+          "placeholders",
+          "files"
+        ],
+        "title": "ImportCounts",
+        "type": "object"
+      },
+      "ImportEntityOut": {
+        "properties": {
+          "action": {
+            "enum": [
+              "new",
+              "update",
+              "skip",
+              "conflict"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "adds": {
+            "description": "How many of them importing adds.",
+            "title": "Adds",
+            "type": "integer"
+          },
+          "hrid": {
+            "description": "Its HRID where it's from.",
+            "title": "Hrid",
+            "type": "string"
+          },
+          "hrid_here": {
+            "description": "Its HRID here, or empty when it gets a new one.",
+            "title": "Hrid Here",
+            "type": "string"
+          },
+          "id": {
+            "description": "Its ID, which importing keeps.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "revisions": {
+            "description": "How many it has in the bundle.",
+            "title": "Revisions",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "hrid",
+          "hrid_here",
+          "title",
+          "action",
+          "revisions",
+          "adds",
+          "why"
+        ],
+        "title": "ImportEntityOut",
+        "type": "object"
+      },
+      "ImportEntityParams": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "new",
+                  "update",
+                  "skip",
+                  "conflict"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "ImportEntityParams",
+        "type": "object"
+      },
+      "ImportFiles": {
+        "properties": {
+          "carried": {
+            "description": "The distinct contents the bundle carries.",
+            "title": "Carried",
+            "type": "integer"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "here": {
+            "description": "Here already.",
+            "title": "Here",
+            "type": "integer"
+          },
+          "registered": {
+            "description": "Registered where they are (ADR 0055), not carried.",
+            "title": "Registered",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "files",
+          "here",
+          "carried",
+          "registered"
+        ],
+        "title": "ImportFiles",
+        "type": "object"
+      },
+      "ImportIn": {
+        "properties": {
+          "name": {
+            "description": "The archive's file name.",
+            "maxLength": 1000,
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Of the archive's bytes, as hex: Iki checks them.",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "description": "The archive's size in bytes.",
+            "exclusiveMinimum": 0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size",
+          "sha256"
+        ],
+        "title": "ImportIn",
+        "type": "object"
+      },
+      "ImportOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it was refused or failed, if it was.",
+            "title": "Error",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The archive's file name, as uploaded.",
+            "title": "Name",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be)."
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned At"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it's from, once it's been read."
+          },
+          "state": {
+            "enum": [
+              "uploading",
+              "planning",
+              "planned",
+              "refused",
+              "applying",
+              "applied",
+              "failed",
+              "discarded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "trusted_as": {
+            "description": "The trusted deployment its signature is from.",
+            "title": "Trusted As",
+            "type": "string"
+          },
+          "upload": {
+            "description": "Its archive's upload.",
+            "format": "uuid",
+            "title": "Upload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "state",
+          "error",
+          "requested_by",
+          "name",
+          "sha256",
+          "size",
+          "upload",
+          "source",
+          "trusted_as",
+          "plan",
+          "created_at",
+          "planned_at"
+        ],
+        "title": "ImportOut",
+        "type": "object"
+      },
+      "ImportOutside": {
+        "properties": {
+          "count": {
+            "description": "The entities its values refer to that aren't in it.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "here": {
+            "description": "How many of them are here.",
+            "title": "Here",
+            "type": "integer"
+          },
+          "items": {
+            "description": "The first 200.",
+            "items": {
+              "$ref": "#/components/schemas/OutsideRef"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "here",
+          "items"
+        ],
+        "title": "ImportOutside",
+        "type": "object"
+      },
+      "ImportPersonOut": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Their ID where the bundle is from.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "person",
+              "service"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who they are here; none means a placeholder."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "email",
+          "user"
+        ],
+        "title": "ImportPersonOut",
+        "type": "object"
+      },
+      "ImportPlan": {
+        "properties": {
+          "applicable": {
+            "description": "Whether it can be applied as planned.",
+            "title": "Applicable",
+            "type": "boolean"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ImportCounts"
+          },
+          "files": {
+            "$ref": "#/components/schemas/ImportFiles"
+          },
+          "outside": {
+            "$ref": "#/components/schemas/ImportOutside"
+          },
+          "problems": {
+            "description": "What keeps it from being applied.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/ImportType"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "counts",
+          "types",
+          "files",
+          "outside",
+          "problems",
+          "applicable"
+        ],
+        "title": "ImportPlan",
+        "type": "object"
+      },
+      "ImportSource": {
+        "properties": {
+          "deployment": {
+            "description": "The deployment it's from, as its signature says.",
+            "title": "Deployment",
+            "type": "string"
+          },
+          "exported_at": {
+            "format": "date-time",
+            "title": "Exported At",
+            "type": "string"
+          },
+          "exported_by": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Their name and email address.",
+            "title": "Exported By",
+            "type": "object"
+          },
+          "iki": {
+            "description": "The Iki release that made it.",
+            "title": "Iki",
+            "type": "string"
+          },
+          "project": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Its id, team, name and slug there.",
+            "title": "Project",
+            "type": "object"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "selection": {
+            "title": "Selection",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deployment",
+          "url",
+          "iki",
+          "exported_at",
+          "exported_by",
+          "reason",
+          "project",
+          "selection"
+        ],
+        "title": "ImportSource",
+        "type": "object"
+      },
+      "ImportStartedOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it was refused or failed, if it was.",
+            "title": "Error",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The archive's file name, as uploaded.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parts": {
+            "description": "Every part of the archive, with where to send it.",
+            "items": {
+              "$ref": "#/components/schemas/PartOut"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be)."
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned At"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requested_by": {
+            "$ref": "#/components/schemas/PersonRef"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImportSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it's from, once it's been read."
+          },
+          "state": {
+            "enum": [
+              "uploading",
+              "planning",
+              "planned",
+              "refused",
+              "applying",
+              "applied",
+              "failed",
+              "discarded"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "trusted_as": {
+            "description": "The trusted deployment its signature is from.",
+            "title": "Trusted As",
+            "type": "string"
+          },
+          "upload": {
+            "description": "Its archive's upload.",
+            "format": "uuid",
+            "title": "Upload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project",
+          "state",
+          "error",
+          "requested_by",
+          "name",
+          "sha256",
+          "size",
+          "upload",
+          "source",
+          "trusted_as",
+          "plan",
+          "created_at",
+          "planned_at",
+          "parts"
+        ],
+        "title": "ImportStartedOut",
+        "type": "object"
+      },
+      "ImportType": {
+        "properties": {
+          "here": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its schema version here; none if it isn't here.",
+            "title": "Here"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "schema_version": {
+            "description": "Its schema version in the bundle.",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "plugin",
+          "schema_version",
+          "here"
+        ],
+        "title": "ImportType",
+        "type": "object"
+      },
       "InboxFilters": {
         "properties": {
           "cursor": {
@@ -5247,6 +5936,62 @@
         "title": "OutputErrorOut",
         "type": "object"
       },
+      "OutsideRef": {
+        "properties": {
+          "here": {
+            "description": "Whether an entity with its ID is here.",
+            "title": "Here",
+            "type": "boolean"
+          },
+          "hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Given when the exporter could read it.",
+            "title": "Hrid"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "why": {
+            "enum": [
+              "another-project",
+              "history",
+              "purged",
+              "unreadable"
+            ],
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type",
+          "why",
+          "here"
+        ],
+        "title": "OutsideRef",
+        "type": "object"
+      },
       "PageParams": {
         "properties": {
           "cursor": {
@@ -5474,6 +6219,93 @@
           "next_cursor"
         ],
         "title": "Page[FiringOut]",
+        "type": "object"
+      },
+      "Page_ImportEntityOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImportEntityOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ImportEntityOut]",
+        "type": "object"
+      },
+      "Page_ImportOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ImportOut]",
+        "type": "object"
+      },
+      "Page_ImportPersonOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImportPersonOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ImportPersonOut]",
         "type": "object"
       },
       "Page_InventoryOut_": {
@@ -6403,6 +7235,11 @@
             "title": "Export",
             "type": "boolean"
           },
+          "import_bundles": {
+            "description": "Import bundles from other deployments into it: an Org Admin who is also its Admin (ADR 0096).",
+            "title": "Import Bundles",
+            "type": "boolean"
+          },
           "manage": {
             "description": "Rename, describe, archive or restore it, and allow or restrict sharing.",
             "title": "Manage",
@@ -6445,6 +7282,7 @@
           "manage_members",
           "manage_webhooks",
           "export",
+          "import_bundles",
           "run"
         ],
         "title": "ProjectCan",
@@ -16021,6 +16859,358 @@
         ]
       }
     },
+    "/api/v1/imports/{import_id}": {
+      "delete": {
+        "description": "Before it's applied: its archive and plan are deleted, and the record stays.",
+        "operationId": "iki_server_api_bundles_discard_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Discard an import",
+        "tags": [
+          "bundles"
+        ]
+      },
+      "get": {
+        "operationId": "iki_server_api_bundles_get_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An import, and its plan",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
+    "/api/v1/imports/{import_id}/complete": {
+      "post": {
+        "description": "Once every part has arrived. Iki checks the bytes, then the bundle, and plans it\n(202). Finishing it again changes nothing.",
+        "operationId": "iki_server_api_bundles_complete_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Finish uploading an import",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
+    "/api/v1/imports/{import_id}/entities": {
+      "get": {
+        "description": "In the bundle's order; ``action`` narrows them to new ones, conflicts, and so on.",
+        "operationId": "iki_server_api_bundles_import_entities",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "new",
+                    "update",
+                    "skip",
+                    "conflict"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ImportEntityOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What importing does to each entity",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
+    "/api/v1/imports/{import_id}/parts": {
+      "post": {
+        "description": "New URLs, when the earlier ones expired before every part was sent.",
+        "operationId": "iki_server_api_bundles_sign_import_parts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PartOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Sign an import's parts again",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
+    "/api/v1/imports/{import_id}/people": {
+      "get": {
+        "description": "Matched by email to someone here, or a placeholder who can't sign in.",
+        "operationId": "iki_server_api_bundles_import_people",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "import_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Import Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ImportPersonOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Who the bundle's people are here",
+        "tags": [
+          "bundles"
+        ]
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "iki_server_api_me_me",
@@ -17143,6 +18333,130 @@
         "summary": "Teams you could give access",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/imports": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "iki_server_api_bundles_list_imports",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ImportOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The project's imports",
+        "tags": [
+          "bundles"
+        ]
+      },
+      "post": {
+        "description": "Answers with the parts of the archive to send, as an upload does. Once they're in,\ncomplete it: Iki checks the bundle and plans the import, changing nothing (ADR 0096).\nNeeds an Org Admin who is also the project's Admin, and a token's admin scope.",
+        "operationId": "iki_server_api_bundles_start_import",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportStartedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Start importing a bundle",
+        "tags": [
+          "bundles"
         ]
       }
     },

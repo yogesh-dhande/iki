@@ -194,6 +194,10 @@ class ProjectCan(Schema):
     export: bool = Field(
         description="Export its entities, with their history, in a bundle for another deployment."
     )
+    import_bundles: bool = Field(
+        description="Import bundles from other deployments into it: an Org Admin who is also "
+        "its Admin (ADR 0096)."
+    )
     run: list[Literal["client", "backend", "container", "vm"]] = Field(
         description="The tiers whose actions you may run here, and whose runs you may cancel. "
         "None while it's archived."
@@ -236,6 +240,7 @@ class ProjectOut(Schema):
             "manage_members": permissions.can(user, Action.PROJECT_MEMBERS_MANAGE, project),
             "manage_webhooks": permissions.can(user, Action.PROJECT_WEBHOOKS_MANAGE, project),
             "export": permissions.can(user, Action.PROJECT_EXPORT, project),
+            "import_bundles": permissions.can(user, Action.PROJECT_IMPORT, project),
             "run": []
             if project.is_archived
             else [t for t, a in TIER_PERMISSIONS.items() if permissions.can(user, a, project)],

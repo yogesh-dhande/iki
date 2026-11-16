@@ -49,6 +49,21 @@ function yieldToPage(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Waits, as the upload's retries and checks do: cancelling it stops the wait. */
+export function wait(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("The upload was cancelled.", "AbortError"));
+      },
+      { once: true },
+    );
+  });
+}
+
 export async function sha256Of(
   file: Blob,
   onProgress?: (done: number) => void,
@@ -96,20 +111,6 @@ function put(
   });
 }
 
-function wait(ms: number, signal: AbortSignal | undefined): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(new DOMException("The upload was cancelled.", "AbortError"));
-      },
-      { once: true },
-    );
-  });
-}
-
 export async function upload(
   file: File,
   projectId: string,
@@ -138,7 +139,20 @@ export async function upload(
   );
   try {
     if (started.state === "ready" && started.file) return started.file;
-    await sendParts(file, started, onProgress, signal);
+    await sendParts(
+      file,
+      started.parts,
+      started.part_size,
+      async (numbers) =>
+        unwrap(
+          await iki.POST("/api/v1/uploads/{upload_id}/parts", {
+            params: { path: { upload_id: started.id } },
+            body: { numbers },
+          }),
+        ),
+      onProgress,
+      signal,
+    );
     aborted(signal);
     unwrap(
       await iki.POST("/api/v1/uploads/{upload_id}/complete", {
@@ -158,9 +172,13 @@ export async function upload(
   }
 }
 
-async function sendParts(
+/** Sends each part to its signed URL, a few at a time; ``resign`` signs parts again when
+ * their URLs expired. Imports of bundles send theirs this way too. */
+export async function sendParts(
   file: File,
-  started: Schemas["StartedOut"],
+  parts: Schemas["PartOut"][],
+  partSize: number,
+  resign: (numbers: number[]) => Promise<Schemas["PartOut"][]>,
   onProgress: (progress: Progress) => void,
   signal: AbortSignal | undefined,
 ): Promise<void> {
@@ -171,9 +189,9 @@ async function sendParts(
     onProgress({ phase: "sending", done, total: file.size });
   };
   report();
-  const queue = [...started.parts];
+  const queue = [...parts];
   const sendOne = async (part: Schemas["PartOut"]) => {
-    const start = (part.number - 1) * started.part_size;
+    const start = (part.number - 1) * partSize;
     const body = file.slice(start, start + part.size);
     let url = part.url;
     for (let attempt = 1; ; attempt++) {
@@ -202,12 +220,7 @@ async function sendParts(
       }
       if (status === 403) {
         // Its URL expired (they last an hour): sign it again.
-        const fresh = unwrap(
-          await iki.POST("/api/v1/uploads/{upload_id}/parts", {
-            params: { path: { upload_id: started.id } },
-            body: { numbers: [part.number] },
-          }),
-        );
+        const fresh = await resign([part.number]);
         url = fresh[0]?.url ?? url;
       }
       await wait(timing.retry * 2 ** (attempt - 1), signal);

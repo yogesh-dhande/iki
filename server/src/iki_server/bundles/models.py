@@ -1,4 +1,4 @@
-"""Exports: bundles of a project's entities being made, or made, for another deployment."""
+"""Bundles: exports of a project's entities for another deployment, and imports from one."""
 
 from typing import ClassVar
 
@@ -65,3 +65,142 @@ class BundleExport(models.Model):
 
     def __str__(self) -> str:
         return f"Bundle of {self.selection}"[:254]
+
+
+class ImportState(models.TextChoices):
+    #: Its archive is being uploaded (see its upload).
+    UPLOADING = "uploading", "Uploading"
+    #: Checking the archive and its signature, and working out the plan.
+    PLANNING = "planning", "Planning"
+    PLANNED = "planned", "Planned"
+    #: The archive didn't check out, or isn't from a deployment this one trusts.
+    REFUSED = "refused", "Refused"
+    APPLYING = "applying", "Applying"
+    APPLIED = "applied", "Applied"
+    FAILED = "failed", "Failed"
+    #: Discarded before it was applied; its archive is deleted.
+    DISCARDED = "discarded", "Discarded"
+
+
+class EntityPlan(models.TextChoices):
+    NEW = "new", "New"
+    #: Here at an earlier revision, from an earlier import: the newer ones are added.
+    UPDATE = "update", "Newer revisions"
+    #: Here as it is, or with later revisions of this deployment's own: nothing changes.
+    SKIP = "skip", "Here already"
+    CONFLICT = "conflict", "Conflict"
+
+
+class BundleImport(models.Model):
+    """A bundle uploaded to import into a project (ADR 0096): who brought it and from where,
+    what checking it found, and the plan for each entity and person before anything changes."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    via = models.CharField(max_length=16)
+    upload = models.OneToOneField(
+        "iki_files.Upload", on_delete=models.PROTECT, related_name="bundle_import"
+    )
+    state = models.CharField(
+        max_length=16, choices=ImportState.choices, default=ImportState.UPLOADING
+    )
+    #: Why it was refused or failed, said to the person importing it.
+    error = models.TextField(blank=True, default="")
+    sha256 = models.CharField(max_length=64, db_comment="The archive's, as uploaded.")
+    size = models.BigIntegerField(db_comment="The archive's, in bytes.")
+    #: bundle.json's ID, once it's read.
+    bundle_id = models.UUIDField(null=True, blank=True)
+    #: Where it's from, as its bundle.json says: deployment, URL, Iki release, who exported
+    #: it, when and why, and from which project.
+    source = models.JSONField(default=dict, blank=True)
+    #: The trusted deployment its signature is from.
+    trusted_as = models.CharField(max_length=100, blank=True, default="")
+    #: The plan's summary: its counts, its types, files and what's outside it, and the
+    #: problems that keep it from being applied.
+    plan = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    planned_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "iki_bundle_import"
+        db_table_comment = "Bundles from other deployments, uploaded to import into a project."
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["project", "-created_at"], name="iki_bundle_import_by_project"),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(sha256__regex=r"^[0-9a-f]{64}$"), name="iki_bundle_import_sha256"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Import of {self.sha256[:12]}"
+
+
+class ImportEntity(models.Model):
+    """What importing does to one of a bundle's entities."""
+
+    id = models.BigAutoField(primary_key=True)
+    bundle_import = models.ForeignKey(BundleImport, on_delete=models.CASCADE, related_name="+")
+    entity_id = models.UUIDField(db_comment="Its ID, which an import keeps.")
+    type = models.CharField(max_length=81)
+    hrid = models.CharField(max_length=32, db_comment="Its HRID where it's from.")
+    #: Its HRID here: the same, or blank when it's renumbered from this deployment's own
+    #: sequence as it's applied.
+    hrid_here = models.CharField(max_length=32, blank=True, default="")
+    title = models.TextField(blank=True, default="")
+    action = models.CharField(max_length=16, choices=EntityPlan.choices)
+    revisions = models.PositiveIntegerField(db_comment="How many it has in the bundle.")
+    #: How many of them are added here.
+    adds = models.PositiveIntegerField(default=0)
+    #: Why it's skipped or a conflict, or what else happens to it, for people.
+    why = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "iki_bundle_import_entity"
+        db_table_comment = "What an import does to each entity in its bundle."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["bundle_import", "entity_id"], name="iki_bundle_import_entity_once"
+            ),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["bundle_import", "action", "id"], name="iki_import_entity_action"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.hrid}: {self.action}"
+
+
+class ImportPerson(models.Model):
+    """Someone a bundle's records name, and who they are here: matched by email, or, when
+    nobody here has it, a placeholder made as the import is applied."""
+
+    id = models.BigAutoField(primary_key=True)
+    bundle_import = models.ForeignKey(BundleImport, on_delete=models.CASCADE, related_name="+")
+    source_id = models.UUIDField(db_comment="Their ID where the bundle is from.")
+    kind = models.CharField(max_length=16, db_comment="person or service.")
+    name = models.CharField(max_length=200)
+    email = models.CharField(max_length=254)
+    #: Who they are here, when someone has their email; None means a placeholder.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        db_table = "iki_bundle_import_person"
+        db_table_comment = "Who each person an import's bundle names is on this deployment."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["bundle_import", "source_id"], name="iki_bundle_import_person_once"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.email

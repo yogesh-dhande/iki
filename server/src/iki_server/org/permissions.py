@@ -84,6 +84,9 @@ class Action(StrEnum):
     PROJECT_EXPORT = "project.export"
     """Export the project's entities, with their history, in a bundle for another deployment
     (ADR 0096)."""
+    PROJECT_IMPORT = "project.import"
+    """Import a bundle from another deployment into the project (ADR 0096). It can add
+    people, as placeholders, so it needs an Org Admin who is also the project's Admin."""
 
 
 ORG_ACTIONS = frozenset(
@@ -124,6 +127,7 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.PROJECT_TRIGGERS_MANAGE: "write",
     # A bundle takes a project's data out of the deployment: tokens need the admin scope.
     Action.PROJECT_EXPORT: "admin",
+    Action.PROJECT_IMPORT: "admin",
 }
 
 
@@ -183,7 +187,11 @@ _PROJECT_ACTION_ROLE = {
     Action.PROJECT_WEBHOOKS_MANAGE: ProjectRole.ADMIN,
     Action.PROJECT_TRIGGERS_MANAGE: ProjectRole.ADMIN,
     Action.PROJECT_EXPORT: ProjectRole.ADMIN,
+    Action.PROJECT_IMPORT: ProjectRole.ADMIN,
 }
+
+#: Project actions that also need the Org Admin role, beside the project role.
+_ALSO_ORG_ADMIN = frozenset({Action.PROJECT_IMPORT})
 
 #: Project actions an Org Admin may take without a project role.
 _ORG_ADMIN_PROJECT_ACTIONS = frozenset({Action.PROJECT_SEE, Action.PROJECT_MEMBERS_MANAGE})
@@ -305,6 +313,8 @@ def _roles_allow(user: Any, action: Action, target: Team | Project | None) -> bo
     if target.is_archived and action not in _ARCHIVED_PROJECT_ACTIONS:
         return False
     role = project_role(user, target)
+    if action in _ALSO_ORG_ADMIN and OrgRole.ORG_ADMIN not in org_roles(user):
+        return False
     if role is not None and role >= _PROJECT_ACTION_ROLE[action]:
         return True
     return action in _ORG_ADMIN_PROJECT_ACTIONS and OrgRole.ORG_ADMIN in org_roles(user)
