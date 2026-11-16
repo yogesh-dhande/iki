@@ -1484,6 +1484,10 @@ NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
     "@sha256:c314f625ee3c381add9a9cfcba3596cd7e0b61529764dc906c4fb09902007384"
 )
+IMMUNEBUILDER_TOOLS = (
+    "ghcr.io/yogesh-dhande/iki-antibody-structure-tools"
+    "@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85"
+)
 
 
 def save_app(
@@ -1729,6 +1733,63 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
             f"antibody.number_chains ran ANARCI in a pod of its own ({run['hrid']}): "
             f"{chain['hrid']} is a {kind} chain, CDR3 {cdr3}, {v_gene} ({identity}%)"
         )
+    predicted(alice, project, effects[0]["entity"], heavy, light)
+
+
+def predicted(
+    alice: requests.Session,
+    project: dict[str, Any],
+    antibody: str,
+    heavy: dict[str, Any],
+    light: dict[str, Any],
+) -> None:
+    """antibody.predict_structure_with_immunebuilder: trastuzumab's structure from its chains,
+    which its input includes (ADR 0105), in a pod of its own with the plugin's image."""
+    # Numbering changed the chains: the run reads them as they are now.
+    revisions = {
+        c["id"]: api_call(alice, "GET", f"/entities/{c['id']}").json()["revision"]
+        for c in (heavy, light)
+    }
+    # The first pulls the image, 2.7 GB, into the cluster.
+    run = launch(
+        alice,
+        project,
+        "antibody.predict_structure_with_immunebuilder",
+        {"antibody": antibody},
+        within=1800,
+    )
+    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    if attempt["environment_build"] != IMMUNEBUILDER_TOOLS.rpartition("@")[2]:
+        fail(f"{run['hrid']} didn't run in the antibody structure-tools image: {attempt}")
+    if attempt["template"] != "container-antibody-structures":
+        fail(f"{run['hrid']} didn't run on the antibody structures template: {attempt}")
+    read = {(i["field"], i["entity"], i["revision"]) for i in run.get("included") or []}
+    wanted = {
+        ("heavy_chain", heavy["id"], revisions[heavy["id"]]),
+        ("light_chain", light["id"], revisions[light["id"]]),
+    }
+    if read != wanted:
+        fail(f"{run['hrid']} read {read} through its input, not {wanted}")
+    made = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in made] != ["protein.ProteinStructure"]:
+        fail(f"{run['hrid']} made {made}, not one protein.ProteinStructure")
+    structure = api_call(alice, "GET", f"/entities/{made[0]['hrid']}").json()["values"]
+    error = structure.get("predicted_error")
+    if (
+        structure.get("method") != "predicted"
+        or structure.get("chains") != [heavy["id"], light["id"]]
+        or structure.get("chain_ids") != ["H", "L"]
+        or not isinstance(error, (int, float))
+        or not 0 < error < 2
+        or not structure.get("structure")
+    ):
+        fail(f"{run['hrid']} made {made[0]['hrid']} as {structure}")
+    ok(
+        "antibody.predict_structure_with_immunebuilder ran in a pod of its own "
+        f"({run['hrid']}): "
+        f"{made[0]['hrid']}, from {heavy['hrid']} and {light['hrid']} as numbered, "
+        f"estimated error {error} Å (CDR-H3 {structure.get('cdr_h3_predicted_error')} Å)"
+    )
 
 
 def aligned_many(

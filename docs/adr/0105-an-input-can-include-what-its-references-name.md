@@ -71,7 +71,7 @@ further would make a run read an unbounded graph.
 
 ## Consequences
 
-- The antibody plugin's `predict_structure` reads an antibody's chains
+- The antibody plugin's `predict_structure_with_immunebuilder` reads an antibody's chains
   through its input.
 - The run's page lists what it read through references beside its inputs.
 - The worker passes `included` through to `input.json` unchanged.

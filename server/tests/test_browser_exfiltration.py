@@ -95,6 +95,10 @@ def attacker() -> Iterator[Attacker]:
     stop.set()
     httpd.shutdown()
     httpd.server_close()
+    # Closing the socket under a recvfrom fails it in the listening thread (EBADF), which
+    # pytest pins on whichever test is running then: it stops within its 0.2 s timeout.
+    for thread in threads:
+        thread.join(timeout=5)
     udp.close()
 
 

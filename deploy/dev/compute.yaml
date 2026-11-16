@@ -96,6 +96,22 @@ kind: EnvironmentBinding
 environment: antibody.numbering-tools
 templates: [{ template: container-numbering }]
 ---
+# The antibody plugin's ImmuneBuilder (structure-tools): on four CPUs, an
+# antibody takes about 15 seconds, its peak memory under 2.5 GiB. The image is
+# 2.7 GB, half of it weights, so a node pulls it once.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-antibody-structures
+provisioner: k8s_job
+capacity: { cpu: 4, memory: 4Gi, scratch_disk: 1Gi }
+limits: { max_concurrent: 1 }
+price: { per_hour: 0.20, currency: USD }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: antibody.structure-tools
+templates: [{ template: container-antibody-structures }]
+---
 # The plugin template's reference data (ADR 0075): a setup build fills a disk
 # from the CSI host-path driver, which is snapshotted; each run pod gets a
 # read-only copy of the newest snapshot.

@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# ImmuneBuilder on the container tier: the image built from images/structure-tools,
+# which Iki's publish workflow signed (ADR 0065), with its weights in it. Pinned by its
+# multi-arch digest; changing the image is a commit to its Dockerfile, then one here.
+apiVersion: iki/v1
+kind: Environment
+name: structure-tools
+label: Structure tools
+description: >-
+  ImmuneBuilder 1.2 with its ABodyBuilder2 and NanoBodyBuilder2 weights, PyTorch
+  2.15 (CPU), OpenMM 8.6.1, PDBFixer, ANARCI and HMMER.
+tiers: [container]
+resources: { cpu: 4, memory: 4Gi }
+image: ghcr.io/yogesh-dhande/iki-antibody-structure-tools@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85

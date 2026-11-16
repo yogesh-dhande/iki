@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: predict_structure_with_immunebuilder
+label: Predict structure with ImmuneBuilder
+description: >-
+  Predicts the structure of an antibody's variable domains with ImmuneBuilder:
+  ABodyBuilder2 for a heavy and a light chain (an IgG, a Fab or an scFv),
+  NanoBodyBuilder2 for a single domain (a VHH). It runs four models, keeps the
+  one closest to the others, refines it with OpenMM, and gives how far the four
+  disagree as its estimated error, over every residue and over CDR-H3. The
+  structure is made from the antibody's chains as they were when it was
+  launched.
+inputs:
+  antibody: { type: Antibody, schema: ">=1", include: [heavy_chain, light_chain] }
+effects:
+  creates:
+    - type: protein.ProteinStructure
+      cardinality: one
+      derived_from: [antibody]
+runs_on: { tier: container, environment: structure-tools }
+command: [python, ./scripts/structure.py]
+metrics:
+  predicted_error:
+    label: Predicted error (Å)
+    description: The structure's estimated error, averaged over its residues.
+  cdr_h3_predicted_error:
+    label: CDR-H3 predicted error (Å)
+    description: The same over CDR-H3, usually the least certain part.
+timeout: 30m

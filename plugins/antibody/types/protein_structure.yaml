@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# How sure a predicted antibody structure is: ImmuneBuilder's estimate of its error.
+# The fields live in this plugin's table, so the protein plugin's structures are
+# untouched without it.
+apiVersion: iki/v1
+kind: EntityTypeExtension
+extends_type: protein.ProteinStructure
+fields:
+  predicted_error:
+    type: quantity
+    unit: Ao
+    min: 0
+    computed: true
+    indexed: true
+    description: >-
+      For a predicted antibody structure, its estimated error: the spread of
+      ImmuneBuilder's four models, as the root mean square deviation of each
+      residue's alpha carbon, averaged over its residues. Each residue's own is
+      its B-factor in the file.
+  cdr_h3_predicted_error:
+    type: quantity
+    label: CDR-H3 predicted error
+    unit: Ao
+    min: 0
+    computed: true
+    indexed: true
+    description: >-
+      The same over CDR-H3's residues (IMGT 105 to 117), usually the least
+      certain part of a predicted antibody structure.

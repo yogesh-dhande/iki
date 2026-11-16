@@ -20,7 +20,8 @@ echo "==> Plugin images install what they lock (requirements.txt is uv.lock, exp
 for lock in plugins/*/images/*/uv.lock; do
   [ -e "$lock" ] || continue
   image=$(dirname "$lock")
-  if ! (cd "$image" && uv export --frozen --no-emit-project --no-header --quiet | diff -q - requirements.txt >/dev/null); then
+  # Never coloured: uv colours its comments when FORCE_COLOR is set, as CI sets it.
+  if ! (cd "$image" && uv export --frozen --no-emit-project --no-header --quiet --color never | diff -u requirements.txt - >&2); then
     echo "$image/requirements.txt isn't its uv.lock: run" \
       "\`uv export --frozen --no-emit-project --no-header -o requirements.txt\` there." >&2
     exit 1

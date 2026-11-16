@@ -272,7 +272,7 @@ records what it read, what it wrote, and the code and machine it ran on.
 ```yaml
 apiVersion: iki/v1
 kind: Action
-name: predict_structure
+name: predict_structure_with_alphafold
 inputs: # leave out for actions that import or fetch
   protein: { type: protein.Protein, schema: ">=2" } # cardinality: one (default) or many
   # include: [encoded_by] # references whose entities the run reads too (ADR 0105)
@@ -294,6 +294,14 @@ secrets: [] # e.g. [LIMS_TOKEN, { name: NCBI_API_KEY, required: false, descripti
 timeout: 8h # 1h by default, at most 7d
 retries: { max: 2, on: [worker_lost, interrupted] }
 ```
+
+An action that several tools could do names the one it uses:
+`predict_structure_with_alphafold` and `predict_structure_with_immunebuilder`,
+never a `predict_structure` whose model goes unnamed. Each tool has its own
+inputs, params, environment, tier and licence terms, so each is its own action:
+an admin can allow one and not another, and the action a structure's run used
+says what made it. A choice among one tool's own models, as `model_preset` is,
+is a param.
 
 The tiers are `client` (the person's own machine), `backend` (Iki's isolated
 worker pods), `container` (the plugin's image on Kubernetes) and `vm`. On the
