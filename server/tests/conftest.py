@@ -167,6 +167,9 @@ def _postgres_server() -> Iterator[str]:
 
     container = PostgresContainer(POSTGRES_IMAGE, username="iki", password="iki", dbname="iki")
     container.with_command(POSTGRES_SETTINGS)
+    # Parallel queries share memory through /dev/shm, which Docker gives 64MB by default:
+    # too little for a search over millions of rows. A deployment's database has more.
+    container.with_kwargs(shm_size="1g")
     with container as pg:
         yield pg.get_connection_url(driver=None)
 

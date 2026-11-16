@@ -117,8 +117,15 @@ web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (nee
 	$(PNPM) --filter @ikisci/app dev
 
 .PHONY: check-scale
-check-scale: ## Load tests: import 10M entities, interrupted halfway (IKI_SCALE_RECORDS sets how many)
+check-scale: check-scale-import check-scale-grid ## Load tests: an import of 10M entities, and the grid at 100M rows
+
+.PHONY: check-scale-import
+check-scale-import: ## Load test: import 10M entities, interrupted halfway (IKI_SCALE_RECORDS sets how many)
 	uv run pytest server/tests/test_scale_import.py --scale -s
+
+.PHONY: check-scale-grid
+check-scale-grid: ## Load test: the grid at 100M rows (IKI_SCALE_GRID_ROWS sets how many)
+	uv run pytest server/tests/test_scale_grid.py --scale -s
 
 .PHONY: check-rust
 check-rust: ## rustfmt, clippy (warnings denied) and cargo test

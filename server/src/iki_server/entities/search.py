@@ -32,7 +32,9 @@ a time limit, so one search can't hold the database for long.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
+import re
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
@@ -96,7 +98,18 @@ class SearchError(Exception):
 
 
 class TooSlow(Exception):  # noqa: N818 - reads as "the search is too slow"
-    """The search ran out of time."""
+    """The search ran out of time, or would: ``detail`` says why, when it's known."""
+
+    def __init__(self, detail: str = "") -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+#: Sorting by a field without an index sorts every match: past this many, too slow for a
+#: page (about half a second a million, ADR 0103).
+UNINDEXED_SORT_MAX = 1_000_000
+#: The columns every entity has that an index orders. The rest of them don't.
+_INDEXED_BUILT_IN = frozenset({"hrid", "created_at", "updated_at"})
 
 
 @dataclass(frozen=True)
@@ -511,6 +524,7 @@ def queryset(
     found = access.visible_of(user, form.model if form else Entity)
     if search.type is not None and search.exact_type:
         found = found.filter(type=search.type)
+
     if search.project is not None:
         found = found.filter(links__project_id=search.project)
     if search.archived is not None:
@@ -552,12 +566,20 @@ def title_text_fields(type_name: str) -> list[str]:
     return sorted(w for w in words if w in fields and fields[w].type in ("string", "text"))
 
 
+#: The start of an HRID, as people type one: its prefix, a hyphen, and some of its number.
+_HRID_START = re.compile(r"[A-Za-z][A-Za-z0-9]{1,7}-[0-9]*")
+
+
 def matching(q: str, type_names: set[str]) -> Q:
     """Entities whose HRID contains ``q``, or whose title's text fields do.
 
     One ``IN`` over a union, not an ``OR``: each part then uses its own trigram index.
+    ``q`` shaped like the start of an HRID (``prt-0001``) finds the HRIDs that start
+    with it, by the HRIDs' own index: their digits' trigrams are in nearly every HRID,
+    so at 100M entities a trigram search for one took most of a second (ADR 0103).
     """
-    parts: list[QuerySet[Any]] = [Entity.objects.filter(hrid__containing=q).values("pk")]
+    hrid = Q(hrid__startswith=q.upper()) if _HRID_START.fullmatch(q) else Q(hrid__containing=q)
+    parts: list[QuerySet[Any]] = [Entity.objects.filter(hrid).values("pk")]
     for name in sorted(type_names):
         entity_type = registry.types()[name]
         if name == "core.Entity" or entity_type.abstract:
@@ -594,35 +616,92 @@ def page(
             ordered = (
                 ordered.filter(pk__lt=after[1]) if descending else ordered.filter(pk__gt=after[1])
             )
-        rows = list(ordered[: limit + 1])
-        more = len(rows) > limit
-        rows = rows[:limit]
-        last = rows[-1] if rows and more else None
-        return rows, _encode(key, None, last.pk) if last is not None else None
+        got = list(ordered[: limit + 1])
+        more = len(got) > limit
+        got = got[:limit]
+        last = got[-1] if got and more else None
+        return got, _encode(key, None, last.pk) if last is not None else None
     assert col is not None  # noqa: S101 - not by ID
     expression = F(col.path)
-    order = (
-        expression.desc(nulls_last=True) if search.descending else expression.asc(nulls_last=True)
-    )
-    ordered = found.annotate(sort_value=expression).order_by(order, "pk")
-    if after is not None:
-        value, pk = _restore(col, after[0]), after[1]
-        if value is None:
-            ordered = ordered.filter(**{f"{col.path}__isnull": True, "pk__gt": pk})
-        else:
-            beyond = "lt" if search.descending else "gt"
-            ordered = ordered.filter(
-                Q(**{f"{col.path}__{beyond}": value})
-                | Q(**{col.path: value, "pk__gt": pk})
-                | Q(**{f"{col.path}__isnull": True})
+    if col.field is None and search.type is not None and not search.exact_type:
+        # Every entity's own columns (when it changed) are indexed after its type. The type's
+        # table holds only it and its subtypes, but saying so lets that index serve.
+        names = sorted(subtypes(search.type))
+        found = found.filter(type=names[0]) if len(names) == 1 else found.filter(type__in=names)
+    ordered = found.annotate(sort_value=expression)
+    value, pk = (_restore(col, after[0]), after[1]) if after is not None else (None, None)
+    in_blanks = after is not None and value is None
+    rows: list[Entity] = []
+    if not in_blanks:
+        # Those with a value first, in an order its index reads: descending, that's with
+        # blanks first, which there are none of here (blanks last, no index would serve),
+        # and ties newest first, as an index on the value and the ID reads backwards.
+        valued = ordered.filter(**{f"{col.path}__isnull": False})
+        if after is not None:
+            near, past, tie = ("lte", "lt", "lt") if search.descending else ("gte", "gt", "gt")
+            valued = valued.filter(
+                Q(**{f"{col.path}__{near}": value}),
+                Q(**{f"{col.path}__{past}": value}) | Q(**{f"pk__{tie}": pk}),
             )
-    rows = list(ordered[: limit + 1])
+        order = (
+            expression.desc(nulls_first=True)
+            if search.descending
+            else expression.asc(nulls_last=True)
+        )
+        valued = valued.order_by(order, "-pk" if search.descending else "pk")
+        if not _indexed(col):
+            _refuse_a_long_sort(valued[: limit + 1], col, form)
+        rows = list(valued[: limit + 1])
+    if len(rows) <= limit:
+        # Then those without one, oldest first.
+        blanks = ordered.filter(**{f"{col.path}__isnull": True}).order_by("pk")
+        if in_blanks:
+            blanks = blanks.filter(pk__gt=pk)
+        rows += list(blanks[: limit + 1 - len(rows)])
     more = len(rows) > limit
     rows = rows[:limit]
     last = rows[-1] if rows and more else None
     if last is None:
         return rows, None
     return rows, _encode(key, _plain(getattr(last, "sort_value", None)), last.pk)
+
+
+def _indexed(col: Column) -> bool:
+    if col.field is None:
+        return col.name in _INDEXED_BUILT_IN
+    return col.field.indexed
+
+
+def _refuse_a_long_sort(query: QuerySet[Entity], col: Column, form: Shape | None) -> None:
+    """Raises :class:`TooSlow` at once, rather than after its time, if Postgres expects to
+    sort more than :data:`UNINDEXED_SORT_MAX` rows to answer."""
+    rows = _sorted_rows(json.loads(query.explain(format="json"))[0]["Plan"])
+    if rows <= UNINDEXED_SORT_MAX:
+        return
+    what = (form.entity_type.label_plural.lower() or "entities") if form else "entities"
+    label = col.field.label if col.field is not None and col.field.label else col.name
+    raise TooSlow(
+        f"Sorting about {_about(rows)} {what} by {label} would take too long: it isn't "
+        "indexed. Narrow the search with conditions on indexed fields, or sort by an "
+        "indexed field."
+    )
+
+
+def _sorted_rows(plan: Mapping[str, Any], workers: int = 1) -> float:
+    """The most rows a sort in the plan takes, by Postgres's estimate: a parallel plan's
+    are each worker's, and the leader's."""
+    if plan["Node Type"] in ("Gather", "Gather Merge"):
+        workers = plan.get("Workers Planned", 0) + 1
+    own = plan["Plan Rows"] * workers if plan["Node Type"] == "Sort" else 0.0
+    return max([own, *(_sorted_rows(p, workers) for p in plan.get("Plans", []))])
+
+
+def _about(rows: float) -> str:
+    """A count, roughly: 120 million, 3.4 million, 20,000."""
+    if rows >= 1_000_000:
+        millions = rows / 1_000_000
+        return f"{millions:.0f} million" if millions >= 10 else f"{millions:.1f} million"
+    return f"{round(rows, -3):,.0f}"
 
 
 def _plain(value: Any) -> Any:  # noqa: ANN401 - a column's value
@@ -661,6 +740,18 @@ def time_limit(ms: int = TIME_LIMIT_MS) -> Iterator[None]:
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute("SELECT set_config('statement_timeout', %s, true)", [f"{ms}ms"])
+                # A page is at most a hundred rows, of a join of a type's tables (its own,
+                # its parents', Entity's), its projects' and its caller's (ADR 0103):
+                # - Postgres reorders at most 8 by default; past that it joins them as
+                #   written, matches last, reading every row before narrowing to a few.
+                # - A merge join reads each table's key from its start: a page deep into
+                #   100M rows would read 100M of each. Looking each row up in the others,
+                #   by key, reads a page's worth wherever the page is.
+                cursor.execute(
+                    "SELECT set_config('join_collapse_limit', '12', true), "
+                    "set_config('from_collapse_limit', '12', true), "
+                    "set_config('enable_mergejoin', 'off', true)"
+                )
             yield
     except OperationalError as error:
         if getattr(error.__cause__, "sqlstate", None) == "57014":  # query_canceled

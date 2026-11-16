@@ -506,6 +506,11 @@ def test_q_finds_entities_by_hrid_or_the_text_in_their_title(world: World) -> No
     assert found(q="lysoZ", type="protein.Protein") == [lysozyme["hrid"]]
     assert found(q="lysoz") == [lysozyme["hrid"], dna["hrid"]]
     assert found(q=other.json()["hrid"].lower()) == [other.json()["hrid"]]
+    # The start of an HRID finds those it starts; a part of one, those it's in.
+    prefix = other.json()["hrid"].split("-")[0]
+    assert other.json()["hrid"] in found(q=f"{prefix.lower()}-0")
+    assert found(q=f"{prefix[1:]}-0") == []
+    assert other.json()["hrid"] in found(q=other.json()["hrid"][2:])
     # Subtypes are searched through their parent: a Sequence can be either.
     assert found(q="lysozyme", type="dna.Sequence") == [lysozyme["hrid"], dna["hrid"]]
     assert found(q="  ", type="protein.Protein") == [lysozyme["hrid"], other.json()["hrid"]]

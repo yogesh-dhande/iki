@@ -360,8 +360,9 @@ def test_sorted_by_a_field_with_unset_values_last(world: World, lab: dict[str, A
     body: dict[str, Any] = {"type": "protein.Protein", "sort": {"field": "organism"}}
     # Ties (the two human proteins) keep the order they were made in, across pages.
     assert find(world, body) == ["lacz", "abl1", "src", "mystery"]
+    # Descending reverses it, ties too, as an index reads backwards; unset values stay last.
     body["sort"]["descending"] = True
-    assert find(world, body) == ["abl1", "src", "lacz", "mystery"]
+    assert find(world, body) == ["src", "abl1", "lacz", "mystery"]
     by_age = {"type": "dna.Sequence", "sort": {"field": "created_at", "descending": True}}
     assert find(world, by_age) == [
         "mystery",
@@ -371,6 +372,25 @@ def test_sorted_by_a_field_with_unset_values_last(world: World, lab: dict[str, A
         lab["lambda"]["hrid"],
         "pUC19 kinase",
     ]
+
+
+def test_a_sort_too_long_for_a_page_is_refused_at_once(
+    world: World, lab: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A field without an index sorts every match: past what a page can sort in time,
+    the search says so before it starts, not when its time is up (ADR 0103)."""
+    monkeypatch.setattr(search, "UNINDEXED_SORT_MAX", 0)
+    api = api_as(world, "viewer")
+    body = {"type": "protein.Protein", "sort": {"field": "temperature_optimum"}}
+    refused = problem(api.post("/entities/search", body), 422, "search_too_slow")
+    assert refused["detail"].startswith("Sorting about ")
+    assert refused["detail"].endswith(
+        " proteins by Temperature optimum would take too long: it isn't indexed. Narrow "
+        "the search with conditions on indexed fields, or sort by an indexed field."
+    )
+    # An indexed field's index orders it, however many there are.
+    indexed = {"type": "protein.Protein", "sort": {"field": "molecular_weight"}}
+    assert api.post("/entities/search", indexed).status_code == 200
 
 
 def test_cursors_belong_to_their_search(world: World, lab: dict[str, Any]) -> None:

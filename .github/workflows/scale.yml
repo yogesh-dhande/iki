@@ -37,4 +37,35 @@ jobs:
       - name: Install (locked)
         run: uv sync --locked
       - name: Import 10M entities
-        run: make check-scale
+        run: make check-scale-import
+
+  grid:
+    name: The grid at 10M rows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      # 10M rows are a 12 GB database, and its indexes are rebuilt beside it: the
+      # runner's disk has room once the toolchains this job doesn't use are gone. 100M
+      # rows (119 GB) is `make check-scale-grid` on a machine with the disk, before a
+      # release (docs/adr/0103).
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune --all --force
+          df -h / /var/lib/docker
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.14"
+          enable-cache: true
+      - name: Install (locked)
+        run: uv sync --locked
+      - name: Open the grid's pages at 10M rows
+        env:
+          IKI_SCALE_GRID_ROWS: "10000000"
+        run: make check-scale-grid

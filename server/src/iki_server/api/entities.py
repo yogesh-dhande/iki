@@ -787,8 +787,9 @@ def _searching(*, parameters: bool = False) -> Iterator[None]:
     except search.TooSlow as error:
         raise Problem(
             422,
-            "This search took too long. Narrow it with conditions on indexed fields, or sort "
-            "by an indexed field.",
+            error.detail
+            or "This search took too long. Narrow it with conditions on indexed fields, or "
+            "sort by an indexed field.",
             code="search_too_slow",
         ) from error
 
