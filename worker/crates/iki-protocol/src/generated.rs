@@ -224,6 +224,43 @@ pub struct RunOutputOrigin {
     /// The file it was read from: one of the run's file params.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made: Option<RunOutputMade>,
+}
+
+/// How the source says it made the entity, as its record states it, never guessed: from mmCIF's `_exptl` and `_software`, say, or ModelCIF's `_ma_` categories. Iki shows it as the source's statement, not its own record (ADR 0106).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunOutputMade {
+    /// Measured, such as by X-ray diffraction, or computed, such as predicted by a model.
+    pub kind: RunOutputMadeKind,
+    /// The method as the source names it, such as `X-RAY DIFFRACTION`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    /// The tools it says made it, such as AlphaFold 2.3.2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub software: Option<Vec<RunOutputMadeSoftwareItem>>,
+    /// What else it states about the making, by name, such as a model's mean pLDDT.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<std::collections::BTreeMap<String, serde_json::Value>>,
+}
+
+/// Measured, such as by X-ray diffraction, or computed, such as predicted by a model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RunOutputMadeKind {
+    #[serde(rename = "experimental")]
+    Experimental,
+    #[serde(rename = "computational")]
+    Computational,
+    /// A value this version of the protocol doesn't know.
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunOutputMadeSoftwareItem {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// A new entity, of a type the action declares it creates.
@@ -240,6 +277,9 @@ pub struct RunOutputCreate {
     pub derived_from: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<RunOutputOrigin>,
+    /// Which of the action's `software` made it, by name, when the action lists more than one and the run chose. Leave it out to mean all of them (ADR 0106).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made_with: Option<Vec<String>>,
 }
 
 /// What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.

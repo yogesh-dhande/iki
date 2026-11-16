@@ -638,6 +638,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
+    ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),
     ("GET", "/entities/{ref}/bundles", entity("/bundles"), readers(200)),
     ("GET", "/entities/{ref}/lineage", entity("/lineage"), readers(200)),
     ("GET", "/entities/{ref}/lineage/graph", entity("/lineage/graph"), readers(200)),

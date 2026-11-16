@@ -80,8 +80,18 @@
             "required": ["name"],
             "additionalProperties": false,
             "properties": {
-              "name": { "$ref": "#/$defs/software_text" },
-              "version": { "$ref": "#/$defs/software_text" }
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "pattern": "^[^\\s](.*[^\\s])?$"
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "pattern": "^[^\\s](.*[^\\s])?$"
+              }
             }
           }
         },
@@ -99,12 +109,6 @@
           }
         }
       }
-    },
-    "software_text": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 100,
-      "pattern": "^[^\\s](.*[^\\s])?$"
     },
     "create": {
       "type": "object",
@@ -137,7 +141,12 @@
           "minItems": 1,
           "maxItems": 20,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/software_text" },
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "pattern": "^[^\\s](.*[^\\s])?$"
+          },
           "description": "Which of the action's `software` made it, by name, when the action lists more than one and the run chose. Leave it out to mean all of them (ADR 0106)."
         }
       }
