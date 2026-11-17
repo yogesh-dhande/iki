@@ -35,7 +35,7 @@ run "the_audit_control_plane_network_and_database_logs_go_there" {
 
 run "reads_of_files_secrets_and_keys_are_logged" {
   assert {
-    condition     = toset(keys(google_project_iam_audit_config.data_access)) == toset(["storage.googleapis.com", "secretmanager.googleapis.com", "cloudkms.googleapis.com", "sqladmin.googleapis.com"])
+    condition     = toset(keys(google_project_iam_audit_config.data_access)) == toset(["storage.googleapis.com", "secretmanager.googleapis.com", "cloudkms.googleapis.com", "cloudsql.googleapis.com"])
     error_message = "Data Access logs should be on for files, secrets, keys and the database."
   }
   assert {

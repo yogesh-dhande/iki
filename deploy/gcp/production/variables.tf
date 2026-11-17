@@ -240,7 +240,7 @@ variable "recovery" {
 variable "data_access_services" {
   description = "Services whose Data Access audit logs are turned on (the logs module's): reads and writes of files, secrets, keys and the database's settings. They're project-wide, for every workload in the project, and each service named is set authoritatively."
   type        = list(string)
-  default     = ["storage.googleapis.com", "secretmanager.googleapis.com", "cloudkms.googleapis.com", "sqladmin.googleapis.com"]
+  default     = ["storage.googleapis.com", "secretmanager.googleapis.com", "cloudkms.googleapis.com", "cloudsql.googleapis.com"]
 }
 
 variable "deletion_protection" {

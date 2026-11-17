@@ -19,7 +19,7 @@ variable "location" {
 }
 
 variable "data_locations" {
-  description = "The two regions of a custom dual-region, such as [\"europe-west1\", \"europe-west4\"]: the region Iki runs in and its DR region, both in location. Empty for a predefined location."
+  description = "The two regions of a dual-region, such as [\"europe-west1\", \"europe-west4\"]: the region Iki runs in and its DR region, both in location. A pair with a predefined dual-region (us-central1 and us-east1: NAM4) is made as that one. Empty for a predefined location."
   type        = list(string)
   default     = []
 

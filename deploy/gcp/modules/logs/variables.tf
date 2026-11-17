@@ -43,5 +43,5 @@ variable "locked" {
 variable "data_access_services" {
   description = "Services whose Data Access audit logs are turned on: reads and writes of files, secrets and keys. Project-wide, and authoritative for each service named."
   type        = list(string)
-  default     = ["storage.googleapis.com", "secretmanager.googleapis.com", "cloudkms.googleapis.com", "sqladmin.googleapis.com"]
+  default     = ["storage.googleapis.com", "secretmanager.googleapis.com", "cloudkms.googleapis.com", "cloudsql.googleapis.com"]
 }

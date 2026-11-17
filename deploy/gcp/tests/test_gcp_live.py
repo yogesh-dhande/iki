@@ -77,7 +77,8 @@ REPO = Path(__file__).resolve().parents[3]
 EXTERNAL_SECRETS = ("https://charts.external-secrets.io", "2.15.0")
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
-DATA_ACCESS = ("secretmanager.googleapis.com", "cloudkms.googleapis.com", "sqladmin.googleapis.com")
+# Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
+DATA_ACCESS = ("secretmanager.googleapis.com", "cloudkms.googleapis.com", "cloudsql.googleapis.com")
 #: Credentials the caller's environment might hold, which the tools mustn't use instead of
 #: the token (Gcp).
 _CREDENTIAL_VARIABLES = {
