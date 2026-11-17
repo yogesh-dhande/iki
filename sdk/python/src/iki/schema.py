@@ -34,6 +34,8 @@ class ActionOut(TypedDict):
     estimate: EstimateOut | None
     inputs: list[InputOut]
     label: str
+    #: For a self-hosted action: what a machine must have to run it here, from its environment and this deployment (ADR 0112).
+    labels: list[str]
     #: The numbers its runs report about themselves, which a workflow step's `when` may read. A run may report others.
     metrics: list[MetricOut]
     #: The qualified name, such as `protein.compute_properties`.
@@ -2208,6 +2210,8 @@ class RunAttemptOut(TypedDict):
     volumes: dict[str, AttemptVolumeOut]
     #: The name of the worker that ran it.
     worker: str | None
+    #: A self-hosted worker's labels when it leased the attempt (ADR 0112).
+    worker_labels: list[str]
 
 
 class RunBatchIn(TypedDict):
@@ -2219,6 +2223,8 @@ class RunBatchIn(TypedDict):
     entities: list[str]
     #: Every run's other inputs, as for one run.
     inputs: NotRequired[dict[str, str | list[str]]]
+    #: For a self-hosted action, every run: labels the machine must have, besides the ones the action needs here, such as `lab-3` for one lab's instrument (ADR 0112). They only narrow which machines take it.
+    labels: NotRequired[list[str]]
     #: Every run's params.
     params: NotRequired[dict[str, Any]]
     #: Where they run. Entities they create belong to it.
@@ -2303,6 +2309,8 @@ class RunIn(TypedDict):
     add_to_project: NotRequired[bool]
     #: Entity IDs for each input: one, or a list for inputs that take many.
     inputs: NotRequired[dict[str, str | list[str]]]
+    #: For a self-hosted action: labels the machine must have, besides the ones the action needs here, such as `lab-3` for one lab's instrument (ADR 0112). They only narrow which machines take it.
+    labels: NotRequired[list[str]]
     params: NotRequired[dict[str, Any]]
     #: Where it runs. Entities it creates belong to it.
     project: str
@@ -2369,6 +2377,8 @@ class RunOut(TypedDict):
     #: What its inputs' references named, that it read too, when its action's inputs include them (ADR 0105).
     included: list[RunInclusionOut]
     inputs: list[RunInputOut]
+    #: What a self-hosted machine must have to run it (ADR 0112): its action's environment's labels, the deployment's and its launcher's. Empty on other tiers.
+    labels: list[str]
     messages: list[MessageOut]
     metrics: dict[str, float]
     #: Why a queued self-hosted run has no worker to take it (ADR 0112): `unregistered` when no self-hosted worker's teams cover its project, `offline` when those that do are offline, `busy` when they're all running other jobs. A Compute admin registers one under Compute → Workers.

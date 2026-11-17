@@ -117,6 +117,7 @@ describe("starting a run", () => {
       reason: "Weekly batch",
       reuse: true,
       add_to_project: false,
+      labels: [],
     });
     expect(await screen.findByText("Started RUN-000001.")).toBeVisible();
   });
@@ -179,6 +180,7 @@ describe("starting a run", () => {
       reason: "",
       reuse: true,
       add_to_project: false,
+      labels: [],
     });
 
     answer(`POST /api/v1/actions/${ACTION.name}/runs/batch`, () => ({
@@ -346,7 +348,48 @@ describe("starting a run", () => {
       reason: "",
       reuse: true,
       add_to_project: false,
+      labels: [],
     });
+  });
+
+  it("narrows a self-hosted run to machines with the labels its launcher gives", async () => {
+    const hplc: Schemas["ActionOut"] = {
+      ...COMPUTE,
+      tier: "self_hosted",
+      environment: "chromatography",
+      labels: ["chromeleon"],
+    };
+    onProject();
+    answer("GET /api/v1/actions", [hplc]);
+    answer(`POST /api/v1/actions/${ACTION.name}/runs`, () => run());
+    answer("GET /api/v1/runs/RUN-000001", run());
+    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    const { user } = await renderApp("/projects/kinase-atlas/runs/new/?entities=PRT-000001");
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Action" }),
+      "Compute properties",
+    );
+    expect(await screen.findByText(/^It runs on a machine/)).toHaveTextContent(
+      "It runs on a machine its team registered with Iki labelled chromeleon, in the chromatography environment",
+    );
+    await user.type(screen.getByRole("textbox", { name: /Machine labels/ }), "Lab-3, bay-2");
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => {
+      expect(calls("POST", `/api/v1/actions/${ACTION.name}/runs`).at(-1)?.body).toMatchObject({
+        labels: ["lab-3", "bay-2"],
+      });
+    });
+  });
+
+  it("asks for machine labels only for self-hosted runs", async () => {
+    onProject();
+    const { user } = await renderApp("/projects/kinase-atlas/runs/new/?entities=PRT-000001");
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Action" }),
+      "Compute properties",
+    );
+    expect(await screen.findByText("Weighs a protein from its sequence.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /Machine labels/ })).not.toBeInTheDocument();
   });
 
   it("says when the person can't run anything in the project", async () => {

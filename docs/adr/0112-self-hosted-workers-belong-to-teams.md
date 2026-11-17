@@ -70,13 +70,39 @@ covers, which queue again for a worker that does. Changing labels doesn't
 interrupt anything: what's running was matched when it was leased. Revoking
 works as for any worker.
 
-**Labels say what a machine has.** They are lowercase words such as
-`chromeleon`, `lab-3` or `gpu`, at most 30. Only self-hosted workers have
-them.
+**Labels say what a machine has, and a run takes only a machine with every
+label it needs.** Labels are lowercase words such as `chromeleon`, `lab-3`
+or `gpu`, at most 30. Only self-hosted workers and runs have them. A run's
+come from three places, as GitHub's `runs-on` and GitLab's job `tags` say
+what a job needs:
+
+- **its environment**, in the plugin: what any machine must have, such as
+  the software its actions drive (`chromeleon`). A plugin runs on many
+  deployments, so it names what's needed, never where.
+- **the deployment's binding** of that environment in `compute.yaml`: what
+  this deployment's machines need for it, such as the lab whose
+  instruments they are (`lab-3`). Compute admins and the plugin's owners
+  review it as they do templates.
+- **its launcher**, who may add labels when they start it, to choose one
+  lab's instrument, say. These only narrow: they can't take away what the
+  action needs.
+
+The run keeps them, as its attempts do, so a retry or a reproduction needs
+the same machine. Each attempt records its worker's labels when it leased,
+since an admin may change them later.
+
+**The lease skips what a worker can't run without reading it.** The skip
+scan of ADR 0108 steps through each project's distinct sets of labels with
+jobs queued, on an index of tier, project and labels
+(`iki_job_queued_by_labels`, which replaces `iki_job_queued_by_project`,
+built before the old one is dropped). The worker's projects
+and labels filter those before any job is read, so a lease costs as many
+index lookups as there are projects and label sets with work queued, however
+deep the queue.
 
 **A run says why it waits.** A queued self-hosted run says whether no
-worker covers its project, or one does but every such worker is offline or
-busy. Compute admins get a link to register one. Each job records which
+worker covers its project with every label it needs, or one does but every
+such worker is offline or busy. Compute admins get a link to register one. Each job records which
 worker ran it, and the run page names that worker.
 
 **People's own workers, the `worker` scope and the `iki-worker` OAuth client
@@ -122,5 +148,12 @@ client, with nothing to convert.
   team's bench mustn't run another team's runs just because it has the
   right software.
 - **Matching in the database by scanning the queue for runs a worker
-  covers.** That's the full queue scan ADR 0108 removed. The scope filters
-  the projects the skip-scan visits instead.
+  covers.** That's the full queue scan ADR 0108 removed. The scope and the
+  labels filter what the skip scan visits instead.
+- **Labels only from plugins.** A plugin can't know a deployment's labs or
+  machines, and a launcher couldn't pick an instrument. **Labels only from
+  the launcher** would leave each person to know what each action needs.
+- **Labels the worker reports, such as its operating system.** GitHub's
+  runners add these. Iki's worker runs on Linux and macOS alike, and an
+  admin can give a machine `linux` or `macos` if a plugin needs it; they can
+  come later.

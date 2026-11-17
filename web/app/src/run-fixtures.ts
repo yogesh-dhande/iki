@@ -26,6 +26,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     trigger: null,
     tier: "backend",
     environment: "sequence-tools",
+    labels: [],
     params: { ph: 7.4 },
     settings: {},
     network: [],
@@ -104,6 +105,7 @@ export function attempt(
     attempt: 1,
     state: "running",
     worker: "pod-7",
+    worker_labels: [],
     environment_build: "sha256:4f2a9c1e7b3d5a6f8e9d0c1b2a3f4e5d",
     template: "",
     queued_at: "2026-03-14T09:00:00Z",
@@ -155,6 +157,7 @@ export const ACTION = {
   description: null,
   tier: "backend",
   environment: "sequence-tools",
+  labels: [],
   inputs: [
     {
       name: "protein",

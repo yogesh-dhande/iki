@@ -18,6 +18,13 @@
       "uniqueItems": true,
       "items": { "$ref": "https://ikisci.org/schemas/action/v1#/$defs/tier" }
     },
+    "labels": {
+      "description": "What a self-hosted machine must have to run it, such as `chromeleon` for the software or `gpu`: a self-hosted run goes only to a machine with every one of them (ADR 0112). Name what it needs, not where: a deployment adds its own in its binding. Only for an environment on the self-hosted tier.",
+      "type": "array",
+      "maxItems": 30,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/label" }
+    },
     "resources": {
       "description": "The smallest machine its actions run on.",
       "$ref": "#/$defs/resources"
@@ -86,6 +93,12 @@
   "allOf": [{ "not": { "required": ["python", "conda"] } }],
   "additionalProperties": false,
   "$defs": {
+    "label": {
+      "description": "A label, such as `chromeleon`, `gpu` or `lab-3`: lowercase letters, digits, dots, dashes and underscores, starting and ending with a letter or digit.",
+      "type": "string",
+      "maxLength": 50,
+      "pattern": "^[a-z0-9]([a-z0-9._-]{0,48}[a-z0-9])?$"
+    },
     "name": {
       "description": "A name in kebab-case, such as `alphafold-gpu`.",
       "type": "string",

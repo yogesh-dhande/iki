@@ -75,7 +75,21 @@ templates: [{ template: backend-small }]
 pins: each template is big enough for the environment, each action fits one
 of them, and each data volume has a way to reach the machines. It warns
 about actions this deployment can't run. Without `compute.yaml`, only
-self-hosted actions run. The full format is in the
+self-hosted actions run.
+
+A binding of a self-hosted environment names the labels this deployment's
+machines need for it instead, such as the lab whose instruments its runs
+drive. A run goes only to a registered machine with every label its
+environment and its binding name (ADR 0112):
+
+```yaml
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: chromatography.chromeleon
+labels: [lab-3]
+```
+
+The full format is in the
 [spec](../../spec/README.md#a-deployments-compute). Ask the plugin's owners
 and your compute admins to review changes, with `CODEOWNERS` if you use it.
 

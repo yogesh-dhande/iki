@@ -496,6 +496,9 @@ class ActionRun(models.Model):
     workflow_step = models.CharField(max_length=63, blank=True, default="")
     tier = models.CharField(max_length=16)
     environment = models.CharField(max_length=63)
+    #: What a self-hosted machine must have to run it (ADR 0112): its environment's labels,
+    #: its deployment binding's and its launcher's, sorted. Empty on other tiers.
+    labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
     #: Every param's value, defaults filled in.
     params = models.JSONField(default=dict)
     #: The plugin's settings, as the deployment set them at launch (never secrets).
@@ -1157,6 +1160,8 @@ class Job(models.Model):
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
     tier = models.CharField(max_length=16)
     environment = models.CharField(max_length=200, db_comment="plugin.environment")
+    #: Its run's labels: only a self-hosted worker with every one of them leases it.
+    labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
     #: The digest of the environment build its worker ran it with, for provenance; empty
     #: when the worker used its host's own software.
     environment_build = models.CharField(max_length=100, blank=True, default="")
@@ -1175,6 +1180,9 @@ class Job(models.Model):
     worker = models.ForeignKey(
         Worker, null=True, blank=True, on_delete=models.PROTECT, related_name="jobs"
     )
+    #: The labels its worker had when it leased it, for the record: an admin may change
+    #: them later.
+    worker_labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
     #: From 0 to 1, as the command reports it, with what it's doing.
     progress = models.FloatField(null=True, blank=True)
     progress_message = models.CharField(max_length=500, blank=True, default="")
@@ -1211,15 +1219,17 @@ class Job(models.Model):
                 name="iki_job_queued",
                 condition=Q(state=JobState.QUEUED),
             ),
-            # What a lease weighs: each project's best queued jobs on a tier, and the
-            # projects that have any, found by skipping from one to the next.
+            # What a lease weighs: each project's best queued jobs on a tier with the
+            # same labels, and the projects and labels that have any, found by skipping
+            # from one to the next (ADR 0108, 0112).
             models.Index(
                 "tier",
                 "project",
+                "labels",
                 models.F("priority").desc(),
                 "queued_at",
                 "id",
-                name="iki_job_queued_by_project",
+                name="iki_job_queued_by_labels",
                 condition=Q(state=JobState.QUEUED),
             ),
             # How many jobs each project has running, which the lease ranks projects by:

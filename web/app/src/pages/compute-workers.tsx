@@ -14,6 +14,7 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { iki, meQuery, problemOf, useApiMutation } from "../api";
 import {
   COMPUTE,
+  parseLabels,
   quotaScopesQuery,
   registrationsQuery,
   TIER_NAME,
@@ -290,14 +291,6 @@ function Labels({ labels }: { labels: readonly string[] }) {
       ))}
     </span>
   );
-}
-
-/** "chromeleon, lab-3" (or spaces) as labels. The server checks and sorts them. */
-export function parseLabels(text: string): string[] {
-  return text
-    .split(/[\s,]+/)
-    .map((label) => label.trim().toLowerCase())
-    .filter(Boolean);
 }
 
 const LABELS_HELP =

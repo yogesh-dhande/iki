@@ -222,6 +222,37 @@ def test_bindings_name_real_environments_and_templates(
     assert problem.hint == "Did you mean `backend-small`?"
 
 
+def test_a_binding_gives_self_hosted_runs_this_deployments_labels(
+    tmp_path: Path, plugins: list[Plugin]
+) -> None:
+    labelled = (
+        "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: protein.protein-tools\n"
+        "labels: [lab-3, chromeleon]\n"
+    )
+    others = "---\n".join(BINDINGS.split("---\n")[1:])
+    result = load(tmp_path, plugins, BACKEND, A100, others, labelled)
+    assert result.ok, [(p.code, p.message) for p in result.problems]
+    assert result.compute is not None
+    bound = result.compute.bindings["protein.protein-tools"]
+    assert (bound.templates, bound.labels) == ((), ("chromeleon", "lab-3"))
+    data = json.loads(json.dumps(compute_to_dict(result.compute)))
+    assert compute_from_dict(data) == result.compute
+    # Templates and labels together, for an environment on both kinds of tier.
+    both = BINDINGS.replace(
+        "templates: [{ template: backend-small }]",
+        "templates: [{ template: backend-small }]\nlabels: [lab-3]",
+    )
+    assert load(tmp_path, plugins, BACKEND, A100, both).problems == []
+    # Labels pick self-hosted machines: not for an environment that never runs on one.
+    vm = BINDINGS.replace(
+        "templates: [{ template: a100-spot }]", "templates: [{ template: a100-spot }]\nlabels: [x]"
+    )
+    assert only(load(tmp_path, plugins, BACKEND, A100, vm), "labels-wrong-tier")
+    # A binding gives templates, labels or both.
+    empty = "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: protein.protein-tools\n"
+    assert not load(tmp_path, plugins, BACKEND, A100, others, empty).ok
+
+
 def test_templates_match_the_environments_tiers(tmp_path: Path, plugins: list[Plugin]) -> None:
     binding = BINDINGS.replace(
         "templates: [{ template: backend-small }]", "templates: [{ template: a100-spot }]"

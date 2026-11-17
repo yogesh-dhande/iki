@@ -156,11 +156,12 @@ const STATUS_CHOICES = [
 ] as const;
 
 /** Why a self-hosted run has no machine to take it (ADR 0112), and who can fix that. */
-function NeedsWorker({ why }: { why: NonNullable<Run["needs_worker"]> }) {
+function NeedsWorker({ why, labels }: { why: NonNullable<Run["needs_worker"]>; labels: string[] }) {
   const me = useSuspenseQuery(meQuery).data;
   const said = {
-    unregistered:
-      "Waiting for a self-hosted worker: no machine is registered for this project. A Compute admin registers one for its team.",
+    unregistered: labels.length
+      ? `Waiting for a self-hosted worker: no machine registered for this project has the labels ${labels.join(", ")}. A Compute admin registers one for its team, or gives one those labels.`
+      : "Waiting for a self-hosted worker: no machine is registered for this project. A Compute admin registers one for its team.",
     offline:
       "Waiting for a self-hosted worker: the machines registered for this project are offline. It starts when one of them is back.",
     busy: "Waiting for a self-hosted worker: the machines registered for this project are busy with other runs. It starts when one is free.",
@@ -1014,7 +1015,7 @@ function AttemptRow({
         </span>
         <span className="row-meta">
           {attempt.worker
-            ? `On ${attempt.worker}`
+            ? `On ${attempt.worker}${attempt.worker_labels.length ? ` (${attempt.worker_labels.join(", ")})` : ""}`
             : there
               ? `On ${there}`
               : attempt.started_at
@@ -1219,7 +1220,7 @@ export function RunPage() {
           <p>Waiting to start: {run.waiting}</p>
         </div>
       ) : null}
-      {run.needs_worker ? <NeedsWorker why={run.needs_worker} /> : null}
+      {run.needs_worker ? <NeedsWorker why={run.needs_worker} labels={run.labels} /> : null}
       {run.reused ? <ReusedNote run={run} /> : null}
       {run.reproduces || run.reproduction ? <ReproductionNote run={run} /> : null}
       {run.error ? (
@@ -1500,6 +1501,18 @@ export function RunPage() {
           <dt>Ran on</dt>
           <dd>
             {run.tier === "self_hosted" ? "A self-hosted worker" : `A ${run.tier} worker`}
+            {run.labels.length ? (
+              <>
+                {" "}
+                labelled{" "}
+                {run.labels.map((label, index) => (
+                  <span key={label}>
+                    {index ? ", " : null}
+                    <code>{label}</code>
+                  </span>
+                ))}
+              </>
+            ) : null}
             {run.environment ? (
               <>
                 , in the <code>{run.environment}</code> environment

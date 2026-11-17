@@ -9,7 +9,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { renderApp } from "./entity-fixtures";
-import { capacityText, parseLabels, scopeText } from "./pages/compute-workers";
+import { parseLabels } from "./compute";
+import { capacityText, scopeText } from "./pages/compute-workers";
 import { answer, calls, ME, page, signedIn } from "./test-server";
 
 const COMPUTE_ADMIN = { ...ME.can, manage_compute: true };

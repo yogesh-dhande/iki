@@ -180,7 +180,9 @@ class Template:
 class Binding:
     environment: str  # plugin.environment
     #: (template, priority), in the order given.
-    templates: tuple[tuple[str, int], ...]
+    templates: tuple[tuple[str, int], ...] = ()
+    #: What this deployment's machines need for its self-hosted runs, sorted (ADR 0112).
+    labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -283,7 +285,10 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
         else:
             binding = Binding(
                 environment=data["environment"],
-                templates=tuple((t["template"], t.get("priority", 0)) for t in data["templates"]),
+                templates=tuple(
+                    (t["template"], t.get("priority", 0)) for t in data.get("templates", ())
+                ),
+                labels=tuple(sorted(set(data.get("labels", ())))),
             )
             if binding.environment in bindings:
                 problems.add(
@@ -698,6 +703,15 @@ class _Rules:
                 ),
             )
             return
+        if binding.labels and "self_hosted" not in env.tiers:
+            self.add(
+                "labels-wrong-tier",
+                f"Labels pick self-hosted machines, and `{binding.environment}` runs on "
+                + ", ".join(env.tiers)
+                + ".",
+                document,
+                ("labels",),
+            )
         seen: set[str] = set()
         bound: list[Template] = []
         for index, (name, _) in enumerate(binding.templates):
@@ -866,6 +880,7 @@ def compute_from_dict(data: dict[str, Any]) -> Compute:
             n: Binding(
                 environment=b["environment"],
                 templates=tuple((name, priority) for name, priority in b["templates"]),
+                labels=tuple(b.get("labels", ())),
             )
             for n, b in data["bindings"].items()
         },

@@ -47,6 +47,7 @@ from iki_server.runs import (
     queue,
     quotas,
     reuse,
+    workers,
 )
 from iki_server.runs.input_files import is_file_list
 from iki_server.runs.models import (
@@ -174,6 +175,7 @@ def launch(
     add_to_project: bool = False,
     workflow: WorkflowRun | None = None,
     workflow_step: str = "",
+    labels: Sequence[str] = (),
 ) -> ActionRun:
     """Queue a run of `action` in `project`, or raise why it can't run. For a deterministic
     action, an identical earlier run's results are reused instead, unless `reuse_results`
@@ -185,6 +187,7 @@ def launch(
     :class:`OutsideProject` for inputs that aren't in the project.
     """
     may_launch(user, action, project)
+    wanted = launch_labels(action, labels)
     errors: dict[str, list[str]] = {}
     entities = check_inputs(user, action, inputs, errors)
     values = check_params(user, action, project, params, errors)
@@ -207,7 +210,16 @@ def launch(
         budgets.check_launch(project, action)
         approval = approvals.ask(user, action, project)
         run = _queue(
-            user, action, project, entities, values, reason, approval, made=made, step=step
+            user,
+            action,
+            project,
+            entities,
+            values,
+            reason,
+            approval,
+            made=made,
+            step=step,
+            labels=wanted,
         )
         if approval is not None:
             approvals.announce(
@@ -230,12 +242,14 @@ def launch_each(
     add_to_project: bool = False,
     workflow: WorkflowRun | None = None,
     workflow_step: str = "",
+    labels: Sequence[str] = (),
 ) -> list[ActionRun]:
     """Queue one run of `action` for each of `entity_ids` as its `each` input, the others the
     same for all, or none of them: raises as :func:`launch` does, with problems with the
     entities under ``entities``. A workflow's step names its `workflow` run and
     `workflow_step` (ADR 0079)."""
     may_launch(user, action, project)
+    wanted = launch_labels(action, labels)
     errors: dict[str, list[str]] = {}
     put = action.inputs.get(each)
     if put is None:
@@ -323,6 +337,7 @@ def launch_each(
                 batch=batch,
                 made=m,
                 step=step,
+                labels=wanted,
             )
             for entity, m in zip(chosen, made, strict=True)
         ]
@@ -361,6 +376,17 @@ def may_launch(user: User, action: Action, project: Project) -> None:
         raise Refused(available.reason or "This action can't run on this deployment.")
 
 
+def launch_labels(action: Action, given: Sequence[str]) -> list[str]:
+    """What a launcher asks of a self-hosted machine besides what `action` needs (ADR
+    0112), as Iki keeps labels. They only narrow which machines take it. Raises
+    :class:`Refused` for an action on another tier, which has no labels."""
+    if not given:
+        return []
+    if action.tier != workers.SELF_HOSTED:
+        raise Refused("Only self-hosted runs go to machines by their labels.", field="labels")
+    return workers.clean_labels(tuple(given))
+
+
 def plugin_settings(action: Action) -> dict[str, Any]:
     """The deployment's values for the settings of `action`'s plugin, which its runs get.
     Raises :class:`Refused` if the plugins were built without them."""
@@ -386,10 +412,12 @@ def _queue(
     made: _Made | None = None,
     copy_of: ActionRun | None = None,
     step: tuple[WorkflowRun, str] | None = None,
+    labels: Sequence[str] = (),
 ) -> ActionRun:
     """Queues the run, or holds it for `approval`. Call inside a transaction, with its
     inputs and params checked. A reproduction is a `copy_of` the run it reproduces: its
-    action as launched, plugin settings, inputs at the revisions it read, and seed."""
+    action as launched, plugin settings, inputs at the revisions it read, seed and labels.
+    `labels` are its launcher's, checked, besides the ones the action needs here."""
     environment = catalog.environment(action)
     if approval is None:
         quotas.check_queued(project, action.tier)
@@ -413,6 +441,7 @@ def _queue(
         reason=reason,
         tier=copy_of.tier if copy_of else action.tier,
         environment=copy_of.environment if copy_of else action.environment,
+        labels=copy_of.labels if copy_of else sorted({*catalog.labels(action), *labels}),
         params=values,
         plugin_settings=made.settings,
         seed=copy_of.seed if copy_of and copy_of.seed is not None else _seed(),
@@ -446,6 +475,7 @@ def _queue(
         project=project,
         tier=action.tier,
         environment=f"{action.plugin}.{action.environment}",
+        labels=run.labels,
         resources=asdict(environment.resources.at_least(action.resources)),
         lifecycle=action.lifecycle or "",
         state=JobState.AWAITING_APPROVAL if approval else JobState.QUEUED,
@@ -461,6 +491,7 @@ def _queue(
             "action": action.qualified_name,
             "tier": action.tier,
             "inputs": sum(len(e) for e in entities.values()),
+            **({"labels": run.labels} if run.labels else {}),
             **({"approval": str(approval.pk)} if approval else {}),
             **({"batch": batch.hrid} if batch else {}),
             **({"workflow": step[0].hrid, "step": step[1]} if step else {}),

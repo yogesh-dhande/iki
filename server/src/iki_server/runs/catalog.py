@@ -43,6 +43,16 @@ def environment(of: Action) -> Environment:
     return registry.plugins()[of.plugin].environments[of.environment]
 
 
+def labels(of: Action) -> list[str]:
+    """What a self-hosted machine must have to run `of` here (ADR 0112): what its
+    environment names, and what this deployment's binding of it adds. None on other
+    tiers."""
+    if of.tier != "self_hosted":
+        return []
+    binding = compute().bindings.get(f"{of.plugin}.{of.environment}")
+    return sorted({*environment(of).labels, *(binding.labels if binding else ())})
+
+
 @cache
 def compute() -> Compute:
     """The deployment's compute templates and bindings; none when it has no compute.json."""

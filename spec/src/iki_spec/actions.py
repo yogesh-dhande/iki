@@ -174,6 +174,7 @@ def read_environment(plugin: str, body: dict[str, Any], document: Document) -> E
         label=body.get("label") or name.replace("-", " ").capitalize(),
         description=body.get("description"),
         tiers=tuple(body["tiers"]),
+        labels=tuple(sorted(set(body.get("labels") or ()))),
         resources=Resources.from_manifest(body.get("resources")),
         image=body.get("image"),
         python_version=python.get("version"),
@@ -291,6 +292,15 @@ class _Rules:
                 "Backend workers have no GPUs: use the self-hosted, container or vm tier.",
                 source,
                 ("resources", "gpu"),
+                key=True,
+            )
+        if env.labels and "self_hosted" not in tiers:
+            self.add(
+                "labels-wrong-tier",
+                "Labels pick self-hosted machines, and this environment doesn't run on the "
+                "self-hosted tier.",
+                source,
+                ("labels",),
                 key=True,
             )
         if env.requirements is not None:

@@ -35,6 +35,14 @@ export const TIER_WORKERS: Record<string, string> = {
   vm: "Machines Iki starts for runs, on its compute templates",
 };
 
+/** "chromeleon, lab-3" (or spaces) as labels. The server checks and sorts them. */
+export function parseLabels(text: string): string[] {
+  return text
+    .split(/[\s,]+/)
+    .map((label) => label.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export type Worker = Schemas["WorkerOut"];
 export type Registration = Schemas["WorkerRegistrationOut"];
 export type RegistrationCreated = Schemas["WorkerRegistrationCreatedOut"];

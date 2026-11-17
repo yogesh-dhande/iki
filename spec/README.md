@@ -401,6 +401,12 @@ volumes:
 setup: { script: setup/download_dbs.sh, timeout: 12h, requires_approval: true }
 ```
 
+An environment on the self-hosted tier names the `labels` a machine needs
+to run it, such as `labels: [chromeleon]` for the software its actions
+drive. A self-hosted run goes only to a machine with every label it needs
+(ADR 0112). Name what the machine must have, not where it is: each
+deployment adds its own labels in its binding.
+
 The backend tier builds a Python or conda environment from a lockfile in the
 plugin; the self-hosted tier does too, or runs the image with Docker or Podman:
 
@@ -815,7 +821,19 @@ resume. `iki deploy build` checks that:
 
 Actions whose environments aren't bound on their tier can't run on that
 deployment; the build warns about each. Self-hosted actions need no
-template.
+template. A binding's `labels` are what this deployment's machines need for
+the environment's self-hosted runs, besides the environment's own, such as
+the lab whose instruments they drive. A binding may give only labels:
+
+```yaml
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: chromatography.chromeleon
+labels: [lab-3]
+```
+
+A self-hosted run needs its environment's labels, its binding's, and any
+its launcher adds, which only narrow which machines take it.
 
 A volume an environment's setup fills gets its data from a setup build
 (ADR 0075): a Compute admin asks for one, the setup script fills a fresh

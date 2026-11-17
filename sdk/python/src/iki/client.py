@@ -587,6 +587,7 @@ class Runs(_Part):
         reason: str = "",
         reuse: bool = True,
         add_to_project: bool = False,
+        labels: Iterable[str] = (),
     ) -> RunOut:
         """Queues a run. `inputs` name entities by ID, HRID or the entity itself:
         ``{"protein": "PRT-000123"}``, or a list for inputs that take many.
@@ -597,7 +598,10 @@ class Runs(_Part):
         A run reads only what's in its project. Inputs from other projects raise an
         :class:`ApiError` with code ``inputs_outside_project`` (its ``problem`` lists
         them in ``entities``), unless ``add_to_project=True`` adds them to it first: its
-        members can then read them."""
+        members can then read them.
+
+        For a self-hosted action, ``labels`` narrow which machines take it: only one with
+        every label, besides the ones the action needs, such as ``["lab-3"]``."""
         client = self._client
         body = {
             "project": client._project_id(project),
@@ -606,6 +610,7 @@ class Runs(_Part):
             "reason": reason,
             "reuse": reuse,
             "add_to_project": add_to_project,
+            "labels": list(labels),
         }
         return cast(
             "RunOut",
@@ -624,11 +629,12 @@ class Runs(_Part):
         reason: str = "",
         reuse: bool = True,
         add_to_project: bool = False,
+        labels: Iterable[str] = (),
     ) -> builtins.list[RunOut]:
         """Queues one run for each of `entities` as its `each` input, all or none:
         if any can't run, none is queued, and the error says which. Runs identical to
         earlier ones reuse their results, and inputs from other projects need
-        `add_to_project`, as for :meth:`start`."""
+        `add_to_project`, as for :meth:`start`, as do `labels`."""
         client = self._client
         body = {
             "project": client._project_id(project),
@@ -639,6 +645,7 @@ class Runs(_Part):
             "reason": reason,
             "reuse": reuse,
             "add_to_project": add_to_project,
+            "labels": list(labels),
         }
         batch = client.request("POST", _path("/actions/{n}/runs/batch", n=action), json=body)
         return cast("builtins.list[RunOut]", batch["runs"])

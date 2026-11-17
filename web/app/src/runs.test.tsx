@@ -732,6 +732,44 @@ describe("a run's page", () => {
     expect(screen.getByText(/are busy with other runs/)).toBeInTheDocument();
   });
 
+  it("says no machine has the labels a self-hosted run needs", async () => {
+    onRun(
+      () =>
+        run({
+          status: "queued",
+          started_at: null,
+          tier: "self_hosted",
+          labels: ["chromeleon", "lab-3"],
+          needs_worker: "unregistered",
+        }),
+      () => [
+        attempt({ state: "queued", worker: null, started_at: null, progress: null, log_size: 0 }),
+      ],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    expect(
+      screen.getByText(/no machine registered for this project has the labels chromeleon, lab-3\./),
+    ).toBeInTheDocument();
+  });
+
+  it("names the labels a self-hosted run needed and its machine had", async () => {
+    onRun(
+      () => run({ tier: "self_hosted", labels: ["chromeleon"] }),
+      () => [attempt({ worker: "hplc-pc-2", worker_labels: ["chromeleon", "lab-3"] })],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(within(details).getByText(/A self-hosted worker labelled/)).toHaveTextContent(
+      "A self-hosted worker labelled chromeleon, in the sequence-tools environment",
+    );
+    const attempts = screen.getByRole("region", { name: "Attempts" });
+    expect(
+      await within(attempts).findByText(/^On hplc-pc-2 \(chromeleon, lab-3\) · started/),
+    ).toBeInTheDocument();
+  });
+
   it("cancels, with a reason for the record", async () => {
     onRun(run, () => [attempt()]);
     withLog(() => "");

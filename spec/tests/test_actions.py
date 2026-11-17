@@ -289,6 +289,18 @@ def test_a_self_hosted_machine_can_run_an_image(tmp_path: Path) -> None:
     assert make(tmp_path, hosted, env).problems == []
 
 
+def test_an_environment_names_what_a_self_hosted_machine_needs(tmp_path: Path) -> None:
+    result = make(tmp_path, ACTION, BACKEND + "labels: [lab-3, chromeleon]\n")
+    assert result.problems == []
+    assert result.plugin is not None
+    assert result.plugin.environments["tools"].labels == ("chromeleon", "lab-3")
+    # Only the self-hosted tier picks machines by their labels.
+    backend = BACKEND.replace("[backend, self_hosted]", "[backend]") + "labels: [gpu]\n"
+    assert only(make(tmp_path, ACTION, backend), "labels-wrong-tier")
+    bad = make(tmp_path, ACTION, BACKEND + "labels: [Lab 3]\n")
+    assert not bad.ok
+
+
 def test_packages_only_the_image_tiers_would_ignore(tmp_path: Path) -> None:
     env = GPU + 'python: { version: "3.12", requirements: requirements.txt }\n'
     vm = action(runs_on="{ tier: vm, environment: gpu }")

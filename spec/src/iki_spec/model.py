@@ -381,6 +381,8 @@ class Environment:
     tiers: tuple[str, ...]
     label: str = ""
     description: str | None = None
+    #: What a self-hosted machine must have to run it, sorted (ADR 0112).
+    labels: tuple[str, ...] = ()
     resources: Resources = field(default_factory=Resources)
     image: str | None = None
     python_version: str | None = None
@@ -814,6 +816,7 @@ def _environment(data: dict[str, Any]) -> Environment:
         **{
             **data,
             "tiers": tuple(data["tiers"]),
+            "labels": tuple(data.get("labels", ())),
             "resources": Resources(**data["resources"]),
             "volumes": {n: Volume(**v) for n, v in data["volumes"].items()},
             "setup_network": tuple(data["setup_network"]),

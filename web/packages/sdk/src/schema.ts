@@ -2944,6 +2944,11 @@ export interface components {
             /** Label */
             label: string;
             /**
+             * Labels
+             * @description For a self-hosted action: what a machine must have to run it here, from its environment and this deployment (ADR 0112).
+             */
+            labels: string[];
+            /**
              * Metrics
              * @description The numbers its runs report about themselves, which a workflow step's `when` may read. A run may report others.
              */
@@ -7475,6 +7480,11 @@ export interface components {
              * @description The name of the worker that ran it.
              */
             worker: string | null;
+            /**
+             * Worker Labels
+             * @description A self-hosted worker's labels when it leased the attempt (ADR 0112).
+             */
+            worker_labels: string[];
         };
         /** RunBatchIn */
         RunBatchIn: {
@@ -7501,6 +7511,11 @@ export interface components {
             inputs?: {
                 [key: string]: string | string[];
             };
+            /**
+             * Labels
+             * @description For a self-hosted action, every run: labels the machine must have, besides the ones the action needs here, such as `lab-3` for one lab's instrument (ADR 0112). They only narrow which machines take it.
+             */
+            labels?: string[];
             /**
              * Params
              * @description Every run's params.
@@ -7682,6 +7697,11 @@ export interface components {
             inputs?: {
                 [key: string]: string | string[];
             };
+            /**
+             * Labels
+             * @description For a self-hosted action: labels the machine must have, besides the ones the action needs here, such as `lab-3` for one lab's instrument (ADR 0112). They only narrow which machines take it.
+             */
+            labels?: string[];
             /** Params */
             params?: {
                 [key: string]: unknown;
@@ -7824,6 +7844,11 @@ export interface components {
             included: components["schemas"]["RunInclusionOut"][];
             /** Inputs */
             inputs: components["schemas"]["RunInputOut"][];
+            /**
+             * Labels
+             * @description What a self-hosted machine must have to run it (ADR 0112): its action's environment's labels, the deployment's and its launcher's. Empty on other tiers.
+             */
+            labels: string[];
             /** Messages */
             messages: components["schemas"]["MessageOut"][];
             /** Metrics */

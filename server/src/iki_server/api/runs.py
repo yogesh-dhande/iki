@@ -141,6 +141,10 @@ class ActionOut(Schema):
     tier: Tier
     environment: str
     inputs: list[InputOut]
+    labels: list[str] = Field(
+        description="For a self-hosted action: what a machine must have to run it here, "
+        "from its environment and this deployment (ADR 0112)."
+    )
     params: list[ParamOut]
     params_schema: dict[str, Any] = Field(
         description="The params as JSON Schema (2020-12), as entity types' `values_schema`."
@@ -229,6 +233,7 @@ def _action_out(action: Action) -> dict[str, Any]:
         "batchable": action.batchable,
         "available": available.available,
         "unavailable_reason": available.reason,
+        "labels": catalog.labels(action),
         "needs": "Editor" if action.tier in ("self_hosted", "backend") else "Runner",
         "estimate": costs.estimate(action),
     }
@@ -289,6 +294,13 @@ class RunIn(Schema):
         "inputs from other projects to it first, which its members can then read; each is "
         "audited as `entity.linked`. Without it, such inputs are refused with 409 "
         "`inputs_outside_project`, which lists them.",
+    )
+    labels: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+        description="For a self-hosted action: labels the machine must have, besides the ones "
+        "the action needs here, such as `lab-3` for one lab's instrument (ADR 0112). They "
+        "only narrow which machines take it.",
     )
 
 
@@ -542,6 +554,10 @@ class RunOut(Schema):
     )
     tier: Tier
     environment: str
+    labels: list[str] = Field(
+        description="What a self-hosted machine must have to run it (ADR 0112): its action's "
+        "environment's labels, the deployment's and its launcher's. Empty on other tiers."
+    )
     params: dict[str, Any]
     settings: dict[str, Any] = Field(
         alias="plugin_settings",
@@ -629,8 +645,9 @@ def _qualified_environment(run: ActionRun) -> str:
 
 
 def _self_hosted_need(run: ActionRun) -> tuple[Any, Any, tuple[str, ...]]:
-    """What a self-hosted worker needs to take the run: its project, and the project's team."""
-    return (run.project_id, run.project.team_id, ())
+    """What a self-hosted worker needs to take the run: its project, the project's team,
+    and its labels."""
+    return (run.project_id, run.project.team_id, tuple(run.labels))
 
 
 def _effect_out(effect: RunEffect) -> dict[str, Any]:
@@ -923,6 +940,7 @@ _RUN_FIELDS = (
     "reason",
     "tier",
     "environment",
+    "labels",
     "params",
     "plugin_settings",
     "status",
@@ -988,6 +1006,7 @@ def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpRe
             reason=payload.reason,
             reuse_results=payload.reuse,
             add_to_project=payload.add_to_project,
+            labels=payload.labels,
         )
     except Invalid as error:
         raise invalid_problem(error) from None
@@ -1026,6 +1045,13 @@ class RunBatchIn(Schema):
         "inputs from other projects to it first, which its members can then read; each is "
         "audited as `entity.linked`. Without it, such inputs are refused with 409 "
         "`inputs_outside_project`, which lists them.",
+    )
+    labels: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+        description="For a self-hosted action, every run: labels the machine must have, "
+        "besides the ones the action needs here, such as `lab-3` for one lab's instrument "
+        "(ADR 0112). They only narrow which machines take it.",
     )
 
 
@@ -1120,6 +1146,7 @@ def launch_runs(request: HttpRequest, name: str, payload: RunBatchIn) -> Any:  #
             reason=payload.reason,
             reuse_results=payload.reuse,
             add_to_project=payload.add_to_project,
+            labels=payload.labels,
         )
     except Invalid as error:
         raise invalid_problem(error) from None
@@ -1436,6 +1463,9 @@ class RunAttemptOut(Schema):
     attempt: int = Field(description="1 for the first, then 2, 3, ...")
     state: JobState
     worker: str | None = Field(description="The name of the worker that ran it.")
+    worker_labels: list[str] = Field(
+        description="A self-hosted worker's labels when it leased the attempt (ADR 0112)."
+    )
     environment_build: str = Field(
         description="The digest of the environment it ran in; empty for the host's own software."
     )
@@ -1499,6 +1529,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 "attempt": job.attempt,
                 "state": job.state,
                 "worker": held.worker.name if held.worker else None,
+                "worker_labels": held.worker_labels,
                 "environment_build": job.environment_build,
                 "template": job.template,
                 "volumes": job.volumes,

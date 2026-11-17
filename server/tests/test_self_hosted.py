@@ -345,3 +345,110 @@ def test_admins_find_projects_of_the_teams_they_chose(world: World) -> None:
     assert [p["name"] for p in found] == ["Assays", "Kinase Atlas", "Screens"]
     only = admin.get(f"/compute/quota-scopes?kind=project&team={world.other_team.pk}").json()
     assert [p["name"] for p in only] == ["Assays"]
+
+
+# --- Labels ---------------------------------------------------------------------------------
+
+
+def labelled(run: dict[str, Any], *labels: str) -> dict[str, Any]:
+    """A queued self-hosted run that needs a machine with `labels`."""
+    on_self_hosted(run)
+    ActionRun.objects.filter(pk=run["id"]).update(labels=sorted(labels))
+    Job.objects.filter(run_id=run["id"]).update(labels=sorted(labels))
+    return run
+
+
+def test_a_run_goes_only_to_a_machine_with_every_label_it_needs(world: World) -> None:
+    hplc = machine(world, "hplc-pc-1", labels=["chromeleon"])
+    run = labelled(queued(world), "chromeleon", "lab-3")
+    assert leased_run(hplc) is None
+    lab3 = machine(world, "hplc-pc-2", labels=["chromeleon", "gpu", "lab-3"])
+    assert leased_run(lab3) == run["id"]
+    # What its machine had, kept: an admin may change the machine's labels later.
+    job = Job.objects.get(run_id=run["id"])
+    assert job.worker_labels == ["chromeleon", "gpu", "lab-3"]
+    editor = api_as(world, "editor")
+    (attempt,) = editor.get(f"/runs/{run['id']}/attempts").json()
+    assert (attempt["worker"], attempt["worker_labels"]) == (
+        "hplc-pc-2",
+        ["chromeleon", "gpu", "lab-3"],
+    )
+    assert editor.get(f"/runs/{run['id']}").json()["labels"] == ["chromeleon", "lab-3"]
+    # A run needing none goes to any machine that covers its project.
+    plain = on_self_hosted(queued(world))
+    assert leased_run(hplc) == plain["id"]
+
+
+def test_each_set_of_labels_gets_its_turn(world: World) -> None:
+    worker = machine(world, labels=["chromeleon", "lab-3"])
+    first = labelled(queued(world), "chromeleon")
+    second = labelled(queued(world), "lab-3")
+    third = on_self_hosted(queued(world))
+    leased = set()
+    for _ in range(3):
+        found = leased_run(worker)
+        assert found is not None
+        leased.add(found)
+        Job.objects.filter(run__pk=found).update(state=JobState.SUCCEEDED)
+    assert leased == {first["id"], second["id"], third["id"]}
+
+
+def test_a_retry_needs_the_same_labels(world: World) -> None:
+    worker = machine(world, labels=["chromeleon"])
+    run = labelled(queued(world), "chromeleon")
+    leased = worker.lease().json()
+    assert worker.report(leased, "fail", reason="interrupted", message="stopped").status_code == 200
+    retry = Job.objects.get(run_id=run["id"], attempt=2)
+    assert retry.labels == ["chromeleon"]
+
+
+def test_a_queued_run_says_no_machine_has_its_labels(world: World) -> None:
+    machine(world, labels=["chromeleon"])
+    run = labelled(queued(world), "chromeleon", "lab-3")
+    editor = api_as(world, "editor")
+    assert editor.get(f"/runs/{run['hrid']}").json()["needs_worker"] == "unregistered"
+    machine(world, "hplc-pc-2", labels=["chromeleon", "lab-3"])
+    assert editor.get(f"/runs/{run['hrid']}").json()["needs_worker"] is None
+
+
+def test_labels_come_from_the_environment_the_deployment_and_the_launcher(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+    from functools import cache
+
+    from iki_server.org.services import Refused
+    from iki_server.runs import services
+    from iki_spec.compute import Binding, Compute
+
+    found = catalog.action("protein.compute_properties")
+    assert found is not None
+    action = replace(found, tier="self_hosted")
+    environment = replace(catalog.environment(action), labels=("chromeleon",))
+    monkeypatch.setattr(catalog, "environment", lambda of: environment)
+    qualified = f"{action.plugin}.{action.environment}"
+    monkeypatch.setattr(
+        catalog,
+        "compute",
+        # Cached, as the deployment's is: the test's teardown clears it.
+        cache(
+            lambda: Compute(bindings={qualified: Binding(environment=qualified, labels=("lab-3",))})
+        ),
+    )
+    assert catalog.labels(action) == ["chromeleon", "lab-3"]
+    assert catalog.labels(replace(action, tier="backend")) == []
+    assert services.launch_labels(action, ["Bay-2", "bay-2"]) == ["bay-2"]
+    assert services.launch_labels(action, []) == []
+    with pytest.raises(Refused, match="isn't a label"):
+        services.launch_labels(action, ["bay 2"])
+
+
+def test_only_self_hosted_runs_take_labels_at_launch(world: World) -> None:
+    from test_runs import launch, protein
+
+    editor = api_as(world, "editor")
+    abl = protein(editor, world.project)
+    made = launch(editor, world.project, {"protein": abl["id"]}, labels=["lab-3"])
+    refused = problem(made, 409, "refused")
+    assert refused["errors"][0]["pointer"] == "#/labels"
+    assert ActionRun.objects.count() == 0

@@ -231,20 +231,28 @@ TRIES = 64
 
 
 def _shortlist(
-    candidates: QuerySet[Job], tier: str, projects: list[uuid.UUID] | None = None
+    candidates: QuerySet[Job],
+    tier: str,
+    projects: list[uuid.UUID] | None = None,
+    labels: list[str] | None = None,
 ) -> RawSQL | None:
     """The best of what ``candidates`` holds, as a subquery of job IDs, or None if it holds
     nothing by definition (a worker with no plugin it may run): each project's best
     few, the projects with fewer jobs running first, then by priority, oldest first
     (ADR 0108). With `projects` (a self-hosted worker's), only theirs.
 
-    It costs as many index lookups as there are projects with jobs queued on the tier,
-    however deep the queue or long its history. Ranking every queued job by its project's
-    running count instead counted each project's jobs once per job queued. A project
-    `projects` leaves out is skipped before its jobs are read (ADR 0112).
+    With `labels` (a self-hosted worker's), only jobs needing none but those (ADR 0112).
+
+    It costs as many index lookups as there are projects with jobs queued on the tier
+    (times the sets of labels they need, on the self-hosted tier), however deep the queue
+    or long its history. Ranking every queued job by its project's running count instead
+    counted each project's jobs once per job queued. A project `projects` leaves out, and
+    labels the worker hasn't got, are skipped before their jobs are read.
     """
     heads = (
-        candidates.filter(project_id=RawSQL("queued.project_id", ()))
+        candidates.filter(
+            project_id=RawSQL("queued.project_id", ()), labels=RawSQL("queued.labels", ())
+        )
         .order_by("-priority", "queued_at", "id")
         .values_list("id", "priority", "queued_at")[:EACH]
     )
@@ -254,25 +262,27 @@ def _shortlist(
         return None
     held = ", ".join(["%s"] * len(HELD))
     scoped = " AND queued.project_id = ANY(%s::uuid[])" if projects is not None else ""
+    labelled = " AND queued.labels <@ %s::varchar[]" if labels is not None else ""
     # Every value is a parameter; what's interpolated is Django's own compiled SQL, the
-    # placeholders for HELD, and a constant.
+    # placeholders for HELD, and constants.
     return RawSQL(  # noqa: S611
-        # The projects with a job queued on the tier: from the lowest ID, each step the next
-        # one up, as a skip scan of iki_job_queued_by_project.
-        "WITH RECURSIVE queued(project_id) AS ("  # noqa: S608 - see above
-        " (SELECT project_id FROM iki_job WHERE state = %s AND tier = %s"
-        "  ORDER BY project_id LIMIT 1)"
+        # The projects with a job queued on the tier, and the labels those jobs need: from
+        # the lowest, each step the next one up, as a skip scan of iki_job_queued_by_labels.
+        "WITH RECURSIVE queued(project_id, labels) AS ("  # noqa: S608 - see above
+        " (SELECT project_id, labels FROM iki_job WHERE state = %s AND tier = %s"
+        "  ORDER BY project_id, labels LIMIT 1)"
         " UNION ALL"
-        " SELECT (SELECT j.project_id FROM iki_job j WHERE j.state = %s AND j.tier = %s"
-        "  AND j.project_id > queued.project_id ORDER BY j.project_id LIMIT 1)"
-        " FROM queued WHERE queued.project_id IS NOT NULL"
+        " SELECT next.project_id, next.labels FROM queued CROSS JOIN LATERAL ("
+        "  SELECT j.project_id, j.labels FROM iki_job j WHERE j.state = %s AND j.tier = %s"
+        "  AND (j.project_id, j.labels) > (queued.project_id, queued.labels)"
+        "  ORDER BY j.project_id, j.labels LIMIT 1) next"
         "), running AS ("
         f" SELECT project_id, count(*) AS n FROM iki_job WHERE state IN ({held})"
         "  AND packed_into_id IS NULL GROUP BY project_id"
         ") "
         f"SELECT head.id FROM queued CROSS JOIN LATERAL ({sql}) head(id, priority, queued_at)"
         " LEFT JOIN running ON running.project_id = queued.project_id"
-        f" WHERE queued.project_id IS NOT NULL{scoped}"
+        f" WHERE true{scoped}{labelled}"
         " ORDER BY coalesce(running.n, 0), head.priority DESC, head.queued_at, head.id"
         f" LIMIT {TRIES}",
         (
@@ -283,6 +293,7 @@ def _shortlist(
             *HELD,
             *params,
             *([projects] if projects is not None else []),
+            *([labels] if labels is not None else []),
         ),
     )
 
@@ -313,12 +324,14 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             environment=worker.launch.environment,
         )
     scope: list[uuid.UUID] | None = None
+    labels: list[str] | None = None
     if worker.tier == workers.SELF_HOSTED:
-        # Only runs in projects its teams cover (ADR 0112).
+        # Only runs in projects its teams cover, needing no label it hasn't got (ADR 0112).
         scope = list(workers.covered(worker).values_list("pk", flat=True))
         if not scope:
             return None
-        candidates = candidates.filter(project__in=scope)
+        labels = list(worker.labels)
+        candidates = candidates.filter(project__in=scope, labels__contained_by=labels)
     with transaction.atomic():
         # It's still running, and an ephemeral machine's first job.
         if not launches.may_lease(worker):
@@ -330,7 +343,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             candidates = candidates.exclude(project__in=list(stop.projects))
         if stop.teams:
             candidates = candidates.exclude(project__team__in=list(stop.teams))
-        shortlist = _shortlist(candidates, worker.tier, scope)
+        shortlist = _shortlist(candidates, worker.tier, scope, labels)
         if shortlist is None:
             return None
         # The plan's few milliseconds would wait on JIT compiling it: Postgres's estimate
@@ -374,6 +387,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         job.state = JobState.LEASED
         job.template = template
         job.worker = worker
+        job.worker_labels = list(worker.labels)
         job.lease_token = uuid.uuid4()
         job.lease_expires_at = now + LEASE_TTL
         job.started_at = now
@@ -383,6 +397,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             update_fields=[
                 "state",
                 "worker",
+                "worker_labels",
                 "lease_token",
                 "lease_expires_at",
                 "started_at",
@@ -394,6 +409,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         Job.objects.filter(pk__in=[m.pk for m in members]).update(
             state=JobState.LEASED,
             worker=worker,
+            worker_labels=list(worker.labels),
             started_at=now,
             environment_build=build,
             template=template,
@@ -439,6 +455,7 @@ def _pack(job: Job, run: ActionRun) -> list[Job]:
             run__plugin_sha=run.plugin_sha,
             tier=job.tier,
             environment=job.environment,
+            labels=job.labels,
             queued_at__lte=Now(),
         )
         .exclude(pk=job.pk)
@@ -1020,6 +1037,7 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
             project_id=job.project_id,
             tier=job.tier,
             environment=job.environment,
+            labels=job.labels,
             resources=job.resources,
             lifecycle=job.lifecycle,
             # The database's clock, as leasing compares with: app servers' clocks may drift.

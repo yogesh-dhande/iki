@@ -187,6 +187,7 @@ describe("a run in a batch", () => {
         attempt: 1,
         state: "running",
         worker: "pod-7",
+        worker_labels: [],
         environment_build: "",
         queued_at: "2026-03-14T09:00:00Z",
         started_at: "2026-03-14T09:00:05Z",

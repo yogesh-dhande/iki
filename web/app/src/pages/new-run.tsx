@@ -22,6 +22,7 @@ import {
   type EntityType,
   type FieldDef,
 } from "../entities";
+import { parseLabels } from "../compute";
 import { money } from "../costs";
 import { FieldInput } from "../entity-inputs";
 import {
@@ -347,6 +348,8 @@ function RunForm({
     ...Object.fromEntries(action.params.map((p) => [`params/${p.name}`, initialDraft(p, params)])),
   }));
   const [reason, setReason] = useState("");
+  const [labels, setLabels] = useState("");
+  const selfHosted = action.tier === "self_hosted";
   const batch = each?.cardinality === "one" && entities.length > 1;
   const tooMany = each?.cardinality === "many" && each.max !== null && entities.length > each.max;
 
@@ -358,6 +361,7 @@ function RunForm({
         reason: reason.trim(),
         reuse: true,
         add_to_project: body.addToProject,
+        labels: selfHosted ? parseLabels(labels) : [],
       };
       if (batch) {
         const made = unwrap(
@@ -486,6 +490,18 @@ function RunForm({
       <ul className="run-facts">
         <li>
           It runs {TIER[action.tier]}
+          {action.labels.length ? (
+            <>
+              {" "}
+              labelled{" "}
+              {action.labels.map((label, index) => (
+                <span key={label}>
+                  {index ? ", " : null}
+                  <code>{label}</code>
+                </span>
+              ))}
+            </>
+          ) : null}
           {action.environment ? (
             <>
               , in the <code>{action.environment}</code> environment
@@ -558,6 +574,16 @@ function RunForm({
           projectId={project.id}
         />
       ))}
+      {selfHosted ? (
+        <TextField
+          label="Machine labels"
+          value={labels}
+          onChange={setLabels}
+          error={form.errors["labels"]}
+          optional
+          help="Only a machine with all of these takes it, such as lab-3 for one lab’s instrument, separated by commas."
+        />
+      ) : null}
       <TextField
         label="Reason"
         value={reason}
