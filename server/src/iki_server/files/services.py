@@ -142,14 +142,9 @@ def parts(
     bad = [n for n in wanted if not 1 <= n <= count]
     if bad:
         raise Refused(f"This upload has parts 1 to {count}.", field="numbers")
-    return [
-        {
-            "number": n,
-            "size": _part_size(upload, n, count),
-            "url": storage.part_url(upload.staging_key, upload.multipart_id, n, workers=workers),
-        }
-        for n in sorted(set(wanted))
-    ]
+    chosen = sorted(set(wanted))
+    urls = storage.part_urls(upload.staging_key, upload.multipart_id, chosen, workers=workers)
+    return [{"number": n, "size": _part_size(upload, n, count), "url": urls[n]} for n in chosen]
 
 
 def _part_size(upload: Upload, number: int, count: int) -> int:
@@ -331,7 +326,7 @@ REGISTRATION_LIFETIME = timedelta(hours=24)
 
 
 def locations() -> list[str]:
-    """Where files may be registered: ``s3://bucket/prefix/`` (see settings)."""
+    """Where files may be registered: ``s3://bucket/prefix/``, or ``gs://`` (see settings)."""
     return list(settings.IKI_FILES_REGISTER_LOCATIONS)
 
 
@@ -350,8 +345,9 @@ def register(
     """
     uri = uri.strip()
     bucket_name, key = storage.split_uri(uri)
-    if not uri.startswith("s3://") or not bucket_name or not key or key.endswith("/"):
-        raise Refused("Name an object, such as s3://lab-data/runs/plate-7.csv.", field="uri")
+    scheme = storage.scheme()
+    if not uri.startswith(f"{scheme}://") or not bucket_name or not key or key.endswith("/"):
+        raise Refused(f"Name an object, such as {scheme}://lab-data/runs/plate-7.csv.", field="uri")
     if ".." in key.split("/") or not any(uri.startswith(place) for place in locations()):
         places = ", ".join(locations()) or "none are set up"
         raise Refused(

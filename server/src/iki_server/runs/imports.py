@@ -341,10 +341,6 @@ class _Reader:
     """The file's lines from ``offset``, each with the bytes it took (its newline too)."""
 
     def __init__(self, file: File, offset: int) -> None:
-        bucket, key = storage.split_uri(file.blob.storage_uri)
-        params: dict[str, Any] = {"Bucket": bucket, "Key": key, "Range": f"bytes={offset}-"}
-        if file.blob.object_version:
-            params["VersionId"] = file.blob.object_version
         self.offset = offset
         #: Whole lines read but not yet given, then the start of the next one.
         self._ready: deque[bytes] = deque()
@@ -354,7 +350,7 @@ class _Reader:
         self._body = (
             None
             if offset >= self._size
-            else storage.client_for(bucket).get_object(**params)["Body"]
+            else storage.open_object(file.blob.storage_uri, file.blob.object_version, offset)
         )
 
     def lines(self) -> Generator[bytes | None]:

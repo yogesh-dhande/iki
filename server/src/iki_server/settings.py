@@ -567,15 +567,25 @@ if IKI_RUN_SECRETS_DIR and not Path(IKI_RUN_SECRETS_DIR).is_dir():
 
 # --- Files ------------------------------------------------------------------
 # Object storage for entities' files (ADR 0036): S3, or an S3-compatible store
-# such as SeaweedFS in development. Credentials come from the standard AWS
-# chain (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or the pod's IAM role).
+# such as SeaweedFS in development, or Google Cloud Storage through its own API
+# (ADR 0109). S3's credentials come from the standard AWS chain
+# (AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or the pod's IAM role); Cloud
+# Storage's from Google's (Workload Identity on GKE), with no key.
 # Without a bucket, the files API answers 503.
 
+#: ``s3`` (S3 and S3-compatible stores) or ``gcs`` (Cloud Storage's own API).
+IKI_FILES_BACKEND: str = env.str("IKI_FILES_BACKEND", default="s3")
+if IKI_FILES_BACKEND not in ("s3", "gcs"):
+    raise environ.ImproperlyConfigured(
+        f"IKI_FILES_BACKEND must be s3 or gcs, not {IKI_FILES_BACKEND!r}"
+    )
+#: The scheme of the URIs Iki records for files: s3://bucket/key or gs://bucket/key.
+_FILES_SCHEME = "gs" if IKI_FILES_BACKEND == "gcs" else "s3"
 IKI_FILES_BUCKET: str = env.str("IKI_FILES_BUCKET", default="")
 #: Every key Iki writes starts with this, so one bucket can serve several deployments.
 IKI_FILES_PREFIX: str = env.str("IKI_FILES_PREFIX", default="").strip("/")
 IKI_FILES_REGION: str = env.str("IKI_FILES_REGION", default="us-east-1")
-#: For S3-compatible stores; empty for AWS S3.
+#: For S3-compatible stores, or a Cloud Storage emulator; empty for AWS S3 or Cloud Storage.
 IKI_FILES_ENDPOINT_URL: str = env.str("IKI_FILES_ENDPOINT_URL", default="")
 #: Where browsers and workers reach the store, if not the same address (signed URLs name it).
 IKI_FILES_PUBLIC_ENDPOINT_URL: str = env.str(
@@ -653,16 +663,19 @@ for _alias in env.list("IKI_FILES_BUCKET_ALIASES", default=[]):
         )
     IKI_FILES_BUCKET_ALIASES[_pair.group(1)] = _pair.group(2)
 #: Where files may be registered in place, rather than uploaded: ``s3://bucket/prefix/``
-#: entries. Each bucket must keep versions; Iki pins each file to its version.
+#: entries (``gs://`` on Cloud Storage). Each bucket must keep versions; Iki pins each
+#: file to its version.
 IKI_FILES_REGISTER_LOCATIONS: list[str] = []
 for _location in env.list("IKI_FILES_REGISTER_LOCATIONS", default=[]):
     import re as _re
 
-    _found = _re.fullmatch(r"s3://([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(/.*)?", _location.strip())
+    _found = _re.fullmatch(
+        rf"{_FILES_SCHEME}://([a-z0-9][a-z0-9._-]{{1,61}}[a-z0-9])(/.*)?", _location.strip()
+    )
     if _found is None:
         raise environ.ImproperlyConfigured(
             f"IKI_FILES_REGISTER_LOCATIONS: {_location!r} isn't a location such as "
-            "s3://lab-data/runs/"
+            f"{_FILES_SCHEME}://lab-data/runs/"
         )
     _prefix = (_found.group(2) or "/").lstrip("/")
     if ".." in _prefix.split("/"):
@@ -671,7 +684,7 @@ for _location in env.list("IKI_FILES_REGISTER_LOCATIONS", default=[]):
         )
     if _prefix and not _prefix.endswith("/"):
         _prefix += "/"  # s3://lab/runs is the runs folder, not every key starting "runs"
-    IKI_FILES_REGISTER_LOCATIONS.append(f"s3://{_found.group(1)}/{_prefix}")
+    IKI_FILES_REGISTER_LOCATIONS.append(f"{_FILES_SCHEME}://{_found.group(1)}/{_prefix}")
 for _name, _url in (
     ("IKI_FILES_ENDPOINT_URL", IKI_FILES_ENDPOINT_URL),
     ("IKI_FILES_PUBLIC_ENDPOINT_URL", IKI_FILES_PUBLIC_ENDPOINT_URL),
@@ -693,6 +706,9 @@ if IKI_FILES_BUCKET:
         CSP.SELF,
         f"{_store.scheme}://{_store.netloc}"
         if IKI_FILES_PUBLIC_ENDPOINT_URL
+        # Cloud Storage's URLs name the bucket in their path, on Google's one host.
+        else "https://storage.googleapis.com"
+        if IKI_FILES_BACKEND == "gcs"
         else f"https://{IKI_FILES_BUCKET}.s3.{IKI_FILES_REGION}.amazonaws.com",
     ]
 

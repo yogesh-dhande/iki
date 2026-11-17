@@ -38,6 +38,7 @@ from iki_server.api import (
 )
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import BearerAuth, SessionAuth
+from iki_server.files.storage import StorageError
 from iki_server.org.services import Refused
 
 logger = structlog.get_logger("iki.api")
@@ -122,6 +123,8 @@ def _forbidden(request: HttpRequest, exc: PermissionDenied) -> HttpResponse:
 
 @api.exception_handler(BotoCoreError)
 @api.exception_handler(ClientError)
+# Cloud Storage's, and its credentials' (ADR 0109).
+@api.exception_handler(StorageError)
 def _storage_unavailable(request: HttpRequest, exc: Exception) -> HttpResponse:
     logger.error("storage_error", error=str(exc), exc_info=exc)
     return response(

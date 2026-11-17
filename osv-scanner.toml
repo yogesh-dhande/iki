@@ -94,6 +94,13 @@ name = "python-dateutil"
 ecosystem = "PyPI"
 license.override = ["Apache-2.0", "BSD-3-Clause"]
 
+# google-auth's ASN.1 modules (Cloud Storage's client, ADR 0109): BSD-2-Clause (its
+# LICENSE.txt), which PyPI's metadata calls only "BSD".
+[[PackageOverrides]]
+name = "pyasn1-modules"
+ecosystem = "PyPI"
+license.override = ["BSD-2-Clause"]
+
 # Iki's own workspace packages (Apache-2.0, see LICENSE).
 [[PackageOverrides]]
 name = "iki-server"

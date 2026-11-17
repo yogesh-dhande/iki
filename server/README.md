@@ -186,13 +186,14 @@ and the server refuses to start without them.
 | `IKI_EMAIL_ALLOW_PLAINTEXT`           | `false`       | Allow `smtp://` (no encryption) with HTTPS on: only for a relay in your network        |
 | `IKI_WEBHOOK_ALLOWED_NETWORKS`        | unset         | Comma-separated CIDRs of internal networks webhooks may send to                        |
 | `IKI_WEBHOOK_CA_FILE`                 | unset         | CA bundle (PEM) trusted for webhook receivers, as well as the public CAs               |
+| `IKI_FILES_BACKEND`                   | `s3`          | `s3` (S3 or an S3-compatible store) or `gcs` (Google Cloud Storage's own API)          |
 | `IKI_FILES_BUCKET`                    | unset         | S3 bucket for files; unset, the files API answers 503                                  |
 | `IKI_FILES_PREFIX`                    | unset         | Prefix for every key Iki writes, so deployments can share a bucket                     |
 | `IKI_FILES_REGION`                    | `us-east-1`   | The bucket's region                                                                    |
-| `IKI_FILES_ENDPOINT_URL`              | unset         | An S3-compatible store's URL; unset for AWS S3                                         |
+| `IKI_FILES_ENDPOINT_URL`              | unset         | An S3-compatible store's URL; unset for AWS S3 and Cloud Storage                       |
 | `IKI_FILES_PUBLIC_ENDPOINT_URL`       | the endpoint  | Where browsers and workers reach the store, which signed URLs name                     |
 | `IKI_FILES_MAX_UPLOAD_SIZE`           | `100GiB`      | The largest file one upload may add                                                    |
-| `IKI_FILES_REGISTER_LOCATIONS`        | (none)        | Comma-separated `s3://bucket/prefix/` locations files may be registered from, in place |
+| `IKI_FILES_REGISTER_LOCATIONS`        | (none)        | Comma-separated `s3://bucket/prefix/` (`gs://` on Cloud Storage) locations to register |
 | `IKI_WEBHOOK_ALLOW_HTTP`              | `false`       | Development only: plain `http://` receivers; refused with HTTPS on                     |
 | `IKI_TASKS_CONCURRENCY`               | `4`           | `iki-server tasks`: tasks one runner runs at once                                      |
 | `IKI_TASKS_GRACE_SECONDS`             | `25`          | `iki-server tasks`: time running tasks get to finish after SIGTERM                     |
@@ -430,6 +431,19 @@ lists them.
   that rule, and lifecycle rules that clear abandoned uploads; `--check`
   only reports what's missing, for buckets managed elsewhere (OpenTofu, for
   example).
+- On Google Cloud, set `IKI_FILES_BACKEND=gcs` (ADR 0109): Iki speaks Cloud
+  Storage's own APIs, with the pods' Google service account by Workload
+  Identity and no key, records files as `gs://bucket/key`, and pins versions
+  by their generation. It signs URLs through IAM's `signBlob`, so the
+  service account needs `iam.serviceAccounts.signBlob` on itself, and
+  `storage.objects.create`, `get`, `list` and `delete` and
+  `storage.multipartUploads.create`, `abort` and `listParts` under the
+  prefix. Uploads in parts are Cloud Storage's XML API multipart uploads, so
+  clients send parts as they do to S3. The bucket should keep versions and
+  encrypt with a customer-managed key of its own (`setup_storage` checks
+  both, and sets CORS and lifecycle rules as on S3). Registered locations
+  are `gs://`, and need `storage.buckets.get`, `storage.objects.get` and
+  `storage.objects.list`.
 
 ## Webhooks
 

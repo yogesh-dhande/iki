@@ -15,6 +15,7 @@ from iki_server.observability.telemetry import configure_telemetry
 
 if TYPE_CHECKING:
     from django.test import Client
+    from fake_gcs import FakeGcs
     from fake_idp import FakeIdP
     from fake_saml_idp import FakeSamlIdP
 
@@ -405,6 +406,56 @@ def s3(
     settings.IKI_FILES_PUBLIC_ENDPOINT_URL = _s3_endpoint
     storage.reset()
     yield storage.client()
+    storage.reset()
+
+
+@pytest.fixture(scope="session")
+def _fake_gcs() -> Iterator["FakeGcs"]:
+    """Google Cloud Storage, faked in this process (fake_gcs), for the test run."""
+    from fake_gcs import FakeGcs
+
+    fake = FakeGcs().start()
+    yield fake
+    fake.stop()
+
+
+@pytest.fixture
+def gcs(
+    _fake_gcs: "FakeGcs", settings: Any, monkeypatch: pytest.MonkeyPatch
+) -> Iterator["FakeGcs"]:
+    """File storage on Cloud Storage (IKI_FILES_BACKEND=gcs), in the fake, under a prefix of
+    the test's own. The server's credentials are as on GKE: a service account's token,
+    with no key, so URLs are signed by the fake's IAM. Yields the fake."""
+    import uuid
+
+    from fake_gcs import EMAIL
+    from google.auth import credentials
+
+    from iki_server.files import gcs as backend
+    from iki_server.files import storage
+
+    class Workload(credentials.Credentials):
+        """Like Workload Identity's: its account's email is known once it has a token."""
+
+        def __init__(self) -> None:
+            super().__init__()  # type: ignore[no-untyped-call]
+            self.service_account_email = "default"
+
+        def refresh(self, request: Any) -> None:
+            self.token = _fake_gcs.token
+            self.service_account_email = EMAIL
+
+    settings.IKI_FILES_BACKEND = "gcs"
+    settings.IKI_FILES_BUCKET = f"iki-gcs-{os.environ.get('PYTEST_XDIST_WORKER', 'main')}"
+    settings.IKI_FILES_PREFIX = f"test-{uuid.uuid4().hex}"
+    settings.IKI_FILES_ENDPOINT_URL = _fake_gcs.url
+    settings.IKI_FILES_PUBLIC_ENDPOINT_URL = _fake_gcs.url
+    settings.IKI_FILES_WORKER_ENDPOINT_URL = ""
+    _fake_gcs.bucket(settings.IKI_FILES_BUCKET)
+    monkeypatch.setattr(backend, "find_credentials", Workload)
+    monkeypatch.setattr(backend, "IAM_CREDENTIALS", _fake_gcs.url)
+    storage.reset()
+    yield _fake_gcs
     storage.reset()
 
 

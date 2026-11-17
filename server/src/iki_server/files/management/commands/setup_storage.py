@@ -12,6 +12,10 @@
 
 Platform teams that manage the bucket themselves (OpenTofu, for example) can
 run it with ``--check`` to see what's missing without changing anything.
+
+On Cloud Storage (``IKI_FILES_BACKEND=gcs``) it checks and sets the same, through
+Cloud Storage's own API, and checks too that the bucket encrypts with a
+customer-managed key of its own, which, like versioning, it never changes.
 """
 
 from typing import Any
@@ -72,6 +76,9 @@ class Command(BaseCommand):
             raise CommandError(str(storage.NotConfigured()))
         if not origins():
             raise CommandError("Set IKI_PUBLIC_URL, so browsers' uploads can be allowed from it.")
+        if storage.scheme() == "gs":
+            self._cloud_storage(check=options["check"], enable=options["enable_versioning"])
+            return
         s3 = storage.client()
         bucket = storage.bucket()
         missing: list[str] = []
@@ -119,6 +126,73 @@ class Command(BaseCommand):
                 f"Bucket {bucket} doesn't keep versions. Turn versioning on: Iki doesn't change "
                 "a bucket's versioning itself."
             )
+
+    def _cloud_storage(self, *, check: bool, enable: bool) -> None:
+        from iki_server.files import gcs
+
+        name = storage.bucket()
+        bucket = gcs.clients().client.get_bucket(name)
+        missing: list[str] = []
+        changed = False
+        if not bucket.versioning_enabled and enable and not check:
+            bucket.versioning_enabled = changed = True
+            self.stdout.write(f"Turned on versioning for bucket {name}.")
+        if not bucket.versioning_enabled:
+            missing.append("versioning (turn it on, so stored files keep every version)")
+        if not bucket.default_kms_key_name:
+            missing.append("a customer-managed key (give the bucket a default Cloud KMS key)")
+        cors = [dict(rule) for rule in bucket.cors]
+        if not any(_same(rule, gcs_cors_rule()) for rule in cors):
+            missing.append("CORS for browsers' uploads and reads")
+            bucket.cors = [*cors, gcs_cors_rule()]
+            changed = True
+        rules = [dict(rule) for rule in bucket.lifecycle_rules]
+        absent = [want for want in gcs_lifecycle_rules() if not any(_same(r, want) for r in rules)]
+        if absent:
+            missing.append("lifecycle rules for abandoned uploads")
+            bucket.lifecycle_rules = [*rules, *absent]
+            changed = True
+        fixable = [m for m in missing if not m.startswith(("versioning", "a customer-managed"))]
+        if check and missing:
+            raise CommandError(f"Bucket {name} is missing: {'; '.join(missing)}.")
+        if changed:
+            bucket.patch()
+        if not missing:
+            self.stdout.write(f"Bucket {name} is ready for Iki.")
+            return
+        if fixable:
+            self.stdout.write(f"Set up on bucket {name}: {', '.join(fixable)}.")
+        if not bucket.versioning_enabled:
+            self.stderr.write(
+                f"Bucket {name} doesn't keep versions. Turn versioning on: Iki doesn't change "
+                "a bucket's versioning itself."
+            )
+        if not bucket.default_kms_key_name:
+            self.stderr.write(
+                f"Bucket {name} has no customer-managed key. Give it a default Cloud KMS key: "
+                "Iki doesn't change a bucket's encryption itself."
+            )
+
+
+def gcs_cors_rule() -> dict[str, Any]:
+    """The CORS rule, as Cloud Storage's JSON API writes it."""
+    return {
+        "origin": origins(),
+        "method": ["GET", "PUT"],
+        "responseHeader": ["content-type"],
+        "maxAgeSeconds": 3600,
+    }
+
+
+def gcs_lifecycle_rules() -> list[dict[str, Any]]:
+    """Abandoned multipart uploads aborted, and staging objects deleted, every version of
+    them, after 2 days."""
+    prefix = storage.staging_key("").rstrip("/") + "/"
+    when = {"age": STALE_DAYS, "matchesPrefix": [prefix]}
+    return [
+        {"action": {"type": "AbortIncompleteMultipartUpload"}, "condition": when},
+        {"action": {"type": "Delete"}, "condition": when},
+    ]
 
 
 def _get(read: Any) -> list[Any]:  # noqa: ANN401 - a call that may find no configuration

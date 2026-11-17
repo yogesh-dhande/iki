@@ -28,6 +28,8 @@ dependencies = [
   "django-oauth-toolkit>=3.4.1",
   "iki-spec",
   "boto3>=1.43.0",
+  # Files in Cloud Storage, through its own API (ADR 0109): generations, holds, signed URLs.
+  "google-cloud-storage>=3.17.1",
   "mcp>=2.3.0",
   # Comparing worker versions, as Python and Cargo write them (ADR 0060).
   "packaging>=26.3",

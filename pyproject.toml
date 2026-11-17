@@ -161,6 +161,17 @@ module = ["oauth2_provider", "oauth2_provider.*", "oauthlib", "oauthlib.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# google-cloud-storage ships no type information.
+module = ["google.cloud", "google.cloud.storage", "google.cloud.storage.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The Cloud Storage backend calls google-auth's untyped requests transport.
+module = ["iki_server.files.gcs"]
+disallow_untyped_calls = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
 # servestatic ships no type information.
 module = ["servestatic", "servestatic.*"]
 ignore_missing_imports = true

@@ -1,5 +1,10 @@
 """Object storage: the bucket Iki keeps files in, and signed URLs for reaching it.
 
+The store is S3 (or an S3-compatible store), through boto3, or Google Cloud Storage
+through its own APIs (:mod:`iki_server.files.gcs`, ADR 0109), as ``IKI_FILES_BACKEND``
+says. The functions marked :func:`_backend` here are what each store does its own way;
+on Cloud Storage they call the function of the same name there.
+
 Iki talks to the store with its own credentials. People and workers never
 get credentials: they get URLs signed for one object and one operation, that
 expire. The keys under ``blobs/`` hold checked content. Only the server
@@ -9,9 +14,11 @@ one for writing.
 
 from __future__ import annotations
 
+import functools
 import hashlib
+from collections.abc import Callable
 from functools import cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlsplit
 
 import boto3
@@ -31,9 +38,39 @@ DEFAULT_PART_SIZE = 64 * 1024**2
 READ_CHUNK = 8 * 1024**2
 
 
+class StorageError(Exception):
+    """Cloud Storage, or IAM, refused or failed a request (S3's are botocore's own)."""
+
+    def __init__(self, status: int, code: str, message: str) -> None:
+        super().__init__(f"Cloud Storage said {status} {code}: {message}"[:1000])
+        self.status = status
+        self.code = code
+
+
 class NotConfigured(Exception):  # noqa: N818 - reads as "storage is not configured"
     def __init__(self) -> None:
         super().__init__("File storage isn’t set up: your administrator sets IKI_FILES_BUCKET.")
+
+
+def _gcs() -> bool:
+    return bool(settings.IKI_FILES_BACKEND == "gcs")
+
+
+def _backend[**P, R](s3: Callable[P, R]) -> Callable[P, R]:
+    """What a store does its own way: S3's here, Cloud Storage's in :mod:`gcs`, by name."""
+
+    @functools.wraps(s3)
+    def either(*args: P.args, **kwargs: P.kwargs) -> R:
+        if _gcs():
+            from iki_server.files import gcs
+
+            try:
+                return cast("R", gcs.FUNCTIONS[s3.__name__](*args, **kwargs))
+            except gcs.ERRORS as error:
+                raise gcs.error_from(error) from error
+        return s3(*args, **kwargs)
+
+    return either
 
 
 def configured() -> bool:
@@ -89,8 +126,13 @@ def bundle_key(export_id: Any) -> str:  # noqa: ANN401 - a UUID
     return _key("bundles", f"{export_id}.tar.gz")
 
 
+def scheme() -> str:
+    """What the URIs of stored files start with: ``s3`` or, on Cloud Storage, ``gs``."""
+    return "gs" if _gcs() else "s3"
+
+
 def uri(key: str) -> str:
-    return f"s3://{bucket()}/{key}"
+    return f"{scheme()}://{bucket()}/{key}"
 
 
 def _client(endpoint: str, region: str = "") -> S3Client:
@@ -166,8 +208,11 @@ def signer_for(bucket_name: str, *, workers: bool = False) -> S3Client:
 
 def reset() -> None:
     """Forgets the clients, after settings or credentials change (tests)."""
-    for cached in (client, _signer, region_of, _regional, upload_origin):
+    for cached in (client, _signer, region_of, _regional, _s3_upload_origin):
         cached.cache_clear()
+    from iki_server.files import gcs
+
+    gcs.reset()
     # boto3's default session keeps the credentials it found first.
     boto3.DEFAULT_SESSION = None
 
@@ -186,15 +231,24 @@ def part_count(size: int, part_size: int) -> int:
     return max(1, -(-size // part_size))
 
 
+@_backend
 def start_multipart(key: str) -> str:
     return client().create_multipart_upload(Bucket=bucket(), Key=key)["UploadId"]
 
 
-@cache
 def upload_origin() -> str | None:
     """Where browsers send upload parts (the origin part URLs are signed for), for the CSP.
 
     None until storage is configured."""
+    if _gcs():
+        from iki_server.files import gcs
+
+        return gcs.upload_origin()
+    return _s3_upload_origin()
+
+
+@cache
+def _s3_upload_origin() -> str | None:
     if not configured():
         return None
     url = signer().generate_presigned_url(
@@ -206,6 +260,7 @@ def upload_origin() -> str | None:
     return f"{parts.scheme}://{parts.netloc}"
 
 
+@_backend
 def part_url(key: str, multipart_id: str, number: int, *, workers: bool = False) -> str:
     return signer(workers=workers).generate_presigned_url(
         "upload_part",
@@ -214,6 +269,15 @@ def part_url(key: str, multipart_id: str, number: int, *, workers: bool = False)
     )
 
 
+@_backend
+def part_urls(
+    key: str, multipart_id: str, numbers: list[int], *, workers: bool = False
+) -> dict[int, str]:
+    """Each part's upload URL, by its number."""
+    return {n: part_url(key, multipart_id, n, workers=workers) for n in numbers}
+
+
+@_backend
 def uploaded_parts(key: str, multipart_id: str) -> dict[int, list[tuple[int, str]]]:
     """The parts that arrived: number → [(size, ETag)], newest first.
 
@@ -238,6 +302,7 @@ def uploaded_parts(key: str, multipart_id: str) -> dict[int, list[tuple[int, str
     }
 
 
+@_backend
 def complete_multipart(key: str, multipart_id: str, etags: dict[int, str]) -> None:
     client().complete_multipart_upload(
         Bucket=bucket(),
@@ -247,6 +312,7 @@ def complete_multipart(key: str, multipart_id: str, etags: dict[int, str]) -> No
     )
 
 
+@_backend
 def abort_multipart(key: str, multipart_id: str) -> None:
     try:
         client().abort_multipart_upload(Bucket=bucket(), Key=key, UploadId=multipart_id)
@@ -254,6 +320,7 @@ def abort_multipart(key: str, multipart_id: str) -> None:
         pass
 
 
+@_backend
 def put_empty(key: str) -> None:
     client().put_object(Bucket=bucket(), Key=key, Body=b"")
 
@@ -266,6 +333,7 @@ def digest(key: str) -> tuple[str, int]:
     return digest_object(bucket(), key)
 
 
+@_backend
 def digest_object(bucket_name: str, key: str, version: str = "") -> tuple[str, int]:
     """The SHA-256 and size of any object (at ``version``, if given), from its bytes."""
     params: dict[str, Any] = {"Bucket": bucket_name, "Key": key}
@@ -280,15 +348,20 @@ def digest_object(bucket_name: str, key: str, version: str = "") -> tuple[str, i
     return sha.hexdigest(), size
 
 
-def open_object(storage_uri: str, version: str = "") -> Any:  # noqa: ANN401 - botocore's StreamingBody
-    """A stored object's bytes, to read as a stream: ``s3://bucket/key``, at ``version``."""
+@_backend
+def open_object(storage_uri: str, version: str = "", offset: int = 0) -> Any:  # noqa: ANN401 - botocore's StreamingBody
+    """A stored object's bytes, to read as a stream: ``s3://bucket/key``, at ``version``,
+    from ``offset`` on."""
     bucket_name, key = split_uri(storage_uri)
     params: dict[str, Any] = {"Bucket": bucket_name, "Key": key}
     if version:
         params["VersionId"] = version
+    if offset:
+        params["Range"] = f"bytes={offset}-"
     return client_for(bucket_name).get_object(**params)["Body"]
 
 
+@_backend
 def exists(key: str) -> bool:
     try:
         client().head_object(Bucket=bucket(), Key=key)
@@ -301,17 +374,23 @@ def exists(key: str) -> bool:
 
 def split_uri(storage_uri: str) -> tuple[str, str]:
     """``s3://bucket/some/key`` → ``("bucket", "some/key")``, in the bucket the object is in
-    now: after a restore elsewhere, an aliased bucket's replica (IKI_FILES_BUCKET_ALIASES)."""
-    bucket_name, _, key = storage_uri.removeprefix("s3://").partition("/")
+    now: after a restore elsewhere, an aliased bucket's replica (IKI_FILES_BUCKET_ALIASES).
+
+    On Cloud Storage, ``gs://`` URIs, and ``s3://`` ones recorded while the same bucket
+    was reached through its S3-compatible API."""
+    _, _, rest = storage_uri.partition("://")
+    bucket_name, _, key = rest.partition("/")
     return settings.IKI_FILES_BUCKET_ALIASES.get(bucket_name, bucket_name), key
 
 
+@_backend
 def versioned(bucket_name: str) -> bool:
     """Whether the bucket keeps every version of its objects."""
     status = client_for(bucket_name).get_bucket_versioning(Bucket=bucket_name).get("Status")
     return status == "Enabled"
 
 
+@_backend
 def head(bucket_name: str, key: str, version: str = "") -> dict[str, Any] | None:
     """The object's size, version and content type, or None if there's no such object."""
     params: dict[str, Any] = {"Bucket": bucket_name, "Key": key}
@@ -331,25 +410,30 @@ def head(bucket_name: str, key: str, version: str = "") -> dict[str, Any] | None
     }
 
 
+@_backend
 def copy(source: str, target: str) -> None:
     """Copies within the bucket; large objects are copied in parts, by the store."""
     client().copy({"Bucket": bucket(), "Key": source}, bucket(), target)
 
 
+@_backend
 def download_file(key: str, path: Any) -> None:  # noqa: ANN401 - a Path
     """Copies a stored object to a local file, in parts if it's large."""
     client().download_file(bucket(), key, str(path))
 
 
+@_backend
 def upload_file(path: Any, key: str, media_type: str) -> None:  # noqa: ANN401 - a Path
     """Stores a local file, in parts if it's large."""
     client().upload_file(str(path), bucket(), key, ExtraArgs={"ContentType": media_type})
 
 
+@_backend
 def delete(key: str) -> None:
     client().delete_object(Bucket=bucket(), Key=key)
 
 
+@_backend
 def delete_for_good(key: str) -> int:
     """Deletes every version of the object, so a versioned bucket keeps none of it. Returns
     how many it deleted."""
@@ -367,6 +451,7 @@ def delete_for_good(key: str) -> int:
     return len(doomed)
 
 
+@_backend
 def download_url(
     storage_uri: str, version: str, name: str, media_type: str, *, workers: bool = False
 ) -> str:
