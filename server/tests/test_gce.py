@@ -17,6 +17,7 @@ from iki_server.runs.ec2 import VmMachines
 from iki_server.runs.gce import (
     GceError,
     GoogleGce,
+    image_request,
     instance_request,
     is_capacity,
     is_refused,
@@ -341,6 +342,82 @@ def test_it_reads_the_serial_port_operations_templates_and_images() -> None:
     )
     assert images.calls[0][1] == {"project": "cos-cloud", "family": "cos-stable"}
     assert client.image("p", COS) == COS
+
+
+def made_image() -> dict[str, Any]:
+    return image_request(
+        build_id="0193a1b2-0000-7000-8000-000000000001",
+        name="iki-prod-setup-000001-v1",
+        description="structure_prediction.alphafold-gpu af-db, version 1 (SETUP-000001)",
+        disk="projects/acme-iki/zones/us-central1-a/disks/iki-prod-setup-000001-d1",
+        region="us-central1",
+        kms_key=KEY,
+        machines=MACHINES,
+        environment="structure_prediction.alphafold-gpu",
+        volume="af-db",
+    )
+
+
+def test_a_setup_builds_disk_is_made_into_an_encrypted_image_in_its_region() -> None:
+    made = made_image()
+    image = compute_v1.Image.from_json(json.dumps(made["image"]))
+    assert image.source_disk.endswith("/disks/iki-prod-setup-000001-d1")
+    assert list(image.storage_locations) == ["us-central1"]
+    assert image.image_encryption_key.kms_key_name == KEY
+    assert dict(image.labels) == {
+        "iki-deployment": "iki-prod",
+        "iki-setup": "0193a1b2-0000-7000-8000-000000000001",
+        "iki-volume": "af-db",
+        "iki-environment": "structure_prediction-alphafold-gpu",
+    }
+    # One image however often it's asked for.
+    assert made["requestId"] == made_image()["requestId"]
+
+
+def test_it_makes_lists_and_deletes_disks_and_images() -> None:
+    def disks_listed(request: Any) -> Any:
+        assert request.filter == 'labels.iki-deployment = "iki-prod"'
+        scoped = compute_v1.DisksScopedList(
+            disks=[
+                compute_v1.Disk(
+                    name="iki-prod-setup-000001-d1",
+                    status="READY",
+                    zone="https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-a",
+                    labels={"iki-setup": "1"},
+                )
+            ]
+        )
+        return iter([("zones/us-central1-a", scoped)])
+
+    gone = exceptions.NotFound(  # type: ignore[no-untyped-call]
+        "gone", errors=[{"reason": "notFound"}]
+    )
+    disks = _Client(aggregated_list=disks_listed, delete=gone)
+    images = _Client(
+        insert=exceptions.Conflict(  # type: ignore[no-untyped-call]
+            "exists", errors=[{"reason": "alreadyExists"}]
+        ),
+        list=lambda request: iter(
+            [compute_v1.Image(name="iki-prod-setup-000001-v1", status="PENDING")]
+        ),
+        delete=gone,
+    )
+    client = google(DisksClient=disks, ImagesClient=images)
+    (disk,) = client.disks("p", "iki-prod")
+    assert (disk["name"], disk["zone"], disk["status"]) == (
+        "iki-prod-setup-000001-d1",
+        "us-central1-a",
+        "READY",
+    )
+    assert not disk.get("users")  # detached
+    client.delete_disk("p", "us-central1-a", "iki-prod-setup-000001-d1")  # gone already
+    client.create_image("p", made_image())  # made already
+    sent = images.calls[0][1]["request"]
+    assert (sent.project, sent.request_id) == ("p", made_image()["requestId"])
+    assert sent.image_resource.name == "iki-prod-setup-000001-v1"
+    assert [i["status"] for i in client.images("p", "iki-prod")] == ["PENDING"]
+    assert images.calls[1][1]["request"].filter == 'labels.iki-deployment = "iki-prod"'
+    client.delete_image("p", "iki-prod-setup-000001-v1")  # gone already
 
 
 def test_no_credentials_is_refused() -> None:

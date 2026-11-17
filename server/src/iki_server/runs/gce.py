@@ -72,6 +72,7 @@ __all__ = [
     "Gce",
     "GceError",
     "GoogleGce",
+    "image_request",
     "instance_request",
     "is_capacity",
     "is_refused",
@@ -204,6 +205,22 @@ class Gce(Protocol):
 
     def image(self, project: str, image: str) -> str:
         """The image `image` names now (a family's newest), by its URL."""
+
+    def disks(self, project: str, owner: str) -> list[dict[str, Any]]:
+        """The deployment's disks in every zone, as Compute Engine describes them (each with
+        its ``zone``'s name)."""
+
+    def delete_disk(self, project: str, zone: str, name: str) -> None:
+        """Deletes the disk; nothing if it's gone already."""
+
+    def create_image(self, project: str, request: dict[str, Any]) -> None:
+        """Starts making the image `request` asks for, once however often it's sent."""
+
+    def images(self, project: str, owner: str) -> list[dict[str, Any]]:
+        """The deployment's images, as Compute Engine describes them."""
+
+    def delete_image(self, project: str, name: str) -> None:
+        """Deletes the image; nothing if it's gone already."""
 
 
 # --- What a machine boots with ----------------------------------------------------------------
@@ -452,6 +469,40 @@ def _data_disk(
     }
 
 
+def image_request(
+    *,
+    build_id: str,
+    name: str,
+    description: str,
+    disk: str,
+    region: str,
+    kms_key: str,
+    machines: VmMachines,
+    environment: str,
+    volume: str,
+) -> dict[str, Any]:
+    """An ``images.insert`` for a setup build's filled disk (ADR 0076): kept in the
+    template's region, encrypted with the deployment's key, and labelled with its build and
+    volume. Its request ID is the build's and volume's, so Compute Engine makes one image
+    however often it's sent."""
+    return {
+        "requestId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"iki:image:{build_id}:{volume}")),
+        "image": {
+            "name": name[:63].rstrip("-"),
+            "description": description[:2048],
+            "sourceDisk": disk,
+            "storageLocations": [region],
+            "labels": {
+                OWNER_LABEL: label(machines.owner),
+                SETUP_LABEL: build_id,
+                VOLUME_LABEL: label(volume),
+                ENVIRONMENT_LABEL: label(environment),
+            },
+            **({"imageEncryptionKey": {"kmsKeyName": kms_key}} if kms_key else {}),
+        },
+    }
+
+
 def public(properties: dict[str, Any]) -> bool:
     """Whether an instance template would give its machines a public address."""
     return any(
@@ -642,6 +693,74 @@ class GoogleGce:
             found = self._call("ImagesClient", "get_from_family", project=parts[1], family=parts[5])
             return str(found.self_link)
         return image
+
+    def disks(self, project: str, owner: str) -> list[dict[str, Any]]:
+        from google.cloud import compute_v1
+
+        pages = self._call(
+            "DisksClient",
+            "aggregated_list",
+            request=compute_v1.AggregatedListDisksRequest(
+                project=project, filter=f'labels.{OWNER_LABEL} = "{label(owner)}"'
+            ),
+        )
+        found: list[dict[str, Any]] = []
+        for _, scoped in self._pages(pages):
+            for disk in scoped.disks:
+                described = json.loads(compute_v1.Disk.to_json(disk))
+                described["zone"] = str(described.get("zone", "")).rsplit("/", 1)[-1]
+                found.append(described)
+        return found
+
+    def delete_disk(self, project: str, zone: str, name: str) -> None:
+        try:
+            self._call("DisksClient", "delete", project=project, zone=zone, disk=name)
+        except GceError as error:
+            if error.code not in ("notFound", "RESOURCE_NOT_FOUND"):
+                raise
+
+    def create_image(self, project: str, request: dict[str, Any]) -> None:
+        from google.cloud import compute_v1
+
+        made = compute_v1.InsertImageRequest(
+            project=project,
+            request_id=request["requestId"],
+            image_resource=compute_v1.Image.from_json(json.dumps(request["image"])),
+        )
+        try:
+            # Not waited for: it takes as long as the disk takes to copy.
+            self._call("ImagesClient", "insert", request=made)
+        except GceError as error:
+            if error.code != "alreadyExists":
+                raise
+
+    def images(self, project: str, owner: str) -> list[dict[str, Any]]:
+        from google.cloud import compute_v1
+
+        pages = self._call(
+            "ImagesClient",
+            "list",
+            request=compute_v1.ListImagesRequest(
+                project=project, filter=f'labels.{OWNER_LABEL} = "{label(owner)}"'
+            ),
+        )
+        return [json.loads(compute_v1.Image.to_json(each)) for each in self._pages(pages)]
+
+    def delete_image(self, project: str, name: str) -> None:
+        try:
+            self._call("ImagesClient", "delete", project=project, image=name)
+        except GceError as error:
+            if error.code not in ("notFound", "RESOURCE_NOT_FOUND"):
+                raise
+
+    def _pages(self, pages: Any) -> list[Any]:  # noqa: ANN401 - a pager
+        """Every page's items: a pager asks for the next page as it's read."""
+        from google.api_core import exceptions
+
+        try:
+            return list(pages)
+        except exceptions.GoogleAPICallError as error:
+            raise _error(error) from error
 
 
 def _error(error: Any) -> GceError:  # noqa: ANN401 - a GoogleAPICallError

@@ -846,6 +846,14 @@ volumes:
     throughput: 1000
 ```
 
+On `gcp_gce`, the build's disk is made into an image in the template's
+region, encrypted with the deployment's key, and each instance gets a new
+persistent disk from it (of the template's `disk_type`), mounted read-only
+and deleted with the instance: an image rather than a snapshot, as Compute
+Engine makes at most six disks an hour from one snapshot in a zone. Compute
+Engine has no fast snapshot restore, and Iki doesn't yet give volumes there
+on a shared file system or in a bucket.
+
 On Kubernetes, with `shared_filesystem`, each version is a directory of its
 own on a file system many pods mount at once, such as FSx for Lustre, EFS or
 NFS (ADR 0077). `claim` names its PersistentVolumeClaim, in the namespace

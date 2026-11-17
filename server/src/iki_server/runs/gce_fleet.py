@@ -24,6 +24,8 @@ address is refused before anything starts.
 - One still not registered when its token expires is deleted.
 - One whose launch ended, or that has none, is deleted.
 - One running a run is labelled with the run, its project and team, for billing reports.
+
+Then setup builds' machines, disks and images move on (:mod:`gce_volumes`).
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.runs import launches, setups
+from iki_server.runs import catalog, gce_volumes, launches, setups
 from iki_server.runs.ec2 import Disk, Shared, VmMachines, disks, host_trouble
 from iki_server.runs.ec2_fleet import vm_machines
 from iki_server.runs.gce import (
@@ -392,6 +394,13 @@ class GceFleet(Fleet):
             # stopping is going already.
             if _label(instance, LAUNCH_LABEL) not in known and _status(instance) != "STOPPING":
                 self._delete(instance["zone"], instance["name"])
+        # Environment setup builds, and the images they leave (ADR 0076).
+        regions = {each.namespace for each in live} | {
+            str(t.gcp["region"])
+            for t in catalog.compute().templates.values()
+            if t.provisioner in PROVISIONERS
+        }
+        gce_volumes.tick(self, instances, regions, now)
         return ended
 
     def _reconcile_one(self, launch: Launch, instance: dict[str, Any] | None, now: datetime) -> int:

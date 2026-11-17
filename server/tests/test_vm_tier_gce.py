@@ -89,7 +89,8 @@ def keep_connection(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class FakeGce:
-    """Keeps the instances the provisioner starts, as Compute Engine would."""
+    """Keeps the instances the provisioner starts, and their disks and the images made of
+    them, as Compute Engine would."""
 
     def __init__(self) -> None:
         self.made: dict[str, dict[str, Any]] = {}
@@ -101,6 +102,11 @@ class FakeGce:
         #: Each instance's operations, by its name.
         self.operations: dict[str, list[str]] = {}
         self.properties: dict[str, Any] = {"networkInterfaces": [{"subnetwork": "nodes"}]}
+        #: Volumes' disks, by their zone and name; images, by their name.
+        self.disks_made: dict[tuple[str, str], dict[str, Any]] = {}
+        self.images_made: dict[str, dict[str, Any]] = {}
+        #: Whether instances are listed with their disks attached yet.
+        self.listing_disks = True
 
     def insert(self, project: str, zone: str, request: dict[str, Any]) -> None:
         assert project == PROJECT
@@ -118,18 +124,87 @@ class FakeGce:
             "labelFingerprint": "f0",
             "request": request,
         }
+        link = f"projects/{PROJECT}/zones/{zone}/instances/{name}"
+        for disk in self.made[name]["disks"]:
+            if disk.get("boot"):
+                continue
+            params = disk["initializeParams"]
+            self.disks_made[(zone, params["diskName"])] = {
+                "name": params["diskName"],
+                "zone": zone,
+                "status": "READY",
+                "users": [link],
+                "labels": params["labels"],
+                "sourceImage": params.get("sourceImage"),
+                "autoDelete": disk["autoDelete"],
+            }
+            disk["source"] = (
+                f"https://www.googleapis.com/compute/v1/projects/{PROJECT}/zones/{zone}"
+                f"/disks/{params['diskName']}"
+            )
 
     def instances(self, project: str, owner: str) -> list[dict[str, Any]]:
-        return [
+        found = [
             i
             for i in self.made.values()
             if i["status"] != "DELETED" and (i.get("labels") or {}).get(OWNER_LABEL) == owner
+        ]
+        if self.listing_disks:
+            return found
+        return [
+            {**i, "disks": [{k: v for k, v in d.items() if k != "source"} for d in i["disks"]]}
+            for i in found
         ]
 
     def delete(self, project: str, zone: str, name: str) -> None:
         if name in self.made:
             self.made[name]["status"] = "DELETED"
         self.deleted.append(name)
+        # Its disks go with it, but those kept.
+        for disk in self.disks_made.values():
+            if any(user.endswith(f"/instances/{name}") for user in disk["users"]):
+                disk["users"] = []
+                if disk["autoDelete"]:
+                    disk["status"] = "DELETED"
+
+    def disks(self, project: str, owner: str) -> list[dict[str, Any]]:
+        assert project == PROJECT
+        return [
+            d
+            for d in self.disks_made.values()
+            if d["status"] != "DELETED" and d["labels"].get(OWNER_LABEL) == owner
+        ]
+
+    def delete_disk(self, project: str, zone: str, name: str) -> None:
+        disk = self.disks_made.get((zone, name))
+        if disk is not None:
+            assert not disk["users"], "Compute Engine won't delete a disk in use"
+            disk["status"] = "DELETED"
+
+    def create_image(self, project: str, request: dict[str, Any]) -> None:
+        assert project == PROJECT
+        image = request["image"]
+        if image["name"] in self.images_made:
+            return  # the same request again
+        zone, name = image["sourceDisk"].split("/zones/", 1)[1].split("/disks/")
+        assert not self.disks_made[(zone, name)]["users"], "a disk in use"
+        self.images_made[image["name"]] = {
+            **image,
+            "status": "PENDING",
+            "creationTimestamp": f"2026-11-17T00:00:{len(self.images_made):02}Z",
+            "requestId": request["requestId"],
+        }
+
+    def images(self, project: str, owner: str) -> list[dict[str, Any]]:
+        return [
+            i
+            for i in self.images_made.values()
+            if i["status"] != "DELETED" and i["labels"].get(OWNER_LABEL) == owner
+        ]
+
+    def delete_image(self, project: str, name: str) -> None:
+        if name in self.images_made:
+            self.images_made[name]["status"] = "DELETED"
 
     def set_labels(
         self, project: str, zone: str, name: str, labels: dict[str, str], fingerprint: str
@@ -493,7 +568,7 @@ def test_the_provisioner_starts_compute_engines_fleet_when_its_settings_say(
     assert only.project == PROJECT
 
 
-def test_volumes_wait_on_compute_engine_until_it_can_have_them(
+def test_runs_wait_for_volumes_their_template_cant_give(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(setups, "filled", lambda environment: ["af-db"])

@@ -174,7 +174,8 @@ def test_the_schemas(tmp_path: Path, plugins: list[Plugin], document: str, fragm
         ),
         (
             BACKEND + "volumes: { db: { strategy: object_mount } }\n",
-            "`volumes` is for `k8s_job` and `k8s_deployment` and `aws_ec2` templates.",
+            "`volumes` is for `k8s_job` and `k8s_deployment` and `aws_ec2` and `gcp_gce` "
+            "templates.",
         ),
         (
             A100 + "kubernetes: { namespace: gpu }\n",
@@ -520,9 +521,18 @@ def test_compute_engine_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
         _errors(tmp_path, plugins, GCE + "kubernetes: { namespace: gpu }\n"),
         "wrong-provisioner",
     )
-    # No volumes on Compute Engine yet.
-    volumes = GCE + "volumes: { af-db: { strategy: clone_from_snapshot } }\n"
-    assert only(_errors(tmp_path, plugins, volumes), "wrong-provisioner")
+    # Persistent disks from an image; no shared file systems or buckets yet.
+    disks = GCE + "volumes: { af-db: { strategy: clone_from_snapshot } }\n"
+    assert not _errors(tmp_path, plugins, disks).problems
+    shared = GCE + "volumes: { af-db: { strategy: shared_filesystem } }\n"
+    assert "volume-strategy-unsupported" in codes(_errors(tmp_path, plugins, shared))
+    # Fast snapshot restore and provisioned IOPS are EBS's.
+    fast = (
+        GCE + "volumes: { af-db: { strategy: clone_from_snapshot, fast_snapshot_restore: true } }\n"
+    )
+    assert only(_errors(tmp_path, plugins, fast), "fast-restore-wrong-strategy")
+    iops = GCE + "volumes: { af-db: { strategy: clone_from_snapshot, iops: 16000 } }\n"
+    assert only(_errors(tmp_path, plugins, iops), "volume-option-aws-only")
 
 
 def _errors(tmp_path: Path, plugins: list[Plugin], document: str) -> ComputeResult:

@@ -82,8 +82,8 @@ STRATEGIES = {
         "object_mount",
     },
     "aws_ec2": {"clone_from_snapshot", "attach_exclusive", "shared_filesystem", "object_mount"},
-    # No volumes yet on Compute Engine.
-    "gcp_gce": set(),
+    # Persistent disks from an image; no shared file systems or buckets yet.
+    "gcp_gce": {"clone_from_snapshot", "attach_exclusive"},
 }
 
 #: What a cloud machine's disk needs besides the scratch space runs get: at least this
@@ -313,7 +313,7 @@ _ONLY_FOR = {
     "gcp": ("gcp_gce",),
     "lifecycle": ("aws_ec2", "gcp_gce"),
     "kubernetes": ("backend_pool", "k8s_job", "k8s_deployment"),
-    "volumes": ("k8s_job", "k8s_deployment", "aws_ec2"),
+    "volumes": ("k8s_job", "k8s_deployment", "aws_ec2", "gcp_gce"),
 }
 
 
