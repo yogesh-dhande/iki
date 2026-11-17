@@ -15,6 +15,8 @@ export default tseslint.config(
       ".venv/**",
       // Claude Code's git worktrees: other checkouts, each checked on its own.
       ".claude/**",
+      // The dev deployment's build (Tilt): copies of the plugins, linted where they live.
+      "build/**",
       // Plugins the tests built.
       ".pytest_cache/**",
       "**/.static/**",
