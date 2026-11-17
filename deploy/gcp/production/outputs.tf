@@ -9,8 +9,6 @@ locals {
     "database-migrator"    = { name = "iki-database-migrator", data = { uri = null } }
     "email"                = { name = "iki-email", data = { url = null } }
     "backend-worker-token" = { name = "iki-backend-worker-token", data = { token = null } }
-    # The HMAC key is one JSON secret; each Kubernetes key is one of its fields.
-    "files-hmac" = { name = "iki-files-hmac", data = { "access-key-id" = "access_id", "secret-access-key" = "secret" } }
   }
   runs  = module.cluster.node_pools["runs"]
   store = { name = "gcp-secret-manager", kind = "SecretStore" }
@@ -33,14 +31,12 @@ output "helm_values" {
       migrator       = { existingSecret = local.k8s_secrets["database-migrator"].name }
       caSecret       = { name = "iki-database-ca", key = "ca.crt" }
     }
-    # Cloud Storage through its S3-compatible API, with the server's HMAC key, until Iki
-    # speaks Cloud Storage's own (the README's next steps).
+    # Cloud Storage through its own APIs (ADR 0109), as the server's service account
+    # below, with no key.
     files = {
-      bucket      = module.storage.bucket
-      prefix      = var.files_prefix
-      region      = "auto"
-      endpoint    = "https://storage.googleapis.com"
-      credentials = { existingSecret = local.k8s_secrets["files-hmac"].name }
+      backend = "gcs"
+      bucket  = module.storage.bucket
+      prefix  = var.files_prefix
     }
     # Web, tasks and maintenance pods' Google identity, through Workload Identity.
     serviceAccount = { annotations = { "iam.gke.io/gcp-service-account" = module.access.server_service_account } }
@@ -53,15 +49,28 @@ output "helm_values" {
       nodeSelector = local.runs.node_selector
       tolerations  = local.runs.tolerations
     }
-    # No Compute Engine provisioner yet: the VM tier's infrastructure is ready for one.
-    vmTier = { enabled = false }
+    # Compute Engine machines for vm-tier runs (ADR 0109), started by the provisioner as
+    # its own Google service account.
+    vmTier = merge({ enabled = local.vm_tier }, [for _ in local.vm_tier ? [1] : [] : merge({
+      cloud = "gcp"
+      owner = var.name
+      gcp = {
+        project          = var.project_id
+        instanceTemplate = module.vm_tier[0].instance_template
+        kmsKey           = module.vm_tier[0].disk_kms_key
+      }
+      serviceAccountAnnotations = { "iam.gke.io/gcp-service-account" = module.access.provisioner_service_account }
+    }, try(var.vm_tier.server_url, "") == "" ? {} : { serverUrl = var.vm_tier.server_url })]...)
     networkPolicy = {
       # The load balancer's proxies and health checkers reach web pods' addresses.
       ingressFrom = [for c in(var.internal ? concat([module.network.proxy_cidr], local.google_front_ends) : local.google_front_ends) : { ipBlock = { cidr = c } }]
       egress = {
         database = { to = [{ ipBlock = { cidr = module.network.managed_services_cidr } }] }
-        # Cloud Storage, at private.googleapis.com, where the VPC's DNS sends it.
+        # Cloud Storage and IAM (signing URLs), at private.googleapis.com, where the VPC's
+        # DNS sends them.
         objectStorage = { to = [{ ipBlock = { cidr = module.network.google_apis_cidr } }] }
+        # The provisioner's Compute Engine API, there too (only with the VM tier).
+        cloudApi = { ports = [443], to = [{ ipBlock = { cidr = module.network.google_apis_cidr } }] }
         # Pods with a Google identity get its tokens from GKE's metadata server, which
         # Dataplane V2 also serves on 988.
         podIdentity = {
@@ -183,7 +192,7 @@ output "external_secrets" {
 
 output "put_secrets" {
   description = "The command that fills the secrets, once."
-  value       = "deploy/gcp/scripts/put-secrets.sh ${var.project_id} ${var.name} ${module.database.instance} ${module.database.address} ${module.access.server_service_account}"
+  value       = "deploy/gcp/scripts/put-secrets.sh ${var.project_id} ${var.name} ${module.database.instance} ${module.database.address}"
 }
 
 output "create_database_roles" {
@@ -237,7 +246,7 @@ output "nat_ips" {
 }
 
 output "vm_tier" {
-  description = "What a Compute Engine provisioner would start machines with (the README's next steps), or null."
+  description = "What the provisioner starts the VM tier's machines with (the chart's vmTier has it), or null."
   value = local.vm_tier ? {
     instance_template = module.vm_tier[0].instance_template
     service_account   = module.vm_tier[0].service_account

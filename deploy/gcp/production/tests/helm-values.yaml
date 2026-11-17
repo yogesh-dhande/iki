@@ -23,16 +23,19 @@ database:
 encryptionKeys:
   existingSecret: iki-encryption-keys
 files:
+  backend: gcs
   bucket: iki-test-files-iki-test-project
-  credentials:
-    existingSecret: iki-files-hmac
-  endpoint: https://storage.googleapis.com
   prefix: ""
-  region: auto
 ingress:
   enabled: false
 networkPolicy:
   egress:
+    cloudApi:
+      ports:
+        - 443
+      to:
+        - ipBlock:
+            cidr: 199.36.153.8/30
     database:
       to:
         - ipBlock:

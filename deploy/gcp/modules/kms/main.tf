@@ -36,7 +36,7 @@ locals {
   keys = {
     "kubernetes-secrets" = { ring = "region", agent = "kubernetes", what = "Kubernetes Secrets in etcd" }
     "node-disks"         = { ring = "region", agent = "compute", what = "the cluster's node disks" }
-    "vm-disks"           = { ring = "region", agent = "compute", what = "the VM tier's disks and snapshots" }
+    "vm-disks"           = { ring = "region", agent = "compute", what = "the VM tier's disks and images" }
     "database"           = { ring = "region", agent = "sql", what = "the database and its backups" }
     "secrets"            = { ring = "region", agent = "secrets", what = "Iki's secrets" }
     "registry"           = { ring = "region", agent = "registry", what = "plugin and worker images" }

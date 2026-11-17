@@ -83,17 +83,20 @@ run "every_secret_reaches_the_cluster_under_the_name_the_chart_is_given" {
         yamldecode(output.helm_values).secretKey, yamldecode(output.helm_values).encryptionKeys,
         yamldecode(output.helm_values).bundles.signingKey, yamldecode(output.helm_values).runSecrets,
         yamldecode(output.helm_values).database, yamldecode(output.helm_values).database.migrator,
-        yamldecode(output.helm_values).files.credentials,
       ] : v.existingSecret
     ])
     error_message = "Each Secret the chart is told of should be made by an ExternalSecret, and no others."
   }
+}
+
+run "files_reach_cloud_storage_as_the_server_with_no_key" {
   assert {
-    condition = one([
-      for d in split("---\n", output.external_secrets) : [for e in yamldecode(d).spec.data : "${e.secretKey}=${e.remoteRef.key}.${e.remoteRef.property}"]
-      if yamldecode(d).kind == "ExternalSecret" && yamldecode(d).metadata.name == "iki-files-hmac"
-    ]) == ["access-key-id=iki-test-files-hmac.access_id", "secret-access-key=iki-test-files-hmac.secret"]
-    error_message = "The HMAC key's two fields should become the two keys the chart reads."
+    condition     = yamldecode(output.helm_values).files.backend == "gcs" && !contains(keys(yamldecode(output.helm_values).files), "credentials")
+    error_message = "Files should go through Cloud Storage's own APIs, as the server's service account (ADR 0109), with no key in a Secret."
+  }
+  assert {
+    condition     = !strcontains(output.put_secrets, module.access.server_service_account)
+    error_message = "put-secrets.sh makes no key for the server any more."
   }
 }
 
@@ -170,13 +173,42 @@ run "the_vm_tier_when_asked" {
     error_message = "The provisioner should get an identity, and machines a template."
   }
   assert {
-    condition     = yamldecode(output.helm_values).vmTier.enabled == false
-    error_message = "The chart's VM tier stays off: Iki has no Compute Engine provisioner yet."
+    condition = (
+      yamldecode(output.helm_values).vmTier.enabled && yamldecode(output.helm_values).vmTier.cloud == "gcp"
+      && yamldecode(output.helm_values).vmTier.owner == "iki-test"
+      && yamldecode(output.helm_values).vmTier.gcp.project == "iki-test-project"
+      && yamldecode(output.helm_values).vmTier.gcp.instanceTemplate == output.vm_tier.instance_template
+      && yamldecode(output.helm_values).vmTier.gcp.kmsKey == output.vm_tier.disk_kms_key
+      && yamldecode(output.helm_values).vmTier.serviceAccountAnnotations["iam.gke.io/gcp-service-account"] == output.vm_tier.provisioner
+    )
+    error_message = "The chart's VM tier should start Compute Engine machines from this deployment's template, as the provisioner's own identity."
+  }
+  assert {
+    condition     = !contains(keys(yamldecode(output.helm_values).vmTier), "serverUrl")
+    error_message = "Machines reach publicUrl unless server_url says otherwise."
   }
   assert {
     condition     = alltrue([for r in values(module.registry.readers) : length(r) == 2])
     error_message = "Both the nodes and the VM tier's machines should pull from both repositories."
   }
+}
+
+run "the_vm_tiers_machines_reach_iki_where_told" {
+  variables {
+    vm_tier = { server_url = "https://iki.internal.example.com" }
+  }
+  assert {
+    condition     = yamldecode(output.helm_values).vmTier.serverUrl == "https://iki.internal.example.com"
+    error_message = "Machines should reach Iki at vm_tier.server_url, from the VPC."
+  }
+}
+
+run "refuses_a_vm_tier_server_url_that_isnt_https" {
+  command = plan
+  variables {
+    vm_tier = { server_url = "http://iki.internal.example.com" }
+  }
+  expect_failures = [var.vm_tier]
 }
 
 run "shared_reference_data_when_asked" {

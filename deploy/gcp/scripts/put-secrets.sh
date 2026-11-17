@@ -3,13 +3,13 @@
 # never pass through OpenTofu's state, a terminal, or a command line. A secret that
 # already has a value is left alone, so running it again is safe.
 #
-#   deploy/gcp/scripts/put-secrets.sh <project> <deployment> <instance> <database-host> <server-service-account>
+#   deploy/gcp/scripts/put-secrets.sh <project> <deployment> <instance> <database-host>
 #
-# All five are what deploy/gcp/production's put_secrets output names. Google credentials
+# All four are what deploy/gcp/production's put_secrets output names. Google credentials
 # come from gcloud (gcloud auth login). Needs gcloud, curl, jq and openssl.
 set -euo pipefail
 
-if [[ $# -ne 5 ]]; then
+if [[ $# -ne 4 ]]; then
   sed -n '6,9p' "$0" >&2
   exit 2
 fi
@@ -17,7 +17,6 @@ project=$1
 deployment=$2
 instance=$3
 host=$4
-server=$5
 
 umask 077
 work=$(mktemp -d)
@@ -88,17 +87,6 @@ else
   rm -f "$work/user.json"
   printf '%s' "$password" | put database-admin
   unset password
-fi
-
-# The server's HMAC key, which it reaches Cloud Storage's S3-compatible API with until Iki
-# speaks Cloud Storage's own (deploy/gcp/README.md). It's the server's service account's,
-# so the bucket's IAM decides what it may do. Made once: a second key would only be one
-# more to revoke.
-if has_value "$deployment-files-hmac"; then
-  echo "$deployment-files-hmac already has a value: left as it is."
-else
-  gcloud storage hmac create "$server" --project "$project" --format=json |
-    jq -e '{access_id: .metadata.accessId, secret: .secret} | select(.access_id and .secret)' | put files-hmac
 fi
 
 echo "Done. The optional secrets (email, backend-worker-token) you put yourself, when you need them:"

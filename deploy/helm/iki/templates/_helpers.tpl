@@ -178,6 +178,18 @@ which version of an environment's volumes machines there get (ADR 0075). */}}
 {{- end }}
 {{- with $ctx.Values.files }}
 {{- if .bucket }}
+{{- $backend := .backend | default "s3" }}
+{{- if and (eq $backend "gcs") .credentials.existingSecret }}
+{{- fail "files.credentials is an S3 access key: with files.backend gcs, pods reach Cloud Storage as their Google service account (serviceAccount.annotations), with no key" }}
+{{- end }}
+{{- $scheme := ternary "gs://" "s3://" (eq $backend "gcs") }}
+{{- range (.registerLocations | default list) }}
+{{- if not (hasPrefix $scheme .) }}
+{{- fail (printf "files.registerLocations: %s must start %s with files.backend %s" . $scheme $backend) }}
+{{- end }}
+{{- end }}
+- name: IKI_FILES_BACKEND
+  value: {{ $backend | quote }}
 - name: IKI_FILES_BUCKET
   value: {{ .bucket | quote }}
 - name: IKI_FILES_PREFIX

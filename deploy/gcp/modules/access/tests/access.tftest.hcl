@@ -52,6 +52,17 @@ run "server_pods_reach_only_their_prefix_of_the_files_bucket" {
   }
 }
 
+run "server_pods_sign_urls_as_themselves_and_no_one_else" {
+  assert {
+    condition     = google_project_iam_custom_role.sign_urls.permissions == toset(["iam.serviceAccounts.signBlob"])
+    error_message = "Signing URLs needs signBlob, and nothing more: not getAccessToken, which Token Creator would also give."
+  }
+  assert {
+    condition     = google_service_account_iam_member.sign_as_itself.service_account_id == google_service_account.server.name && google_service_account_iam_member.sign_as_itself.member == google_service_account.server.member
+    error_message = "Only on the server's own account, to itself."
+  }
+}
+
 run "registered_locations_are_read_only" {
   variables {
     register_locations = [{ bucket = "lab-data", prefix = "runs/" }]
@@ -83,8 +94,12 @@ run "the_provisioner_touches_only_its_own_machines" {
     }
   }
   assert {
-    condition     = one(google_project_iam_member.machines[0].condition).expression == "resource.name.extract(\"/instances/{name}\").startsWith(\"iki-test-\") || resource.name.extract(\"/disks/{name}\").startsWith(\"iki-test-\") || resource.name.extract(\"/snapshots/{name}\").startsWith(\"iki-test-\")"
-    error_message = "It should make, change and delete only machines, disks and snapshots named for its deployment."
+    condition     = one(google_project_iam_member.machines[0].condition).expression == "resource.name.extract(\"/instances/{name}\").startsWith(\"iki-test-\") || resource.name.extract(\"/disks/{name}\").startsWith(\"iki-test-\") || resource.name.extract(\"/images/{name}\").startsWith(\"iki-test-\")"
+    error_message = "It should make, change and delete only machines, disks and images named for its deployment."
+  }
+  assert {
+    condition     = alltrue([for p in google_project_iam_custom_role.machines[0].permissions : startswith(p, "compute.instances.") || startswith(p, "compute.disks.") || startswith(p, "compute.images.")])
+    error_message = "What it may change, under the condition, should be only machines, disks and images."
   }
   assert {
     condition     = !anytrue([for p in google_project_iam_custom_role.observe[0].permissions : endswith(p, ".create") || endswith(p, ".delete") || strcontains(p, ".set")])

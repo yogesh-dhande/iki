@@ -39,7 +39,7 @@ variable "network_tag" {
 }
 
 variable "kms_key" {
-  description = "The key for the machines' disks and snapshots, from the kms module (vm-disks)."
+  description = "The key for the machines' disks, and the images setup builds make, from the kms module (vm-disks)."
   type        = string
 }
 

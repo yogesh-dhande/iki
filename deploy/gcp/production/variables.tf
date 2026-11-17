@@ -2,6 +2,12 @@ variable "name" {
   description = "This deployment's name: it prefixes everything made, and names its VM tier's machines."
   type        = string
   default     = "iki-production"
+  # Service accounts are named <name>-provisioner, at most 30 characters, and the VM
+  # tier's machines <name>-..., which the provisioner's IAM condition matches.
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,16}[a-z0-9]$", var.name))
+    error_message = "name must be 3 to 18 lowercase letters, digits and hyphens, starting with a letter."
+  }
 }
 
 variable "project_id" {
@@ -191,10 +197,15 @@ variable "log_retention_days" {
 }
 
 variable "vm_tier" {
-  description = "Make what the VM tier needs on Compute Engine (ADR 0074): the machines' service account, instance template and firewalls, and the provisioner's identity. Iki can't start Compute Engine machines yet (the README's next steps), so the chart's vmTier stays off."
+  description = "The VM tier on Compute Engine (ADR 0074, 0109): the machines' service account, instance template and firewalls, the provisioner's identity, and the chart's vmTier. server_url is where machines reach Iki from the VPC (an https:// address; publicUrl by default), and extra_https_cidrs what else they may reach."
   type = object({
+    server_url        = optional(string, "")
     extra_https_cidrs = optional(list(string), [])
   })
+  validation {
+    condition     = var.vm_tier == null || can(regex("^(https://.+)?$", var.vm_tier.server_url))
+    error_message = "vm_tier.server_url must be an https:// address: machines send their token to it."
+  }
   default = null
 }
 

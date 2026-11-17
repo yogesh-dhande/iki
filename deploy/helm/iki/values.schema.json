@@ -275,7 +275,11 @@
       "properties": {
         "bucket": {
           "type": "string",
-          "pattern": "^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])?$"
+          "pattern": "^([a-z0-9][a-z0-9._-]{1,61}[a-z0-9])?$"
+        },
+        "backend": {
+          "type": "string",
+          "enum": ["s3", "gcs"]
         },
         "prefix": {
           "type": "string"
@@ -325,7 +329,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](/[^,]*)?$"
+            "pattern": "^(s3|gs)://[a-z0-9][a-z0-9._-]{1,61}[a-z0-9](/[^,]*)?$"
           }
         },
         "workerEndpoint": {
@@ -793,9 +797,31 @@
         "enabled": {
           "type": "boolean"
         },
+        "cloud": {
+          "type": "string",
+          "enum": ["aws", "gcp"]
+        },
         "owner": {
           "type": "string",
           "pattern": "^([A-Za-z0-9+=._:/@-]{1,128})?$"
+        },
+        "gcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "project": {
+              "type": "string",
+              "pattern": "^([a-z][-a-z0-9.:]{4,61}[a-z0-9])?$"
+            },
+            "instanceTemplate": {
+              "type": "string",
+              "pattern": "^((https://www.googleapis.com/compute/v1/)?projects/[^/]+/(global|regions/[a-z0-9-]+)/instanceTemplates/[a-z][-a-z0-9]*)?$"
+            },
+            "kmsKey": {
+              "type": "string",
+              "pattern": "^(projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+)?$"
+            }
+          }
         },
         "serverUrl": {
           "type": "string",

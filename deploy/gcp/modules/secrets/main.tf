@@ -14,7 +14,6 @@ locals {
     "database"           = "A postgres:// URI for the app's role, iki_app (database)"
     "database-migrator"  = "A postgres:// URI for the schema's owner, iki (database.migrator)"
     "database-admin"     = "The password of Cloud SQL's postgres user, which creates Iki's two roles once"
-    "files-hmac"         = "An HMAC key of the server's service account, for Cloud Storage's S3-compatible API (files.credentials)"
     "run-secrets"        = "Plugins' secrets, as a JSON object keyed like dna.NCBI_API_KEY (runSecrets)"
   }
   optional = {

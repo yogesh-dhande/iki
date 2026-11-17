@@ -609,11 +609,32 @@ def test_files_are_off_unless_a_bucket_is_set_and_then_reach_every_container() -
         assert variables["IKI_FILES_BUCKET"] == "iki-files", name
         assert variables["IKI_FILES_PREFIX"] == "prod", name
         assert variables["IKI_FILES_ENDPOINT_URL"] == "", name
+        assert variables["IKI_FILES_BACKEND"] == "s3", name
         assert variables["IKI_FILES_MAX_UPLOAD_SIZE"] == "100GiB", name
         assert variables["IKI_FILES_ARTIFACT_RETENTION"] == "90d", name
         assert variables["IKI_FILES_ARTIFACT_MIN_RETENTION"] == "", name
         # No keys: on AWS, the service account's IAM role gives access.
         assert "AWS_ACCESS_KEY_ID" not in variables, name
+
+
+def test_cloud_storage_takes_no_key_and_gs_locations() -> None:
+    values = {"files": {"bucket": "iki_files", "backend": "gcs"}}
+    for name, spec in pod_specs(manifests(values)):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert variables["IKI_FILES_BACKEND"] == "gcs", name
+        assert variables["IKI_FILES_BUCKET"] == "iki_files", name
+        assert "AWS_ACCESS_KEY_ID" not in variables, name
+    error = render({"files": {**values["files"], "credentials": {"existingSecret": "k"}}}, ok=False)
+    assert "Google service account" in str(error)
+    located = {"files": {**values["files"], "registerLocations": ["gs://lab-data/runs/"]}}
+    for name, spec in pod_specs(manifests(located)):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0]["env"]}
+        assert variables["IKI_FILES_REGISTER_LOCATIONS"] == "gs://lab-data/runs/", name
+    error = render({"files": {**values["files"], "registerLocations": ["s3://lab"]}}, ok=False)
+    assert "s3://lab must start gs://" in str(error)
+    error = render({"files": {"bucket": "iki", "registerLocations": ["gs://lab"]}}, ok=False)
+    assert "gs://lab must start s3://" in str(error)
+    assert "backend" in str(render({"files": {"bucket": "iki", "backend": "azure"}}, ok=False))
 
 
 def test_storage_keys_come_only_from_a_secret() -> None:
@@ -1306,6 +1327,66 @@ def test_the_vm_tier_runs_the_provisioner_with_no_kubernetes_access() -> None:
     assert "169.254.0.0/16" in cloud["egress"][0]["to"][0]["ipBlock"]["except"]
 
 
+GCE: dict[str, Any] = {
+    "vmTier": {
+        "enabled": True,
+        "cloud": "gcp",
+        "owner": "iki-production",
+        "gcp": {
+            "project": "iki-prod",
+            "instanceTemplate": "https://www.googleapis.com/compute/v1/projects/iki-prod/regions/europe-west1/instanceTemplates/iki-production-vm-1",
+            "kmsKey": "projects/iki-prod/locations/europe-west1/keyRings/iki/cryptoKeys/vm-disks",
+        },
+        "serviceAccountAnnotations": {
+            "iam.gke.io/gcp-service-account": (
+                "iki-production-provisioner@iki-prod.iam.gserviceaccount.com"
+            )
+        },
+    }
+}
+
+
+def test_the_vm_tier_on_compute_engine() -> None:
+    docs = manifests({**GCE, "networkPolicy": {"enabled": True}})
+    env = provisioner_env(docs)
+    assert env["IKI_RUNS_VM_CLOUD"] == "gcp"
+    assert env["IKI_RUNS_VM_GCP_PROJECT"] == "iki-prod"
+    assert env["IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE"].endswith(
+        "/instanceTemplates/iki-production-vm-1"
+    )
+    assert env["IKI_RUNS_VM_GCP_KMS_KEY"].endswith("/cryptoKeys/vm-disks")
+    assert "AWS_REGION" not in env
+    account = named(docs, "ServiceAccount", "iki-provisioner")
+    assert account["metadata"]["annotations"] == GCE["vmTier"]["serviceAccountAnnotations"]
+    # On EC2 nothing changes.
+    assert "IKI_RUNS_VM_CLOUD" not in provisioner_env(manifests(VMS))
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"owner": "Iki-Production"}, "3 to 20 lowercase letters"),
+        ({"owner": "iki-production-in-europe-west"}, "3 to 20 lowercase letters"),
+        (
+            {"gcp": {"instanceTemplate": GCE["vmTier"]["gcp"]["instanceTemplate"]}},
+            "vmTier.gcp.project is required",
+        ),
+        ({"gcp": {"project": "iki-prod"}}, "vmTier.gcp.instanceTemplate is required"),
+        ({"cloud": "azure"}, "/vmTier/cloud"),
+        (
+            {"gcp": {"project": "iki-prod", "instanceTemplate": "iki-vm"}},
+            "/vmTier/gcp/instanceTemplate",
+        ),
+    ],
+)
+def test_compute_engine_machines_need_a_project_a_template_and_a_lowercase_owner(
+    change: dict[str, Any], message: str
+) -> None:
+    error = render({"vmTier": {**GCE["vmTier"], **change}}, ok=False)
+    assert isinstance(error, str)
+    assert message in error
+
+
 def test_both_tiers_share_one_provisioner() -> None:
     docs = manifests({**CONTAINERS, **VMS})
     assert (
@@ -1485,12 +1566,20 @@ def test_the_gcp_production_values_render_a_locked_down_deployment() -> None:
         values["runSecrets"]["existingSecret"],
         values["database"]["existingSecret"],
         values["database"]["migrator"]["existingSecret"],
-        values["files"]["credentials"]["existingSecret"],
         "iki-database-ca",
     }
     names = set(_secrets_read(docs))
-    assert {"iki-secret-key", "iki-database", "iki-files-hmac"} <= names
+    assert {"iki-secret-key", "iki-database"} <= names
     assert names <= made, names - made
+
+    # Files through Cloud Storage's own APIs as the pods' Google account: no key (ADR 0109).
+    assert "credentials" not in values["files"]
+    for name, spec in pod_specs(docs):
+        variables = {e["name"]: e.get("value") for e in spec["containers"][0].get("env", [])}
+        if "IKI_FILES_BUCKET" in variables:
+            assert variables["IKI_FILES_BACKEND"] == "gcs", name
+            assert variables["IKI_FILES_ENDPOINT_URL"] == "", name
+            assert "AWS_ACCESS_KEY_ID" not in variables, name
 
     assert named(docs, "HorizontalPodAutoscaler", "iki-web")["spec"]["minReplicas"] == 3
     assert named(docs, "PodDisruptionBudget", "iki-web")["spec"]["minAvailable"] == 2

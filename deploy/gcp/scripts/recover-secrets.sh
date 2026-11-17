@@ -10,9 +10,8 @@
 #   deploy/gcp/scripts/recover-secrets.sh <project> <lost-deployment> <deployment> <database-host>
 #
 # <lost-deployment> is the lost deployment's name (iki-production); <deployment> this one's
-# (iki-production-r1); <database-host> its database_address output. Two aren't copied, and
-# put-secrets.sh, run next, makes them anew: the HMAC key, which is the lost deployment's
-# server's (revoke it when fencing that), and the postgres user's password, which it sets.
+# (iki-production-r1); <database-host> its database_address output. The postgres user's
+# password isn't copied: put-secrets.sh, run next, sets a new one.
 # Needs gcloud.
 set -euo pipefail
 

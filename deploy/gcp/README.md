@@ -38,8 +38,8 @@ replica and the same bucket, with `recovery` set
 
 OpenTofu makes the Secret Manager entries, never their values.
 `scripts/put-secrets.sh` generates the values straight into Secret
-Manager, sets Cloud SQL's `postgres` password and makes the server's HMAC
-key; `scripts/create-database-roles.sh` creates the database's two roles
+Manager and sets Cloud SQL's `postgres` password;
+`scripts/create-database-roles.sh` creates the database's two roles
 with them. Recovering from a lost region, `scripts/recover-secrets.sh`
 copies them from the lost deployment's replicas first. None of them
 overwrites what exists, so each is safe to run again. External Secrets
@@ -77,7 +77,7 @@ runbook runs them all.
 - Each pod that calls Google has its own service account: web, task
   runners and the maintenance job reach only the files bucket under Iki's
   prefix (and read registered locations); the provisioner may change only
-  machines, disks and snapshots named for its deployment; External Secrets
+  machines, disks and images named for its deployment; External Secrets
   reads only this deployment's secrets. Backend workers and runs get no
   identity.
 - Images' tags can't be moved, and every image is scanned as it's pushed.
@@ -109,16 +109,21 @@ checksums for Linux and macOS.
 
 ## What to know before you rely on them
 
-- **Files go through Cloud Storage's S3-compatible API**, with an HMAC key
-  of the server's service account, until Iki speaks Cloud Storage's own
-  (next steps). Don't run `iki-server setup_storage`: OpenTofu sets its
-  CORS and lifecycle rules on the bucket, through Cloud Storage's own API,
-  instead. Until then, version pinning and deleting an expired file for
-  good (ADR 0068, 0096) don't work, because the S3-compatible API has no
-  version IDs.
-- **The VM tier has no provisioner yet.** The `vm-tier` module and the
-  provisioner's service account are ready for one; the chart's `vmTier`
-  stays off (next steps).
+- **Files go through Cloud Storage's own APIs** (ADR 0109), as the
+  server's service account through Workload Identity, with no key. It
+  signs its URLs through IAM's `signBlob`, as itself, so each upload part
+  and download link is one call to IAM. OpenTofu sets the bucket's CORS
+  and lifecycle rules, which the server's account can't change:
+  `iki-server setup_storage --check` checks them, with versioning and the
+  default key. A deleted version stays restorable for the bucket's
+  soft-delete period (`soft_delete_days`) before it's gone for good.
+- **The VM tier starts Compute Engine machines** (ADR 0109) once
+  `vm_tier` is set: compute templates with `provisioner: gcp_gce` start
+  from the `vm-tier` module's instance template, as the provisioner's own
+  service account, named `<name>-...` because its IAM condition matches
+  names (labels can't be used in IAM conditions). A setup build's volumes
+  become images, not snapshots: Compute Engine makes at most six disks an
+  hour from one snapshot in a zone.
 - **Give each deployment a project of its own.** GKE's and Compute
   Engine's IAM roles are granted on the project, so two deployments in one
   would administer each other's clusters.
@@ -140,8 +145,8 @@ checksums for Linux and macOS.
   instead: a Gateway, an HTTPRoute, and policies for TLS, Cloud Armor and
   health checks, as manifests you apply.
 - **The VM tier's machines reach only the VPC, Google's APIs and NFS.**
-  Give them an address for Iki's server inside the VPC, or list more
-  networks in `extra_https_cidrs`.
+  Give them an address for Iki's server inside the VPC
+  (`vm_tier.server_url`), or list more networks in `extra_https_cidrs`.
 - **Filestore squashes root.** Make `/iki` for runs' user (UID 10001) from
   a machine listed in `root_squash_except_cidrs`, then take it off the
   list. It's built rather than skipped because ADR 0077's shared volumes
@@ -153,39 +158,9 @@ checksums for Linux and macOS.
 These aren't built: each needs the server to change, not only
 infrastructure.
 
-- **A native Cloud Storage backend.** `server/src/iki_server/files/storage.py`
-  speaks S3 through boto3. Cloud Storage's S3-compatible (XML) API takes
-  it, but names versions by `x-goog-generation`, not `VersionId`, and has
-  no `ListObjectVersions` or S3-format CORS and lifecycle calls. So
-  `head`, `digest_object` and `open_object` lose their version pin,
-  `delete_for_good` and `versioned` fail, and `setup_storage` can't
-  configure the bucket. The server needs a second implementation of that
-  module's functions on `google-cloud-storage`: multipart uploads as
-  [XML API multipart uploads](https://cloud.google.com/storage/docs/multipart-uploads)
-  with V4-signed part URLs, generations as versions, `list_blobs(versions=True)`
-  to delete every generation, and its credentials from Workload Identity
-  (the server's service account, already annotated), so the HMAC key and
-  its secret go. `gs://` storage URIs, and `files.backend: gcs` in the
-  chart, would choose it.
-- **A Compute Engine provisioner for the VM tier.** `runs/ec2.py` and
-  `runs/ec2_fleet.py` start EC2 instances (ADR 0074). Their GCE twin
-  would insert instances from the `vm-tier` module's instance template
-  (`regionInstances.bulkInsert`, with `SPOT` provisioning for spot
-  templates), named `<deployment>-...` because the provisioner's IAM
-  condition matches names (Compute Engine's labels can't be used in IAM
-  conditions); pass the worker's start-up in `startup-script` metadata
-  instead of user data; and watch `instance/preempted` in the metadata
-  server instead of EC2's spot notice, in `iki-worker host`. The chart's
-  `vmTier` would take `provider: gce`, and its `cloudApi` egress the
-  Compute API through `private.googleapis.com`.
-- **Persistent-disk snapshots for volumes.** `runs/ec2_volumes.py` snapshots
-  a setup build's EBS disks and restores them on each run's machine (ADR
-  0076). On Compute Engine: disks made empty in the build's zone, kept
-  when it ends (`autoDelete: false`), then `snapshots.insert` of each,
-  encrypted with the `vm-disks` key, labelled with the build and volume;
-  a run's machine gets a new disk from the snapshot, attached read-only.
-  Fast snapshot restore has no equivalent; instant snapshots or images
-  made from the snapshot are the nearest.
+- **Shared file systems and buckets on the VM tier's machines.** The spec
+  refuses `gcp_gce` templates that mount Filestore or a bucket (ADR 0077);
+  environment volumes work.
 - **Cloud Armor and BackendConfig through the chart's Service.** Given a
   new `web.service.annotations` value, for GKE's
   `cloud.google.com/backend-config`, the chart's Ingress could replace the

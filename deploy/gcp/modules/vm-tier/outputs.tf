@@ -19,6 +19,6 @@ output "network_tag" {
 }
 
 output "disk_kms_key" {
-  description = "The key for the machines' disks and snapshots."
+  description = "The key for the machines' disks, and the images setup builds make."
   value       = var.kms_key
 }

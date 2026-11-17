@@ -18,6 +18,13 @@
 {{- if not (regexMatch "^[A-Za-z0-9+=._:/@-]{1,128}$" $owner) }}
 {{- fail "vmTier.owner must be a name such as iki-production: letters, digits and +=._:/@-" }}
 {{- end }}
+{{- if eq ($v.cloud | default "aws") "gcp" }}
+{{- if not (regexMatch "^[a-z][a-z0-9-]{1,18}[a-z0-9]$" $owner) }}
+{{- fail "vmTier.owner on Compute Engine starts machines' names: 3 to 20 lowercase letters, digits and hyphens, starting with a letter, such as iki-production" }}
+{{- end }}
+{{- $_ := required "vmTier.gcp.project is required with vmTier.cloud gcp: the project machines start in" $v.gcp.project }}
+{{- $_ := required "vmTier.gcp.instanceTemplate is required with vmTier.cloud gcp: the vm-tier module's instance template" $v.gcp.instanceTemplate }}
+{{- end }}
 {{- $vmUrl = $v.serverUrl | default .Values.publicUrl }}
 {{- if not (hasPrefix "https://" $vmUrl) }}
 {{- fail "vmTier.serverUrl (or publicUrl) must be an https:// address: machines send their token to it" }}
@@ -99,6 +106,18 @@ spec:
             {{- with $v.egressProxyUrl }}
             - name: IKI_RUNS_VM_EGRESS_PROXY_URL
               value: {{ . | quote }}
+            {{- end }}
+            {{- if eq ($v.cloud | default "aws") "gcp" }}
+            - name: IKI_RUNS_VM_CLOUD
+              value: gcp
+            - name: IKI_RUNS_VM_GCP_PROJECT
+              value: {{ $v.gcp.project | quote }}
+            - name: IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE
+              value: {{ $v.gcp.instanceTemplate | quote }}
+            {{- with $v.gcp.kmsKey }}
+            - name: IKI_RUNS_VM_GCP_KMS_KEY
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- with $v.region }}
             # Where the AWS SDK signs in (STS); templates name their own regions.
@@ -307,8 +326,8 @@ spec:
 {{- end }}
 {{- if and .Values.networkPolicy.enabled $v.enabled }}
 ---
-# The provisioner reaches AWS's APIs: EC2, STS (for its role) and SSM (for
-# images named by parameter).
+# The provisioner reaches its cloud's APIs: EC2, STS (for its role) and SSM
+# (for images named by parameter), or Compute Engine.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

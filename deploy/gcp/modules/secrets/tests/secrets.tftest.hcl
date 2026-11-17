@@ -14,8 +14,8 @@ variables {
 
 run "one_entry_for_each_secret_the_chart_and_runbook_need" {
   assert {
-    condition     = toset(keys(google_secret_manager_secret.this)) == toset(["secret-key", "encryption-keys", "bundle-signing-key", "database", "database-migrator", "database-admin", "files-hmac", "run-secrets"])
-    error_message = "Each Secret the chart requires, the database's admin password and the files' HMAC key should have an entry, and nothing more by default."
+    condition     = toset(keys(google_secret_manager_secret.this)) == toset(["secret-key", "encryption-keys", "bundle-signing-key", "database", "database-migrator", "database-admin", "run-secrets"])
+    error_message = "Each Secret the chart requires, and the database's admin password should have an entry, and nothing more by default."
   }
   assert {
     condition     = output.secret_names["database"] == "iki-test-database"

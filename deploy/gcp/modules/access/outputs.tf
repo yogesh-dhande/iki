@@ -1,5 +1,5 @@
 output "server_service_account" {
-  description = "The Google service account of Iki's web, tasks and maintenance pods: the chart's serviceAccount.annotations names it, and its HMAC key is the files' credentials."
+  description = "The Google service account of Iki's web, tasks and maintenance pods: the chart's serviceAccount.annotations names it, and it reaches Cloud Storage and signs its URLs as itself, with no key."
   value       = google_service_account.server.email
 }
 

@@ -138,4 +138,5 @@ supersedes the old one, and update the old one's status.
 | [0106](0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)       | How an entity was made: recorded by Iki, or stated by its source                                    | Accepted |
 | [0107](0107-reference-gcp-infrastructure-in-opentofu.md)                             | Reference Google Cloud infrastructure in OpenTofu                                                   | Accepted |
 | [0108](0108-a-lease-weighs-each-projects-next-jobs.md)                               | A lease weighs each project's next jobs, not the whole queue                                        | Accepted |
+| [0109](0109-google-cloud-natively.md)                                                | Google Cloud natively: Cloud Storage's own APIs, and the VM tier on Compute Engine                  | Accepted |
 | [0110](0110-a-view-shows-several-entities-each-at-its-revision.md)                   | A view shows several entities, each at its revision                                                 | Accepted |

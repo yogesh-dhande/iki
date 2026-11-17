@@ -78,9 +78,8 @@ eval "$(out create_database_roles)"
 out external_secrets | kubectl apply -f -
 ```
 
-The first generates Iki's secrets straight into Secret Manager, sets Cloud
-SQL's `postgres` password, and makes the server's HMAC key for Cloud
-Storage. The second creates the two database roles with their passwords
+The first generates Iki's secrets straight into Secret Manager and sets
+Cloud SQL's `postgres` password. The second creates the two database roles with their passwords
 (ADR 0025), and stores Cloud SQL's CAs as the `iki-database-ca` Secret.
 The third has External Secrets copy each secret into namespace `iki`,
 refreshing hourly.
@@ -107,8 +106,9 @@ the certificate once it resolves there, which takes up to an hour. Then
 open the one-time setup link
 `kubectl -n iki exec deploy/iki-web -- iki-server setup_link` prints.
 
-Don't run `iki-server setup_storage`: OpenTofu set the bucket's CORS and
-lifecycle rules, which it can't through Cloud Storage's S3-compatible API.
+OpenTofu set the bucket's CORS and lifecycle rules, which the server's
+account can't change. `kubectl -n iki exec deploy/iki-web -- iki-server setup_storage --check`
+checks them, with the bucket's versioning and default key.
 
 ## 6. Metrics, dashboards and alerts
 
@@ -148,9 +148,9 @@ decided, when each step started and ended, and what `check_restore` said.
 
 1. **Fence the lost deployment**, so two deployments never write at once:
    if its cluster answers, `kubectl -n iki scale deploy --all --replicas=0`;
-   and revoke its server's HMAC key,
-   `gcloud storage hmac update <access-id> --deactivate`, with the ID from
-   `gcloud storage hmac list --service-account <lost server's account>`.
+   and disable its server's service account, which is how its pods reach
+   the bucket, wherever they run:
+   `gcloud iam service-accounts disable <lost deployment>-server@<project>.iam.gserviceaccount.com`.
 2. **Promote the replica** into a database of its own:
    `gcloud sql instances promote-replica iki-production-dr`.
 3. **State for the new deployment**, in the same multi-regional bucket,
@@ -164,8 +164,7 @@ decided, when each step started and ended, and what `check_restore` said.
    makes the database regional and backed up as a new one would be.
 5. **Secrets**:
    `deploy/gcp/scripts/recover-secrets.sh <project> iki-production iki-production-r1 "$(out database_address)"`,
-   then `eval "$(out put_secrets)"`, which makes the new server's HMAC key
-   and a new `postgres` password. The database's roles came with it.
+   then `eval "$(out put_secrets)"`, which sets a new `postgres` password. The database's roles came with it.
 6. **The cluster's controllers and Iki**: steps 3 and 5 above, with the
    CA Secret from `create_database_roles`. The records still name the same
    bucket, so the chart needs no `files.bucketAliases`.

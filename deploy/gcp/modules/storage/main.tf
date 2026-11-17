@@ -62,8 +62,8 @@ resource "google_storage_bucket" "files" {
   # Iki's own, ADR 0092; this keeps the option of holding them in storage too).
   enable_object_retention = var.object_retention
 
-  # Iki's rule for abandoned uploads, which setup_storage can't set through Cloud
-  # Storage's S3-compatible API.
+  # Iki's rule for abandoned uploads, as setup_storage would set it: OpenTofu's here,
+  # since the server's account can't change the bucket (setup_storage --check checks it).
   lifecycle_rule {
     condition {
       age            = 2

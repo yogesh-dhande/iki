@@ -87,6 +87,24 @@ resource "google_storage_bucket_iam_member" "bucket" {
   member = google_service_account.server.member
 }
 
+# Signed URLs (ADR 0109): pods have no key, so IAM signs each URL as the server's
+# account (signBlob). Granted on that account alone, to itself, in a role of that one
+# permission rather than Service Account Token Creator, which would also let it mint its
+# own tokens and sign JWTs.
+resource "google_project_iam_custom_role" "sign_urls" {
+  project     = var.project_id
+  role_id     = "${local.role_prefix}_sign_urls"
+  title       = "${var.name}: sign Iki's links"
+  description = "Sign bytes as a service account: Cloud Storage's signed URLs"
+  permissions = ["iam.serviceAccounts.signBlob"]
+}
+
+resource "google_service_account_iam_member" "sign_as_itself" {
+  service_account_id = google_service_account.server.name
+  role               = google_project_iam_custom_role.sign_urls.id
+  member             = google_service_account.server.member
+}
+
 # Registered locations, read only (and their buckets' versioning, to pin a version).
 resource "google_project_iam_custom_role" "registered" {
   count       = length(var.register_locations) == 0 ? 0 : 1
@@ -116,9 +134,9 @@ resource "google_storage_bucket_iam_member" "registered" {
 
 locals {
   vm = var.vm_tier != null
-  # The provisioner names every machine, disk and snapshot it makes <owner>-...; IAM's
+  # The provisioner names every machine, disk and image it makes <owner>-...; IAM's
   # conditions on Compute Engine's resource names hold it to those.
-  its_own = local.vm ? join(" || ", [for kind in ["instances", "disks", "snapshots"] :
+  its_own = local.vm ? join(" || ", [for kind in ["instances", "disks", "images"] :
     "resource.name.extract(\"/${kind}/{name}\").startsWith(\"${var.vm_tier.owner}-\")"
   ]) : ""
 }
@@ -128,7 +146,7 @@ resource "google_service_account" "provisioner" {
   project      = var.project_id
   account_id   = "${var.name}-provisioner"
   display_name = "${var.name}: Iki's provisioner"
-  description  = "Iki's provisioner (${var.namespace}/${var.release}-provisioner): machines, disks and snapshots named ${var.vm_tier.owner}-* only"
+  description  = "Iki's provisioner (${var.namespace}/${var.release}-provisioner): machines, disks and images named ${var.vm_tier.owner}-* only"
 }
 
 resource "google_service_account_iam_member" "provisioner" {
@@ -138,23 +156,24 @@ resource "google_service_account_iam_member" "provisioner" {
   member             = "serviceAccount:${local.pool}[${var.namespace}/${var.release}-provisioner]"
 }
 
-# Starts, labels and ends its own machines; makes, snapshots and deletes its own disks
-# and snapshots (ADR 0076): only those named for its deployment.
+# Starts, labels and ends its own machines; makes and deletes its own disks, and the
+# images a setup build's disks become (ADR 0076, 0109): only those named for its
+# deployment. Images rather than snapshots: Compute Engine makes at most six disks an
+# hour from one snapshot in a zone, and runs start many machines from one.
 resource "google_project_iam_custom_role" "machines" {
   count       = local.vm ? 1 : 0
   project     = var.project_id
   role_id     = "${local.role_prefix}_vm_machines"
   title       = "${var.name}: the VM tier's machines"
-  description = "Start, label and end machines, disks and snapshots, where a condition allows"
+  description = "Start, label and end machines, disks and images, where a condition allows"
   permissions = [
     "compute.instances.create", "compute.instances.delete", "compute.instances.get",
     "compute.instances.setLabels", "compute.instances.setMetadata", "compute.instances.setServiceAccount",
     "compute.instances.setTags", "compute.instances.attachDisk", "compute.instances.detachDisk",
     "compute.instances.getSerialPortOutput",
     "compute.disks.create", "compute.disks.delete", "compute.disks.get", "compute.disks.setLabels",
-    "compute.disks.use", "compute.disks.useReadOnly", "compute.disks.createSnapshot",
-    "compute.snapshots.create", "compute.snapshots.delete", "compute.snapshots.get",
-    "compute.snapshots.setLabels", "compute.snapshots.useReadOnly",
+    "compute.disks.use", "compute.disks.useReadOnly",
+    "compute.images.create", "compute.images.delete", "compute.images.setLabels",
   ]
 }
 
@@ -165,22 +184,25 @@ resource "google_project_iam_member" "machines" {
   member  = google_service_account.provisioner[0].member
   condition {
     title       = "its-own-machines"
-    description = "Only machines, disks and snapshots named ${var.vm_tier.owner}-*"
+    description = "Only machines, disks and images named ${var.vm_tier.owner}-*"
     expression  = local.its_own
   }
 }
 
-# Seeing what's there, and its operations' progress: Compute Engine's list calls and
-# operations can't be limited by name.
+# Seeing what's there, its operations' progress, and why a machine stopped (a zone's
+# operations say whether Compute Engine preempted it): Compute Engine's list calls and
+# operations can't be limited by name. Reading images is for any image, Google's
+# Container-Optimized OS among them.
 resource "google_project_iam_custom_role" "observe" {
   count       = local.vm ? 1 : 0
   project     = var.project_id
   role_id     = "${local.role_prefix}_vm_observe"
   title       = "${var.name}: see the VM tier"
-  description = "List machines, disks and snapshots, and follow operations"
+  description = "List machines, disks and images, and follow operations"
   permissions = [
-    "compute.instances.list", "compute.disks.list", "compute.snapshots.list",
-    "compute.zoneOperations.get", "compute.regionOperations.get", "compute.globalOperations.get",
+    "compute.instances.list", "compute.disks.list", "compute.images.list",
+    "compute.zoneOperations.get", "compute.zoneOperations.list",
+    "compute.regionOperations.get", "compute.globalOperations.get",
     "compute.zones.list", "compute.machineTypes.get", "compute.acceleratorTypes.get",
     "compute.images.get", "compute.images.getFromFamily", "compute.images.useReadOnly",
     "compute.instanceTemplates.get", "compute.instanceTemplates.useReadOnly",

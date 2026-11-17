@@ -155,9 +155,15 @@ webhooks:
 
 files:
   # Object storage for files (ADR 0036): an S3 bucket, or an S3-compatible
-  # store. Empty: the files API answers 503. Turn on versioning and
-  # server-side encryption on the bucket; Iki never overwrites what it stores.
+  # store, or a Google Cloud Storage bucket. Empty: the files API answers 503.
+  # Turn on versioning and server-side encryption on the bucket; Iki never
+  # overwrites what it stores.
   bucket: ""
+  # s3: S3 or an S3-compatible store. gcs: Cloud Storage through its own APIs
+  # (ADR 0109), with the pods' Google service account by Workload Identity
+  # (serviceAccount.annotations), no key: it needs iam.serviceAccounts.signBlob
+  # on itself, to sign URLs. deploy/gcp sets it.
+  backend: s3
   # Every key Iki writes starts with this, so one bucket can serve several
   # deployments.
   prefix: ""
@@ -170,9 +176,9 @@ files:
   # Where workers reach the store, if not at publicEndpoint, such as its
   # address inside the cluster. Signed URLs for workers name it.
   workerEndpoint: ""
-  # A Secret holding an access key. Leave it empty on AWS and give the
-  # service accounts an IAM role instead: EKS Pod Identity (deploy/aws), or
-  # serviceAccount.annotations.
+  # A Secret holding an access key, for S3. Leave it empty on AWS and give
+  # the service accounts an IAM role instead: EKS Pod Identity (deploy/aws),
+  # or serviceAccount.annotations. Cloud Storage takes none.
   credentials:
     existingSecret: ""
     accessKeyIdKey: access-key-id
@@ -187,7 +193,9 @@ files:
   # 3650d where records must be kept ten years. Empty: as the action says.
   artifactMinRetention: ""
   # Where files may be registered in place rather than uploaded, such as
-  # s3://lab-data/runs/. Each bucket must keep versions: a registered file is
+  # s3://lab-data/runs/ (gs:// with backend gcs, where the pods' service
+  # account needs storage.buckets.get, storage.objects.get and
+  # storage.objects.list). Each bucket must keep versions: a registered file is
   # pinned to one version of its object. The pods' IAM role needs
   # s3:GetObject, s3:GetObjectVersion, s3:GetBucketVersioning,
   # s3:GetBucketLocation and s3:ListBucket there.
@@ -464,17 +472,24 @@ containerTier:
 vmTier:
   # The VM tier (ADR 0074): the provisioner starts an EC2 instance for each
   # queued vm-tier run (templates with provisioner: aws_ec2), from the
-  # template's own image, subnets, security groups and instance profile. Each
+  # template's own image, subnets, security groups and instance profile, or a
+  # Compute Engine instance (provisioner: gcp_gce, ADR 0109), from the
+  # deployment's instance template with the template's image. Each
   # boots, copies iki-worker out of containerTier.workerImage (pinned by its
   # digest), and runs the environment's image with it, locked down as the
   # container tier's pods are. The machine holds only a token for that one
   # run, has no public address, and terminates when the run's done. The
   # provisioner's settings are containerTier.provisioner's.
   enabled: false
+  # aws: EC2. gcp: Compute Engine, with gcp below.
+  cloud: aws
   # required with vmTier: the name this deployment's machines are tagged with
   # (iki.ikisci.org/deployment), such as iki-production. The provisioner
   # manages only the machines that carry it, and its IAM policy can require
-  # it, so deployments sharing an account never touch each other's.
+  # it, so deployments sharing an account never touch each other's. On
+  # Compute Engine it also starts every machine's, disk's and image's name,
+  # which IAM conditions can match: 3 to 20 lowercase letters, digits and
+  # hyphens, starting with a letter.
   owner: ""
   # Where machines reach the server from their subnets: an https:// address,
   # often an internal load balancer in their VPC. Defaults to publicUrl,
@@ -486,10 +501,21 @@ vmTier:
   egressProxyUrl: ""
   # The AWS region the provisioner signs in to (its templates name their own).
   region: ""
+  # With cloud gcp: the project machines start in; the instance template they
+  # start from (projects/<p>/regions/<r>/instanceTemplates/<name>, the vm-tier
+  # module's), unless a compute template names its own; and the Cloud KMS key
+  # their disks and images are encrypted with, unless a template names its
+  # own. deploy/gcp/production sets them.
+  gcp:
+    project: ""
+    instanceTemplate: ""
+    kmsKey: ""
   # The provisioner's IAM role, by EKS IAM roles for service accounts:
   #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/iki-provisioner
   # (EKS Pod Identity needs nothing here). docs/adr/0074 has the policy it
-  # needs: starting and terminating only machines tagged with owner.
+  # needs: starting and terminating only machines tagged with owner. On GKE,
+  # its Google service account, by Workload Identity:
+  #   iam.gke.io/gcp-service-account: iki-provisioner@<project>.iam.gserviceaccount.com
   serviceAccountAnnotations: {}
 
 runSecrets:
@@ -603,8 +629,9 @@ networkPolicy:
             cidr: 0.0.0.0/0
         - ipBlock:
             cidr: ::/0
-    # Only with vmTier: the provisioner reaches AWS's APIs (EC2, STS, SSM),
-    # through their public endpoints or your VPC's interface endpoints. The
+    # Only with vmTier: the provisioner reaches its cloud's APIs (EC2, STS and
+    # SSM, or Compute Engine), through their public endpoints or your VPC's
+    # private ones (deploy/gcp: private.googleapis.com). The
     # default allows HTTPS anywhere but link-local addresses (the node's own
     # metadata service), for that pod alone.
     cloudApi:

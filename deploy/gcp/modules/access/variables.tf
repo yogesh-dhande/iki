@@ -52,7 +52,7 @@ variable "external_secrets" {
 }
 
 variable "vm_tier" {
-  description = "The VM tier (ADR 0074, 0076): the prefix its machines', disks' and snapshots' names carry (the chart's vmTier.owner), the machines' service account from the vm-tier module, and the subnet and region they start in. Null: no provisioner identity."
+  description = "The VM tier (ADR 0074, 0076): the prefix its machines', disks' and images' names carry (the chart's vmTier.owner), the machines' service account from the vm-tier module, and the subnet and region they start in. Null: no provisioner identity."
   type = object({
     owner                    = string
     machines_service_account = string
