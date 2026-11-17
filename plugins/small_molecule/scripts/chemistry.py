@@ -85,7 +85,7 @@ def rdkit_messages() -> Iterator[list[str]]:
         _LOG.removeHandler(handler)
 
 
-def _why(messages: list[str], fallback: str) -> str:
+def why_not(messages: list[str], fallback: str) -> str:
     """RDKit's first message about what went wrong, without its echo of the input."""
     for message in messages:
         if message.startswith("SMILES Parse Error: check for mistakes"):
@@ -104,7 +104,9 @@ def from_smiles(smiles: str) -> Chem.Mol:
     with rdkit_messages() as said:
         mol = Chem.MolFromSmiles(smiles, sanitize=False)
         if mol is None:
-            raise UnreadableError(f"{smiles!r} isn't SMILES RDKit can read: {_why(said, 'syntax')}")
+            raise UnreadableError(
+                f"{smiles!r} isn't SMILES RDKit can read: {why_not(said, 'syntax')}"
+            )
         try:
             Chem.SanitizeMol(mol)
         except Exception as error:  # RDKit raises its own kinds, each saying why

@@ -1,7 +1,9 @@
-"""The small_molecule plugin's actions: registering compounds from SMILES, and their
-descriptors and batches' formula weights, run as a worker runs them (an input.json in,
-an output.json out)."""
+"""The small_molecule plugin's actions: registering compounds from SMILES and SDF files,
+their descriptors and batches' formula weights, and exporting them, run as a worker runs
+them (an input.json in, an output.json out)."""
 
+import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -333,3 +335,244 @@ def test_the_batch_types_salts_and_solvates_are_the_scripts(
     # Each is told apart from the others by its structure.
     assert len(chemistry.KNOWN) == len(chemistry.SALTS) + len(chemistry.SOLVENTS)
     sys.modules.pop("chemistry", None)
+
+
+# --- SDF files -----------------------------------------------------------------------------------
+
+FILE_ID = "00000000-0000-0000-0000-00000000f11e"
+
+
+def sdf_text(*records: tuple[str, str, dict[str, str]]) -> str:
+    """An SDF file, written by RDKit, of (SMILES, title, SD fields) records."""
+    from rdkit import Chem
+
+    out = io.StringIO()
+    writer = Chem.SDWriter(out)
+    for smiles, title, fields in records:
+        mol = Chem.MolFromSmiles(smiles)
+        mol.SetProp("_Name", title)
+        for name, value in fields.items():
+            mol.SetProp(name, value)
+        writer.write(mol)
+    writer.close()
+    return out.getvalue()
+
+
+def imported(
+    tmp_path: Path, text: str, **params: Any
+) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
+    path = tmp_path / "library.sdf"
+    path.write_text(text)
+    return script(
+        tmp_path,
+        "sdf.py",
+        {
+            "params": {"file": FILE_ID, **params},
+            "inputs": {},
+            "files": {
+                FILE_ID: {
+                    "name": "library.sdf",
+                    "media_type": "chemical/x-mdl-sdfile",
+                    "size": len(text),
+                    "sha256": hashlib.sha256(text.encode()).hexdigest(),
+                    "path": str(path),
+                }
+            },
+        },
+        "import",
+    )
+
+
+def test_each_record_is_a_compound_with_the_fields_it_has(tmp_path: Path) -> None:
+    text = sdf_text(
+        (ASPIRIN, "aspirin", {"CAS": "50-78-2", "PUBCHEM_COMPOUND_CID": "2244", "Colour": "white"}),
+        ("CC(=O)Nc1ccc(O)cc1", "paracetamol", {"Synonyms": "acetaminophen; APAP"}),
+    )
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    aspirin, paracetamol = output["creates"]
+    assert aspirin["values"] == {
+        "smiles": ASPIRIN,
+        "inchikey": ASPIRIN_KEY,
+        "inchi": "InChI=1S/C9H8O4/c1-6(10)13-8-5-3-2-4-7(8)9(11)12/h2-5H,1H3,(H,11,12)",
+        "name": "aspirin",
+        "cas_number": "50-78-2",
+        "pubchem_cid": "2244",
+    }
+    record = text.split("$$$$\n")[0] + "$$$$\n"
+    assert aspirin["origin"] == {
+        "source": "SDF file",
+        "id": "aspirin",
+        "file": FILE_ID,
+        "sha256": hashlib.sha256(record.encode()).hexdigest(),
+    }
+    assert paracetamol["values"]["synonyms"] == ["acetaminophen", "APAP"]
+    assert output["metrics"] == {"records": 2, "skipped": 0}
+    assert output["messages"] == [
+        {
+            "level": "info",
+            "text": "These SD fields aren't fields of compounds, so they weren't kept: Colour (1).",
+        }
+    ]
+
+
+def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> None:
+    text = sdf_text(
+        (
+            "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]",
+            "Z1234",
+            {
+                "Name": "aspirin sodium",
+                "Purity": "98.5%",
+                "Amount": "0.25 g",
+                "Supplier": "Enamine",
+                "Catalog_No": "EN300-1",
+                "Lot": "B-17",
+                "Received": "2026-11-02",
+            },
+        ),
+        ("CN(C)CCC(c1ccccc1)c1ccccn1", "Z1235", {"Name": "pheniramine", "Salt": "HCl"}),
+    )
+    result, output = imported(tmp_path, text, name_field="name", parent=True, batches=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    salt, compound, base, pheniramine = (
+        output["creates"][1],
+        output["creates"][0],
+        output["creates"][2],
+        output["creates"][3],
+    )
+    assert compound["values"]["inchikey"] == ASPIRIN_KEY
+    assert compound["values"]["name"] == "aspirin sodium"
+    assert salt["values"] == {
+        "compound": {"$create": "record-1"},
+        "structure_as_drawn": "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]",
+        "salt": "sodium",
+        "salt_equivalents": 1.0,
+        "formula_weight": 202.141,
+        "purity": 98.5,
+        "amount": 250.0,
+        "supplier": "Enamine",
+        "catalogue_number": "EN300-1",
+        "supplier_lot": "B-17",
+        "received": "2026-11-02",
+    }
+    # A salt its field gives, which its structure doesn't show.
+    assert (pheniramine["values"]["salt"], pheniramine["values"]["salt_equivalents"]) == (
+        "hydrochloride",
+        1.0,
+    )
+    assert pheniramine["values"]["formula_weight"] == pytest.approx(240.35 + 36.461, abs=0.01)
+    assert base["values"]["name"] == "pheniramine"
+
+
+def test_a_salts_ids_arent_given_to_its_parent(tmp_path: Path) -> None:
+    text = sdf_text(
+        ("CC(=O)Oc1ccccc1C(=O)[O-].[Na+]", "aspirin sodium", {"CAS": "493-53-8", "CID": "10176596"})
+    )
+    result, output = imported(tmp_path, text, parent=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    (compound,) = output["creates"]
+    assert compound["values"]["inchikey"] == ASPIRIN_KEY
+    assert "cas_number" not in compound["values"]
+    assert "pubchem_cid" not in compound["values"]
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "Record 1 (aspirin sodium): Its CAS number and PubChem CID are its "
+            "structure's as drawn, not its parent's, so they were left out.",
+        }
+    ]
+
+
+def test_a_large_file_goes_in_a_creates_file(tmp_path: Path) -> None:
+    text = sdf_text(*((f"C{'C' * (i % 40)}O", f"alcohol {i}", {}) for i in range(1200)))
+    result, output = imported(tmp_path, text)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert output["creates_file"] == {"$file": "creates.ndjson"}
+    lines = (tmp_path / "out" / "creates.ndjson").read_text().splitlines()
+    assert len(lines) == 1200
+    assert json.loads(lines[1])["values"]["smiles"] == "CCO"
+
+
+def test_a_record_that_cant_be_read_fails_the_import_naming_it(tmp_path: Path) -> None:
+    good = sdf_text((ASPIRIN, "aspirin", {}))
+    # Its carbon with five bonds, and a record with no structure.
+    bad = good.replace("aspirin", "pentavalent", 1).replace(
+        "  1  2  1  0\n", "  1  2  1  0\n  1  3  2  0\n  1  4  2  0\n", 1
+    )
+    text = good + bad.replace(" 13 13", " 13 15", 1) + "nothing\n\n$$$$\n"
+    result, output = imported(tmp_path, text, name_field="")
+    assert result.returncode == 1
+    assert output is None
+    error = last_error(result)
+    assert error.startswith("::error library.sdf: 2 of 3 records can't be imported, so none was.")
+    assert "Record 2 (pentavalent): its structure isn't valid: Explicit valence" in error
+    assert "Record 3 (nothing): it has no structure (no M  END line)." in error
+    result, output = imported(tmp_path, text, on_error="skip")
+    assert result.returncode == 0
+    assert output is not None
+    assert [c["values"]["name"] for c in output["creates"]] == ["aspirin"]
+    assert output["metrics"] == {"records": 3, "skipped": 2}
+
+
+@pytest.mark.parametrize(
+    ("fields", "error"),
+    [
+        ({"Purity": "high"}, "its purity 'high' isn't a number"),
+        ({"Salt": "unobtainium"}, "its salt 'unobtainium' isn't one Iki knows"),
+        ({"Received": "last week"}, "its received date 'last week' isn't a date"),
+        ({"Salt": "HCl"}, "its salt field says hydrochloride, but its structure is a sodium salt"),
+    ],
+)
+def test_batch_fields_that_cant_be_read_name_their_record(
+    tmp_path: Path, fields: dict[str, str], error: str
+) -> None:
+    text = sdf_text(("CC(=O)Oc1ccccc1C(=O)[O-].[Na+]", "aspirin sodium", fields))
+    result, _ = imported(tmp_path, text, parent=True, batches=True)
+    assert result.returncode == 1
+    assert f"Record 1 (aspirin sodium): {error}" in last_error(result)
+
+
+def test_exports_compounds_with_their_values_as_sd_fields(tmp_path: Path) -> None:
+    from rdkit import Chem
+
+    result, output = script(
+        tmp_path,
+        "sdf.py",
+        {
+            "inputs": {
+                "compounds": [
+                    entity(
+                        1,
+                        smiles=ASPIRIN,
+                        inchikey=ASPIRIN_KEY,
+                        name="aspirin",
+                        molecular_weight=180.159,
+                        synonyms=["ASA", "acetylsalicylic acid"],
+                    ),
+                    entity(2, smiles="CC(=O)Nc1ccc(O)cc1", inchikey="RZVAJINKPMORJF-UHFFFAOYSA-N"),
+                ]
+            }
+        },
+        "export",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    assert output["metrics"] == {"compounds": 2}
+    written = list(Chem.SDMolSupplier(str(tmp_path / "out" / "compounds.sdf")))
+    assert [m.GetProp("_Name") for m in written] == ["aspirin", "X-2"]
+    assert written[0].GetPropsAsDict() == {
+        "hrid": "X-1",
+        "name": "aspirin",
+        "smiles": ASPIRIN,
+        "inchikey": ASPIRIN_KEY,
+        "synonyms": "ASA; acetylsalicylic acid",
+        "molecular_weight": 180.159,
+    }
+    # The structure written, read back, is the one given.
+    assert Chem.MolToSmiles(written[0]) == ASPIRIN
+    assert written[0].GetConformer().Is3D() is False

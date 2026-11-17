@@ -1,8 +1,8 @@
 # small_molecule
 
 Iki's small_molecule plugin: compounds, registered by their standard InChIKey,
-and their batches, each with its salt form, with RDKit's standardisation and
-descriptors.
+from SMILES or SDF files, and their batches, each with its salt form, with
+RDKit's standardisation and descriptors.
 
 - **`small_molecule.Compound`** (`CPD-000001`): a compound, by its
   standardised structure.
@@ -60,6 +60,23 @@ given, so it's recorded as made with them.
   structure as it was when the run was launched (ADR 0105). Its triggers run
   it on each new batch, such as one made with its form, and again when its
   salt or solvent changes.
+- **`import_sdf`**: registers each record of an SDF file as a compound,
+  standardised and identified as a SMILES line is, and with **batches** a batch
+  of each (up to 5,000 records; without, a million, read a record at a time).
+  Its name is the SD field chosen, or the record's title. SD fields that are a
+  compound's or a batch's fields are kept, matched whatever their case, spaces
+  and underscores, and by the names suppliers and PubChem give them (`CAS`,
+  `PUBCHEM_COMPOUND_CID`, `Catalog_No`, `Lot`, `Purity`…); the run says which
+  others it left out. A salt an SD field gives must agree with the structure's;
+  one only the field gives (an HCl salt drawn as its free base) is the
+  batch's. A record's CAS number, PubChem CID and ChEMBL ID are its drawn
+  structure's, so a parent registered from a salt doesn't take them. Each
+  records the file and record it came from, with the record's SHA-256. A record that can't be imported fails the run, naming each, or with
+  `on_error: skip` is left out.
+- **`export_sdf`**: writes compounds (up to 50,000) to an SDF file the run
+  keeps, each with 2D coordinates RDKit computes (CoordGen), its name or HRID
+  as its title, and its HRID, identifiers, descriptors and external IDs as SD
+  fields.
 
 ### Standardising
 

@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: import_sdf
+label: Import compounds from an SDF file
+description: >-
+  Reads an SDF file and registers each record's structure as a compound,
+  standardised as RDKit's MolStandardize does, and identified by its standard
+  InChIKey; a compound already in Iki is reused. Its name is the SD field chosen,
+  or the record's title, and SD fields that are a compound's fields (synonyms,
+  CAS number, PubChem CID and the like) are kept. With batches, each record is also
+  a batch of its compound, with its salt form and the batch fields its SD fields
+  give: purity, amount, supplier, catalogue number, lot and received date. Each
+  records which file and record it came from.
+params:
+  file:
+    type: file
+    label: SDF file
+    required: true
+    media_types: [chemical/x-mdl-sdfile, text/plain]
+    max_size: 2GiB
+  name_field:
+    type: string
+    label: Name field
+    max_length: 200
+    description: >-
+      The SD field that holds each compound's name, such as Name or IDNUMBER. Left
+      empty, a record's title (its first line) is its name.
+  parent:
+    type: bool
+    label: Register the parent
+    default: false
+    description: >-
+      Take off salts and solvents Iki knows, keep the largest part that's left, and
+      neutralise it, so a salt and its free base are the same compound.
+  batches:
+    type: bool
+    label: Register a batch of each
+    default: false
+    description: >-
+      Also register each record as a batch of its compound, with its salt and
+      solvent, its formula weight, and the batch fields its SD fields give. Up to
+      5,000 records.
+  on_error:
+    type: enum
+    label: Records that can't be imported
+    values: [fail, skip]
+    default: fail
+    description: >-
+      Fail: import nothing, and name each record that can't be. Skip: import the
+      rest, and name the records left out.
+effects:
+  creates:
+    - { type: Compound, cardinality: many }
+    - { type: CompoundBatch, cardinality: many }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+  - { name: InChI, version: "1.07.3", url: https://www.inchi-trust.org }
+runs_on: { tier: backend, environment: chemistry-tools }
+command: [python, ./scripts/sdf.py, import]
+deterministic: true
+metrics:
+  records: { label: Records, description: How many records the file held. }
+  skipped: { label: Skipped, description: The records it couldn't import and left out. }
+timeout: 8h
