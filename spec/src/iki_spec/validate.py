@@ -163,6 +163,11 @@ RESERVED_FIELD_NAMES = frozenset(
         "unique_error_message",
         "date_error_message",
         "get_constraints",
+        # What a plugin's generated models.py names in its classes' bodies (iki_codegen):
+        # a field so named would hide it from the fields after it.
+        "models",
+        "datetime",
+        "checks",
     }
     | {k for k in keyword.kwlist if k.islower()}
 )

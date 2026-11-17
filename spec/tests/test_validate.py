@@ -355,6 +355,9 @@ def test_reserved_field_names(tmp_path: Path) -> None:
     result = make(tmp_path, fields("type: { type: string }\nclass: { type: string }\n"))
     assert codes(result) == ["reserved-name", "reserved-name"]
     assert "`sample_type` instead of `type`" in (result.problems[0].hint or "")
+    # The names a generated models.py uses in its classes' bodies.
+    result = make(tmp_path, fields("models: { type: string }\ndatetime: { type: string }\n"))
+    assert codes(result) == ["reserved-name", "reserved-name"]
 
 
 def test_ref_columns_dont_collide(tmp_path: Path) -> None:

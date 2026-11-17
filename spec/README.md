@@ -195,8 +195,9 @@ quantifiers.
 
 Field names are lower case with single underscores. Names every entity
 already has (`id`, `hrid`, `type`, `project`, `created_at`, `revision`,
-`archived_at` and the like), names ending in `_ptr`, Python keywords and
-Django model methods are reserved.
+`archived_at` and the like), names ending in `_ptr`, Python keywords,
+Django model methods, and `models`, `datetime` and `checks`, which a
+plugin's generated models use, are reserved.
 
 ## Tables
 
