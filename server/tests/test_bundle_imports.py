@@ -5,7 +5,7 @@ import contextlib
 import hashlib
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import requests
@@ -400,6 +400,44 @@ def test_applying_renumbers_taken_hrids_and_adds_later_revisions(
     rows = {r["id"]: r for r in entities_of(api, done)}
     assert rows[renumbered["id"]]["hrid_here"] == moved.hrid
     assert rows[str(here.pk)]["action"] == "update"
+
+
+def test_a_view_comes_with_the_entities_it_shows_each_at_its_revision(
+    world: World, tmp_path: Path
+) -> None:
+    """A view of several entities (ADR 0110) goes with them, and arrives showing each at the
+    revision it pinned, with what its viewers kept and its own history."""
+    admin = world.users["admin"]
+
+    def elsewhere() -> list[Any]:
+        kinase = protein(world, "MKVIEWKINASE", name="kinase")
+        antigen = protein(world, "MKVIEWANTIGEN", name="antigen")
+        services.update(admin, antigen, {"name": "antigen, renamed"}, expected_revision=1)
+        values = {
+            "name": "Kinase with its antigen",
+            "targets": [kinase.pk, antigen.pk],
+            "target_revisions": [1, 1],
+            "viewers": ["sequence", "sequence"],
+            "state": {"version": 2, "targets": [{"label": "kinase"}, {}]},
+        }
+        view = cast(Entity, services.create(admin, "core.View", world.project, values).entity)
+        services.update(admin, view, {"target_revisions": [1, 2]}, expected_revision=1)
+        return [Entity.objects.get(pk=view.pk)]
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    lines = {e["type"]: e for e in registry_lines(path) if e["type"] == "core.View"}
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "applied", done
+    view = Entity.objects.get(pk=lines["core.View"]["id"])
+    body = api.get(f"/entities/{view.hrid}").json()
+    shown = [body["refs"][t]["title"] for t in body["values"]["targets"]]
+    assert shown == ["kinase", "antigen, renamed"]
+    assert body["values"]["target_revisions"] == [1, 2]
+    assert body["values"]["state"]["targets"][0] == {"label": "kinase"}
+    assert body["revision"] == 2
+    first = api.get(f"/entities/{view.hrid}/revisions/1").json()
+    assert first["values"]["target_revisions"] == [1, 1]
 
 
 def test_what_changed_since_it_was_planned_stops_it(world: World, tmp_path: Path) -> None:

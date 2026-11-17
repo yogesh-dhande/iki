@@ -1,9 +1,12 @@
 /**
- * Views (core.View, ADR 0086): a saved look at an entity in one of Iki's viewers, at the
- * revision it showed. Each viewer keeps its own part of the state: the sequence viewer the
- * feature it showed, the structure viewer where the camera was, the alignment viewer the
- * residue its cursor was on. `version` says which
- * shape the state is, so views saved now keep opening as the viewers grow.
+ * Views (core.View, ADR 0086, ADR 0110): a saved look at entities in Iki's viewers, each at
+ * the revision it showed. A view lists its entities in order, each with its revision and its
+ * viewer; those in the structure viewer are drawn together, in one Mol* scene, and each other
+ * one has a viewer of its own. Each viewer keeps its own part of the state: the sequence
+ * viewer the feature it showed, the alignment viewer the residue its cursor was on, the
+ * structure viewer where the camera was and, for each structure, its colour, whether it's
+ * hidden, how it was moved to superpose it, and what was selected. `version` says which
+ * shape the state is, so views saved before keep opening as the viewers grow.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
@@ -13,6 +16,8 @@ import { iki } from "./api";
 import type { Entity } from "./entities";
 
 export const VIEW_TYPE = "core.View";
+/** How many entities a view shows at most (`targets`' `max_items`). */
+export const MAX_TARGETS = 20;
 
 export type ViewerName = Schemas["EntityTypeOut"]["viewers"][number]["viewer"];
 
@@ -40,15 +45,74 @@ export interface Position {
   row: number;
 }
 
-export interface ViewState {
-  version: 1;
-  feature?: FeatureRef;
-  camera?: Camera;
-  position?: Position;
+/** Residues of a chain, by its authors' numbering, from `start` to `end`. */
+export interface Span {
+  chain: string;
+  start: number;
+  end: number;
 }
 
-/** What a viewer shows now, as a view would save it. */
-export type Capture = () => Promise<ViewState>;
+/** What a structure was superposed on (another entity's index) and how closely. */
+export interface Superposed {
+  onto: number;
+  rmsd?: number;
+  residues?: number;
+}
+
+/** What a view keeps of one of its entities, as its viewer saves it. */
+export interface TargetState {
+  label?: string;
+  feature?: FeatureRef;
+  position?: Position;
+  colour?: string;
+  hidden?: boolean;
+  /** How it was moved: a 4×4 matrix in column-major order, as Mol* keeps it. */
+  transform?: number[];
+  superposed?: Superposed;
+  selection?: Span[];
+}
+
+/** A view's state, as this version of Iki saves it. */
+export interface ViewState {
+  version: 2;
+  camera?: Camera;
+  targets: TargetState[];
+}
+
+/** What a viewer shows now, as a view would save it: the camera, if it has one, and what
+ * it keeps of each entity it shows, in order. */
+export interface Captured {
+  camera?: Camera;
+  targets: TargetState[];
+}
+export type Capture = () => Promise<Captured>;
+
+/** One of the entities a view shows: which, at what revision, in which viewer. */
+export interface ViewTarget {
+  id: string;
+  revision: number;
+  viewer: ViewerName;
+}
+
+const VIEWERS = new Set<string>(["sequence", "structure", "alignment"]);
+
+/** The entities a view shows, in order. */
+export function viewTargets(view: Entity): ViewTarget[] {
+  const ids: unknown = view.values["targets"];
+  const revisions: unknown = view.values["target_revisions"];
+  const viewers: unknown = view.values["viewers"];
+  if (!Array.isArray(ids) || !Array.isArray(revisions) || !Array.isArray(viewers)) return [];
+  return (ids as unknown[]).flatMap((id, index) => {
+    const revision: unknown = (revisions as unknown[])[index];
+    const viewer: unknown = (viewers as unknown[])[index];
+    return typeof id === "string" &&
+      Number.isInteger(revision) &&
+      typeof viewer === "string" &&
+      VIEWERS.has(viewer)
+      ? [{ id, revision: revision as number, viewer: viewer as ViewerName }]
+      : [];
+  });
+}
 
 function numbers(value: unknown, length: number): number[] | null {
   return Array.isArray(value) &&
@@ -97,34 +161,98 @@ function readPosition(value: unknown): Position | null {
     : null;
 }
 
-/** A view's state, as far as this version of Iki reads it. */
-export function readViewState(value: unknown): ViewState {
-  if (typeof value !== "object" || value === null) return { version: 1 };
+/** A transform, if `value` is one: 16 finite numbers. */
+export function readTransform(value: unknown): number[] | null {
+  return numbers(value, 16);
+}
+
+/** Spans of residues, as a view or Mol*'s frame gives them: those that are spans. */
+export function readSelection(value: unknown): Span[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((span: unknown) => {
+    if (typeof span !== "object" || span === null) return [];
+    const { chain, start, end } = span as Record<string, unknown>;
+    return typeof chain === "string" &&
+      chain &&
+      chain.length <= 8 &&
+      Number.isInteger(start) &&
+      Number.isInteger(end) &&
+      (start as number) <= (end as number)
+      ? [{ chain, start: start as number, end: end as number }]
+      : [];
+  });
+}
+
+export const COLOUR = /^#[0-9a-f]{6}$/;
+
+function readTarget(value: unknown): TargetState {
+  if (typeof value !== "object" || value === null) return {};
   const v = value as Record<string, unknown>;
   const feature = readFeature(v["feature"]);
-  const camera = readCamera(v["camera"]);
   const position = readPosition(v["position"]);
+  const transform = readTransform(v["transform"]);
+  const selection = readSelection(v["selection"]);
+  const label = v["label"];
+  const colour = v["colour"];
+  const superposed = v["superposed"] as Record<string, unknown> | null | undefined;
+  const onto = superposed?.["onto"];
   return {
-    version: 1,
+    ...(typeof label === "string" && label ? { label } : {}),
     ...(feature ? { feature } : {}),
-    ...(camera ? { camera } : {}),
     ...(position ? { position } : {}),
+    ...(typeof colour === "string" && COLOUR.test(colour) ? { colour } : {}),
+    ...(v["hidden"] === true ? { hidden: true } : {}),
+    ...(transform ? { transform } : {}),
+    ...(Number.isInteger(onto) && (onto as number) >= 0
+      ? {
+          superposed: {
+            onto: onto as number,
+            ...(typeof superposed?.["rmsd"] === "number" ? { rmsd: superposed["rmsd"] } : {}),
+            ...(Number.isInteger(superposed?.["residues"])
+              ? { residues: superposed?.["residues"] as number }
+              : {}),
+          },
+        }
+      : {}),
+    ...(selection.length ? { selection } : {}),
   };
 }
 
-/** The saved views of an entity in a viewer, newest first. */
+/**
+ * A view's state, as far as this version of Iki reads it, for `count` entities. A view of
+ * one entity saved before views could show several (version 1) keeps its feature, camera
+ * or cursor at the top: it reads as the same thing in version 2's shape.
+ */
+export function readViewState(value: unknown, count = 1): ViewState {
+  const v = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const camera = readCamera(v["camera"]);
+  const kept =
+    v["version"] === 1 || !Array.isArray(v["targets"]) ? [v] : (v["targets"] as unknown[]);
+  const targets = Array.from({ length: Math.max(count, 1) }, (_, i) => readTarget(kept[i]));
+  return { version: 2, ...(camera ? { camera } : {}), targets };
+}
+
+/** A saved view of an entity in a viewer, and where in it the entity is. */
+export interface SavedView {
+  view: Entity;
+  targets: ViewTarget[];
+  /** Where the entity is among the view's targets. */
+  index: number;
+}
+
+/** The saved views an entity is in, shown in a viewer, newest first. */
 export const savedViewsQuery = (entity: Entity, viewer: ViewerName) =>
   queryOptions({
     queryKey: ["views", entity.id, viewer],
-    queryFn: async () =>
-      unwrap(
+    queryFn: async (): Promise<SavedView[]> => {
+      const found = unwrap(
         await iki.POST("/api/v1/entities/search", {
           body: {
             type: VIEW_TYPE,
             where: {
               all: [
-                { field: "target", op: "eq", value: entity.id },
-                { field: "viewer", op: "eq", value: viewer },
+                { field: "targets", op: "has", value: entity.id },
+                { field: "viewers", op: "has", value: viewer },
               ],
             },
             sort: { field: "created_at", descending: true },
@@ -132,5 +260,31 @@ export const savedViewsQuery = (entity: Entity, viewer: ViewerName) =>
             exact_type: true,
           },
         }),
-      ).items,
+      ).items;
+      // A view of it in one viewer and of something else in this one isn't a view of it here.
+      return found.flatMap((view) => {
+        const targets = viewTargets(view);
+        const index = targets.findIndex((t) => t.id === entity.id && t.viewer === viewer);
+        return index >= 0 ? [{ view, targets, index }] : [];
+      });
+    },
   });
+
+/** Names and numbers in a list, as a sentence says them: "A", "A and B", "A, B and C". */
+export function listed(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1] ?? ""}`;
+}
+
+/** Colours Iki gives the structures of a scene, in order: Okabe and Ito's, which people
+ * with each kind of colour blindness tell apart. */
+export const STRUCTURE_COLOURS: { colour: string; name: string }[] = [
+  { colour: "#0072b2", name: "Blue" },
+  { colour: "#e69f00", name: "Orange" },
+  { colour: "#009e73", name: "Green" },
+  { colour: "#cc79a7", name: "Pink" },
+  { colour: "#56b4e9", name: "Sky blue" },
+  { colour: "#d55e00", name: "Vermilion" },
+  { colour: "#f0e442", name: "Yellow" },
+  { colour: "#999999", name: "Grey" },
+];

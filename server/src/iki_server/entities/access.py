@@ -7,6 +7,11 @@
 
 Entities people can't read behave as if they don't exist (404).
 
+A **view** (``core.View``) is read only by people who can read every entity it
+shows (ADR 0110): to anyone else it doesn't exist either, so a view never shows
+or names what someone can't read. An entity purged with its plugin still counts
+as readable, as its tombstone (ADR 0092).
+
 **Files** are readable by whoever can read the project they were added to,
 or an entity that refers to them, at any revision.
 
@@ -22,8 +27,9 @@ from typing import Any, cast
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
+from iki_server.entities import registry
 from iki_server.entities.models import Entity, ProjectLink
-from iki_server.entities.values import Refs
+from iki_server.entities.values import Refs, shape, subtypes
 from iki_server.files.models import File, FileUse
 from iki_server.org import permissions
 from iki_server.org.models import Project
@@ -43,28 +49,50 @@ def visible(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousU
 def visible_of[E: Entity](user: Any, model: type[E]) -> QuerySet[E]:  # noqa: ANN401 - User or AnonymousUser
     """The entities of a type's model (its subtypes' included) the user can read. A purged
     entity's tombstone isn't one (ADR 0092): see :func:`tombstones`."""
-    links = ProjectLink.objects.filter(
-        entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
+    projects = readable_projects(user).values("pk")
+    links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    return cast(
+        "QuerySet[E]",
+        model._default_manager.filter(
+            Exists(links), _views_they_read(model, projects), purged_at__isnull=True
+        ),
     )
-    return cast("QuerySet[E]", model._default_manager.filter(Exists(links), purged_at__isnull=True))
+
+
+#: The type whose entities show others (ADR 0086, ADR 0110).
+VIEW = "core.View"
+
+
+def _views_they_read(model: type[Entity], projects: QuerySet[Any]) -> Q:
+    """Of ``model``'s entities, the views only if every entity they show is linked into one
+    of ``projects``, and everything else. Nothing for models no view can be."""
+    if VIEW not in registry.types():
+        return Q()
+    view = registry.model(VIEW)
+    if model is not Entity and not issubclass(model, view):
+        return Q()
+    items = shape(VIEW).part_of("targets").list_model("targets")
+    readable = ProjectLink.objects.filter(entity=OuterRef("item_id"), project__in=projects)
+    hidden = items._default_manager.filter(entity_id=OuterRef("pk")).filter(~Exists(readable))
+    return ~Q(type__in=subtypes(VIEW)) | Q(~Exists(hidden))
 
 
 def traced(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
     """The entities the user can read, and purged ones they could: lineage goes through
     a tombstone, which it shows as purged (ADR 0092)."""
-    links = ProjectLink.objects.filter(
-        entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
-    )
-    return Entity.objects.filter(Exists(links))
+    projects = readable_projects(user).values("pk")
+    links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    return Entity.objects.filter(Exists(links), _views_they_read(Entity, projects))
 
 
 def tombstones(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
     """What's left of purged entities the user could read (ADR 0092): their HRIDs, types
     and when, but no values."""
-    links = ProjectLink.objects.filter(
-        entity=OuterRef("pk"), project__in=readable_projects(user).values("pk")
+    projects = readable_projects(user).values("pk")
+    links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    return Entity.objects.filter(
+        Exists(links), _views_they_read(Entity, projects), purged_at__isnull=False
     )
-    return Entity.objects.filter(Exists(links), purged_at__isnull=False)
 
 
 def readable_files(user: Any) -> QuerySet[File]:  # noqa: ANN401 - User or AnonymousUser

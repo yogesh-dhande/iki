@@ -1036,6 +1036,91 @@ input:focus-visible {
   margin: 0 0 1rem;
 }
 
+/* A view of several entities (ADR 0110): what it shows, each in its viewer, and Mol*'s
+   scene of its structures, each in a colour of its own. */
+.view-shows,
+.view-target-list {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.view-shows li + li,
+.view-target-list li + li {
+  margin-top: 0.5rem;
+}
+
+.view-moved {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.view-panel + .view-panel {
+  margin-top: 1.5rem;
+}
+
+.view-panel-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.view-targets .field {
+  margin-top: 0.35rem;
+}
+
+.scene-legend {
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.scene-legend li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.scene-legend li + li {
+  margin-top: 0.25rem;
+}
+
+.scene-swatch {
+  flex: none;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: conic-gradient(var(--feature-coding) 0 50%, var(--feature-other) 50% 100%);
+}
+
+.scene-problem {
+  color: var(--error);
+}
+
+.scene-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 0.75rem;
+}
+
+.scene-structure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.scene-structure legend {
+  padding: 0 0.25rem;
+  font-weight: 600;
+}
+
 /* A plugin's component, in a sandboxed frame of its own (ADR 0084). */
 .component-frame {
   display: block;

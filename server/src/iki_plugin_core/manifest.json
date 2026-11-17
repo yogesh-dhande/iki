@@ -962,10 +962,10 @@
       "core.View": {
         "plugin": "core",
         "name": "View",
-        "schema_version": 2,
+        "schema_version": 3,
         "label": "View",
         "label_plural": "Views",
-        "description": "A saved look at an entity in one of Iki's viewers, at the revision it showed.",
+        "description": "A saved look at entities in Iki's viewers, each at the revision it showed.",
         "extends": null,
         "abstract": false,
         "hrid_prefix": "VIEW",
@@ -1039,14 +1039,14 @@
             "name": "target",
             "type": "ref",
             "label": "Target",
-            "description": "The entity it shows.",
-            "required": true,
+            "description": "The entity it showed, before a view could show several.",
+            "required": false,
             "immutable": true,
             "computed": false,
-            "indexed": true,
+            "indexed": false,
             "unique": false,
             "link": null,
-            "removed": false,
+            "removed": true,
             "has_default": false,
             "default": null,
             "format": null,
@@ -1070,14 +1070,14 @@
             "name": "target_revision",
             "type": "int",
             "label": "Revision",
-            "description": "The revision of the entity it shows.",
-            "required": true,
+            "description": "The revision of the entity it showed, before a view could show several.",
+            "required": false,
             "immutable": false,
             "computed": false,
             "indexed": false,
             "unique": false,
             "link": null,
-            "removed": false,
+            "removed": true,
             "has_default": false,
             "default": null,
             "format": null,
@@ -1101,14 +1101,14 @@
             "name": "viewer",
             "type": "enum",
             "label": "Viewer",
-            "description": "Which of Iki's viewers shows it, as the entity's type configures it.",
-            "required": true,
+            "description": "The viewer it showed it in, before a view could show several.",
+            "required": false,
             "immutable": true,
             "computed": false,
             "indexed": false,
             "unique": false,
             "link": null,
-            "removed": false,
+            "removed": true,
             "has_default": false,
             "default": null,
             "format": null,
@@ -1132,11 +1132,198 @@
             "max_items": null,
             "schema": null
           },
+          "targets": {
+            "name": "targets",
+            "type": "list",
+            "label": "Entities",
+            "description": "The entities it shows, in order.",
+            "required": true,
+            "immutable": true,
+            "computed": false,
+            "indexed": false,
+            "unique": false,
+            "link": null,
+            "removed": false,
+            "has_default": false,
+            "default": null,
+            "format": null,
+            "pattern": null,
+            "min_length": null,
+            "max_length": null,
+            "min": null,
+            "max": null,
+            "values": [],
+            "unit": null,
+            "display_unit": null,
+            "media_types": [],
+            "max_size": null,
+            "to": null,
+            "items": {
+              "name": "targets",
+              "type": "ref",
+              "label": "Targets",
+              "description": null,
+              "required": false,
+              "immutable": false,
+              "computed": false,
+              "indexed": false,
+              "unique": false,
+              "link": null,
+              "removed": false,
+              "has_default": false,
+              "default": null,
+              "format": null,
+              "pattern": null,
+              "min_length": null,
+              "max_length": null,
+              "min": null,
+              "max": null,
+              "values": [],
+              "unit": null,
+              "display_unit": null,
+              "media_types": [],
+              "max_size": null,
+              "to": "core.Entity",
+              "items": null,
+              "min_items": null,
+              "max_items": null,
+              "schema": null
+            },
+            "min_items": 1,
+            "max_items": 20,
+            "schema": null
+          },
+          "target_revisions": {
+            "name": "target_revisions",
+            "type": "list",
+            "label": "Revisions",
+            "description": "The revision of each entity it shows, in the same order.",
+            "required": true,
+            "immutable": false,
+            "computed": false,
+            "indexed": false,
+            "unique": false,
+            "link": null,
+            "removed": false,
+            "has_default": false,
+            "default": null,
+            "format": null,
+            "pattern": null,
+            "min_length": null,
+            "max_length": null,
+            "min": null,
+            "max": null,
+            "values": [],
+            "unit": null,
+            "display_unit": null,
+            "media_types": [],
+            "max_size": null,
+            "to": null,
+            "items": {
+              "name": "target_revisions",
+              "type": "int",
+              "label": "Target revisions",
+              "description": null,
+              "required": false,
+              "immutable": false,
+              "computed": false,
+              "indexed": false,
+              "unique": false,
+              "link": null,
+              "removed": false,
+              "has_default": false,
+              "default": null,
+              "format": null,
+              "pattern": null,
+              "min_length": null,
+              "max_length": null,
+              "min": 1,
+              "max": null,
+              "values": [],
+              "unit": null,
+              "display_unit": null,
+              "media_types": [],
+              "max_size": null,
+              "to": null,
+              "items": null,
+              "min_items": null,
+              "max_items": null,
+              "schema": null
+            },
+            "min_items": 1,
+            "max_items": 20,
+            "schema": null
+          },
+          "viewers": {
+            "name": "viewers",
+            "type": "list",
+            "label": "Viewers",
+            "description": "Which of Iki's viewers shows each entity, in the same order, as the entity's type configures them. Entities in the structure viewer are drawn together, in one Mol* scene; each other one has a viewer of its own.",
+            "required": true,
+            "immutable": true,
+            "computed": false,
+            "indexed": false,
+            "unique": false,
+            "link": null,
+            "removed": false,
+            "has_default": false,
+            "default": null,
+            "format": null,
+            "pattern": null,
+            "min_length": null,
+            "max_length": null,
+            "min": null,
+            "max": null,
+            "values": [],
+            "unit": null,
+            "display_unit": null,
+            "media_types": [],
+            "max_size": null,
+            "to": null,
+            "items": {
+              "name": "viewers",
+              "type": "enum",
+              "label": "Viewers",
+              "description": null,
+              "required": false,
+              "immutable": false,
+              "computed": false,
+              "indexed": false,
+              "unique": false,
+              "link": null,
+              "removed": false,
+              "has_default": false,
+              "default": null,
+              "format": null,
+              "pattern": null,
+              "min_length": null,
+              "max_length": null,
+              "min": null,
+              "max": null,
+              "values": [
+                "sequence",
+                "structure",
+                "alignment"
+              ],
+              "unit": null,
+              "display_unit": null,
+              "media_types": [],
+              "max_size": null,
+              "to": null,
+              "items": null,
+              "min_items": null,
+              "max_items": null,
+              "schema": null
+            },
+            "min_items": 1,
+            "max_items": 20,
+            "schema": null
+          },
           "state": {
             "name": "state",
             "type": "json",
             "label": "State",
-            "description": "What the viewer showed, as that viewer saves it: for the sequence viewer, the feature it showed; for the structure viewer, where the camera was; for the alignment viewer, the first column and row it showed. `version` says which shape it is, so older views keep opening.",
+            "description": "What the viewers showed, as they save it. `version` says which shape it is, so older views keep opening. Version 2 has `targets`, one for each entity in order: for the sequence viewer, the feature it showed; for the alignment viewer, the first column and row it showed; for the structure viewer, its colour, whether it's hidden, how it was moved to superpose it on another, and the residues selected. `camera` is where the structure viewer's camera was. Version 1 is a view of one entity, with its `feature`, `camera` or `position`.",
             "required": true,
             "immutable": false,
             "computed": false,
@@ -1169,7 +1356,10 @@
               "additionalProperties": false,
               "properties": {
                 "version": {
-                  "const": 1
+                  "enum": [
+                    1,
+                    2
+                  ]
                 },
                 "feature": {
                   "type": "object",
@@ -1266,8 +1456,172 @@
                       "minimum": 1
                     }
                   }
+                },
+                "targets": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "feature": {
+                        "type": "object",
+                        "required": [
+                          "type",
+                          "start",
+                          "end"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 200
+                          },
+                          "start": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "end": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      },
+                      "position": {
+                        "type": "object",
+                        "required": [
+                          "column",
+                          "row"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "column": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "row": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      },
+                      "colour": {
+                        "type": "string",
+                        "pattern": "^#[0-9a-f]{6}$"
+                      },
+                      "hidden": {
+                        "type": "boolean"
+                      },
+                      "transform": {
+                        "description": "How it was moved, as a 4×4 matrix in column-major order, as Mol* keeps it.",
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 16,
+                        "maxItems": 16
+                      },
+                      "superposed": {
+                        "description": "What it was superposed on (the index of another entity in the structure viewer), and how closely: the RMSD in ångströms over the residues paired.",
+                        "type": "object",
+                        "required": [
+                          "onto"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "onto": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 19
+                          },
+                          "rmsd": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "residues": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      "selection": {
+                        "description": "The residues selected, as ranges of each chain's author numbering.",
+                        "type": "array",
+                        "maxItems": 500,
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "chain",
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "chain": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 8
+                            },
+                            "start": {
+                              "type": "integer"
+                            },
+                            "end": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "version": {
+                        "const": 1
+                      }
+                    }
+                  },
+                  "then": {
+                    "not": {
+                      "required": [
+                        "targets"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "version": {
+                        "const": 2
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "targets"
+                    ],
+                    "properties": {
+                      "feature": false,
+                      "position": false
+                    }
+                  }
+                }
+              ]
             }
           }
         },

@@ -1107,7 +1107,8 @@ def test_a_structure_in_mol_star_in_its_frame(
     page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
     saved = entities.current_values_of([Entity.objects.get(type="core.View")])
     (state,) = [v["state"] for v in saved.values()]
-    assert set(state) == {"version", "camera"} and len(state["camera"]["position"]) == 3
+    assert set(state) == {"version", "camera", "targets"} and state["version"] == 2
+    assert len(state["camera"]["position"]) == 3 and state["targets"] == [{}]
     assert_clean(page)
     page.goto(page.url.split("/entities/")[0] + f"/entities/{hrid}/viewers/structure/")
     page.get_by_role("link", name="Crambin, N-terminus").wait_for()
@@ -1125,6 +1126,90 @@ def test_a_structure_in_mol_star_in_its_frame(
         "The structure viewer tried to open another page, so Iki closed it."
     ).wait_for()
     assert page.locator("iframe").count() == 0
+
+
+def _moved_pdb(source: Path, out: Path, dx: float) -> Path:
+    """The same structure moved ``dx`` Å along x: another file, with the same residues."""
+    lines = []
+    for line in source.read_text().splitlines():
+        if line.startswith(("ATOM", "HETATM")):
+            x = float(line[30:38]) + dx
+            line = f"{line[:30]}{x:8.3f}{line[38:]}"
+        lines.append(line)
+    out.write_text("\n".join(lines) + "\n")
+    return out
+
+
+def test_a_view_superposes_its_structures_in_one_mol_star_scene(
+    open_as: Any,
+    world: World,
+    browser_name: str,
+    tmp_path: Path,
+    _s3_endpoint: str,
+    _s3_bucket: str,
+) -> None:
+    """Two structures in one view (ADR 0110): each its own component in Mol*'s scene,
+    superposed on the first, and saved with how it was moved."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+
+    admin = world.users["admin"]
+    crambin = Path(__file__).parent / "data" / "crambin.pdb"
+    made = []
+    for path in (crambin, _moved_pdb(crambin, tmp_path / "moved.pdb", 10.0)):
+        file = _stored_file(world, _s3_endpoint, _s3_bucket, path, "chemical/x-pdb")
+        made.append(
+            entities.create(
+                admin, "protein.ProteinStructure", world.project, {"structure": file.pk}
+            ).entity
+        )
+    values = {
+        "name": "Crambin, twice",
+        "targets": [e.pk for e in made],
+        "target_revisions": [1, 1],
+        "viewers": ["structure", "structure"],
+        "state": {"version": 2, "targets": [{"label": "first"}, {"label": "moved"}]},
+    }
+    view = entities.create(admin, "core.View", world.project, values).entity
+    hrid = Entity.objects.get(pk=view.pk).hrid
+    page = open_as("admin", f"/entities/{hrid}/")
+    page.get_by_role("list", name="Structures").wait_for()
+    page.locator("iframe.structure-frame").wait_for(timeout=60_000)
+    page.get_by_text("Drawing crambin.pdb and moved.pdb…").wait_for(
+        state="detached", timeout=60_000
+    )
+    if page.get_by_text("This browser can’t draw 3D structures").count():
+        assert browser_name == "firefox", f"{browser_name} has no WebGL"
+        assert_clean(page)
+        return
+    page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
+    page.get_by_role("button", name="Superpose on first").click()
+    said = page.locator(".messages").get_by_text(re.compile(r"^moved"))
+    said.wait_for(timeout=60_000)
+    assert said.inner_text() == "moved: RMSD 0.00 Å over 10 residues."
+    page.get_by_role("button", name="Save the view").click()
+    page.get_by_text(f"Saved {hrid}, revision 2.").wait_for()
+    (saved,) = entities.current_values_of([Entity.objects.get(pk=view.pk)]).values()
+    first, moved = saved["state"]["targets"]
+    assert first == {"label": "first", "colour": "#0072b2"}
+    assert moved["superposed"] == {"onto": 0, "rmsd": 0.0, "residues": 10}
+    # Moved back the 10 Å it was moved along x.
+    assert abs(moved["transform"][12] + 10.0) < 0.01, moved["transform"]
+    assert_clean(page)
+
+    # It opens as it was saved, moved as it was.
+    page.reload()
+    page.locator("iframe.structure-frame").wait_for(timeout=60_000)
+    page.get_by_text("Drawing crambin.pdb and moved.pdb…").wait_for(
+        state="detached", timeout=60_000
+    )
+    page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
+    page.get_by_role("button", name="Save the view").click()
+    # Saved as it opened: nothing moved, so there may be nothing new to keep.
+    page.get_by_text(re.compile(rf"^Saved {hrid}, revision [23]\.$")).wait_for()
+    (again,) = entities.current_values_of([Entity.objects.get(pk=view.pk)]).values()
+    assert again["state"]["targets"][1]["transform"] == moved["transform"]
+    assert_clean(page)
 
 
 #: How many colours the canvas has drawn, sampled: a blank one has one.
@@ -1237,7 +1322,7 @@ def test_an_alignment_in_its_viewer(
     assert page.locator(".alignment-at").inner_text().startswith(f"{hrid1}, column 311")
     saved = entities.current_values_of([Entity.objects.get(type="core.View")])
     (state,) = [v["state"] for v in saved.values()]
-    assert state == {"version": 1, "position": {"column": 311, "row": 2}}
+    assert state == {"version": 2, "targets": [{"position": {"column": 311, "row": 2}}]}
     assert_clean(page)
 
 

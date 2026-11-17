@@ -158,6 +158,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "describe_apps",
         "check_app",
         "create_app",
+        "create_view",
         "preview_app",
         "set_project_dashboard",
         "list_actions",
@@ -180,6 +181,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
     ]
     writes = {
         "create_app",
+        "create_view",
         "preview_app",
         "set_project_dashboard",
         "create_entity",
@@ -540,6 +542,53 @@ async def test_an_agents_session_and_what_it_says_it_is_are_on_the_record(world:
     )
     made = await sync_to_async(_created)(data(sessionless.json()["result"])["hrid"])
     assert (made.session, made.software, made.model) == ("", "goose 1.9", "")
+
+
+async def test_agents_save_views_of_several_entities_each_at_a_revision(world: World) -> None:
+    """A view of a protein beside another, by HRID, each at its latest revision unless the
+    agent says; and nothing of an entity the person can't read (ADR 0110)."""
+    from test_api_entities import api_as
+
+    def make() -> tuple[Any, Any, Any]:
+        editor = api_as(world, "editor")
+        first, second = (
+            protein(editor, world.project, "abl1"),
+            protein(editor, world.project, "src"),
+        )
+        other = Project.objects.create(team=world.team, name="Elsewhere")
+        ProjectMembership.objects.create(
+            project=other, user=world.users["admin"], role=ProjectRole.EDITOR
+        )
+        return first, second, protein(api_as(world, "admin"), other, "secret")
+
+    first, second, secret = await sync_to_async(make)()
+    token = await token_for(world)
+    shows = [
+        {"entity": first["hrid"], "viewer": "sequence", "label": "kinase"},
+        {"entity": second["id"], "viewer": "sequence", "revision": 1},
+    ]
+    result = await tool(
+        token, "create_view", project=str(world.project.pk), name="Side by side", shows=shows
+    )
+    made = data(result)
+    assert made["hrid"].startswith("VIEW-")
+    assert note(result) == (
+        f"Saved {made['hrid']}. The person can open it at "
+        f"https://testserver/entities/{made['hrid']}/"
+    )
+    read = data(await tool(token, "get_entity", ref=made["hrid"]))
+    values = read["entity"]["values"] if "entity" in read else read["values"]
+    assert values["targets"] == [first["id"], second["id"]]
+    assert values["target_revisions"] == [first["revision"], 1]
+    assert values["viewers"] == ["sequence", "sequence"]
+    assert values["state"] == {"version": 2, "targets": [{"label": "kinase"}, {}]}
+    # The person can't read the other project's protein: the agent learns nothing of it.
+    hidden = [{"entity": first["hrid"], "viewer": "sequence"}]
+    hidden.append({"entity": secret["hrid"], "viewer": "sequence"})
+    found = error(
+        await tool(token, "create_view", project=str(world.project.pk), name="Peek", shows=hidden)
+    )
+    assert "(404" in found and secret["values"]["sequence"] not in found
 
 
 async def test_agents_create_and_change_entities_on_the_record(world: World) -> None:

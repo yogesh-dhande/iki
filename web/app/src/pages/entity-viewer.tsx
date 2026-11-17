@@ -31,7 +31,7 @@ import {
   type Values,
 } from "../sequence";
 import { buttonClass } from "../ui";
-import type { Capture, FeatureRef, ViewState } from "../views";
+import type { Camera, Capture, FeatureRef, TargetState } from "../views";
 import { EntityTabs, useEntity } from "./entity";
 import { AlignmentViewer } from "./alignment-viewer";
 import { NotFound } from "./errors";
@@ -78,18 +78,23 @@ export function EntityViewer() {
   );
 }
 
-/** A viewer, showing `source` as `state` says: for a tab, or for a saved view. */
+/** A viewer, showing `source` as `state` says: for a tab, or for one entity of a saved
+ * view. */
 export function ViewerBody({
   source,
   type,
   viewer,
   state,
+  camera,
   onCapture,
 }: {
   source: Source;
   type: EntityType;
   viewer: AnyViewer;
-  state?: ViewState | undefined;
+  /** What a saved view kept of it. */
+  state?: TargetState | undefined;
+  /** Where a saved view's camera was, for the structure viewer. */
+  camera?: Camera | undefined;
   onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
   if (viewer.viewer === "alignment") {
@@ -108,7 +113,8 @@ export function ViewerBody({
       source={source}
       type={type}
       viewer={viewer}
-      camera={state?.camera}
+      camera={camera}
+      state={state}
       onCapture={onCapture}
     />
   ) : (
@@ -193,12 +199,7 @@ function SequenceViewer({
   );
   useEffect(() => {
     if (!onCapture) return;
-    onCapture(() =>
-      Promise.resolve({
-        version: 1,
-        ...(shown ? { feature: featureRef(shown) } : {}),
-      }),
-    );
+    onCapture(() => Promise.resolve({ targets: [shown ? { feature: featureRef(shown) } : {}] }));
     return () => {
       onCapture(null);
     };

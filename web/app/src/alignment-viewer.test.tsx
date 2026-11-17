@@ -331,11 +331,16 @@ describe("the alignment viewer's parts", () => {
   });
 
   it("reads a saved position, and only a sound one", () => {
-    expect(readViewState({ position: { column: 7, row: 2 } }).position).toEqual({
+    const position = (value: unknown) => readViewState(value).targets[0]?.position;
+    expect(position({ version: 1, position: { column: 7, row: 2 } })).toEqual({
       column: 7,
       row: 2,
     });
-    expect(readViewState({ position: { column: 0, row: 2 } }).position).toBeUndefined();
-    expect(readViewState({ position: { column: 1.5, row: 2 } }).position).toBeUndefined();
+    expect(position({ version: 2, targets: [{ position: { column: 7, row: 2 } }] })).toEqual({
+      column: 7,
+      row: 2,
+    });
+    expect(position({ version: 1, position: { column: 0, row: 2 } })).toBeUndefined();
+    expect(position({ version: 1, position: { column: 1.5, row: 2 } })).toBeUndefined();
   });
 });

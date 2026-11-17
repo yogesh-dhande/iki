@@ -1,18 +1,39 @@
 /**
- * Saved views on a viewer's tab (ADR 0086): what the viewer shows now, saved as a view of
- * this revision, and the views saved before. A view is an entity of its own (core.View):
- * its page opens it on the revision it showed.
+ * Saved views on a viewer's tab (ADR 0086, ADR 0110): what the viewer shows now, saved as a
+ * view of this revision, and every view saved before that shows this entity in this viewer,
+ * alone or with others. A view is an entity of its own (core.View): its page opens it on the
+ * revisions it showed. Saving one can add other entities to it, each at its latest revision:
+ * structures are drawn in one scene with this one, anything else beside it.
  */
 
 import { unwrap } from "@ikisci/sdk";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 
 import { iki, problemOf, useApiMutation } from "../api";
-import { ENTITIES, type Entity, type EntityType } from "../entities";
+import { FieldInput } from "../entity-inputs";
+import {
+  ENTITIES,
+  entityQuery,
+  typesQuery,
+  type Entity,
+  type EntityType,
+  type FieldDef,
+} from "../entities";
+import type { Picked } from "../entity-values";
 import { Button, ConfirmDialog, TextField, Time, useMessages } from "../ui";
-import { savedViewsQuery, VIEW_TYPE, type Capture } from "../views";
+import {
+  listed,
+  MAX_TARGETS,
+  savedViewsQuery,
+  VIEW_TYPE,
+  type Capture,
+  type SavedView,
+  type TargetState,
+  type ViewerName,
+} from "../views";
+import { NO_RULES } from "./new-run";
 
 type AnyViewer = EntityType["viewers"][number];
 
@@ -36,15 +57,16 @@ export function SavedViews({
       </div>
       {views.data?.length ? (
         <ul className="saved-view-list">
-          {views.data.map((view) => (
-            <li key={view.id}>
-              <Link to="/entities/$ref/" params={{ ref: view.hrid }}>
-                {view.title}
+          {views.data.map((saved) => (
+            <li key={saved.view.id}>
+              <Link to="/entities/$ref/" params={{ ref: saved.view.hrid }}>
+                {saved.view.title}
               </Link>{" "}
               <span className="muted">
-                revision {String(view.values["target_revision"])}
-                {view.created_by ? ` · ${view.created_by.name}` : ""} ·{" "}
-                <Time value={view.created_at} />
+                revision {String(saved.targets[saved.index]?.revision ?? "")}
+                {saved.targets.length > 1 ? ` · ${withOthers(saved)}` : ""}
+                {saved.view.created_by ? ` · ${saved.view.created_by.name}` : ""} ·{" "}
+                <Time value={saved.view.created_at} />
               </span>
             </li>
           ))}
@@ -59,6 +81,49 @@ export function SavedViews({
   );
 }
 
+/** What else a view shows: "with PST-000002" or "with PST-000002 and 3 others". */
+function withOthers({ view, targets, index }: SavedView): string {
+  const others = targets.filter((_, i) => i !== index);
+  const named = others.slice(0, 2).map((t) => view.refs[t.id]?.hrid ?? "an entity");
+  const rest = others.length - named.length;
+  return `with ${listed(rest ? [...named, `${String(rest)} other${rest === 1 ? "" : "s"}`] : named)}`;
+}
+
+/** Another entity a view being saved will show, at its latest revision. */
+interface Added {
+  entity: Entity;
+  viewers: AnyViewer[];
+  viewer: ViewerName;
+  label: string;
+}
+
+/** The picker the app uses for references, for any entity. */
+const ADD_FIELD: FieldDef = {
+  name: "add",
+  label: "Add another entity",
+  description:
+    "It’s shown at its latest revision beside this one. Structures are drawn in one scene, " +
+    "where they can be superposed.",
+  type: "ref",
+  items: null,
+  to: "core.Entity",
+  plugin: "",
+  required: false,
+  immutable: false,
+  computed: false,
+  unique: false,
+  detached: false,
+  link: null,
+  unit: null,
+  unit_symbol: null,
+  display_unit: null,
+  display_unit_symbol: null,
+  display_scale: null,
+  display_offset: null,
+  input_units: [],
+  values: [],
+};
+
 function SaveView({
   entity,
   viewer,
@@ -71,10 +136,29 @@ function SaveView({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [label, setLabel] = useState("");
+  const [added, setAdded] = useState<Added[]>([]);
+  const [picking, setPicking] = useState<Picked | null>(null);
+  const [pickError, setPickError] = useState<string>();
+  const [justAdded, setJustAdded] = useState<number | null>(null);
+  const list = useRef<HTMLOListElement>(null);
+  // The one just added has a label to type, next: focus moves to it, not back to the top.
+  useEffect(() => {
+    if (justAdded === null) return;
+    list.current?.children[justAdded + 1]?.querySelector("input")?.focus();
+  }, [justAdded]);
+  const types = useQuery(typesQuery);
+  const client = useQueryClient();
   const navigate = useNavigate();
   const { say } = useMessages();
+  const ids = useId();
   const save = useApiMutation(async () => {
-    const state = capture.current ? await capture.current() : { version: 1 };
+    const now = capture.current ? await capture.current() : { targets: [{}] };
+    const mine: TargetState = {
+      ...now.targets[0],
+      ...(label.trim() ? { label: label.trim() } : {}),
+    };
+    const others = added.map((a): TargetState => (a.label.trim() ? { label: a.label.trim() } : {}));
     return unwrap(
       await iki.POST("/api/v1/entities", {
         body: {
@@ -83,23 +167,70 @@ function SaveView({
           values: {
             name: name.trim(),
             ...(description.trim() ? { description: description.trim() } : {}),
-            target: entity.id,
-            target_revision: entity.revision,
-            viewer: viewer.viewer,
-            state,
+            targets: [entity.id, ...added.map((a) => a.entity.id)],
+            target_revisions: [entity.revision, ...added.map((a) => a.entity.revision)],
+            viewers: [viewer.viewer, ...added.map((a) => a.viewer)],
+            state: {
+              version: 2,
+              ...(now.camera ? { camera: now.camera } : {}),
+              targets: [mine, ...others],
+            },
           },
           reason: "",
           allow_duplicate: false,
         },
       }),
     );
-  }, [ENTITIES, ["views", entity.id]]);
+  }, [ENTITIES, ["views"]]);
   const close = () => {
     setOpen(false);
     setName("");
     setDescription("");
+    setLabel("");
+    setAdded([]);
+    setPicking(null);
+    setPickError(undefined);
+    setJustAdded(null);
     save.reset();
   };
+  async function add(picked: Picked | null) {
+    setPicking(picked);
+    setPickError(undefined);
+    if (!picked) return;
+    try {
+      const found = await client.query(entityQuery(picked.hrid));
+      const type = (types.data ?? []).find((t) => t.name === found.type);
+      const viewers = type?.viewers ?? [];
+      const choice = viewers.find((v) => v.viewer === viewer.viewer) ?? viewers[0];
+      const taken = (v: ViewerName) =>
+        (found.id === entity.id && v === viewer.viewer) ||
+        added.some((a) => a.entity.id === found.id && a.viewer === v);
+      const free = viewers.find((v) => !taken(v.viewer));
+      if (!choice) {
+        setPickError(`${found.hrid}’s type has no viewer, so a view can’t show it.`);
+        return;
+      }
+      if (!free) {
+        setPickError(`The view shows ${found.hrid} already.`);
+        return;
+      }
+      setAdded((now) => [
+        ...now,
+        {
+          entity: found,
+          viewers,
+          viewer: taken(choice.viewer) ? free.viewer : choice.viewer,
+          label: "",
+        },
+      ]);
+      // A new picker for the next one, and the one just added's label to type in.
+      setPicking(null);
+      setJustAdded(added.length);
+    } catch (error) {
+      setPickError(problemOf(error).detail);
+    }
+  }
+  const full = added.length + 1 >= MAX_TARGETS;
   return (
     <>
       <Button
@@ -142,6 +273,93 @@ function SaveView({
           optional
           multiline
         />
+        <fieldset className="field view-targets">
+          <legend>What it shows</legend>
+          <ol className="view-target-list" ref={list}>
+            <li>
+              <span>
+                <strong>{entity.title}</strong> <span className="muted">{entity.hrid}</span> in the{" "}
+                {viewer.label.toLowerCase()} viewer, revision {entity.revision}
+              </span>
+              <TextField
+                label={`Label for ${entity.hrid}`}
+                value={label}
+                onChange={setLabel}
+                maxLength={100}
+                optional
+              />
+            </li>
+            {added.map((a, index) => (
+              <li key={`${a.entity.id} ${a.viewer}`}>
+                <span>
+                  <strong>{a.entity.title}</strong> <span className="muted">{a.entity.hrid}</span>{" "}
+                  at its latest revision, {a.entity.revision}
+                </span>
+                {a.viewers.length > 1 ? (
+                  <div className="field">
+                    <label htmlFor={`${ids}-viewer-${String(index)}`}>
+                      Viewer for {a.entity.hrid}
+                    </label>
+                    <select
+                      id={`${ids}-viewer-${String(index)}`}
+                      value={a.viewer}
+                      onChange={(event) => {
+                        const chosen = event.target.value as ViewerName;
+                        setAdded((now) =>
+                          now.map((x, i) => (i === index ? { ...x, viewer: chosen } : x)),
+                        );
+                      }}
+                    >
+                      {a.viewers.map((v) => (
+                        <option key={v.viewer} value={v.viewer}>
+                          {v.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <span className="muted"> in the {a.viewers[0]?.label.toLowerCase()} viewer</span>
+                )}
+                <TextField
+                  label={`Label for ${a.entity.hrid}`}
+                  value={a.label}
+                  onChange={(value) => {
+                    setAdded((now) =>
+                      now.map((x, i) => (i === index ? { ...x, label: value } : x)),
+                    );
+                  }}
+                  maxLength={100}
+                  optional
+                />
+                <Button
+                  variant="quiet"
+                  onClick={() => {
+                    setAdded((now) => now.filter((_, i) => i !== index));
+                    setJustAdded(null);
+                  }}
+                >
+                  Remove {a.entity.hrid}
+                </Button>
+              </li>
+            ))}
+          </ol>
+          {full ? (
+            <p className="field-help">A view shows at most {MAX_TARGETS} entities.</p>
+          ) : (
+            <FieldInput
+              key={added.length}
+              field={ADD_FIELD}
+              type={NO_RULES}
+              types={types.data ?? []}
+              draft={picking}
+              onChange={(draft) => {
+                void add(draft as Picked | null);
+              }}
+              error={pickError}
+              projectId={entity.owner_project?.id ?? ""}
+            />
+          )}
+        </fieldset>
       </ConfirmDialog>
     </>
   );

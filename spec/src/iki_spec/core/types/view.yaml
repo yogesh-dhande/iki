@@ -1,53 +1,89 @@
-# A saved look at an entity in one of Iki's viewers (ADR 0086): which entity, the
-# revision it showed, the viewer, and what the viewer showed. It opens on that
-# revision, so a figure made from it shows what was saved, whatever changed since;
-# saving it again is a new revision of the view. The server checks, on every save,
-# that the revision is one the entity has, that its type has the viewer, and that
-# the state is that viewer's.
+# A saved look at entities in Iki's viewers (ADR 0086, ADR 0110): which entities,
+# the revision of each it showed, the viewer each was in, and what the viewers
+# showed. It opens on those revisions, so a figure made from it shows what was saved,
+# whatever changed since; saving it again is a new revision of the view. A view can
+# show several entities: two structures superposed, an antibody with its antigen, a
+# protein's structure beside its sequence. The server checks, on every save, that
+# each revision is one its entity has, that each entity's type has its viewer, and
+# that the state is those viewers'. Only someone who can read every entity a view
+# shows can read the view.
 apiVersion: iki/v1
 kind: EntityType
 name: View
 label: View
 label_plural: Views
-schema_version: 2
-description: A saved look at an entity in one of Iki's viewers, at the revision it showed.
+schema_version: 3
+description: A saved look at entities in Iki's viewers, each at the revision it showed.
 hrid: { prefix: VIEW }
 fields:
   name: { type: string, required: true, max_length: 200, indexed: true }
   description: { type: text, max_length: 10000 }
+  # Until schema version 3 a view showed one entity. Its revisions before then keep
+  # these; `targets`, `target_revisions` and `viewers` took their place.
   target:
     type: ref
     to: core.Entity
-    required: true
     immutable: true
-    indexed: true
-    description: The entity it shows.
+    removed: true
+    description: The entity it showed, before a view could show several.
   target_revision:
     type: int
     label: Revision
-    required: true
     min: 1
-    description: The revision of the entity it shows.
+    removed: true
+    description: The revision of the entity it showed, before a view could show several.
   viewer:
     type: enum
     values: [sequence, structure, alignment]
+    immutable: true
+    removed: true
+    description: The viewer it showed it in, before a view could show several.
+  targets:
+    type: list
+    label: Entities
+    items: { type: ref, to: core.Entity }
+    min_items: 1
+    max_items: 20
     required: true
     immutable: true
-    description: Which of Iki's viewers shows it, as the entity's type configures it.
+    description: The entities it shows, in order.
+  target_revisions:
+    type: list
+    label: Revisions
+    items: { type: int, min: 1 }
+    min_items: 1
+    max_items: 20
+    required: true
+    description: The revision of each entity it shows, in the same order.
+  viewers:
+    type: list
+    items: { type: enum, values: [sequence, structure, alignment] }
+    min_items: 1
+    max_items: 20
+    required: true
+    immutable: true
+    description: >-
+      Which of Iki's viewers shows each entity, in the same order, as the
+      entity's type configures them. Entities in the structure viewer are drawn
+      together, in one Mol* scene; each other one has a viewer of its own.
   state:
     type: json
     required: true
     description: >-
-      What the viewer showed, as that viewer saves it: for the sequence viewer,
-      the feature it showed; for the structure viewer, where the camera was;
-      for the alignment viewer, the first column and row it showed.
-      `version` says which shape it is, so older views keep opening.
+      What the viewers showed, as they save it. `version` says which shape it
+      is, so older views keep opening. Version 2 has `targets`, one for each
+      entity in order: for the sequence viewer, the feature it showed; for the
+      alignment viewer, the first column and row it showed; for the structure
+      viewer, its colour, whether it's hidden, how it was moved to superpose it
+      on another, and the residues selected. `camera` is where the structure
+      viewer's camera was. Version 1 is a view of one entity, with its
+      `feature`, `camera` or `position`.
     schema:
       type: object
       required: [version]
       additionalProperties: false
       properties:
-        version: { const: 1 }
+        version: { enum: [1, 2] }
         feature:
           type: object
           required: [type, start, end]
@@ -75,4 +111,70 @@ fields:
           properties:
             column: { type: integer, minimum: 1 }
             row: { type: integer, minimum: 1 }
+        targets:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              label: { type: string, minLength: 1, maxLength: 100 }
+              feature:
+                type: object
+                required: [type, start, end]
+                additionalProperties: false
+                properties:
+                  type: { type: string, minLength: 1, maxLength: 100 }
+                  name: { type: string, maxLength: 200 }
+                  start: { type: integer, minimum: 1 }
+                  end: { type: integer, minimum: 1 }
+              position:
+                type: object
+                required: [column, row]
+                additionalProperties: false
+                properties:
+                  column: { type: integer, minimum: 1 }
+                  row: { type: integer, minimum: 1 }
+              colour: { type: string, pattern: "^#[0-9a-f]{6}$" }
+              hidden: { type: boolean }
+              transform:
+                description: >-
+                  How it was moved, as a 4×4 matrix in column-major order, as Mol*
+                  keeps it.
+                type: array
+                items: { type: number }
+                minItems: 16
+                maxItems: 16
+              superposed:
+                description: >-
+                  What it was superposed on (the index of another entity in the
+                  structure viewer), and how closely: the RMSD in ångströms over
+                  the residues paired.
+                type: object
+                required: [onto]
+                additionalProperties: false
+                properties:
+                  onto: { type: integer, minimum: 0, maximum: 19 }
+                  rmsd: { type: number, minimum: 0 }
+                  residues: { type: integer, minimum: 0 }
+              selection:
+                description: The residues selected, as ranges of each chain's author numbering.
+                type: array
+                maxItems: 500
+                items:
+                  type: object
+                  required: [chain, start, end]
+                  additionalProperties: false
+                  properties:
+                    chain: { type: string, minLength: 1, maxLength: 8 }
+                    start: { type: integer }
+                    end: { type: integer }
+      allOf:
+        - if: { properties: { version: { const: 1 } } }
+          then: { not: { required: [targets] } }
+        - if: { properties: { version: { const: 2 } } }
+          then:
+            required: [targets]
+            properties: { feature: false, position: false }
 display: { title: "{{ name }}" }

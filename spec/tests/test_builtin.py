@@ -36,16 +36,14 @@ def test_its_types_are_the_builtin_ones() -> None:
     assert app.hrid_prefix == "APP"
     view = BUILTIN_TYPES["core.View"]
     assert not view.abstract
-    assert set(view.fields) == {
-        "name",
-        "description",
-        "target",
-        "target_revision",
-        "viewer",
-        "state",
-    }
-    assert view.fields["target"].immutable
-    assert view.fields["viewer"].immutable
+    # A view of one entity named it in `target`; those fields are removed, kept in history,
+    # and a view lists the entities it shows (ADR 0110).
+    removed = {"target", "target_revision", "viewer"}
+    shown = {"name", "description", "targets", "target_revisions", "viewers", "state"}
+    assert set(view.fields) == shown | removed
+    assert all(view.fields[name].removed for name in removed)
+    assert view.fields["targets"].immutable and view.fields["viewers"].immutable
+    assert not view.fields["target_revisions"].immutable
     assert view.hrid_prefix == "VIEW"
     alignment = BUILTIN_TYPES["core.Alignment"]
     assert set(alignment.fields) == {

@@ -362,7 +362,7 @@ class Sequence_History(models.Model):
 
 
 class View(Entity):
-    """View (core.View), schema version 2. A saved look at an entity in one of Iki's viewers, at the revision it showed."""
+    """View (core.View), schema version 3. A saved look at entities in Iki's viewers, each at the revision it showed."""
 
     IKI_TYPE = 'core.View'
 
@@ -376,9 +376,8 @@ class View(Entity):
     )
     name = models.CharField(max_length=200, db_index=True)
     description = models.TextField(null=True)
-    target = models.ForeignKey(Entity, models.PROTECT, related_name='+')
-    target_revision = models.BigIntegerField()
-    viewer = models.TextField()
+    target_revisions = ArrayField(models.BigIntegerField())
+    viewers = ArrayField(models.TextField())
     state = models.JSONField()
 
     class Meta:
@@ -401,12 +400,36 @@ class View(Entity):
                 name='core_view__description__max_length',
             ),
             models.CheckConstraint(
-                condition=Q(target_revision__gte=1),
-                name='core_view__target_revision__min',
+                condition=checks.IsPlainList('target_revisions'),
+                name='core_view__target_revisions__plain_list',
             ),
             models.CheckConstraint(
-                condition=Q(viewer__in=['sequence', 'structure', 'alignment']),
-                name='core_view__viewer__values',
+                condition=Q(target_revisions__len__gte=1),
+                name='core_view__target_revisions__min_items',
+            ),
+            models.CheckConstraint(
+                condition=Q(target_revisions__len__lte=20),
+                name='core_view__target_revisions__max_items',
+            ),
+            models.CheckConstraint(
+                condition=checks.AllBetweenInt('target_revisions', 1, None),
+                name='core_view__target_revisions__item_bounds',
+            ),
+            models.CheckConstraint(
+                condition=checks.IsPlainList('viewers'),
+                name='core_view__viewers__plain_list',
+            ),
+            models.CheckConstraint(
+                condition=Q(viewers__len__gte=1),
+                name='core_view__viewers__min_items',
+            ),
+            models.CheckConstraint(
+                condition=Q(viewers__len__lte=20),
+                name='core_view__viewers__max_items',
+            ),
+            models.CheckConstraint(
+                condition=Q(viewers__contained_by=['sequence', 'structure', 'alignment']),
+                name='core_view__viewers__item_values',
             ),
         ]
         indexes = [
@@ -436,7 +459,30 @@ class View_History(models.Model):
     target = models.UUIDField(db_column='target_id', null=True)
     target_revision = models.BigIntegerField(null=True)
     viewer = models.TextField(null=True)
+    targets = ArrayField(models.UUIDField(), null=True)
+    target_revisions = ArrayField(models.BigIntegerField(), null=True)
+    viewers = ArrayField(models.TextField(), null=True)
     state = models.JSONField(null=True)
 
     class Meta:
         db_table = 'core_view__history'
+
+
+class View_targets(models.Model):
+    """The items of core.View.targets, in order."""
+
+    IKI_LIST_OF = ('View', 'targets')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey('View', models.CASCADE, db_column='entity_id', related_name='+')
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey(Entity, models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'core_view__targets'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(position__lt=20),
+                name='core_view__targets__position__max_items',
+            ),
+        ]

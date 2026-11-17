@@ -1,9 +1,9 @@
 /** The structure viewer: the page reads the file, checks it, and hands it to Mol*'s frame. */
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { entity, PROTEIN, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
+import { entity, field, PROTEIN, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
 import { MAX_STRUCTURE_BYTES } from "./pages/structure-viewer";
 import { answer, calls } from "./test-server";
 
@@ -77,10 +77,16 @@ describe("the structure viewer", () => {
           resolve(m.data);
         };
     });
-    const message = (await given) as { structure: ArrayBuffer; format: string; label: string };
-    expect(message.format).toBe("mmcif");
-    expect(message.label).toBe("1crn.cif");
-    expect(new TextDecoder().decode(message.structure)).toBe("data_1CRN\n_entry.id 1CRN\n");
+    const message = (await given) as {
+      structures: { structure: ArrayBuffer; format: string; label: string; colour?: string }[];
+    };
+    const [one] = message.structures;
+    expect(message.structures).toHaveLength(1);
+    expect(one?.format).toBe("mmcif");
+    expect(one?.label).toBe("1crn.cif");
+    // One structure is drawn in Mol*'s own colours, by chain.
+    expect(one?.colour).toBeUndefined();
+    expect(new TextDecoder().decode(one?.structure)).toBe("data_1CRN\n_entry.id 1CRN\n");
     port?.postMessage({ shown: true });
     await waitFor(() => {
       expect(screen.queryByText("Drawing 1crn.cif…")).not.toBeInTheDocument();
@@ -140,5 +146,167 @@ describe("the structure viewer", () => {
     expect(
       await screen.findByText("The structure viewer doesn’t read application/octet-stream files."),
     ).toBeInTheDocument();
+  });
+});
+
+const VIEW = {
+  ...PROTEIN,
+  name: "core.View",
+  plugin: "core",
+  label: "View",
+  label_plural: "Views",
+  hrid_prefix: "VIEW",
+  fields: [
+    field({ name: "name", label: "Name", type: "string", plugin: "core" }),
+    field({ name: "state", label: "State", type: "json", plugin: "core" }),
+  ],
+  viewers: [],
+};
+const VIEW_ID = "0190f5c2-0000-7000-8000-00000000f1e2";
+const APO = "0190f5c2-0000-7000-8000-0000000000a1";
+const HOLO = "0190f5c2-0000-7000-8000-0000000000a2";
+const HOLO_FILE = "0b6f1c1e-5d2c-4a51-9a63-2c1f6a1b9e02";
+const CAMERA = { position: [0, 0, 50], target: [0, 0, 0], up: [0, 1, 0] };
+const MOVED = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1];
+
+describe("a view of several structures", () => {
+  async function onScene() {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, WITH_VIEWER, VIEW]);
+    const ref = (hrid: string, title: string) => ({
+      hrid,
+      title,
+      type: "protein.ProteinStructure",
+      archived: false,
+      purged: false,
+    });
+    answer(
+      "GET /api/v1/entities/VIEW-000001",
+      entity({
+        id: VIEW_ID,
+        hrid: "VIEW-000001",
+        type: "core.View",
+        revision: 1,
+        values: {
+          name: "Apo and holo",
+          targets: [APO, HOLO],
+          target_revisions: [1, 1],
+          viewers: ["structure", "structure"],
+          state: { version: 2, camera: CAMERA, targets: [{ label: "apo" }, { colour: "#009e73" }] },
+        },
+        refs: { [APO]: ref("PST-000001", "Apo"), [HOLO]: ref("PST-000002", "Holo") },
+      }),
+    );
+    const files = (id: string, name: string) => ({
+      [id]: { name, media_type: "chemical/x-mmcif", size: CIF.byteLength },
+    });
+    for (const [hrid, id, file, name] of [
+      ["PST-000001", APO, FILE, "apo.cif"],
+      ["PST-000002", HOLO, HOLO_FILE, "holo.cif"],
+    ] as const) {
+      answer(`GET /api/v1/entities/${hrid}/revisions/1`, {
+        number: 1,
+        kind: "created",
+        values: { structure: file },
+        changes: {},
+        refs: {},
+        files: files(file, name),
+      });
+      answer(
+        `GET /api/v1/entities/${hrid}`,
+        entity({
+          id,
+          hrid,
+          type: "protein.ProteinStructure",
+          revision: 1,
+          values: { structure: file },
+        }),
+      );
+      answer(`GET /api/v1/files/${file}/content-url`, {
+        url: `https://store.example.com/iki-files/blobs/${name}?X-Amz-Signature=x`,
+        expires_at: "2026-11-14T12:05:00Z",
+        sha256: await sha256(CIF),
+      });
+      answer(`GET /iki-files/blobs/${name}`, () => new Response(CIF.slice()));
+    }
+    answer(`PATCH /api/v1/entities/${VIEW_ID}`, entity({ hrid: "VIEW-000001", revision: 2 }));
+  }
+
+  it("draws them in one scene, superposes them, and saves how", async () => {
+    await onScene();
+    const { user } = await renderApp("/entities/VIEW-000001/");
+    const legend = await screen.findByRole("list", { name: "Structures" });
+    expect(legend).toHaveTextContent("apo PST-000001");
+    expect(legend).toHaveTextContent("Holo PST-000002");
+    const frame = await screen.findByTitle("Structures of Apo and holo");
+    expect(screen.getByText("Drawing apo.cif and holo.cif…")).toBeInTheDocument();
+    const post = vi.fn();
+    Object.defineProperty(frame, "contentWindow", { value: { postMessage: post } });
+    fireEvent.load(frame);
+    const port = (post.mock.calls[0] as [unknown, string, MessagePort[]])[2][0];
+    if (!port) throw new Error("No port");
+    const asked: unknown[] = [];
+    let next: ((m: unknown) => void) | null = null;
+    port.onmessage = (m) => {
+      asked.push(m.data);
+      next?.(m.data);
+    };
+    await waitFor(() => {
+      expect(asked).toHaveLength(1);
+    });
+    const scene = asked[0] as { structures: { label: string; colour?: string }[]; camera: unknown };
+    // Each is its own component, in a colour of its own: the first the palette's first.
+    expect(scene.structures.map((s) => [s.label, s.colour])).toEqual([
+      ["apo", "#0072b2"],
+      ["Holo", "#009e73"],
+    ]);
+    expect(scene.camera).toEqual(CAMERA);
+    port.postMessage({ shown: true });
+
+    const superposed = new Promise<unknown>((resolve) => {
+      next = resolve;
+    });
+    await user.click(await screen.findByRole("button", { name: "Superpose on apo" }));
+    expect(await superposed).toEqual({ superpose: { onto: 0 } });
+    port.postMessage({ superposed: [{ index: 1, rmsd: 0.42, residues: 46 }] });
+    expect(await screen.findByText(/Holo: RMSD 0\.42 Å over 46 residues\./)).toBeInTheDocument();
+
+    const apo = screen.getByRole("group", { name: "apo" });
+    await user.selectOptions(within(apo).getByRole("combobox", { name: "Colour" }), "");
+    await user.click(screen.getByRole("button", { name: "Save the view" }));
+    await waitFor(() => {
+      expect(asked.at(-1)).toEqual({ get: "state" });
+    });
+    port.postMessage({
+      state: {
+        camera: CAMERA,
+        structures: [{ selection: [{ chain: "A", start: 10, end: 20 }] }, { transform: MOVED }],
+      },
+    });
+    await waitFor(() => {
+      expect(calls("PATCH", `/api/v1/entities/${VIEW_ID}`)).toHaveLength(1);
+    });
+    const [saved] = calls("PATCH", `/api/v1/entities/${VIEW_ID}`);
+    expect(saved?.body).toMatchObject({
+      values: {
+        target_revisions: [1, 1],
+        state: {
+          version: 2,
+          camera: CAMERA,
+          targets: [
+            { label: "apo", selection: [{ chain: "A", start: 10, end: 20 }] },
+            {
+              colour: "#009e73",
+              transform: MOVED,
+              superposed: { onto: 0, rmsd: 0.42, residues: 46 },
+            },
+          ],
+        },
+      },
+    });
+    const first = (saved?.body as { values: { state: { targets: { colour?: string }[] } } }).values
+      .state.targets[0];
+    // Coloured by chain, as it was set to before saving.
+    expect(first?.colour).toBeUndefined();
   });
 });

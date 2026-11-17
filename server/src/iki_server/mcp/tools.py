@@ -14,7 +14,7 @@ from uuid import UUID
 from django.conf import settings
 from mcp.server.mcpserver import MCPServer
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from iki_server.api.entities import (
     MAX_GENERATIONS,
@@ -156,6 +156,30 @@ Params = Annotated[
 RunReason = Annotated[
     str, Field(min_length=1, max_length=2000, description="Why, for the record: people read it.")
 ]
+#: How many entities a view shows at most (core.View's `targets`).
+MAX_VIEW_TARGETS = 20
+
+
+class ViewTargetIn(BaseModel):
+    """One of the entities a view shows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity: Ref
+    viewer: Literal["sequence", "structure", "alignment"] = Field(
+        description="Which of Iki's viewers shows it: one its type has."
+    )
+    revision: int | None = Field(
+        default=None, ge=1, description="The revision it shows; its latest if left out."
+    )
+    label: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="What the view calls it, such as apo or holo.",
+    )
+
+
 Reuse = Annotated[
     bool,
     Field(
@@ -441,6 +465,50 @@ def build() -> MCPServer:
         made = await call("POST", "/entities", body=body)
         page = web_url(f"/entities/{made['hrid']}/")
         return answer(made, note=f"Created {made['hrid']}. The person can open it at {page}")
+
+    @server.tool(annotations=ADD, title="Save a view")
+    async def create_view(
+        project: Annotated[
+            UUID, Field(description="The project it belongs to. It needs the person as Editor.")
+        ],
+        name: Annotated[str, Field(min_length=1, max_length=200)],
+        shows: Annotated[
+            list[ViewTargetIn],
+            Field(
+                min_length=1,
+                max_length=MAX_VIEW_TARGETS,
+                description="The entities it shows, in order, each in one of the viewers its "
+                "type has (describe_entity_type's viewers).",
+            ),
+        ],
+        description: Annotated[str, Field(max_length=10000)] = "",
+        reason: Annotated[str, Field(max_length=2000, description="Why, for its history.")] = "",
+    ) -> CallToolResult:
+        """A saved view (core.View): entities in Iki's viewers, each pinned to a revision, so
+        it shows them as they were, whatever changes later. Structures are drawn together in
+        one Mol* scene, each its own; every other entity has a viewer of its own beside them,
+        such as a protein's sequence beside its structure. Only people who can read every
+        entity it shows can read it. The person can open it to superpose its structures,
+        colour them and turn them, and save it again."""
+        targets, revisions, kept = [], [], []
+        for shown in shows:
+            found = await call("GET", path("/entities/{ref}", ref=shown.entity))
+            targets.append(found["id"])
+            revisions.append(shown.revision or found["revision"])
+            kept.append({"label": shown.label} if shown.label else {})
+        values: dict[str, Any] = {
+            "name": name,
+            "targets": targets,
+            "target_revisions": revisions,
+            "viewers": [shown.viewer for shown in shows],
+            "state": {"version": 2, "targets": kept},
+        }
+        if description:
+            values["description"] = description
+        body = {"type": "core.View", "project": str(project), "values": values, "reason": reason}
+        made = await call("POST", "/entities", body=body)
+        page = web_url(f"/entities/{made['hrid']}/")
+        return answer(made, note=f"Saved {made['hrid']}. The person can open it at {page}")
 
     @server.tool(annotations=ADD, title="Preview an app")
     async def preview_app(

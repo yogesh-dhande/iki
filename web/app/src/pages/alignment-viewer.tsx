@@ -340,8 +340,7 @@ function AlignmentGrid({
     if (!onCapture || !cursorRow) return;
     onCapture(() =>
       Promise.resolve({
-        version: 1,
-        position: { column: cursor.column + 1, row: cursorRow.index + 1 },
+        targets: [{ position: { column: cursor.column + 1, row: cursorRow.index + 1 } }],
       }),
     );
     return () => {

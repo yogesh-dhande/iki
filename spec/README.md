@@ -610,8 +610,9 @@ on (ADR 0088). `label` names the
 tab. The validator checks that each field exists and is what its viewer
 shows, and that each viewer is given once.
 
-A viewer's tab lists the views saved of it and saves what it shows as a
-`core.View`, on the revision it shows (ADR 0086).
+A viewer's tab lists the views it's in and saves what it shows as a
+`core.View`, on the revision it shows, with other entities beside it if
+wanted (ADR 0086, ADR 0110).
 
 ## Components
 
@@ -682,10 +683,13 @@ declaring a dependency, and no other plugin can be named `core`:
   one, is the sequence the others were aligned to. Iki's alignment viewer
   draws it
   ([ADR 0088](../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
-- `core.View`: a saved look at an entity in one of Iki's viewers, pinned to
-  the revision it showed: its `target`, `target_revision`, `viewer`, and the
-  viewer's `state`
-  ([ADR 0086](../docs/adr/0086-saved-views-are-entities-pinned-to-a-revision.md)).
+- `core.View`: a saved look at 1 to 20 entities in Iki's viewers, each
+  pinned to the revision it showed: its `targets`, their `target_revisions`
+  and `viewers` in the same order, and what the viewers keep of each in
+  `state`. Its structures share one Mol\* scene, superposed if wanted. Only
+  people who can read every entity it shows can read it
+  ([ADR 0086](../docs/adr/0086-saved-views-are-entities-pinned-to-a-revision.md),
+  [ADR 0110](../docs/adr/0110-a-view-shows-several-entities-each-at-its-revision.md)).
 - `core.App`: a page of Iki's own components. Its `spec` (`app/v1`) lists
   panels on a twelve-column grid, each an entities grid, a viewer or text,
   bound to the panels before it by CEL expressions between `{{` and `}}`

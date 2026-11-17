@@ -5,8 +5,8 @@ on every create and edit, so they hold for the web, the API, MCP and runs alike:
 
 - ``core.Collection`` lists its ``members`` or has a ``search``, not both. Its
   search must work for the person saving it, in a project they can read.
-- ``core.View`` (ADR 0086) shows a revision its entity has, in a viewer its
-  entity's type has, with that viewer's state.
+- ``core.View`` (ADR 0086, ADR 0110) shows, for each of its entities, a revision
+  that entity has, in a viewer its type has, with what that viewer keeps.
 - ``core.App`` (ADR 0090) has a spec whose panels, props and expressions work for
   the person saving it (see :mod:`iki_server.entities.app_specs`).
 
@@ -66,33 +66,111 @@ def _pointed(pointer: str, detail: str) -> str:
     return f"`{where}`: {detail}" if where else detail
 
 
-#: What each viewer keeps in a view's state, besides its version.
+#: What each viewer keeps in a version 1 view's state (of one entity), besides its version.
 VIEW_STATE = {"sequence": {"feature"}, "structure": {"camera"}, "alignment": {"position"}}
+#: What each viewer keeps of each entity in a version 2 view's ``state.targets``.
+TARGET_STATE = {
+    "sequence": {"label", "feature"},
+    "structure": {"label", "colour", "hidden", "transform", "superposed", "selection"},
+    "alignment": {"label", "position"},
+}
 
 
 def _view(user: User, values: Mapping[str, Any]) -> Errors:
-    target = (
-        access.visible(user).filter(pk=values["target"]).first() if values.get("target") else None
-    )
-    if target is None:
-        return {}  # The reference's own check says so.
+    targets: list[Any] = list(values.get("targets") or [])
+    found = {e.pk: e for e in access.visible(user).filter(pk__in=targets)}
+    if not targets or any(t not in found for t in targets):
+        return {}  # The references' own check says so, naming nothing they can't read.
+    shown = [found[t] for t in targets]
+    revisions = values.get("target_revisions")
+    viewers = values.get("viewers")
     errors: Errors = {}
-    revision = values.get("target_revision")
-    revisions = Revision.objects.filter(entity=target)
-    if revision is not None and not revisions.filter(number=revision).exists():
-        errors["target_revision"] = [f"{target.hrid} has no revision {revision}."]
-    viewer = values.get("viewer")
-    entity_type = registry.types().get(target.type)
-    shown = {v.viewer for v in registry.viewers(entity_type)} if entity_type else set()
-    if viewer is not None and viewer not in shown:
-        errors["viewer"] = [f"{target.hrid}’s type has no {viewer} viewer."]
-    state = values.get("state")
-    if viewer in VIEW_STATE and isinstance(state, Mapping):
-        others = sorted(set(state) - {"version"} - VIEW_STATE[viewer])
+    for name, given in (("target_revisions", revisions), ("viewers", viewers)):
+        if given is not None and len(given) != len(targets):
+            errors[name] = [
+                f"has {len(given)} for {len(targets)} entities: give one for each, in the "
+                "same order as `targets`."
+            ]
+    if errors:
+        return errors
+    if revisions is not None:
+        had = set(
+            Revision.objects.filter(entity_id__in=targets, number__in=set(revisions)).values_list(
+                "entity_id", "number"
+            )
+        )
+        missing = [
+            f"{e.hrid} has no revision {n}."
+            for e, n in zip(shown, revisions, strict=True)
+            if (e.pk, n) not in had
+        ]
+        if missing:
+            errors["target_revisions"] = missing
+    if viewers is not None:
+        problems = _viewers(shown, viewers)
+        if problems:
+            errors["viewers"] = problems
+        state = values.get("state")
+        if isinstance(state, Mapping):
+            problems = _view_state(shown, viewers, state)
+            if problems:
+                errors["state"] = problems
+    return errors
+
+
+def _viewers(shown: list[Any], viewers: list[str]) -> list[str]:
+    problems = []
+    seen: set[tuple[Any, str]] = set()
+    for entity, viewer in zip(shown, viewers, strict=True):
+        entity_type = registry.types().get(entity.type)
+        has = {v.viewer for v in registry.viewers(entity_type)} if entity_type else set()
+        if viewer not in has:
+            problems.append(f"{entity.hrid}’s type has no {viewer} viewer.")
+        if (entity.pk, viewer) in seen:
+            problems.append(f"It shows {entity.hrid} in the {viewer} viewer twice.")
+        seen.add((entity.pk, viewer))
+    return problems
+
+
+def _view_state(shown: list[Any], viewers: list[str], state: Mapping[str, Any]) -> list[str]:
+    """What's wrong with a view's state for its entities and viewers, beyond its schema."""
+    if state.get("version") == 1:
+        if len(shown) > 1:
+            return ["A view of several entities keeps their state as version 2, in `targets`."]
+        others = sorted(set(state) - {"version"} - VIEW_STATE[viewers[0]])
+        listed = ", ".join(f"`{o}`" for o in others)
+        return [f"The {viewers[0]} viewer doesn’t keep {listed}."] if others else []
+    problems = []
+    if "camera" in state and "structure" not in viewers:
+        problems.append("Only the structure viewer keeps `camera`, and it shows none of them.")
+    kept = state.get("targets")
+    if not isinstance(kept, list):
+        return problems  # The schema says so.
+    if len(kept) != len(shown):
+        return [
+            *problems,
+            f"`targets` has {len(kept)} for {len(shown)} entities: give one for each, in the "
+            "same order.",
+        ]
+    for index, (entity, viewer, item) in enumerate(zip(shown, viewers, kept, strict=True)):
+        if not isinstance(item, Mapping):
+            continue
+        others = sorted(set(item) - TARGET_STATE[viewer])
         if others:
             listed = ", ".join(f"`{o}`" for o in others)
-            errors["state"] = [f"The {viewer} viewer doesn’t keep {listed}."]
-    return errors
+            problems.append(f"The {viewer} viewer doesn’t keep {listed} for {entity.hrid}.")
+        onto = (item.get("superposed") or {}).get("onto")
+        if isinstance(onto, int) and (
+            onto == index or onto >= len(shown) or viewers[onto] != "structure"
+        ):
+            problems.append(
+                f"{entity.hrid} is superposed on entity {onto + 1}, which isn’t another "
+                "entity in the structure viewer."
+            )
+        spans = [s for s in item.get("selection") or [] if isinstance(s, Mapping)]
+        if any(s.get("start", 0) > s.get("end", 0) for s in spans):
+            problems.append(f"{entity.hrid}’s selection has a range that ends before it starts.")
+    return problems
 
 
 def _app(user: User, values: Mapping[str, Any]) -> Errors:
@@ -106,7 +184,7 @@ def _app(user: User, values: Mapping[str, Any]) -> Errors:
 RULES: dict[str, Rule] = {
     "core.App": Rule(("spec",), _app),
     "core.Collection": Rule(("members", "search"), _collection),
-    "core.View": Rule(("target", "target_revision", "viewer", "state"), _view),
+    "core.View": Rule(("targets", "target_revisions", "viewers", "state"), _view),
 }
 
 
