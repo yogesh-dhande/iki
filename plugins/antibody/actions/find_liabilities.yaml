@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: find_liabilities
+label: Find sequence liabilities
+description: >-
+  Finds the sequence liabilities a developability screen reports in a numbered
+  antibody chain: N-glycosylation sequons, deamidation and isomerisation motifs,
+  cysteines beyond a variable domain's disulphide pair, methionines and
+  tryptophans in the CDRs, DP fragmentation sites and an N-terminal glutamine or
+  glutamate. Each is given with where it is, whether it falls in a CDR or in
+  framework, and how severe published screens call it. The chain must have been
+  numbered first (number_chains), since the motifs are read off its numbering;
+  one that hasn't been is left as it was, and the run says so.
+inputs:
+  protein: { type: protein.Protein, schema: ">=2", label: Chain }
+effects:
+  updates:
+    - input: protein
+      fields: [liabilities, liability_counts, liability_count]
+runs_on: { tier: backend, environment: antibody-tools }
+command: [python, ./scripts/liabilities.py]
+deterministic: true
+batchable: 500
+timeout: 10m

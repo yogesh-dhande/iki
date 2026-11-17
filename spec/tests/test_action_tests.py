@@ -173,6 +173,39 @@ def test_an_input_gives_what_its_references_name(
     assert problems[0].hint == "It includes: chains."
 
 
+def test_an_input_may_have_the_fields_this_plugins_extension_adds(tmp_path: Path) -> None:
+    """A plugin's actions read and write the fields its extension adds to another plugin's
+    type, so a fixture's input entities can have values in them, and in nothing else."""
+    shutil.copytree(PLUGINS / "structure_prediction", tmp_path / "prediction")
+    directory = tmp_path / "prediction"
+    (directory / "actions" / "rescore.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Action\nname: rescore\n"
+        'inputs:\n  structure: { type: protein.ProteinStructure, schema: ">=1" }\n'
+        "effects:\n  updates: [{ input: structure, fields: [plddt_mean] }]\n"
+        "runs_on: { tier: container, environment: colabfold }\n"
+        "command: [python, /app/rescore.py]\ntimeout: 10m\n"
+    )
+    result = load_plugin(directory, dependencies=[PLUGINS / "protein", PLUGINS / "dna"])
+    assert result.plugin is not None, result.problems
+    protein = load_plugin(PLUGINS / "protein", dependencies=[PLUGINS / "dna"]).plugin
+    assert protein is not None
+    types = {t.qualified_name: t for t in core_plugin().types.values()}
+    types.update({t.qualified_name: t for t in protein.types.values()})
+    write(
+        directory,
+        "rescore.yaml",
+        HEADER
+        + "action: rescore\n"
+        + "inputs:\n  structure:\n    - values: { method: xray, plddt_mean: 90.5, nope: 1 }\n",
+    )
+
+    loaded = action_tests.load_tests(directory, result.plugin, types)
+
+    assert [(p.code, p.message) for p in loaded.problems] == [
+        ("unknown-field", "protein.ProteinStructure has no field nope.")
+    ]
+
+
 def test_names_are_unique(protein: tuple[Path, Plugin, dict[str, EntityType]]) -> None:
     directory, plugin, types = protein
     one = HEADER + "name: same\naction: fetch_proteins\nparams: { accession: P1 }\n"

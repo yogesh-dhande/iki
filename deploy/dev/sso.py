@@ -29,6 +29,7 @@ import struct
 import subprocess
 import sys
 import time
+from collections import Counter
 from datetime import datetime
 from html.parser import HTMLParser
 from typing import Any, NoReturn
@@ -1734,7 +1735,58 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
             f"antibody.number_chains ran ANARCI in a pod of its own ({run['hrid']}): "
             f"{chain['hrid']} is a {kind} chain, CDR3 {cdr3}, {v_gene} ({identity}%)"
         )
+    screened(alice, project, heavy, light)
     predicted(alice, project, effects[0]["entity"], heavy, light)
+
+
+#: What antibody.find_liabilities finds in trastuzumab's chains, on their IMGT numbering:
+#: the NG in CDR-H2 and the DG in CDR-H3 that Lu et al. (2019) measured as hot spots (Kabat
+#: H54 and H98), the DT in CDR-H1, the tryptophan and methionine in CDR-H3 that oxidise,
+#: the E at residue 1 that cyclises, and the NT in CDR-L1. Its cysteines are the variable
+#: domains' disulphides, so none is unpaired, and neither chain carries a sequon.
+TRASTUZUMAB_LIABILITIES: dict[str, list[tuple[str, str, int, str, str, str]]] = {
+    "heavy": [
+        ("pyroglutamate", "E", 1, "1", "framework", "low"),
+        ("isomerisation", "DT", 31, "36", "cdr_h1", "medium"),
+        ("deamidation", "NG", 55, "62", "cdr_h2", "high"),
+        ("oxidation", "W", 99, "107", "cdr_h3", "medium"),
+        ("isomerisation", "DG", 102, "110", "cdr_h3", "high"),
+        ("oxidation", "M", 107, "115", "cdr_h3", "medium"),
+    ],
+    "light": [("deamidation", "NT", 30, "36", "cdr_l1", "medium")],
+}
+
+
+def screened(
+    alice: requests.Session,
+    project: dict[str, Any],
+    heavy: dict[str, Any],
+    light: dict[str, Any],
+) -> None:
+    """antibody.find_liabilities: the sequence liabilities of trastuzumab's chains, read off
+    the numbering ANARCI just gave them, on the backend tier (the plugin's own code)."""
+    for side, chain in (("heavy", heavy), ("light", light)):
+        run = launch(alice, project, "antibody.find_liabilities", {"protein": chain["id"]})
+        got = api_call(alice, "GET", f"/entities/{chain['id']}").json()["values"]
+        wanted = TRASTUZUMAB_LIABILITIES[side]
+        found = [
+            (f["kind"], f["motif"], f["position"], f["number"], f["region"], f["severity"])
+            for f in got.get("liabilities") or []
+        ]
+        counts = Counter(kind for kind, *_ in wanted)
+        if (
+            found != wanted
+            or got.get("liability_count") != len(wanted)
+            or got.get("liability_counts") != dict(sorted(counts.items()))
+        ):
+            fail(f"{run['hrid']} screened {chain['hrid']} as {got.get('liabilities')}")
+        ok(
+            f"antibody.find_liabilities screened {chain['hrid']} ({run['hrid']}): "
+            f"{len(wanted)} {'liability' if len(wanted) == 1 else 'liabilities'}, "
+            + ", ".join(
+                f"{motif} at {number} in {region}" for _, motif, _, number, region, _ in wanted
+            )
+        )
 
 
 def predicted(

@@ -1,0 +1,286 @@
+# Run with `iki plugin test plugins/antibody --with plugins/dna --with plugins/protein` (ADR 0093).
+#
+# The chains here are made up, numbered as `number_chains` would have left them, so each
+# rule is in one place: `server/tests/test_antibody_liabilities.py` screens real chains,
+# with the numbering ANARCI gave them.
+apiVersion: iki/v1
+kind: ActionTest
+name: every_rule_on_one_domain
+description: >-
+  A made-up heavy domain, IMGT-numbered, with one of each liability: two sequons in
+  framework and one in CDR-H3, NG in CDR-H1 and CDR-H3, DD and DT in CDR-H1, DP, a
+  methionine and a tryptophan in CDR-H1, and a cysteine beyond the pair at 23 and 104.
+  Framework motifs that only count in a CDR (DG at 42) and a tryptophan past CDR-H3
+  (118) are left alone.
+action: find_liabilities
+inputs:
+  protein:
+    - values:
+        name: Made-up VH
+        sequence: NVTCAASGFNGCDPMWDDTNASDGQYYACARNGSWGQ
+        numbering_scheme: imgt
+        variable_domains:
+          - chain: H
+            start: 1
+            end: 37
+            closest: {}
+            human: {}
+            numbering:
+              - [20, "", N]
+              - [21, "", V]
+              - [22, "", T]
+              - [23, "", C]
+              - [24, "", A]
+              - [25, "", A]
+              - [26, "", S]
+              - [27, "", G]
+              - [28, "", F]
+              - [29, "", N]
+              - [30, "", G]
+              - [31, "", C]
+              - [32, "", D]
+              - [33, "", P]
+              - [34, "", M]
+              - [35, "", W]
+              - [36, "", D]
+              - [37, "", D]
+              - [38, "", T]
+              - [39, "", N]
+              - [40, "", A]
+              - [41, "", S]
+              - [42, "", D]
+              - [43, "", G]
+              - [100, "", Q]
+              - [101, "", Y]
+              - [102, "", Y]
+              - [103, "", A]
+              - [104, "", C]
+              - [105, "", A]
+              - [106, "", R]
+              - [107, "", N]
+              - [108, "", G]
+              - [109, "", S]
+              - [118, "", W]
+              - [119, "", G]
+              - [120, "", Q]
+expect:
+  output:
+    updates:
+      protein:
+        - values:
+            liability_count: 11
+            liability_counts:
+              deamidation: 2
+              fragmentation: 1
+              isomerisation: 2
+              n_glycosylation: 3
+              oxidation: 2
+              unpaired_cysteine: 1
+            liabilities:
+              - {
+                  kind: n_glycosylation,
+                  motif: NVT,
+                  position: 1,
+                  number: "20",
+                  region: framework,
+                  severity: high,
+                }
+              - {
+                  kind: deamidation,
+                  motif: NG,
+                  position: 10,
+                  number: "29",
+                  region: cdr_h1,
+                  severity: high,
+                }
+              - {
+                  kind: unpaired_cysteine,
+                  motif: C,
+                  position: 12,
+                  number: "31",
+                  region: cdr_h1,
+                  severity: high,
+                }
+              - {
+                  kind: fragmentation,
+                  motif: DP,
+                  position: 13,
+                  number: "32",
+                  region: cdr_h1,
+                  severity: high,
+                }
+              - {
+                  kind: oxidation,
+                  motif: M,
+                  position: 15,
+                  number: "34",
+                  region: cdr_h1,
+                  severity: medium,
+                }
+              - {
+                  kind: oxidation,
+                  motif: W,
+                  position: 16,
+                  number: "35",
+                  region: cdr_h1,
+                  severity: medium,
+                }
+              - {
+                  kind: isomerisation,
+                  motif: DD,
+                  position: 17,
+                  number: "36",
+                  region: cdr_h1,
+                  severity: medium,
+                }
+              - {
+                  kind: isomerisation,
+                  motif: DT,
+                  position: 18,
+                  number: "37",
+                  region: cdr_h1,
+                  severity: medium,
+                }
+              - {
+                  kind: n_glycosylation,
+                  motif: NAS,
+                  position: 20,
+                  number: "39",
+                  region: framework,
+                  severity: high,
+                }
+              - {
+                  kind: deamidation,
+                  motif: NG,
+                  position: 32,
+                  number: "107",
+                  region: cdr_h3,
+                  severity: high,
+                }
+              - {
+                  kind: n_glycosylation,
+                  motif: NGS,
+                  position: 32,
+                  number: "107",
+                  region: cdr_h3,
+                  severity: high,
+                }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_domain_whose_disulphide_is_gone
+description: >-
+  Where IMGT 104 isn't a cysteine, the one at 23 has nothing to pair with, so it's
+  reported too, and a glutamine at the chain's first residue cyclises.
+action: find_liabilities
+inputs:
+  protein:
+    - values:
+        sequence: QCAASGYS
+        numbering_scheme: imgt
+        variable_domains:
+          - chain: K
+            start: 1
+            end: 8
+            closest: {}
+            human: {}
+            numbering:
+              - [22, "", Q]
+              - [23, "", C]
+              - [24, "", A]
+              - [25, "", A]
+              - [26, "", S]
+              - [104, "", G]
+              - [105, "", Y]
+              - [106, "", S]
+expect:
+  output:
+    updates:
+      protein:
+        - values:
+            liability_count: 2
+            liability_counts: { pyroglutamate: 1, unpaired_cysteine: 1 }
+            liabilities:
+              - {
+                  kind: pyroglutamate,
+                  motif: Q,
+                  position: 1,
+                  number: "22",
+                  region: framework,
+                  severity: low,
+                }
+              - {
+                  kind: unpaired_cysteine,
+                  motif: C,
+                  position: 2,
+                  number: "23",
+                  region: framework,
+                  severity: high,
+                }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: kabat_has_its_own_cdrs_and_disulphide
+description: >-
+  In Kabat's numbering the disulphide is at heavy 22 and 92 and CDR-H2 is 50 to 65, so
+  the same residues are read against those: the cysteines are the pair, and the NG at 54
+  is in a CDR.
+action: find_liabilities
+inputs:
+  protein:
+    - values:
+        sequence: CNGSC
+        numbering_scheme: kabat
+        variable_domains:
+          - chain: H
+            start: 1
+            end: 5
+            closest: {}
+            human: {}
+            numbering:
+              - [22, "", C]
+              - [54, "", N]
+              - [55, "", G]
+              - [56, "", S]
+              - [92, "", C]
+expect:
+  output:
+    updates:
+      protein:
+        - values:
+            liability_count: 2
+            liability_counts: { deamidation: 1, n_glycosylation: 1 }
+            liabilities:
+              - {
+                  kind: deamidation,
+                  motif: NG,
+                  position: 2,
+                  number: "54",
+                  region: cdr_h2,
+                  severity: high,
+                }
+              - {
+                  kind: n_glycosylation,
+                  motif: NGS,
+                  position: 2,
+                  number: "54",
+                  region: cdr_h2,
+                  severity: high,
+                }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_chain_that_hasnt_been_numbered
+description: A chain with no numbering is left as it was, and the run says to number it.
+action: find_liabilities
+inputs:
+  protein:
+    - values: { name: Lysozyme, sequence: KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFN }
+expect:
+  output:
+    updates: { protein: [] }
+    messages:
+      - level: warning
+        text: >-
+          Lysozyme hasn't been numbered, so its liabilities can't be placed: number its
+          chains first. It was left as it was.

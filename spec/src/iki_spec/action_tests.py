@@ -347,7 +347,19 @@ class _Check:
         return False
 
     def fields(self, entity_type: EntityType) -> dict[str, Field]:
-        return fields_of(entity_type, self.types)
+        """A type's fields as this plugin sees them: its own, its ancestors', and the ones
+        this plugin's extensions add, which its actions read and write like any other."""
+        out = fields_of(entity_type, self.types)
+        chain = {entity_type.qualified_name}
+        current: EntityType | None = entity_type
+        while current is not None and current.extends:
+            current = self.types.get(current.extends)
+            if current is not None:
+                chain.add(current.qualified_name)
+        for extension in self.plugin.extensions:
+            if extension.extends_type in chain:
+                out.update(extension.fields)
+        return out
 
 
 def fields_of(entity_type: EntityType, types: Mapping[str, EntityType]) -> dict[str, Field]:
