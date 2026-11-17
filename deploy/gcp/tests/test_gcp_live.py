@@ -310,10 +310,11 @@ class Gcp:
     def popen(self, *argv: str, log: str) -> subprocess.Popen[bytes]:
         path = self.root / "logs" / log
         path.parent.mkdir(parents=True, exist_ok=True)
-        out = path.open("ab")
-        return subprocess.Popen(  # noqa: S603 - argv built here
-            list(argv), stdout=out, stderr=subprocess.STDOUT, cwd=self.root, env=self._env()
-        )
+        # The child holds its own copy of the log's descriptor: this one closes now.
+        with path.open("ab") as out:
+            return subprocess.Popen(  # noqa: S603 - argv built here
+                list(argv), stdout=out, stderr=subprocess.STDOUT, cwd=self.root, env=self._env()
+            )
 
     def gcloud(self, *args: str, **kwargs: Any) -> str:
         return self.run("gcloud", *args, "--project", self.settings.project, **kwargs).stdout
@@ -1269,7 +1270,7 @@ def stand_up(d: Deployment) -> None:
         "iki-bundle-signing-key",
         "iki-database",
         "iki-database-migrator",
-        "iki-run-secrets",
+        # Not iki-run-secrets: with no plugin secrets, External Secrets makes no Secret.
     ):
         until(
             f"Secret {secret}",
@@ -1445,12 +1446,12 @@ def iki(deployment: Deployment) -> Iki:
             log="port-forward.log",
         )
     )
-    until(
-        "the port-forward",
-        lambda: socket.socket().connect_ex(("127.0.0.1", port)) == 0,
-        30,
-        every=0.5,
-    )
+
+    def listening() -> bool:
+        with socket.socket() as probe:
+            return probe.connect_ex(("127.0.0.1", port)) == 0
+
+    until("the port-forward", listening, 30, every=0.5)
     return Iki(port, deployment.settings.host)
 
 
