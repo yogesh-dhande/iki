@@ -24,14 +24,9 @@ holding your region and DR region), so they outlive losing either. Its own
 state holds no secrets. Keep it beside the deployment's:
 `gcloud storage cp terraform.tfstate gs://<bucket>/bootstrap/terraform.tfstate`.
 
-Google makes some services' agents only when first asked, and the keys are
-granted to them, so ask once:
-
-```console
-for service in sqladmin secretmanager artifactregistry file; do
-  gcloud beta services identity create --service=$service.googleapis.com --project=acme-iki-production
-done
-```
+It also makes the service agents of Cloud SQL, Secret Manager, Artifact
+Registry and Filestore, which a project makes only when first asked, and
+which the deployment's keys are granted to.
 
 ## 2. The infrastructure
 
@@ -66,6 +61,14 @@ annotation: the `access` module lets its Kubernetes service account
 (`external-secrets/external-secrets`) read this deployment's secrets, as
 itself, through Workload Identity. GKE brings the rest: the Gateway
 controller, the cluster autoscaler, and the CSI drivers.
+
+The cluster starts only images Binary Authorization allows
+(`out allowed_images`): this deployment's repositories (`out images`),
+Iki's, External Secrets', the first-party plugins', and GKE's own. Before
+installing anything else, add its images to `extra_images` and apply;
+otherwise GKE refuses its pods, and the audit logs say which image.
+A server or worker built with your plugins goes in the `server` or
+`worker` repository, pushed by your CI (`image_writers`).
 
 ## 4. Secrets and the database's roles, once
 

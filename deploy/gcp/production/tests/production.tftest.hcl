@@ -153,6 +153,14 @@ run "refuses_an_internal_load_balancer_without_a_certificate" {
   expect_failures = [var.internal_certificate]
 }
 
+run "the_cluster_runs_only_the_images_the_chart_and_runbook_use" {
+  # deploy/helm/iki/tests checks every image the chart renders matches one of these.
+  assert {
+    condition     = output.allowed_images == jsondecode(file("tests/allowed-images.json"))
+    error_message = "The images Binary Authorization allows changed: update tests/allowed-images.json to match, and the chart's tests will check the chart's images against it."
+  }
+}
+
 run "the_vm_tier_when_asked" {
   variables {
     vm_tier = {}

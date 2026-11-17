@@ -172,6 +172,18 @@ variable "image_writers" {
   default     = []
 }
 
+variable "plugin_images" {
+  description = "Where plugins' environment images come from, besides the plugins repository this makes, as Binary Authorization's patterns (a trailing * is within one level, ** below it too). Iki's first-party plugins' by default."
+  type        = list(string)
+  default     = ["ghcr.io/yogesh-dhande/iki-*"]
+}
+
+variable "extra_images" {
+  description = "Any other images the cluster may run, such as kube-prometheus-stack's or an OpenTelemetry Collector's, as Binary Authorization's patterns. GKE's own are allowed already."
+  type        = list(string)
+  default     = []
+}
+
 variable "log_retention_days" {
   description = "How long the deployment's audit, control-plane, network and database logs are kept."
   type        = number

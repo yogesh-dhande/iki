@@ -74,7 +74,12 @@ check-infra: ## OpenTofu: fmt, validate and tests (mocked providers) for the AWS
 	  tofu -chdir=$$module validate -no-color; \
 	  tofu -chdir=$$module test -no-color; \
 	done
-	uvx checkov==$(CHECKOV_VERSION) $(foreach cloud,$(INFRA_CLOUDS),--directory $(cloud)) --framework terraform --quiet --compact --skip-path tests
+	@# One run per cloud: given several --directory flags, Checkov 3.4.5 scans the first
+	@# one once per flag and never the rest.
+	@set -e; for cloud in $(INFRA_CLOUDS); do \
+	  echo "== checkov $$cloud"; \
+	  uvx checkov==$(CHECKOV_VERSION) --directory $$cloud --framework terraform --quiet --compact --skip-path tests; \
+	done
 
 #: Tests run in parallel: workers take a file's tests in runs, and idle ones take over the rest.
 PYTEST_PARALLEL ?= -n auto --dist worksteal

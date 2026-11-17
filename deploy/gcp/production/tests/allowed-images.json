@@ -1,0 +1,10 @@
+[
+  "europe-west1-docker.pkg.dev/iki-test-project/iki-test-plugins/**",
+  "europe-west1-docker.pkg.dev/iki-test-project/iki-test-server/**",
+  "europe-west1-docker.pkg.dev/iki-test-project/iki-test-worker/**",
+  "ghcr.io/yogesh-dhande/iki-server*",
+  "ghcr.io/yogesh-dhande/iki-worker*",
+  "ghcr.io/external-secrets/external-secrets*",
+  "mirror.gcr.io/library/postgres:17",
+  "ghcr.io/yogesh-dhande/iki-*"
+]

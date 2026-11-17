@@ -27,6 +27,7 @@ variable "repositories" {
   description = "Repositories to make, and what each holds. Each is <name>-<key>."
   type        = map(string)
   default = {
+    server  = "Iki's server image built with the deployment's plugins (iki deploy build)"
     worker  = "Iki's worker image, which runs every action"
     plugins = "plugins' environment images"
   }

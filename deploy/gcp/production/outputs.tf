@@ -222,8 +222,13 @@ output "load_balancer_address" {
 }
 
 output "images" {
-  description = "The repositories to push Iki's worker image and your plugins' images to."
+  description = "The repositories to push the server and worker images you build, and your plugins' images, to."
   value       = module.registry.repositories
+}
+
+output "allowed_images" {
+  description = "Every image pattern Binary Authorization lets the cluster run, besides GKE's own: anything else is refused."
+  value       = module.binary_authorization.allowed
 }
 
 output "nat_ips" {

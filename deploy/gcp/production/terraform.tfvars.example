@@ -23,8 +23,14 @@ public_host = "iki.example.com"
 # Or from the internet, but only your company's ranges:
 # ingress_cidrs = ["203.0.113.0/24"]
 
-# Your CI's service account, which pushes the worker and plugins' images:
+# Your CI's service account, which pushes the server, worker and plugins' images:
 # image_writers = ["serviceAccount:ci@acme-iki-production.iam.gserviceaccount.com"]
+
+# Images the cluster may run besides this deployment's repositories, Iki's and External
+# Secrets' (Binary Authorization refuses the rest). Plugins' from elsewhere, and any tool
+# you install, such as kube-prometheus-stack's:
+# plugin_images = ["ghcr.io/yogesh-dhande/iki-*", "ghcr.io/acme/iki-plugins/**"]
+# extra_images  = ["quay.io/prometheus/prometheus*", "quay.io/prometheus-operator/**"]
 
 # What the VM tier (ADR 0074) will need, ready for a Compute Engine provisioner:
 # vm_tier = {}

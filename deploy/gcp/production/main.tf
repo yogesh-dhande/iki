@@ -130,6 +130,32 @@ module "registry" {
   labels  = var.labels
 }
 
+# The cluster runs only images from the repositories above, the ones the chart and this
+# runbook use, and those named in plugin_images and extra_images. Everything else is
+# refused, and each refusal audit-logged.
+locals {
+  runbook_images = [
+    # The chart's: Iki's server (image.repository; the egress proxy runs it too) and the
+    # worker the container tier copies into runs (containerTier.workerImage). A server or
+    # worker built with your plugins goes in the server or worker repository above.
+    "ghcr.io/yogesh-dhande/iki-server*",
+    "ghcr.io/yogesh-dhande/iki-worker*",
+    # External Secrets' controller, webhook and certificate controller, as its chart
+    # installs them (the README's step 3).
+    "ghcr.io/external-secrets/external-secrets*",
+    # create-database-roles.sh's psql pod.
+    "mirror.gcr.io/library/postgres:17",
+  ]
+}
+
+module "binary_authorization" {
+  source       = "../modules/binary-authorization"
+  name         = var.name
+  project_id   = var.project_id
+  repositories = values(module.registry.repositories)
+  images       = distinct(concat(local.runbook_images, var.plugin_images, var.extra_images))
+}
+
 module "vm_tier" {
   source            = "../modules/vm-tier"
   count             = local.vm_tier ? 1 : 0

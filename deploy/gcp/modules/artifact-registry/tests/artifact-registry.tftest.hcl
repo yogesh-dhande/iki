@@ -33,7 +33,7 @@ run "only_the_members_named_pull_or_push" {
     error_message = "Only the readers named should pull."
   }
   assert {
-    condition     = length(google_artifact_registry_repository_iam_member.writers) == 2 && alltrue([for m in google_artifact_registry_repository_iam_member.writers : m.role == "roles/artifactregistry.writer"])
+    condition     = length(google_artifact_registry_repository_iam_member.writers) == 3 && alltrue([for m in google_artifact_registry_repository_iam_member.writers : m.role == "roles/artifactregistry.writer"])
     error_message = "CI should push to each repository, and nothing more."
   }
 }

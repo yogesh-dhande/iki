@@ -41,7 +41,6 @@ resource "google_container_cluster" "this" {
   #checkov:skip=CKV_GCP_69:There's no default pool; every node pool runs GKE's metadata server (GKE_METADATA), which tests/cluster.tftest.hcl checks.
   #checkov:skip=CKV_GCP_65:Who administers the cluster is IAM's (admin_members). Google Groups for RBAC needs a Workspace group named gke-security-groups, which not every company has.
   #checkov:skip=CKV_GCP_21:resource_labels is local.labels, a merge Checkov doesn't evaluate: the deployment's labels and iki-deployment.
-  #checkov:skip=CKV_GCP_66:Binary Authorization needs a policy naming every registry the cluster pulls from and the attestors that sign them: deploy/gcp/README.md's next steps.
   project     = var.project_id
   name        = var.name
   description = "Iki: ${var.name}"
@@ -70,6 +69,12 @@ resource "google_container_cluster" "this" {
   # Traffic between pods on one node goes through the VPC too, so flow logs and
   # firewall logs see it.
   enable_intranode_visibility = true
+
+  # Pods start only with images the project's Binary Authorization policy allows: the
+  # binary-authorization module's, which refuses everything it doesn't name.
+  binary_authorization {
+    evaluation_mode = "PROJECT_SINGLETON_POLICY_ENFORCE"
+  }
 
   # Private nodes; the API's IP endpoint is private unless networks are listed, and its
   # DNS endpoint, which only IAM-authorized callers can use, is reachable from outside

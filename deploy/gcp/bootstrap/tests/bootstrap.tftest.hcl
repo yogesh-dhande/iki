@@ -7,6 +7,23 @@ mock_provider "google" {
   }
 }
 
+mock_provider "google-beta" {}
+
+run "the_service_agents_production_grants_keys_to_exist_first" {
+  command = plan
+
+  assert {
+    condition = toset(keys(google_project_service_identity.agents)) == toset([
+      "sqladmin.googleapis.com", "secretmanager.googleapis.com", "artifactregistry.googleapis.com", "file.googleapis.com",
+    ])
+    error_message = "Cloud SQL's, Secret Manager's, Artifact Registry's and Filestore's agents should be made, so the kms module can grant them keys."
+  }
+  assert {
+    condition     = alltrue([for a in google_project_service_identity.agents : contains(keys(google_project_service.this), a.service)])
+    error_message = "Each agent's API should be turned on here too."
+  }
+}
+
 variables {
   project_id = "iki-test-project"
   location   = "europe"

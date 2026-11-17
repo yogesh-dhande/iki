@@ -1,7 +1,7 @@
-# Artifact Registry for Iki's worker image and your plugins' images (ADR 0107): Docker
-# repositories whose tags can't be moved, so a tag always names what was validated;
-# encrypted with a key of their own; scanned for known vulnerabilities as images arrive;
-# and readable only by the cluster's nodes and the VM tier's machines.
+# Artifact Registry for the server and worker images you build, and plugins' images
+# (ADR 0107): Docker repositories whose tags can't be moved, so a tag always names what
+# was validated; encrypted with a key of their own; scanned for known vulnerabilities as
+# images arrive; and readable only by the cluster's nodes and the VM tier's machines.
 
 locals {
   labels = merge(var.labels, { iki-deployment = var.name })

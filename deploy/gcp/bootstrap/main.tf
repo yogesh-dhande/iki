@@ -11,6 +11,10 @@ terraform {
       source  = "hashicorp/google"
       version = ">= 8.11, < 9.0"
     }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = ">= 8.11, < 9.0"
+    }
   }
 }
 
@@ -46,16 +50,27 @@ provider "google" {
   default_labels = var.labels
 }
 
+# Only for the service agents below, which the Google provider makes only in its beta.
+provider "google-beta" {
+  project        = var.project_id
+  default_labels = var.labels
+}
+
 locals {
   # Every API the production root uses. Turning one off later would break what uses it,
   # so destroying this never does.
   apis = [
-    "artifactregistry.googleapis.com", "cloudkms.googleapis.com", "cloudresourcemanager.googleapis.com",
-    "compute.googleapis.com", "container.googleapis.com", "containerscanning.googleapis.com",
-    "dns.googleapis.com", "file.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com",
-    "logging.googleapis.com", "monitoring.googleapis.com", "secretmanager.googleapis.com",
-    "servicenetworking.googleapis.com", "sqladmin.googleapis.com", "storage.googleapis.com",
+    "artifactregistry.googleapis.com", "binaryauthorization.googleapis.com", "cloudkms.googleapis.com",
+    "cloudresourcemanager.googleapis.com", "compute.googleapis.com", "container.googleapis.com",
+    "containerscanning.googleapis.com", "dns.googleapis.com", "file.googleapis.com", "iam.googleapis.com",
+    "iamcredentials.googleapis.com", "logging.googleapis.com", "monitoring.googleapis.com",
+    "secretmanager.googleapis.com", "servicenetworking.googleapis.com", "sqladmin.googleapis.com",
+    "storage.googleapis.com",
   ]
+  # Services whose agents the production root's keys are granted to, but which a project
+  # makes only when first asked. The others (Compute Engine's, GKE's, Cloud Storage's,
+  # Cloud Logging's) exist once their API is on, or are read through the Google provider.
+  agents          = ["artifactregistry.googleapis.com", "file.googleapis.com", "secretmanager.googleapis.com", "sqladmin.googleapis.com"]
   bucket_location = { europe = "EU", us = "US", asia = "ASIA" }[var.location]
 }
 
@@ -64,6 +79,14 @@ resource "google_project_service" "this" {
   project            = var.project_id
   service            = each.key
   disable_on_destroy = false
+}
+
+resource "google_project_service_identity" "agents" {
+  provider   = google-beta
+  for_each   = toset(local.agents)
+  project    = var.project_id
+  service    = each.key
+  depends_on = [google_project_service.this]
 }
 
 resource "google_kms_key_ring" "state" {
@@ -145,4 +168,9 @@ output "backend_hcl" {
 output "state_kms_key" {
   description = "deploy/gcp/production's state_kms_key."
   value       = google_kms_crypto_key.state.id
+}
+
+output "service_agents" {
+  description = "The service agents made here, which deploy/gcp/production's kms module grants keys to."
+  value       = { for s, a in google_project_service_identity.agents : s => a.member }
 }

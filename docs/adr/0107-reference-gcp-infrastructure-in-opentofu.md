@@ -29,25 +29,27 @@ equivalent of terraform-aws-modules.
 
 ## Decision
 
-**The same shape as on AWS: modules of our own, on the Google provider
+**The same shape as on AWS: modules of our own, on Google's providers
 alone.** `deploy/gcp/modules/` holds one module per concern,
 `deploy/gcp/production/` composes them, and `deploy/gcp/bootstrap/` turns
-on the APIs and makes the state's bucket and key. The provider is pinned
-(8.x) with its checksums in each committed lock file.
+on the APIs, makes the service agents and makes the state's bucket and
+key. The Google provider (and, in the bootstrap only, google-beta) is
+pinned (8.x) with its checksums in each committed lock file.
 
-| Module              | What it makes                                                                                                                    |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `kms`               | A key per purpose, in the region, the DR region and the files' multi-region, rotated every 90 days, granted to Google's agents   |
-| `network`           | A VPC with private subnets, Cloud NAT, Google's APIs reached privately, Private Service Access, firewalls that deny by default   |
-| `logs`              | An encrypted log bucket kept a year, with audit, control-plane, flow, firewall and database logs, and Data Access logs turned on |
-| `cluster`           | Regional GKE: private nodes, Dataplane V2, Workload Identity, shielded COS nodes, a system pool and tainted runs and GPU pools   |
-| `database`          | Cloud SQL for PostgreSQL: regional, private IP only, TLS only, pgaudit, IAM sign-in, 35 days of PITR, a replica in the DR region |
-| `storage`           | The files bucket: a dual-region, versioned, customer-managed keys only, public access prevented, soft delete, object retention   |
-| `secrets`           | Secret Manager entries, a replica in each region with its own key, no values                                                     |
-| `access`            | Google service accounts for the server and the provisioner, bound by Workload Identity, and External Secrets' read access        |
-| `artifact-registry` | Docker repositories for the worker's and plugins' images: immutable tags, vulnerability scanning, CMEK                           |
-| `vm-tier`           | The VM tier's service account, a shielded instance template with no public address, and egress firewalls                         |
-| `filestore`         | Optional Filestore for shared reference data (ADR 0077): regional, CMEK, root squashed                                           |
+| Module                 | What it makes                                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `kms`                  | A key per purpose, in the region, the DR region and the files' multi-region, rotated every 90 days, granted to Google's agents   |
+| `network`              | A VPC with private subnets, Cloud NAT, Google's APIs reached privately, Private Service Access, firewalls that deny by default   |
+| `logs`                 | An encrypted log bucket kept a year, with audit, control-plane, flow, firewall and database logs, and Data Access logs turned on |
+| `cluster`              | Regional GKE: private nodes, Dataplane V2, Workload Identity, shielded COS nodes, a system pool and tainted runs and GPU pools   |
+| `database`             | Cloud SQL for PostgreSQL: regional, private IP only, TLS only, pgaudit, IAM sign-in, 35 days of PITR, a replica in the DR region |
+| `storage`              | The files bucket: a dual-region, versioned, customer-managed keys only, public access prevented, soft delete, object retention   |
+| `secrets`              | Secret Manager entries, a replica in each region with its own key, no values                                                     |
+| `access`               | Google service accounts for the server and the provisioner, bound by Workload Identity, and External Secrets' read access        |
+| `artifact-registry`    | Docker repositories for the server, worker and plugins' images: immutable tags, vulnerability scanning, CMEK                     |
+| `vm-tier`              | The VM tier's service account, a shielded instance template with no public address, and egress firewalls                         |
+| `filestore`            | Optional Filestore for shared reference data (ADR 0077): regional, CMEK, root squashed                                           |
+| `binary-authorization` | The project's Binary Authorization policy: only the deployment's repositories and the images named run                           |
 
 **Secure by default, as CIS and GKE's hardening guide ask.**
 
@@ -62,9 +64,43 @@ on the APIs and makes the state's bucket and key. The provider is pinned
 - Pods reach GKE's metadata server, not the node's identity; the node's
   service account can only log, report metrics and pull images.
 - Plugins' code runs on tainted pools of its own, as on AWS.
+- The cluster runs only images Binary Authorization allows (below).
 - Cloud SQL logs connections, locks and errors, and pgaudit logs DDL and
   role changes. Cloud Audit Logs' Data Access logs record every read of
   files, secrets, keys and the database's settings.
+
+**The cluster runs only images it's been told of.** It enforces the
+project's Binary Authorization policy (`PROJECT_SINGLETON_POLICY_ENFORCE`),
+which refuses every image by default (`ALWAYS_DENY`), writing each refusal
+to Cloud Audit Logs (`ENFORCED_BLOCK_AND_AUDIT_LOG`), and allows:
+
+- The deployment's own Artifact Registry repositories (`server`, `worker`,
+  `plugins`), at any depth: what its CI builds and pushes.
+- The images the chart and the runbook use: Iki's server and worker
+  (`ghcr.io/yogesh-dhande/iki-server`, `-worker`, the chart's defaults),
+  External Secrets' (`ghcr.io/external-secrets/external-secrets`, its
+  chart's), and `mirror.gcr.io/library/postgres:17`, which
+  `create-database-roles.sh` runs.
+- Plugins' images from elsewhere (`plugin_images`: the first-party
+  plugins', `ghcr.io/yogesh-dhande/iki-*`, by default) and anything else
+  the team installs (`extra_images`).
+- GKE's own system images, through Google's global policy.
+
+A pattern may not name a whole registry, and the chart's tests check every
+image it renders with these values is allowed. Allowing by path is weaker
+than verifying signatures: anyone who can push to an allowed path can run
+an image there, which is why pushing is kept to CI (`image_writers`). Iki's
+images are signed with cosign, and runs' namespaces can already require
+those signatures (ADR 0063); requiring them cluster-wide, with Sigstore's
+policy-controller or Binary Authorization's Sigstore signature check, is
+next. Allowing by path is enforced now, because it shuts out every image
+from anywhere else today.
+
+**Service agents are made in OpenTofu.** Cloud SQL's, Secret Manager's,
+Artifact Registry's and Filestore's agents, which the keys are granted to,
+exist only once asked for. The bootstrap makes them with the google-beta
+provider's `google_project_service_identity`, the one resource it uses
+that provider for, pinned and locked as the Google provider is.
 
 **Pods get Google credentials through Workload Identity.** The web, task
 and maintenance pods share the server's Google service account, the one
@@ -133,8 +169,10 @@ names they look for.
   - The VM tier can't run on Google Cloud yet.
   - Each deployment needs a project of its own: GKE's and Compute Engine's
     roles are granted on the project.
-  - Some service agents must be made with `gcloud beta` before the first
-    apply, since the provider makes them only in its beta.
+  - Installing anything else in the cluster means listing its images
+    first, or GKE refuses its pods.
+  - The bootstrap needs the google-beta provider too, for its service
+    agents.
   - Two sets of reference modules to maintain, and providers to follow.
 
 ## Alternatives considered
@@ -150,6 +188,10 @@ names they look for.
   recommendation besides.
 - **Autopilot.** Fewer parts to run, but no dedicated tainted pools for
   plugins' code as Iki has them, and less control over node images.
+- **Binary Authorization with attestations.** Attestors and a signing
+  key in Cloud KMS would let only images the team attested run, but Iki's
+  images are already signed with Sigstore's keyless flow, which
+  attestations don't verify; the Sigstore check is the better next step.
 - **Skipping Filestore.** ADR 0077's shared volumes need an NFS server
   that every node and machine mounts; Filestore is Google's, regional and
   with customer-managed keys, so it's built, and off unless asked for.

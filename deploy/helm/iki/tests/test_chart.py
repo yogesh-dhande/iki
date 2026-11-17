@@ -1496,6 +1496,58 @@ def test_the_gcp_production_values_render_a_locked_down_deployment() -> None:
     assert named(docs, "PodDisruptionBudget", "iki-web")["spec"]["minAvailable"] == 2
 
 
+def _images(node: Any) -> Iterator[str]:
+    """Every container image a manifest names."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "image" and isinstance(value, str):
+                yield value
+            else:
+                yield from _images(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _images(item)
+
+
+def _binary_authorization_allows(image: str, pattern: str) -> bool:
+    """As Binary Authorization matches an allowlist pattern: ``**`` at the end matches
+    anything below, ``*`` anything within the last path segment, else exactly."""
+    if pattern.endswith("**"):
+        return image.startswith(pattern[:-2])
+    if pattern.endswith("*"):
+        prefix = pattern[:-1]
+        return image.startswith(prefix) and "/" not in image[len(prefix) :]
+    return image == pattern
+
+
+def test_binary_authorization_allows_every_image_the_gcp_deployment_runs() -> None:
+    # The patterns deploy/gcp/production's policy allows for its test inputs (its own test
+    # checks they're what it makes); anything else GKE refuses to start.
+    patterns = json.loads((GCP / "tests" / "allowed-images.json").read_text())
+    values = _merged(GCP / "values-production.yaml", GCP / "tests" / "helm-values.yaml")
+    chart = yaml.safe_load((CHART / "values.yaml").read_text())
+    tag = ":1.2.3@sha256:" + "0" * 64
+    images = {
+        *_images(manifests(values)),
+        # Iki's own images as the chart's defaults name them, wherever they're used.
+        chart["image"]["repository"] + tag,
+        chart["containerTier"]["workerImage"]["repository"] + tag,
+        # And one built with a deployment's plugins, in its own repository.
+        "europe-west1-docker.pkg.dev/iki-test-project/iki-test-server/iki-server" + tag,
+    }
+    refused = {i for i in images if not any(_binary_authorization_allows(i, p) for p in patterns)}
+    assert not refused, refused
+    # The patterns aren't so broad they'd allow anything: not another registry's image, not
+    # Iki's server's name under another account, not a path below Iki's own.
+    owner = chart["image"]["repository"].split("/")[1]
+    for stranger in (
+        "docker.io/library/nginx:1",
+        chart["image"]["repository"].replace(f"/{owner}/", "/someone-else/") + ":1",
+        f"ghcr.io/{owner}/x/y:1",
+    ):
+        assert not any(_binary_authorization_allows(stranger, p) for p in patterns), stranger
+
+
 def test_an_ingress_routes_public_urls_host_when_asked() -> None:
     assert not by_kind(manifests(), "Ingress")
     docs = manifests({"ingress": {"enabled": True, "className": "nginx", "tlsSecret": "iki-tls"}})

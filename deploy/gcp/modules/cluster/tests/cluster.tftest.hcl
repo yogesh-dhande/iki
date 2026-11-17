@@ -180,3 +180,11 @@ run "pods_resolve_names_through_kube_dns" {
     error_message = "The chart's NetworkPolicies admit DNS to kube-dns alone: NodeLocal DNSCache would answer from elsewhere, and be refused."
   }
 }
+
+run "it_runs_only_images_binary_authorization_allows" {
+  command = plan
+  assert {
+    condition     = google_container_cluster.this.binary_authorization[0].evaluation_mode == "PROJECT_SINGLETON_POLICY_ENFORCE"
+    error_message = "The cluster should enforce the project's Binary Authorization policy."
+  }
+}

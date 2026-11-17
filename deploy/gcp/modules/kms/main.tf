@@ -9,8 +9,8 @@ data "google_project" "this" {
 
 # Each service encrypts with a key through its own service agent. Cloud Storage's and
 # Cloud Logging's are looked up (which also makes them); the others follow Google's
-# naming, and exist once their APIs are on and `gcloud beta services identity create`
-# has run for them (the production runbook's first step).
+# naming, and exist once their APIs are on: deploy/gcp/bootstrap makes Cloud SQL's,
+# Secret Manager's, Artifact Registry's and Filestore's.
 data "google_storage_project_service_account" "this" {
   project = var.project_id
 }
