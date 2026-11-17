@@ -1,12 +1,20 @@
 """The small_molecule plugin's actions: registering compounds from SMILES and SDF files,
-their descriptors and batches' formula weights, and exporting them, run as a worker runs
-them (an input.json in, an output.json out)."""
+their descriptors and batches' formula weights, exporting them, and fetching them from
+PubChem and ChEMBL (from fakes of them), run as a worker runs them (an input.json in, an
+output.json out) or, for the fetches, in-process."""
 
 import hashlib
+import importlib
 import io
 import json
+import re
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Iterator
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -322,8 +330,6 @@ def test_a_batchs_formula_weight_counts_its_salt_and_solvent(tmp_path: Path) -> 
 def test_the_batch_types_salts_and_solvates_are_the_scripts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import importlib
-
     import yaml
 
     monkeypatch.syspath_prepend(str(SCRIPTS))
@@ -576,3 +582,250 @@ def test_exports_compounds_with_their_values_as_sd_fields(tmp_path: Path) -> Non
     # The structure written, read back, is the one given.
     assert Chem.MolToSmiles(written[0]) == ASPIRIN
     assert written[0].GetConformer().Is3D() is False
+
+
+# --- Fetching from PubChem and ChEMBL ------------------------------------------------------------
+
+
+class Answer:
+    """What a fake service answers a request with: JSON, or an HTTP error."""
+
+    def __init__(self, body: Any = None, status: int = 200) -> None:
+        self.body = json.dumps(body).encode()
+        self.status = status
+
+    def __enter__(self) -> "Answer":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def read(self, _limit: int = -1) -> bytes:
+        return self.body
+
+
+class Service:
+    """A fake PubChem or ChEMBL: each request's URL (and form) answered from `answers`,
+    by the first key it starts with; each request recorded."""
+
+    def __init__(self, answers: dict[str, list[Answer]]) -> None:
+        self.answers = answers
+        self.asked: list[tuple[str, dict[str, str]]] = []
+
+    def __call__(self, request: urllib.request.Request, timeout: float) -> Answer:
+        url = request.full_url
+        data = request.data
+        form = dict(urllib.parse.parse_qsl(data.decode())) if isinstance(data, bytes) else {}
+        self.asked.append((url, form))
+        key = next(k for k in self.answers if url.startswith(k) or f"{url} {form}" == k)
+        answer = self.answers[key].pop(0) if len(self.answers[key]) > 1 else self.answers[key][0]
+        if answer.status != 200:
+            raise urllib.error.HTTPError(url, answer.status, "Busy", Message(), io.BytesIO(b""))
+        return answer
+
+
+@pytest.fixture
+def scripts(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    """Imports the plugin's scripts (`scripts.import_module("pubchem")`), with nothing
+    slept, and forgets them after."""
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    yield importlib
+    for name in ("chemistry", "fetching", "pubchem", "chembl"):
+        sys.modules.pop(name, None)
+
+
+def fake(monkeypatch: pytest.MonkeyPatch, answers: dict[str, list[Answer]]) -> Service:
+    service = Service(answers)
+    monkeypatch.setattr("urllib.request.urlopen", service)
+    return service
+
+
+PUG = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound"
+ASPIRIN_ROW = {
+    "CID": 2244,
+    "SMILES": "CC(=O)OC1=CC=CC=C1C(=O)O",
+    "InChI": "InChI=1S/C9H8O4/c1-6(10)13-8-5-3-2-4-7(8)9(11)12/h2-5H,1H3,(H,11,12)",
+    "InChIKey": ASPIRIN_KEY,
+    "IUPACName": "2-acetyloxybenzoic acid",
+    "Title": "Aspirin",
+}
+ASPIRIN_SYNONYMS = {
+    "InformationList": {
+        "Information": [
+            {"CID": 2244, "Synonym": ["aspirin", "ACETYLSALICYLIC ACID", "50-78-2", "50-78-3"]}
+        ]
+    }
+}
+
+
+def test_pubchem_gives_a_compound_its_cid_names_and_cas_number(
+    scripts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = fake(
+        monkeypatch,
+        {
+            f"{PUG}/name/property/": [
+                Answer(status=503),
+                Answer({"PropertyTable": {"Properties": [ASPIRIN_ROW]}}),
+            ],
+            f"{PUG}/cid/2244/synonyms/JSON": [Answer(ASPIRIN_SYNONYMS)],
+        },
+    )
+    pubchem = scripts.import_module("pubchem")
+    output = pubchem.fetch({"params": {"identifiers": "acetylsalicylic acid\n"}})
+    assert service.asked[0] == (
+        f"{PUG}/name/property/SMILES,InChI,InChIKey,IUPACName,Title/JSON",
+        {"name": "acetylsalicylic acid"},
+    )
+    # Asked again after PubChem was busy.
+    assert len(service.asked) == 3
+    (create,) = output["creates"]
+    assert create["type"] == "small_molecule.Compound"
+    assert create["values"] == {
+        "smiles": ASPIRIN,
+        "inchikey": ASPIRIN_KEY,
+        "inchi": ASPIRIN_ROW["InChI"],
+        "name": "Aspirin",
+        "pubchem_cid": "2244",
+        "synonyms": ["2-acetyloxybenzoic acid", "ACETYLSALICYLIC ACID", "50-78-2", "50-78-3"],
+        "cas_number": "50-78-2",
+    }
+    origin = create["origin"]
+    assert {k: origin[k] for k in ("source", "id", "url")} == {
+        "source": "PubChem",
+        "id": "2244",
+        "url": "https://pubchem.ncbi.nlm.nih.gov/compound/2244",
+    }
+    assert re.match(r"^[0-9a-f]{64}$", origin["sha256"])
+    assert origin["retrieved_at"].endswith("+00:00")
+    assert output["metrics"] == {"compounds": 1}
+    assert not list(
+        schemas.check("run-output", {"apiVersion": "iki/v1", "kind": "RunOutput", **output})
+    )
+
+
+@pytest.mark.parametrize(
+    ("identifier", "namespace"),
+    [
+        ("2244", ("cid", "2244")),
+        ("CID 2244", ("cid", "2244")),
+        ("bsynrymutxbxsq-uhfffaoysa-n", ("inchikey", ASPIRIN_KEY)),
+        ("1,3-dichloro/benzene", ("name", "1,3-dichloro/benzene")),
+    ],
+)
+def test_pubchem_is_asked_by_what_each_identifier_is(
+    scripts: Any, identifier: str, namespace: tuple[str, str]
+) -> None:
+    assert scripts.import_module("pubchem").namespace(identifier) == namespace
+
+
+def test_what_pubchem_doesnt_have_fails_the_fetch_naming_it(
+    scripts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, {f"{PUG}/name/property/": [Answer(status=404)]})
+    pubchem = scripts.import_module("pubchem")
+    chemistry = scripts.import_module("chemistry")
+    with pytest.raises(
+        chemistry.UnreadableError, match="PubChem has no compound with the name zzz"
+    ):
+        pubchem.fetch({"params": {"identifiers": "zzz"}})
+
+
+def test_pubchem_that_stays_busy_fails_the_fetch(
+    scripts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = fake(monkeypatch, {f"{PUG}/cid/property/": [Answer(status=503)]})
+    pubchem = scripts.import_module("pubchem")
+    chemistry = scripts.import_module("chemistry")
+    with pytest.raises(chemistry.UnreadableError, match="PubChem answered 503 Busy"):
+        pubchem.fetch({"params": {"identifiers": "2244"}})
+    assert len(service.asked) == 4
+
+
+CHEMBL = "https://www.ebi.ac.uk/chembl/api/data"
+CHEMBL25 = {
+    "molecule_chembl_id": "CHEMBL25",
+    "pref_name": "ASPIRIN",
+    "molecule_type": "Small molecule",
+    "molecule_structures": {
+        "canonical_smiles": "CC(=O)Oc1ccccc1C(=O)O",
+        "standard_inchi_key": ASPIRIN_KEY,
+    },
+    "molecule_synonyms": [
+        {"molecule_synonym": "Aspirin", "syn_type": "BAN"},
+        {"molecule_synonym": "Acetylsalicylic Acid", "syn_type": "OTHER"},
+    ],
+    "molecule_hierarchy": {"molecule_chembl_id": "CHEMBL25", "parent_chembl_id": "CHEMBL25"},
+}
+
+
+def test_chembl_gives_a_compound_its_id_and_names_from_its_release(
+    scripts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = fake(
+        monkeypatch,
+        {
+            f"{CHEMBL}/status.json": [Answer({"chembl_db_version": "ChEMBL_37"})],
+            f"{CHEMBL}/molecule.json?pref_name__iexact=aspirin": [
+                Answer({"molecules": [{"molecule_chembl_id": "CHEMBL25"}]})
+            ],
+            f"{CHEMBL}/molecule/CHEMBL25.json": [Answer(CHEMBL25)],
+            f"{CHEMBL}/molecule/{ASPIRIN_KEY}.json": [Answer(CHEMBL25)],
+        },
+    )
+    chembl = scripts.import_module("chembl")
+    output = chembl.fetch({"params": {"identifiers": f"aspirin\n{ASPIRIN_KEY}"}})
+    assert [url for url, _ in service.asked] == [
+        f"{CHEMBL}/status.json",
+        f"{CHEMBL}/molecule.json?pref_name__iexact=aspirin&only=molecule_chembl_id&limit=20",
+        f"{CHEMBL}/molecule/CHEMBL25.json",
+        f"{CHEMBL}/molecule/{ASPIRIN_KEY}.json",
+    ]
+    # The same molecule twice is one compound.
+    (create,) = output["creates"]
+    assert create["values"] == {
+        "smiles": ASPIRIN,
+        "inchikey": ASPIRIN_KEY,
+        "inchi": "InChI=1S/C9H8O4/c1-6(10)13-8-5-3-2-4-7(8)9(11)12/h2-5H,1H3,(H,11,12)",
+        "name": "ASPIRIN",
+        "chembl_id": "CHEMBL25",
+        "synonyms": ["Acetylsalicylic Acid"],
+    }
+    origin = create["origin"]
+    assert {k: origin[k] for k in ("source", "id", "version", "url")} == {
+        "source": "ChEMBL",
+        "id": "CHEMBL25",
+        "version": "ChEMBL_37",
+        "url": "https://www.ebi.ac.uk/chembl/explore/compound/CHEMBL25",
+    }
+    assert not list(
+        schemas.check("run-output", {"apiVersion": "iki/v1", "kind": "RunOutput", **output})
+    )
+
+
+def test_a_chembl_molecule_without_a_structure_fails_the_fetch(
+    scripts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(
+        monkeypatch,
+        {
+            f"{CHEMBL}/status.json": [Answer({"chembl_db_version": "ChEMBL_37"})],
+            f"{CHEMBL}/molecule/CHEMBL1201580.json": [
+                Answer(
+                    {
+                        "molecule_chembl_id": "CHEMBL1201580",
+                        "molecule_type": "Antibody",
+                        "molecule_structures": None,
+                    }
+                )
+            ],
+        },
+    )
+    chembl = scripts.import_module("chembl")
+    chemistry = scripts.import_module("chemistry")
+    with pytest.raises(
+        chemistry.UnreadableError,
+        match=r"no structure to register \(its molecule type is Antibody\)",
+    ):
+        chembl.fetch({"params": {"identifiers": "chembl1201580"}})

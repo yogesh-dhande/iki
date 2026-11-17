@@ -1,8 +1,8 @@
 # small_molecule
 
 Iki's small_molecule plugin: compounds, registered by their standard InChIKey,
-from SMILES or SDF files, and their batches, each with its salt form, with
-RDKit's standardisation and descriptors.
+from SMILES, SDF files, PubChem or ChEMBL, and their batches, each with its
+salt form, with RDKit's standardisation and descriptors.
 
 - **`small_molecule.Compound`** (`CPD-000001`): a compound, by its
   standardised structure.
@@ -77,6 +77,36 @@ given, so it's recorded as made with them.
   keeps, each with 2D coordinates RDKit computes (CoordGen), its name or HRID
   as its title, and its HRID, identifiers, descriptors and external IDs as SD
   fields.
+- **`fetch_from_pubchem`**: fetches compounds from
+  [PubChem](https://pubchem.ncbi.nlm.nih.gov) by name, CID or InChIKey (up to
+  100, one a line), through PUG REST, and registers each, standardised and
+  identified as a SMILES line is, from PubChem's SMILES, with its title as its
+  name, its IUPAC name and synonyms (the first 50), its CID, and the first CAS
+  Registry Number among its synonyms whose check digit is right. A name PubChem
+  has several compounds for takes the first, and the run says which others there
+  were. It keeps to PubChem's limit of five requests a second, and when PubChem
+  says to slow down (429) or is busy (503) it waits and asks again, up to four
+  times.
+- **`fetch_from_chembl`**: fetches molecules from
+  [ChEMBL](https://www.ebi.ac.uk/chembl) by ChEMBL ID, InChIKey or name (its
+  preferred name, or else a synonym), through its web services, and registers
+  each from ChEMBL's canonical SMILES, with its preferred name, synonyms and
+  ChEMBL ID. A molecule without a structure, such as an antibody, fails the run,
+  naming it.
+
+The fetches may reach only their own hosts (`network:`), through the
+deployment's egress proxy: `pubchem.ncbi.nlm.nih.gov` and `www.ebi.ac.uk`.
+Each compound records the record it came from as its origin (ADR 0052): the
+source, its CID or ChEMBL ID, its page, when it was fetched, the SHA-256 of
+what the service sent, and for ChEMBL the release (`ChEMBL_37`). A compound
+Iki has already is reused as it is, its origin noting the record found: to give
+it its CID or ChEMBL ID, edit it. With **the parent**, a fetched salt is
+registered as its parent, which isn't the record fetched, so it doesn't take
+the record's IDs or CAS number, and the run says so. Neither fetch lists
+software (ADR 0106): what it registers is the service's record, which RDKit
+only standardises and identifies, and the services don't say how their
+structures were made. A name, ID or InChIKey a service doesn't have fails the
+run, naming it, so nothing is half fetched.
 
 ### Standardising
 
@@ -139,6 +169,21 @@ OFL 1.1) and Amadeus, which came without a licence; the plugin draws nothing
 with them. It needs numpy (BSD-3-Clause) and Pillow (MIT-CMU), which
 `osv-scanner.toml` has an exception for, with why.
 
+What the fetches register is the services' data, under their terms:
+
+- **PubChem**: NCBI, which runs it, places no restrictions on the use or
+  distribution of the data in its molecular databases, but says that those who
+  submitted it may claim patent, copyright or other rights in some of it, and
+  names PubChem among its resources holding material others contributed that
+  copyright may protect, whose holders' terms those reusing it are to follow
+  ([NCBI's policies](https://www.ncbi.nlm.nih.gov/home/about/policies/)). So it
+  isn't all in the public domain: each compound records its CID, for checking
+  its record's sources.
+- **ChEMBL**: [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)
+  ([ChEMBL's terms](https://chembl.gitbook.io/chembl-interface-documentation/about)):
+  reuse it with attribution, and share what's adapted from it under the same
+  licence. Each compound records its ChEMBL ID and the release it came from.
+
 ## Developing it
 
 From the repository root:
@@ -161,4 +206,10 @@ PyPI calls 2026.9.2) and the InChI library's (`rdkit.Chem.inchi.GetInchiVersion(
 migrations match its manifests, and that it migrates forwards and back. The
 dev cluster's end-to-end check (`deploy/dev/sso.py`) registers aspirin and its
 sodium salt, checks its InChIKey, batches and descriptors, and that aspirin
-drawn another way is reused.
+drawn another way is reused, and fetches caffeine from PubChem through the
+egress proxy, checking that it reached PubChem alone.
+
+The fetches' tests (in `server/tests/test_small_molecule_actions.py`) answer
+them from fakes of PubChem and ChEMBL, shaped as the services answered when
+they were written: PUG REST's `PropertyTable` and `InformationList`, and the
+ChEMBL web services' molecule records.

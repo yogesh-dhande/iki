@@ -1330,12 +1330,15 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
 ASPIRIN = "CC(=O)Oc1ccccc1C(=O)O"
 ASPIRIN_KEY = "BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
 ASPIRIN_SODIUM = "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]"
+#: Caffeine's standard InChIKey, as PubChem gives it for CID 2519.
+CAFFEINE_KEY = "RYYVLZVUVIJVGH-UHFFFAOYSA-N"
 
 
 def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
     """The small_molecule plugin, in its environment with RDKit: aspirin and its sodium
     salt registered as one compound, by its InChIKey, with a batch of each; its
-    descriptors; and aspirin drawn another way, which is the same compound, reused."""
+    descriptors; aspirin drawn another way, which is the same compound, reused; and
+    caffeine fetched from PubChem."""
     action = "small_molecule.register_compounds"
     params = {
         "smiles": f"{ASPIRIN} aspirin\n{ASPIRIN_SODIUM} aspirin sodium",
@@ -1392,6 +1395,47 @@ def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
     if [(e["kind"], e["entity"]) for e in again] != [("reused", compound["id"])]:
         fail(f"{run['hrid']} made {run['effects']}, not {compound['hrid']} reused")
     ok(f"aspirin drawn another way is {compound['hrid']}, reused ({run['hrid']})")
+    pubchem(alice, project)
+
+
+def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
+    """Caffeine (PubChem CID 2519), fetched from PubChem by name through the egress proxy,
+    and registered by its InChIKey with its CID, name and CAS number, its origin saying
+    which record it came from."""
+    action = "small_molecule.fetch_from_pubchem"
+    run = launch(alice, project, action, {}, {"identifiers": "caffeine"}, within=300)
+    if run["network"] != ["pubchem.ncbi.nlm.nih.gov"]:
+        fail(f"{run['hrid']} may reach {run['network']}, not PubChem alone")
+    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
+    if reached != {("pubchem.ncbi.nlm.nih.gov", 443, None)}:
+        fail(f"{run['hrid']} reached {reached}, not PubChem alone")
+    made = [e for e in run["effects"] if e["type"] == "small_molecule.Compound"]
+    if len(made) != 1:
+        fail(f"{run['hrid']} ({action}) made {run['effects']}, not caffeine")
+    compound: dict[str, Any] = api_call(alice, "GET", f"/entities/{made[0]['entity']}").json()
+    values = compound["values"]
+    expected = {
+        "inchikey": CAFFEINE_KEY,
+        "pubchem_cid": "2519",
+        "name": "Caffeine",
+        "cas_number": "58-08-2",
+    }
+    if {k: values.get(k) for k in expected} != expected:
+        fail(f"{run['hrid']} registered caffeine as {values}")
+    origins = api_call(alice, "GET", f"/entities/{compound['id']}/origins").json()
+    if not any(
+        o["source"] == "PubChem"
+        and o["id"] == "2519"
+        and o["url"] == "https://pubchem.ncbi.nlm.nih.gov/compound/2519"
+        for o in origins
+    ):
+        fail(f"{compound['hrid']}'s origins are {origins}, not PubChem's CID 2519")
+    ok(
+        f"{action} fetched caffeine through the egress proxy as {compound['hrid']} "
+        f"({CAFFEINE_KEY}, CID 2519, CAS 58-08-2) ({run['hrid']})"
+    )
+    return compound
 
 
 #: Human haemoglobin's alpha and beta chains (UniProt P69905, P68871).

@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: fetch_from_chembl
+label: Fetch compounds from ChEMBL
+description: >-
+  Fetches molecules from ChEMBL by ChEMBL ID, InChIKey or name (its preferred
+  name, or else a synonym), and registers each by its standard InChIKey,
+  standardised as compounds registered from SMILES are, with its preferred name,
+  synonyms and ChEMBL ID. A compound Iki has is reused as it is, noting the record
+  found. Each records which ChEMBL record and release it came from, and when it
+  was fetched. ChEMBL's data is CC BY-SA 3.0.
+params:
+  identifiers:
+    type: text
+    label: ChEMBL IDs, InChIKeys or names
+    required: true
+    max_length: 20000
+    description: >-
+      One a line, such as CHEMBL25, BSYNRYMUTXBXSQ-UHFFFAOYSA-N or aspirin. Up to
+      100.
+  parent:
+    type: bool
+    label: Register the parent
+    default: false
+    description: >-
+      Take off salts and solvents Iki knows, keep the largest part that's left, and
+      neutralise it. The parent isn't the ChEMBL molecule fetched, so it doesn't
+      take its ChEMBL ID.
+effects:
+  creates:
+    - { type: Compound, cardinality: many }
+runs_on: { tier: backend, environment: chemistry-tools }
+command: [python, ./scripts/chembl.py]
+network: [www.ebi.ac.uk]
+timeout: 30m
+metrics:
+  compounds: { label: Compounds, description: How many compounds it fetched. }

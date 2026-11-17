@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: fetch_from_pubchem
+label: Fetch compounds from PubChem
+description: >-
+  Fetches compounds from PubChem by name, CID or InChIKey, and registers each by
+  its standard InChIKey, standardised as compounds registered from SMILES are,
+  with PubChem's title as its name, its IUPAC name and synonyms, its CID, and its
+  CAS Registry Number when its synonyms give one. A compound Iki has is reused as
+  it is, noting the record found. Each records which PubChem record it came
+  from and when it was fetched. PubChem asks for no more than five requests a
+  second, which the fetch keeps to.
+params:
+  identifiers:
+    type: text
+    label: Names, CIDs or InChIKeys
+    required: true
+    max_length: 20000
+    description: >-
+      One a line, such as aspirin, 2244 or BSYNRYMUTXBXSQ-UHFFFAOYSA-N. Up to 100.
+  parent:
+    type: bool
+    label: Register the parent
+    default: false
+    description: >-
+      Take off salts and solvents Iki knows, keep the largest part that's left, and
+      neutralise it. The parent isn't the PubChem record fetched, so it doesn't
+      take its CID or CAS number.
+effects:
+  creates:
+    - { type: Compound, cardinality: many }
+runs_on: { tier: backend, environment: chemistry-tools }
+command: [python, ./scripts/pubchem.py]
+network: [pubchem.ncbi.nlm.nih.gov]
+timeout: 30m
+metrics:
+  compounds: { label: Compounds, description: How many compounds it fetched. }
