@@ -65,11 +65,14 @@ if [[ -n $cluster ]] && gcloud container clusters describe "$cluster" --location
   kubectl -n iki delete gateway --all --ignore-not-found --wait=true --timeout=10m || true
   kubectl -n iki delete httproute,gcpgatewaypolicy,gcpbackendpolicy,healthcheckpolicy --all --ignore-not-found || true
   helm uninstall iki --namespace iki --wait --timeout 10m 2>/dev/null || true
-  helm uninstall external-secrets --namespace external-secrets --wait --timeout 5m 2>/dev/null || true
-  # Run pods' namespaces, and anything else Iki's provisioner left.
-  for ns in iki iki-runs external-secrets; do
+  # Run pods' namespaces, and anything else Iki's provisioner left, while External
+  # Secrets still runs: its ExternalSecrets carry a finalizer only it removes, and
+  # without it the iki namespace never goes.
+  for ns in iki iki-runs; do
     kubectl delete namespace "$ns" --ignore-not-found --wait=true --timeout=10m || true
   done
+  helm uninstall external-secrets --namespace external-secrets --wait --timeout 5m 2>/dev/null || true
+  kubectl delete namespace external-secrets --ignore-not-found --wait=true --timeout=10m || true
   # GKE deletes a Gateway's load balancer in the background; wait for it, so the network
   # can go after.
   for _ in $(seq 1 60); do
