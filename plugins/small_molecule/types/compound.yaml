@@ -1,0 +1,184 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Compound
+label: Compound
+label_plural: Compounds
+schema_version: 1
+description: >-
+  A chemical compound, by its standardised structure. Two with the same standard
+  InChIKey are the same compound, so registering one again reuses it. Its batches
+  (lots) are registered on their own, each with its salt form.
+hrid: { prefix: CPD }
+identity: [inchikey]
+on_duplicate: reuse
+fields:
+  smiles:
+    type: string
+    label: SMILES
+    max_length: 20000
+    required: true
+    immutable: true
+    description: >-
+      Its structure, standardised as RDKit's MolStandardize does it, as RDKit's
+      canonical isomeric SMILES.
+  inchikey:
+    type: string
+    label: InChIKey
+    max_length: 27
+    pattern: "^[A-Z]{14}-[A-Z]{8}SA-[A-Z]$"
+    required: true
+    immutable: true
+    indexed: true
+    description: >-
+      Its standard InChIKey, such as BSYNRYMUTXBXSQ-UHFFFAOYSA-N (aspirin): a hash
+      of its standard InChI, which makes it this compound.
+  inchi:
+    type: string
+    label: InChI
+    max_length: 20000
+    computed: true
+    description: Its standard InChI, from the InChI Trust's library.
+  name:
+    type: string
+    max_length: 255
+    indexed: true
+    description: What people call it, such as aspirin.
+  synonyms:
+    type: list
+    items: { type: string, max_length: 255 }
+    max_items: 200
+    description: Other names it goes by, such as acetylsalicylic acid or a code name.
+  description: { type: text, max_length: 10000 }
+  molecular_formula:
+    type: string
+    max_length: 200
+    computed: true
+    indexed: true
+    description: Its formula in Hill order, with its charge if it has one, such as C9H8O4.
+  molecular_weight:
+    type: quantity
+    unit: g/mol
+    computed: true
+    indexed: true
+    min: 0
+    description: Its average molecular weight, from IUPAC's standard atomic weights.
+  exact_mass:
+    type: quantity
+    unit: u
+    computed: true
+    min: 0
+    description: Its monoisotopic mass, from each element's most abundant isotope.
+  formal_charge: { type: int, computed: true, indexed: true, description: Its net charge. }
+  heavy_atoms:
+    type: int
+    computed: true
+    indexed: true
+    min: 0
+    description: How many atoms it has other than hydrogen.
+  logp:
+    type: float
+    label: Crippen logP
+    computed: true
+    indexed: true
+    description: >-
+      Its octanol–water partition coefficient, as Wildman and Crippen's atom
+      contributions estimate it (1999).
+  tpsa:
+    type: quantity
+    label: TPSA
+    unit: Ao2
+    computed: true
+    indexed: true
+    min: 0
+    description: >-
+      Its topological polar surface area, from Ertl's contributions of its nitrogens
+      and oxygens (2000), in Å².
+  hbd:
+    type: int
+    label: H-bond donors
+    computed: true
+    indexed: true
+    min: 0
+    description: Its hydrogen-bond donors, as RDKit counts them.
+  hba:
+    type: int
+    label: H-bond acceptors
+    computed: true
+    indexed: true
+    min: 0
+    description: Its hydrogen-bond acceptors, as RDKit counts them.
+  rotatable_bonds:
+    type: int
+    computed: true
+    indexed: true
+    min: 0
+    description: Its rotatable bonds, single bonds between two non-terminal heavy atoms outside rings.
+  rings: { type: int, computed: true, min: 0, description: Its rings (the smallest set). }
+  aromatic_rings: { type: int, computed: true, indexed: true, min: 0 }
+  fraction_csp3:
+    type: float
+    label: Fraction Csp3
+    computed: true
+    indexed: true
+    min: 0
+    max: 1
+    description: The share of its carbons that are sp3.
+  stereocentres:
+    type: int
+    computed: true
+    min: 0
+    description: Its tetrahedral stereocentres, defined or not.
+  undefined_stereocentres:
+    type: int
+    computed: true
+    indexed: true
+    min: 0
+    description: Those whose configuration its structure doesn't give.
+  qed:
+    type: float
+    label: QED
+    computed: true
+    indexed: true
+    min: 0
+    max: 1
+    description: >-
+      Its quantitative estimate of drug-likeness (Bickerton et al., 2012), from 0
+      to 1.
+  lipinski_violations:
+    type: int
+    computed: true
+    indexed: true
+    min: 0
+    max: 4
+    description: >-
+      How many of Lipinski's rule of five it breaks: a molecular weight over 500,
+      a logP over 5, more than 5 donors (NH and OH) or more than 10 acceptors (N
+      and O).
+  pubchem_cid:
+    type: string
+    label: PubChem CID
+    max_length: 20
+    pattern: "^[1-9][0-9]*$"
+    indexed: true
+    unique: true
+    link: "https://pubchem.ncbi.nlm.nih.gov/compound/{value}"
+    description: Its PubChem Compound ID, such as 2244.
+  chembl_id:
+    type: string
+    label: ChEMBL ID
+    max_length: 20
+    pattern: "^CHEMBL[1-9][0-9]*$"
+    indexed: true
+    unique: true
+    link: "https://www.ebi.ac.uk/chembl/explore/compound/{value}"
+    description: Its ChEMBL ID, such as CHEMBL25.
+  cas_number:
+    type: string
+    label: CAS number
+    max_length: 12
+    pattern: "^[1-9][0-9]{1,6}-[0-9]{2}-[0-9]$"
+    indexed: true
+    description: Its CAS Registry Number, such as 50-78-2.
+display:
+  title: "{{ name or hrid }}"

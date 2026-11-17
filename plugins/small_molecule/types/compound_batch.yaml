@@ -1,0 +1,130 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: CompoundBatch
+label: Compound batch
+label_plural: Compound batches
+schema_version: 1
+description: >-
+  A batch (a lot) of a compound: what was made or bought at one time, with its salt
+  form, purity and amount, and where it came from. The compound is its parent
+  structure; a batch is the material in the vial. Every batch is a batch of its own.
+hrid: { prefix: LOT }
+fields:
+  compound:
+    type: ref
+    to: Compound
+    required: true
+    immutable: true
+    description: The compound it's a batch of, its parent structure without salts or solvents.
+  structure_as_drawn:
+    type: string
+    max_length: 20000
+    immutable: true
+    description: >-
+      Its structure as it was registered, salts and solvents and all, as RDKit's
+      canonical SMILES.
+  salt:
+    type: enum
+    label: Salt form
+    values:
+      - hydrochloride
+      - hydrobromide
+      - hydroiodide
+      - sulfate
+      - phosphate
+      - nitrate
+      - mesylate
+      - esylate
+      - besylate
+      - tosylate
+      - acetate
+      - trifluoroacetate
+      - formate
+      - oxalate
+      - maleate
+      - fumarate
+      - succinate
+      - tartrate
+      - citrate
+      - lactate
+      - malate
+      - benzoate
+      - sodium
+      - potassium
+      - lithium
+      - calcium
+      - magnesium
+      - zinc
+      - ammonium
+      - meglumine
+      - tromethamine
+    indexed: true
+    description: Its salt, if it isn't the free acid or base.
+  salt_equivalents:
+    type: float
+    min: 0
+    max: 10
+    description: >-
+      How many of its salt there are for each of the compound: 1 for a
+      hydrochloride, 0.5 for a hemisulfate or for a calcium salt of an acid.
+  solvate:
+    type: enum
+    values:
+      - water
+      - methanol
+      - ethanol
+      - isopropanol
+      - acetone
+      - acetonitrile
+      - ethyl_acetate
+      - dichloromethane
+      - dimethyl_sulfoxide
+    description: The solvent in its crystals, if it's a solvate, such as water for a hydrate.
+  solvate_equivalents:
+    type: float
+    min: 0
+    max: 20
+    description: How many of its solvent there are for each of the compound, such as 2 for a dihydrate.
+  formula_weight:
+    type: quantity
+    unit: g/mol
+    computed: true
+    indexed: true
+    min: 0
+    description: >-
+      The weight of the material for each of the compound: the compound's
+      molecular weight, with its salt and solvent. Weigh out doses by it.
+  purity:
+    type: quantity
+    unit: "%"
+    min: 0
+    max: 100
+    indexed: true
+    description: How pure it is, such as by HPLC.
+  amount:
+    type: quantity
+    unit: mg
+    min: 0
+    description: How much of it there was when it was registered.
+  supplier:
+    type: string
+    max_length: 200
+    indexed: true
+    description: Who made or sold it, such as Sigma-Aldrich, or the lab that made it.
+  catalogue_number:
+    type: string
+    max_length: 100
+    indexed: true
+    description: The supplier's catalogue number for it.
+  supplier_lot:
+    type: string
+    max_length: 100
+    indexed: true
+    description: The supplier's lot or batch number.
+  received:
+    type: date
+    label: Received on
+    description: When it arrived, or was made.
+display:
+  title: "{{ hrid }}"

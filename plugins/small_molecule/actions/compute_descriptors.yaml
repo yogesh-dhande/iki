@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_descriptors
+label: Compute compound descriptors
+description: >-
+  A compound's formula, molecular weight, exact mass, charge, Crippen logP, TPSA,
+  hydrogen-bond donors and acceptors, rotatable bonds, rings, fraction Csp3,
+  stereocentres, QED and Lipinski violations, as RDKit computes them from its SMILES,
+  and its standard InChI. A compound whose InChIKey isn't its structure's fails its
+  run, saying so.
+inputs:
+  compound: { type: Compound, schema: ">=1" }
+effects:
+  updates:
+    - input: compound
+      fields:
+        - inchi
+        - molecular_formula
+        - molecular_weight
+        - exact_mass
+        - formal_charge
+        - heavy_atoms
+        - logp
+        - tpsa
+        - hbd
+        - hba
+        - rotatable_bonds
+        - rings
+        - aromatic_rings
+        - fraction_csp3
+        - stereocentres
+        - undefined_stereocentres
+        - qed
+        - lipinski_violations
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+  - { name: InChI, version: "1.07.3", url: https://www.inchi-trust.org }
+runs_on: { tier: backend, environment: chemistry-tools }
+command: [python, ./scripts/descriptors.py, compounds]
+deterministic: true
+batchable: 100
+timeout: 10m

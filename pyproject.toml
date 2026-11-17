@@ -55,6 +55,9 @@ dev = [
   # The antibody plugin numbers chains with it (plugins/antibody/requirements.txt pins the
   # same release for its image, where hmmscan is).
   "anarci==2026.2.13.2",
+  # The small_molecule plugin's actions use it (plugins/small_molecule/requirements.txt pins
+  # the same release for its environment); its tests run them.
+  "rdkit==2026.9.2",
   "pytest-xdist>=3.8.0",
 ]
 

@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: small_molecule
+version: 0.1.0
+title: Small molecule
+description: >-
+  Compounds, registered by their standard InChIKey, and their batches, with RDKit's
+  standardisation and descriptors.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/small_molecule

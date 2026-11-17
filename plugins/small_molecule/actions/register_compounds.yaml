@@ -1,0 +1,58 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: register_compounds
+label: Register compounds from SMILES
+description: >-
+  Registers each line's SMILES as a compound, standardised as RDKit's MolStandardize
+  does, and identified by its standard InChIKey. A compound already in Iki (the same
+  InChIKey) is reused. With the parent, salts and solvents are taken off and the
+  largest part kept, neutralised; with batches, each line is also a batch of its
+  compound, recording the salt form it was drawn as.
+params:
+  smiles:
+    type: text
+    label: SMILES
+    required: true
+    max_length: 2000000
+    description: >-
+      One compound a line: its SMILES, then, after a space or tab, its name if it
+      has one, such as `CC(=O)Oc1ccccc1C(=O)O aspirin`. Lines starting with # are
+      left out. Up to 5,000.
+  parent:
+    type: bool
+    label: Register the parent
+    default: false
+    description: >-
+      Take off salts and solvents Iki knows (hydrochloride, sodium, water and the
+      like), keep the largest part that's left, and neutralise it, so a salt and its
+      free base are the same compound.
+  batches:
+    type: bool
+    label: Register a batch of each
+    default: false
+    description: >-
+      Also register each line as a batch of its compound, with the salt and solvent
+      taken off it, how many of each, and its formula weight.
+  on_error:
+    type: enum
+    label: Lines that can't be registered
+    values: [fail, skip]
+    default: fail
+    description: >-
+      Fail: register nothing, and name each line that can't be. Skip: register the
+      rest, and name the lines left out.
+effects:
+  creates:
+    - { type: Compound, cardinality: many }
+    - { type: CompoundBatch, cardinality: many }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+  - { name: InChI, version: "1.07.3", url: https://www.inchi-trust.org }
+runs_on: { tier: backend, environment: chemistry-tools }
+command: [python, ./scripts/register.py]
+deterministic: true
+metrics:
+  lines: { label: Lines, description: The compounds it was given. }
+  skipped: { label: Skipped, description: The lines it couldn't register and left out. }
+timeout: 30m

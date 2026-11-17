@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_formula_weight
+label: Compute a batch's formula weight
+description: >-
+  A batch's formula weight: its compound's molecular weight, from the compound's
+  structure as it was when the run was launched, with its salt and solvent, as many
+  of each as the batch says.
+inputs:
+  batch: { type: CompoundBatch, schema: ">=1", include: [compound] }
+effects:
+  updates: [{ input: batch, fields: [formula_weight] }]
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: chemistry-tools }
+command: [python, ./scripts/descriptors.py, batches]
+deterministic: true
+batchable: 100
+timeout: 10m

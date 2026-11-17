@@ -20,6 +20,7 @@ FIRST_PARTY = {
     PLUGINS / "dna": (),
     PLUGINS / "protein": (PLUGINS / "dna",),
     PLUGINS / "antibody": (PLUGINS / "dna", PLUGINS / "protein"),
+    PLUGINS / "small_molecule": (),
     TEMPLATE: (PLUGINS / "dna",),
 }
 
@@ -50,6 +51,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         PLUGINS / "dna",
         PLUGINS / "protein",
         PLUGINS / "antibody",
+        PLUGINS / "small_molecule",
         TEMPLATE,
         "--output",
         out,
@@ -66,6 +68,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         from iki_plugin_example.models import Ext_dna_DNASequence, Sample
         from iki_plugin_protein.models import Protein
         from iki_plugin_antibody.models import Antibody
+        from iki_plugin_small_molecule.models import Compound, CompoundBatch
 
         puc = DNASequence.objects.create(
             owner_project=project, bases="ACGT", topology="circular", name="pUC19",
@@ -82,6 +85,13 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             owner_project=project, heavy_chain=bla, format="vhh", name="anti-bla",
         )
         light = Protein.objects.create(owner_project=project, sequence="DIQMTQSP")
+        aspirin = Compound.objects.create(
+            owner_project=project, smiles="CC(=O)Oc1ccccc1C(=O)O",
+            inchikey="BSYNRYMUTXBXSQ-UHFFFAOYSA-N", name="aspirin", pubchem_cid="2244",
+        )
+        lot = CompoundBatch.objects.create(
+            owner_project=project, compound=aspirin, salt="sodium", salt_equivalents=1.0,
+        )
         fab = Antibody.objects.create(
             owner_project=project, heavy_chain=bla, light_chain=light, format="fab",
         )
@@ -96,8 +106,11 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             refused = None
         except services.Invalid as invalid:
             refused = invalid.errors
-        result = {"types": [puc.type, primer.type, sample.type, bla.type, vhh.type],
-                  "hrids": [puc.hrid, primer.hrid, sample.hrid, bla.hrid, vhh.hrid],
+        result = {"types": [puc.type, primer.type, sample.type, bla.type, vhh.type,
+                            aspirin.type, lot.type],
+                  "hrids": [puc.hrid, primer.hrid, sample.hrid, bla.hrid, vhh.hrid,
+                            aspirin.hrid, lot.hrid],
+                  "aspirin": aspirin.identity_hash,
                   "heavy": str(bla.pk), "light": str(light.pk),
                   "identities": [vhh.identity_hash, fab.identity_hash], "refused": refused}
         """,
@@ -108,8 +121,22 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         "example.Sample",
         "protein.Protein",
         "antibody.Antibody",
+        "small_molecule.Compound",
+        "small_molecule.CompoundBatch",
     ]
-    assert [h.split("-")[0] for h in result["hrids"]] == ["DNA", "PRM", "SMP", "PRT", "ABY"]
+    assert [h.split("-")[0] for h in result["hrids"]] == [
+        "DNA",
+        "PRM",
+        "SMP",
+        "PRT",
+        "ABY",
+        "CPD",
+        "LOT",
+    ]
+    # A compound is its standard InChIKey.
+    assert result["aspirin"] == identity_hash(
+        "small_molecule.Compound", {"inchikey": ("string", "BSYNRYMUTXBXSQ-UHFFFAOYSA-N")}
+    )
     # An antibody is its chains, its light chain if it has one (a VHH hasn't).
     chains = {"heavy_chain": ("ref", result["heavy"]), "light_chain": ("ref", None)}
     paired = {**chains, "light_chain": ("ref", result["light"])}
@@ -123,12 +150,12 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             "register another with it instead."
         ]
     }
-    for app in ("antibody", "example", "protein", "dna"):
+    for app in ("small_molecule", "antibody", "example", "protein", "dna"):
         migrate(out, database, app, "zero")
     left = query(
         database,
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
         "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%' "
-        "OR tablename LIKE 'antibody%%')",
+        "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%')",
     )
     assert left == [(0,)]

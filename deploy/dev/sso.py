@@ -1104,6 +1104,7 @@ def actions() -> None:
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
     reads_aligned(alice, project)
     proteins(alice, project)
+    compounds(alice, project)
 
 
 def _abif(bases: str, quality: list[int], sample: str) -> bytes:
@@ -1323,6 +1324,74 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     structures(alice, project)
     alphafold(alice, project)
     antibodies(alice, project)
+
+
+#: Aspirin, its standard InChIKey, and its sodium salt.
+ASPIRIN = "CC(=O)Oc1ccccc1C(=O)O"
+ASPIRIN_KEY = "BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
+ASPIRIN_SODIUM = "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]"
+
+
+def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
+    """The small_molecule plugin, in its environment with RDKit: aspirin and its sodium
+    salt registered as one compound, by its InChIKey, with a batch of each; its
+    descriptors; and aspirin drawn another way, which is the same compound, reused."""
+    action = "small_molecule.register_compounds"
+    params = {
+        "smiles": f"{ASPIRIN} aspirin\n{ASPIRIN_SODIUM} aspirin sodium",
+        "parent": True,
+        "batches": True,
+    }
+    run = launch(alice, project, action, {}, params)
+    made = [e for e in run["effects"] if e["kind"] in ("created", "reused")]
+    found = [e for e in made if e["type"] == "small_molecule.Compound"]
+    lots = [e for e in made if e["type"] == "small_molecule.CompoundBatch"]
+    if len(found) != 1 or len(lots) != 2 or run["metrics"] != {"lines": 2, "skipped": 0}:
+        fail(f"{run['hrid']} ({action}) made {run['effects']}, not one compound and two batches")
+    compound = api_call(alice, "GET", f"/entities/{found[0]['entity']}").json()
+    if (compound["values"]["inchikey"], compound["values"]["smiles"]) != (ASPIRIN_KEY, ASPIRIN):
+        fail(f"{run['hrid']} registered aspirin as {compound['values']}")
+    salts = sorted(
+        (
+            values.get("salt") or "",
+            values.get("formula_weight"),
+            values["compound"],
+        )
+        for values in (
+            api_call(alice, "GET", f"/entities/{lot['entity']}").json()["values"] for lot in lots
+        )
+    )
+    if salts != [("", 180.159, compound["id"]), ("sodium", 202.141, compound["id"])]:
+        fail(f"{run['hrid']}'s batches of {compound['hrid']} are {salts}")
+    making = api_call(alice, "GET", f"/entities/{compound['id']}/making").json()
+    if not any(m["by"] == "iki" and m["software"] == "RDKit" for m in making):
+        fail(f"{compound['hrid']}'s making is {making}, not RDKit's, recorded by Iki")
+    ok(
+        f"{action} registered aspirin and its sodium salt as {compound['hrid']} "
+        f"({ASPIRIN_KEY}), with a batch of each, the salt's 202.141 g/mol ({run['hrid']})"
+    )
+    run = launch(alice, project, "small_molecule.compute_descriptors", {"compound": compound["id"]})
+    got = api_call(alice, "GET", f"/entities/{compound['id']}").json()["values"]
+    expected = {
+        "molecular_formula": "C9H8O4",
+        "molecular_weight": 180.159,
+        "tpsa": 63.6,
+        "hbd": 1,
+        "hba": 3,
+        "lipinski_violations": 0,
+    }
+    if {k: got.get(k) for k in expected} != expected or not 1.2 < got.get("logp", 0) < 1.4:
+        fail(f"{run['hrid']} wrote {got}, not aspirin's descriptors")
+    ok(
+        f"small_molecule.compute_descriptors ran in RDKit's environment ({run['hrid']}): "
+        f"{got['molecular_formula']}, {got['molecular_weight']} g/mol, logP {got['logp']}, "
+        f"TPSA {got['tpsa']} Å²"
+    )
+    run = launch(alice, project, action, {}, {"smiles": "OC(=O)c1ccccc1OC(C)=O"})
+    again = [e for e in run["effects"] if e["type"] == "small_molecule.Compound"]
+    if [(e["kind"], e["entity"]) for e in again] != [("reused", compound["id"])]:
+        fail(f"{run['hrid']} made {run['effects']}, not {compound['hrid']} reused")
+    ok(f"aspirin drawn another way is {compound['hrid']}, reused ({run['hrid']})")
 
 
 #: Human haemoglobin's alpha and beta chains (UniProt P69905, P68871).

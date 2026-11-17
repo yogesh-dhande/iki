@@ -1,0 +1,53 @@
+# Run with `iki plugin test plugins/small_molecule` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: aspirin_and_its_sodium_salt
+description: >-
+  Aspirin, and its sodium salt registered as its parent: the same compound
+  (BSYNRYMUTXBXSQ-UHFFFAOYSA-N, PubChem CID 2244), the salt's batch weighing
+  202.14 g/mol, as sodium aspirinate does.
+action: register_compounds
+params:
+  smiles: |
+    CC(=O)Oc1ccccc1C(=O)O aspirin
+    CC(=O)Oc1ccccc1C(=O)[O-].[Na+] aspirin sodium
+  parent: true
+  batches: true
+expect:
+  output:
+    creates:
+      - type: small_molecule.Compound
+        values:
+          { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, smiles: CC(=O)Oc1ccccc1C(=O)O, name: aspirin }
+      - type: small_molecule.CompoundBatch
+        values: { formula_weight: 180.159 }
+      - type: small_molecule.Compound
+        values: { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, name: aspirin sodium }
+      - type: small_molecule.CompoundBatch
+        values: { salt: sodium, salt_equivalents: 1, formula_weight: 202.141 }
+    metrics: { lines: 2, skipped: 0 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: aspirin_descriptors
+description: >-
+  Aspirin's descriptors, as RDKit computes them: 180.16 g/mol (PubChem's 180.16),
+  TPSA 63.6 Å² (PubChem's 63.6), Crippen logP 1.31, QED 0.55.
+action: compute_descriptors
+inputs:
+  compound:
+    - values: { smiles: CC(=O)Oc1ccccc1C(=O)O, inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N }
+expect:
+  output:
+    updates:
+      compound:
+        - values:
+            molecular_formula: C9H8O4
+            molecular_weight: 180.159
+            tpsa: 63.6
+            logp: 1.31
+            hbd: 1
+            hba: 3
+            qed: 0.55
+            lipinski_violations: 0
+  tolerance: 1.0e-3
