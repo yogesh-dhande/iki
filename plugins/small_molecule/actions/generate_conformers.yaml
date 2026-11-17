@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: generate_conformers
+label: Generate conformers
+description: >-
+  Generates a compound's three-dimensional conformers with RDKit: embedded by
+  distance geometry with ETKDG version 3, seeded from the run's seed, then
+  minimised in the MMFF94 force field. Conformers too like one already kept are
+  dropped. They're saved as a conformer set, lowest energy first, in an SDF file
+  and as the models of a PDB file the structure viewer shows, with each one's
+  energy.
+inputs:
+  compound: { type: Compound, schema: ">=1" }
+params:
+  count:
+    type: int
+    label: Conformers
+    default: 10
+    min: 1
+    max: 300
+    description: How many to embed, before those too like another are dropped.
+  prune_rms:
+    type: float
+    label: Pruning threshold (Å)
+    default: 0.5
+    min: 0
+    max: 5
+    description: >-
+      A conformer whose heavy atoms are within this RMSD of one already kept, once
+      aligned, is dropped. 0 keeps them all.
+  iterations:
+    type: int
+    label: Minimisation steps
+    default: 2000
+    min: 0
+    max: 100000
+    description: The most steps each conformer is minimised for. 0 leaves them as embedded.
+effects:
+  creates:
+    - { type: ConformerSet, derived_from: [compound] }
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: chemistry-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/conformers.py]
+metrics:
+  conformers: { label: Conformers, description: How many it kept. }
+timeout: 1h

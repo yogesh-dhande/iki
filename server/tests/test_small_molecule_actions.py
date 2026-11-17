@@ -1,7 +1,7 @@
 """The small_molecule plugin's actions: registering compounds from SMILES and SDF files,
 their descriptors and batches' formula weights, exporting them, and fetching them from
-PubChem and ChEMBL (from fakes of them), run as a worker runs them (an input.json in, an
-output.json out) or, for the fetches, in-process."""
+PubChem and ChEMBL (from fakes of them), and generating conformers, run as a worker runs
+them (an input.json in, an output.json out) or, for the fetches, in-process."""
 
 import hashlib
 import importlib
@@ -829,3 +829,78 @@ def test_a_chembl_molecule_without_a_structure_fails_the_fetch(
         match=r"no structure to register \(its molecule type is Antibody\)",
     ):
         chembl.fetch({"params": {"identifiers": "chembl1201580"}})
+
+
+# --- Conformers ----------------------------------------------------------------------------------
+
+
+def conformers(tmp_path: Path, smiles: str, seed: int = 42, **params: Any) -> Any:
+    (tmp_path / "input.json").write_text(
+        json.dumps(
+            {"params": params, "inputs": {"compound": [entity(1, smiles=smiles, name="it")]}}
+        )
+    )
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(exist_ok=True)
+    return subprocess.run(  # noqa: S603 - our own script
+        [sys.executable, str(SCRIPTS / "conformers.py")],
+        env={
+            "IKI_INPUT": str(tmp_path / "input.json"),
+            "IKI_OUTPUT": str(tmp_path / "out.json"),
+            "IKI_OUT_DIR": str(out_dir),
+            "IKI_SEED": str(seed),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=300,
+    )
+
+
+def test_conformers_are_embedded_minimised_and_ranked_by_energy(tmp_path: Path) -> None:
+    from rdkit import Chem
+
+    result = conformers(tmp_path, "CCCCCCO", count=20)
+    assert result.returncode == 0, result.stdout + result.stderr
+    output = json.loads((tmp_path / "out.json").read_text())
+    assert not list(schemas.check("run-output", output))
+    (create,) = output["creates"]
+    values = create["values"]
+    assert create["type"] == "small_molecule.ConformerSet"
+    assert values["compound"] == entity(1)["id"]
+    assert values["conformers"] == {
+        "$file": "conformers.sdf",
+        "media_type": "chemical/x-mdl-sdfile",
+    }
+    assert values["structure"] == {"$file": "conformers.pdb", "media_type": "chemical/x-pdb"}
+    assert values["method"] == (
+        "RDKit ETKDGv3, 20 embedded, pruned at 0.5 Å heavy-atom RMSD; minimised in MMFF94, "
+        "up to 2,000 steps"
+    )
+    energies = values["energies"]
+    assert 1 < values["count"] == len(energies) <= 20
+    assert energies == sorted(energies)
+    assert values["energy_window"] == pytest.approx(energies[-1] - energies[0], abs=1e-3)
+    written = list(Chem.SDMolSupplier(str(tmp_path / "out" / "conformers.sdf"), removeHs=False))
+    assert len(written) == values["count"]
+    assert written[0].GetProp("_Name") == "it conformer 1"
+    assert float(written[0].GetProp("relative_energy")) == 0
+    assert written[0].GetConformer().Is3D()
+    # With its hydrogens: hexanol is C6H14O.
+    assert written[0].GetNumAtoms() == 21
+    assert Chem.MolToSmiles(Chem.RemoveHs(written[0])) == "CCCCCCO"
+    pdb = (tmp_path / "out" / "conformers.pdb").read_text()
+    assert pdb.count("MODEL ") == values["count"] and pdb.endswith("ENDMDL\nEND\n")
+    # The same seed, the same conformers.
+    first = (tmp_path / "out" / "conformers.sdf").read_text()
+    assert conformers(tmp_path, "CCCCCCO", count=20).returncode == 0
+    assert (tmp_path / "out" / "conformers.sdf").read_text() == first
+
+
+def test_a_salt_has_no_conformers_of_its_own(tmp_path: Path) -> None:
+    result = conformers(tmp_path, "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]")
+    assert result.returncode == 1
+    assert last_error(result) == (
+        "::error X-1 has more than one part (a salt, say): register its parent, and "
+        "generate its conformers."
+    )

@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: ConformerSet
+label: Conformer set
+label_plural: Conformer sets
+schema_version: 1
+description: >-
+  Three-dimensional conformers of a compound, generated and minimised by a run, in
+  an SDF file, lowest energy first, with their energies. Its Structure tab shows them.
+hrid: { prefix: CNF }
+fields:
+  compound:
+    type: ref
+    to: Compound
+    required: true
+    immutable: true
+    description: The compound they're conformers of.
+  conformers:
+    type: file
+    media_types: [chemical/x-mdl-sdfile]
+    max_size: 1GiB
+    required: true
+    immutable: true
+    description: >-
+      The conformers, with their hydrogens, in an SDF file: a record each, lowest
+      energy first, each with its energy and its energy above the lowest as SD
+      fields.
+  structure:
+    type: file
+    label: Structure (PDB)
+    media_types: [chemical/x-pdb]
+    max_size: 1GiB
+    immutable: true
+    description: The same conformers as the models of a PDB file, for the structure viewer.
+  method:
+    type: string
+    max_length: 500
+    immutable: true
+    description: How they were made, such as RDKit's ETKDGv3, then minimised in MMFF94.
+  count:
+    type: int
+    min: 0
+    immutable: true
+    description: How many conformers it holds.
+  energies:
+    type: json
+    immutable: true
+    description: >-
+      Each conformer's energy, in kcal/mol, in the force field it was minimised in,
+      in the order of the file. Only differences between them mean anything.
+    schema:
+      type: array
+      maxItems: 10000
+      items: { type: number }
+  energy_window:
+    type: quantity
+    unit: kcal/mol
+    min: 0
+    immutable: true
+    description: How far above the lowest the highest-energy conformer is.
+display:
+  title: "{{ hrid }}"
+  viewers:
+    - { viewer: structure, structure: structure, label: Conformers }
