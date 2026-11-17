@@ -137,3 +137,4 @@ supersedes the old one, and update the old one's status.
 | [0105](0105-an-input-can-include-what-its-references-name.md)                        | An input can include what its references name                                                       | Accepted |
 | [0106](0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)       | How an entity was made: recorded by Iki, or stated by its source                                    | Accepted |
 | [0107](0107-reference-gcp-infrastructure-in-opentofu.md)                             | Reference Google Cloud infrastructure in OpenTofu                                                   | Accepted |
+| [0108](0108-a-lease-weighs-each-projects-next-jobs.md)                               | A lease weighs each project's next jobs, not the whole queue                                        | Accepted |

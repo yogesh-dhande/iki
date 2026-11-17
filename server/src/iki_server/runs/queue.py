@@ -33,8 +33,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from django.conf import settings
+from django.core.exceptions import EmptyResultSet
 from django.db import connection, transaction
-from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 from opentelemetry import metrics
@@ -216,6 +218,64 @@ def _build(worker: Worker, environment: str) -> str:
     return ""
 
 
+#: How many of each project's best jobs a lease weighs, and how many of those, across the
+#: projects, it may try to lock: workers leasing at once each skip the others' choices.
+EACH = 8
+TRIES = 64
+
+
+def _shortlist(candidates: QuerySet[Job], tier: str) -> RawSQL | None:
+    """The best of what ``candidates`` holds, as a subquery of job IDs, or None if it holds
+    nothing by definition (a worker with no plugin it may run): each project's best
+    few, the projects with fewer jobs running first, then by priority, oldest first
+    (ADR 0108).
+
+    It costs as many index lookups as there are projects with jobs queued on the tier,
+    however deep the queue or long its history. Ranking every queued job by its project's
+    running count instead counted each project's jobs once per job queued.
+    """
+    heads = (
+        candidates.filter(project_id=RawSQL("queued.project_id", ()))
+        .order_by("-priority", "queued_at", "id")
+        .values_list("id", "priority", "queued_at")[:EACH]
+    )
+    try:
+        sql, params = heads.query.sql_with_params()
+    except EmptyResultSet:
+        return None
+    held = ", ".join(["%s"] * len(HELD))
+    # Every value is a parameter; what's interpolated is Django's own compiled SQL, the
+    # placeholders for HELD, and a constant.
+    return RawSQL(  # noqa: S611
+        # The projects with a job queued on the tier: from the lowest ID, each step the next
+        # one up, as a skip scan of iki_job_queued_by_project.
+        "WITH RECURSIVE queued(project_id) AS ("  # noqa: S608 - see above
+        " (SELECT project_id FROM iki_job WHERE state = %s AND tier = %s"
+        "  ORDER BY project_id LIMIT 1)"
+        " UNION ALL"
+        " SELECT (SELECT j.project_id FROM iki_job j WHERE j.state = %s AND j.tier = %s"
+        "  AND j.project_id > queued.project_id ORDER BY j.project_id LIMIT 1)"
+        " FROM queued WHERE queued.project_id IS NOT NULL"
+        "), running AS ("
+        f" SELECT project_id, count(*) AS n FROM iki_job WHERE state IN ({held})"
+        "  AND packed_into_id IS NULL GROUP BY project_id"
+        ") "
+        f"SELECT head.id FROM queued CROSS JOIN LATERAL ({sql}) head(id, priority, queued_at)"
+        " LEFT JOIN running ON running.project_id = queued.project_id"
+        " WHERE queued.project_id IS NOT NULL"
+        " ORDER BY coalesce(running.n, 0), head.priority DESC, head.queued_at, head.id"
+        f" LIMIT {TRIES}",
+        (
+            JobState.QUEUED,
+            tier,
+            JobState.QUEUED,
+            tier,
+            *HELD,
+            *params,
+        ),
+    )
+
+
 def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
     """Leases the best job this worker can run, with what it needs to run it; None if none."""
     now = timezone.now()
@@ -259,8 +319,16 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             candidates = candidates.exclude(project__in=list(stop.projects))
         if stop.teams:
             candidates = candidates.exclude(project__team__in=list(stop.teams))
+        shortlist = _shortlist(candidates, worker.tier)
+        if shortlist is None:
+            return None
+        # The plan's few milliseconds would wait on JIT compiling it: Postgres's estimate
+        # of what a lateral join with limits costs sits above where it compiles plans.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('jit', 'off', true)")
         job = (
-            candidates.annotate(active=Coalesce(Subquery(active), 0))
+            candidates.filter(pk__in=shortlist)
+            .annotate(active=Coalesce(Subquery(active), 0))
             .order_by("active", "-priority", "queued_at", "id")
             .select_for_update(skip_locked=True, of=("self",))
             .first()

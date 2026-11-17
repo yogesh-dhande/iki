@@ -1190,6 +1190,27 @@ class Job(models.Model):
                 name="iki_job_queued",
                 condition=Q(state=JobState.QUEUED),
             ),
+            # What a lease weighs: each project's best queued jobs on a tier, and the
+            # projects that have any, found by skipping from one to the next.
+            models.Index(
+                "tier",
+                "project",
+                models.F("priority").desc(),
+                "queued_at",
+                "id",
+                name="iki_job_queued_by_project",
+                condition=Q(state=JobState.QUEUED),
+            ),
+            # How many jobs each project has running, which the lease ranks projects by:
+            # as many as there are workers, however long the history.
+            models.Index(
+                fields=["project"],
+                name="iki_job_held",
+                condition=Q(
+                    state__in=["leased", "staging", "running", "uploading"],
+                    packed_into__isnull=True,
+                ),
+            ),
             models.Index(
                 fields=["packed_into"],
                 name="iki_job_packed",

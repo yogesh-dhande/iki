@@ -479,6 +479,19 @@ def test_projects_with_fewer_jobs_running_go_first(world: World) -> None:
     assert pod.lease().json()["run"]["id"] == busy[1]["id"]
 
 
+def test_a_project_s_jobs_this_worker_cant_run_dont_hide_one_it_can(world: World) -> None:
+    # A lease weighs each project's best few runnable jobs (queue.EACH): those this worker
+    # can't run are passed over first, however many come before.
+    pod = worker(world, capacity={"cpu": 4, "memory": GI})
+    first = [queued(world) for _ in range(queue.EACH + 2)]
+    Job.objects.filter(run_id__in=[r["id"] for r in first]).update(
+        resources={"cpu": 1, "memory": 8 * GI}
+    )
+    fits = queued(world)
+    assert pod.lease().json()["run"]["id"] == fits["id"]
+    assert pod.lease().status_code == 204
+
+
 # --- Reporting ---------------------------------------------------------------------------------
 
 

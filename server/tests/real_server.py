@@ -20,6 +20,10 @@ from pathlib import Path
 
 from django.conf import settings
 
+#: How long a process has to answer its health check. Starting is importing Django and
+#: every plugin: seconds alone, and more than 30 while other checks load the machine.
+STARTUP = 90.0
+
 
 def free_port() -> int:
     with socket.socket() as s:
@@ -95,11 +99,11 @@ class Server:
 
 
 @contextmanager
-def serve(env: dict[str, str]) -> Iterator[Server]:
+def serve(env: dict[str, str], *, startup: float = STARTUP) -> Iterator[Server]:
     """Runs ``iki-server serve`` until the block ends, then stops it with SIGTERM
-    and waits for it to exit."""
+    and waits for it to exit. It has ``startup`` seconds to answer its health check."""
     url = f"http://127.0.0.1:{env['IKI_PORT']}"
-    with _running(["serve"], env, f"{url}/healthz/live", url) as server:
+    with _running(["serve"], env, f"{url}/healthz/live", url, startup) as server:
         yield server
 
 
@@ -131,7 +135,9 @@ def run_tasks(env: dict[str, str]) -> Iterator[Server]:
 
 
 @contextmanager
-def _running(args: list[str], env: dict[str, str], health: str, url: str) -> Iterator[Server]:
+def _running(
+    args: list[str], env: dict[str, str], health: str, url: str, startup: float = STARTUP
+) -> Iterator[Server]:
     proc = subprocess.Popen(  # noqa: S603 - fixed argv
         [sys.executable, "-m", "iki_server.manage", *args],
         env=env,
@@ -145,7 +151,7 @@ def _running(args: list[str], env: dict[str, str], health: str, url: str) -> Ite
     reader = threading.Thread(target=lambda: server.output.extend(stdout), daemon=True)
     reader.start()
     try:
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + startup
         while True:
             try:
                 with urllib.request.urlopen(health, timeout=2):  # noqa: S310 - our own
