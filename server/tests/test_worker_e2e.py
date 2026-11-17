@@ -513,7 +513,7 @@ def test_a_worker_leases_only_runs_of_plugins_it_has(
     (only_dna / "dna").symlink_to(PLUGINS / "dna", target_is_directory=True)
     running = start(registration(world), plugins=only_dna)
     pod = eventually(lambda: Worker.objects.filter(name="e2e-worker").first())
-    assert pod.plugins == [{"name": "dna", "sha": None, "environments": None}]
+    assert pod.plugins == [{"name": "dna", "sha": None, "environments": None, "bundle": None}]
     time.sleep(2)  # Long enough to lease, were it allowed to.
     assert Job.objects.get(run_id=run["id"]).state == JobState.QUEUED
     running.process.send_signal(signal.SIGTERM)
@@ -826,7 +826,12 @@ def test_a_worker_with_no_plugins_dir_fetches_and_builds_what_the_server_install
     assert (cache / "plugins" / "protein" / BUNDLED_SHA / "plugin.yaml").is_file()
     worker = Worker.objects.get(name="fetcher")
     assert worker.plugins == [
-        {"name": "protein", "sha": BUNDLED_SHA, "environments": {"protein-tools": digest}}
+        {
+            "name": "protein",
+            "sha": BUNDLED_SHA,
+            "environments": {"protein-tools": digest},
+            "bundle": None,
+        }
     ]
 
 

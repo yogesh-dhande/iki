@@ -167,6 +167,12 @@ another job. If that's because its plugin's code changed since it started
 (an upgrade, or a local directory edited), it says so, deregisters and
 exits cleanly, so a machine with the new code takes its place.
 
+A local directory's code, on a development server, has no commit: a worker
+that fetched it tells the server the SHA-256 of the bundle it got, and the
+server leases it none of that plugin's jobs once another bundle is
+installed. So a warm pod started before the directory was edited never runs
+the old code; idle, it notices the change and stops the same way.
+
 ### Stopping
 
 `iki-worker start --once` runs one job and exits. SIGTERM or SIGINT stops

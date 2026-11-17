@@ -873,6 +873,7 @@ mod tests {
                 environments: None,
                 name: "structure_prediction".into(),
                 sha: None,
+                bundle: None,
             },
             dir,
             "structure_prediction.alphafold-gpu",

@@ -223,6 +223,13 @@ class PluginCode(Schema):
         "leases only runs in these. Null runs every one with the host's own software, "
         "as for development.",
     )
+    bundle: str | None = Field(
+        None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="For a local directory's code, which has no commit, the SHA-256 of the "
+        "bundle it fetched: it leases only while that's still the code installed, so a "
+        "machine started before the directory changed never runs the old code.",
+    )
 
 
 class WorkerIn(Schema):

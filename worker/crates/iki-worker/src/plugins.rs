@@ -115,6 +115,7 @@ pub fn discover(dir: &Path) -> Result<Have, String> {
             name,
             sha: None,
             environments: None,
+            bundle: None,
         });
     }
     code.sort_by(|a, b| a.name.cmp(&b.name));
@@ -167,6 +168,7 @@ fn from_manifest(dir: &Path, file: &Path) -> Result<Have, String> {
             name: plugin.name,
             sha: plugin.sha,
             environments: Some(digests),
+            bundle: None,
         });
     }
     have.code.sort_by(|a, b| a.name.cmp(&b.name));
@@ -339,6 +341,7 @@ mod tests {
                 name: "protein".into(),
                 sha: Some("a".repeat(40)),
                 environments: None,
+                bundle: None,
             }],
             ..Have::default()
         };

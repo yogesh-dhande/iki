@@ -188,10 +188,18 @@ def _fits(worker: Worker) -> Q:
 
 
 def _runnable(worker: Worker) -> Q:
-    """Jobs launched with plugin code the worker has, in an environment it has built."""
+    """Jobs launched with plugin code the worker has, in an environment it has built. A
+    local directory's code has no commit, so a worker that fetched it says which bundle it
+    got, and leases none of that plugin's jobs once another is installed."""
     runnable = Q(pk__in=[])
+    installed = {e["name"]: e for e in (registry.installed() or {}).get("plugins", ())}
     for plugin in worker.plugins:
         name, sha, built = plugin["name"], plugin.get("sha") or "", plugin.get("environments")
+        fetched = plugin.get("bundle")
+        if fetched and not sha:
+            now = (installed.get(name) or {}).get("bundle") or {}
+            if now.get("sha256") != fetched:
+                continue
         mine = Q(environment__startswith=f"{name}.", run__plugin_sha=sha)
         if built is not None:
             mine &= Q(environment__in=[f"{name}.{env}" for env in built])

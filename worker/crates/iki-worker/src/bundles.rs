@@ -98,6 +98,7 @@ pub fn sync(api: &Api, cache: &Path, listed: &[AvailableOut]) -> Have {
             name: plugin.name.clone(),
             sha: Some(plugin.sha.clone()),
             environments: Some(digests),
+            bundle: None,
         });
     }
     tidy(&cache.join("plugins"), &kept_code);
@@ -123,10 +124,13 @@ pub fn sync_image(
     let dir = fetch(api, cache, plugin, local)?;
     let mut digests = serde_json::Map::new();
     digests.insert(image.name().to_owned(), image.digest().to_owned().into());
+    // A local directory has no commit: the bundle it fetched says which code it has, so
+    // the server stops leasing it that plugin's jobs once the directory changes.
     let code = PluginCode {
         name: plugin.name.clone(),
         sha: (!local).then(|| plugin.sha.clone()),
         environments: Some(digests),
+        bundle: local.then(|| plugin.bundle.sha256.clone()),
     };
     Ok(Have::in_image(code, dir, &image.environment))
 }
@@ -140,6 +144,11 @@ pub fn code_changed(listed: &[AvailableOut], now: &[AvailableOut], plugin: &str)
             .map(|p| (p.sha.clone(), p.bundle.clone()))
     };
     code(listed) != code(now)
+}
+
+/// Whether `plugin`'s code in `listed` is a development server's local directory.
+pub fn is_local(listed: &[AvailableOut], plugin: &str) -> bool {
+    listed.iter().any(|p| p.name == plugin && p.sha == LOCAL)
 }
 
 /// What a development server calls a plugin from a local directory, which has no commit.
@@ -592,6 +601,17 @@ mod tests {
         // Upgraded to another commit, or no longer installed.
         assert!(code_changed(&was, &other, "dna"));
         assert!(code_changed(&was, &was[..1], "dna"));
+    }
+
+    #[test]
+    fn knows_a_local_directorys_code_from_a_commits() {
+        let listed = [
+            available("example", "local", "aa", 10),
+            available("dna", "b".repeat(40).as_str(), "cc", 20),
+        ];
+        assert!(is_local(&listed, "example"));
+        assert!(!is_local(&listed, "dna"));
+        assert!(!is_local(&listed, "protein"));
     }
 
     #[test]

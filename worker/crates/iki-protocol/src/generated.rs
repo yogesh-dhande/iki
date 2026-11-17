@@ -652,6 +652,9 @@ pub struct PartsIn {
 /// Plugin code a worker has. It leases only runs launched with that very code.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PluginCode {
+    /// For a local directory's code, which has no commit, the SHA-256 of the bundle it fetched: it leases only while that's still the code installed, so a machine started before the directory changed never runs the old code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<String>,
     /// Each environment it has built, with that build's digest; the worker leases only runs in these. Null runs every one with the host's own software, as for development.
     pub environments: Option<serde_json::Map<String, serde_json::Value>>,
     pub name: String,

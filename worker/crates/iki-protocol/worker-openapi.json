@@ -611,6 +611,19 @@
       "PluginCode": {
         "description": "Plugin code a worker has. It leases only runs launched with that very code.",
         "properties": {
+          "bundle": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a local directory's code, which has no commit, the SHA-256 of the bundle it fetched: it leases only while that's still the code installed, so a machine started before the directory changed never runs the old code.",
+            "title": "Bundle"
+          },
           "environments": {
             "anyOf": [
               {

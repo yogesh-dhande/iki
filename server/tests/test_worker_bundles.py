@@ -148,3 +148,24 @@ def test_a_worker_that_fetched_the_code_runs_what_was_launched_with_it(
 def test_a_build_without_bundles_lists_nothing(world: World) -> None:
     listed = pod(world).call("GET", "/plugins")
     assert listed.status_code == 200 and listed.json() == {"plugins": []}
+
+
+def test_a_worker_with_a_local_directorys_code_leases_only_while_its_still_installed(
+    world: World, installed: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A local directory has no commit, so its runs all carry the same "local" code: the
+    bundle a worker fetched says which it has. Once another is installed, it takes none."""
+    local = {k: v for k, v in installed.items() if k != "sha"}
+    record = {"plugins": [local]}
+    monkeypatch.setattr(registry, "installed", lambda: record)
+    queued(world)
+    digest = installed["environments"]["protein-tools"]["digest"]
+    code = {"name": "protein", "sha": None, "environments": {"protein-tools": digest}}
+    stale = pod(world, [{**code, "bundle": "0" * 64}])
+    assert stale.lease().status_code == 204
+    current = pod(world, [{**code, "bundle": installed["bundle"]["sha256"]}])
+    leased = current.lease()
+    assert leased.status_code == 200, leased.content
+    # A worker that ran local code without fetching it (IKI_PLUGINS_DIR) says no bundle.
+    queued(world)
+    assert pod(world, [code]).lease().status_code == 200

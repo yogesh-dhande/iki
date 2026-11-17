@@ -323,6 +323,44 @@ fn clean_up(
     Ok(Cleaned::Ready)
 }
 
+/// Whether an idle worker stops: no job came for `IKI_WORKER_IDLE_EXIT`, or its local
+/// directory's code changed since it started.
+fn done_idling(
+    api: &Api,
+    config: &Config,
+    listed: &[iki_protocol::AvailableOut],
+    idle_since: std::time::Instant,
+) -> bool {
+    if config
+        .idle_exit
+        .is_some_and(|wait| idle_since.elapsed() >= wait)
+    {
+        say::info("No job came for a while; stopping.", &[]);
+        return true;
+    }
+    outdated_while_idle(api, config, listed)
+}
+
+/// Whether a machine with a local directory's code, idle, finds the directory changed
+/// since it started. The server leases it none of that plugin's jobs now (ADR 0062), so
+/// rather than wait idle to be stopped, it stops, for one with the new code to take over.
+fn outdated_while_idle(api: &Api, config: &Config, listed: &[iki_protocol::AvailableOut]) -> bool {
+    let Some(image) = &config.image else {
+        return false;
+    };
+    let changed = bundles::is_local(listed, image.plugin())
+        && bundles::available(api)
+            .is_ok_and(|now| bundles::code_changed(listed, &now, image.plugin()));
+    if changed {
+        say::info(
+            "The plugin's code changed since this machine started; stopping, so one with \
+             the new code takes over.",
+            &[],
+        );
+    }
+    changed
+}
+
 /// Cleans the machine for the next job: what the worker stops with, if it can't take one.
 fn ready_for_next(
     api: &Api,
@@ -427,11 +465,7 @@ pub fn start(config: &Config, once: bool) -> Result<(), String> {
             }
             Ok(None) => {
                 failures = 0;
-                if config
-                    .idle_exit
-                    .is_some_and(|wait| idle_since.elapsed() >= wait)
-                {
-                    say::info("No job came for a while; stopping.", &[]);
+                if done_idling(&api, config, &listed, idle_since) {
                     break;
                 }
                 if synced.elapsed() >= RESYNC_EVERY {

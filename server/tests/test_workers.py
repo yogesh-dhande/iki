@@ -37,7 +37,7 @@ GI = 1024**3
 ROOMY = {"cpu": 4, "memory": 16 * GI}
 #: The test plugins, from local directories, run with the host's own software.
 LOCAL = [
-    {"name": name, "sha": None, "environments": None}
+    {"name": name, "sha": None, "environments": None, "bundle": None}
     for name in ("dna", "protein", "structure_prediction")
 ]
 
@@ -397,7 +397,7 @@ BUILT = "sha256:" + "b" * 64
 
 
 def _code(sha: str | None, environments: dict[str, str] | None) -> list[dict[str, Any]]:
-    return [{"name": "protein", "sha": sha, "environments": environments}]
+    return [{"name": "protein", "sha": sha, "environments": environments, "bundle": None}]
 
 
 def test_workers_lease_only_runs_of_the_code_and_environments_they_have(
