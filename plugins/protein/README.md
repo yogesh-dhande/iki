@@ -171,6 +171,24 @@ where the file gives them. Chains of the same protein refer to the same
 with no protein chains, or that isn't mmCIF or PDB, fails the run, which says
 why. An entry the PDB doesn't have, or has made obsolete, fails the fetch.
 
+A structure's origin also says how its file says it was made
+([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)),
+as its source's word, never Iki's: an experiment, by mmCIF's `_exptl.method`
+(EXPDTA in a PDB file), such as `X-RAY DIFFRACTION`, or a computed model, by
+`THEORETICAL MODEL` or, in a ModelCIF file without `_exptl`, its model's type.
+With it, the software the file names (`_software`; in a ModelCIF file, only its
+software groups', which made the model, not those that annotated it), its
+version without a leading `v`, and a model's global quality metrics
+(`_ma_qa_metric_global`), a pLDDT as `mean_plddt`. A file that doesn't say,
+or names a method that isn't one of wwPDB's, says nothing. Its proteins'
+origins don't say: their sequences weren't made by the experiment or the
+model. A ModelCIF file's proteins take their organism, gene and UniProt
+accession from its target (`_ma_target_ref_db_details`), and a file without
+chain IDs in `_entity_poly` takes them from its residues.
+
+A sequence record doesn't say how its sequence was made, so proteins imported
+from FASTA or fetched from UniProt say nothing of it.
+
 DSSP reads each file as the import did, so each chain's letters line up with
 its protein's sequence: H, G and I are helices (alpha, 3-10, pi), P a
 polyproline II helix, E a strand in a sheet, B an isolated bridge, T a turn, S

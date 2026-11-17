@@ -9,7 +9,10 @@ GenBank records give their name, definition, accession and version, organism,
 topology and features. A feature's location is kept as its first and last base and
 its strand; locations with several parts (`join(...)`), fuzzy ends (`<1`, `>99`) or
 between two bases (`5^6`) keep GenBank's own text in the `location` qualifier too.
-Features on other records (`J00194.1:100..202`) are left out, with a warning.
+Features on other records (`J00194.1:100..202`) are left out, with a warning. A RefSeq
+model's (XM_, XR_) COMMENT says NCBI's annotation pipeline predicted it, with which gene
+prediction method: its origin says so, as NCBI's word (ADR 0106). Other records don't
+say how their sequence was made, so theirs don't.
 
 FASTA headers give a name (the first word) and a description (the rest). A word of
 the header that looks like an INSDC accession with its version (`L09137.2`,
@@ -49,6 +52,8 @@ MAX_FEATURES = 10_000
 MAX_QUALIFIERS = 50
 MAX_QUALIFIER = 10_000
 LIMITS = {"name": 255, "description": 10_000, "organism": 200, "accession": 64}
+#: How NCBI's COMMENT starts for a RefSeq model, a record its annotation pipeline predicted.
+MODEL = "MODEL REFSEQ: This record is predicted by automated computational analysis"
 
 
 class UnreadableError(Exception):
@@ -62,6 +67,8 @@ class Record:
     values: dict[str, Any]
     text: str
     warnings: list[str] = field(default_factory=list)
+    #: How the record says its sequence was made, if it does (ADR 0106).
+    made: dict[str, Any] | None = None
 
 
 # --- Bases ---------------------------------------------------------------------------------------
@@ -213,7 +220,55 @@ def genbank_record(number: int, lines: list[str], text: str) -> Record:
         },
         record,
     )
+    record.made = made(sections.get("COMMENT", []))
     return record
+
+
+def made(comment: list[str]) -> dict[str, Any] | None:
+    """How a record's COMMENT says its sequence was made, read from it, never guessed (ADR
+    0106): a RefSeq model's (XM_, XR_), which NCBI's annotation pipeline predicted, with the
+    gene prediction method and the pipeline's version it names. Other records don't say."""
+    text = " ".join(" ".join(comment).split())
+    if MODEL not in text:
+        return None
+    found: dict[str, Any] = {"kind": "computational"}
+    software: list[dict[str, str]] = []
+    method = re.search(r"gene prediction method: ([A-Za-z0-9][A-Za-z0-9_+-]*)", text)
+    if method:
+        found["method"] = "gene prediction"
+        software.append({"name": method[1][:100]})
+    annotation = structured(comment, "Genome-Annotation-Data")
+    pipeline = annotation.get("Annotation Pipeline", "")[:100].strip()
+    if pipeline:
+        tool = {"name": pipeline}
+        version = annotation.get("Annotation Software Version", "")[:100].strip()
+        if version:
+            tool["version"] = version
+        software.append(tool)
+    if software:
+        found["software"] = software
+    return found
+
+
+def structured(comment: list[str], name: str) -> dict[str, str]:
+    """A structured comment's fields (`Key :: value`, a value going on over lines), from
+    between its `##name-START##` and `##name-END##`."""
+    out: dict[str, str] = {}
+    inside = False
+    key = ""
+    for raw in comment:
+        line = raw.strip()
+        if line == f"##{name}-START##":
+            inside = True
+        elif line == f"##{name}-END##":
+            break
+        elif inside and "::" in line:
+            key, _, value = line.partition("::")
+            key = key.strip()
+            out[key] = value.strip()
+        elif inside and key and line:
+            out[key] = f"{out[key]} {line}"
+    return out
 
 
 def _organism(source: list[str]) -> str:
@@ -421,7 +476,10 @@ def finish(
             raise UnreadableError(
                 f"It holds more than the {MAX_RECORDS:,} records one run imports: split it."
             )
-        creates.add({"type": "dna.DNASequence", "values": record.values, "origin": origin(record)})
+        found = origin(record)
+        if record.made:
+            found["made"] = record.made
+        creates.add({"type": "dna.DNASequence", "values": record.values, "origin": found})
         for warning in record.warnings:
             warned += 1
             if len(messages) < MAX_MESSAGES:

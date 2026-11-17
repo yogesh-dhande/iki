@@ -201,6 +201,51 @@ def test_a_genbank_record_keeps_its_names_features_and_where_it_came_from(
     assert result.stdout.splitlines()[-1] == "::progress 1.00 2 records"
 
 
+#: A RefSeq model's COMMENT, as NCBI writes it (XM_090324667.1, cut down).
+MODEL_COMMENT = """\
+COMMENT     MODEL REFSEQ:  This record is predicted by automated computational
+            analysis. This record is derived from a genomic sequence
+            (NC_143544) annotated using gene prediction method: Gnomon.
+            Also see:
+                Documentation of NCBI's Annotation Process
+
+            ##Genome-Annotation-Data-START##
+            Annotation Provider         :: NCBI RefSeq
+            Annotation Status           :: Full annotation
+            Annotation Pipeline         :: NCBI Eukaryotic Genome Annotation
+                                           Pipeline (EGAP)
+            Annotation Software Version :: 10.6
+            Annotation Method           :: Gnomon; cmsearch; tRNAscan-SE
+            ##Genome-Annotation-Data-END##
+"""
+MODEL = GENBANK.replace("FEATURES ", MODEL_COMMENT + "FEATURES ")
+#: What it says made it: NCBI's prediction.
+PREDICTED = {
+    "kind": "computational",
+    "method": "gene prediction",
+    "software": [
+        {"name": "Gnomon"},
+        {"name": "NCBI Eukaryotic Genome Annotation Pipeline (EGAP)", "version": "10.6"},
+    ],
+}
+
+
+def test_a_refseq_models_record_says_ncbi_predicted_it(tmp_path: Path) -> None:
+    result, output = imported(tmp_path, MODEL + "\n" + GENBANK)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    model, other = output["creates"]
+    assert model["origin"]["made"] == PREDICTED
+    # A record that doesn't say how its sequence was made gets nothing.
+    assert "made" not in other["origin"]
+    # A COMMENT that isn't a model's says nothing of how either.
+    result, output = imported(
+        tmp_path, GENBANK.replace("FEATURES ", "COMMENT     Sequenced by the lab.\nFEATURES ")
+    )
+    assert output is not None
+    assert "made" not in output["creates"][0]["origin"]
+
+
 def test_fasta_records_take_their_names_and_the_topology_given(tmp_path: Path) -> None:
     text = ">gb|L09137.2| pUC19 cloning vector\nACGTACGT\nacgtn\n\n>seq2\nGGCC\n"
     result, output = imported(tmp_path, text, name="vectors.fa", topology="circular")
@@ -384,6 +429,13 @@ def test_fetches_records_from_ncbi_and_says_which_version_and_when(
     assert origin["retrieved_at"].endswith("+00:00")
     assert origin["sha256"] == hashlib.sha256(ncbi.fake.records["NM_000546.6"].encode()).hexdigest()
     assert output["metrics"] == {"records": 2}
+    assert "made" not in origin
+
+
+def test_a_fetched_refseq_model_says_ncbi_predicted_it(tmp_path: Path, ncbi: Any) -> None:
+    ncbi.fake.records["L09137.2"] = MODEL
+    output = fetched(tmp_path, ncbi, "L09137.2")
+    assert output["creates"][0]["origin"]["made"] == PREDICTED
 
 
 def test_asks_ncbi_in_batches_no_faster_than_it_allows(

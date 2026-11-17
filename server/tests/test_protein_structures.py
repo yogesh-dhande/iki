@@ -64,7 +64,25 @@ _pdbx_audit_revision_history.revision_date
 1 1 0 2020-01-15
 2 1 1 2021-03-03
 2 2 0 2024-05-22
+loop_
+_software.pdbx_ordinal
+_software.name
+_software.version
+_software.classification
+1 PHENIX 1.21.2_5419 refinement
+2 XDS . 'data reduction'
+3 PHENIX 1.21.2_5419 phasing
 """
+
+#: What MMCIF says made it: an experiment, and the software it names, each once.
+X_RAY = {
+    "kind": "experimental",
+    "method": "X-RAY DIFFRACTION",
+    "software": [{"name": "PHENIX", "version": "1.21.2_5419"}, {"name": "XDS"}],
+}
+
+#: AlphaFold DB's model of crambin, cut to its first residue (CC BY 4.0).
+ALPHAFOLD = Path(__file__).parent / "data" / "AF-P01542-F1-model_v6.cif"
 
 
 def _atom(serial: int, residue: str, chain: str, number: int) -> str:
@@ -147,7 +165,8 @@ def test_an_mmcif_file_gives_a_structure_linked_to_its_proteins(tmp_path: Path) 
             "chain_ids": ["A", "B"],
             "released": "2020-01-15",
         },
-        "origin": origin,
+        # The structure was made by the experiment, the protein's sequence wasn't.
+        "origin": {**origin, "made": X_RAY},
     }
     assert output["messages"] == [
         {
@@ -168,6 +187,8 @@ def test_a_pdb_file_without_seqres_gives_the_residues_it_has(tmp_path: Path) -> 
     assert structure["values"]["chain_ids"] == ["A"]
     assert "pdb_id" not in structure["values"]
     assert structure["origin"]["source"] == "PDB file"
+    # It doesn't say how it was made, so neither does its origin.
+    assert "made" not in structure["origin"]
 
 
 def test_chains_of_the_same_protein_refer_to_one_and_others_to_their_own(
@@ -193,6 +214,73 @@ def test_chains_of_the_same_protein_refer_to_one_and_others_to_their_own(
         {"$create": "C"},
     ]
     assert structure["values"]["chain_ids"] == ["A", "B", "C"]
+
+
+@pytest.mark.parametrize(
+    ("expdta", "made"),
+    [
+        (
+            "X-RAY DIFFRACTION; NEUTRON DIFFRACTION",
+            {"kind": "experimental", "method": "X-RAY DIFFRACTION, NEUTRON DIFFRACTION"},
+        ),
+        ("THEORETICAL MODEL", {"kind": "computational", "method": "THEORETICAL MODEL"}),
+    ],
+)
+def test_a_pdb_file_says_how_it_was_made_in_expdta(
+    tmp_path: Path, expdta: str, made: dict[str, Any]
+) -> None:
+    result, output = run(tmp_path, f"EXPDTA    {expdta}\n{PREDICTED}", "model.pdb")
+    assert result.returncode == 0, result.stderr
+    assert output["creates"][-1]["origin"]["made"] == made
+    assert "made" not in output["creates"][0]["origin"]
+
+
+def test_a_method_that_isnt_wwpdbs_says_nothing_of_how(tmp_path: Path) -> None:
+    text = MMCIF.replace("'X-RAY DIFFRACTION'", "'GUESSWORK'")
+    result, output = run(tmp_path, text, "odd.cif")
+    assert result.returncode == 0, result.stderr
+    structure = output["creates"][-1]
+    assert structure["values"]["method"] == "other"
+    assert "made" not in structure["origin"]
+
+
+def test_a_modelcif_file_says_what_made_the_model_and_how_sure_it_is(tmp_path: Path) -> None:
+    text = ALPHAFOLD.read_text(encoding="utf-8")
+    result, output = run(tmp_path, text, "AF-P01542-F1-model_v6.cif")
+    assert result.returncode == 0, result.stderr
+    protein, structure = output["creates"]
+    assert protein["values"] == {
+        "name": "Crambin",
+        "description": "Chain A of AF-P01542-F1-model_v6.",
+        "sequence": "TTCCPSIVARSNFNVCRLPGTPEALCATYTGCIIIPGATCPGDYAN",
+        # From ModelCIF's target: the UniProt entry it modelled.
+        "organism": "Crambe hispanica subsp. abyssinica",
+        "gene": "THI2",
+        "uniprot_accession": "P01542",
+    }
+    assert "made" not in protein["origin"]
+    values = structure["values"]
+    assert (values["method"], values["chain_ids"], values["released"]) == (
+        "predicted",
+        ["A"],
+        "2021-12-09",
+    )
+    # AlphaFold, as its software group says; not DSSP, which only annotated it.
+    assert structure["origin"]["made"] == {
+        "kind": "computational",
+        "method": "Ab initio model",
+        "software": [{"name": "AlphaFold", "version": "2.0"}],
+        "details": {"mean_plddt": 93.48},
+    }
+
+
+def test_a_modelcif_file_without_chain_ids_takes_its_residues(tmp_path: Path) -> None:
+    text = ALPHAFOLD.read_text(encoding="utf-8").replace(
+        "_entity_poly.pdbx_strand_id               A\n", ""
+    )
+    result, output = run(tmp_path, text, "model.cif")
+    assert result.returncode == 0, result.stderr
+    assert output["creates"][-1]["values"]["chain_ids"] == ["A"]
 
 
 @pytest.mark.parametrize(
@@ -301,7 +389,8 @@ def test_fetches_entries_from_the_pdb_as_mmcif_files_it_attaches(tmp_path: Path,
         "sha256": hashlib.sha256(MMCIF.encode()).hexdigest(),
     }
     assert origin["retrieved_at"].endswith("+00:00")
-    assert output["creates"][0]["origin"] == origin
+    assert origin["made"] == X_RAY
+    assert output["creates"][0]["origin"] == {k: v for k, v in origin.items() if k != "made"}
     assert output["metrics"] == {"structures": 2}
 
 

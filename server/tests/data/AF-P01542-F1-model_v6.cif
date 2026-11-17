@@ -1,0 +1,535 @@
+# AlphaFold DB's model AF-P01542-F1 (crambin), version 6, cut to its first residue's
+# atoms and confidence. AlphaFold DB data is CC BY 4.0:
+# https://alphafold.ebi.ac.uk/entry/P01542 (Jumper et al., Nature 2021; Bertoni et al.,
+# Nucleic Acids Research 2026). Kept for the protein plugin's tests.
+data_AF-P01542-F1
+#
+_entry.id AF-P01542-F1
+#
+loop_
+_atom_type.symbol
+C
+N
+O
+S
+#
+loop_
+_audit_author.name
+_audit_author.pdbx_ordinal
+"Jumper, John"               1
+"Evans, Richard"             2
+"Pritzel, Alexander"         3
+"Green, Tim"                 4
+"Figurnov, Michael"          5
+"Ronneberger, Olaf"          6
+"Tunyasuvunakool, Kathryn"   7
+"Bates, Russ"                8
+"Zidek, Augustin"            9
+"Potapenko, Anna"            10
+"Bridgland, Alex"            11
+"Meyer, Clemens"             12
+"Kohl, Simon A. A."          13
+"Ballard, Andrew J."         14
+"Cowie, Andrew"              15
+"Romera-Paredes, Bernardino" 16
+"Nikolov, Stanislav"         17
+"Jain, Rishub"               18
+"Adler, Jonas"               19
+"Back, Trevor"               20
+"Petersen, Stig"             21
+"Reiman, David"              22
+"Clancy, Ellen"              23
+"Zielinski, Michal"          24
+"Steinegger, Martin"         25
+"Pacholska, Michalina"       26
+"Berghammer, Tamas"          27
+"Silver, David"              28
+"Vinyals, Oriol"             29
+"Senior, Andrew W."          30
+"Kavukcuoglu, Koray"         31
+"Kohli, Pushmeet"            32
+"Hassabis, Demis"            33
+#
+_audit_conform.dict_location https://raw.githubusercontent.com/ihmwg/ModelCIF/master/dist/mmcif_ma.dic
+_audit_conform.dict_name     mmcif_ma.dic
+_audit_conform.dict_version  1.3.9
+#
+loop_
+_chem_comp.formula
+_chem_comp.formula_weight
+_chem_comp.id
+_chem_comp.mon_nstd_flag
+_chem_comp.name
+_chem_comp.pdbx_synonyms
+_chem_comp.type
+"C3 H7 N O2"   89.093  ALA y ALANINE         ? "L-PEPTIDE LINKING"
+"C6 H15 N4 O2" 175.209 ARG y ARGININE        ? "L-PEPTIDE LINKING"
+"C4 H8 N2 O3"  132.118 ASN y ASPARAGINE      ? "L-PEPTIDE LINKING"
+"C4 H7 N O4"   133.103 ASP y "ASPARTIC ACID" ? "L-PEPTIDE LINKING"
+"C3 H7 N O2 S" 121.158 CYS y CYSTEINE        ? "L-PEPTIDE LINKING"
+"C5 H9 N O4"   147.129 GLU y "GLUTAMIC ACID" ? "L-PEPTIDE LINKING"
+"C2 H5 N O2"   75.067  GLY y GLYCINE         ? "PEPTIDE LINKING"
+"C6 H13 N O2"  131.173 ILE y ISOLEUCINE      ? "L-PEPTIDE LINKING"
+"C6 H13 N O2"  131.173 LEU y LEUCINE         ? "L-PEPTIDE LINKING"
+"C9 H11 N O2"  165.189 PHE y PHENYLALANINE   ? "L-PEPTIDE LINKING"
+"C5 H9 N O2"   115.130 PRO y PROLINE         ? "L-PEPTIDE LINKING"
+"C3 H7 N O3"   105.093 SER y SERINE          ? "L-PEPTIDE LINKING"
+"C4 H9 N O3"   119.119 THR y THREONINE       ? "L-PEPTIDE LINKING"
+"C9 H11 N O3"  181.189 TYR y TYROSINE        ? "L-PEPTIDE LINKING"
+"C5 H11 N O2"  117.146 VAL y VALINE          ? "L-PEPTIDE LINKING"
+#
+_citation.book_publisher          ?
+_citation.country                 UK
+_citation.id                      primary
+_citation.journal_full            Nature
+_citation.journal_id_ASTM         NATUAS
+_citation.journal_id_CSD          0006
+_citation.journal_id_ISSN         0028-0836
+_citation.journal_volume          596
+_citation.page_first              583
+_citation.page_last               589
+_citation.pdbx_database_id_DOI    10.1038/s41586-021-03819-2
+_citation.pdbx_database_id_PubMed 34265844
+_citation.title                   "Highly accurate protein structure prediction with AlphaFold"
+_citation.year                    2021
+#
+loop_
+_citation_author.citation_id
+_citation_author.name
+_citation_author.ordinal
+primary "Jumper, John"               1
+primary "Evans, Richard"             2
+primary "Pritzel, Alexander"         3
+primary "Green, Tim"                 4
+primary "Figurnov, Michael"          5
+primary "Ronneberger, Olaf"          6
+primary "Tunyasuvunakool, Kathryn"   7
+primary "Bates, Russ"                8
+primary "Zidek, Augustin"            9
+primary "Potapenko, Anna"            10
+primary "Bridgland, Alex"            11
+primary "Meyer, Clemens"             12
+primary "Kohl, Simon A. A."          13
+primary "Ballard, Andrew J."         14
+primary "Cowie, Andrew"              15
+primary "Romera-Paredes, Bernardino" 16
+primary "Nikolov, Stanislav"         17
+primary "Jain, Rishub"               18
+primary "Adler, Jonas"               19
+primary "Back, Trevor"               20
+primary "Petersen, Stig"             21
+primary "Reiman, David"              22
+primary "Clancy, Ellen"              23
+primary "Zielinski, Michal"          24
+primary "Steinegger, Martin"         25
+primary "Pacholska, Michalina"       26
+primary "Berghammer, Tamas"          27
+primary "Silver, David"              28
+primary "Vinyals, Oriol"             29
+primary "Senior, Andrew W."          30
+primary "Kavukcuoglu, Koray"         31
+primary "Kohli, Pushmeet"            32
+primary "Hassabis, Demis"            33
+#
+_database_2.database_code AF-P01542-F1
+_database_2.database_id   AlphaFoldDB
+#
+_entity.details                  ?
+_entity.formula_weight           ?
+_entity.id                       1
+_entity.pdbx_description         Crambin
+_entity.pdbx_ec                  ?
+_entity.pdbx_fragment            ?
+_entity.pdbx_mutation            ?
+_entity.pdbx_number_of_molecules 1
+_entity.src_method               man
+_entity.type                     polymer
+#
+_entity_poly.entity_id                    1
+_entity_poly.nstd_linkage                 no
+_entity_poly.nstd_monomer                 no
+_entity_poly.pdbx_seq_one_letter_code     TTCCPSIVARSNFNVCRLPGTPEALCATYTGCIIIPGATCPGDYAN
+_entity_poly.pdbx_seq_one_letter_code_can TTCCPSIVARSNFNVCRLPGTPEALCATYTGCIIIPGATCPGDYAN
+_entity_poly.pdbx_strand_id               A
+_entity_poly.type                         polypeptide(L)
+#
+loop_
+_entity_poly_seq.entity_id
+_entity_poly_seq.hetero
+_entity_poly_seq.mon_id
+_entity_poly_seq.num
+1 n THR 1
+1 n THR 2
+1 n CYS 3
+1 n CYS 4
+1 n PRO 5
+1 n SER 6
+1 n ILE 7
+1 n VAL 8
+1 n ALA 9
+1 n ARG 10
+1 n SER 11
+1 n ASN 12
+1 n PHE 13
+1 n ASN 14
+1 n VAL 15
+1 n CYS 16
+1 n ARG 17
+1 n LEU 18
+1 n PRO 19
+1 n GLY 20
+1 n THR 21
+1 n PRO 22
+1 n GLU 23
+1 n ALA 24
+1 n LEU 25
+1 n CYS 26
+1 n ALA 27
+1 n THR 28
+1 n TYR 29
+1 n THR 30
+1 n GLY 31
+1 n CYS 32
+1 n ILE 33
+1 n ILE 34
+1 n ILE 35
+1 n PRO 36
+1 n GLY 37
+1 n ALA 38
+1 n THR 39
+1 n CYS 40
+1 n PRO 41
+1 n GLY 42
+1 n ASP 43
+1 n TYR 44
+1 n ALA 45
+1 n ASN 46
+#
+loop_
+_ma_data.content_type
+_ma_data.id
+_ma_data.name
+"model coordinates" 1 Model
+"input structure"   2 "Input structure"
+#
+_ma_model_list.data_id          1
+_ma_model_list.model_group_id   1
+_ma_model_list.model_group_name "AlphaFold Monomer v2.0 model"
+_ma_model_list.model_id         1
+_ma_model_list.model_name       "Top ranked model"
+_ma_model_list.model_type       "Ab initio model"
+_ma_model_list.ordinal_id       1
+#
+loop_
+_ma_protocol_step.method_type
+_ma_protocol_step.ordinal_id
+_ma_protocol_step.protocol_id
+_ma_protocol_step.step_id
+"coevolution MSA" 1 1 1
+"template search" 2 1 2
+modeling          3 1 3
+#
+loop_
+_ma_qa_metric.id
+_ma_qa_metric.mode
+_ma_qa_metric.name
+_ma_qa_metric.software_group_id
+_ma_qa_metric.type
+1 global pLDDT 1 pLDDT
+2 local  pLDDT 1 pLDDT
+#
+_ma_qa_metric_global.metric_id    1
+_ma_qa_metric_global.metric_value 93.48
+_ma_qa_metric_global.model_id     1
+_ma_qa_metric_global.ordinal_id   1
+#
+loop_
+_ma_qa_metric_local.label_asym_id
+_ma_qa_metric_local.label_comp_id
+_ma_qa_metric_local.label_seq_id
+_ma_qa_metric_local.metric_id
+_ma_qa_metric_local.metric_value
+_ma_qa_metric_local.model_id
+_ma_qa_metric_local.ordinal_id
+A THR 1  2 89.94 1 1
+#
+_ma_software_group.group_id    1
+_ma_software_group.ordinal_id  1
+_ma_software_group.software_id 1
+#
+_ma_target_entity.data_id   1
+_ma_target_entity.entity_id 1
+_ma_target_entity.origin    "reference database"
+#
+_ma_target_entity_instance.asym_id   A
+_ma_target_entity_instance.details   .
+_ma_target_entity_instance.entity_id 1
+#
+_ma_target_ref_db_details.db_accession                 P01542
+_ma_target_ref_db_details.db_code                      CRAM_CRAAB
+_ma_target_ref_db_details.db_name                      UNP
+_ma_target_ref_db_details.gene_name                    THI2
+_ma_target_ref_db_details.ncbi_taxonomy_id             3721
+_ma_target_ref_db_details.organism_scientific          "Crambe hispanica subsp. abyssinica"
+_ma_target_ref_db_details.seq_db_align_begin           1
+_ma_target_ref_db_details.seq_db_align_end             46
+_ma_target_ref_db_details.seq_db_isoform               ?
+_ma_target_ref_db_details.seq_db_sequence_checksum     919E68AF159EF722
+_ma_target_ref_db_details.seq_db_sequence_version_date 2000-05-30
+_ma_target_ref_db_details.target_entity_id             1
+#
+loop_
+_ma_template_details.ordinal_id
+_ma_template_details.target_asym_id
+_ma_template_details.template_auth_asym_id
+_ma_template_details.template_data_id
+_ma_template_details.template_entity_type
+_ma_template_details.template_id
+_ma_template_details.template_model_num
+_ma_template_details.template_origin
+_ma_template_details.template_trans_matrix_id
+1 A A 2 polymer 1 1 "reference database" 1
+2 A B 2 polymer 2 1 "reference database" 1
+3 A A 2 polymer 3 1 "reference database" 1
+4 A B 2 polymer 4 1 "reference database" 1
+#
+loop_
+_ma_template_ref_db_details.db_accession_code
+_ma_template_ref_db_details.db_name
+_ma_template_ref_db_details.template_id
+2V9B PDB 1
+3SZS PDB 2
+1BHP PDB 3
+1WUW PDB 4
+#
+_ma_template_trans_matrix.id               1
+_ma_template_trans_matrix.rot_matrix[1][1] 1.0
+_ma_template_trans_matrix.rot_matrix[1][2] 0.0
+_ma_template_trans_matrix.rot_matrix[1][3] 0.0
+_ma_template_trans_matrix.rot_matrix[2][1] 0.0
+_ma_template_trans_matrix.rot_matrix[2][2] 1.0
+_ma_template_trans_matrix.rot_matrix[2][3] 0.0
+_ma_template_trans_matrix.rot_matrix[3][1] 0.0
+_ma_template_trans_matrix.rot_matrix[3][2] 0.0
+_ma_template_trans_matrix.rot_matrix[3][3] 1.0
+_ma_template_trans_matrix.tr_vector[1]     0.0
+_ma_template_trans_matrix.tr_vector[2]     0.0
+_ma_template_trans_matrix.tr_vector[3]     0.0
+#
+loop_
+_pdbx_audit_revision_details.data_content_type
+_pdbx_audit_revision_details.description
+_pdbx_audit_revision_details.ordinal
+_pdbx_audit_revision_details.provider
+_pdbx_audit_revision_details.revision_ordinal
+_pdbx_audit_revision_details.type
+"Structure model" "Format fixes, new metadata, initial SwissProt release" 2 repository 2 Remediation
+"Structure model" "Format fixes, new metadata, initial UniProt release"   3 repository 3 Remediation
+"Structure model" "Improved prediction accuracy, small format fixes"      4 repository 4 Remediation
+"Structure model" "Update to UniProt 2024_06, small format fixes"         5 repository 5 Release
+"Structure model" "Update to UniProt 2025_03"                             6 repository 6 Release
+#
+loop_
+_pdbx_audit_revision_history.data_content_type
+_pdbx_audit_revision_history.major_revision
+_pdbx_audit_revision_history.minor_revision
+_pdbx_audit_revision_history.ordinal
+_pdbx_audit_revision_history.revision_date
+"Structure model" 2 0 2 2021-12-09
+"Structure model" 3 0 3 2022-06-01
+"Structure model" 4 0 4 2022-09-30
+"Structure model" 5 0 5 2025-03-31
+"Structure model" 6 0 6 2025-08-01
+#
+loop_
+_pdbx_data_usage.details
+_pdbx_data_usage.id
+_pdbx_data_usage.name
+_pdbx_data_usage.type
+_pdbx_data_usage.url
+"Data in this file is available under a CC-BY-4.0 license." 1 CC-BY-4.0 license    https://creativecommons.org/licenses/by/4.0/
+;ALPHAFOLD DATA, COPYRIGHT (2021) DEEPMIND TECHNOLOGIES LIMITED. THE INFORMATION
+PROVIDED IS THEORETICAL MODELLING ONLY AND CAUTION SHOULD BE EXERCISED IN ITS
+USE. IT IS PROVIDED "AS-IS" WITHOUT ANY WARRANTY OF ANY KIND, WHETHER EXPRESSED
+OR IMPLIED. NO WARRANTY IS GIVEN THAT USE OF THE INFORMATION SHALL NOT INFRINGE
+THE RIGHTS OF ANY THIRD PARTY. DISCLAIMER: THE INFORMATION IS NOT INTENDED TO BE
+A SUBSTITUTE FOR PROFESSIONAL MEDICAL ADVICE, DIAGNOSIS, OR TREATMENT, AND DOES
+NOT CONSTITUTE MEDICAL OR OTHER PROFESSIONAL ADVICE. IT IS AVAILABLE FOR
+ACADEMIC AND COMMERCIAL PURPOSES, UNDER CC-BY 4.0 LICENCE.
+;
+2 ?         disclaimer ?
+#
+_pdbx_database_status.entry_id                      AF-P01542-F1
+_pdbx_database_status.recvd_initial_deposition_date 2025-08-01
+_pdbx_database_status.status_code                   REL
+#
+loop_
+_pdbx_poly_seq_scheme.asym_id
+_pdbx_poly_seq_scheme.auth_seq_num
+_pdbx_poly_seq_scheme.entity_id
+_pdbx_poly_seq_scheme.hetero
+_pdbx_poly_seq_scheme.mon_id
+_pdbx_poly_seq_scheme.pdb_ins_code
+_pdbx_poly_seq_scheme.pdb_mon_id
+_pdbx_poly_seq_scheme.pdb_seq_num
+_pdbx_poly_seq_scheme.pdb_strand_id
+_pdbx_poly_seq_scheme.seq_id
+A 1  1 n THR . THR 1  A 1
+A 2  1 n THR . THR 2  A 2
+A 3  1 n CYS . CYS 3  A 3
+A 4  1 n CYS . CYS 4  A 4
+A 5  1 n PRO . PRO 5  A 5
+A 6  1 n SER . SER 6  A 6
+A 7  1 n ILE . ILE 7  A 7
+A 8  1 n VAL . VAL 8  A 8
+A 9  1 n ALA . ALA 9  A 9
+A 10 1 n ARG . ARG 10 A 10
+A 11 1 n SER . SER 11 A 11
+A 12 1 n ASN . ASN 12 A 12
+A 13 1 n PHE . PHE 13 A 13
+A 14 1 n ASN . ASN 14 A 14
+A 15 1 n VAL . VAL 15 A 15
+A 16 1 n CYS . CYS 16 A 16
+A 17 1 n ARG . ARG 17 A 17
+A 18 1 n LEU . LEU 18 A 18
+A 19 1 n PRO . PRO 19 A 19
+A 20 1 n GLY . GLY 20 A 20
+A 21 1 n THR . THR 21 A 21
+A 22 1 n PRO . PRO 22 A 22
+A 23 1 n GLU . GLU 23 A 23
+A 24 1 n ALA . ALA 24 A 24
+A 25 1 n LEU . LEU 25 A 25
+A 26 1 n CYS . CYS 26 A 26
+A 27 1 n ALA . ALA 27 A 27
+A 28 1 n THR . THR 28 A 28
+A 29 1 n TYR . TYR 29 A 29
+A 30 1 n THR . THR 30 A 30
+A 31 1 n GLY . GLY 31 A 31
+A 32 1 n CYS . CYS 32 A 32
+A 33 1 n ILE . ILE 33 A 33
+A 34 1 n ILE . ILE 34 A 34
+A 35 1 n ILE . ILE 35 A 35
+A 36 1 n PRO . PRO 36 A 36
+A 37 1 n GLY . GLY 37 A 37
+A 38 1 n ALA . ALA 38 A 38
+A 39 1 n THR . THR 39 A 39
+A 40 1 n CYS . CYS 40 A 40
+A 41 1 n PRO . PRO 41 A 41
+A 42 1 n GLY . GLY 42 A 42
+A 43 1 n ASP . ASP 43 A 43
+A 44 1 n TYR . TYR 44 A 44
+A 45 1 n ALA . ALA 45 A 45
+A 46 1 n ASN . ASN 46 A 46
+#
+loop_
+_software.classification
+_software.date
+_software.description
+_software.name
+_software.pdbx_ordinal
+_software.type
+_software.version
+other ? "Structure prediction" AlphaFold 1 package v2.0
+other ? "Secondary structure"  dssp      2 library 4
+#
+_struct_asym.entity_id 1
+_struct_asym.id        A
+#
+loop_
+_struct_conf.beg_auth_asym_id
+_struct_conf.beg_auth_comp_id
+_struct_conf.beg_auth_seq_id
+_struct_conf.beg_label_asym_id
+_struct_conf.beg_label_comp_id
+_struct_conf.beg_label_seq_id
+_struct_conf.conf_type_id
+_struct_conf.end_auth_asym_id
+_struct_conf.end_auth_comp_id
+_struct_conf.end_auth_seq_id
+_struct_conf.end_label_asym_id
+_struct_conf.end_label_comp_id
+_struct_conf.end_label_seq_id
+_struct_conf.id
+_struct_conf.pdbx_beg_PDB_ins_code
+_struct_conf.pdbx_end_PDB_ins_code
+A THR 2  A THR 2  STRN         A CYS 3  A CYS 3  STRN1         ? ?
+A CYS 4  A CYS 4  STRN         A CYS 4  A CYS 4  STRN2         ? ?
+A PRO 5  A PRO 5  BEND         A SER 6  A SER 6  BEND1         ? ?
+A ILE 7  A ILE 7  HELX_RH_AL_P A ARG 17 A ARG 17 HELX_RH_AL_P1 ? ?
+A LEU 18 A LEU 18 TURN_TY1_P   A GLY 20 A GLY 20 TURN_TY1_P1   ? ?
+A GLU 23 A GLU 23 HELX_RH_AL_P A THR 30 A THR 30 HELX_RH_AL_P2 ? ?
+A GLY 31 A GLY 31 TURN_TY1_P   A GLY 31 A GLY 31 TURN_TY1_P2   ? ?
+A ILE 33 A ILE 33 STRN         A ILE 34 A ILE 34 STRN3         ? ?
+A PRO 36 A PRO 36 BEND         A THR 39 A THR 39 BEND2         ? ?
+A GLY 42 A GLY 42 HELX_RH_3T_P A TYR 44 A TYR 44 HELX_RH_3T_P1 ? ?
+A ALA 45 A ALA 45 STRN         A ALA 45 A ALA 45 STRN4         ? ?
+#
+loop_
+_struct_conf_type.criteria
+_struct_conf_type.id
+DSSP STRN
+DSSP BEND
+DSSP HELX_RH_AL_P
+DSSP TURN_TY1_P
+DSSP HELX_RH_3T_P
+#
+_struct_ref.db_code                  CRAM_CRAAB
+_struct_ref.db_name                  UNP
+_struct_ref.entity_id                1
+_struct_ref.id                       1
+_struct_ref.pdbx_align_begin         1
+_struct_ref.pdbx_align_end           46
+_struct_ref.pdbx_db_accession        P01542
+_struct_ref.pdbx_db_isoform          ?
+_struct_ref.pdbx_seq_one_letter_code TTCCPSIVARSNFNVCRLPGTPEALCATYTGCIIIPGATCPGDYAN
+#
+_struct_ref_seq.align_id                    1
+_struct_ref_seq.db_align_beg                1
+_struct_ref_seq.db_align_end                46
+_struct_ref_seq.pdbx_PDB_id_code            AF-P01542-F1
+_struct_ref_seq.pdbx_auth_seq_align_beg     1
+_struct_ref_seq.pdbx_auth_seq_align_end     46
+_struct_ref_seq.pdbx_db_accession           P01542
+_struct_ref_seq.pdbx_db_align_beg_ins_code  ?
+_struct_ref_seq.pdbx_db_align_end_ins_code  ?
+_struct_ref_seq.pdbx_seq_align_beg_ins_code ?
+_struct_ref_seq.pdbx_seq_align_end_ins_code ?
+_struct_ref_seq.pdbx_strand_id              A
+_struct_ref_seq.ref_id                      1
+_struct_ref_seq.seq_align_beg               1
+_struct_ref_seq.seq_align_end               46
+#
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_alt_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.pdbx_PDB_ins_code
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
+_atom_site.pdbx_formal_charge
+_atom_site.auth_seq_id
+_atom_site.auth_comp_id
+_atom_site.auth_asym_id
+_atom_site.auth_atom_id
+_atom_site.pdbx_PDB_model_num
+_atom_site.pdbx_sifts_xref_db_acc
+_atom_site.pdbx_sifts_xref_db_name
+_atom_site.pdbx_sifts_xref_db_num
+_atom_site.pdbx_sifts_xref_db_res
+ATOM 1   N N   . THR A 1 1  ? 5.300   2.925  6.098   1.00 89.94 ? 1  THR A N   1 P01542 UNP 1  T
+ATOM 2   C CA  . THR A 1 1  ? 5.418   3.893  4.989   1.00 89.94 ? 1  THR A CA  1 P01542 UNP 1  T
+ATOM 3   C C   . THR A 1 1  ? 4.705   3.364  3.771   1.00 89.94 ? 1  THR A C   1 P01542 UNP 1  T
+ATOM 4   C CB  . THR A 1 1  ? 6.882   4.130  4.648   1.00 89.94 ? 1  THR A CB  1 P01542 UNP 1  T
+ATOM 5   O O   . THR A 1 1  ? 4.885   2.195  3.453   1.00 89.94 ? 1  THR A O   1 P01542 UNP 1  T
+ATOM 6   C CG2 . THR A 1 1  ? 7.125   5.190  3.577   1.00 89.94 ? 1  THR A CG2 1 P01542 UNP 1  T
+ATOM 7   O OG1 . THR A 1 1  ? 7.477   4.562  5.839   1.00 89.94 ? 1  THR A OG1 1 P01542 UNP 1  T
+#

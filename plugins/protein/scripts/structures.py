@@ -14,6 +14,11 @@ run: all or nothing. A structure file is read with gemmi, as mmCIF (it starts wi
 
 Other polymers (DNA, RNA, D-peptides) and ligands are left out, and the run says so.
 
+The structure's origin says how the file says it was made (ADR 0106): an experiment, by
+`_exptl`'s method (EXPDTA in PDB format), or a computed model, by THEORETICAL MODEL or
+ModelCIF's categories, with the software it names and, for a model, its global quality
+metrics, such as a mean pLDDT. A file that says nothing gets nothing.
+
 Fetching downloads `<ID>.cif.gz` from files.rcsb.org, up to 100 entries a run, and
 records the entry's revision, when it was fetched and the file's SHA-256. An entry the
 PDB doesn't have (or has made obsolete) fails the run, which names it.
@@ -24,6 +29,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -60,6 +66,27 @@ METHODS = {
     "NEUTRON DIFFRACTION": "neutron",
     "THEORETICAL MODEL": "predicted",
 }
+#: wwPDB's experimental methods (`_exptl.method`); its other, THEORETICAL MODEL, is computed.
+EXPERIMENTAL = frozenset(
+    {
+        "X-RAY DIFFRACTION",
+        "FIBER DIFFRACTION",
+        "POWDER DIFFRACTION",
+        "NEUTRON DIFFRACTION",
+        "ELECTRON MICROSCOPY",
+        "ELECTRON CRYSTALLOGRAPHY",
+        "SOLUTION NMR",
+        "SOLID-STATE NMR",
+        "SOLUTION SCATTERING",
+        "INFRARED SPECTROSCOPY",
+        "EPR",
+        "FLUORESCENCE TRANSFER",
+    }
+)
+COMPUTED = "THEORETICAL MODEL"
+#: The most tools, and details, an origin's `made` holds.
+MAX_TOOLS = 20
+MAX_DETAILS = 20
 LIMITS = {"name": 255, "description": 10_000, "organism": 200, "gene": 100}
 
 
@@ -86,6 +113,8 @@ class Read:
     #: The entry's latest revision, such as 4.3.
     revision: str = ""
     notes: list[str] = field(default_factory=list)
+    #: How the file says the structure was made, if it does (ADR 0106).
+    made: dict[str, Any] | None = None
 
 
 # --- Reading -------------------------------------------------------------------------------------
@@ -176,12 +205,104 @@ def sequences(block: gemmi.cif.Block) -> dict[str, str]:
     return out
 
 
+def strands(block: gemmi.cif.Block) -> dict[str, str]:
+    """Each polymer entity's chain IDs, for a file whose `_entity_poly` doesn't list them
+    (as some models' don't): from its residues' scheme, or else its asyms'."""
+    out: dict[str, dict[str, None]] = {}
+    for row in rows(block, "_pdbx_poly_seq_scheme.", ["entity_id", "pdb_strand_id"]):
+        out.setdefault(row["entity_id"], {})[row["pdb_strand_id"]] = None
+    if not out:
+        for row in rows(block, "_struct_asym.", ["entity_id", "id"]):
+            out.setdefault(row["entity_id"], {})[row["id"]] = None
+    return {entity: ",".join(c for c in chains if c) for entity, chains in out.items()}
+
+
 def _by_entity(block: gemmi.cif.Block, category: str, tag: str) -> dict[str, str]:
     return {
         row["entity_id"]: row[tag.lstrip("?")]
         for row in rows(block, category, ["entity_id", tag])
         if row[tag.lstrip("?")]
     }
+
+
+def _said(text: str) -> str:
+    """A name or version as the file gives it, in one line, as long as an origin takes."""
+    return " ".join(text.split())[:100].strip()
+
+
+def tools(block: gemmi.cif.Block) -> list[dict[str, str]]:
+    """The software the file says made it: in a ModelCIF file, its software groups', which
+    its modelling used (not those that only annotated it, such as DSSP); otherwise each
+    `_software` lists. A version's `v` is left off: AlphaFold v2.0 is AlphaFold 2.0."""
+    grouped = {r["software_id"] for r in rows(block, "_ma_software_group.", ["software_id"])}
+    out: list[dict[str, str]] = []
+    for row in rows(block, "_software.", ["name", "?version", "?pdbx_ordinal"]):
+        if grouped and row["pdbx_ordinal"] not in grouped:
+            continue
+        tool = {"name": _said(row["name"])}
+        version = _said(re.sub(r"^[vV](?=[0-9])", "", row["version"]))
+        if version:
+            tool["version"] = version
+        if tool["name"] and tool not in out:
+            out.append(tool)
+    return out[:MAX_TOOLS]
+
+
+def quality(block: gemmi.cif.Block) -> dict[str, float]:
+    """A model's global quality metrics (ModelCIF's `_ma_qa_metric_global`), by name: a
+    pLDDT's mean as `mean_plddt`, others as their names in lower case, such as `ptm`."""
+    metrics = {r["id"]: r for r in rows(block, "_ma_qa_metric.", ["id", "name", "?type"])}
+    first = next((r["model_id"] for r in rows(block, "_ma_model_list.", ["model_id"])), "")
+    out: dict[str, float] = {}
+    for row in rows(block, "_ma_qa_metric_global.", ["metric_id", "metric_value", "?model_id"]):
+        metric = metrics.get(row["metric_id"])
+        if metric is None or (first and row["model_id"] not in ("", first)):
+            continue
+        if metric["type"] == "pLDDT":
+            name = "mean_plddt"
+        else:
+            name = re.sub(r"[^a-z0-9]+", "_", metric["name"].lower()).strip("_")[:63]
+        try:
+            value = float(row["metric_value"])
+        except ValueError:
+            continue
+        if re.match(r"^[a-z]", name) and name not in out and math.isfinite(value):
+            out[name] = value
+    return dict(list(out.items())[:MAX_DETAILS])
+
+
+def made(block: gemmi.cif.Block) -> dict[str, Any] | None:
+    """How the file says its structure was made, read from it, never guessed (ADR 0106):
+    `_exptl`'s method, an experiment's or THEORETICAL MODEL, or, in a ModelCIF file without
+    one, its model's type; the software it names; and a model's global quality metrics,
+    such as its mean pLDDT. None for a file that doesn't say, or names a method that isn't
+    wwPDB's."""
+    methods = list(dict.fromkeys(_said(r["method"]) for r in rows(block, "_exptl.", ["method"])))
+    methods = [m for m in methods if m]
+    models = rows(block, "_ma_model_list.", ["model_id", "?model_type"])
+    if methods:
+        named = {m.upper() for m in methods}
+        if named <= EXPERIMENTAL:
+            kind = "experimental"
+        elif named == {COMPUTED}:
+            kind = "computational"
+        else:
+            return None
+        method = ", ".join(methods)
+    elif models:
+        kind, method = "computational", models[0]["model_type"]
+    else:
+        return None
+    found: dict[str, Any] = {"kind": kind}
+    if _said(method):
+        found["method"] = _said(method)
+    software = tools(block)
+    if software:
+        found["software"] = software
+    details = quality(block) if models else {}
+    if details:
+        found["details"] = details
+    return found
 
 
 def _fit(values: dict[str, Any], label: str, notes: list[str]) -> dict[str, Any]:
@@ -209,6 +330,8 @@ def read(path: Path, label: str, prefix: str) -> Read:
     pdb_id = entry if PDB_ID.match(entry) else ""
     method_names = [r["method"].upper() for r in rows(block, "_exptl.", ["method"])]
     method = next((METHODS.get(m, "other") for m in method_names), "")
+    if not method and rows(block, "_ma_model_list.", ["model_id"]):
+        method = "predicted"  # a ModelCIF file's model, without _exptl
     resolution = next(
         (
             _text(block, tag)
@@ -232,23 +355,47 @@ def read(path: Path, label: str, prefix: str) -> Read:
         for r in rows(block, "_entity.", ["id", "?pdbx_description"])
         if r["pdbx_description"]
     }
+    # A ModelCIF file's targets: the sequence database records it modelled.
+    targets = rows(
+        block,
+        "_ma_target_ref_db_details.",
+        ["target_entity_id", "?db_name", "?db_accession", "?organism_scientific", "?gene_name"],
+    )
     organisms = {
+        **{t["target_entity_id"]: t["organism_scientific"] for t in targets},
         **_by_entity(block, "_pdbx_entity_src_syn.", "?organism_scientific"),
         **_by_entity(block, "_entity_src_nat.", "?pdbx_organism_scientific_name"),
         **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_scientific_name"),
     }
-    genes = _by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_gene")
+    genes = {
+        **{t["target_entity_id"]: t["gene_name"] for t in targets},
+        **_by_entity(block, "_entity_src_gen.", "?pdbx_gene_src_gene"),
+    }
     accessions = {
-        r["entity_id"]: r["pdbx_db_accession"]
-        for r in rows(block, "_struct_ref.", ["entity_id", "db_name", "?pdbx_db_accession"])
-        if r["db_name"] == "UNP" and UNIPROT.match(r["pdbx_db_accession"])
+        **{
+            t["target_entity_id"]: t["db_accession"]
+            for t in targets
+            if t["db_name"] == "UNP" and UNIPROT.match(t["db_accession"])
+        },
+        **{
+            r["entity_id"]: r["pdbx_db_accession"]
+            for r in rows(block, "_struct_ref.", ["entity_id", "db_name", "?pdbx_db_accession"])
+            if r["db_name"] == "UNP" and UNIPROT.match(r["pdbx_db_accession"])
+        },
     }
     shown = pdb_id or label
     proteins: list[Chains] = []
+    listed_elsewhere = strands(block)
     for row in rows(block, "_entity_poly.", ["entity_id", "type", "?pdbx_strand_id"]):
         entity, kind = row["entity_id"], row["type"].lower()
         chains = sorted(
-            (c.strip() for c in row["pdbx_strand_id"].split(",") if c.strip()),
+            (
+                c.strip()
+                for c in (
+                    row["pdbx_strand_id"] or listed_elsewhere.get(row["entity_id"], "")
+                ).split(",")
+                if c.strip()
+            ),
             key=_chain_order,
         )
         listed = ", ".join(chains) or "?"
@@ -303,6 +450,7 @@ def read(path: Path, label: str, prefix: str) -> Read:
         proteins,
         f"{latest[0]}.{latest[1]}" if latest else "",
         notes,
+        made(block),
     )
 
 
@@ -310,7 +458,8 @@ def read(path: Path, label: str, prefix: str) -> Read:
 
 
 def creates(structure: Read, file: Any, origin: dict[str, Any]) -> list[dict[str, Any]]:  # noqa: ANN401 - a file ID or a $file
-    """The proteins, then the structure that refers to them."""
+    """The proteins, then the structure that refers to them. The structure's origin says
+    how the file says it was made; the proteins' don't, as their sequences weren't."""
     out: list[dict[str, Any]] = [
         {"type": "protein.Protein", "key": p.key, "values": p.values, "origin": origin}
         for p in structure.proteins
@@ -319,7 +468,7 @@ def creates(structure: Read, file: Any, origin: dict[str, Any]) -> list[dict[str
         {
             "type": "protein.ProteinStructure",
             "values": {"structure": file, **structure.values},
-            "origin": origin,
+            "origin": {**origin, "made": structure.made} if structure.made else origin,
         }
     )
     return out

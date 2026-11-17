@@ -49,6 +49,12 @@ makes is recorded as made with it
   Each records the NCBI record and version it came from, its link, when it
   was fetched and its SHA-256. It reaches only `eutils.ncbi.nlm.nih.gov`,
   through the deployment's egress proxy, and needs the `ncbi_email` setting.
+- A RefSeq model's record (`XM_`, `XR_`, from either) says in its COMMENT that
+  NCBI's annotation pipeline predicted it, and with which gene prediction
+  method: its origin says so, as NCBI's word
+  ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)):
+  computed, by gene prediction, with Gnomon and the pipeline at its version.
+  Other records don't say how their sequence was made, so theirs say nothing.
 - **`align_reads`**: aligns sequencing reads to a DNA sequence, such as Sanger
   reads of a clone to the plasmid it should be, into a `core.Alignment` the
   alignment viewer shows, the sequence its reference
