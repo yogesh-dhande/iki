@@ -23,6 +23,9 @@ from test_browser import browser, browser_name, playwright  # noqa: F401 - fixtu
 
 from iki_server.web import frames
 
+# Browser tests: CI runs them once, where it installs the browsers (see ci.yml's matrix).
+pytestmark = pytest.mark.built_web_app
+
 MODULE = (
     Path(__file__).resolve().parents[2]
     / "plugins"
