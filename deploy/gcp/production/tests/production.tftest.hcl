@@ -1,6 +1,9 @@
 # Runs against a mocked Google provider: no project, no credentials. It checks that the
 # modules fit together, and what the chart and the cluster are told.
 
+# time_sleep waits for nothing here.
+mock_provider "time" {}
+
 mock_provider "google" {
   mock_data "google_project" {
     defaults = { number = "123456789012" }

@@ -70,7 +70,9 @@ resource "google_project_iam_custom_role" "files_bucket" {
 resource "google_storage_bucket_iam_member" "objects" {
   bucket = var.files.bucket
   role   = google_project_iam_custom_role.files_objects.id
-  member = google_service_account.server.member
+  # Not before IAM knows the role everywhere (time_sleep.roles).
+  depends_on = [time_sleep.roles]
+  member     = google_service_account.server.member
   dynamic "condition" {
     for_each = local.prefix == "" ? [] : [local.prefix]
     content {
@@ -84,7 +86,9 @@ resource "google_storage_bucket_iam_member" "objects" {
 resource "google_storage_bucket_iam_member" "bucket" {
   bucket = var.files.bucket
   role   = google_project_iam_custom_role.files_bucket.id
-  member = google_service_account.server.member
+  # Not before IAM knows the role everywhere (time_sleep.roles).
+  depends_on = [time_sleep.roles]
+  member     = google_service_account.server.member
 }
 
 # Signed URLs (ADR 0109): pods have no key, so IAM signs each URL as the server's
@@ -102,7 +106,9 @@ resource "google_project_iam_custom_role" "sign_urls" {
 resource "google_service_account_iam_member" "sign_as_itself" {
   service_account_id = google_service_account.server.name
   role               = google_project_iam_custom_role.sign_urls.id
-  member             = google_service_account.server.member
+  # Not before IAM knows the role everywhere (time_sleep.roles).
+  depends_on = [time_sleep.roles]
+  member     = google_service_account.server.member
 }
 
 # Registered locations, read only (and their buckets' versioning, to pin a version).
@@ -119,7 +125,9 @@ resource "google_storage_bucket_iam_member" "registered" {
   for_each = { for l in var.register_locations : "${l.bucket}/${l.prefix}" => l }
   bucket   = each.value.bucket
   role     = google_project_iam_custom_role.registered[0].id
-  member   = google_service_account.server.member
+  # Not before IAM knows the role everywhere (time_sleep.roles).
+  depends_on = [time_sleep.roles]
+  member     = google_service_account.server.member
   dynamic "condition" {
     for_each = each.value.prefix == "" ? [] : [each.value.prefix]
     content {
@@ -181,7 +189,9 @@ resource "google_project_iam_member" "machines" {
   count   = local.vm ? 1 : 0
   project = var.project_id
   role    = google_project_iam_custom_role.machines[0].id
-  member  = google_service_account.provisioner[0].member
+  # Not before IAM knows the role everywhere (time_sleep.roles).
+  depends_on = [time_sleep.roles]
+  member     = google_service_account.provisioner[0].member
   condition {
     title       = "its-own-machines"
     description = "Only machines, disks and images named ${var.vm_tier.owner}-*"
@@ -213,7 +223,9 @@ resource "google_project_iam_member" "observe" {
   count   = local.vm ? 1 : 0
   project = var.project_id
   role    = google_project_iam_custom_role.observe[0].id
-  member  = google_service_account.provisioner[0].member
+  # Not before IAM knows the role everywhere (time_sleep.roles).
+  depends_on = [time_sleep.roles]
+  member     = google_service_account.provisioner[0].member
 }
 
 # Machines go in the nodes' subnet, and nowhere else.
@@ -232,6 +244,8 @@ resource "google_compute_subnetwork_iam_member" "provisioner" {
   region     = var.vm_tier.region
   subnetwork = var.vm_tier.subnet
   role       = google_project_iam_custom_role.subnet[0].id
+  # Not before IAM knows the role everywhere (time_sleep.roles).
+  depends_on = [time_sleep.roles]
   member     = google_service_account.provisioner[0].member
 }
 
@@ -253,4 +267,27 @@ resource "google_secret_manager_secret_iam_member" "external_secrets" {
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
   member    = "${local.principal}/ns/${var.external_secrets.namespace}/sa/${var.external_secrets.service_account}"
+}
+
+# --- Custom roles, known everywhere ----------------------------------------------------------
+
+# A custom role takes a while to reach the rest of Google Cloud: Cloud Storage refused a
+# binding to one made seconds before ("does not exist in the resource's hierarchy"), on a
+# live apply. Every binding to one of this module's roles waits a minute after them, and
+# again whenever one is added.
+resource "time_sleep" "roles" {
+  create_duration = "60s"
+  triggers = {
+    roles = join(" ", concat(
+      [
+        google_project_iam_custom_role.files_objects.id,
+        google_project_iam_custom_role.files_bucket.id,
+        google_project_iam_custom_role.sign_urls.id,
+      ],
+      google_project_iam_custom_role.registered[*].id,
+      google_project_iam_custom_role.machines[*].id,
+      google_project_iam_custom_role.observe[*].id,
+      google_project_iam_custom_role.subnet[*].id,
+    ))
+  }
 }

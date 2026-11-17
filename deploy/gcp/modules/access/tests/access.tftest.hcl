@@ -1,6 +1,9 @@
 # Runs against a mocked Google provider: no project, no credentials. Each run checks a
 # property ADR 0107 promises.
 
+# time_sleep waits for nothing here.
+mock_provider "time" {}
+
 mock_provider "google" {
   mock_data "google_project" {
     defaults = { number = "123456789012" }
@@ -127,5 +130,12 @@ run "external_secrets_reads_this_deployments_secrets_only" {
   assert {
     condition     = [for m in google_secret_manager_secret_iam_member.external_secrets : "${m.secret_id} ${m.role}"] == ["projects/iki-test-project/secrets/iki-test-database roles/secretmanager.secretAccessor"]
     error_message = "And only of the secrets it's given."
+  }
+}
+
+run "bindings_to_its_roles_wait_until_iam_knows_them" {
+  assert {
+    condition     = time_sleep.roles.create_duration == "60s" && strcontains(time_sleep.roles.triggers.roles, google_project_iam_custom_role.files_objects.id)
+    error_message = "Cloud Storage refuses a binding to a custom role made seconds before: bindings wait for time_sleep.roles."
   }
 }
