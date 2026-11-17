@@ -40,7 +40,16 @@ from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
 from iki_spec.yamlsource import Document, read_documents
 
-__all__ = ["FILENAME", "KIND", "Lock", "LockResult", "LockedPlugin", "load_lock", "lock_to_dict"]
+__all__ = [
+    "FILENAME",
+    "KIND",
+    "Lock",
+    "LockResult",
+    "LockedPlugin",
+    "load_lock",
+    "lock_to_dict",
+    "repository",
+]
 
 FILENAME = "plugins.lock.yaml"
 KIND = "PluginLock"
@@ -284,7 +293,7 @@ def _check_first_party(
     if plugin.state == "purged" or plugin.local is not None or plugin.git is None:
         return  # nothing fetched; a local directory is for development only
     expected = f"plugins/{short}"
-    if _repository(plugin.git) != _repository(naming.IKI_REPOSITORY):
+    if repository(plugin.git) != repository(naming.IKI_REPOSITORY):
         problems.add(
             "first-party-source",
             f"{plugin.name} is one of Iki's plugins, so it comes from Iki's repository, "
@@ -304,7 +313,7 @@ def _check_first_party(
         )
 
 
-def _repository(url: str) -> str:
+def repository(url: str) -> str:
     """A git URL as ``host/owner/repository``, however it's written: https or ssh, with or
     without ``.git``."""
     text = url.strip().removesuffix("/").removesuffix(".git").lower()

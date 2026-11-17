@@ -14,7 +14,7 @@ locals {
     "database"           = "A postgres:// URI for the app's role, iki_app (database)"
     "database-migrator"  = "A postgres:// URI for the schema's owner, iki (database.migrator)"
     "database-admin"     = "The password of Cloud SQL's postgres user, which creates Iki's two roles once"
-    "run-secrets"        = "Plugins' secrets, as a JSON object keyed like dna.NCBI_API_KEY (runSecrets)"
+    "run-secrets"        = "Plugins' secrets, as a JSON object keyed like iki__dna.NCBI_API_KEY (runSecrets)"
   }
   optional = {
     "email"                = "The mail server's URL, with its credentials (email)"

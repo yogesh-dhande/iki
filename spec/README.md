@@ -763,6 +763,15 @@ tag's commit. In development, `local: ../path/to/plugin` takes a directory
 instead. `iki deploy build` builds the image's plugins from the lockfile
 (see [`cli/`](../cli/README.md) and ADR 0034).
 
+A site that can't reach github.com still names Iki's repository here, and
+fetches Iki's own plugins from its mirrors of it, which its deployment's
+admin names (`plugins.mirrors` in its Helm values, and `iki deploy build
+--mirror`). A plugin from a mirror must be at the commit pinned here, with
+a tree Iki's repository has had, as
+[`first_party_trees.json`](src/iki_spec/first_party_trees.json) lists them
+([ADR 0114](../docs/adr/0114-ikis-own-plugins-can-come-from-a-mirror.md)).
+`make first-party` adds a plugin's tree when it changes.
+
 ## A deployment's compute
 
 Beside its lockfile, a deployment's directory can hold `compute.yaml`: the

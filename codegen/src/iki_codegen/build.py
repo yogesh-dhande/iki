@@ -152,6 +152,7 @@ def build(
     settings: Mapping[str, Mapping[str, Any]] | None = None,
     lock: Mapping[str, Any] | None = None,
     local: bool = False,
+    mirrors: Sequence[str] = (),
 ) -> list[Path]:
     """Writes the apps into ``output``, replacing earlier builds there. Returns the packages.
 
@@ -160,6 +161,8 @@ def build(
     ``settings`` to the deployment's values for its settings. ``lock``
     records where the plugins came from; ``local`` says one came from a
     directory rather than a git commit, which only development servers accept.
+    ``mirrors`` are the mirrors of Iki's repository its plugins were fetched
+    from: a server refuses those its deployment doesn't name (ADR 0114).
     """
     ordered = in_dependency_order(plugins)
     problems = conflicts(ordered)
@@ -207,7 +210,10 @@ def build(
         "#: The Iki that built them. A server of another version refuses to start.\n"
         f"IKI_VERSION = {version('iki-codegen')!r}\n"
         "#: Whether a plugin came from a local directory: only for development servers.\n"
-        f"LOCAL = {local!r}\n\n"
+        f"LOCAL = {local!r}\n"
+        "#: The mirrors of Iki's repository its plugins came from: a server refuses those its\n"
+        "#: deployment doesn't name.\n"
+        f"MIRRORS = {sorted(set(mirrors))!r}\n\n"
         f"APPS = [\n{apps}]\n"
     )
     if lock is not None:

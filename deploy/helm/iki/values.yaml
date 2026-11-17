@@ -23,6 +23,12 @@ plugins:
   # --allow-local`) rather than pinned git commits. Only for development:
   # otherwise the server refuses to start with them.
   allowLocal: false
+  # Mirrors of Iki's repository to fetch Iki's own plugins (iki/...) from,
+  # where builds can't reach github.com: https or ssh URLs, such as
+  # ["https://git.example.com/mirrors/iki.git"] (ADR 0114). Pass the same ones
+  # to `iki deploy build --mirror`. The server refuses plugins a build fetched
+  # from any mirror not listed here.
+  mirrors: []
 
 # required: host names users reach Iki on, e.g. ["iki.example.com"].
 allowedHosts: []

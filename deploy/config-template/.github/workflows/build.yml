@@ -68,7 +68,13 @@ jobs:
         env:
           VERSION: ${{ steps.iki.outputs.version }}
         run: |
-          uvx --from "iki-cli==$VERSION" iki deploy build "$DEPLOYMENT" \
+          # Iki's own plugins come from the mirrors values.yaml names, if any (ADR 0114):
+          # the server refuses plugins from any other.
+          mirrors=()
+          while IFS= read -r url; do
+            if [ -n "$url" ]; then mirrors+=(--mirror "$url"); fi
+          done < <(yq -r '(.plugins.mirrors // [])[]' "$DEPLOYMENT/values.yaml")
+          uvx --from "iki-cli==$VERSION" iki deploy build "$DEPLOYMENT" "${mirrors[@]}" \
             --output build/server/plugins --workers build/worker --images build/images.txt
 
       - if: github.ref == 'refs/heads/main'

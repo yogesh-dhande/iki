@@ -1,0 +1,165 @@
+"""Iki's own plugins from mirrors of Iki's repository (ADR 0114).
+
+Each mirror here is a repository on disk holding a copy of Iki's
+``plugins/dna``, made from the files git tracks in this checkout, as a
+mirror's clone would hold them.
+"""
+
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from iki_cli import fetch
+from iki_cli.main import main
+from iki_spec import first_party, naming
+
+ROOT = Path(__file__).parents[2]
+CANONICAL = naming.IKI_REPOSITORY
+
+pytestmark = pytest.mark.skipif(not (ROOT / ".git").exists(), reason="needs Iki's repository")
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.run(  # noqa: S603 - a test's own git commands
+        ["git", "-C", str(repo), *args],  # noqa: S607 - git from the PATH, as Iki runs it
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def mirror(tmp_path: Path, name: str, *, change: str | None = None) -> tuple[str, str]:
+    """A mirror holding Iki's plugins/dna (with ``change`` appended to its README, if
+    given), and its commit."""
+    repo = tmp_path / name
+    git(tmp_path, "init", "--quiet", "--initial-branch=main", str(repo))
+    for relative in git(ROOT, "ls-files", "plugins/dna").splitlines():
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    if change is not None:
+        readme = repo / "plugins" / "dna" / "README.md"
+        readme.write_text(readme.read_text() + change)
+    git(repo, "add", ".")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "mirror")
+    return f"file://{repo}", git(repo, "rev-parse", "HEAD")
+
+
+def deployment(tmp_path: Path, sha: str) -> Path:
+    directory = tmp_path / "deployments" / "prod"
+    (directory / "settings").mkdir(parents=True)
+    (directory / "settings" / "dna.yaml").write_text("ncbi_email: lab@example.org\n")
+    (directory / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        f"  - name: iki/dna\n    git: {CANONICAL}\n    path: plugins/dna\n    sha: {sha}\n"
+        "    state: active\n    settings: settings/dna.yaml\n"
+    )
+    return directory
+
+
+@pytest.fixture(autouse=True)
+def _environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """No git config but the test's own; mirrors on disk read as https ones would be."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    config = tmp_path / "gitconfig"
+    config.write_text("")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setattr(fetch, "PROTOCOLS", ("https", "ssh", "file"))
+    return config
+
+
+def build(tmp_path: Path, sha: str, *mirrors: str) -> int:
+    flags = [arg for url in mirrors for arg in ("--mirror", url)]
+    out = str(tmp_path / "plugins")
+    return main(["deploy", "build", str(deployment(tmp_path, sha)), "-o", out, *flags])
+
+
+def test_ikis_plugin_comes_from_the_mirror_and_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url, sha = mirror(tmp_path, "mirror")
+    assert build(tmp_path, sha, url) == 0
+    printed = capsys.readouterr().out
+    assert f"Fetched iki/dna at {sha[:12]} from {url} (a mirror of {CANONICAL})" in printed
+    registry = tmp_path / "plugins" / "iki_installed_plugins"
+    (entry,) = json.loads((registry / "lock.json").read_text())["plugins"]
+    # The lockfile still names Iki's repository; the build records the mirror.
+    assert entry["git"] == CANONICAL
+    assert entry["sha"] == sha
+    assert entry["fetched_from"] == url
+    assert f"MIRRORS = [{url!r}]" in (registry / "__init__.py").read_text()
+
+
+def test_mirrors_are_tried_in_order(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    empty, other = (f"file://{tmp_path / name}" for name in ("empty", "other"))
+    for name in ("empty", "other"):
+        git(tmp_path, "init", "--quiet", "--bare", str(tmp_path / name))
+    url, sha = mirror(tmp_path, "second")
+    assert build(tmp_path, sha, empty, url) == 0
+    assert f"from {url} (a mirror of" in capsys.readouterr().out
+    # None has it: each says why, and Iki's repository isn't tried.
+    assert build(tmp_path / "again", sha, empty, other) == 1
+    err = capsys.readouterr().err
+    assert f"iki/dna: no mirror of Iki's repository had commit {sha[:12]}:" in err
+    assert f"from {empty}:" in err and f"from {other}:" in err
+    assert CANONICAL not in err
+
+
+def test_a_mirror_cant_serve_a_commit_of_its_own(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url, sha = mirror(tmp_path, "fork", change="\nChanged by the lab.\n")
+    assert build(tmp_path, sha, url) == 1
+    err = capsys.readouterr().err
+    assert f"`plugins/dna` at commit {sha[:12]} from the mirror {url} isn't one Iki's" in err
+    assert "give it your namespace, such as `acme/dna`" in err
+    assert not (tmp_path / "plugins").exists()
+
+
+def test_the_list_holds_this_checkouts_tree(tmp_path: Path) -> None:
+    _, sha = mirror(tmp_path, "mirror")
+    tree = git(tmp_path / "mirror", "rev-parse", f"{sha}:plugins/dna")
+    assert tree in first_party.trees("iki/dna")
+
+
+def test_gits_own_config_cant_quietly_send_ikis_repository_elsewhere(
+    tmp_path: Path, _environment: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url, sha = mirror(tmp_path, "mirror")
+    _environment.write_text(f'[url "{url}"]\n\tinsteadOf = {CANONICAL}\n')
+    assert build(tmp_path, sha) == 1
+    err = capsys.readouterr().err
+    assert f"git's config sends {CANONICAL} to {url}" in err
+    assert "Name a mirror of Iki's repository" in err
+
+
+@pytest.mark.parametrize(
+    ("url", "why"),
+    [
+        ("https://x:token@git.acme.example/iki.git", "has credentials in it"),
+        ("http://git.acme.example/iki.git", "isn't an https or ssh"),
+        ("ext::sh -c touch% /tmp/x", "isn't an https or ssh"),
+        ("https://git.acme.example/iki.git?ref=main", "has a query or fragment"),
+    ],
+)
+def test_a_mirror_is_an_https_or_ssh_url_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    url: str,
+    why: str,
+) -> None:
+    monkeypatch.setattr(fetch, "PROTOCOLS", ("https", "ssh"))
+    assert build(tmp_path, "a" * 40, url) == 1
+    assert why in capsys.readouterr().err
+
+
+def test_check_mirror_takes_ssh_in_both_forms() -> None:
+    assert fetch.check_mirror("ssh://git@git.acme.example:2222/mirrors/iki.git") is None
+    assert fetch.check_mirror("git@git.acme.example:mirrors/iki.git") is None
+    assert fetch.check_mirror("https://git.acme.example/mirrors/iki.git") is None

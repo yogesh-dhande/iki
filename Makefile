@@ -102,6 +102,10 @@ client: ## Regenerate the API clients (TypeScript, and the Python SDK's types) f
 	$(PNPM) --filter @ikisci/sdk generate
 	uv run python -m iki_codegen.sdk web/packages/sdk/openapi.json > sdk/python/src/iki/schema.py
 
+.PHONY: first-party
+first-party: ## List each first-party plugin's current tree, which mirrors are checked against (ADR 0114)
+	uv run python scripts/first_party_trees.py
+
 .PHONY: protocol
 protocol: ## Regenerate the worker's protocol types from the server's schemas and API
 	scripts/openapi.sh --worker > worker/crates/iki-protocol/worker-openapi.json

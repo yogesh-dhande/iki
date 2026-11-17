@@ -77,8 +77,9 @@ own, in reviews and diffs, so it should say exactly what it means.
   (`first-party-source`). A `local:` directory, for development, and a
   purged plugin, which isn't fetched, are taken.
 
-Mirrors of Iki's repository for air-gapped sites are left out for now. When
-a site needs one, the lockfile can learn to trust a mirror its config names.
+A site that can't reach Iki's repository fetches Iki's plugins from mirrors
+of it that its deployment's admin names, and the lockfile still names Iki's
+repository ([ADR 0114](0114-ikis-own-plugins-can-come-from-a-mirror.md)).
 
 Short names reserved for Django's and Iki's apps (`auth`, `core`, `admin`,
 keywords) are no longer reserved. A plugin's app label now always has a

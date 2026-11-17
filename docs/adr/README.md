@@ -143,3 +143,4 @@ supersedes the old one, and update the old one's status.
 | [0111](0111-saas-is-a-fleet-of-single-organization-deployments.md)                   | SaaS is a fleet of single-organization deployments, run by a control plane                          | Accepted           |
 | [0112](0112-self-hosted-workers-belong-to-teams.md)                                  | Self-hosted workers belong to teams, and an admin registers each one                                | Accepted           |
 | [0113](0113-plugins-are-named-in-a-namespace.md)                                     | Plugins are named in a namespace, and `iki` is Iki's own                                            | Accepted           |
+| [0114](0114-ikis-own-plugins-can-come-from-a-mirror.md)                              | Iki's own plugins can come from a mirror, which can't serve commits of its own                      | Accepted           |

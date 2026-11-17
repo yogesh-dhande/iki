@@ -190,6 +190,24 @@ def test_local_plugins_are_refused_unless_allowed() -> None:
     assert "allowLocal" in str(render({"plugins": {"allowLocal": "yes"}}, ok=False))
 
 
+def test_mirrors_of_ikis_repository_reach_every_server_container() -> None:
+    mirrors = ["https://git.acme.example/mirrors/iki.git", "git@git.acme.example:mirrors/iki"]
+    for values, expected in (({}, None), ({"plugins": {"mirrors": mirrors}}, ",".join(mirrors))):
+        for _, spec in pod_specs(manifests(values)):
+            for container in [*spec.get("initContainers", []), *spec["containers"]]:
+                env = {e["name"]: e.get("value") for e in container.get("env", [])}
+                if "IKI_ENVIRONMENT" in env:
+                    assert env.get("IKI_PLUGIN_MIRRORS") == expected
+    # Credentials go to git's helper, never into values; one at a time; https or ssh only.
+    for bad in (
+        "https://user:token@git.acme.example/mirrors/iki.git",
+        "http://git.acme.example/mirrors/iki.git",
+        "file:///srv/iki.git",
+        "https://git.acme.example/a.git,https://git.acme.example/b.git",
+    ):
+        assert "/plugins/mirrors/0" in str(render({"plugins": {"mirrors": [bad]}}, ok=False)), bad
+
+
 @pytest.mark.parametrize("deployment", ["staging", "production"])
 @pytest.mark.parametrize("workers", [False, True])
 def test_the_config_templates_values_render(deployment: str, workers: bool) -> None:

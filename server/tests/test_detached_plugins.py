@@ -226,6 +226,36 @@ def changes() -> list[tuple[str, str, dict[str, Any]]]:
     ]
 
 
+def test_where_each_commit_came_from_is_audited_and_shown(
+    monkeypatch: pytest.MonkeyPatch, world: World
+) -> None:
+    canonical, mirror = "https://github.com/acme/plugins.git", "https://git.acme.example/m.git"
+
+    def deploy(sha: str, fetched_from: str, state: str = "active") -> None:
+        found = record()
+        for entry in found["plugins"]:
+            entry.update(git=canonical, sha=sha, fetched_from=fetched_from, state=state)
+        monkeypatch.setattr(registry, "installed", lambda: found)
+        sync._states()
+
+    deploy("a" * 40, canonical)
+    deploy("b" * 40, mirror)
+    deploy("b" * 40, mirror, state="detached")
+    dna = [(action, data) for action, label, data in changes() if label == "acme/dna"]
+    assert dna == [
+        (
+            "plugin.installed",
+            {"state": "active", "version": "1.0.0", "sha": "a" * 40, "fetched_from": canonical},
+        ),
+        ("plugin.updated", {"sha": ["a" * 40, "b" * 40], "fetched_from": mirror}),
+        # Nothing was fetched anew.
+        ("plugin.detached", {"state": ["active", "detached"]}),
+    ]
+    page = world.browser("org_admin").get("/settings/plugins/acme/dna/").content.decode()
+    assert f"<dt>Repository</dt><dd><code>{canonical}</code></dd>" in page
+    assert f"<dt>Fetched from</dt><dd><code>{mirror}</code></dd>" in page
+
+
 def test_each_deploy_records_what_it_changes_about_plugins(
     deployed: Callable[..., None],
 ) -> None:

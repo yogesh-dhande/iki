@@ -99,6 +99,10 @@ schema, and knows the app's role so it can grant it privileges.
   value: {{ $ctx.Values.publicUrl | quote }}
 - name: IKI_ALLOW_LOCAL_PLUGINS
   value: {{ $ctx.Values.plugins.allowLocal | quote }}
+{{- with $ctx.Values.plugins.mirrors }}
+- name: IKI_PLUGIN_MIRRORS
+  value: {{ join "," . | quote }}
+{{- end }}
 - name: IKI_ALLOWED_HOSTS
   value: {{ join "," $ctx.Values.allowedHosts | quote }}
 - name: IKI_HTTPS

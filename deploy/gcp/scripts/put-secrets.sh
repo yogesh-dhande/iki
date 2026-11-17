@@ -71,7 +71,8 @@ fill encryption-keys fernet_key
 fill bundle-signing-key signing_seed
 fill database-migrator role_uri iki
 fill database role_uri iki_app
-# Plugins' secrets: none yet. Add them as keys such as dna.NCBI_API_KEY.
+# Plugins' secrets: none yet. Add them as keys named for the plugin's label, such
+# as iki__dna.NCBI_API_KEY for iki/dna's NCBI_API_KEY.
 fill run-secrets printf '{}'
 
 # Cloud SQL's postgres user, which create-database-roles.sh signs in as: its password is

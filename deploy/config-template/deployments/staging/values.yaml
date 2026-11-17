@@ -12,6 +12,12 @@ encryptionKeys:
 bundles:
   signingKey:
     existingSecret: iki-bundle-key
+# Where builds can't reach github.com, they fetch Iki's own plugins (iki/...)
+# from mirrors of Iki's repository (ADR 0114). The build reads them here, and
+# the server refuses plugins fetched from any other. The lockfile still names
+# Iki's repository. Give CI read access to them as to your plugins'.
+# plugins:
+#   mirrors: ["https://git.acme.example/mirrors/iki.git"]
 database:
   existingSecret: iki-db-app
   migrator:

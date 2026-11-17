@@ -22,6 +22,7 @@ from iki_server.bundles import keys as bundle_keys
 from iki_server.core.crypto import validate_keys as validate_encryption_keys
 from iki_server.observability.logging import configure_logging
 from iki_server.web.static_headers import add_headers as add_static_headers
+from iki_spec.lockfile import repository
 
 env = environ.Env()
 
@@ -86,6 +87,10 @@ INSTALLED_APPS = [
 # directory rather than a pinned commit (`iki deploy build --allow-local`) are
 # for development, so the server only accepts them when told to.
 IKI_ALLOW_LOCAL_PLUGINS: bool = env.bool("IKI_ALLOW_LOCAL_PLUGINS", default=False)
+# The mirrors of Iki's repository this deployment fetches Iki's own plugins from
+# (ADR 0114), as its admin set them (the chart's plugins.mirrors). The server
+# refuses plugins a build fetched from any other.
+IKI_PLUGIN_MIRRORS: list[str] = env.list("IKI_PLUGIN_MIRRORS", default=[])
 
 # Self-hosted workers update themselves (ADR 0060): the server says which
 # release to run, and they fetch it from IKI_WORKER_DOWNLOADS, laid out as GitHub's
@@ -167,6 +172,13 @@ if IKI_RUNS_VM_CLOUD == "gcp" and IKI_RUNS_VM_OWNER:
             "IKI_RUNS_VM_GCP_KMS_KEY must be a Cloud KMS key, such as "
             "projects/<project>/locations/<region>/keyRings/<ring>/cryptoKeys/<key>."
         )
+
+
+def _named_mirror(url: str, named: list[str]) -> bool:
+    """Whether ``url`` is one of ``named``, however each is written."""
+    return any(repository(url) == repository(m) for m in named)
+
+
 if find_spec("iki_installed_plugins") is not None:
     import iki_installed_plugins as _plugins  # type: ignore[import-not-found]
 
@@ -180,6 +192,16 @@ if find_spec("iki_installed_plugins") is not None:
         raise environ.ImproperlyConfigured(
             "The plugins include one from a local directory, which is only for development. "
             "Pin it to a git commit, or set IKI_ALLOW_LOCAL_PLUGINS=true on a development server."
+        )
+    _unnamed = [
+        m for m in getattr(_plugins, "MIRRORS", ()) if not _named_mirror(m, IKI_PLUGIN_MIRRORS)
+    ]
+    if _unnamed:
+        raise environ.ImproperlyConfigured(
+            f"The plugins were fetched from {', '.join(_unnamed)}, which this deployment doesn't "
+            "name as a mirror of Iki's repository. Its admin names them in the chart's "
+            "plugins.mirrors (IKI_PLUGIN_MIRRORS); or build the plugins from the mirrors it "
+            "does name."
         )
     INSTALLED_APPS += _plugins.APPS
 

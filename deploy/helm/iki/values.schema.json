@@ -42,6 +42,15 @@
       "properties": {
         "allowLocal": {
           "type": "boolean"
+        },
+        "mirrors": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Mirrors of Iki's repository that Iki's own plugins are fetched from (ADR 0114)",
+          "items": {
+            "type": "string",
+            "pattern": "^(https://[^/@?#,\\s]+/[^?#,\\s]+|ssh://[^/?#,\\s]+/[^?#,\\s]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^?#,\\s]+)$"
+          }
         }
       },
       "additionalProperties": false

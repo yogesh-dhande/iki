@@ -137,6 +137,9 @@ def _states() -> list[str]:
                 action = "plugin.detached"
             else:
                 action = "plugin.reattached"
+        if entry.get("fetched_from") and (action == "plugin.installed" or "sha" in data):
+            # Where the commit came from: its repository, or a mirror of Iki's (ADR 0114).
+            data = {**data, "fetched_from": entry["fetched_from"]}
         audit.record(action, target=row, data=data)
         changed.append(f"{row.name} {action.removeprefix('plugin.')}")
     return changed

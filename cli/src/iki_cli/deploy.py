@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
+from iki_cli import fetch as fetching
 from iki_cli import workers
 from iki_cli.fetch import FetchError, fetch
 from iki_cli.plugin import _missing_dependencies, write_problems
@@ -93,6 +94,18 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Accept plugins from local directories (development only).",
     )
     build.add_argument(
+        "--mirror",
+        action="append",
+        default=[],
+        metavar="URL",
+        help=(
+            "A mirror of Iki's repository to fetch Iki's own plugins (iki/...) from, rather "
+            "than Iki's repository: the deployment's plugins.mirrors. Repeat for several, "
+            "tried in order. Each plugin must be at the commit its lockfile pins, with a tree "
+            "Iki's repository has had (ADR 0114)."
+        ),
+    )
+    build.add_argument(
         "--cache",
         type=Path,
         metavar="DIRECTORY",
@@ -112,6 +125,10 @@ class _Fetched:
     entry: LockedPlugin
     directory: Path
     plugin: Plugin | None = None
+    #: The repository its commit came from, if not a local directory.
+    source: str | None = None
+    #: Whether that was a mirror of Iki's repository, rather than the lockfile's.
+    mirrored: bool = False
 
     @property
     def label(self) -> str:
@@ -131,6 +148,12 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         write_problems(err, result.problems, file.parent, {str(file): file})
         return 1
     lock = result.lock
+    mirrors: list[str] = list(dict.fromkeys(args.mirror))
+    for url in mirrors:
+        why = fetching.check_mirror(url, fetching.PROTOCOLS)
+        if why is not None:
+            err.write(f"error: --mirror {why}.\n")
+            return 1
     if lock.has_local and not args.allow_local:
         names = ", ".join(p.name for p in lock.plugins if p.local is not None)
         err.write(
@@ -140,7 +163,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         return 1
     with tempfile.TemporaryDirectory(prefix="iki-deploy-") as tmp:
         workspace = Path(tmp)
-        fetched = _fetch_all(lock, workspace / "sources", args.cache, out, err)
+        fetched = _fetch_all(lock, workspace / "sources", args.cache, mirrors, out, err)
         if fetched is None:
             return 1
         purged = {p.name for p in lock.plugins if p.state == "purged"}
@@ -172,6 +195,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
                 settings=settings,
                 lock=_record(lock, fetched, made),
                 local=lock.has_local,
+                mirrors=[f.source for f in fetched if f.source is not None and f.mirrored],
             )
         except ValueError as error:
             err.write(f"error: {error}.\n")
@@ -211,20 +235,27 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
 
 
 def _fetch_all(
-    lock: Lock, into: Path, cache: Path | None, out: TextIO, err: TextIO
+    lock: Lock,
+    into: Path,
+    cache: Path | None,
+    mirrors: Sequence[str],
+    out: TextIO,
+    err: TextIO,
 ) -> list[_Fetched] | None:
     fetched = []
     for entry in lock.plugins:
         if entry.state == "purged":
             continue  # not built: the deploy drops its tables (ADR 0092)
         try:
-            directory = fetch(entry, lock.directory, into, cache=cache)
+            got = fetch(entry, lock.directory, into, cache=cache, mirrors=mirrors)
         except FetchError as error:
             err.write(f"error: {error}\n")
             return None
+        item = _Fetched(entry, got.directory, source=got.source, mirrored=got.mirrored)
         if entry.sha is not None:
-            out.write(f"Fetched {entry.name} at {entry.sha[:12]} from {entry.git}\n")
-        fetched.append(_Fetched(entry, directory))
+            mirror = f" (a mirror of {entry.git})" if item.mirrored else ""
+            out.write(f"Fetched {entry.name} at {entry.sha[:12]} from {got.source}{mirror}\n")
+        fetched.append(item)
     return fetched
 
 
@@ -393,6 +424,9 @@ def _record(
         entry = item.entry.to_dict()
         entry.pop("settings", None)
         entry["version"] = item.plugin.version
+        if item.source is not None:
+            # Where its commit came from: the lockfile's repository, or a mirror of Iki's.
+            entry["fetched_from"] = item.source
         entry.update((made or {}).get(item.entry.name, {}))
         if item.entry.settings:
             entry["settings_sha256"] = _sha256(lock.directory / item.entry.settings)

@@ -42,6 +42,8 @@ def _installed() -> list[dict[str, Any]]:
                 "version": plugin.version,
                 "iki": (plugin.iki or "").strip(),
                 "sha": entry.get("sha") or "",
+                "git": entry.get("git") or "",
+                "fetched_from": entry.get("fetched_from") or "",
                 "state": entry.get("state", "active"),
                 "changed_at": states[name].changed_at if name in states else None,
                 "purge": purge.pending(name),

@@ -160,6 +160,20 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
   its volumes in `compute.yaml`.
 - If your package index is a mirror, pass it to the worker image's build as
   a secret (see `worker.Dockerfile`).
+- If CI can't reach github.com, mirror Iki's repository inside your network
+  and name the mirror under `plugins.mirrors` in each deployment's
+  `values.yaml` ([ADR 0114](../../docs/adr/0114-ikis-own-plugins-can-come-from-a-mirror.md)).
+  Only those who can approve `values.yaml` should be able to change it, with
+  `CODEOWNERS` and branch protection. The lockfile still names Iki's
+  repository, so the same lockfile works anywhere. The build fetches Iki's
+  plugins from the mirrors alone, in order, and takes one only at the commit
+  the lockfile pins and with a tree Iki's repository has had, as the
+  `iki-cli` it runs knows them: a mirror can't serve a commit of its own.
+  The build records the mirror each came from, the Plugins page shows it,
+  and the deploy audits it. The server refuses plugins from a mirror its
+  `values.yaml` doesn't name. Don't send Iki's repository elsewhere with
+  git's `insteadOf`: the build refuses that, since it couldn't say where a
+  plugin came from.
 
 ## Upgrading Iki
 

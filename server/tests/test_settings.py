@@ -188,6 +188,25 @@ def test_local_plugins_need_a_development_server(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_plugins_from_a_mirror_the_deployment_doesnt_name_are_refused(tmp_path: Path) -> None:
+    mirror = "https://git.acme.example/mirrors/iki.git"
+    env = _plugins(
+        tmp_path, f"IKI_VERSION = {__version__!r}\nLOCAL = False\nMIRRORS = [{mirror!r}]\n"
+    )
+    result = run_manage("check", env=env)
+    assert result.returncode != 0
+    assert (
+        f"The plugins were fetched from {mirror}, which this deployment doesn't name as a "
+        "mirror of Iki's repository."
+    ) in result.stderr
+    other = run_manage("check", env={**env, "IKI_PLUGIN_MIRRORS": "https://git.example/other"})
+    assert other.returncode != 0
+    # However its admin wrote it: ssh or https, with or without .git.
+    for named in (mirror, "git@git.acme.example:mirrors/iki", f"x,{mirror.removesuffix('.git')}"):
+        result = run_manage("check", env={**env, "IKI_PLUGIN_MIRRORS": named})
+        assert result.returncode == 0, (named, result.stderr)
+
+
 def _files_settings(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return run_manage(
         "shell",

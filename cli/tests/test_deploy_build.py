@@ -121,6 +121,7 @@ def test_builds_the_pinned_commits(
     installed = (out / "iki_installed_plugins" / "__init__.py").read_text()
     assert "IKI_VERSION = '0.1.0.dev0'" in installed
     assert "LOCAL = False" in installed
+    assert "MIRRORS = []" in installed
     record = json.loads((out / "iki_installed_plugins" / "lock.json").read_text())
     bundles = out / "iki_installed_plugins" / "bundles"
     packed = (bundles / f"acme__dna-{sha}.tar.gz").read_bytes()
@@ -131,6 +132,7 @@ def test_builds_the_pinned_commits(
         "sha": sha,
         "state": "active",
         "version": "1.2.0",
+        "fetched_from": URL,
         "settings_sha256": hashlib.sha256(b"ncbi_email: a@b.org\n").hexdigest(),
         "bundle": {"sha256": hashlib.sha256(packed).hexdigest(), "size": len(packed)},
         "environments": {},

@@ -9,6 +9,8 @@ anything: the keys are random and the deployment's environment is ignored.
 import base64
 import os
 import secrets
+from importlib import import_module
+from importlib.util import find_spec
 
 # Overwrite, not default: a developer's real configuration must never leak in.
 os.environ.update(
@@ -22,6 +24,13 @@ os.environ.update(
         "OTEL_SDK_DISABLED": "true",
         # Checking a development build's migrations serves nothing.
         "IKI_ALLOW_LOCAL_PLUGINS": "true",
+        # Nor does checking one fetched from mirrors: the deployment's server checks them
+        # against those it names (ADR 0114).
+        "IKI_PLUGIN_MIRRORS": ",".join(
+            getattr(import_module("iki_installed_plugins"), "MIRRORS", ())
+            if find_spec("iki_installed_plugins") is not None
+            else ()
+        ),
     }
 )
 

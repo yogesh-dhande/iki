@@ -186,7 +186,17 @@ another version built.
 | `--images FILE`                | Also list the images its container-tier runs use, for its build to approve.    |
 | `--environments-dir DIRECTORY` | Where the worker image builds environments (default `/opt/iki/envs`).          |
 | `--allow-local`                | Accept `local:` plugins, for development. Servers refuse them unless told to.  |
+| `--mirror URL`                 | Fetch Iki's own plugins from this mirror of Iki's repository. Repeatable.      |
 | `--cache DIRECTORY`            | Where to keep fetched repositories (default `~/.cache/iki/git`).               |
+
+With `--mirror`, Iki's own plugins (`iki/...`) come from the mirrors given,
+in order, and never from Iki's repository: the deployment's
+`plugins.mirrors`, for a site that can't reach github.com. Each must be at
+the commit the lockfile pins, with a tree Iki's repository has had, as this
+`iki-cli` knows them, so a mirror can't serve a commit of its own. The build
+records where each plugin came from, and the server refuses plugins from a
+mirror its deployment doesn't name
+([ADR 0114](../docs/adr/0114-ikis-own-plugins-can-come-from-a-mirror.md)).
 
 With `--workers build/worker`, it also writes what the deployment's
 backend workers need, from the same commits as the server, so the two
