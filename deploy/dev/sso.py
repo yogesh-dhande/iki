@@ -1497,7 +1497,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
         "inputs": {"query": chains[0]["id"], "target": chains[1]["id"]},
         "reuse": False,
     }
-    launched = api_call(alice, "POST", "/actions/protein.align_pair/runs", body)
+    launched = api_call(alice, "POST", "/actions/iki/protein.align_pair/runs", body)
     if launched.status_code != 201:
         fail(f"launching iki/protein.align_pair answered HTTP {launched.status_code}")
     run = followed(alice, launched.json(), within=120)
@@ -1877,7 +1877,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     predicted(alice, project, effects[0]["entity"], heavy, light)
 
 
-#: What antibody.find_liabilities finds in trastuzumab's chains, on their IMGT numbering:
+#: What iki/antibody.find_liabilities finds in trastuzumab's chains, on their IMGT numbering:
 #: the NG in CDR-H2 and the DG in CDR-H3 that Lu et al. (2019) measured as hot spots (Kabat
 #: H54 and H98), the DT in CDR-H1, the tryptophan and methionine in CDR-H3 that oxidise,
 #: the E at residue 1 that cyclises, and the NT in CDR-L1. Its cysteines are the variable
