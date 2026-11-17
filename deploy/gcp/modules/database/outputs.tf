@@ -1,6 +1,6 @@
 output "address" {
   description = "The database's host name: its certificate names it, for sslmode=verify-full."
-  value       = trimsuffix(google_sql_database_instance.this.dns_name, ".")
+  value       = local.dns_name
 }
 
 output "private_ip" {

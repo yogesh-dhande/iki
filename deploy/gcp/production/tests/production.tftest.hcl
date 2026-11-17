@@ -23,7 +23,11 @@ mock_provider "google" {
   }
   mock_resource "google_sql_database_instance" {
     defaults = {
-      dns_name           = "0123456789ab.europe-west1.sql.goog."
+      dns_name = ""
+      dns_names = [
+        { connection_type = "PRIVATE_SERVICES_ACCESS", dns_scope = "INSTANCE", name = "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog." },
+        { connection_type = "PRIVATE_SERVICES_ACCESS", dns_scope = "CLUSTER", name = "1m2i919vgq4hn.3e753kupt8481.global.sql-psa.goog." },
+      ]
       private_ip_address = "10.40.240.5"
     }
   }

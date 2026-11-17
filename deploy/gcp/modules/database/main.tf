@@ -160,10 +160,24 @@ resource "google_project_iam_member" "iam" {
 
 # The certificate names the instance's DNS name, which a private zone resolves to its
 # private address: verify-full then checks the host Iki dialled is the one it reached.
+# Reached through Private Services Access, the instance's own name is in sql-psa.goog,
+# and its record is the customer's to make (dns_names; dns_name is PSC's and public IP's,
+# and empty here). An empty name would make this a zone for "." in the VPC, answering
+# for every name on the internet: the precondition refuses it.
+locals {
+  dns_name = trimsuffix(try(coalesce(
+    one([
+      for d in google_sql_database_instance.this.dns_names : d.name
+      if d.connection_type == "PRIVATE_SERVICES_ACCESS" && d.dns_scope == "INSTANCE"
+    ]),
+    google_sql_database_instance.this.dns_name,
+  ), ""), ".")
+}
+
 resource "google_dns_managed_zone" "this" {
   project     = var.project_id
   name        = "${var.name}-database"
-  dns_name    = "${trimsuffix(google_sql_database_instance.this.dns_name, ".")}."
+  dns_name    = "${local.dns_name}."
   description = "${var.name}: the database's name, as its certificate gives it"
   visibility  = "private"
   labels      = local.labels
@@ -171,6 +185,13 @@ resource "google_dns_managed_zone" "this" {
   private_visibility_config {
     networks {
       network_url = var.network_id
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(split(".", local.dns_name)) >= 3
+      error_message = "Cloud SQL gave the instance no DNS name for Private Services Access: its certificate names none to verify."
     }
   }
 }

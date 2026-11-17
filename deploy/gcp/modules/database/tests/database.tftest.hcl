@@ -4,7 +4,11 @@
 mock_provider "google" {
   mock_resource "google_sql_database_instance" {
     defaults = {
-      dns_name           = "0123456789ab.europe-west1.sql.goog."
+      dns_name = ""
+      dns_names = [
+        { connection_type = "PRIVATE_SERVICES_ACCESS", dns_scope = "INSTANCE", name = "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog." },
+        { connection_type = "PRIVATE_SERVICES_ACCESS", dns_scope = "CLUSTER", name = "1m2i919vgq4hn.3e753kupt8481.global.sql-psa.goog." },
+      ]
       private_ip_address = "10.40.240.5"
       connection_name    = "iki-test-project:europe-west1:iki-test"
     }
@@ -51,7 +55,7 @@ run "nobody_outside_reaches_it_and_every_connection_is_tls" {
     error_message = "Its certificate should name its host, for verify-full."
   }
   assert {
-    condition     = output.address == "0123456789ab.europe-west1.sql.goog" && google_dns_record_set.this.rrdatas == tolist(["10.40.240.5"])
+    condition     = output.address == "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog" && google_dns_managed_zone.this.dns_name == "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog." && google_dns_record_set.this.rrdatas == tolist(["10.40.240.5"])
     error_message = "Its DNS name should resolve to its private address inside the VPC."
   }
 }
@@ -150,4 +154,13 @@ run "a_backup_older_than_the_oldest_minute_it_recovers_to" {
     condition     = one(one(one(google_sql_database_instance.this.settings).backup_configuration).backup_retention_settings).retained_backups > one(one(google_sql_database_instance.this.settings).backup_configuration).transaction_log_retention_days
     error_message = "Cloud SQL requires more daily backups kept than days of transaction logs."
   }
+}
+
+run "no_zone_for_every_name_when_cloud_sql_gives_none" {
+  command = plan
+  override_resource {
+    target = google_sql_database_instance.this
+    values = { dns_name = "", dns_names = [] }
+  }
+  expect_failures = [google_dns_managed_zone.this]
 }
