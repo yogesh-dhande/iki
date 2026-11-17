@@ -43,6 +43,9 @@ module "logs" {
   region         = var.region
   kms_key        = module.kms.keys["logs"]
   retention_days = var.log_retention_days
+  # Data Access audit logs: project-wide, so a project shared with other workloads logs
+  # (and pays for) their reads too.
+  data_access_services = var.data_access_services
 }
 
 module "cluster" {

@@ -32,6 +32,10 @@ public_host = "iki.example.com"
 # plugin_images = ["ghcr.io/yogesh-dhande/iki-*", "ghcr.io/acme/iki-plugins/**"]
 # extra_images  = ["quay.io/prometheus/prometheus*", "quay.io/prometheus-operator/**"]
 
+# Data Access audit logs are project-wide: in a project other workloads share, they log
+# (and bill) those workloads' reads too. To leave Cloud Storage's off there:
+# data_access_services = ["secretmanager.googleapis.com", "cloudkms.googleapis.com", "sqladmin.googleapis.com"]
+
 # What the VM tier (ADR 0074) will need, ready for a Compute Engine provisioner:
 # vm_tier = {}
 

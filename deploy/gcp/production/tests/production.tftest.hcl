@@ -272,3 +272,13 @@ run "a_teardown_turns_deletion_protection_off_everywhere" {
     error_message = "deletion_protection = false should let the cluster, the database and the secrets be destroyed."
   }
 }
+
+run "data_access_logs_for_the_services_named" {
+  variables {
+    data_access_services = ["secretmanager.googleapis.com", "cloudkms.googleapis.com"]
+  }
+  assert {
+    condition     = toset(keys(module.logs.data_access_services)) == toset(["secretmanager.googleapis.com", "cloudkms.googleapis.com"])
+    error_message = "Only the services named should have their Data Access audit logs turned on."
+  }
+}
