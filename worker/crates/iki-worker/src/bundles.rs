@@ -1,4 +1,4 @@
-//! Plugin code from the server, for a worker on someone's computer (ADR 0059).
+//! Plugin code from the server, for a self-hosted worker (ADR 0059).
 //!
 //! Without `IKI_PLUGINS_DIR`, the worker asks the server which plugins it installs, at
 //! which commits, and fetches each one's bundle: a gzipped tar that `iki deploy build`

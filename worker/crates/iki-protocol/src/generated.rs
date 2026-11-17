@@ -830,10 +830,12 @@ pub struct WorkerIn {
 pub struct WorkerOut {
     pub capacity: serde_json::Map<String, serde_json::Value>,
     pub id: String,
+    /// A self-hosted worker's labels, which runs are matched to it by. A Compute admin sets them.
+    pub labels: Vec<String>,
     pub name: String,
     pub plugins: Vec<PluginCode>,
     pub tier: String,
-    /// For a worker on someone's computer: the release to update itself to, when it's idle. Null when it runs the one it should.
+    /// For a self-hosted worker: the release to update itself to, when it's idle. Null when it runs the one it should.
     pub update: Option<UpdateOut>,
     pub version: String,
 }

@@ -48,7 +48,7 @@ ENVIRONMENT = """\
 apiVersion: iki/v1
 kind: Environment
 name: tools
-tiers: [backend, client]
+tiers: [backend, self_hosted]
 python: { version: "3.12", requirements: requirements.txt }
 """
 
@@ -106,7 +106,7 @@ inputs:
   assay: { type: Assay }
 effects:
   updates: [{ input: assay, fields: [score] }]
-runs_on: { tier: client, environment: tools }
+runs_on: { tier: self_hosted, environment: tools }
 command: [python, ./run.py]
 """
 
@@ -244,12 +244,9 @@ def test_the_action_must_be_the_plugins(tmp_path: Path) -> None:
     assert message == "This plugin has no action `measur`."
 
 
-def test_it_cant_run_on_the_client_tier(tmp_path: Path) -> None:
-    message = only(
-        make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: view\n")),
-        "trigger-client-tier",
-    )
-    assert "nobody may be" in message
+def test_it_can_run_on_a_self_hosted_machine(tmp_path: Path) -> None:
+    # A team's machine is there when the trigger fires, as a person's laptop may not be.
+    assert make(tmp_path, trigger("on: entity.created\ntype: Assay\nrun: view\n")).problems == []
 
 
 def test_some_input_must_take_the_type(tmp_path: Path) -> None:

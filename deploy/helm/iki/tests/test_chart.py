@@ -353,7 +353,7 @@ def test_client_worker_updates_are_configurable() -> None:
     )
     pinned = env_of(
         {
-            "clientWorkers": {
+            "selfHostedWorkers": {
                 "version": "0.4.1",
                 "autoUpdate": False,
                 "downloadsUrl": "https://artifacts.example.com/iki",
@@ -363,7 +363,7 @@ def test_client_worker_updates_are_configurable() -> None:
     assert pinned["IKI_WORKER_VERSION"] == "0.4.1"
     assert pinned["IKI_WORKER_UPDATES"] == "false"
     assert pinned["IKI_WORKER_DOWNLOADS"] == "https://artifacts.example.com/iki"
-    refused = render({"clientWorkers": {"downloadsUrl": "http://mirror"}}, ok=False)
+    refused = render({"selfHostedWorkers": {"downloadsUrl": "http://mirror"}}, ok=False)
     assert "downloadsUrl" in str(refused)
 
 

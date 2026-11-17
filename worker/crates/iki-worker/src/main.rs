@@ -2,8 +2,8 @@
 //!
 //! `iki-worker start` registers with `IKI_REGISTRATION_TOKEN` and runs jobs until it's
 //! stopped. Everything else it needs comes from the environment too; see `config`.
-//! On someone's own computer, `iki-worker login <server>` signs it in as them instead
-//! (ADR 0058), and `iki-worker logout` signs it out.
+//! A self-hosted machine registers once with `iki-worker register --url … --token …`
+//! instead (ADR 0112), and `iki-worker deregister` takes it off.
 //! `iki-worker run --local input.json` runs one action's command offline, the same way.
 //! `iki-worker host config.json` runs a cloud machine's run container (ADR 0074).
 
@@ -17,9 +17,9 @@ mod globs;
 mod host;
 mod job;
 mod local;
-mod login;
 mod logs;
 mod plugins;
+mod register;
 mod say;
 mod shared;
 mod update;
@@ -35,11 +35,14 @@ enum Command {
     Start {
         once: bool,
     },
-    Login {
-        url: String,
-        open_browser: bool,
+    Register {
+        url: Option<String>,
+        token: Option<String>,
+        name: Option<String>,
     },
-    Logout,
+    Deregister,
+    /// A command self-hosted workers replaced (ADR 0112): `login` and `logout`.
+    Removed,
     Verify {
         file: PathBuf,
         bundle: PathBuf,
@@ -97,18 +100,9 @@ fn parse(args: &[String]) -> Command {
         ),
         ["host", config] if !config.starts_with('-') => Command::Host(PathBuf::from(config)),
         ["host", ..] => Command::Unknown("host needs the machine's config.json".into()),
-        ["login", url] | ["login", url, "--no-browser"] | ["login", "--no-browser", url]
-            if !url.starts_with('-') =>
-        {
-            Command::Login {
-                url: (*url).to_owned(),
-                open_browser: !args.contains(&"--no-browser"),
-            }
-        }
-        ["login", ..] => Command::Unknown(
-            "login needs your Iki's address, such as https://iki.example.com".into(),
-        ),
-        ["logout"] => Command::Logout,
+        ["register", rest @ ..] => parse_register(rest),
+        ["deregister"] => Command::Deregister,
+        ["login" | "logout", ..] => Command::Removed,
         ["verify", file, bundle, "--identity", identity] => Command::Verify {
             file: PathBuf::from(file),
             bundle: PathBuf::from(bundle),
@@ -132,6 +126,26 @@ fn parse(args: &[String]) -> Command {
         [] | ["--help" | "-h"] => Command::Help,
         [first, ..] => Command::Unknown(format!("unknown argument '{first}'")),
     }
+}
+
+/// `register [--url URL] [--token TOKEN] [--name NAME]`, in any order. What's left out
+/// comes from `IKI_URL`, `IKI_REGISTRATION_TOKEN` and `IKI_WORKER_NAME`.
+fn parse_register(args: &[&str]) -> Command {
+    let (mut url, mut token, mut name) = (None, None, None);
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let slot = match *arg {
+            "--url" => &mut url,
+            "--token" => &mut token,
+            "--name" => &mut name,
+            other => return Command::Unknown(format!("register doesn't take '{other}'")),
+        };
+        match rest.next() {
+            Some(value) if !value.starts_with("--") => *slot = Some((*value).to_owned()),
+            _ => return Command::Unknown(format!("{arg} needs a value")),
+        }
+    }
+    Command::Register { url, token, name }
 }
 
 /// `run --local <input.json> [--plugin DIR] [--timeout SECONDS] [--checkpoint-dir DIR]`,
@@ -188,10 +202,11 @@ fn version_line() -> String {
 }
 
 const USAGE: &str = "\
-Usage: iki-worker login <server> [--no-browser]
-                                   Sign in on your own computer, to run your client-tier
-                                   runs (opens your browser to confirm a code)
-       iki-worker logout           Sign this computer's worker out
+Usage: iki-worker register --url <server> --token <registration token> [--name NAME]
+                                   Register this machine as a self-hosted worker, with a
+                                   token a Compute admin made for its teams, and keep its
+                                   own token for iki-worker start
+       iki-worker deregister       Take this machine's worker off its server
        iki-worker verify <release.tar.gz> <release.tar.gz.sigstore.json> --version V
                                    Check a release was signed by Iki's release workflow at
                                    that version (offline), as updating does
@@ -224,11 +239,11 @@ Usage: iki-worker login <server> [--no-browser]
        iki-worker --version
 
 Set in the environment:
-  IKI_URL                  The server, such as https://iki.example.com (once signed
-                           in with login, the one you signed in to)
-  IKI_REGISTRATION_TOKEN   From Compute settings, to register a deployment's worker with
+  IKI_URL                  The server, such as https://iki.example.com (once
+                           registered with register, the one it registered with)
+  IKI_REGISTRATION_TOKEN   From Compute → Workers, to register with
   IKI_WORKER_STATE         A file to keep the worker's own token in across restarts
-                           (after login, ~/.config/iki/worker.json unless set)
+                           (after register, ~/.config/iki/worker.json unless set)
   IKI_PLUGINS_DIR          Each plugin's code, in a directory named for it. Unless set,
                            the worker fetches the server's and builds their environments
                            with uv or micromamba
@@ -260,7 +275,16 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Command::Login { url, open_browser } => finish(sign_in(&url, open_browser)),
+        Command::Register { url, token, name } => finish(register_here(
+            url.as_deref(),
+            token.as_deref(),
+            name.as_deref(),
+        )),
+        Command::Removed => write_or_fail(
+            &mut io::stderr(),
+            &format!("iki-worker: {}", register::NO_SIGN_IN),
+            ExitCode::from(2),
+        ),
         Command::Verify {
             file,
             bundle,
@@ -274,10 +298,10 @@ fn main() -> ExitCode {
                 })
                 .map_err(|e| format!("{}: {e}", file.display())),
         ),
-        Command::Logout => finish(
+        Command::Deregister => finish(
             state_file(&|name| std::env::var(name).ok())
                 .ok_or_else(|| NO_STATE.to_owned())
-                .and_then(|path| login::logout(&path)),
+                .and_then(|path| register::deregister(&path)),
         ),
         Command::RunLocal(options) => {
             let work_dir = std::env::var_os("IKI_WORK_DIR")
@@ -335,23 +359,43 @@ fn install(dir: &std::path::Path) -> Result<(), String> {
 const NO_STATE: &str = "Set IKI_WORKER_STATE to where the worker's token is kept: there's \
     no home directory to keep it in.";
 
-/// Where the signed-in worker's token is: `IKI_WORKER_STATE`, or the user's configuration.
+/// Where the registered worker's token is: `IKI_WORKER_STATE`, or the user's
+/// configuration.
 fn state_file(var: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
     var("IKI_WORKER_STATE")
         .filter(|v| !v.trim().is_empty())
         .map(|v| PathBuf::from(v.trim()))
-        .or_else(|| login::default_state_file(var))
+        .or_else(|| register::default_state_file(var))
 }
 
-fn sign_in(url: &str, open_browser: bool) -> Result<(), String> {
-    let var = |name: &str| std::env::var(name).ok();
+fn register_here(url: Option<&str>, token: Option<&str>, name: Option<&str>) -> Result<(), String> {
+    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
     let allow_http = var("IKI_ALLOW_HTTP").is_some_and(|v| v.trim() == "1" || v.trim() == "true");
-    login::login(&login::Options {
-        url: config::server_url(url, allow_http)?,
+    let url = url
+        .map(str::to_owned)
+        .or_else(|| var("IKI_URL"))
+        .ok_or("register needs your Iki's address: --url https://iki.example.com, or IKI_URL.")?;
+    let token = token
+        .map(str::to_owned)
+        .or_else(|| var("IKI_REGISTRATION_TOKEN"))
+        .ok_or(
+            "register needs a registration token from a Compute admin (Compute → Workers): \
+             --token iki_wreg_…, or IKI_REGISTRATION_TOKEN.",
+        )?;
+    let token = token.trim();
+    if !token.starts_with("iki_wreg_") || !token.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(
+            "The registration token must be the token alone, such as iki_wreg_…, \
+                    with no spaces or other lines."
+                .to_owned(),
+        );
+    }
+    register::register(&register::Options {
+        url: config::server_url(&url, allow_http)?,
+        token: token.to_owned(),
         state_file: state_file(&var).ok_or_else(|| NO_STATE.to_owned())?,
-        name: config::name(&var),
+        name: name.map_or_else(|| config::name(&var), str::to_owned),
         capacity: config::capacity(&var)?,
-        open_browser,
     })
 }
 
@@ -443,33 +487,48 @@ mod tests {
     }
 
     #[test]
-    fn parses_login_and_logout() {
+    fn parses_register_and_deregister() {
         let url = "https://iki.example.com";
         assert_eq!(
-            parse(&args(&["login", url])),
-            Command::Login {
-                url: url.into(),
-                open_browser: true
+            parse(&args(&["register", "--url", url, "--token", "iki_wreg_x"])),
+            Command::Register {
+                url: Some(url.into()),
+                token: Some("iki_wreg_x".into()),
+                name: None,
             }
         );
-        for order in [
-            ["login", url, "--no-browser"],
-            ["login", "--no-browser", url],
+        assert_eq!(
+            parse(&args(&["register", "--name", "hplc-1", "--url", url])),
+            Command::Register {
+                url: Some(url.into()),
+                token: None,
+                name: Some("hplc-1".into()),
+            }
+        );
+        assert_eq!(
+            parse(&args(&["register"])),
+            Command::Register {
+                url: None,
+                token: None,
+                name: None,
+            }
+        );
+        let refused = |list: &[&str]| matches!(parse(&args(list)), Command::Unknown(_));
+        assert!(refused(&["register", "--url"]));
+        assert!(refused(&["register", "--url", "--token", "x"]));
+        assert!(refused(&["register", url]));
+        assert_eq!(parse(&args(&["deregister"])), Command::Deregister);
+    }
+
+    #[test]
+    fn signing_in_is_gone() {
+        for gone in [
+            &["login", "https://iki.example.com"][..],
+            &["login"],
+            &["logout"],
         ] {
-            assert_eq!(
-                parse(&args(&order)),
-                Command::Login {
-                    url: url.into(),
-                    open_browser: false
-                }
-            );
+            assert_eq!(parse(&args(gone)), Command::Removed);
         }
-        assert!(matches!(parse(&args(&["login"])), Command::Unknown(_)));
-        assert!(matches!(
-            parse(&args(&["login", "--twice"])),
-            Command::Unknown(_)
-        ));
-        assert_eq!(parse(&args(&["logout"])), Command::Logout);
     }
 
     #[test]

@@ -15,7 +15,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
-import { iki, problemOf, projectsQuery, useApiMutation } from "../api";
+import { iki, meQuery, problemOf, projectsQuery, useApiMutation } from "../api";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
@@ -155,22 +155,25 @@ const STATUS_CHOICES = [
   ...Object.entries(STATUS).map(([value, label]) => ({ value, label })),
 ] as const;
 
-/** A client-tier run runs on its requester's own computer, so it waits for their worker. */
-function NeedsWorker({ whose, run }: { whose: "yours" | "theirs"; run: Run }) {
+/** Why a self-hosted run has no machine to take it (ADR 0112), and who can fix that. */
+function NeedsWorker({ why }: { why: NonNullable<Run["needs_worker"]> }) {
+  const me = useSuspenseQuery(meQuery).data;
+  const said = {
+    unregistered:
+      "Waiting for a self-hosted worker: no machine is registered for this project. A Compute admin registers one for its team.",
+    offline:
+      "Waiting for a self-hosted worker: the machines registered for this project are offline. It starts when one of them is back.",
+    busy: "Waiting for a self-hosted worker: the machines registered for this project are busy with other runs. It starts when one is free.",
+  }[why];
   return (
     <div className="alert alert-info" role="status">
-      {whose === "yours" ? (
+      <p>{said}</p>
+      {me.can.manage_compute && why === "unregistered" ? (
         <p>
-          Waiting for a worker on your computer: this action runs on the client tier, and none of
-          yours is online. Start <code>iki-worker</code>, or sign one in from{" "}
-          <a href="/account/workers/">Your workers</a>.
+          <Link to="/compute/workers/">Make a self-hosted registration token</Link> for this
+          project’s team, and register a machine with it.
         </p>
-      ) : (
-        <p>
-          Waiting for a worker on {run.requested_by.name}’s computer: this action runs on the client
-          tier, and none of theirs is online.
-        </p>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1216,7 +1219,7 @@ export function RunPage() {
           <p>Waiting to start: {run.waiting}</p>
         </div>
       ) : null}
-      {run.needs_worker ? <NeedsWorker whose={run.needs_worker} run={run} /> : null}
+      {run.needs_worker ? <NeedsWorker why={run.needs_worker} /> : null}
       {run.reused ? <ReusedNote run={run} /> : null}
       {run.reproduces || run.reproduction ? <ReproductionNote run={run} /> : null}
       {run.error ? (
@@ -1496,7 +1499,7 @@ export function RunPage() {
           </dd>
           <dt>Ran on</dt>
           <dd>
-            {run.tier === "client" ? "A client" : `A ${run.tier} worker`}
+            {run.tier === "self_hosted" ? "A self-hosted worker" : `A ${run.tier} worker`}
             {run.environment ? (
               <>
                 , in the <code>{run.environment}</code> environment

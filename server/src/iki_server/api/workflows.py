@@ -39,7 +39,7 @@ from iki_spec.model import Workflow
 router = Router(tags=["workflows"])
 
 #: Tiers from the least a starter needs to the most.
-TIER_ORDER = ("client", "backend", "container", "vm")
+TIER_ORDER = ("self_hosted", "backend", "container", "vm")
 
 
 # --- Workflows ---------------------------------------------------------------------------------

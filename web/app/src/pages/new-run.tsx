@@ -81,7 +81,7 @@ function inputTaking(action: Action, kinds: string[], types: EntityType[]): Inpu
 }
 
 const TIER: Record<Action["tier"], string> = {
-  client: "on the computer of whoever starts it, with Iki’s worker",
+  self_hosted: "on a machine its team registered with Iki",
   backend: "on one of Iki’s backend workers",
   container: "in a container on the deployment’s compute",
   vm: "on a virtual machine of its own",

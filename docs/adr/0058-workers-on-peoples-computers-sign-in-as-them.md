@@ -1,6 +1,6 @@
 # 0058. A worker on someone's own computer signs in as them
 
-- Status: Accepted
+- Status: Superseded by [0112](0112-self-hosted-workers-belong-to-teams.md)
 - Date: 2026-11-12
 - Refines: [0043](0043-workers-lease-jobs.md),
   [0028](0028-oauth-authorization-server.md)

@@ -1,9 +1,9 @@
 """The job queue: leasing jobs to workers, what they report, and retries (ADR 0043).
 
 A worker leases the best queued job it can run: on its tier, that fits its
-capacity, and (on the client tier) its own person's. Projects with fewer
-jobs running go first, so one project's batch can't starve the rest; then
-higher priority, then older. Rows are claimed with ``FOR UPDATE SKIP
+capacity, and (on the self-hosted tier) in a project its teams cover (ADR
+0112). Projects with fewer jobs running go first, so one project's batch
+can't starve the rest; then higher priority, then older. Rows are claimed with ``FOR UPDATE SKIP
 LOCKED``, so workers never wait on each other.
 
 Every lease has a new token and expires unless the worker's heartbeats
@@ -74,6 +74,7 @@ __all__ = [
     "HEARTBEAT_EVERY",
     "LEASE_TTL",
     "LogGap",
+    "OutOfScope",
     "Stale",
     "append_log",
     "complete",
@@ -82,6 +83,7 @@ __all__ = [
     "finish",
     "heartbeat",
     "held",
+    "interrupt_outside",
     "interrupt_worker",
     "lease",
     "notify",
@@ -131,7 +133,7 @@ _FINAL = {
 
 #: The permission running on each tier needs, as launching it did.
 TIER_ACTIONS = {
-    "client": Action.RUN_CLIENT,
+    "self_hosted": Action.RUN_SELF_HOSTED,
     "backend": Action.RUN_BACKEND,
     "container": Action.RUN_CONTAINER,
     "vm": Action.RUN_VM,
@@ -140,6 +142,10 @@ TIER_ACTIONS = {
 
 class Stale(Exception):  # noqa: N818 - reads as "the lease is stale"
     """The worker doesn't hold this job's current lease."""
+
+
+class OutOfScope(Stale):
+    """A self-hosted worker holds a job in a project it no longer covers (ADR 0112)."""
 
 
 class LogGap(Exception):  # noqa: N818 - reads as "there's a gap in the log"
@@ -224,15 +230,18 @@ EACH = 8
 TRIES = 64
 
 
-def _shortlist(candidates: QuerySet[Job], tier: str) -> RawSQL | None:
+def _shortlist(
+    candidates: QuerySet[Job], tier: str, projects: list[uuid.UUID] | None = None
+) -> RawSQL | None:
     """The best of what ``candidates`` holds, as a subquery of job IDs, or None if it holds
     nothing by definition (a worker with no plugin it may run): each project's best
     few, the projects with fewer jobs running first, then by priority, oldest first
-    (ADR 0108).
+    (ADR 0108). With `projects` (a self-hosted worker's), only theirs.
 
     It costs as many index lookups as there are projects with jobs queued on the tier,
     however deep the queue or long its history. Ranking every queued job by its project's
-    running count instead counted each project's jobs once per job queued.
+    running count instead counted each project's jobs once per job queued. A project
+    `projects` leaves out is skipped before its jobs are read (ADR 0112).
     """
     heads = (
         candidates.filter(project_id=RawSQL("queued.project_id", ()))
@@ -244,6 +253,7 @@ def _shortlist(candidates: QuerySet[Job], tier: str) -> RawSQL | None:
     except EmptyResultSet:
         return None
     held = ", ".join(["%s"] * len(HELD))
+    scoped = " AND queued.project_id = ANY(%s::uuid[])" if projects is not None else ""
     # Every value is a parameter; what's interpolated is Django's own compiled SQL, the
     # placeholders for HELD, and a constant.
     return RawSQL(  # noqa: S611
@@ -262,7 +272,7 @@ def _shortlist(candidates: QuerySet[Job], tier: str) -> RawSQL | None:
         ") "
         f"SELECT head.id FROM queued CROSS JOIN LATERAL ({sql}) head(id, priority, queued_at)"
         " LEFT JOIN running ON running.project_id = queued.project_id"
-        " WHERE queued.project_id IS NOT NULL"
+        f" WHERE queued.project_id IS NOT NULL{scoped}"
         " ORDER BY coalesce(running.n, 0), head.priority DESC, head.queued_at, head.id"
         f" LIMIT {TRIES}",
         (
@@ -272,6 +282,7 @@ def _shortlist(candidates: QuerySet[Job], tier: str) -> RawSQL | None:
             tier,
             *HELD,
             *params,
+            *([projects] if projects is not None else []),
         ),
     )
 
@@ -301,13 +312,13 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             Q(lifecycle="") | Q(lifecycle=launches.lifecycle(worker.launch)),
             environment=worker.launch.environment,
         )
-    if worker.tier == "client":
-        candidates = candidates.filter(owner=worker.owner_id)
-        allowed = workers.allowed_projects(worker)
-        if allowed is not None:
-            if not allowed:
-                return None
-            candidates = candidates.filter(project__in=allowed)
+    scope: list[uuid.UUID] | None = None
+    if worker.tier == workers.SELF_HOSTED:
+        # Only runs in projects its teams cover (ADR 0112).
+        scope = list(workers.covered(worker).values_list("pk", flat=True))
+        if not scope:
+            return None
+        candidates = candidates.filter(project__in=scope)
     with transaction.atomic():
         # It's still running, and an ephemeral machine's first job.
         if not launches.may_lease(worker):
@@ -319,7 +330,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             candidates = candidates.exclude(project__in=list(stop.projects))
         if stop.teams:
             candidates = candidates.exclude(project__team__in=list(stop.teams))
-        shortlist = _shortlist(candidates, worker.tier)
+        shortlist = _shortlist(candidates, worker.tier, scope)
         if shortlist is None:
             return None
         # The plan's few milliseconds would wait on JIT compiling it: Postgres's estimate
@@ -428,7 +439,6 @@ def _pack(job: Job, run: ActionRun) -> list[Job]:
             run__plugin_sha=run.plugin_sha,
             tier=job.tier,
             environment=job.environment,
-            owner=job.owner_id,
             queued_at__lte=Now(),
         )
         .exclude(pk=job.pk)
@@ -575,15 +585,25 @@ def _holds(job: Job | None, token: uuid.UUID) -> Job:
     return job
 
 
+def _in_scope(worker: Worker, job: Job) -> Job:
+    """A self-hosted worker reports only on jobs in projects it still covers: an admin who
+    narrows its teams takes those away at once (ADR 0112)."""
+    if not workers.covers(worker, job.project_id):
+        raise OutOfScope
+    return job
+
+
 def held(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> Job:
     """The job, locked, if this worker holds its current lease."""
-    return _holds(Job.objects.select_for_update().filter(pk=job_id, worker=worker).first(), token)
+    job = _holds(Job.objects.select_for_update().filter(pk=job_id, worker=worker).first(), token)
+    return _in_scope(worker, job)
 
 
 def cancel_requested(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> bool:
     """Whether the job's run was cancelled, if this worker holds its lease. Reads only:
     it doesn't renew the lease, as heartbeats do."""
-    return _cancelled(_holds(Job.objects.filter(pk=job_id, worker=worker).first(), token))
+    job = _holds(Job.objects.filter(pk=job_id, worker=worker).first(), token)
+    return _cancelled(_in_scope(worker, job))
 
 
 def _cancelled(job: Job) -> bool:
@@ -908,6 +928,25 @@ def interrupt_worker(worker: Worker, *, code: str) -> int:
     return count
 
 
+def interrupt_outside(worker: Worker, covered: QuerySet[Any]) -> int:
+    """Ends the attempts a self-hosted worker holds in projects it no longer covers, as
+    interrupted: an admin narrowed its teams or projects (ADR 0112)."""
+    count = 0
+    for job in (
+        Job.objects.select_for_update()
+        .filter(worker=worker, state__in=HELD, packed_into__isnull=True)
+        .exclude(project__in=covered.values("pk"))
+    ):
+        _end_pack(
+            job,
+            JobState.INTERRUPTED,
+            "worker_lost",
+            "The worker was taken off this project.",
+        )
+        count += 1
+    return count
+
+
 def recover_expired() -> int:
     """Ends attempts whose lease ran out (the worker went away), and those running well past
     their timeout. The task runner calls it every few seconds. Returns how many it ended."""
@@ -983,7 +1022,6 @@ def _end_attempt(job: Job, state: str, reason: str, message: str) -> ActionRun:
             environment=job.environment,
             resources=job.resources,
             lifecycle=job.lifecycle,
-            owner_id=job.owner_id,
             # The database's clock, as leasing compares with: app servers' clocks may drift.
             queued_at=Now() + RETRY_BACKOFF * job.attempt,
         )

@@ -6,7 +6,7 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { iki } from "./api";
 
 export type ComputeOverview = Schemas["OverviewOut"];
-export type Tier = "client" | "backend" | "container" | "vm";
+export type Tier = "self_hosted" | "backend" | "container" | "vm";
 
 export const COMPUTE = ["compute"] as const;
 
@@ -21,7 +21,7 @@ export const overviewQuery = queryOptions({
 
 /** Each tier by name, as Compute admins call them. */
 export const TIER_NAME: Record<string, string> = {
-  client: "Client",
+  self_hosted: "Self-hosted",
   backend: "Backend",
   container: "Container",
   vm: "VM",
@@ -29,7 +29,7 @@ export const TIER_NAME: Record<string, string> = {
 
 /** What each tier's workers are, for an empty one's explanation. */
 export const TIER_WORKERS: Record<string, string> = {
-  client: "People’s own computers, running Iki’s worker",
+  self_hosted: "Teams’ own machines, each registered with a token for its teams",
   backend: "Workers you run and register with a token",
   container: "Pods Iki starts for runs, on its compute templates",
   vm: "Machines Iki starts for runs, on its compute templates",
@@ -86,14 +86,19 @@ export const quotasQuery = queryOptions({
   refetchInterval: OVERVIEW_POLL_MS,
 });
 
-/** Teams or projects to set a quota on, any of them, by part of the name. */
-export function quotaScopesQuery(kind: QuotaScopeKind, search: string) {
+/**
+ * Teams or projects to set a quota on or give a self-hosted worker to, any of them, by part
+ * of the name; projects only of `teams`, when given.
+ */
+export function quotaScopesQuery(kind: QuotaScopeKind, search: string, teams: string[] = []) {
   return queryOptions({
-    queryKey: [...COMPUTE, "quota-scopes", kind, search.trim()],
+    queryKey: [...COMPUTE, "quota-scopes", kind, search.trim(), teams],
     queryFn: async () =>
       unwrap(
         await iki.GET("/api/v1/compute/quota-scopes", {
-          params: { query: { kind, search: search.trim() } },
+          params: {
+            query: { kind, search: search.trim(), ...(teams.length ? { team: teams } : {}) },
+          },
         }),
       ),
     placeholderData: (previous) => previous,

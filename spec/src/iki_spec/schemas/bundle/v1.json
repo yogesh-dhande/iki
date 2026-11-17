@@ -1220,7 +1220,7 @@
                 "type": "string"
               },
               "owner": {
-                "description": "Whose machine ran it, for the client tier.",
+                "description": "Always null: workers once ran on people's own computers, which self-hosted workers replaced (ADR 0112).",
                 "anyOf": [
                   {
                     "$ref": "#/$defs/uuid"

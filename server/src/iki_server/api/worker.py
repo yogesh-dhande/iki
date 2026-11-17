@@ -17,7 +17,6 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -37,7 +36,6 @@ from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import HttpBearer
 from pydantic import field_validator
 
-from iki_server.accounts.models import User
 from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import ANONYMOUS_LIMIT, _limit
 from iki_server.entities import registry
@@ -71,36 +69,20 @@ def _refuse(request: HttpRequest) -> None:
     _limit(request, RateLimiter("worker_anonymous", ANONYMOUS_LIMIT), client_key(request))
 
 
-@dataclass(frozen=True)
-class SignedIn:
-    """Someone who signed a worker in on their own computer (``iki-worker login``)."""
-
-    person: User
-    access_token: Any
-
-
 class RegistrationAuth(HttpBearer):
-    """A registration token, or the access token ``iki-worker login`` got, to register
-    with."""
+    """A registration token a Compute admin made, or the launch token of a machine Iki
+    started (ADR 0061), to register with."""
 
-    def authenticate(
-        self, request: HttpRequest, token: str
-    ) -> RegistrationToken | SignedIn | Launch | None:
+    def authenticate(self, request: HttpRequest, token: str) -> RegistrationToken | Launch | None:
         if token.startswith(launches.LAUNCH_PREFIX):
             launch = launches.for_token(token)
             if launch is None:
                 _refuse(request)
             return launch
-        if token.startswith(workers.REGISTRATION_PREFIX):
-            found = workers.registration_for(f"Bearer {token}")
-            if found is None:
-                _refuse(request)
-            return found
-        signed_in = workers.signed_in(token)
-        if signed_in is None:
+        found = workers.registration_for(f"Bearer {token}")
+        if found is None:
             _refuse(request)
-            return None
-        return SignedIn(*signed_in)
+        return found
 
 
 class WorkerAuth(HttpBearer):
@@ -164,6 +146,18 @@ def _refused(request: HttpRequest, exc: Refused) -> HttpResponse:
 @api.exception_handler(LookupError)
 def _missing(request: HttpRequest, exc: LookupError) -> HttpResponse:
     return response(Problem(404, str(exc)))
+
+
+@api.exception_handler(queue.OutOfScope)
+def _out_of_scope(request: HttpRequest, exc: queue.OutOfScope) -> HttpResponse:
+    return response(
+        Problem(
+            409,
+            "This worker no longer runs runs in this job’s project. Stop the job and lease "
+            "another.",
+            code="stale_lease",
+        )
+    )
 
 
 @api.exception_handler(setups.Stale)
@@ -272,8 +266,9 @@ class RegisteredOut(Schema):
     summary="Register a worker",
 )
 def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
-    """With a registration token for a deployment's workers, or, for a worker on someone's
-    own computer, the access token ``iki-worker login`` got them (which this spends)."""
+    """With a registration token a Compute admin made (``iki-worker register``), or a
+    machine Iki started's launch token. A self-hosted worker gets the token's teams,
+    projects and labels."""
     auth = request.auth  # type: ignore[attr-defined]
     details: dict[str, Any] = {
         "name": payload.name,
@@ -281,9 +276,7 @@ def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
         "capacity": payload.capacity.model_dump(),
         "plugins": _plugins(payload),
     }
-    if isinstance(auth, SignedIn):
-        worker, token = workers.register_client(auth.person, auth.access_token, **details)
-    elif isinstance(auth, Launch):
+    if isinstance(auth, Launch):
         template = catalog.compute().templates.get(auth.template)
         if template is None:
             raise Problem(
@@ -336,9 +329,13 @@ class WorkerOut(Schema):
     version: str
     capacity: dict[str, Any]
     plugins: list[PluginCode]
+    labels: list[str] = Field(
+        description="A self-hosted worker's labels, which runs are matched to it by. A Compute "
+        "admin sets them."
+    )
     update: UpdateOut | None = Field(
-        description="For a worker on someone's computer: the release to update itself to, "
-        "when it's idle. Null when it runs the one it should."
+        description="For a self-hosted worker: the release to update itself to, when it's "
+        "idle. Null when it runs the one it should."
     )
 
     @staticmethod
@@ -410,8 +407,8 @@ class AvailableListOut(Schema):
 
 @api.get("/plugins", response=AvailableListOut, summary="Plugin code to fetch")
 def available(request: HttpRequest) -> dict[str, Any]:
-    """The code of each plugin this deployment installs from a commit, for a worker on
-    someone's computer to fetch and build (ADR 0059): it then runs what's launched now.
+    """The code of each plugin this deployment installs from a commit, for a self-hosted
+    worker to fetch and build (ADR 0059): it then runs what's launched now.
     A machine Iki started for runs gets only its own plugin's (ADR 0061): on a development
     server, that may be one from a local directory, whose ``sha`` is ``local``."""
     worker = _worker(request)

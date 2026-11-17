@@ -1,7 +1,7 @@
 """Runs agents ask for that wait for a person's approval (ADR 0013).
 
-An agent acting for someone through MCP may start runs on the client and backend
-tiers itself. On the container and VM tiers, which cost real money, its runs wait,
+An agent acting for someone through MCP may start runs on the self-hosted and
+backend tiers itself. On the container and VM tiers, which cost real money, its runs wait,
 with their jobs held where no worker leases them, until that person approves them in
 the web app. So do a trigger's runs on those tiers, for the Admin who turned it on
 (ADR 0080). Approving is refused to any OAuth token, so an agent can't approve its

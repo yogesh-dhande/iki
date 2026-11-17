@@ -229,8 +229,8 @@ class Extension:
         return {name: f for name, f in self.fields.items() if not f.removed}
 
 
-#: Where actions run, from the person's own machine to a virtual machine.
-TIERS = ("client", "backend", "container", "vm")
+#: Where actions run, from a machine a team registered to a virtual machine Iki starts.
+TIERS = ("self_hosted", "backend", "container", "vm")
 
 
 @dataclass(frozen=True)

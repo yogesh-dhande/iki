@@ -40,7 +40,7 @@ const OFFLINE: Schemas["ActionOut"] = {
 
 function onProject(can: Partial<Schemas["ProjectOut"]["can"]> = {}): void {
   withTypes();
-  const atlas = project({ can: { ...KINASE.can, run: ["client", "backend"], ...can } });
+  const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"], ...can } });
   answer("GET /api/v1/projects", page([atlas]));
   answer("GET /api/v1/actions", [COMPUTE, PREDICT, OFFLINE]);
   answer("POST /api/v1/entities/search", (r: { body: { where: { value: string[] } } }) =>
@@ -197,7 +197,7 @@ describe("starting a run", () => {
   });
 
   it("says what a run may cost, from its recent runs and its timeout", async () => {
-    onProject({ run: ["client", "backend", "container"] });
+    onProject({ run: ["self_hosted", "backend", "container"] });
     const RELAX: Schemas["ActionOut"] = {
       ...ACTION,
       tier: "container",
@@ -220,7 +220,7 @@ describe("starting a run", () => {
   });
 
   it("says what its machine costs an hour, before any run has", async () => {
-    onProject({ run: ["client", "backend", "container"] });
+    onProject({ run: ["self_hosted", "backend", "container"] });
     answer("GET /api/v1/actions", [
       {
         ...ACTION,

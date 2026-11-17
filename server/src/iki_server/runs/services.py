@@ -448,7 +448,6 @@ def _queue(
         environment=f"{action.plugin}.{action.environment}",
         resources=asdict(environment.resources.at_least(action.resources)),
         lifecycle=action.lifecycle or "",
-        owner=user if action.tier == "client" else None,
         state=JobState.AWAITING_APPROVAL if approval else JobState.QUEUED,
     )
     if approval is None:

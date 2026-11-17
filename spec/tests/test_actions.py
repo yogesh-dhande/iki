@@ -52,7 +52,7 @@ BACKEND = """\
 apiVersion: iki/v1
 kind: Environment
 name: tools
-tiers: [backend, client]
+tiers: [backend, self_hosted]
 python: { version: "3.12", requirements: requirements.txt }
 """
 
@@ -280,13 +280,13 @@ def test_the_backend_needs_packages(tmp_path: Path) -> None:
     assert "neither" in only(make(tmp_path, ACTION, env), "environment-needs-packages")
 
 
-def test_the_client_can_run_an_image(tmp_path: Path) -> None:
+def test_a_self_hosted_machine_can_run_an_image(tmp_path: Path) -> None:
     env = (
-        "apiVersion: iki/v1\nkind: Environment\nname: tools\ntiers: [client]\n"
+        "apiVersion: iki/v1\nkind: Environment\nname: tools\ntiers: [self_hosted]\n"
         "image: ghcr.io/acme/tool@sha256:" + "b" * 64 + "\n"
     )
-    client = action(runs_on="{ tier: client, environment: tools }", command="[/app/run]")
-    assert make(tmp_path, client, env).problems == []
+    hosted = action(runs_on="{ tier: self_hosted, environment: tools }", command="[/app/run]")
+    assert make(tmp_path, hosted, env).problems == []
 
 
 def test_packages_only_the_image_tiers_would_ignore(tmp_path: Path) -> None:
@@ -611,7 +611,7 @@ def test_runs_in_an_environment_that_supports_its_tier(tmp_path: Path) -> None:
     assert result.problems[0].hint == "Did you mean `tools`?"
     result = make(tmp_path, action(runs_on="{ tier: vm, environment: tools }"))
     message = only(result, "tier-not-supported")
-    assert message == "`tools` doesn't run on the vm tier; it runs on backend, client."
+    assert message == "`tools` doesn't run on the vm tier; it runs on backend, self_hosted."
 
 
 def test_lifecycles_are_for_provisioned_tiers(tmp_path: Path) -> None:
@@ -625,14 +625,21 @@ def test_lifecycles_are_for_provisioned_tiers(tmp_path: Path) -> None:
     assert vm.plugin.actions["score"].lifecycle == "ephemeral"
 
 
-def test_the_client_tier(tmp_path: Path) -> None:
-    client = action(
-        runs_on="{ tier: client, environment: tools, resources: { cpu: 2 } }",
+def test_the_self_hosted_tier(tmp_path: Path) -> None:
+    hosted = action(
+        runs_on="{ tier: self_hosted, environment: tools, resources: { cpu: 2 } }",
         secrets="[TOKEN_A]",
         network="[example.org]",
     )
-    result = make(tmp_path, client)
-    assert sorted(codes(result)) == ["client-network", "client-resources", "client-secrets"]
+    result = make(tmp_path, hosted)
+    assert sorted(codes(result)) == ["self-hosted-network", "self-hosted-secrets"]
+    # Its workers say what they have, so it may need more, GPUs included, and run software
+    # the machine has.
+    sized = action(
+        runs_on="{ tier: self_hosted, environment: tools, resources: { gpu: { count: 1 } } }",
+        command="[/opt/vendor/bin/acquire]",
+    )
+    assert make(tmp_path, sized).problems == []
 
 
 def test_commands(tmp_path: Path) -> None:
@@ -640,8 +647,6 @@ def test_commands(tmp_path: Path) -> None:
     assert only(result, "missing-file")
     result = make(tmp_path, action(command="[/usr/bin/python3, run.py]"))
     assert only(result, "absolute-path-on-backend")
-    client = action(runs_on="{ tier: client, environment: tools }", command="[/opt/run]")
-    assert only(make(tmp_path, client), "absolute-path-on-client")
 
 
 def test_reserved_secrets(tmp_path: Path) -> None:

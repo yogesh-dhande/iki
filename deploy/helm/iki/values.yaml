@@ -89,11 +89,11 @@ api:
 checkpoints:
   interval: 10m
 
-# iki-worker on people's computers (ADR 0060). The server tells them which release
+# Self-hosted iki-workers (ADR 0060, ADR 0112). The server tells them which release
 # to run and refuses any more than one minor release older. They download it from
 # `downloadsUrl`, laid out as GitHub's releases are (an internal mirror works), and
 # check its Sigstore signature offline before running it.
-clientWorkers:
+selfHostedWorkers:
   # The release to run: this server's own version unless set.
   version: ""
   # Tell them to update themselves while idle. Off leaves updates to IT.

@@ -67,7 +67,7 @@ from iki_spec.model import Action
 
 router = Router(tags=["runs"])
 
-Tier = Literal["client", "backend", "container", "vm"]
+Tier = Literal["self_hosted", "backend", "container", "vm"]
 
 
 # --- Actions -----------------------------------------------------------------------------------
@@ -229,7 +229,7 @@ def _action_out(action: Action) -> dict[str, Any]:
         "batchable": action.batchable,
         "available": available.available,
         "unavailable_reason": available.reason,
-        "needs": "Editor" if action.tier in ("client", "backend") else "Runner",
+        "needs": "Editor" if action.tier in ("self_hosted", "backend") else "Runner",
         "estimate": costs.estimate(action),
     }
 
@@ -592,9 +592,11 @@ class RunOut(Schema):
         description="Why a queued run hasn't started: a quota is holding it, or the machine "
         "being started for it is waiting (for a node with a GPU, say)."
     )
-    needs_worker: Literal["yours", "theirs"] | None = Field(
-        description="A queued client-tier run whose requester has no worker online on their "
-        "own computer to run it (ADR 0058): `yours` when that's you, else `theirs`."
+    needs_worker: Literal["unregistered", "offline", "busy"] | None = Field(
+        description="Why a queued self-hosted run has no worker to take it (ADR 0112): "
+        "`unregistered` when no self-hosted worker's teams cover its project, `offline` when "
+        "those that do are offline, `busy` when they're all running other jobs. A Compute "
+        "admin registers one under Compute → Workers."
     )
     seed: int | None = Field(
         description="The seed its command was given (`IKI_SEED`). None for runs from before seeds."
@@ -624,6 +626,11 @@ class RunOut(Schema):
 
 def _qualified_environment(run: ActionRun) -> str:
     return f"{run.action.partition('.')[0]}.{run.environment}"
+
+
+def _self_hosted_need(run: ActionRun) -> tuple[Any, Any, tuple[str, ...]]:
+    """What a self-hosted worker needs to take the run: its project, and the project's team."""
+    return (run.project_id, run.project.team_id, ())
 
 
 def _effect_out(effect: RunEffect) -> dict[str, Any]:
@@ -741,10 +748,13 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
         tier: quotas.blocked(tier)
         for tier in {r.tier for r in runs if r.status == RunStatus.QUEUED}
     }
-    waiting_for_client = {
-        r.requested_by_id for r in runs if r.status == RunStatus.QUEUED and r.tier == "client"
-    }
-    online = workers.online_owners(waiting_for_client) if waiting_for_client else set()
+    hosted = workers.waiting(
+        {
+            _self_hosted_need(r)
+            for r in runs
+            if r.status == RunStatus.QUEUED and r.tier == workers.SELF_HOSTED
+        }
+    )
     starting = provisioner.waiting(
         {
             _qualified_environment(r)
@@ -822,10 +832,8 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
                 else None
             ),
             "needs_worker": (
-                ("yours" if run.requested_by_id == me.pk else "theirs")
-                if run.status == RunStatus.QUEUED
-                and run.tier == "client"
-                and run.requested_by_id not in online
+                hosted.get(_self_hosted_need(run))
+                if run.status == RunStatus.QUEUED and run.tier == workers.SELF_HOSTED
                 else None
             ),
             "seed": run.seed,

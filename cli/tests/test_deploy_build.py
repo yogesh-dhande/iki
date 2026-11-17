@@ -100,7 +100,7 @@ def test_builds_the_pinned_commits(
         "iki_plugin_dna",
         "iki_plugin_protein",
     ]
-    # Without a compute.yaml, the deployment runs only client-tier actions, and says so.
+    # Without a compute.yaml, the deployment runs only self-hosted actions, and says so.
     assert "warning: `protein.protein-tools` has no template for the backend tier" in captured.err
     assert json.loads((out / "compute.json").read_text()) == {
         "apiVersion": "iki/v1",

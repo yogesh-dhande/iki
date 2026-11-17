@@ -179,7 +179,7 @@ const SCOPE_KINDS = [
 
 const TIERS = [
   { value: "all", label: "Every tier together" },
-  { value: "client", label: "Client" },
+  { value: "self_hosted", label: "Self-hosted" },
   { value: "backend", label: "Backend" },
   { value: "container", label: "Container" },
   { value: "vm", label: "VM" },

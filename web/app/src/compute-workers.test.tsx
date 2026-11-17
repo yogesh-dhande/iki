@@ -1,6 +1,7 @@
 /**
- * Compute → Workers, against a fake API: the workers and their state, revoking one, and
- * making and revoking registration tokens.
+ * Compute → Workers, against a fake API: the workers and their state, revoking one,
+ * changing a self-hosted one's teams and labels, and making and revoking registration
+ * tokens.
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -8,7 +9,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { renderApp } from "./entity-fixtures";
-import { capacityText } from "./pages/compute-workers";
+import { capacityText, parseLabels, scopeText } from "./pages/compute-workers";
 import { answer, calls, ME, page, signedIn } from "./test-server";
 
 const COMPUTE_ADMIN = { ...ME.can, manage_compute: true };
@@ -25,7 +26,10 @@ function worker(overrides: Partial<Schemas["WorkerOut"]> = {}): Schemas["WorkerO
     capacity: { cpu: 8, memory: 32 * GI, gpu_count: 1, gpu_memory: 80 * GI },
     plugins: [],
     registration: "00000000-0000-7000-8000-0000000000t1",
-    owner: null,
+    teams: [],
+    projects: [],
+    labels: [],
+    running: [],
     registered_at: NOW,
     last_seen_at: NOW,
     revoked_at: null,
@@ -49,6 +53,9 @@ function token(
     last_used_at: NOW,
     revoked_at: null,
     workers: 3,
+    teams: [],
+    projects: [],
+    labels: [],
     ...overrides,
   };
 }
@@ -73,6 +80,53 @@ describe("what one job may use", () => {
   });
 });
 
+const BIO = { id: "00000000-0000-7000-8000-0000000000a1", name: "Structural Biology" };
+const CHEM = { id: "00000000-0000-7000-8000-0000000000a2", name: "Chemistry" };
+const ASSAYS = { id: "00000000-0000-7000-8000-0000000000p1", name: "Assays", team: CHEM };
+
+describe("what a self-hosted worker is for", () => {
+  it("names each team, narrowed to its projects or whole", () => {
+    expect(scopeText([BIO, CHEM], [ASSAYS])).toBe("Structural Biology; Chemistry: Assays");
+    expect(scopeText([BIO], [])).toBe("Structural Biology");
+  });
+
+  it("takes labels separated by commas or spaces", () => {
+    expect(parseLabels(" Chromeleon, lab-3  gpu,,")).toEqual(["chromeleon", "lab-3", "gpu"]);
+    expect(parseLabels("")).toEqual([]);
+  });
+});
+
+function selfHosted(overrides: Partial<Schemas["WorkerOut"]> = {}): Schemas["WorkerOut"] {
+  return worker({
+    id: "00000000-0000-7000-8000-0000000000w2",
+    name: "hplc-pc-1",
+    tier: "self_hosted",
+    teams: [BIO, CHEM],
+    projects: [ASSAYS],
+    labels: ["chromeleon", "lab-3"],
+    jobs: 1,
+    running: [
+      {
+        id: "00000000-0000-7000-8000-0000000000r1",
+        hrid: "RUN-000042",
+        action: "chem.hplc-purity",
+        project: { id: ASSAYS.id, name: ASSAYS.name },
+      },
+    ],
+    ...overrides,
+  });
+}
+
+function onScopes() {
+  answer("GET /api/v1/compute/quota-scopes", (r: { query: URLSearchParams }) =>
+    r.query.get("kind") === "team"
+      ? [BIO, CHEM].map((t) => ({ ...t, team: null, team_id: null }))
+      : r.query.getAll("team").includes(CHEM.id)
+        ? [{ ...ASSAYS, team: CHEM.name, team_id: CHEM.id }]
+        : [],
+  );
+}
+
 describe("Compute → Workers", () => {
   it("lists workers with their state and what they can run", async () => {
     onWorkers([worker(), worker({ id: "w2", name: "old-box", status: "offline", jobs: 0 })], []);
@@ -84,7 +138,15 @@ describe("Compute → Workers", () => {
       within(pool)
         .getAllByRole("cell")
         .map((c) => c.textContent),
-    ).toEqual(["Backend", "Online", "2", "8 CPUs, 32 GiB, 1 GPU (80 GiB)", "just now", "Revoke"]);
+    ).toEqual([
+      "Backend",
+      "Online",
+      "Any project",
+      "2 jobs",
+      "8 CPUs, 32 GiB, 1 GPU (80 GiB)",
+      "just now",
+      "Revoke",
+    ]);
     expect(workers.getByRole("rowheader", { name: /old-box/ })).toBeVisible();
     const tabs = screen.getByRole("navigation", { name: "Compute" });
     expect(within(tabs).getByRole("link", { name: "Workers" })).toHaveAttribute(
@@ -122,6 +184,50 @@ describe("Compute → Workers", () => {
     expect(
       calls("POST", "/api/v1/compute/workers/00000000-0000-7000-8000-0000000000w1/revoke"),
     ).toHaveLength(1);
+  });
+
+  it("shows a self-hosted worker's teams, labels and what it's running", async () => {
+    onWorkers([selfHosted()], []);
+    await renderApp("/compute/workers/");
+    const workers = section("Workers");
+    const row = (await workers.findByRole("rowheader", { name: /hplc-pc-1/ })).closest("tr");
+    if (!row) throw new Error("no row");
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[0]).toHaveTextContent("Self-hosted");
+    expect(cells[2]).toHaveTextContent("Structural Biology; Chemistry: Assays");
+    expect(cells[2]).toHaveTextContent("chromeleon lab-3");
+    expect(within(row).getByRole("link", { name: "RUN-000042" })).toHaveAttribute(
+      "href",
+      "/runs/RUN-000042/",
+    );
+    expect(cells[3]).toHaveTextContent("chem.hplc-purity in Assays");
+  });
+
+  it("changes a self-hosted worker's teams, projects and labels", async () => {
+    onWorkers([selfHosted()], []);
+    onScopes();
+    const path = "/api/v1/compute/workers/00000000-0000-7000-8000-0000000000w2";
+    answer(`PATCH ${path}`, () => selfHosted({ teams: [CHEM], projects: [], labels: ["empower"] }));
+    const { user } = await renderApp("/compute/workers/");
+    await user.click(await section("Workers").findByRole("button", { name: "Change hplc-pc-1" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Change hplc-pc-1" }));
+    const teams = within(dialog.getByRole("group", { name: /Teams/ }));
+    expect(teams.getByRole("checkbox", { name: "Chemistry" })).toBeChecked();
+    // Leaving a team drops what was chosen of its projects.
+    await user.click(teams.getByRole("checkbox", { name: "Structural Biology" }));
+    const projects = within(dialog.getByRole("group", { name: /Only these projects/ }));
+    // Named by the project alone; its team describes it.
+    const assays = projects.getByRole("checkbox", { name: "Assays" });
+    expect(assays).toHaveAccessibleDescription("Chemistry team");
+    await user.click(assays);
+    const labels = dialog.getByRole("textbox", { name: /Labels/ });
+    await user.clear(labels);
+    await user.type(labels, "Empower");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Changed hplc-pc-1\./)).toBeVisible();
+    expect(calls("PATCH", path).map((c) => c.body)).toEqual([
+      { labels: ["empower"], teams: [CHEM.id], projects: [] },
+    ]);
   });
 
   it("says how to get workers when there are none", async () => {
@@ -162,6 +268,42 @@ describe("Compute → Workers", () => {
     // Once it's done, the value is gone for good.
     await user.click(tokensCard.getByRole("button", { name: "Done" }));
     expect(tokensCard.queryByText("iki_reg_secret-value")).not.toBeInTheDocument();
+  });
+
+  it("makes a self-hosted token for teams, with labels, and says how to register", async () => {
+    onWorkers([], []);
+    onScopes();
+    answer("POST /api/v1/compute/registration-tokens", () => ({
+      ...token({ tier: "self_hosted", label: "Lab 3", teams: [CHEM], labels: ["chromeleon"] }),
+      workers: 0,
+      token: "iki_wreg_secret-value",
+    }));
+    const { user } = await renderApp("/compute/workers/");
+    const card = section("Registration tokens");
+    await user.type(await card.findByRole("textbox", { name: /What it’s for/ }), "Lab 3");
+    await user.selectOptions(card.getByRole("combobox", { name: /Tier/ }), "self_hosted");
+    // A team first.
+    await user.click(card.getByRole("button", { name: "Make token" }));
+    expect(await card.findByText("Choose the teams whose runs it takes.")).toBeVisible();
+    expect(calls("POST", "/api/v1/compute/registration-tokens")).toEqual([]);
+    await user.click(await card.findByRole("checkbox", { name: "Chemistry" }));
+    await user.click(await card.findByRole("checkbox", { name: "Assays" }));
+    await user.type(card.getByRole("textbox", { name: /Labels/ }), "chromeleon, Lab-3");
+    await user.click(card.getByRole("button", { name: "Make token" }));
+    expect(await card.findByText("Copy the token now.")).toBeVisible();
+    expect(
+      card.getByText(
+        `iki-worker register --url ${window.location.origin} --token iki_wreg_secret-value`,
+      ),
+    ).toBeVisible();
+    const [made] = calls("POST", "/api/v1/compute/registration-tokens");
+    expect(made?.body).toMatchObject({
+      label: "Lab 3",
+      tier: "self_hosted",
+      teams: [CHEM.id],
+      projects: [ASSAYS.id],
+      labels: ["chromeleon", "lab-3"],
+    });
   });
 
   it("revokes a token, and its workers too if asked", async () => {

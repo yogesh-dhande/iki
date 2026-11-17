@@ -42,7 +42,7 @@ __all__ = ["MAX_TIMEOUT", "check", "read_action", "read_environment"]
 #: The longest any run may take.
 MAX_TIMEOUT = 7 * 86400
 
-#: Machines Iki provisions; the client and backend tiers run on what's there.
+#: Machines Iki provisions; the self-hosted and backend tiers run on what's there.
 PROVISIONED = frozenset({"container", "vm"})
 
 #: Environment variables the worker sets, which a secret can't replace.
@@ -257,18 +257,18 @@ class _Rules:
                 hint="Add `python: { version: '3.12', requirements: requirements.txt }`, or "
                 "`conda: { lockfile: conda.lock }`.",
             )
-        if "client" in tiers and not native and env.image is None:
+        if "self_hosted" in tiers and not native and env.image is None:
             self.add(
                 "environment-needs-packages",
-                "The client tier needs a Python or conda environment to build on people's "
-                "machines, or an image to run with Docker or Podman.",
+                "The self-hosted tier needs a Python or conda environment to build on each "
+                "machine, or an image to run with Docker or Podman.",
                 source,
                 ("tiers",),
             )
-        if native and not tiers & {"backend", "client"}:
+        if native and not tiers & {"backend", "self_hosted"}:
             self.add(
                 "unused-packages",
-                "Only the backend and client tiers build Python or conda environments; the "
+                "Only the backend and self-hosted tiers build Python or conda environments; the "
                 "container and vm tiers use the image as it is.",
                 source,
                 ("python",) if env.requirements is not None else ("conda",),
@@ -285,10 +285,10 @@ class _Rules:
                 key=True,
                 severity=Severity.WARNING,
             )
-        if env.resources.gpu_count and not tiers <= PROVISIONED:
+        if env.resources.gpu_count and "backend" in tiers:
             self.add(
                 "gpu-wrong-tier",
-                "Only the container and vm tiers have GPUs.",
+                "Backend workers have no GPUs: use the self-hosted, container or vm tier.",
                 source,
                 ("resources", "gpu"),
                 key=True,
@@ -457,8 +457,8 @@ class _Rules:
                 )
             self.param(param, source, path)
         self.effects(action, source)
-        environment = self.runs_on(action, source)
-        self.command(action, source, environment)
+        self.runs_on(action, source)
+        self.command(action, source)
         self.reach(action, source)
         if action.timeout > MAX_TIMEOUT:
             self.add(
@@ -724,26 +724,18 @@ class _Rules:
                 (*path, "lifecycle"),
                 key=True,
             )
-        wanted = action.resources
-        if action.tier == "client" and wanted != Resources():
-            self.add(
-                "client-resources",
-                "Client-tier actions run on the person's own machine, which Iki can't size.",
-                source,
-                (*path, "resources"),
-                key=True,
-            )
-        elif wanted.gpu_count and not provisioned:
+        # A self-hosted worker says what it has, GPUs included, and leases what fits.
+        if action.resources.gpu_count and action.tier == "backend":
             self.add(
                 "gpu-wrong-tier",
-                "Only the container and vm tiers have GPUs.",
+                "Backend workers have no GPUs: use the self-hosted, container or vm tier.",
                 source,
                 (*path, "resources", "gpu"),
                 key=True,
             )
         return environment
 
-    def command(self, action: Action, source: Document, environment: Environment | None) -> None:
+    def command(self, action: Action, source: Document) -> None:
         for index, argument in enumerate(action.command):
             path: Path = ("command", index)
             if argument.startswith("./"):
@@ -757,32 +749,18 @@ class _Rules:
                     path,
                     hint="Name a file in the plugin with `./`, such as `./scripts/run.py`.",
                 )
-            elif (
-                argument.startswith("/")
-                and action.tier == "client"
-                and environment is not None
-                and environment.image is None
-            ):
-                self.add(
-                    "absolute-path-on-client",
-                    f"`{argument}` is an absolute path, and `{environment.name}` has no image, "
-                    "so it would name a file on the person's machine.",
-                    source,
-                    path,
-                    hint="Name a file in the plugin with `./`, such as `./scripts/run.py`.",
-                )
 
     def reach(self, action: Action, source: Document) -> None:
-        if action.tier == "client":
+        if action.tier == "self_hosted":
             for key, what in (("secrets", action.secrets), ("network", action.network)):
                 if what:
                     self.add(
-                        f"client-{key}",
-                        "Client-tier actions run on the person's own machine, so Iki can't "
+                        f"self-hosted-{key}",
+                        "Self-hosted actions run on machines their teams look after, so Iki "
                         + (
-                            "keep secrets from them."
+                            "can't keep the deployment's secrets from whoever runs them."
                             if key == "secrets"
-                            else "limit what they reach."
+                            else "can't limit what they reach."
                         ),
                         source,
                         (key,),

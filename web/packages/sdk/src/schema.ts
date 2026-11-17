@@ -445,9 +445,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Teams or projects to limit
+         * Teams or projects to choose
          * @description The teams or projects with `search` in their names, by name, archived ones left out.
-         *     Compute Admins set quotas on any of them, member or not, so this gives names only.
+         *     Compute Admins set quotas on any of them, member or not, and give self-hosted workers
+         *     to them, so this gives names only.
          */
         get: operations["iki_server_api_compute_quota_scopes"];
         put?: never;
@@ -713,6 +714,28 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compute/workers/{worker_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a self-hosted worker
+         * @description Its labels, teams or projects; what's left out stays as it is. Projects left out of
+         *     a new `teams` are dropped. Jobs it holds in projects it no longer covers are
+         *     interrupted, and retried on other workers if their action allows. Audited.
+         */
+        patch: operations["iki_server_api_compute_change_worker"];
         trace?: never;
     };
     "/api/v1/compute/workers/{worker_id}/revoke": {
@@ -2960,7 +2983,7 @@ export interface components {
              * Tier
              * @enum {string}
              */
-            tier: "client" | "backend" | "container" | "vm";
+            tier: "self_hosted" | "backend" | "container" | "vm";
             /**
              * Timeout
              * @description Seconds each attempt may run.
@@ -6571,7 +6594,7 @@ export interface components {
              * Run
              * @description The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.
              */
-            run: ("client" | "backend" | "container" | "vm")[];
+            run: ("self_hosted" | "backend" | "container" | "vm")[];
         };
         /** ProjectCostSummaryOut */
         ProjectCostSummaryOut: {
@@ -6759,6 +6782,17 @@ export interface components {
              */
             name: "viewer" | "editor" | "runner" | "admin";
         };
+        /** ProjectScopeOut */
+        ProjectScopeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            team: components["schemas"]["ScopeOut"];
+        };
         /** ProjectTriggerCan */
         ProjectTriggerCan: {
             /**
@@ -6851,7 +6885,7 @@ export interface components {
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
              */
-            tier: ("client" | "backend" | "container" | "vm") | null;
+            tier: ("self_hosted" | "backend" | "container" | "vm") | null;
             /**
              * Timezone
              * @description On a schedule: the timezone of its times.
@@ -6936,7 +6970,7 @@ export interface components {
              * Tier
              * @description Only this tier's runs; all tiers if left out.
              */
-            tier?: ("client" | "backend" | "container" | "vm") | null;
+            tier?: ("self_hosted" | "backend" | "container" | "vm") | null;
         };
         /** QuotaOut */
         QuotaOut: {
@@ -6977,7 +7011,7 @@ export interface components {
              * Tier
              * @description None: every tier together.
              */
-            tier: ("client" | "backend" | "container" | "vm") | null;
+            tier: ("self_hosted" | "backend" | "container" | "vm") | null;
             /**
              * Updated At
              * Format: date-time
@@ -7005,6 +7039,11 @@ export interface components {
              * @description A project's team; null for a team.
              */
             team: string | null;
+            /**
+             * Team Id
+             * @description A project's team's ID; null for a team.
+             */
+            team_id: string | null;
         };
         /** ReadIn */
         ReadIn: {
@@ -7793,9 +7832,9 @@ export interface components {
             };
             /**
              * Needs Worker
-             * @description A queued client-tier run whose requester has no worker online on their own computer to run it (ADR 0058): `yours` when that's you, else `theirs`.
+             * @description Why a queued self-hosted run has no worker to take it (ADR 0112): `unregistered` when no self-hosted worker's teams cover its project, `offline` when those that do are offline, `busy` when they're all running other jobs. A Compute admin registers one under Compute → Workers.
              */
-            needs_worker: ("yours" | "theirs") | null;
+            needs_worker: ("unregistered" | "offline" | "busy") | null;
             /**
              * Network
              * @description The hosts it may reach, as its action declared them when it was launched.
@@ -7854,7 +7893,7 @@ export interface components {
              * Tier
              * @enum {string}
              */
-            tier: "client" | "backend" | "container" | "vm";
+            tier: "self_hosted" | "backend" | "container" | "vm";
             /** @description The project's trigger that launched it, if one did, and the change or schedule that fired it (ADR 0080). */
             trigger: components["schemas"]["TriggerFiredOut"] | null;
             /** Via */
@@ -7884,6 +7923,19 @@ export interface components {
          * @enum {string}
          */
         RunStatus: "awaiting_approval" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out" | "rejected" | "declined";
+        /** RunningOut */
+        RunningOut: {
+            /** Action */
+            action: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            project: components["schemas"]["ScopeOut"];
+        };
         /** SavedSearchCan */
         SavedSearchCan: {
             /** Change */
@@ -7988,6 +8040,11 @@ export interface components {
              * @default
              */
             search: string;
+            /**
+             * Team
+             * @description Only projects of these teams, when given.
+             */
+            team?: string[];
         };
         /** SearchIn */
         SearchIn: {
@@ -8717,7 +8774,7 @@ export interface components {
              * Tier
              * @description Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
              */
-            tier: ("client" | "backend" | "container" | "vm") | null;
+            tier: ("self_hosted" | "backend" | "container" | "vm") | null;
             /**
              * Timezone
              * @description On a schedule: the timezone of its times.
@@ -9076,7 +9133,7 @@ export interface components {
              */
             revoked: boolean;
             /** Tier */
-            tier?: ("client" | "backend" | "container" | "vm") | null;
+            tier?: ("self_hosted" | "backend" | "container" | "vm") | null;
         };
         /** WorkerOut */
         WorkerOut: {
@@ -9100,14 +9157,17 @@ export interface components {
              */
             jobs: number;
             /**
+             * Labels
+             * @description Self-hosted: what runs are matched to it by.
+             */
+            labels: string[];
+            /**
              * Last Seen At
              * Format: date-time
              */
             last_seen_at: string;
             /** Name */
             name: string;
-            /** @description For the client tier: whose machine it is. */
-            owner: components["schemas"]["PersonRef"] | null;
             /**
              * Plugins
              * @description The plugin code it has, which is all it leases: each one's `name`, `sha` (null for a local directory) and `environments` it has built, with each build's digest (null when it runs them with its host's own software).
@@ -9115,6 +9175,11 @@ export interface components {
             plugins: {
                 [key: string]: unknown;
             }[];
+            /**
+             * Projects
+             * @description Self-hosted: within a team, only these of its projects.
+             */
+            projects: components["schemas"]["ProjectScopeOut"][];
             /**
              * Registered At
              * Format: date-time
@@ -9125,14 +9190,42 @@ export interface components {
             /** Revoked At */
             revoked_at: string | null;
             /**
+             * Running
+             * @description The runs it's running now.
+             */
+            running: components["schemas"]["RunningOut"][];
+            /**
              * Status
              * @enum {string}
              */
             status: "online" | "offline" | "revoked";
+            /**
+             * Teams
+             * @description Self-hosted: whose runs it takes.
+             */
+            teams: components["schemas"]["ScopeOut"][];
             /** Tier */
             tier: string;
             /** Version */
             version: string;
+        };
+        /** WorkerPatch */
+        WorkerPatch: {
+            /**
+             * Labels
+             * @description Its labels, all of them.
+             */
+            labels?: string[] | null;
+            /**
+             * Projects
+             * @description Within a team, only these of its projects.
+             */
+            projects?: string[] | null;
+            /**
+             * Teams
+             * @description Whose runs it takes, all of them.
+             */
+            teams?: string[] | null;
         };
         /** WorkerRegistrationCreatedOut */
         WorkerRegistrationCreatedOut: {
@@ -9157,10 +9250,25 @@ export interface components {
             id: string;
             /** Label */
             label: string;
+            /**
+             * Labels
+             * @description Self-hosted: the labels its workers get.
+             */
+            labels: string[];
             /** Last Used At */
             last_used_at: string | null;
+            /**
+             * Projects
+             * @description Self-hosted: within a team, only these of its projects.
+             */
+            projects: components["schemas"]["ProjectScopeOut"][];
             /** Revoked At */
             revoked_at: string | null;
+            /**
+             * Teams
+             * @description Self-hosted: whose runs its workers take.
+             */
+            teams: components["schemas"]["ScopeOut"][];
             /** Tier */
             tier: string;
             /**
@@ -9187,10 +9295,25 @@ export interface components {
              */
             label: string;
             /**
+             * Labels
+             * @description Self-hosted: the labels the machines it registers get, which runs are matched to them by.
+             */
+            labels?: string[];
+            /**
+             * Projects
+             * @description Self-hosted: within a team, only these of its projects. A team none of whose projects is listed is taken whole.
+             */
+            projects?: string[];
+            /**
+             * Teams
+             * @description Self-hosted: the teams whose runs its workers take. At least one.
+             */
+            teams?: string[];
+            /**
              * Tier
              * @enum {string}
              */
-            tier: "backend" | "container" | "vm";
+            tier: "self_hosted" | "backend" | "container" | "vm";
         };
         /** WorkerRegistrationOut */
         WorkerRegistrationOut: {
@@ -9215,10 +9338,25 @@ export interface components {
             id: string;
             /** Label */
             label: string;
+            /**
+             * Labels
+             * @description Self-hosted: the labels its workers get.
+             */
+            labels: string[];
             /** Last Used At */
             last_used_at: string | null;
+            /**
+             * Projects
+             * @description Self-hosted: within a team, only these of its projects.
+             */
+            projects: components["schemas"]["ProjectScopeOut"][];
             /** Revoked At */
             revoked_at: string | null;
+            /**
+             * Teams
+             * @description Self-hosted: whose runs its workers take.
+             */
+            teams: components["schemas"]["ScopeOut"][];
             /** Tier */
             tier: string;
             /**
@@ -9317,7 +9455,7 @@ export interface components {
              * Tiers
              * @description The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).
              */
-            tiers: ("client" | "backend" | "container" | "vm")[];
+            tiers: ("self_hosted" | "backend" | "container" | "vm")[];
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };
@@ -10141,6 +10279,8 @@ export interface operations {
                 kind: "team" | "project";
                 /** @description Part of the name. */
                 search?: string;
+                /** @description Only projects of these teams, when given. */
+                team?: string[];
                 limit?: number;
             };
             header?: never;
@@ -10516,7 +10656,7 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
-                tier?: ("client" | "backend" | "container" | "vm") | null;
+                tier?: ("self_hosted" | "backend" | "container" | "vm") | null;
                 /** @description Include revoked workers. */
                 revoked?: boolean;
             };
@@ -10533,6 +10673,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_WorkerOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_compute_change_worker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                worker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkerPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerOut"];
                 };
             };
         };

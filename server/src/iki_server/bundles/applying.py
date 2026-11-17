@@ -593,7 +593,6 @@ class _Writer:
                 environment=a["environment"],
                 environment_build=a["environment_build"],
                 resources=a["resources"],
-                owner=self._user(a["owner"]),
                 queued_at=a["queued_at"],
                 started_at=a["started_at"],
                 finished_at=a["finished_at"],

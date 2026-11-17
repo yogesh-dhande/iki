@@ -210,8 +210,8 @@
       "pattern": "^[A-Z][A-Z0-9_]{0,62}$"
     },
     "tier": {
-      "description": "`client`: the person's own machine. `backend`: Iki's isolated worker pods. `container`: the plugin's image on Kubernetes. `vm`: a virtual machine, with GPUs if needed.",
-      "enum": ["client", "backend", "container", "vm"]
+      "description": "`self_hosted`: a machine a compute admin registered for the project's team, such as an instrument's PC, a licensed workstation or an on-premises GPU, matched by its labels. `backend`: Iki's isolated worker pods. `container`: the plugin's image on Kubernetes. `vm`: a virtual machine, with GPUs if needed.",
+      "enum": ["self_hosted", "backend", "container", "vm"]
     },
     "duration": {
       "description": "A length of time, such as `90s`, `30m`, `8h` or `365d`.",

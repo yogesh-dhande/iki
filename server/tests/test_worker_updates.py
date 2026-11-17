@@ -1,5 +1,5 @@
-"""Which iki-worker release the server wants (ADR 0060): workers on people's computers are
-told to update themselves; any worker more than one minor release behind gets no jobs."""
+"""Which iki-worker release the server wants (ADR 0060): self-hosted workers are told to
+update themselves; any worker more than one minor release behind gets no jobs."""
 
 from collections.abc import Iterator
 from typing import Any
@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from api_client import problem
 from org_world import World, build_world
-from test_worker_sign_in import register, sign_in
+from test_self_hosted import token
 from test_workers import LOCAL, ROOMY, WorkerClient, registration
 
 from iki_server.runs import catalog
@@ -35,10 +35,11 @@ def keep_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(views, "close_old_connections", lambda: None)
 
 
-def laptop(world: World, version: str) -> WorkerClient:
-    made = WorkerClient(sign_in(world)).post(
+def laptop(world: World, version: str, name: str = "laptop") -> WorkerClient:
+    """A self-hosted worker: on an instrument's PC, say, or someone's workstation."""
+    made = WorkerClient(token(world)["token"]).post(
         "/register",
-        {"name": "laptop", "version": version, "capacity": ROOMY, "plugins": LOCAL},
+        {"name": name, "version": version, "capacity": ROOMY, "plugins": LOCAL},
     )
     assert made.status_code == 201, made.content
     return WorkerClient(made.json()["token"])
@@ -59,7 +60,7 @@ def told(worker: WorkerClient) -> Any:
     return me.json()["update"]
 
 
-def test_a_worker_on_someones_computer_is_told_which_release_to_run(world: World) -> None:
+def test_a_self_hosted_worker_is_told_which_release_to_run(world: World) -> None:
     base = f"{MIRROR}/v0.5.0/iki-worker-0.5.0-{{target}}.tar.gz"
     assert told(laptop(world, "0.4.2")) == {
         "version": "0.5.0",
@@ -107,7 +108,7 @@ def test_an_outdated_pod_is_refused_with_nothing_to_update_to(world: World) -> N
 
 def test_what_it_runs_is_recorded_as_it_reports_it(world: World) -> None:
     worker = laptop(world, "0.4.2")
-    assert register(sign_in(world), name="other").status_code == 201
+    laptop(world, "0.4.2", "other")  # stays as it was
     made = worker.call("PUT", "/me", {"version": "0.5.0", "capacity": ROOMY, "plugins": LOCAL})
     assert made.status_code == 200, made.content
     assert made.json()["update"] is None

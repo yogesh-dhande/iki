@@ -216,7 +216,7 @@ def test_org_admins_see_projects_but_not_their_data_until_they_join(world: World
         "export": True,
         # An Org Admin and now its Admin: they can import into it.
         "import_bundles": True,
-        "run": ["client", "backend", "container", "vm"],
+        "run": ["self_hosted", "backend", "container", "vm"],
     }
 
 

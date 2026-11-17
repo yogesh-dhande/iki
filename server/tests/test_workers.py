@@ -146,7 +146,7 @@ def test_compute_admins_make_registration_tokens(world: World) -> None:
     assert [t["label"] for t in listed] == ["GPU pool"]
     assert "token" not in listed[0]
     assert AuditEvent.objects.filter(action="worker_registration.created").count() == 1
-    # Client-tier workers sign in as their person (commit 30), not with a shared token.
+    # There's no client tier: self-hosted workers replaced it (ADR 0112).
     errors = problem(
         admin.post("/compute/registration-tokens", {"label": "Laptops", "tier": "client"}),
         422,
@@ -187,7 +187,8 @@ def test_operators_make_registration_tokens_from_the_command_line(world: World) 
     event = AuditEvent.objects.get(action="worker_registration.created")
     assert event.actor is None
     assert event.via == "cli"
-    for bad in (["--tier=client", "--label=x"], ["--tier=vm", "--label= "]):
+    # A self-hosted token is for some teams' machines: made in Compute → Workers.
+    for bad in (["--tier=self_hosted", "--label=x"], ["--tier=vm", "--label= "]):
         with pytest.raises(CommandError):
             call_command("create_registration_token", *bad, stdout=out, stderr=err)
 

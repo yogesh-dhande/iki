@@ -128,7 +128,7 @@
           },
           "tier": {
             "enum": [
-              "client",
+              "self_hosted",
               "backend",
               "container",
               "vm"
@@ -7838,7 +7838,7 @@
             "description": "The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.",
             "items": {
               "enum": [
-                "client",
+                "self_hosted",
                 "backend",
                 "container",
                 "vm"
@@ -8305,6 +8305,29 @@
         "title": "ProjectRoleOut",
         "type": "object"
       },
+      "ProjectScopeOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "team": {
+            "$ref": "#/components/schemas/ScopeOut"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "team"
+        ],
+        "title": "ProjectScopeOut",
+        "type": "object"
+      },
       "ProjectTriggerCan": {
         "properties": {
           "disable": {
@@ -8499,7 +8522,7 @@
             "anyOf": [
               {
                 "enum": [
-                  "client",
+                  "self_hosted",
                   "backend",
                   "container",
                   "vm"
@@ -8746,7 +8769,7 @@
             "anyOf": [
               {
                 "enum": [
-                  "client",
+                  "self_hosted",
                   "backend",
                   "container",
                   "vm"
@@ -8837,7 +8860,7 @@
             "anyOf": [
               {
                 "enum": [
-                  "client",
+                  "self_hosted",
                   "backend",
                   "container",
                   "vm"
@@ -8927,12 +8950,26 @@
             ],
             "description": "A project's team; null for a team.",
             "title": "Team"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project's team's ID; null for a team.",
+            "title": "Team Id"
           }
         },
         "required": [
           "id",
           "name",
-          "team"
+          "team",
+          "team_id"
         ],
         "title": "QuotaScopeOut",
         "type": "object"
@@ -10515,8 +10552,9 @@
             "anyOf": [
               {
                 "enum": [
-                  "yours",
-                  "theirs"
+                  "unregistered",
+                  "offline",
+                  "busy"
                 ],
                 "type": "string"
               },
@@ -10524,7 +10562,7 @@
                 "type": "null"
               }
             ],
-            "description": "A queued client-tier run whose requester has no worker online on their own computer to run it (ADR 0058): `yours` when that's you, else `theirs`.",
+            "description": "Why a queued self-hosted run has no worker to take it (ADR 0112): `unregistered` when no self-hosted worker's teams cover its project, `offline` when those that do are offline, `busy` when they're all running other jobs. A Compute admin registers one under Compute → Workers.",
             "title": "Needs Worker"
           },
           "network": {
@@ -10646,7 +10684,7 @@
           },
           "tier": {
             "enum": [
-              "client",
+              "self_hosted",
               "backend",
               "container",
               "vm"
@@ -10781,6 +10819,34 @@
         ],
         "title": "RunStatus",
         "type": "string"
+      },
+      "RunningOut": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ScopeOut"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "action",
+          "project"
+        ],
+        "title": "RunningOut",
+        "type": "object"
       },
       "SavedSearchCan": {
         "properties": {
@@ -10982,6 +11048,15 @@
             "maxLength": 100,
             "title": "Search",
             "type": "string"
+          },
+          "team": {
+            "description": "Only projects of these teams, when given.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Team",
+            "type": "array"
           }
         },
         "required": [
@@ -12545,7 +12620,7 @@
             "anyOf": [
               {
                 "enum": [
-                  "client",
+                  "self_hosted",
                   "backend",
                   "container",
                   "vm"
@@ -13388,7 +13463,7 @@
             "anyOf": [
               {
                 "enum": [
-                  "client",
+                  "self_hosted",
                   "backend",
                   "container",
                   "vm"
@@ -13427,6 +13502,14 @@
             "title": "Jobs",
             "type": "integer"
           },
+          "labels": {
+            "description": "Self-hosted: what runs are matched to it by.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
           "last_seen_at": {
             "format": "date-time",
             "title": "Last Seen At",
@@ -13436,17 +13519,6 @@
             "title": "Name",
             "type": "string"
           },
-          "owner": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PersonRef"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "For the client tier: whose machine it is."
-          },
           "plugins": {
             "description": "The plugin code it has, which is all it leases: each one's `name`, `sha` (null for a local directory) and `environments` it has built, with each build's digest (null when it runs them with its host's own software).",
             "items": {
@@ -13454,6 +13526,14 @@
               "type": "object"
             },
             "title": "Plugins",
+            "type": "array"
+          },
+          "projects": {
+            "description": "Self-hosted: within a team, only these of its projects.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectScopeOut"
+            },
+            "title": "Projects",
             "type": "array"
           },
           "registered_at": {
@@ -13485,6 +13565,14 @@
             ],
             "title": "Revoked At"
           },
+          "running": {
+            "description": "The runs it's running now.",
+            "items": {
+              "$ref": "#/components/schemas/RunningOut"
+            },
+            "title": "Running",
+            "type": "array"
+          },
           "status": {
             "enum": [
               "online",
@@ -13493,6 +13581,14 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "teams": {
+            "description": "Self-hosted: whose runs it takes.",
+            "items": {
+              "$ref": "#/components/schemas/ScopeOut"
+            },
+            "title": "Teams",
+            "type": "array"
           },
           "tier": {
             "title": "Tier",
@@ -13512,14 +13608,76 @@
           "capacity",
           "plugins",
           "registration",
-          "owner",
+          "teams",
+          "projects",
+          "labels",
           "registered_at",
           "last_seen_at",
           "revoked_at",
           "status",
-          "jobs"
+          "jobs",
+          "running"
         ],
         "title": "WorkerOut",
+        "type": "object"
+      },
+      "WorkerPatch": {
+        "properties": {
+          "labels": {
+            "anyOf": [
+              {
+                "description": "Lowercase letters, digits, dots, dashes and underscores, such as `chromeleon` or `lab-3`.",
+                "items": {
+                  "maxLength": 50,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its labels, all of them.",
+            "title": "Labels"
+          },
+          "projects": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Within a team, only these of its projects.",
+            "title": "Projects"
+          },
+          "teams": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose runs it takes, all of them.",
+            "title": "Teams"
+          }
+        },
+        "title": "WorkerPatch",
         "type": "object"
       },
       "WorkerRegistrationCreatedOut": {
@@ -13566,6 +13724,14 @@
             "title": "Label",
             "type": "string"
           },
+          "labels": {
+            "description": "Self-hosted: the labels its workers get.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
           "last_used_at": {
             "anyOf": [
               {
@@ -13578,6 +13744,14 @@
             ],
             "title": "Last Used At"
           },
+          "projects": {
+            "description": "Self-hosted: within a team, only these of its projects.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectScopeOut"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
           "revoked_at": {
             "anyOf": [
               {
@@ -13589,6 +13763,14 @@
               }
             ],
             "title": "Revoked At"
+          },
+          "teams": {
+            "description": "Self-hosted: whose runs its workers take.",
+            "items": {
+              "$ref": "#/components/schemas/ScopeOut"
+            },
+            "title": "Teams",
+            "type": "array"
           },
           "tier": {
             "title": "Tier",
@@ -13609,6 +13791,9 @@
           "id",
           "label",
           "tier",
+          "teams",
+          "projects",
+          "labels",
           "hint",
           "created_by",
           "created_at",
@@ -13643,8 +13828,40 @@
             "title": "Label",
             "type": "string"
           },
+          "labels": {
+            "description": "Self-hosted: the labels the machines it registers get, which runs are matched to them by.",
+            "items": {
+              "maxLength": 50,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Labels",
+            "type": "array"
+          },
+          "projects": {
+            "description": "Self-hosted: within a team, only these of its projects. A team none of whose projects is listed is taken whole.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Projects",
+            "type": "array"
+          },
+          "teams": {
+            "description": "Self-hosted: the teams whose runs its workers take. At least one.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Teams",
+            "type": "array"
+          },
           "tier": {
             "enum": [
+              "self_hosted",
               "backend",
               "container",
               "vm"
@@ -13704,6 +13921,14 @@
             "title": "Label",
             "type": "string"
           },
+          "labels": {
+            "description": "Self-hosted: the labels its workers get.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
           "last_used_at": {
             "anyOf": [
               {
@@ -13716,6 +13941,14 @@
             ],
             "title": "Last Used At"
           },
+          "projects": {
+            "description": "Self-hosted: within a team, only these of its projects.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectScopeOut"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
           "revoked_at": {
             "anyOf": [
               {
@@ -13727,6 +13960,14 @@
               }
             ],
             "title": "Revoked At"
+          },
+          "teams": {
+            "description": "Self-hosted: whose runs its workers take.",
+            "items": {
+              "$ref": "#/components/schemas/ScopeOut"
+            },
+            "title": "Teams",
+            "type": "array"
           },
           "tier": {
             "title": "Tier",
@@ -13742,6 +13983,9 @@
           "id",
           "label",
           "tier",
+          "teams",
+          "projects",
+          "labels",
           "hint",
           "created_by",
           "created_at",
@@ -13902,7 +14146,7 @@
             "description": "The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).",
             "items": {
               "enum": [
-                "client",
+                "self_hosted",
                 "backend",
                 "container",
                 "vm"
@@ -15705,7 +15949,7 @@
     },
     "/api/v1/compute/quota-scopes": {
       "get": {
-        "description": "The teams or projects with `search` in their names, by name, archived ones left out.\nCompute Admins set quotas on any of them, member or not, so this gives names only.",
+        "description": "The teams or projects with `search` in their names, by name, archived ones left out.\nCompute Admins set quotas on any of them, member or not, and give self-hosted workers\nto them, so this gives names only.",
         "operationId": "iki_server_api_compute_quota_scopes",
         "parameters": [
           {
@@ -15732,6 +15976,21 @@
               "maxLength": 100,
               "title": "Search",
               "type": "string"
+            }
+          },
+          {
+            "description": "Only projects of these teams, when given.",
+            "in": "query",
+            "name": "team",
+            "required": false,
+            "schema": {
+              "description": "Only projects of these teams, when given.",
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "title": "Team",
+              "type": "array"
             }
           },
           {
@@ -15771,7 +16030,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Teams or projects to limit",
+        "summary": "Teams or projects to choose",
         "tags": [
           "compute"
         ]
@@ -16535,7 +16794,7 @@
               "anyOf": [
                 {
                   "enum": [
-                    "client",
+                    "self_hosted",
                     "backend",
                     "container",
                     "vm"
@@ -16583,6 +16842,58 @@
           }
         ],
         "summary": "Workers",
+        "tags": [
+          "compute"
+        ]
+      }
+    },
+    "/api/v1/compute/workers/{worker_id}": {
+      "patch": {
+        "description": "Its labels, teams or projects; what's left out stays as it is. Projects left out of\na new `teams` are dropped. Jobs it holds in projects it no longer covers are\ninterrupted, and retried on other workers if their action allows. Audited.",
+        "operationId": "iki_server_api_compute_change_worker",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "worker_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Worker Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change a self-hosted worker",
         "tags": [
           "compute"
         ]

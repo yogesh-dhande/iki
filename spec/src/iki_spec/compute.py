@@ -231,7 +231,7 @@ class _Problems:
 def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None) -> ComputeResult:
     """Read a deployment's compute.yaml and check it against its plugins.
 
-    A deployment without the file runs only client-tier actions, so its absence is no error;
+    A deployment without the file runs only self-hosted actions, so its absence is no error;
     the actions it can't run are warned about.
     """
     name = name or str(file)
@@ -423,7 +423,7 @@ class _Rules:
                     hint="Add it to an EnvironmentBinding's `templates`, or delete it.",
                 )
         for qualified, env in sorted(self.environments.items()):
-            wanted = {a.tier for a in self.actions.get(qualified, [])} - {"client"}
+            wanted = {a.tier for a in self.actions.get(qualified, [])} - {"self_hosted"}
             unbound = [t for t in env.tiers if t in wanted and not self._bound(qualified, t)]
             if unbound:
                 self.add(

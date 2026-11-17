@@ -1370,6 +1370,30 @@ legend {
   font-size: 0.9rem;
 }
 
+/* A choice whose description sits beside its label: the label covers the card. */
+.choice-described {
+  position: relative;
+}
+
+.choice-described label {
+  display: inline;
+  font-weight: inherit;
+  margin: 0;
+  cursor: pointer;
+}
+
+.choice-described label::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+/* The box itself stays above the label, so it takes its own clicks. */
+.choice-described input {
+  position: relative;
+  z-index: 1;
+}
+
 /* Sections of one form, evenly spaced. */
 .stack {
   display: grid;

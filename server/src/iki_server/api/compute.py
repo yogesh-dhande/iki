@@ -2,15 +2,17 @@
 themselves (ADR 0043), and quotas on runs (ADR 0045).
 
 All of it takes the Compute admin role. A registration token's value is
-shown once, when it's made; only a hash is kept.
+shown once, when it's made; only a hash is kept. Self-hosted workers belong to
+teams, perhaps only some of their projects, and carry labels (ADR 0112): their
+tokens say which, and an admin changes them on each worker.
 """
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Q, QuerySet
+from django.db.models import Count, F, Prefetch, Q, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
@@ -25,6 +27,7 @@ from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.runs import overview, queue, workers
 from iki_server.runs.models import (
+    MAX_LABELS,
     TIERS,
     ActionRun,
     Job,
@@ -95,20 +98,66 @@ def compute_overview(request: HttpRequest) -> dict[str, Any]:
     }
 
 
-class WorkerRegistrationIn(Schema):
+Label = Annotated[str, Field(min_length=1, max_length=50)]
+Labels = Annotated[
+    list[Label],
+    Field(
+        max_length=MAX_LABELS,
+        description="Lowercase letters, digits, dots, dashes and underscores, such as "
+        "`chromeleon` or `lab-3`.",
+    ),
+]
+
+
+class ScopeIn(Schema):
+    teams: list[UUID] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Self-hosted: the teams whose runs its workers take. At least one.",
+    )
+    projects: list[UUID] = Field(
+        default_factory=list,
+        max_length=500,
+        description="Self-hosted: within a team, only these of its projects. A team none of "
+        "whose projects is listed is taken whole.",
+    )
+
+
+class WorkerRegistrationIn(ScopeIn):
     label: str = Field(
         min_length=1, max_length=100, description="What it's for, such as `GPU pool (us-east-1)`."
     )
-    tier: Literal["backend", "container", "vm"]
+    tier: Literal["self_hosted", "backend", "container", "vm"]
     expires_at: datetime | None = Field(
         None, description="When it stops working. Workers already registered keep working."
     )
+    labels: Labels = Field(
+        default_factory=list,
+        description="Self-hosted: the labels the machines it registers get, which runs are "
+        "matched to them by.",
+    )
+
+
+class ScopeOut(Schema):
+    id: UUID
+    name: str
+
+
+class ProjectScopeOut(Schema):
+    id: UUID
+    name: str
+    team: ScopeOut
 
 
 class WorkerRegistrationOut(Schema):
     id: UUID
     label: str
     tier: str
+    teams: list[ScopeOut] = Field(description="Self-hosted: whose runs its workers take.")
+    projects: list[ProjectScopeOut] = Field(
+        description="Self-hosted: within a team, only these of its projects."
+    )
+    labels: list[str] = Field(description="Self-hosted: the labels its workers get.")
     hint: str = Field(description="The token's last four characters, to tell it by.")
     created_by: PersonRef | None = Field(
         description="Null when an operator made it with `iki-server create_registration_token`."
@@ -124,11 +173,25 @@ class WorkerRegistrationCreatedOut(WorkerRegistrationOut):
     token: str = Field(description="Shown once. Give it to the tier's workers as a secret.")
 
 
+def _teams_out(teams: Any) -> list[dict[str, Any]]:  # noqa: ANN401 - prefetched teams
+    return [{"id": t.pk, "name": t.name} for t in sorted(teams, key=lambda t: (t.name, t.pk))]
+
+
+def _projects_out(projects: Any) -> list[dict[str, Any]]:  # noqa: ANN401 - prefetched
+    return [
+        {"id": p.pk, "name": p.name, "team": {"id": p.team.pk, "name": p.team.name}}
+        for p in sorted(projects, key=lambda p: (p.team.name, p.name, p.pk))
+    ]
+
+
 def _registration_out(token: RegistrationToken) -> dict[str, Any]:
     return {
         "id": token.pk,
         "label": token.label,
         "tier": token.tier,
+        "teams": _teams_out(token.teams.all()),
+        "projects": _projects_out(token.projects.all()),
+        "labels": token.labels,
         "hint": token.hint,
         "created_by": token.created_by,
         "created_at": token.created_at,
@@ -140,9 +203,15 @@ def _registration_out(token: RegistrationToken) -> dict[str, Any]:
 
 
 def _registrations() -> QuerySet[RegistrationToken]:
-    return RegistrationToken.objects.select_related("created_by").annotate(
-        live_workers=Count("workers", filter=Q(workers__revoked_at__isnull=True))
+    return (
+        RegistrationToken.objects.select_related("created_by")
+        .prefetch_related("teams", "projects__team")
+        .annotate(live_workers=Count("workers", filter=Q(workers__revoked_at__isnull=True)))
     )
+
+
+def _scope(payload: ScopeIn) -> workers.Scope:
+    return workers.make_scope(payload.teams, payload.projects)
 
 
 @router.get(
@@ -174,8 +243,16 @@ def create_registration(
             "Some fields are invalid.",
             errors=[{"pointer": "#/expires_at", "detail": "Choose a time in the future."}],
         )
+    hosted = payload.tier == workers.SELF_HOSTED
+    if not hosted and (payload.teams or payload.projects):
+        raise Refused("Only self-hosted workers belong to teams.", field="teams")
     token, value = workers.create_registration(
-        label=payload.label, tier=payload.tier, by=me, expires_at=payload.expires_at
+        label=payload.label,
+        tier=payload.tier,
+        by=me,
+        expires_at=payload.expires_at,
+        scope=_scope(payload) if hosted else None,
+        labels=workers.clean_labels(payload.labels),
     )
     response["Location"] = f"/api/v1/compute/registration-tokens/{token.pk}"
     response["Cache-Control"] = "no-store"
@@ -209,6 +286,13 @@ def revoke_registration(request: HttpRequest, token_id: UUID, payload: RevokeIn)
     return _registration_out(_registration(token_id))
 
 
+class RunningOut(Schema):
+    id: UUID
+    hrid: str
+    action: str
+    project: ScopeOut
+
+
 class WorkerOut(Schema):
     id: UUID
     name: str
@@ -225,12 +309,17 @@ class WorkerOut(Schema):
         "build's digest (null when it runs them with its host's own software)."
     )
     registration: UUID | None = Field(alias="registration_id")
-    owner: PersonRef | None = Field(description="For the client tier: whose machine it is.")
+    teams: list[ScopeOut] = Field(description="Self-hosted: whose runs it takes.")
+    projects: list[ProjectScopeOut] = Field(
+        description="Self-hosted: within a team, only these of its projects."
+    )
+    labels: list[str] = Field(description="Self-hosted: what runs are matched to it by.")
     registered_at: datetime
     last_seen_at: datetime
     revoked_at: datetime | None
     status: Literal["online", "offline", "revoked"]
     jobs: int = Field(description="Jobs it holds now.")
+    running: list[RunningOut] = Field(description="The runs it's running now.")
 
 
 def _worker_out(worker: Worker) -> dict[str, Any]:
@@ -257,20 +346,39 @@ def _worker_out(worker: Worker) -> dict[str, Any]:
                 "revoked_at",
             )
         },
-        "owner": worker.owner,
+        "teams": _teams_out(worker.teams.all()),
+        "projects": _projects_out(worker.projects.all()),
+        "labels": worker.labels,
         "status": status,
         "jobs": getattr(worker, "held_jobs", 0),
+        "running": [
+            {
+                "id": job.run.pk,
+                "hrid": job.run.hrid,
+                "action": job.run.action,
+                "project": {"id": job.project.pk, "name": job.project.name},
+            }
+            for job in getattr(worker, "holding", [])
+        ],
     }
 
 
 def _workers() -> QuerySet[Worker]:
-    return Worker.objects.select_related("owner").annotate(
-        held_jobs=Count("jobs", filter=Q(jobs__state__in=HELD))
-    )
+    return Worker.objects.prefetch_related(
+        "teams",
+        "projects__team",
+        Prefetch(
+            "jobs",
+            queryset=Job.objects.filter(state__in=HELD)
+            .select_related("run", "project")
+            .order_by("started_at", "id"),
+            to_attr="holding",
+        ),
+    ).annotate(held_jobs=Count("jobs", filter=Q(jobs__state__in=HELD)))
 
 
 class WorkerFilters(PageParams):
-    tier: Literal["client", "backend", "container", "vm"] | None = None
+    tier: Literal["self_hosted", "backend", "container", "vm"] | None = None
     revoked: bool = Field(False, description="Include revoked workers.")
 
 
@@ -295,6 +403,37 @@ def _worker(worker_id: UUID) -> Worker:
     return found
 
 
+class WorkerPatch(Schema):
+    labels: Labels | None = Field(None, description="Its labels, all of them.")
+    teams: list[UUID] | None = Field(
+        None, max_length=100, description="Whose runs it takes, all of them."
+    )
+    projects: list[UUID] | None = Field(
+        None, max_length=500, description="Within a team, only these of its projects."
+    )
+
+
+@router.patch(
+    "/compute/workers/{worker_id}", response=WorkerOut, summary="Change a self-hosted worker"
+)
+def change_worker(request: HttpRequest, worker_id: UUID, payload: WorkerPatch) -> dict[str, Any]:
+    """Its labels, teams or projects; what's left out stays as it is. Projects left out of
+    a new `teams` are dropped. Jobs it holds in projects it no longer covers are
+    interrupted, and retried on other workers if their action allows. Audited."""
+    me = caller(request)
+    require(me, Action.COMPUTE_MANAGE)
+    worker = _worker(worker_id)
+    scope = None
+    if payload.teams is not None or payload.projects is not None:
+        teams = payload.teams
+        if teams is None:
+            teams = [t.pk for t in worker.teams.all()]
+        scope = workers.make_scope(teams, payload.projects or [])
+    labels = workers.clean_labels(payload.labels) if payload.labels is not None else None
+    workers.change(worker, by=me, labels=labels, scope=scope)
+    return _worker_out(_worker(worker_id))
+
+
 @router.post("/compute/workers/{worker_id}/revoke", response=WorkerOut, summary="Revoke a worker")
 def revoke_worker(request: HttpRequest, worker_id: UUID) -> dict[str, Any]:
     """Its token stops working at once. Jobs it holds are interrupted, and retried on other
@@ -307,12 +446,7 @@ def revoke_worker(request: HttpRequest, worker_id: UUID) -> dict[str, Any]:
 
 # --- Quotas --------------------------------------------------------------------------------------
 
-Tier = Literal["client", "backend", "container", "vm"]
-
-
-class ScopeOut(Schema):
-    id: UUID
-    name: str
+Tier = Literal["self_hosted", "backend", "container", "vm"]
 
 
 class QuotaOut(Schema):
@@ -400,33 +534,40 @@ class QuotaScopeOut(Schema):
     id: UUID
     name: str
     team: str | None = Field(description="A project's team; null for a team.")
+    team_id: UUID | None = Field(description="A project's team's ID; null for a team.")
 
 
 class ScopeSearch(Schema):
     kind: Literal["team", "project"]
     search: str = Field("", max_length=100, description="Part of the name.")
+    team: list[UUID] = Field(
+        default_factory=list, description="Only projects of these teams, when given."
+    )
     limit: int = Field(20, ge=1, le=50)
 
 
 @router.get(
-    "/compute/quota-scopes", response=list[QuotaScopeOut], summary="Teams or projects to limit"
+    "/compute/quota-scopes", response=list[QuotaScopeOut], summary="Teams or projects to choose"
 )
 def quota_scopes(request: HttpRequest, params: Query[ScopeSearch]) -> list[dict[str, Any]]:
     """The teams or projects with `search` in their names, by name, archived ones left out.
-    Compute Admins set quotas on any of them, member or not, so this gives names only."""
+    Compute Admins set quotas on any of them, member or not, and give self-hosted workers
+    to them, so this gives names only."""
     require(caller(request), Action.COMPUTE_MANAGE)
     term = params.search.strip()
     if params.kind == "team":
         teams = Team.objects.filter(archived_at__isnull=True, name__icontains=term)
         return [
-            {"id": t.pk, "name": t.name, "team": None}
+            {"id": t.pk, "name": t.name, "team": None, "team_id": None}
             for t in teams.order_by("name", "id")[: params.limit]
         ]
     projects = Project.objects.filter(
         archived_at__isnull=True, team__archived_at__isnull=True, name__icontains=term
     ).select_related("team")
+    if params.team:
+        projects = projects.filter(team__in=params.team)
     return [
-        {"id": p.pk, "name": p.name, "team": p.team.name}
+        {"id": p.pk, "name": p.name, "team": p.team.name, "team_id": p.team_id}
         for p in projects.order_by("name", "team__name", "id")[: params.limit]
     ]
 

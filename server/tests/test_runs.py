@@ -198,7 +198,6 @@ def test_launches_a_run_on_an_entity(world: World) -> None:
         "protein.protein-tools",
     )
     assert job.resources["memory"] == 512 * 1024**2
-    assert job.owner is None
     event = AuditEvent.objects.get(action="run.launched")
     assert event.data == {"action": COMPUTE, "tier": "backend", "inputs": 1}
     assert event.project == world.project
@@ -227,8 +226,8 @@ def test_projects_say_which_tiers_you_may_run(world: World) -> None:
         return found
 
     assert tiers("viewer", world.project) == []
-    assert tiers("editor", world.project) == ["client", "backend"]
-    assert tiers("runner", world.project) == ["client", "backend", "container", "vm"]
+    assert tiers("editor", world.project) == ["self_hosted", "backend"]
+    assert tiers("runner", world.project) == ["self_hosted", "backend", "container", "vm"]
     assert tiers("editor", world.archived) == []
 
 

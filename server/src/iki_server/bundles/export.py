@@ -602,7 +602,8 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
                 "environment_build": job.environment_build,
                 "resources": job.resources,
                 "worker": job.worker.name if job.worker is not None else "",
-                "owner": _json(job.owner_id),
+                # Whose own computer ran it, before self-hosted workers (ADR 0112).
+                "owner": None,
                 "volumes": job.volumes,
                 "queued_at": job.queued_at.isoformat(),
                 "started_at": _json(job.started_at),
@@ -701,16 +702,12 @@ def _ref(row: Any) -> dict[str, str] | None:  # noqa: ANN401 - a batch or a run
 
 
 def _run_people(runs: list[dict[str, Any]]) -> set[uuid.UUID]:
-    found = (
-        {r["requested_by"] for r in runs}
-        | {a["owner"] for r in runs for a in r["attempts"]}
-        | {
-            p
-            for r in runs
-            if r["approval"]
-            for p in (r["approval"]["requested_by"], r["approval"]["decided_by"])
-        }
-    )
+    found = {r["requested_by"] for r in runs} | {
+        p
+        for r in runs
+        if r["approval"]
+        for p in (r["approval"]["requested_by"], r["approval"]["decided_by"])
+    }
     return {uuid.UUID(p) for p in found if p}
 
 

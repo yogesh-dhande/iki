@@ -23,13 +23,13 @@
       "$ref": "#/$defs/resources"
     },
     "image": {
-      "description": "The container image with its registry, pinned by its digest (`ghcr.io/acme/alphafold@sha256:…`). The container and vm tiers run it, and so does the client tier when people have Docker or Podman.",
+      "description": "The container image with its registry, pinned by its digest (`ghcr.io/acme/alphafold@sha256:…`). The container and vm tiers run it, and so does the self-hosted tier on machines with Docker or Podman.",
       "type": "string",
       "maxLength": 500,
       "pattern": "^[a-z0-9]([a-z0-9._-]*[a-z0-9])?(:[0-9]{1,5})?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)+(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-f0-9]{64}$"
     },
     "python": {
-      "description": "A Python virtual environment, for the backend and client tiers.",
+      "description": "A Python virtual environment, for the backend and self-hosted tiers.",
       "type": "object",
       "required": ["version", "requirements"],
       "properties": {
@@ -46,7 +46,7 @@
       "additionalProperties": false
     },
     "conda": {
-      "description": "A conda environment, for the backend and client tiers.",
+      "description": "A conda environment, for the backend and self-hosted tiers.",
       "type": "object",
       "required": ["lockfile"],
       "properties": {

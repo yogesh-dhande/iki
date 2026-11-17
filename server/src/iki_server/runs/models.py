@@ -11,7 +11,9 @@ retried as a new job, under the action's retry policy.
 
 Workers (:class:`Worker`) register with a :class:`RegistrationToken` a
 compute admin made for their tier, and get a token of their own. Only
-hashes of either are stored.
+hashes of either are stored. A self-hosted worker belongs to the teams (and
+perhaps only some of their projects) its token was made for, and carries the
+labels runs are matched to it by (ADR 0112).
 """
 
 from datetime import timedelta
@@ -28,7 +30,13 @@ from iki_server.entities.models import Entity
 from iki_server.files.models import Upload
 from iki_server.org.models import Project, Team
 
-TIERS = ("client", "backend", "container", "vm")
+TIERS = ("self_hosted", "backend", "container", "vm")
+
+#: What a self-hosted machine's label may look like: lowercase, as GitHub's runners
+#: compare theirs, such as ``chromeleon``, ``lab-3`` or ``windows``.
+LABEL_PATTERN = r"^[a-z0-9]([a-z0-9._-]{0,48}[a-z0-9])?$"
+#: The most labels a worker, a registration token or a run may have.
+MAX_LABELS = 30
 
 #: The HRID sequence runs are numbered from (RUN-000001).
 HRID_PREFIX = "RUN"
@@ -764,11 +772,21 @@ class RunInclusion(models.Model):
 
 
 class RegistrationToken(models.Model):
-    """What a pool of workers on one tier registers with. Shown once, when made."""
+    """What a pool of workers on one tier registers with. Shown once, when made.
+
+    On the self-hosted tier, it's for machines of one or more teams: each worker that
+    registers with it gets its teams, projects and labels, which an admin can change
+    on that worker afterwards (ADR 0112)."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     label = models.CharField(max_length=100)
     tier = models.CharField(max_length=16)
+    #: Self-hosted: the teams whose runs its workers take, and, within a team, only these
+    #: projects if any of the team's are listed.
+    teams = models.ManyToManyField(Team, blank=True, related_name="+")
+    projects = models.ManyToManyField(Project, blank=True, related_name="+")
+    #: Self-hosted: the labels its workers get, such as ``chromeleon`` or ``lab-3``.
+    labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
     token_hash = models.CharField(max_length=64, unique=True)
     #: The token's last four characters, so people can tell tokens apart.
     hint = models.CharField(max_length=4)
@@ -785,10 +803,12 @@ class RegistrationToken(models.Model):
         db_table = "iki_worker_registration_token"
         db_table_comment = "Tokens pools of workers register with. Only their hashes are kept."
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            # Client-tier workers sign in as their person instead.
             models.CheckConstraint(
-                condition=Q(tier__in=["backend", "container", "vm"]),
-                name="iki_worker_registration_tier",
+                condition=Q(tier__in=TIERS), name="iki_worker_registration_tier"
+            ),
+            models.CheckConstraint(
+                condition=Q(tier="self_hosted") | Q(labels=[]),
+                name="iki_worker_registration_labels",
             ),
         ]
 
@@ -1082,10 +1102,13 @@ class Worker(models.Model):
     registration = models.ForeignKey(
         RegistrationToken, null=True, blank=True, on_delete=models.PROTECT, related_name="workers"
     )
-    #: For client-tier workers: the person whose machine it runs on.
-    owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
-    )
+    #: Self-hosted: the teams whose runs it takes, and, within a team, only these projects
+    #: if any of the team's are listed (ADR 0112). From its registration token, then as an
+    #: admin changes them.
+    teams = models.ManyToManyField(Team, blank=True, related_name="+")
+    projects = models.ManyToManyField(Project, blank=True, related_name="+")
+    #: Self-hosted: the labels an admin gave it, which runs are matched to it by.
+    labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
     #: For a machine Iki started (ADR 0061): the launch it registered for.
     launch = models.OneToOneField(
         Launch, null=True, blank=True, on_delete=models.PROTECT, related_name="worker"
@@ -1108,10 +1131,12 @@ class Worker(models.Model):
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(condition=Q(tier__in=TIERS), name="iki_worker_tier"),
             models.CheckConstraint(
-                condition=Q(tier="client", owner__isnull=False)
-                | Q(~Q(tier="client"), registration__isnull=False)
+                condition=Q(registration__isnull=False)
                 | Q(tier__in=["container", "vm"], launch__isnull=False),
                 name="iki_worker_registered",
+            ),
+            models.CheckConstraint(
+                condition=Q(tier="self_hosted") | Q(labels=[]), name="iki_worker_labels"
             ),
         ]
 
@@ -1142,10 +1167,6 @@ class Job(models.Model):
     lifecycle = models.CharField(max_length=16, blank=True, default="")
     #: What the job needs: the environment's minimum, raised by the action's own.
     resources = models.JSONField(default=dict)
-    #: For client-tier jobs: only this person's own worker may lease it.
-    owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
-    )
     queued_at = models.DateTimeField(db_default=Now())
     #: Changes on every lease. Only the worker holding the current token may report on the
     #: attempt, so a worker whose lease ran out can't overwrite what replaced it.
@@ -1228,10 +1249,6 @@ class Job(models.Model):
             models.CheckConstraint(condition=Q(state__in=JobState.values), name="iki_job_state"),
             models.CheckConstraint(condition=Q(tier__in=TIERS), name="iki_job_tier"),
             models.CheckConstraint(condition=Q(attempt__gte=1), name="iki_job_attempt_min"),
-            models.CheckConstraint(
-                condition=Q(tier="client", owner__isnull=False) | ~Q(tier="client"),
-                name="iki_job_client_owner",
-            ),
             # Only the job a worker holds has a lease.
             models.CheckConstraint(
                 condition=Q(packed_into__isnull=True) | Q(lease_token__isnull=True),

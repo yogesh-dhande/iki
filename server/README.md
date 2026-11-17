@@ -289,13 +289,21 @@ Nothing connects to a worker. A Compute admin manages them under
 
 - `POST /compute/registration-tokens` makes a registration token
   (`iki_wreg_…`) for the backend, container or vm tier, optionally with an
-  expiry. Its value is shown once; put it in that tier's secret store.
+  expiry. Its value is shown once; put it in that tier's secret store. A
+  self-hosted token also names the `teams` whose runs its machines take,
+  perhaps narrowed to some of their `projects`, and their `labels`
+  (ADR 0112). A machine registers with it once, with
+  `iki-worker register`.
 - `POST /compute/registration-tokens/{id}/revoke` stops new registrations.
   Workers that already registered keep working, unless you pass
   `{"workers": true}` for a token that leaked.
 - `GET /compute/workers` lists workers as online, offline or revoked, with
-  the jobs each holds. `POST /compute/workers/{id}/revoke` ends a worker's
-  token at once. Its jobs are interrupted and retried elsewhere.
+  the jobs each holds, and a self-hosted worker's labels, teams, projects
+  and the runs it's running. `PATCH /compute/workers/{id}` changes a
+  self-hosted worker's labels, teams and projects; narrowing them
+  interrupts its jobs it no longer covers. `POST /compute/workers/{id}/revoke`
+  ends a worker's token at once. Its jobs are interrupted and retried
+  elsewhere. Each change is audited.
 - `/compute/quotas` limits runs for the organization, a team or a project,
   on one tier or all of them (ADR 0045). `max_running` caps jobs running at
   once (0 pauses the scope). `max_queued` caps runs waiting to start;
@@ -323,7 +331,8 @@ Nothing connects to a worker. A Compute admin manages them under
    not.
 
 Every report carries the lease token from the job. A report with a stale
-token answers 409 `stale_lease`, and the worker drops that job.
+token answers 409 `stale_lease`, and the worker drops that job. So does a
+self-hosted worker's report on a job in a project it no longer covers.
 
 ### Results
 

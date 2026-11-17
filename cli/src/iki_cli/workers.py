@@ -16,7 +16,7 @@ that didn't change keeps its digest, and its layer stays cached, across
 plugin commits.
 
 Every ``iki deploy build`` also bundles each pinned plugin's code for the server
-to give workers on people's computers (ADR 0059): a gzipped tar, the same bytes
+to give self-hosted workers (ADR 0059): a gzipped tar, the same bytes
 for the same files, with what's needed to build each environment where it lands.
 """
 
@@ -71,10 +71,10 @@ def _sha256(file: Path) -> str:
 
 
 def _built(env: Environment) -> bool:
-    """Whether workers build it: a Python or conda environment for the backend or client
-    tier. The container and vm tiers run images instead."""
+    """Whether workers build it: a Python or conda environment for the backend or
+    self-hosted tier. The container and vm tiers run images instead."""
     native = env.requirements is not None or env.conda_lockfile is not None
-    return native and bool(set(env.tiers) & {"backend", "client"})
+    return native and bool(set(env.tiers) & {"backend", "self_hosted"})
 
 
 def _definition(env: Environment, directory: Path) -> dict[str, str]:

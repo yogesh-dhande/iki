@@ -653,57 +653,46 @@ def test_a_command_gives_many_creates_in_a_file_and_they_are_imported(
     assert (job.state, job.progress) == (JobState.SUCCEEDED, 1.0)
 
 
-def test_someone_signs_a_worker_in_on_their_computer_and_it_runs_their_runs(
+def test_an_admin_registers_a_self_hosted_machine_and_it_runs_its_teams_runs(
     world: World, worker_bin: Path, server: Server, tmp_path: Path
 ) -> None:
-    """``iki-worker login`` through the device flow, ``start`` with nothing set but where
-    plugins are, and ``logout`` (ADR 0058)."""
-    from importlib import import_module
+    """``iki-worker register --url --token`` once, ``start`` with nothing set but where
+    plugins are, and ``deregister`` (ADR 0112). ``login`` says where it went."""
+    from test_self_hosted import on_self_hosted, token
 
-    from django.apps import apps as django_apps
-    from org_world import post
-    from test_worker_sign_in import on_client
-
-    # Its app, which a migration adds and each test's emptying of the database takes away.
-    import_module("iki_server.oauth.migrations.0003_iki_worker").create(django_apps, None)
     python = Path(sys.executable).parent
     env = {
         "PATH": f"{python}{os.pathsep}{os.environ.get('PATH', '')}",
         "HOME": str(tmp_path / "home"),
-        "IKI_WORKER_NAME": "ada-laptop",
         "IKI_WORKER_CPU": "4",
         "IKI_WORKER_MEMORY": "8Gi",
     }
-    login = subprocess.Popen(  # noqa: S603 - our own binary
-        [str(worker_bin), "login", server.url, "--no-browser"],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    try:
-        assert login.stderr is not None
-        asked = login.stderr.readline()
-        assert asked.startswith(f"To sign this worker in, open {server.url}/oauth/device/"), asked
-        code = asked.split()[-1]
-        browser = world.browser("editor")
-        entered = post(browser, "/oauth/device/", {"user_code": code})
-        assert entered.status_code == 302, entered.content
-        choice = {"granted": ["worker"], "access": "chosen", "projects": [str(world.project.pk)]}
-        assert post(browser, entered["Location"], choice).status_code == 200
-    except BaseException:
-        login.kill()
-        login.communicate()
-        raise
-    rest = Running(login).wait(60)
-    assert rest[0] == 0, rest[1]
-    assert "Signed in to" in rest[1] and "ada-laptop" in rest[1]
+
+    def worker(*args: str, **more: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603 - our own binary
+            [str(worker_bin), *args],
+            env={**env, **more},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+
+    gone = worker("login", server.url)
+    assert gone.returncode == 2
+    assert "iki-worker register --url" in gone.stderr
+
+    made = token(world, labels=["chromeleon"])
+    out = worker("register", "--url", server.url, "--token", made["token"], "--name", "hplc-pc-1")
+    assert out.returncode == 0, out.stderr
+    assert "Registered hplc-pc-1" in out.stderr and "labelled chromeleon" in out.stderr
     state = tmp_path / "home" / ".config" / "iki" / "worker.json"
     assert state.stat().st_mode & 0o777 == 0o600
-    signed_in = Worker.objects.get(name="ada-laptop")
-    assert (signed_in.tier, signed_in.owner) == ("client", world.users["editor"])
+    registered = Worker.objects.get(name="hplc-pc-1")
+    assert (registered.tier, registered.labels) == ("self_hosted", ["chromeleon"])
+    assert list(registered.teams.all()) == [world.team]
 
-    run = on_client(queued(world))
+    run = on_self_hosted(queued(world))
     started = subprocess.Popen(  # noqa: S603 - our own binary
         [str(worker_bin), "start", "--once"],
         env={**env, "IKI_PLUGINS_DIR": str(PLUGINS), "IKI_WORK_DIR": str(tmp_path / "work")},
@@ -711,23 +700,21 @@ def test_someone_signs_a_worker_in_on_their_computer_and_it_runs_their_runs(
         stderr=subprocess.PIPE,
         text=True,
     )
-    code_, said = Running(started).wait(120)
-    assert code_ == 0, said
+    code, said = Running(started).wait(120)
+    assert code == 0, said
     assert "Signed in with the saved token." in said
     assert api_as(world).get(f"/runs/{run['id']}").json()["status"] == "succeeded"
-    # It kept its token: a signed-in worker isn't for one process.
-    signed_in.refresh_from_db()
-    assert signed_in.revoked_at is None
-    assert {p["name"] for p in signed_in.plugins} >= {"protein"}
+    # It kept its token: a registered machine isn't for one process.
+    registered.refresh_from_db()
+    assert registered.revoked_at is None
+    assert {p["name"] for p in registered.plugins} >= {"protein"}
 
-    out = subprocess.run(  # noqa: S603 - our own binary
-        [str(worker_bin), "logout"], env=env, capture_output=True, text=True, check=False
-    )
+    out = worker("deregister")
     assert out.returncode == 0, out.stderr
-    assert f"Signed out of {server.url}." in out.stderr
+    assert f"Deregistered from {server.url}." in out.stderr
     assert not state.exists()
-    signed_in.refresh_from_db()
-    assert signed_in.revoked_at is not None
+    registered.refresh_from_db()
+    assert registered.revoked_at is not None
 
 
 BUNDLED_SHA = "e" * 40

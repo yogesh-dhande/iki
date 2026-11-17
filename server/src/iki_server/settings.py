@@ -87,7 +87,7 @@ INSTALLED_APPS = [
 # for development, so the server only accepts them when told to.
 IKI_ALLOW_LOCAL_PLUGINS: bool = env.bool("IKI_ALLOW_LOCAL_PLUGINS", default=False)
 
-# Workers on people's computers update themselves (ADR 0060): the server says which
+# Self-hosted workers update themselves (ADR 0060): the server says which
 # release to run, and they fetch it from IKI_WORKER_DOWNLOADS, laid out as GitHub's
 # releases are (``v<version>/iki-worker-<version>-<target>.tar.gz``, and its
 # ``.sigstore.json``), so an internal mirror works too. Each checks the signature

@@ -151,14 +151,14 @@ which version of an environment's volumes machines there get (ADR 0075). */}}
 - name: IKI_RUNS_NAMESPACES
   value: {{ rest $namespaces | join "," | quote }}
 {{- end }}
-{{- with $ctx.Values.clientWorkers.version }}
+{{- with $ctx.Values.selfHostedWorkers.version }}
 - name: IKI_WORKER_VERSION
   value: {{ . | quote }}
 {{- end }}
 - name: IKI_WORKER_UPDATES
-  value: {{ $ctx.Values.clientWorkers.autoUpdate | quote }}
+  value: {{ $ctx.Values.selfHostedWorkers.autoUpdate | quote }}
 - name: IKI_WORKER_DOWNLOADS
-  value: {{ $ctx.Values.clientWorkers.downloadsUrl | quote }}
+  value: {{ $ctx.Values.selfHostedWorkers.downloadsUrl | quote }}
 - name: IKI_OAUTH_ACCESS_TOKEN_MINUTES
   value: {{ $ctx.Values.oauth.accessTokenMinutes | quote }}
 - name: IKI_OAUTH_REFRESH_TOKEN_DAYS

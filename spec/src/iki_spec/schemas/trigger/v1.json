@@ -53,7 +53,7 @@
       }
     },
     "run": {
-      "description": "The name of the plugin's action it runs: on the entity, or, on a schedule, on nothing. It can't be one that runs on the client tier: nobody may be at their computer for it.",
+      "description": "The name of the plugin's action it runs: on the entity, or, on a schedule, on nothing.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
     "input": {

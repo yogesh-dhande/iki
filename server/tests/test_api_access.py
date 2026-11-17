@@ -335,6 +335,21 @@ def _registration(w: World) -> Any:
     return token
 
 
+def _self_hosted(w: World) -> Any:
+    from iki_server.runs import workers
+
+    token, _ = workers.create_registration(
+        label="Lab 3",
+        tier="self_hosted",
+        by=w.users["compute_admin"],
+        scope=workers.make_scope([w.team.pk], []),
+    )
+    worker, _ = workers.register(
+        token, name="hplc-pc-1", version="0.1.0", capacity={"cpu": 2}, plugins=[]
+    )
+    return worker
+
+
 def _budget(w: World) -> Any:
     from iki_server.runs.models import Budget
 
@@ -889,6 +904,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/compute/quotas/{quota_id}",
         lambda w: (f"/compute/quotas/{_quota(w).pk}", None),
         row(403, compute_admin=204),
+    ),
+    (
+        "PATCH",
+        "/compute/workers/{worker_id}",
+        lambda w: (f"/compute/workers/{_self_hosted(w).pk}", {"labels": ["lab-3"]}),
+        COMPUTE_ONLY,
     ),
     (
         "POST",

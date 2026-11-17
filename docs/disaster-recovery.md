@@ -193,7 +193,7 @@ to decide quickly, then run it in full afterwards.
 ### 7. Switch over
 
 Point Iki's host name at the new ALB (`kubectl -n iki get ingress iki-web`).
-People sign in as before. Workers on people's machines and on the VM tier
+People sign in as before. Self-hosted workers and those on the VM tier
 reconnect by the host name. Tell people what time their work was kept to.
 
 ### Failing back

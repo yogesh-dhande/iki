@@ -112,6 +112,7 @@ ACTIONS: dict[str, str] = {
     "worker_registration.revoked": "Revoked a worker registration token",
     "worker.registered": "A worker registered",
     "worker.updated": "A worker changed what it runs",
+    "worker.changed": "Changed a self-hosted worker's labels or teams",
     "worker.revoked": "Revoked a worker",
     "worker.launched": "Started a machine for runs",
     "worker.launch_ended": "A machine started for runs ended",

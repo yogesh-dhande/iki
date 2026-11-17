@@ -11,24 +11,40 @@ HTTPS calls, so it works behind NAT and corporate proxies
 - `crates/iki-protocol`: the wire types, generated from the server's
   schemas and API (`make protocol`).
 
-## On your own computer
+## On a team's machine (the self-hosted tier)
 
-To run the actions you launch on the client tier (your GPU, your desktop
-software, your files), sign the worker in as yourself
-([ADR 0058](../docs/adr/0058-workers-on-peoples-computers-sign-in-as-them.md)):
+Self-hosted actions run on machines a team looks after: the PC beside an
+instrument, a workstation with licensed desktop software, a GPU box in the
+lab ([ADR 0112](../docs/adr/0112-self-hosted-workers-belong-to-teams.md)).
+A Compute admin registers each one, as for GitHub's self-hosted runners.
+Under **Compute → Workers** they make a self-hosted registration token for
+the teams whose runs it takes (perhaps only some of their projects), with
+its labels, such as `chromeleon` or `lab-3`. On the machine:
 
 ```sh
-iki-worker login https://iki.example.com
+iki-worker register --url https://iki.example.com --token iki_wreg_…
 iki-worker start
 ```
 
-`login` opens your browser to confirm a code, through your company's
-sign-in, and asks which projects the worker may run your actions in. Add
-`--no-browser` over SSH and open the page it prints yourself. Its token
-goes in `~/.config/iki/worker.json`, readable only by you, so `start`
-needs no `IKI_URL` or registration token. It runs only your runs. You can
-see and revoke it under _Your workers_ in your account, and
-`iki-worker logout` signs it out.
+`register` registers once and keeps the worker's own token in
+`~/.config/iki/worker.json` (`%APPDATA%\iki\worker.json` on Windows, or
+`IKI_WORKER_STATE`), readable only by this user, so `start` needs nothing
+else. `--name` sets how admins tell it apart (the host name unless given);
+`IKI_URL` and `IKI_REGISTRATION_TOKEN` work in place of `--url` and
+`--token`. Registering again replaces the machine's earlier worker.
+
+It runs only self-hosted runs in the projects it covers: every project of
+its teams, or only those listed for a team. Admins see each machine's
+labels, teams, projects, version and what it's running under Compute →
+Workers. They change its labels and teams there, and revoke it. Narrowing
+its teams or projects stops what it was running outside them, which queues
+again for a machine that covers it. `iki-worker deregister` takes it off
+and deletes its token.
+
+The worker builds for Linux and macOS; Windows isn't supported yet.
+
+`iki-worker login` and `logout` are gone: they signed a worker in as its
+person, which self-hosted registration replaced.
 
 It fetches each plugin's code from the server, at the commit the deployment
 installs, and checks its SHA-256 before unpacking it
@@ -55,7 +71,7 @@ iki-worker verify iki-worker-0.5.0-aarch64-apple-darwin.tar.gz \
 
 ## Running it on a deployment
 
-A Compute admin makes a registration token for a tier in Compute settings.
+A Compute admin makes a registration token for a tier under Compute → Workers.
 For an install set up from code, an operator can make one inside the
 cluster instead; it prints only the token:
 
@@ -73,22 +89,22 @@ IKI_PLUGINS_DIR=/opt/iki/plugins \
 iki-worker start
 ```
 
-| Variable                                   | What it's for                                                                                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `IKI_URL`                                  | The server. `https://` only; `http://` is accepted for localhost. After `login`, the one you signed in to.                         |
-| `IKI_REGISTRATION_TOKEN`                   | Registers the worker. Not needed again once `IKI_WORKER_STATE` holds a token.                                                      |
-| `IKI_WORKER_STATE`                         | A file to keep the worker's own token in (mode 0600), so restarts reuse it. After `login`, `~/.config/iki/worker.json` unless set. |
-| `IKI_PLUGINS_DIR`                          | Each plugin's code, in a directory named for the plugin. All the worker runs. Unless set, it fetches the server's.                 |
-| `IKI_WORKER_CACHE`                         | Where it keeps the plugins it fetched and the environments it built. `~/.cache/iki/worker` unless set.                             |
-| `IKI_WORK_DIR`                             | Where jobs run, a private directory each. A temporary directory unless set.                                                        |
-| `IKI_WORKER_NAME`                          | How people tell it apart in Compute settings. The host name unless set.                                                            |
-| `IKI_WORKER_CPU`, `IKI_WORKER_MEMORY`      | What one job may use, such as `4` and `16Gi`. Detected on Linux (cgroup-aware).                                                    |
-| `IKI_WORKER_GPUS`, `IKI_WORKER_GPU_MEMORY` | GPUs one job may use.                                                                                                              |
-| `IKI_WORKER_SCRATCH_DISK`                  | Local disk one job may use.                                                                                                        |
-| `HTTPS_PROXY`, `NO_PROXY`                  | A proxy to reach the server through.                                                                                               |
-| `SSL_CERT_FILE`                            | CA certificates, if the operating system's don't cover the server or the proxy.                                                    |
-| `IKI_KEEP_JOB_DIRS`                        | `1` keeps each job's directory after it ends, to debug a command.                                                                  |
-| `IKI_ALLOW_HTTP`                           | `1` allows a plain `http://` `IKI_URL` to any host. Development clusters only.                                                     |
+| Variable                                   | What it's for                                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `IKI_URL`                                  | The server. `https://` only; `http://` is accepted for localhost. After `register`, the one it registered with.                       |
+| `IKI_REGISTRATION_TOKEN`                   | Registers the worker. Not needed again once `IKI_WORKER_STATE` holds a token.                                                         |
+| `IKI_WORKER_STATE`                         | A file to keep the worker's own token in (mode 0600), so restarts reuse it. After `register`, `~/.config/iki/worker.json` unless set. |
+| `IKI_PLUGINS_DIR`                          | Each plugin's code, in a directory named for the plugin. All the worker runs. Unless set, it fetches the server's.                    |
+| `IKI_WORKER_CACHE`                         | Where it keeps the plugins it fetched and the environments it built. `~/.cache/iki/worker` unless set.                                |
+| `IKI_WORK_DIR`                             | Where jobs run, a private directory each. A temporary directory unless set.                                                           |
+| `IKI_WORKER_NAME`                          | How people tell it apart under Compute → Workers. The host name unless set.                                                           |
+| `IKI_WORKER_CPU`, `IKI_WORKER_MEMORY`      | What one job may use, such as `4` and `16Gi`. Detected on Linux (cgroup-aware).                                                       |
+| `IKI_WORKER_GPUS`, `IKI_WORKER_GPU_MEMORY` | GPUs one job may use.                                                                                                                 |
+| `IKI_WORKER_SCRATCH_DISK`                  | Local disk one job may use.                                                                                                           |
+| `HTTPS_PROXY`, `NO_PROXY`                  | A proxy to reach the server through.                                                                                                  |
+| `SSL_CERT_FILE`                            | CA certificates, if the operating system's don't cover the server or the proxy.                                                       |
+| `IKI_KEEP_JOB_DIRS`                        | `1` keeps each job's directory after it ends, to debug a command.                                                                     |
+| `IKI_ALLOW_HTTP`                           | `1` allows a plain `http://` `IKI_URL` to any host. Development clusters only.                                                        |
 
 The worker leases only runs launched with the plugin code it has
 ([ADR 0047](../docs/adr/0047-workers-run-only-the-code-a-run-was-launched-with.md)).

@@ -1059,6 +1059,14 @@
             "title": "Id",
             "type": "string"
           },
+          "labels": {
+            "description": "A self-hosted worker's labels, which runs are matched to it by. A Compute admin sets them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -1083,7 +1091,7 @@
                 "type": "null"
               }
             ],
-            "description": "For a worker on someone's computer: the release to update itself to, when it's idle. Null when it runs the one it should."
+            "description": "For a self-hosted worker: the release to update itself to, when it's idle. Null when it runs the one it should."
           },
           "version": {
             "title": "Version",
@@ -1097,6 +1105,7 @@
           "version",
           "capacity",
           "plugins",
+          "labels",
           "update"
         ],
         "title": "WorkerOut",
@@ -1833,7 +1842,7 @@
     },
     "/worker/v1/plugins": {
       "get": {
-        "description": "The code of each plugin this deployment installs from a commit, for a worker on\nsomeone's computer to fetch and build (ADR 0059): it then runs what's launched now.\nA machine Iki started for runs gets only its own plugin's (ADR 0061): on a development\nserver, that may be one from a local directory, whose ``sha`` is ``local``.",
+        "description": "The code of each plugin this deployment installs from a commit, for a self-hosted\nworker to fetch and build (ADR 0059): it then runs what's launched now.\nA machine Iki started for runs gets only its own plugin's (ADR 0061): on a development\nserver, that may be one from a local directory, whose ``sha`` is ``local``.",
         "operationId": "iki_server_api_worker_available",
         "parameters": [],
         "responses": {
@@ -1898,7 +1907,7 @@
     },
     "/worker/v1/register": {
       "post": {
-        "description": "With a registration token for a deployment's workers, or, for a worker on someone's\nown computer, the access token ``iki-worker login`` got them (which this spends).",
+        "description": "With a registration token a Compute admin made (``iki-worker register``), or a\nmachine Iki started's launch token. A self-hosted worker gets the token's teams,\nprojects and labels.",
         "operationId": "iki_server_api_worker_register",
         "parameters": [],
         "requestBody": {

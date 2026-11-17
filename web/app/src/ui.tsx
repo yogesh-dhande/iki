@@ -215,6 +215,7 @@ export function CheckboxesField<T extends string>({
   options,
   help,
   error,
+  literal = true,
 }: {
   label: string;
   value: readonly T[];
@@ -222,6 +223,8 @@ export function CheckboxesField<T extends string>({
   options: readonly { value: T; label: string; description?: string }[];
   help?: string;
   error?: string | undefined;
+  /** Whether the options are names to type, set as code; false for teams, say. */
+  literal?: boolean;
 }) {
   const id = useId();
   return (
@@ -242,13 +245,17 @@ export function CheckboxesField<T extends string>({
       ) : null}
       <div className="choices">
         {options.map((option, index) => (
-          <label className="choice" key={option.value} htmlFor={`${id}-${option.value}`}>
+          // The label is the choice's name alone, and its description describes it, so
+          // two choices that mention the same thing (a project and its team) aren't
+          // confused. The label stretches over the card, so all of it toggles the box.
+          <div className="choice choice-described" key={option.value}>
             <input
               type="checkbox"
               id={`${id}-${option.value}`}
               value={option.value}
               // The form moves focus to the first invalid control.
               aria-invalid={error && index === 0 ? "true" : undefined}
+              aria-describedby={option.description ? `${id}-${option.value}-help` : undefined}
               checked={value.includes(option.value)}
               onChange={(event) => {
                 const checked = event.target.checked;
@@ -260,12 +267,16 @@ export function CheckboxesField<T extends string>({
               }}
             />
             <span className="choice-text">
-              <code>{option.label}</code>
+              <label htmlFor={`${id}-${option.value}`}>
+                {literal ? <code>{option.label}</code> : option.label}
+              </label>
               {option.description ? (
-                <span className="choice-help">{option.description}</span>
+                <span className="choice-help" id={`${id}-${option.value}-help`}>
+                  {option.description}
+                </span>
               ) : null}
             </span>
-          </label>
+          </div>
         ))}
       </div>
     </fieldset>

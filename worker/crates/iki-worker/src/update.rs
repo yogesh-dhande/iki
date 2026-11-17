@@ -1,4 +1,4 @@
-//! A worker on someone's computer updating itself (ADR 0060).
+//! A self-hosted worker updating itself (ADR 0060).
 //!
 //! The server says which release to run. While idle, the worker downloads that release
 //! for its target and checks its Sigstore signature against the trusted root it embeds,

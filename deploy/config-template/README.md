@@ -75,7 +75,7 @@ templates: [{ template: backend-small }]
 pins: each template is big enough for the environment, each action fits one
 of them, and each data volume has a way to reach the machines. It warns
 about actions this deployment can't run. Without `compute.yaml`, only
-client-tier actions run. The full format is in the
+self-hosted actions run. The full format is in the
 [spec](../../spec/README.md#a-deployments-compute). Ask the plugin's owners
 and your compute admins to review changes, with `CODEOWNERS` if you use it.
 

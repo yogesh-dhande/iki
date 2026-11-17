@@ -94,8 +94,8 @@ gh attestation verify $FILE --repo $OWNER/iki
 ```
 
 `iki-worker verify $FILE $FILE.sigstore.json --version 1.0.0` makes the same
-signature check offline, with no cosign needed. Workers on people's computers
-make it before updating themselves to a release
+signature check offline, with no cosign needed. Self-hosted workers make it
+before updating themselves to a release
 ([ADR 0060](adr/0060-workers-update-themselves-to-signed-releases.md)).
 
 ### Helm chart

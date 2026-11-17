@@ -48,7 +48,7 @@ class ActionOut(TypedDict):
     plugin: str
     #: The secrets its runs get, by name.
     secrets: list[ActionSecretOut]
-    tier: Literal['client', 'backend', 'container', 'vm']
+    tier: Literal['self_hosted', 'backend', 'container', 'vm']
     #: Seconds each attempt may run.
     timeout: int
     unavailable_reason: str | None
@@ -1797,7 +1797,7 @@ class ProjectCan(TypedDict):
     #: Read the project's data.
     read: bool
     #: The tiers whose actions you may run here, and whose runs you may cancel. None while it's archived.
-    run: list[Literal['client', 'backend', 'container', 'vm']]
+    run: list[Literal['self_hosted', 'backend', 'container', 'vm']]
 
 
 class ProjectCostSummaryOut(TypedDict):
@@ -1885,6 +1885,12 @@ class ProjectRoleOut(TypedDict):
     name: Literal['viewer', 'editor', 'runner', 'admin']
 
 
+class ProjectScopeOut(TypedDict):
+    id: str
+    name: str
+    team: ScopeOut
+
+
 class ProjectTriggerCan(TypedDict):
     #: You may turn it off: you're one of the project's Admins.
     disable: bool
@@ -1928,7 +1934,7 @@ class ProjectTriggerOut(TypedDict):
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
     #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
-    tier: Literal['client', 'backend', 'container', 'vm'] | None
+    tier: Literal['self_hosted', 'backend', 'container', 'vm'] | None
     #: On a schedule: the timezone of its times.
     timezone: str
     #: The entity type it fires for, with its subtypes; empty on a schedule.
@@ -1969,7 +1975,7 @@ class QuotaIn(TypedDict):
     #: A team's runs. Leave out team and project for the organization's.
     team: NotRequired[str | None]
     #: Only this tier's runs; all tiers if left out.
-    tier: NotRequired[Literal['client', 'backend', 'container', 'vm'] | None]
+    tier: NotRequired[Literal['self_hosted', 'backend', 'container', 'vm'] | None]
 
 
 class QuotaOut(TypedDict):
@@ -1987,7 +1993,7 @@ class QuotaOut(TypedDict):
     running: int
     team: ScopeOut | None
     #: None: every tier together.
-    tier: Literal['client', 'backend', 'container', 'vm'] | None
+    tier: Literal['self_hosted', 'backend', 'container', 'vm'] | None
     updated_at: str
 
 
@@ -2001,6 +2007,8 @@ class QuotaScopeOut(TypedDict):
     name: str
     #: A project's team; null for a team.
     team: str | None
+    #: A project's team's ID; null for a team.
+    team_id: str | None
 
 
 class ReadIn(TypedDict):
@@ -2363,8 +2371,8 @@ class RunOut(TypedDict):
     inputs: list[RunInputOut]
     messages: list[MessageOut]
     metrics: dict[str, float]
-    #: A queued client-tier run whose requester has no worker online on their own computer to run it (ADR 0058): `yours` when that's you, else `theirs`.
-    needs_worker: Literal['yours', 'theirs'] | None
+    #: Why a queued self-hosted run has no worker to take it (ADR 0112): `unregistered` when no self-hosted worker's teams cover its project, `offline` when those that do are offline, `busy` when they're all running other jobs. A Compute admin registers one under Compute → Workers.
+    needs_worker: Literal['unregistered', 'offline', 'busy'] | None
     #: The hosts it may reach, as its action declared them when it was launched.
     network: list[str]
     params: dict[str, Any]
@@ -2388,7 +2396,7 @@ class RunOut(TypedDict):
     settings: dict[str, Any]
     started_at: str | None
     status: Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
-    tier: Literal['client', 'backend', 'container', 'vm']
+    tier: Literal['self_hosted', 'backend', 'container', 'vm']
     #: The project's trigger that launched it, if one did, and the change or schedule that fired it (ADR 0080).
     trigger: TriggerFiredOut | None
     via: str
@@ -2405,6 +2413,13 @@ class RunRefOut(TypedDict):
 
 
 RunStatus = Literal['awaiting_approval', 'queued', 'running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'rejected', 'declined']
+
+
+class RunningOut(TypedDict):
+    action: str
+    hrid: str
+    id: str
+    project: ScopeOut
 
 
 class SavedSearchCan(TypedDict):
@@ -2453,6 +2468,8 @@ class ScopeSearch(TypedDict):
     limit: NotRequired[int]
     #: Part of the name.
     search: NotRequired[str]
+    #: Only projects of these teams, when given.
+    team: NotRequired[list[str]]
 
 
 class SearchIn(TypedDict):
@@ -2796,7 +2813,7 @@ class TriggerOut(TypedDict):
     #: On a schedule: when it runs, in cron's five fields. Empty otherwise.
     schedule: str
     #: Where its runs run; on the container and VM tiers each waits for the approval of the Admin who turned it on. Null once its action isn't installed.
-    tier: Literal['client', 'backend', 'container', 'vm'] | None
+    tier: Literal['self_hosted', 'backend', 'container', 'vm'] | None
     #: On a schedule: the timezone of its times.
     timezone: str
     #: The entity type it fires for, with its subtypes; empty on a schedule.
@@ -2963,7 +2980,7 @@ class WorkerFilters(TypedDict):
     limit: NotRequired[int]
     #: Include revoked workers.
     revoked: NotRequired[bool]
-    tier: NotRequired[Literal['client', 'backend', 'container', 'vm'] | None]
+    tier: NotRequired[Literal['self_hosted', 'backend', 'container', 'vm'] | None]
 
 
 class WorkerOut(TypedDict):
@@ -2973,18 +2990,33 @@ class WorkerOut(TypedDict):
     id: str
     #: Jobs it holds now.
     jobs: int
+    #: Self-hosted: what runs are matched to it by.
+    labels: list[str]
     last_seen_at: str
     name: str
-    #: For the client tier: whose machine it is.
-    owner: PersonRef | None
     #: The plugin code it has, which is all it leases: each one's `name`, `sha` (null for a local directory) and `environments` it has built, with each build's digest (null when it runs them with its host's own software).
     plugins: list[dict[str, Any]]
+    #: Self-hosted: within a team, only these of its projects.
+    projects: list[ProjectScopeOut]
     registered_at: str
     registration: str | None
     revoked_at: str | None
+    #: The runs it's running now.
+    running: list[RunningOut]
     status: Literal['online', 'offline', 'revoked']
+    #: Self-hosted: whose runs it takes.
+    teams: list[ScopeOut]
     tier: str
     version: str
+
+
+class WorkerPatch(TypedDict):
+    #: Its labels, all of them.
+    labels: NotRequired[list[str] | None]
+    #: Within a team, only these of its projects.
+    projects: NotRequired[list[str] | None]
+    #: Whose runs it takes, all of them.
+    teams: NotRequired[list[str] | None]
 
 
 class WorkerRegistrationCreatedOut(TypedDict):
@@ -2996,8 +3028,14 @@ class WorkerRegistrationCreatedOut(TypedDict):
     hint: str
     id: str
     label: str
+    #: Self-hosted: the labels its workers get.
+    labels: list[str]
     last_used_at: str | None
+    #: Self-hosted: within a team, only these of its projects.
+    projects: list[ProjectScopeOut]
     revoked_at: str | None
+    #: Self-hosted: whose runs its workers take.
+    teams: list[ScopeOut]
     tier: str
     #: Shown once. Give it to the tier's workers as a secret.
     token: str
@@ -3010,7 +3048,13 @@ class WorkerRegistrationIn(TypedDict):
     expires_at: NotRequired[str | None]
     #: What it's for, such as `GPU pool (us-east-1)`.
     label: str
-    tier: Literal['backend', 'container', 'vm']
+    #: Self-hosted: the labels the machines it registers get, which runs are matched to them by.
+    labels: NotRequired[list[str]]
+    #: Self-hosted: within a team, only these of its projects. A team none of whose projects is listed is taken whole.
+    projects: NotRequired[list[str]]
+    #: Self-hosted: the teams whose runs its workers take. At least one.
+    teams: NotRequired[list[str]]
+    tier: Literal['self_hosted', 'backend', 'container', 'vm']
 
 
 class WorkerRegistrationOut(TypedDict):
@@ -3022,8 +3066,14 @@ class WorkerRegistrationOut(TypedDict):
     hint: str
     id: str
     label: str
+    #: Self-hosted: the labels its workers get.
+    labels: list[str]
     last_used_at: str | None
+    #: Self-hosted: within a team, only these of its projects.
+    projects: list[ProjectScopeOut]
     revoked_at: str | None
+    #: Self-hosted: whose runs its workers take.
+    teams: list[ScopeOut]
     tier: str
     #: Workers registered with it and not revoked.
     workers: int
@@ -3070,7 +3120,7 @@ class WorkflowOut(TypedDict):
     #: In the order they start.
     steps: list[WorkflowStepOut]
     #: The tiers its steps run on, from the least to the most a starter needs: starting it takes the role each needs in the project (`can.run` on a project).
-    tiers: list[Literal['client', 'backend', 'container', 'vm']]
+    tiers: list[Literal['self_hosted', 'backend', 'container', 'vm']]
     unavailable_reason: str | None
 
 
@@ -3200,4 +3250,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']

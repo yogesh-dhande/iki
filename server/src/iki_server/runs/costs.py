@@ -13,7 +13,7 @@ for as long as it's up, whether or not it's running a job. So:
   between them.
 
 Each record keeps the price it was recorded at, and the project, team and
-action, as they were. Backend and client tiers have no per-run cost: their
+action, as they were. Backend and self-hosted tiers have no per-run cost: their
 machines run anyway.
 """
 

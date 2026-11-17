@@ -172,7 +172,7 @@
         }
       }
     },
-    "clientWorkers": {
+    "selfHostedWorkers": {
       "type": "object",
       "additionalProperties": false,
       "properties": {

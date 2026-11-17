@@ -8,45 +8,55 @@ hashes of both are stored; each is shown once. Revoking a registration
 token stops new workers registering with it (and, if asked, revokes those
 that did). Revoking a worker interrupts its jobs, which are retried elsewhere.
 
-A worker on someone's own computer (the client tier) signs in as them instead
-(ADR 0058): ``iki-worker login`` takes them through OAuth's device flow as the
-``iki-worker`` client, and registers with the access token that gives it, for the
-``worker`` scope alone. Registering spends that token. The worker leases only its
-person's runs, in the projects they allowed it, and stops working when they're
-deactivated, revoke it, or revoke the app.
+A self-hosted worker (ADR 0112) is a machine a compute admin registers for one or
+more teams: an instrument's PC, a licensed workstation, an on-premises GPU. Its
+registration token names the teams, and perhaps only some of their projects, and
+the labels its machines get. Each worker that registers with it starts with those,
+which an admin can change on it later, and it leases only runs in the projects they
+cover (:func:`covered`), checked again on every report about a job.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 from packaging.version import InvalidVersion, Version
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.runs.models import RegistrationToken, Worker
+from iki_server.org.models import Project, Team
+from iki_server.org.services import Refused
+from iki_server.runs.models import (
+    LABEL_PATTERN,
+    MAX_LABELS,
+    RegistrationToken,
+    Worker,
+)
 
 __all__ = [
     "REGISTRATION_PREFIX",
     "WORKER_PREFIX",
     "Outdated",
-    "allowed_projects",
     "authenticate",
+    "change",
     "check_version",
+    "clean_labels",
+    "covered",
+    "covers",
     "create_registration",
-    "online_owners",
+    "make_scope",
     "register",
-    "register_client",
     "revoke_registration",
-    "revoke_signed_in",
     "revoke_worker",
-    "signed_in",
     "update_for",
 ]
 
@@ -55,9 +65,7 @@ WORKER_PREFIX = "iki_wkr_"
 #: ``last_seen_at`` and ``last_used_at`` are written at most this often, not on every call.
 SEEN_RESOLUTION = timedelta(seconds=15)
 
-#: The OAuth client a worker signs in on someone's computer with, and the scope it needs.
-CLIENT_ID = "iki-worker"
-SCOPE = "worker"
+SELF_HOSTED = "self_hosted"
 
 
 class Outdated(Exception):  # noqa: N818 - reads as "the worker is outdated"
@@ -91,18 +99,21 @@ def check_version(version: str) -> None:
 
 
 def update_for(worker: Worker) -> dict[str, str] | None:
-    """The release a worker on someone's computer should update itself to, if any: the one
-    the server wants, when that's a release and not what it runs. Workers in images (the
-    other tiers) come with their deployment instead."""
+    """The release a self-hosted worker should update itself to, if any: the one the server
+    wants, when that's a release and not what it runs. Workers in images (the other tiers)
+    come with their deployment instead."""
     wanted = settings.IKI_WORKER_VERSION
     want, have = _parsed(wanted), _parsed(worker.version)
-    if not settings.IKI_WORKER_UPDATES or worker.tier != "client" or want is None:
+    if not settings.IKI_WORKER_UPDATES or worker.tier != SELF_HOSTED or want is None:
         return None
     if want.is_prerelease or want.is_devrelease or want == have:
         return None
     base = f"{settings.IKI_WORKER_DOWNLOADS}/v{wanted}/iki-worker-{wanted}-{{target}}.tar.gz"
     return {"version": wanted, "url": base, "bundle_url": f"{base}.sigstore.json"}
 
+
+#: The states in which a worker holds a job (queue.HELD, which imports this module).
+HELD_STATES = ("leased", "staging", "running", "uploading")
 
 #: A worker not heard from for this long shows as offline.
 OFFLINE_AFTER = timedelta(minutes=2)
@@ -124,11 +135,83 @@ def new_worker_token() -> str:
     return _token(WORKER_PREFIX)
 
 
+_LABEL = re.compile(LABEL_PATTERN)
+
+
+def clean_labels(given: list[str] | tuple[str, ...], *, field: str = "labels") -> list[str]:
+    """Labels as Iki keeps them: lowercase, each once, in order. Refuses one that isn't a
+    label, such as ``Lab 3``, and more than :data:`MAX_LABELS`."""
+    found = sorted({label.strip().lower() for label in given})
+    for label in found:
+        if not _LABEL.match(label):
+            raise Refused(
+                f"`{label}` isn't a label: use lowercase letters, digits, dots, dashes and "
+                "underscores, such as `chromeleon` or `lab-3`, up to 50 characters.",
+                field=field,
+            )
+    if len(found) > MAX_LABELS:
+        raise Refused(f"Give at most {MAX_LABELS} labels.", field=field)
+    return found
+
+
+@dataclass(frozen=True)
+class Scope:
+    """The teams a self-hosted worker takes runs for, and within a team, only these
+    projects if any of the team's are listed."""
+
+    teams: tuple[Team, ...]
+    projects: tuple[Project, ...] = ()
+
+    def data(self) -> dict[str, list[str]]:
+        """For the audit log."""
+        return {
+            "teams": sorted(str(t.pk) for t in self.teams),
+            "projects": sorted(str(p.pk) for p in self.projects),
+        }
+
+
+def make_scope(teams: list[Any], projects: list[Any]) -> Scope:
+    """The teams and projects with these IDs, checked: at least one team, none archived,
+    and each project in one of them."""
+    found = list(Team.objects.filter(pk__in=teams, archived_at__isnull=True).order_by("name"))
+    if not teams or len(found) != len(set(teams)):
+        raise Refused(
+            "Choose the teams whose runs it takes." if not teams else "No such team.",
+            field="teams",
+        )
+    chosen = list(Project.objects.filter(pk__in=projects).order_by("name"))
+    if len(chosen) != len(set(projects)):
+        raise Refused("No such project.", field="projects")
+    outside = [p.name for p in chosen if p.team_id not in {t.pk for t in found}]
+    if outside:
+        raise Refused(
+            f"{', '.join(outside)} isn't in any of its teams: add its team, or leave it out.",
+            field="projects",
+        )
+    return Scope(tuple(found), tuple(chosen))
+
+
 def create_registration(
-    *, label: str, tier: str, by: User | None, expires_at: datetime | None = None
+    *,
+    label: str,
+    tier: str,
+    by: User | None,
+    expires_at: datetime | None = None,
+    scope: Scope | None = None,
+    labels: list[str] | None = None,
 ) -> tuple[RegistrationToken, str]:
     """A new registration token, and its value (shown once). ``by`` is None when an
-    operator makes it with `iki-server create_registration_token`."""
+    operator makes it with `iki-server create_registration_token`. A self-hosted one is
+    for the teams (and projects) `scope` names, and gives its machines `labels`."""
+    if (tier == SELF_HOSTED) != (scope is not None):
+        raise Refused(
+            "A self-hosted token is for some teams' machines: choose the teams."
+            if tier == SELF_HOSTED
+            else "Only self-hosted workers belong to teams.",
+            field="teams",
+        )
+    if labels and tier != SELF_HOSTED:
+        raise Refused("Only self-hosted workers have labels.", field="labels")
     value = _token(REGISTRATION_PREFIX)
     with transaction.atomic():
         token = RegistrationToken.objects.create(
@@ -138,9 +221,111 @@ def create_registration(
             hint=value[-4:],
             created_by=by,
             expires_at=expires_at,
+            labels=labels or [],
         )
-        audit.record("worker_registration.created", actor=by, target=token, data={"tier": tier})
+        data: dict[str, Any] = {"tier": tier}
+        if scope is not None:
+            token.teams.set(scope.teams)
+            token.projects.set(scope.projects)
+            data |= {**scope.data(), "labels": token.labels}
+        audit.record("worker_registration.created", actor=by, target=token, data=data)
     return token, value
+
+
+def covered(worker: Worker) -> QuerySet[Project]:
+    """The projects a self-hosted worker runs runs in: its teams' projects, but for a team
+    some of whose projects it lists, only those."""
+    teams = worker.teams.values("pk")
+    listed = worker.projects.filter(team__in=teams)
+    return Project.objects.filter(
+        Q(pk__in=listed.values("pk")) | ~Q(team__in=listed.values("team")), team__in=teams
+    )
+
+
+def covers(worker: Worker, project_id: Any) -> bool:  # noqa: ANN401 - a project's ID
+    """Whether `worker` may run runs in the project. Workers on the other tiers run any
+    project's runs on their tier."""
+    return worker.tier != SELF_HOSTED or covered(worker).filter(pk=project_id).exists()
+
+
+def change(
+    worker: Worker, *, by: User, labels: list[str] | None = None, scope: Scope | None = None
+) -> Worker:
+    """Change a self-hosted worker's labels or scope (None: as they are). Audited. Jobs it
+    holds in projects it no longer covers are interrupted, and retried elsewhere if their
+    action allows. A job keeps running if only labels changed, as a GitHub runner's does."""
+    from iki_server.runs import queue
+
+    if worker.tier != SELF_HOSTED:
+        raise Refused("Only self-hosted workers have labels and teams.")
+    with transaction.atomic():
+        locked = Worker.objects.select_for_update().get(pk=worker.pk)
+        if locked.revoked_at is not None:
+            raise Refused(f"{locked.name} was revoked: register it again instead.")
+        before = {"labels": locked.labels, **_scope_of(locked).data()}
+        if labels is not None:
+            locked.labels = labels
+            locked.save(update_fields=["labels"])
+        if scope is not None:
+            locked.teams.set(scope.teams)
+            locked.projects.set(scope.projects)
+        after = {"labels": locked.labels, **_scope_of(locked).data()}
+        if after != before:
+            audit.record(
+                "worker.changed", actor=by, target=locked, data={"before": before, "after": after}
+            )
+            if scope is not None:
+                queue.interrupt_outside(locked, covered(locked))
+            queue.notify(SELF_HOSTED)  # it may take runs it couldn't before
+    return locked
+
+
+#: Why a queued self-hosted run waits (ADR 0112): no worker covers its project with the
+#: labels it needs, those that do are offline, or they're all running other jobs.
+Waiting = Literal["unregistered", "offline", "busy"]
+#: What a run needs of a self-hosted worker: its project's ID, its team's, and labels.
+Need = tuple[Any, Any, tuple[str, ...]]
+
+
+def waiting(needs: set[Need]) -> dict[Need, Waiting | None]:
+    """For each (project ID, its team's ID, labels) that queued self-hosted runs need, why
+    none of the workers could take one now, or None if one could. Self-hosted workers are
+    a deployment's few machines, so it weighs them all, once."""
+    if not needs:
+        return {}
+    now = timezone.now()
+    live = list(
+        Worker.objects.filter(tier=SELF_HOSTED, revoked_at__isnull=True)
+        .prefetch_related("teams", "projects")
+        .annotate(held=Count("jobs", filter=Q(jobs__state__in=HELD_STATES)))
+    )
+    found: dict[Need, Waiting | None] = {}
+    for need in needs:
+        project, team, wanted = need
+        able = [w for w in live if _would_cover(w, project, team) and set(wanted) <= set(w.labels)]
+        online = [w for w in able if now - w.last_seen_at <= OFFLINE_AFTER]
+        found[need] = (
+            "unregistered"
+            if not able
+            else "offline"
+            if not online
+            else "busy"
+            if all(w.held for w in online)
+            else None
+        )
+    return found
+
+
+def _would_cover(worker: Worker, project: Any, team: Any) -> bool:  # noqa: ANN401 - IDs
+    """:func:`covers`, for a worker whose teams and projects are prefetched."""
+    if team not in {t.pk for t in worker.teams.all()}:
+        return False
+    listed = {p.pk for p in worker.projects.all() if p.team_id == team}
+    return not listed or project in listed
+
+
+def _scope_of(worker: Worker) -> Scope:
+    return Scope(tuple(worker.teams.order_by("name")), tuple(worker.projects.order_by("name")))
 
 
 def revoke_registration(token: RegistrationToken, *, by: User, workers: bool = False) -> int:
@@ -189,7 +374,8 @@ def register(
     capacity: dict[str, Any],
     plugins: list[dict[str, Any]],
 ) -> tuple[Worker, str]:
-    """A new worker for the registration's tier, and its token (shown once)."""
+    """A new worker for the registration's tier, and its token (shown once). A self-hosted
+    one starts with the registration's teams, projects and labels."""
     value = _token(WORKER_PREFIX)
     now = timezone.now()
     with transaction.atomic():
@@ -202,120 +388,21 @@ def register(
             version=version,
             capacity={k: capacity.get(k) for k in CAPACITY_KEYS},
             plugins=plugins,
+            labels=registration.labels,
             last_seen_at=now,
         )
+        data: dict[str, Any] = {
+            "tier": worker.tier,
+            "registration": str(registration.pk),
+            "version": version,
+            "plugins": plugins,
+        }
+        if worker.tier == SELF_HOSTED:
+            worker.teams.set(registration.teams.all())
+            worker.projects.set(registration.projects.all())
+            data |= {**_scope_of(worker).data(), "labels": worker.labels}
         RegistrationToken.objects.filter(pk=registration.pk).update(last_used_at=now)
-        audit.record(
-            "worker.registered",
-            target=worker,
-            data={
-                "tier": worker.tier,
-                "registration": str(registration.pk),
-                "version": version,
-                "plugins": plugins,
-            },
-        )
-    return worker, value
-
-
-def signed_in(token: str) -> tuple[User, Any] | None:
-    """The person an ``iki-worker`` access token is for, and the token, if it may register
-    a worker on their computer: it's current, for the ``worker`` scope, from the
-    ``iki-worker`` client, and they're active and still allow the app."""
-    from oauth2_provider.models import get_access_token_model
-
-    from iki_server.oauth.models import Consent
-
-    found = (
-        get_access_token_model()
-        .objects.select_related("user", "application")
-        .filter(token_checksum=hashlib.sha256(token.encode()).hexdigest())
-        .first()
-    )
-    if found is None or found.is_expired() or found.user is None or found.application is None:
-        return None
-    if found.application.client_id != CLIENT_ID or SCOPE not in found.scope.split():
-        return None
-    if not found.user.is_active or found.user.is_service_account:
-        return None
-    if not Consent.objects.filter(user=found.user, client=found.application).exists():
-        return None
-    return found.user, found
-
-
-def online_owners(people: set[Any]) -> set[Any]:
-    """Which of `people` have a client-tier worker online now."""
-    return set(
-        Worker.objects.filter(
-            owner__in=people,
-            tier="client",
-            revoked_at__isnull=True,
-            last_seen_at__gt=timezone.now() - OFFLINE_AFTER,
-        ).values_list("owner_id", flat=True)
-    )
-
-
-def allowed_projects(worker: Worker) -> list[Any] | None:
-    """The projects a client-tier worker may run its person's jobs in: None for all they
-    can access, and none at all once they've revoked the app."""
-    from iki_server.oauth.models import Consent
-
-    consent = (
-        Consent.objects.filter(user=worker.owner_id, client__client_id=CLIENT_ID)
-        .prefetch_related("projects")
-        .first()
-    )
-    if consent is None or SCOPE not in consent.scope_list:
-        return []
-    if consent.all_projects:
-        return None
-    return [p.pk for p in consent.projects.all()]
-
-
-def revoke_signed_in(person: User, *, by: User | None) -> int:
-    """Revoke the workers `person` signed in on their computers, when they revoke the app
-    (or an admin does)."""
-    revoked = 0
-    for worker in Worker.objects.filter(owner=person, tier="client", revoked_at__isnull=True):
-        revoked += revoke_worker(worker, by=by)
-    return revoked
-
-
-def register_client(
-    person: User,
-    access_token: Any,  # noqa: ANN401 - an oauth2_provider AccessToken
-    *,
-    name: str,
-    version: str,
-    capacity: dict[str, Any],
-    plugins: list[dict[str, Any]],
-) -> tuple[Worker, str]:
-    """A client-tier worker on `person`'s computer, and its token (shown once). The access
-    token it signed in with is spent: the worker's own token is all it keeps."""
-    value = _token(WORKER_PREFIX)
-    now = timezone.now()
-    with transaction.atomic():
-        worker = Worker.objects.create(
-            name=name,
-            tier="client",
-            token_hash=_hash(value),
-            hint=value[-4:],
-            owner=person,
-            version=version,
-            capacity={k: capacity.get(k) for k in CAPACITY_KEYS},
-            plugins=plugins,
-            last_seen_at=now,
-        )
-        refresh = getattr(access_token, "refresh_token", None)
-        if refresh is not None:
-            refresh.revoke()
-        access_token.revoke()
-        audit.record(
-            "worker.registered",
-            actor=person,
-            target=worker,
-            data={"tier": "client", "version": version, "plugins": plugins},
-        )
+        audit.record("worker.registered", target=worker, data=data)
     return worker, value
 
 
@@ -342,20 +429,18 @@ def update(
 def authenticate(header: str) -> Worker | None:
     """The live worker an ``Authorization: Bearer`` header names, or None.
 
-    A worker stops working when it's revoked, and (for the client tier) when its person is
-    deactivated. Revoking its registration token doesn't stop it.
+    A worker stops working when it's revoked. Revoking its registration token doesn't stop
+    it.
     """
     value = _bearer(header, WORKER_PREFIX)
     if value is None:
         return None
     worker = (
-        Worker.objects.select_related("owner", "launch")
+        Worker.objects.select_related("launch")
         .filter(token_hash=_hash(value), revoked_at__isnull=True)
         .first()
     )
     if worker is None:
-        return None
-    if worker.owner is not None and not worker.owner.is_active:
         return None
     now = timezone.now()
     if now - worker.last_seen_at >= SEEN_RESOLUTION:

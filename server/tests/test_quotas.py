@@ -136,9 +136,13 @@ def test_compute_admins_find_any_team_or_project_to_limit(world: World) -> None:
 
     projects = admin.get("/compute/quota-scopes", kind="project", search=" cryo ")
     assert projects.status_code == 200, projects.content
-    assert projects.json() == [{"id": str(hidden.pk), "name": hidden.name, "team": team.name}]
+    assert projects.json() == [
+        {"id": str(hidden.pk), "name": hidden.name, "team": team.name, "team_id": str(team.pk)}
+    ]
     teams = admin.get("/compute/quota-scopes", kind="team", search="CRYO").json()
-    assert teams == [{"id": str(other_team.pk), "name": "Cryo-EM core", "team": None}]
+    assert teams == [
+        {"id": str(other_team.pk), "name": "Cryo-EM core", "team": None, "team_id": None}
+    ]
     every = admin.get("/compute/quota-scopes", kind="project", limit=1).json()
     assert len(every) == 1
 

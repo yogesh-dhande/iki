@@ -288,6 +288,60 @@ def test_pages_are_accessible_and_keep_the_policy(open_as: Any, color_scheme: st
         page.context.close()
 
 
+def test_a_compute_admin_registers_and_changes_self_hosted_machines(
+    open_as: Any, world: World
+) -> None:
+    """A team's machine, its labels and what it's for (ADR 0112). By role, but each
+    section by its heading: in Firefox, finding a region by name before axe runs crashes
+    the page (see the other tests' notes)."""
+    from test_workers import LOCAL, ROOMY
+
+    from iki_server.runs import workers
+    from iki_server.runs.models import Worker
+
+    registration, _ = workers.create_registration(
+        label="Lab 3",
+        tier="self_hosted",
+        by=world.users["compute_admin"],
+        scope=workers.make_scope([world.team.pk], []),
+        labels=["chromeleon"],
+    )
+    workers.register(registration, name="hplc-pc-1", version="0.1.0", capacity=ROOMY, plugins=LOCAL)
+    page = open_as("compute_admin", "/compute/workers/")
+    listed = page.locator(
+        "section", has=page.get_by_role("heading", level=2, name="Workers", exact=True)
+    )
+    row = listed.get_by_role("row").filter(has=page.get_by_role("rowheader", name="hplc-pc-1"))
+    scope = row.get_by_role("cell", name="Structural Biology")
+    # A label is text in the cell: it has no role of its own.
+    scope.get_by_text("chromeleon", exact=True).wait_for()
+    assert_clean(page)
+
+    row.get_by_role("button", name="Change hplc-pc-1").click()
+    dialog = page.get_by_role("dialog", name="Change hplc-pc-1")
+    dialog.get_by_role("checkbox", name="Structural Biology", exact=True).wait_for()
+    assert_clean(page)
+    dialog.get_by_role("textbox", name="Labels").fill("chromeleon, empower")
+    dialog.get_by_role("button", name="Save").click()
+    page.get_by_text("Changed hplc-pc-1.").wait_for()
+    scope.get_by_text("empower", exact=True).wait_for()
+    assert Worker.objects.get(name="hplc-pc-1").labels == ["chromeleon", "empower"]
+
+    tokens = page.locator(
+        "section", has=page.get_by_role("heading", level=2, name="Registration tokens", exact=True)
+    )
+    tokens.get_by_role("textbox", name="What it’s for").fill("Lab 4")
+    tokens.get_by_role("combobox", name="Tier").select_option("self_hosted")
+    tokens.get_by_role("checkbox", name="Structural Biology", exact=True).check()
+    tokens.get_by_role("textbox", name="Labels").fill("gpu")
+    assert_clean(page)
+    tokens.get_by_role("button", name="Make token").click()
+    tokens.get_by_text("Copy the token now.").wait_for()
+    tokens.get_by_text("iki-worker register --url").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
 def test_notifications_arrive_live_and_open_where_they_point(open_as: Any, world: World) -> None:
     admin, viewer = world.users["admin"], world.users["viewer"]
     notify(

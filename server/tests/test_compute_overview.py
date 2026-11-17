@@ -73,7 +73,7 @@ def test_compute_admins_see_whats_waiting_running_and_on_what(world: World) -> N
     backend = next(w for w in body["workers"] if w["tier"] == "backend")
     assert (backend["busy"], backend["idle"], backend["offline"]) == (1, 1, 0)
     # Every tier is listed, so an empty one shows as empty.
-    assert [w["tier"] for w in body["workers"]] == ["client", "backend", "container", "vm"]
+    assert [w["tier"] for w in body["workers"]] == ["self_hosted", "backend", "container", "vm"]
     assert body["machines"] == [
         {"template": "gpu-pods", "provisioner": "k8s_job", "starting": 1, "running": 1}
     ]

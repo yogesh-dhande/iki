@@ -6,7 +6,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 from oauth2_provider.forms import AllowForm
 
-from iki_server.oauth.scopes import RESERVED, SCOPES, ordered
+from iki_server.oauth.scopes import SCOPES, ordered
 from iki_server.oauth.services import MAX_DELEGATION_DAYS
 from iki_server.org.models import Project
 
@@ -99,7 +99,7 @@ class CredentialForm(forms.Form):
     )
     scopes = forms.MultipleChoiceField(
         label="Access",
-        choices=[(s, f"{s}: {d}") for s, d in SCOPES.items() if s != "admin" and s not in RESERVED],
+        choices=[(s, f"{s}: {d}") for s, d in SCOPES.items() if s != "admin"],
         widget=forms.CheckboxSelectMultiple,
         initial=["read"],
         help_text="It can still only do what the service account’s roles allow.",

@@ -50,17 +50,18 @@ tests:
               summary: "Runs are queued on the backend tier, and no worker is online"
               description: >-
                 3 runs wait on the backend tier with no worker online to take them. Backend
-                workers may be down or their token revoked; on the container and VM tiers,
-                the provisioner may be failing to start machines (see its logs).
+                workers may be down or their token revoked; on the self-hosted tier, the
+                teams' machines may be off; on the container and VM tiers, the provisioner
+                may be failing to start machines (see its logs).
       - eval_time: 30m
         alertname: IkiNoWorkersForQueuedRuns
         exp_alerts: []
-  - name: offline workers alert, except people's own machines
+  - name: offline workers alert, self-hosted machines included
     interval: 1m
     input_series:
       - series: 'iki_workers{tier="backend", state="offline"}'
         values: "2x40"
-      - series: 'iki_workers{tier="client", state="offline"}'
+      - series: 'iki_workers{tier="self_hosted", state="offline"}'
         values: "5x40"
     alert_rule_test:
       - eval_time: 35m
@@ -69,6 +70,12 @@ tests:
           - exp_labels: { severity: warning, tier: backend }
             exp_annotations:
               summary: "2 backend workers have stopped reporting"
+              description: >-
+                Workers that registered haven't been heard from for over 30 minutes. Compute
+                → Workers lists them; revoke the ones that are gone for good.
+          - exp_labels: { severity: warning, tier: self_hosted }
+            exp_annotations:
+              summary: "5 self_hosted workers have stopped reporting"
               description: >-
                 Workers that registered haven't been heard from for over 30 minutes. Compute
                 → Workers lists them; revoke the ones that are gone for good.

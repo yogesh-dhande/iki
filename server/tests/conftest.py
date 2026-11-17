@@ -127,11 +127,8 @@ def pytest_configure(config: pytest.Config) -> None:
             os.environ["IKI_TEST_S3_URL"] = _SHARED.enter_context(_seaweedfs_server())
 
 
-#: Data migrations that make rows every deployment has: the first-party OAuth clients.
-SEEDING_MIGRATIONS = (
-    "iki_server.oauth.migrations.0002_iki_cli",
-    "iki_server.oauth.migrations.0003_iki_worker",
-)
+#: Data migrations that make rows every deployment has: the first-party OAuth client.
+SEEDING_MIGRATIONS = ("iki_server.oauth.migrations.0002_iki_cli",)
 
 
 def _seed_after_flush(sender: Any, app_config: Any, **kwargs: Any) -> None:

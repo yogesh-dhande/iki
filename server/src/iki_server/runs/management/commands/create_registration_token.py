@@ -26,7 +26,8 @@ from django.utils import timezone
 from iki_server.audit import log as audit
 from iki_server.runs import workers
 
-#: The tiers whose workers register with a token. Client-tier workers sign in as their person.
+#: The tiers whose pools an operator makes tokens for. A self-hosted token is for some
+#: teams' machines, with labels: a Compute admin makes it under Compute → Workers.
 TIERS = ("backend", "container", "vm")
 
 

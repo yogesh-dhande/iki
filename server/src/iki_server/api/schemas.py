@@ -202,7 +202,7 @@ class ProjectCan(Schema):
         description="Import bundles from other deployments into it: an Org Admin who is also "
         "its Admin (ADR 0096)."
     )
-    run: list[Literal["client", "backend", "container", "vm"]] = Field(
+    run: list[Literal["self_hosted", "backend", "container", "vm"]] = Field(
         description="The tiers whose actions you may run here, and whose runs you may cancel. "
         "None while it's archived."
     )

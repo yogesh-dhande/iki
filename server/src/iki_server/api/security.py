@@ -23,7 +23,7 @@ from oauth2_provider.oauth2_backends import get_oauthlib_core
 
 from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
-from iki_server.oauth.scopes import RESERVED
+from iki_server.oauth.scopes import SCOPES
 from iki_server.org import permissions
 from iki_server.web.ratelimit import Decision, RateLimiter, client_key
 
@@ -112,11 +112,11 @@ class BearerAuth(HttpBearer):
         if user is None or not user.is_active:
             raise _invalid_token(request)
         scopes = frozenset(oauth_request.scopes)
-        if not scopes - RESERVED.keys():
-            # Such as iki-worker's token, which only registers a worker (ADR 0058).
+        if not scopes & SCOPES.keys():
+            # A token for none of the API's scopes: it can do nothing here.
             raise Problem(
                 403,
-                "This token is only for registering a worker, not for Iki’s API.",
+                "This token has none of the scopes Iki’s API takes.",
                 code="insufficient_scope",
                 headers={"WWW-Authenticate": 'Bearer error="insufficient_scope", scope="read"'},
             )

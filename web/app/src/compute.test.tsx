@@ -23,7 +23,7 @@ function overview(overrides: Partial<Schemas["OverviewOut"]> = {}): Schemas["Ove
       },
     ],
     workers: [
-      { tier: "client", busy: 0, idle: 0, offline: 0 },
+      { tier: "self_hosted", busy: 0, idle: 0, offline: 0 },
       { tier: "backend", busy: 2, idle: 1, offline: 1 },
       { tier: "container", busy: 2, idle: 0, offline: 0 },
       { tier: "vm", busy: 0, idle: 0, offline: 0 },

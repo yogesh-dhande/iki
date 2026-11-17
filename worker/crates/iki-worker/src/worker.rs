@@ -87,8 +87,9 @@ fn sign_in(config: &Config, plugins: Option<&[PluginCode]>) -> Result<(Api, bool
     }
     let registration = config.registration_token.as_deref().ok_or_else(|| {
         format!(
-            "This worker isn't signed in to {0}. Run iki-worker login {0}, or set \
-             IKI_REGISTRATION_TOKEN to register with a registration token.",
+            "This worker isn't registered with {0}, or a Compute admin revoked it. Ask \
+             one for a registration token (Compute → Workers) and run iki-worker register \
+             --url {0} --token iki_wreg_…, or set IKI_REGISTRATION_TOKEN.",
             config.url
         )
     })?;
@@ -528,8 +529,9 @@ fn revoked(config: &Config) -> String {
             .to_owned()
     } else {
         format!(
-            "The server no longer accepts this worker's token: it was revoked, or you \
-             revoked the Iki worker app. Run iki-worker login {} to sign in again.",
+            "The server no longer accepts this worker's token: a Compute admin revoked \
+             it. Ask one for a registration token and run iki-worker register --url {} \
+             --token iki_wreg_… to register again.",
             config.url
         )
     }

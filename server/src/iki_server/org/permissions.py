@@ -70,7 +70,7 @@ class Action(StrEnum):
     PROJECT_READ = "project.read"
     """Read the project's data: entities, runs, views."""
     PROJECT_EDIT = "project.edit"
-    RUN_CLIENT = "run.client"
+    RUN_SELF_HOSTED = "run.self_hosted"
     RUN_BACKEND = "run.backend"
     RUN_CONTAINER = "run.container"
     RUN_VM = "run.vm"
@@ -112,7 +112,7 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.PROJECT_EDIT: "write",
     Action.PROJECT_MANAGE: "write",
     Action.PROJECT_MEMBERS_MANAGE: "write",
-    Action.RUN_CLIENT: "run",
+    Action.RUN_SELF_HOSTED: "run",
     Action.RUN_BACKEND: "run",
     Action.RUN_CONTAINER: "run",
     Action.RUN_VM: "run",
@@ -178,7 +178,7 @@ _PROJECT_ACTION_ROLE = {
     Action.PROJECT_SEE: ProjectRole.VIEWER,
     Action.PROJECT_READ: ProjectRole.VIEWER,
     Action.PROJECT_EDIT: ProjectRole.EDITOR,
-    Action.RUN_CLIENT: ProjectRole.EDITOR,
+    Action.RUN_SELF_HOSTED: ProjectRole.EDITOR,
     Action.RUN_BACKEND: ProjectRole.EDITOR,
     Action.RUN_CONTAINER: ProjectRole.RUNNER,
     Action.RUN_VM: ProjectRole.RUNNER,

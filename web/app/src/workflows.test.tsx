@@ -28,7 +28,7 @@ const OFFLINE: Schemas["WorkflowOut"] = {
 
 function onProject(can: Partial<Schemas["ProjectOut"]["can"]> = {}): void {
   withTypes();
-  const atlas = project({ can: { ...KINASE.can, run: ["client", "backend"], ...can } });
+  const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"], ...can } });
   answer("GET /api/v1/projects", page([atlas]));
   answer("GET /api/v1/actions", [ACTION]);
   answer("GET /api/v1/workflows", [WORKFLOW, ON_MACHINES, OFFLINE]);

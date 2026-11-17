@@ -3,7 +3,7 @@
 Actions come from the plugins' manifests (:mod:`iki_server.entities.registry`).
 Which can run here comes from the deployment's compute (ADR 0041): the
 ``compute.json`` that ``iki deploy build`` writes beside the plugins. A
-client-tier action runs on the person's own machine, so it needs no
+self-hosted action runs on a machine a team registered, so it needs no
 template; every other action needs its environment bound on its tier.
 ``IKI_COMPUTE_FILE`` points at another file (development and tests).
 """
@@ -74,7 +74,7 @@ class Availability:
 def availability(of: Action) -> Availability:
     if of.plugin in registry.detached():
         return Availability(False, detached(of.plugin))
-    if of.tier == "client":
+    if of.tier == "self_hosted":
         return Availability(True)
     missing = [s.name for s in of.secrets if s.required and not secrets.is_set(of.plugin, s.name)]
     if missing:

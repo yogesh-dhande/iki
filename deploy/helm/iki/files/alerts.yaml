@@ -27,10 +27,11 @@ groups:
           summary: "Runs are queued on the {{ $labels.tier }} tier, and no worker is online"
           description: >-
             {{ $value }} runs wait on the {{ $labels.tier }} tier with no worker online to
-            take them. Backend workers may be down or their token revoked; on the container
-            and VM tiers, the provisioner may be failing to start machines (see its logs).
+            take them. Backend workers may be down or their token revoked; on the self-hosted
+            tier, the teams' machines may be off; on the container and VM tiers, the
+            provisioner may be failing to start machines (see its logs).
       - alert: IkiWorkersOffline
-        expr: max by (tier) (iki_workers{state="offline", tier!="client"}) > 0
+        expr: max by (tier) (iki_workers{state="offline"}) > 0
         for: 30m
         labels: { severity: warning }
         annotations:

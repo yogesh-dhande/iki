@@ -195,7 +195,7 @@ agree on what each run's code is
 - `plugins/<name>/`: each plugin's code at its commit;
 - `plugins/plugins.json`: what the worker tells the server it has;
 - `build-environments.sh`: builds each Python or conda environment the
-  plugins declare for the backend or client tier, installing only the
+  plugins declare for the backend or self-hosted tier, installing only the
   packages its requirements file or lockfile pins, by hash.
 
 The worker image's Dockerfile copies `plugins/` to `/opt/iki/plugins` and

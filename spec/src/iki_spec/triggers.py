@@ -3,9 +3,8 @@
 A plugin's triggers live under `triggers/`. The schema checks each document's shape; the
 rules here check it against the plugin's types and actions: that the type exists and the
 fields it watches are the type's, that the action it runs takes an entity of that type and
-needs nothing else, that its params fit, and that it doesn't run on the client tier. A
-scheduled trigger's schedule must read, come round, and run at most every five minutes,
-and its action must need no inputs.
+needs nothing else, and that its params fit. A scheduled trigger's schedule must read,
+come round, and run at most every five minutes, and its action must need no inputs.
 """
 
 from __future__ import annotations
@@ -114,15 +113,6 @@ class _Rules:
                 hint=schemas._did_you_mean(trigger.run, list(self.plugin.actions)),
             )
             return trigger
-        if action.tier == "client":
-            self.add(
-                "trigger-client-tier",
-                f"`{trigger.run}` runs on the client tier: on a person's own computer, where "
-                "nobody may be when the trigger fires.",
-                source,
-                ("run",),
-                hint="Run it on the backend, container or VM tier.",
-            )
         if scheduled:
             for name, put in action.inputs.items():
                 if not put.optional:

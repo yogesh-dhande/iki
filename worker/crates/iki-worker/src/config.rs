@@ -29,7 +29,7 @@ pub struct Config {
     pub capacity: Capacity,
     /// Keep job directories after their jobs end, to debug a command.
     pub keep_job_dirs: bool,
-    /// Whether a worker on someone's computer updates itself when the server says to
+    /// Whether a self-hosted worker updates itself when the server says to
     /// (ADR 0060). `IKI_WORKER_AUTO_UPDATE=0` leaves updates to whoever installed it.
     pub auto_update: bool,
     /// `IKI_ALLOW_HTTP`: plain http:// to any host, for a development cluster
@@ -104,10 +104,11 @@ fn in_image(environment: Option<String>, image: Option<String>) -> Result<Option
     }
 }
 
-/// What to do when the worker has no way to sign in.
-const NOT_SIGNED_IN: &str = "Run iki-worker login https://iki.example.com (your Iki's \
-    address) to sign in on this computer. A deployment's workers set IKI_URL and \
-    IKI_REGISTRATION_TOKEN, to a registration token from Compute settings, instead.";
+/// What to do when the worker isn't registered and has no way to.
+const NOT_REGISTERED: &str = "This machine's worker isn't registered. Ask a Compute admin \
+    for a registration token (Compute → Workers), then run iki-worker register --url \
+    https://iki.example.com --token iki_wreg_…. A deployment's workers set IKI_URL and \
+    IKI_REGISTRATION_TOKEN instead.";
 
 /// What `IKI_URL` must look like, in words for whoever set it.
 const URL_RULE: &str = "IKI_URL must be the server's https:// address, such as \
@@ -265,11 +266,11 @@ impl Config {
                     .to_owned(),
             );
         }
-        // A worker someone signed in on their computer keeps its token where `login` put it.
+        // A self-hosted worker keeps its token where `register` put it.
         let state_file = get("IKI_WORKER_STATE").map(PathBuf::from).or_else(|| {
             registration_token
                 .is_none()
-                .then(|| crate::login::default_state_file(var))
+                .then(|| crate::register::default_state_file(var))
                 .flatten()
         });
         let signed_in = state_file
@@ -277,7 +278,7 @@ impl Config {
             .and_then(crate::worker::load_any)
             .map(|saved| saved.url);
         if registration_token.is_none() && signed_in.is_none() {
-            return Err(NOT_SIGNED_IN.to_owned());
+            return Err(NOT_REGISTERED.to_owned());
         }
         let url = match get("IKI_URL") {
             Some(raw) => server_url(&raw, allow_http)?,

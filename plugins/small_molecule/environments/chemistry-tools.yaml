@@ -7,7 +7,7 @@ kind: Environment
 name: chemistry-tools
 label: Chemistry tools
 description: RDKit 2026.09.2, with the InChI library 1.07.3, on Python 3.12.
-tiers: [backend, client]
+tiers: [backend, self_hosted]
 # What it needs at least: RDKit and a few thousand molecules fit in 512 MiB.
 resources: { cpu: 0.25, memory: 512Mi }
 python: { version: "3.12", requirements: requirements.txt }

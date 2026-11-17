@@ -20,7 +20,7 @@ const STRAYS_WITHIN: Duration = Duration::from_secs(10);
 
 /// Keeps other processes running as this user, such as a job's command, from reading
 /// the worker's memory and environment through `/proc` or a debugger. Its token is in
-/// there. On Linux only; elsewhere the worker is on someone's own computer.
+/// there. On Linux only: elsewhere it's a self-hosted machine its team looks after.
 pub fn guard_memory() {
     #[cfg(target_os = "linux")]
     {
