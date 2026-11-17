@@ -933,8 +933,8 @@ def source_archive(root: Path) -> Path:
 
 
 def build_plugins(root: Path) -> None:
-    """The server's and the worker's plugins: dna and protein, protein-tools bound to
-    the backend workers (as deploy/dev builds them)."""
+    """The server's and the worker's plugins: iki/dna and iki/protein, their tools bound
+    to the backend workers (as deploy/dev builds them)."""
     out = root / "plugins-build"
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
@@ -944,7 +944,7 @@ def build_plugins(root: Path) -> None:
                 "apiVersion": "iki/v1",
                 "kind": "PluginLock",
                 "plugins": [
-                    {"name": n, "local": str(REPO / "plugins" / n), "state": "active"}
+                    {"name": f"iki/{n}", "local": str(REPO / "plugins" / n), "state": "active"}
                     for n in ("dna", "protein")
                 ],
             }
@@ -965,7 +965,7 @@ def build_plugins(root: Path) -> None:
                 "environment": e,
                 "templates": [{"template": "backend-small"}],
             }
-            for e in ("dna.sequence-tools", "protein.protein-tools")
+            for e in ("iki/dna.sequence-tools", "iki/protein.protein-tools")
         ),
     ]
     (out / "compute.yaml").write_text(yaml.safe_dump_all(documents))
@@ -1562,7 +1562,7 @@ def test_an_org_admin_creates_a_project_and_an_entity(admin: Iki, project: dict[
     made = admin.api(
         "POST",
         "/entities",
-        {"type": "protein.Protein", "project": project["id"], "values": {"sequence": HBB}},
+        {"type": "iki/protein.Protein", "project": project["id"], "values": {"sequence": HBB}},
     )
     assert made.status_code in (200, 201), made.text[:500]
     got = admin.api("GET", f"/entities/{made.json()['id']}")
@@ -1621,12 +1621,12 @@ def test_a_backend_worker_computes_a_proteins_properties(
     made = admin.api(
         "POST",
         "/entities",
-        {"type": "protein.Protein", "project": project["id"], "values": {"sequence": HBB}},
+        {"type": "iki/protein.Protein", "project": project["id"], "values": {"sequence": HBB}},
     )
     protein = made.json()
     launched = admin.api(
         "POST",
-        "/actions/protein.compute_properties/runs",
+        "/actions/iki/protein.compute_properties/runs",
         {
             "project": project["id"],
             "inputs": {"protein": protein["id"]},
