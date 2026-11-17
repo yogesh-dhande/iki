@@ -498,7 +498,10 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
             problems += [f"API turned off: {api}" for api in sorted(gone)]
             continue
         for line in sorted(new):
-            mine = any(o in line for o in ours) or bool(GKE_MADE.match(line))
+            # Cloud SQL's zone for its names under Private Services Access, made for
+            # the deployment's instance and named for nothing of it.
+            psa = section == "dns zones" and line.startswith("cloud-sql-psa-dns-")
+            mine = any(o in line for o in ours) or bool(GKE_MADE.match(line)) or psa
             if not mine:
                 continue
             # Deleted, and waiting out the period Google keeps their names for.

@@ -143,6 +143,17 @@ if [[ -n $state ]]; then
     sed -nE 's/^ +name += "(.*)"$/\1/p' | head -1 || true)
   if [[ -n $bucket ]]; then empty_bucket "$bucket"; fi
 
+  # Cloud SQL makes a zone of its own in the project for its instances' names under
+  # Private Services Access (cloud-sql-psa-dns-..., sql-psa.goog, peered to its network),
+  # and leaves it when they and the network go: those visible to this deployment's VPC,
+  # kept beside the state, are deleted once the network is.
+  { gcloud dns managed-zones list --project "$project" --filter='name~^cloud-sql-psa-dns-' \
+    --format='value(name,privateVisibilityConfig.networks[].networkUrl)' 2>/dev/null || true; } |
+    while read -r zone networks; do
+      if [[ $networks =~ /projects/$project/global/networks/$deployment(\;|$) ]]; then echo "$zone"; fi
+    done >>"$root/.teardown-dns-zones"
+  sort -u -o "$root/.teardown-dns-zones" "$root/.teardown-dns-zones"
+
   # Keys and key rings can't be deleted: OpenTofu forgets them (their versions are
   # destroyed below), and destroys the rest.
   log "deploy/gcp/production"
@@ -158,6 +169,13 @@ if [[ -n $state ]]; then
       --network "$deployment" --project "$project" --quiet 2>/dev/null || true
     tofu -chdir="$root" destroy -input=false -auto-approve -var deletion_protection=false
   fi
+fi
+
+log "Cloud SQL's zones for the deployment's network"
+if [[ -f $root/.teardown-dns-zones ]]; then
+  while read -r zone; do
+    gcloud dns managed-zones delete "$zone" --project "$project" --quiet 2>/dev/null || true
+  done <"$root/.teardown-dns-zones"
 fi
 
 # A deleted Cloud SQL instance keeps its backups (retain_backups_on_delete), and its final
