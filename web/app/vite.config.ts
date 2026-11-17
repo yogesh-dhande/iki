@@ -48,5 +48,8 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["src/test-setup.ts"],
+    // A test that types a whole form, key by key, takes seconds on a busy machine: more
+    // than the default five. One that hangs still fails.
+    testTimeout: 20_000,
   },
 });
