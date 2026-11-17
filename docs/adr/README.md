@@ -140,3 +140,4 @@ supersedes the old one, and update the old one's status.
 | [0108](0108-a-lease-weighs-each-projects-next-jobs.md)                               | A lease weighs each project's next jobs, not the whole queue                                        | Accepted |
 | [0109](0109-google-cloud-natively.md)                                                | Google Cloud natively: Cloud Storage's own APIs, and the VM tier on Compute Engine                  | Accepted |
 | [0110](0110-a-view-shows-several-entities-each-at-its-revision.md)                   | A view shows several entities, each at its revision                                                 | Accepted |
+| [0111](0111-saas-is-a-fleet-of-single-organization-deployments.md)                   | SaaS is a fleet of single-organization deployments, run by a control plane                          | Accepted |
