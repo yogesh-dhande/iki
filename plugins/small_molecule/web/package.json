@@ -1,0 +1,14 @@
+{
+  "name": "@ikisci/small-molecule-web",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Builds the small_molecule plugin's depiction component from RDKit.js.",
+  "type": "module",
+  "scripts": {
+    "bundle": "node build.js",
+    "test": "node build.js --check"
+  },
+  "devDependencies": {
+    "@rdkit/rdkit": "2026.9.2"
+  }
+}

@@ -22,6 +22,9 @@ export default tseslint.config(
       "server/src/iki_server/web/static/app/**",
       "server/src/iki_server/web/static/viewers/**",
       "web/packages/sdk/src/schema.ts",
+      // Built by plugins/small_molecule/web/build.js: RDKit.js, minified, and the
+      // component's source, which is linted where it's written (web/src).
+      "plugins/small_molecule/components/depiction.js",
     ],
   },
   js.configs.recommended,
@@ -110,6 +113,31 @@ export default tseslint.config(
       globals: {
         CustomEvent: "readonly",
         HTMLElement: "readonly",
+        customElements: "readonly",
+        document: "readonly",
+      },
+    },
+  },
+  {
+    // The small_molecule plugin's component builder, run by Node.
+    files: ["plugins/small_molecule/web/*.js"],
+    languageOptions: {
+      globals: { Buffer: "readonly", console: "readonly", process: "readonly" },
+    },
+  },
+  {
+    // The small_molecule plugin's depiction, before it's built: a Web Component in a
+    // sandboxed frame (ADR 0084), that unpacks and runs RDKit's WebAssembly.
+    files: ["plugins/small_molecule/web/src/**/*.js"],
+    languageOptions: {
+      globals: {
+        Blob: "readonly",
+        DecompressionStream: "readonly",
+        HTMLElement: "readonly",
+        Response: "readonly",
+        URL: "readonly",
+        WebAssembly: "readonly",
+        atob: "readonly",
         customElements: "readonly",
         document: "readonly",
       },

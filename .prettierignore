@@ -29,3 +29,6 @@ server/src/iki_plugin_core/
 deploy/aws/modules/access/policies/
 # What ANARCI said, recorded byte for byte by server/tests/data/record_anarci.py.
 server/tests/data/anarci.json
+# Built from plugins/small_molecule/web by its build.js: RDKit.js's minified loader and
+# its WebAssembly, checked against them by its test.
+plugins/small_molecule/components/depiction.js

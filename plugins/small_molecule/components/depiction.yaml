@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: depiction
+label: Structure
+description: >-
+  The compound's 2D structure, drawn in the browser by RDKit.js (the same RDKit
+  release the plugin's actions run) from its SMILES, with its stereocentres
+  labelled.
+module: ./components/depiction.js
+element: small-molecule-depiction
+slots: [{ slot: entity.tab, type: Compound }]

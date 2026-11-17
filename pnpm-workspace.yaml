@@ -1,6 +1,8 @@
 packages:
   - "web/app"
   - "web/packages/*"
+  # Builds the small_molecule plugin's depiction component from RDKit.js.
+  - "plugins/small_molecule/web"
 
 # Supply-chain hardening.
 # Refuse package versions published less than 3 days ago, which gives the

@@ -201,13 +201,72 @@ A compound whose InChIKey isn't the one its SMILES gives, as one made by hand
 through Iki's form or API might be, fails its own run, naming both keys;
 register its structure with `register_compounds` instead.
 
+## Its structure, drawn
+
+A compound's page has a **Structure** tab, the plugin's `depiction` component:
+its 2D structure, drawn in the browser by [RDKit.js](https://rdkitjs.com) from
+its SMILES, with its stereocentres labelled (R and S), and its SMILES under it
+to copy. RDKit.js is RDKit's MinimalLib compiled to WebAssembly, at the same
+release (2026.09.2) as the plugin's actions run, so the drawing is of the
+structure RDKit registered, perceived the same way.
+
+It's drawn in the browser rather than stored as a picture. A component runs in
+a sandboxed frame that may compile WebAssembly but reaches nothing (ADR 0084),
+so RDKit.js, bundled into its module, can draw any compound at once, at any
+size, from the SMILES Iki already has. An SVG drawn by a run and kept in a file
+field would cost a file for every compound, and a new compound would show
+nothing until a run had drawn it. Nor could the page show it: Iki shows file
+fields as downloads, and a component can't read files. A drawing kept in a
+text field would show as its markup.
+
+The module (`components/depiction.js`, 3.2 MiB) is built by `web/build.js`
+from `web/src/depiction.js` and the `@rdkit/rdkit` package that the plugin's
+`web` workspace package pins (2026.9.2, BSD-3-Clause). It holds RDKit.js's
+loader, then its WebAssembly, gzipped and in base64, then the component. The
+frame unpacks the WebAssembly with the browser's `DecompressionStream` and
+hands it to RDKit.js, so RDKit.js fetches nothing. Rebuild it with
+`pnpm --filter @ikisci/small-molecule-web bundle`; `pnpm test` (in
+`make check`) fails if the committed module isn't what they build.
+
+One change is made to RDKit.js, because the frame's policy rightly allows no
+`eval`. The Emscripten release RDKit.js was built with writes the JavaScript
+side of each function embind binds as source and compiles it with
+`new Function`, and emval does the same for its method callers. The policy
+refuses that in each browser, as the plugin's test found. `web/no-eval.js`
+swaps those two places for closures that do what their source did, much as
+Emscripten itself does without dynamic code: emval takes a closure under
+`-sDYNAMIC_EXECUTION=0`, and newer releases build embind's invokers ahead of
+time. Each place is found by its exact text, so a release that changes them
+fails the build rather than slipping through, and the build checks that
+nothing in the module evaluates code. The WebAssembly is RDKit's, unchanged.
+The drawing is an SVG shown as an image, so nothing in it runs.
+
+### Drawing a structure to register it
+
+Not yet. Iki's components can show what they're given and tell the page what a
+person picked, but they can't change anything, start runs or call Iki's API
+(ADR 0084), so a drawing tool in one could only draw, not register. Ketcher, the
+structure editor (Apache-2.0), is also larger than a component module may be:
+`ketcher-standalone` 3.18.0 is 110 MB unpacked, with its Indigo WebAssembly,
+against a module's 10 MiB. Until components can hand the page values to use,
+draw in a structure editor and paste its SMILES into `register_compounds`, or
+export an SDF file for `import_sdf`.
+
 ## Licences
 
 RDKit is BSD-3-Clause. Its wheels bundle Boost (BSL-1.0) and the InChI Trust's
 InChI library (MIT), and fonts for drawing: Roboto (Apache-2.0), Telex (SIL
-OFL 1.1) and Amadeus, which came without a licence; the plugin draws nothing
-with them. It needs numpy (BSD-3-Clause) and Pillow (MIT-CMU), which
+OFL 1.1) and Amadeus, which came without a licence; the plugin's actions draw
+nothing with them. It needs numpy (BSD-3-Clause) and Pillow (MIT-CMU), which
 `osv-scanner.toml` has an exception for, with why.
+
+RDKit.js, in the depiction's module, is BSD-3-Clause too, with Emscripten's
+runtime (MIT). RDKit's MinimalLib build (`Code/MinimalLib/docker`) compiles
+into its WebAssembly the InChI library 1.07.3 (MIT), CoordGen and
+RingDecomposerLib (BSD-3-Clause), Boost (BSL-1.0) and FreeType 2.13.3 (the
+FreeType License: portions of this software are copyright The FreeType Project,
+https://freetype.org, all rights reserved), with zlib, and it draws text in the
+Telex font (SIL OFL 1.1). The module's header says so, as those licences ask.
 
 What the fetches register is the services' data, under their terms:
 
@@ -249,6 +308,12 @@ sodium salt, checks its InChIKey, batches and descriptors, and that aspirin
 drawn another way is reused, and fetches caffeine from PubChem through the
 egress proxy, checking that it reached PubChem alone, and finds aspirin's
 carboxylic acid with a substructure search, saved as a collection of it.
+
+`server/tests/test_small_molecule_depiction.py` loads the depiction in Chromium,
+Firefox and WebKit, in a frame with the component frame's policy and Iki's
+hardening script. It checks that aspirin is drawn, that nothing is refused or
+fetched beyond the frame and its scripts, and that a SMILES RDKit can't read
+says so.
 
 The fetches' tests (in `server/tests/test_small_molecule_actions.py`) answer
 them from fakes of PubChem and ChEMBL, shaped as the services answered when
