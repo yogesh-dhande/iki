@@ -99,10 +99,13 @@ spec:
         {{- include "iki.volumes" . | nindent 8 }}
         {{- with .Values.runSecrets.existingSecret }}
         # Mounted, not in the environment, so a rotated secret reaches the next run.
+        # Optional: with no plugin secrets yet, External Secrets makes no Secret of an
+        # empty object, and the pods start anyway; the volume fills once there's one.
         - name: run-secrets
           secret:
             secretName: {{ . }}
             defaultMode: 0440
+            optional: true
         {{- end }}
       topologySpreadConstraints:
         - maxSkew: 1

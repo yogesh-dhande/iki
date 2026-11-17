@@ -1029,7 +1029,11 @@ def test_only_web_pods_hold_run_secrets_mounted_read_only() -> None:
                 "readOnly": True,
             }
             (volume,) = [v for v in spec["volumes"] if v["name"] == "run-secrets"]
-            assert volume["secret"] == {"secretName": "iki-run-secrets", "defaultMode": 0o440}
+            assert volume["secret"] == {
+                "secretName": "iki-run-secrets",
+                "defaultMode": 0o440,
+                "optional": True,
+            }
         else:
             assert "IKI_RUN_SECRETS_DIR" not in env, name
             assert "run-secrets" not in mounts, name
