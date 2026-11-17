@@ -10,7 +10,8 @@ from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndex
 from django.db import migrations, models
 
 
-def _labels() -> django.contrib.postgres.fields.ArrayField[Any, Any]:
+# Quoted: Python before 3.14 evaluates annotations, and ArrayField is generic only in its stubs.
+def _labels() -> "django.contrib.postgres.fields.ArrayField[Any, Any]":
     return django.contrib.postgres.fields.ArrayField(
         base_field=models.CharField(max_length=50), blank=True, default=list
     )
