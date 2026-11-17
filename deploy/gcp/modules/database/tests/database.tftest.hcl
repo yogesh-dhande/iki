@@ -55,7 +55,7 @@ run "nobody_outside_reaches_it_and_every_connection_is_tls" {
     error_message = "Its certificate should name its host, for verify-full."
   }
   assert {
-    condition     = output.address == "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog" && google_dns_managed_zone.this.dns_name == "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog." && google_dns_record_set.this.rrdatas == tolist(["10.40.240.5"])
+    condition     = output.address == "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog." && google_dns_managed_zone.this.dns_name == "0123456789ab.3e753kupt8481.europe-west1.sql-psa.goog." && google_dns_record_set.this.rrdatas == tolist(["10.40.240.5"])
     error_message = "Its DNS name should resolve to its private address inside the VPC."
   }
 }

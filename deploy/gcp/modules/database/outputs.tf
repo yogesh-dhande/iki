@@ -1,6 +1,8 @@
 output "address" {
-  description = "The database's host name: its certificate names it, for sslmode=verify-full."
-  value       = local.dns_name
+  # With its final dot, as the certificate names it: libpq matches the host it's given
+  # against the certificate's names exactly, and the name without the dot isn't one.
+  description = "The database's host name, as its certificate names it (with its final dot), for sslmode=verify-full."
+  value       = "${local.dns_name}."
 }
 
 output "private_ip" {
