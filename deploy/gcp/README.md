@@ -107,6 +107,24 @@ not that Google accepts it. Each check Checkov skips says why, in the code.
 The Google provider is pinned in each module's `.terraform.lock.hcl`, with
 checksums for Linux and macOS.
 
+That Google accepts it is what the live test checks, on request only:
+
+```console
+IKI_GCP_PROJECT=<project> make check-gcp-live
+```
+
+It follows the production runbook in that project, small (a regional
+cluster of two `e2-standard-4` nodes, the smallest database, no DR
+replica), served only by an internal load balancer; checks Iki's
+readiness, the setup link, a project and entity, a file through signed
+URLs, a backend worker's run, the bucket and the database's private TLS;
+then always tears it down with `scripts/teardown.sh` and fails if anything
+of its own is left but what Google Cloud keeps. It bills the project a few
+US dollars, and never runs on CI. Last, it reports what the run cost at list
+prices (`make gcp-live-cost` does again). Its settings, including
+`IKI_GCP_TOKEN_COMMAND` for the identity it acts as, are in
+`tests/test_gcp_live.py`.
+
 ## What to know before you rely on them
 
 - **Files go through Cloud Storage's own APIs** (ADR 0109), as the

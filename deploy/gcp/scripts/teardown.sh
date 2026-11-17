@@ -25,6 +25,15 @@ deployment=$2
 bootstrap=${3:-}
 root=deploy/gcp/production
 log() { printf '\n== %s\n' "$*"; }
+# Given gcloud an access token in a file (CLOUDSDK_AUTH_ACCESS_TOKEN_FILE), OpenTofu takes
+# the same one, read again for each run, so a token refreshed meanwhile is the one used.
+tofu() {
+  if [[ -n ${CLOUDSDK_AUTH_ACCESS_TOKEN_FILE:-} ]]; then
+    GOOGLE_OAUTH_ACCESS_TOKEN=$(<"$CLOUDSDK_AUTH_ACCESS_TOKEN_FILE") command tofu "$@"
+  else
+    command tofu "$@"
+  fi
+}
 out() { tofu -chdir="$root" output -raw "$1" 2>/dev/null; }
 
 [[ -d $root/.terraform ]] || { echo "Initialize $root first: tofu -chdir=$root init -backend-config=backend.hcl" >&2; exit 1; }
@@ -45,7 +54,12 @@ fi
 cluster=$(out cluster_name || true)
 if [[ -n $cluster ]] && gcloud container clusters describe "$cluster" --location "$(out region)" --project "$project" >/dev/null 2>&1; then
   log "Iki and the cluster's controllers"
-  eval "$(out get_credentials)"
+  # kubectl as it's set up, if that's this cluster's DNS endpoint; get_credentials otherwise.
+  endpoint=$(gcloud container clusters describe "$cluster" --location "$(out region)" --project "$project" \
+    --format='value(controlPlaneEndpointsConfig.dnsEndpointConfig.endpoint)')
+  if [[ -z $endpoint || $(kubectl config view --minify -o 'jsonpath={.clusters[0].cluster.server}' 2>/dev/null) != "https://$endpoint" ]]; then
+    eval "$(out get_credentials)"
+  fi
   kubectl -n iki delete gateway --all --ignore-not-found --wait=true --timeout=10m || true
   kubectl -n iki delete httproute,gcpgatewaypolicy,gcpbackendpolicy,healthcheckpolicy --all --ignore-not-found || true
   helm uninstall iki --namespace iki --wait --timeout 10m 2>/dev/null || true

@@ -144,6 +144,16 @@ check-scale-grid: ## Load test: the grid at 100M rows (IKI_SCALE_GRID_ROWS sets 
 check-scale-queue: ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished (IKI_SCALE_QUEUE_* set the sizes)
 	uv run pytest server/tests/test_scale_queue.py --scale -s
 
+.PHONY: check-gcp-live
+check-gcp-live: ## Deploy Iki to the Google Cloud project IKI_GCP_PROJECT for real, check it, tear it all down. Bills that project: a few US dollars a run. Never on CI.
+	@test -n "$(IKI_GCP_PROJECT)" || (echo "Set IKI_GCP_PROJECT: the project to deploy in, and bill." && false)
+	uv run pytest deploy/gcp/tests/test_gcp_live.py --gcp-live -p no:xdist -v -s
+
+.PHONY: gcp-live-cost
+gcp-live-cost: ## What the last check-gcp-live run cost: lifetimes from the audit logs, list prices from the Billing Catalog
+	@test -n "$(IKI_GCP_PROJECT)" || (echo "Set IKI_GCP_PROJECT: the project the run deployed in." && false)
+	uv run python deploy/gcp/tests/gcp_cost.py
+
 .PHONY: check-rust
 check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo fmt --all --check
