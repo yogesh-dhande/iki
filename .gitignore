@@ -58,6 +58,8 @@ deploy/aws/production/values-aws.yaml
 deploy/gcp/production/terraform.tfvars
 deploy/gcp/production/backend.hcl
 deploy/gcp/production/values-gcp.yaml
+# deploy/gcp/scripts/teardown.sh: the key rings whose versions it destroys.
+deploy/gcp/*/.teardown-key-rings
 
 # Claude Code's git worktrees: other checkouts of this repository.
 .claude/worktrees/

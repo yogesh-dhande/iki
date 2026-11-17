@@ -174,6 +174,24 @@ decided, when each step started and ended, and what `check_restore` said.
 7. **Check it**: `kubectl -n iki exec deploy/iki-web -- iki-server check_restore`,
    before anyone signs in. Then point your DNS name at the new address.
 
+## Tearing it down
+
+For a test deployment, or one decommissioned once its records are kept elsewhere:
+
+```console
+deploy/gcp/scripts/teardown.sh acme-iki-production iki-production --bootstrap
+```
+
+It uninstalls Iki and External Secrets first, so the load balancer GKE made for the
+Gateway goes, and deletes any machines, disks and images the VM tier left. Then it
+turns `deletion_protection` off (the cluster, the database and the secrets), empties
+the files bucket, with soft delete off so nothing waits there, destroys this root, and
+deletes the database's retained backups. Cloud KMS keys and key rings can't be deleted:
+OpenTofu forgets them, and the script stops each key's rotation and schedules every
+version's destruction, 30 days out. `--bootstrap` then does the same for the
+bootstrap's state bucket and key, keeping the APIs on. Cloud Logging deletes the log
+bucket after 7 days, and IAM the custom roles; their names can't be reused until then.
+
 ## Checking it
 
 `make check-infra` plans this root against a mocked Google provider and

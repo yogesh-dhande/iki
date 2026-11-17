@@ -244,7 +244,7 @@ variable "data_access_services" {
 }
 
 variable "deletion_protection" {
-  description = "Refuse to delete the cluster, the database and the secrets. Set false and apply, then destroy, only to tear the deployment down."
+  description = "Refuse to delete the cluster, the database and the secrets. Set false and apply, then destroy, only to tear the deployment down (scripts/teardown.sh)."
   type        = bool
   default     = true
 }
