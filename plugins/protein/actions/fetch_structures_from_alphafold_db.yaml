@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: fetch_structures_from_alphafold_db
+label: Fetch predicted structures from AlphaFold DB
+description: >-
+  Fetches AlphaFold DB's predicted structures of UniProt entries, by accession,
+  in mmCIF, and registers each as a protein structure, linked to the protein it
+  predicts. That's registered too, with its name, organism, gene and UniProt
+  accession, or reused if Iki has it. Each records which model and version it
+  came from, and when it was fetched, and says what made it as its file does:
+  the software and its version, and the model's mean pLDDT. AlphaFold DB's data
+  is CC BY 4.0.
+params:
+  accessions:
+    type: text
+    label: UniProt accessions
+    required: true
+    max_length: 2000
+    description: >-
+      Separated by spaces, commas or new lines, such as P69905 P01542. Up to 100.
+effects:
+  creates:
+    - { type: Protein, cardinality: many }
+    - { type: ProteinStructure, cardinality: many }
+runs_on: { tier: backend, environment: protein-tools, resources: { memory: 2Gi } }
+command: [python, ./scripts/structures.py, alphafold]
+network: [alphafold.ebi.ac.uk]
+timeout: 1h
+metrics:
+  structures: { label: Structures, description: How many structures it read. }

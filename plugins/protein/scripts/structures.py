@@ -1,5 +1,6 @@
-"""The protein plugin's structures: `fetch` gets PDB entries by ID from RCSB, `file` reads
-a structure file the run was given.
+"""The protein plugin's structures: `fetch` gets PDB entries by ID from RCSB, `alphafold`
+AlphaFold DB's predictions of UniProt entries, and `file` reads a structure file the run
+was given.
 
 Each structure is registered with the proteins its chains are, linked to them, in one
 run: all or nothing. A structure file is read with gemmi, as mmCIF (it starts with
@@ -22,6 +23,12 @@ metrics, such as a mean pLDDT. A file that says nothing gets nothing.
 Fetching downloads `<ID>.cif.gz` from files.rcsb.org, up to 100 entries a run, and
 records the entry's revision, when it was fetched and the file's SHA-256. An entry the
 PDB doesn't have (or has made obsolete) fails the run, which names it.
+
+Fetching from AlphaFold DB asks its API (alphafold.ebi.ac.uk/api/prediction/<accession>)
+for each accession's models, up to 100 accessions a run, and downloads each model's
+latest mmCIF from alphafold.ebi.ac.uk/files, recording the model's ID, its version, when
+it was fetched and the file's SHA-256. An accession AlphaFold DB has no model of fails
+the run, which names it.
 """
 
 from __future__ import annotations
@@ -45,6 +52,14 @@ import gemmi
 
 DOWNLOAD = "https://files.rcsb.org/download/{}.cif.gz"
 ENTRY = "https://www.rcsb.org/structure/{}"
+PREDICTION = "https://alphafold.ebi.ac.uk/api/prediction/{}"
+#: Where AlphaFold DB keeps its files, where a model's mmCIF must be.
+FILES = "https://alphafold.ebi.ac.uk/files/"
+AF_ENTRY = "https://alphafold.ebi.ac.uk/entry/{}"
+#: A model's ID: AF-P69905-F1 for AlphaFold's, AF-0000000365840314 for others' it holds.
+MODEL_ID = re.compile(r"^AF-[A-Z0-9]{1,40}(-F[0-9]{1,4})?$")
+#: Naming the plugin, as AlphaFold DB's file server refuses some clients' own (curl's).
+USER_AGENT = "iki-protein"
 PDB_ID = re.compile(r"^[0-9][A-Z0-9]{3}$")
 UNIPROT = re.compile(
     r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})(-[0-9]+)?$"
@@ -53,6 +68,8 @@ RESIDUES = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYUOBZJX]+$")
 MAX_ENTRIES = 100
 #: The largest structure file it reads, unpacked.
 MAX_BYTES = 1024**3
+#: The largest answer it reads from AlphaFold DB's API.
+MAX_ANSWER = 16 * 1024**2
 ATTEMPTS = 4
 PAUSE = 0.2
 METHODS = {
@@ -546,42 +563,40 @@ def pdb_ids(text: str) -> list[str]:
     return found
 
 
-def download(pdb_id: str, to: Path) -> None:
-    """The entry's mmCIF, unpacked into `to`."""
-    request = urllib.request.Request(  # noqa: S310 - a fixed https URL
-        DOWNLOAD.format(pdb_id), headers={"User-Agent": "iki-protein"}
+def download(url: str, to: Path, label: str, source: str, missing: str, gunzip: bool) -> None:
+    """The file at `url` into `to`, unpacked if `gunzip`, asking again while `source` is
+    busy. `missing` is what to say if it has no such file."""
+    request = urllib.request.Request(  # noqa: S310 - an https URL of the action's host
+        url, headers={"User-Agent": USER_AGENT}
     )
     for attempt in range(1, ATTEMPTS + 1):
         try:
             with (
                 urllib.request.urlopen(request, timeout=300) as response,  # noqa: S310
-                gzip.GzipFile(fileobj=response) as unpacked,
                 to.open("wb") as out,
             ):
+                given = gzip.GzipFile(fileobj=response) if gunzip else response
                 copied = 0
-                while chunk := unpacked.read(1024 * 1024):
+                while chunk := given.read(1024 * 1024):
                     copied += len(chunk)
                     if copied > MAX_BYTES:
-                        raise UnreadableError(f"{pdb_id}'s mmCIF is over 1 GiB.")
+                        raise UnreadableError(f"{label}'s mmCIF is over 1 GiB.")
                     out.write(chunk)
             return
         except urllib.error.HTTPError as error:
             error.close()
             if error.code == 404:
-                raise UnreadableError(
-                    f"The PDB has no entry {pdb_id}: it may have been made obsolete. "
-                    "Search for it at https://www.rcsb.org."
-                ) from None
+                raise UnreadableError(missing) from None
             if attempt < ATTEMPTS and (error.code == 429 or error.code >= 500):
                 time.sleep(2**attempt)
                 continue
-            raise UnreadableError(f"RCSB answered {error.code} {error.reason}.") from None
+            raise UnreadableError(f"{source} answered {error.code} {error.reason}.") from None
         except (urllib.error.URLError, TimeoutError, EOFError, gzip.BadGzipFile) as error:
             if attempt < ATTEMPTS:
                 time.sleep(2**attempt)
                 continue
             reason = getattr(error, "reason", error)
-            raise UnreadableError(f"Couldn't fetch {pdb_id} from RCSB: {reason}.") from None
+            raise UnreadableError(f"Couldn't fetch {label} from {source}: {reason}.") from None
     raise AssertionError("unreachable")
 
 
@@ -595,7 +610,11 @@ def fetch(run: dict[str, Any]) -> None:
             if done > 1:
                 time.sleep(PAUSE)
             path = out_dir / f"{pdb_id}.cif"
-            download(pdb_id, path)
+            missing = (
+                f"The PDB has no entry {pdb_id}: it may have been made obsolete. "
+                "Search for it at https://www.rcsb.org."
+            )
+            download(DOWNLOAD.format(pdb_id), path, pdb_id, "RCSB", missing, gunzip=True)
             retrieved = datetime.now(UTC).isoformat(timespec="seconds")
             try:
                 structure = read(path, pdb_id, f"{pdb_id}-")
@@ -621,10 +640,150 @@ def fetch(run: dict[str, Any]) -> None:
     write(made, notes, len(asked))
 
 
+# --- AlphaFold DB --------------------------------------------------------------------------------
+
+
+def uniprot_accessions(text: str) -> list[str]:
+    """The UniProt accessions in `text`, in order, each once, upper-cased."""
+    found = list(dict.fromkeys(w.upper() for w in re.split(r"[\s,;]+", text) if w))
+    if not found:
+        raise UnreadableError("Give at least one UniProt accession, such as P69905.")
+    for word in found:
+        if UNIPROT.match(word) and "-" in word:
+            raise UnreadableError(
+                "AlphaFold DB predicts UniProt's canonical sequences: give "
+                f"{word.split('-')[0]}, not the isoform {word}."
+            )
+        if not UNIPROT.match(word):
+            raise UnreadableError(f"{word} isn't a UniProt accession, such as P69905.")
+    if len(found) > MAX_ENTRIES:
+        raise UnreadableError(
+            f"That's {len(found):,} accessions, more than the {MAX_ENTRIES} one run fetches: "
+            "split them."
+        )
+    return found
+
+
+def _answer(accession: str) -> bytes:
+    """AlphaFold DB's API's answer for the UniProt entry, asking again while it's busy."""
+    request = urllib.request.Request(  # noqa: S310 - a fixed https URL
+        PREDICTION.format(accession),
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+    )
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310
+                data: bytes = response.read(MAX_ANSWER + 1)
+        except urllib.error.HTTPError as error:
+            error.close()
+            if error.code in (400, 404):
+                raise UnreadableError(
+                    f"AlphaFold DB has no prediction of {accession}. Search for it at "
+                    "https://alphafold.ebi.ac.uk."
+                ) from None
+            if attempt < ATTEMPTS and (error.code == 429 or error.code >= 500):
+                time.sleep(2**attempt)
+                continue
+            raise UnreadableError(f"AlphaFold DB answered {error.code} {error.reason}.") from None
+        except (urllib.error.URLError, TimeoutError) as error:
+            if attempt < ATTEMPTS:
+                time.sleep(2**attempt)
+                continue
+            reason = getattr(error, "reason", error)
+            raise UnreadableError(f"Couldn't reach AlphaFold DB: {reason}.") from None
+        if len(data) > MAX_ANSWER:
+            raise UnreadableError(f"AlphaFold DB's answer for {accession} is over 16 MiB.")
+        return data
+    raise AssertionError("unreachable")
+
+
+def predictions(accession: str) -> list[dict[str, Any]]:
+    """AlphaFold DB's models of the UniProt entry, as its API lists them, each with its ID,
+    latest version and mmCIF file, checked."""
+    try:
+        answer = json.loads(_answer(accession))
+    except ValueError:
+        raise UnreadableError(f"AlphaFold DB's answer for {accession} isn't JSON.") from None
+    if not isinstance(answer, list) or not answer:
+        raise UnreadableError(f"AlphaFold DB has no prediction of {accession}.")
+    for model in answer:
+        given = model if isinstance(model, dict) else {}
+        model_id, version, url = (
+            given.get(k) for k in ("modelEntityId", "latestVersion", "cifUrl")
+        )
+        if (
+            not isinstance(model_id, str)
+            or not MODEL_ID.match(model_id)
+            or type(version) is not int
+            or version < 1
+            or not isinstance(url, str)
+            or not url.startswith(FILES)
+        ):
+            raise UnreadableError(
+                f"AlphaFold DB's answer for {accession} doesn't give a model's ID, version "
+                "and mmCIF file as Iki reads them."
+            )
+    return answer
+
+
+def _described(model: dict[str, Any], accession: str) -> str:
+    """What the model is of, and what predicted it, as AlphaFold DB's API says."""
+    name, tool = model.get("uniprotDescription"), model.get("toolUsed")
+    text = accession
+    if isinstance(name, str) and name.strip():
+        text = f"{' '.join(name.split())} ({accession})"
+    if isinstance(tool, str) and tool.strip():
+        text += f", predicted by {' '.join(tool.split())}"
+    return f"{text}, from AlphaFold DB."[: LIMITS["description"]]
+
+
+def fetch_predicted(run: dict[str, Any]) -> None:
+    out_dir = Path(os.environ["IKI_OUT_DIR"])
+    made: list[dict[str, Any]] = []
+    notes: list[str] = []
+    count = 0
+    try:
+        asked = uniprot_accessions(run["params"]["accessions"])
+        for done, accession in enumerate(asked, start=1):
+            if done > 1:
+                time.sleep(PAUSE)
+            for model in predictions(accession):
+                model_id, version = model["modelEntityId"], model["latestVersion"]
+                time.sleep(PAUSE)
+                path = out_dir / f"{model_id}-model_v{version}.cif"
+                missing = f"AlphaFold DB has no mmCIF file of {model_id}, version {version}."
+                download(model["cifUrl"], path, model_id, "AlphaFold DB", missing, gunzip=False)
+                retrieved = datetime.now(UTC).isoformat(timespec="seconds")
+                try:
+                    structure = read(path, model_id, f"{model_id}-")
+                except UnreadableError as why:
+                    raise UnreadableError(f"{model_id}: {why}") from None
+                structure.values.setdefault("description", _described(model, accession))
+                origin: dict[str, Any] = {
+                    "source": "AlphaFold DB",
+                    "id": model_id,
+                    "version": str(version),
+                    "url": AF_ENTRY.format(accession),
+                    "retrieved_at": retrieved,
+                    "sha256": _sha256(path),
+                }
+                file = {"$file": path.name, "media_type": "chemical/x-mmcif"}
+                made.extend(creates(structure, file, origin))
+                notes.extend(structure.notes)
+                count += 1
+                plddt = ((structure.made or {}).get("details") or {}).get("mean_plddt")
+                print(_summary(structure) + (f", mean pLDDT {plddt}" if plddt else ""))
+            print(f"::progress {done / len(asked):.2f} {done} of {len(asked)}", flush=True)
+    except UnreadableError as why:
+        print(f"::error {why}", flush=True)
+        sys.exit(1)
+    write(made, notes, count)
+
+
 def main() -> None:
     kind = sys.argv[1]
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    {"fetch": fetch, "file": from_file}[kind](run)
+    {"fetch": fetch, "file": from_file, "alphafold": fetch_predicted}[kind](run)
 
 
 if __name__ == "__main__":

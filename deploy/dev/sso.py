@@ -1320,6 +1320,7 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     dashboard(alice, project, relatives_app(alice, project))
     app_draft(alice, project)
     structures(alice, project)
+    alphafold(alice, project)
     antibodies(alice, project)
 
 
@@ -1979,6 +1980,59 @@ def structures(alice: requests.Session, project: dict[str, Any]) -> None:
         f"the protein it made with it ({run['hrid']})"
     )
     secondary(alice, project, structure)
+
+
+def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
+    """AlphaFold DB's model of crambin (UniProt P01542, 46 residues), fetched through the
+    egress proxy, linked to its protein, its origin saying what made it, as its file
+    says: AlphaFold 2.0 and the model's mean pLDDT, the source's word (ADR 0106)."""
+    action = "protein.fetch_structures_from_alphafold_db"
+    run = launch(alice, project, action, {}, {"accessions": "P01542"}, within=300)
+    if run["network"] != ["alphafold.ebi.ac.uk"]:
+        fail(f"{run['hrid']} may reach {run['network']}, not AlphaFold DB alone")
+    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
+    if reached != {("alphafold.ebi.ac.uk", 443, None)}:
+        fail(f"{run['hrid']} reached {reached}, not AlphaFold DB alone")
+    made = {e["type"]: e for e in run["effects"] if e["kind"] in ("created", "reused")}
+    if set(made) != {"protein.Protein", "protein.ProteinStructure"}:
+        fail(f"{run['hrid']} ({action}) made {run['effects']}")
+    ref = made["protein.ProteinStructure"]["entity"]
+    structure = api_call(alice, "GET", f"/entities/{ref}").json()
+    values = structure["values"]
+    protein = made["protein.Protein"]["entity"]
+    if (
+        values.get("name") != "AF-P01542-F1"
+        or values.get("method") != "predicted"
+        or values.get("chains") != [protein]
+        or not values.get("structure")
+    ):
+        fail(f"{run['hrid']} made {structure['hrid']} as {values}")
+    origins = api_call(alice, "GET", f"/entities/{ref}/origins").json()
+    stated = [o for o in origins if o["source"] == "AlphaFold DB" and o["id"] == "AF-P01542-F1"]
+    made_by = stated[-1]["made"] if stated else None
+    if (
+        not made_by
+        or made_by["kind"] != "computational"
+        or made_by["software"] != [{"name": "AlphaFold", "version": "2.0"}]
+        or not isinstance(made_by["details"].get("mean_plddt"), (int, float))
+        or not stated[-1]["version"]
+    ):
+        fail(f"{structure['hrid']}'s origins are {origins}, not AlphaFold DB's model saying so")
+    making = api_call(alice, "GET", f"/entities/{ref}/making").json()
+    if not any(
+        m["by"] == "source"
+        and m["kind"] == "computational"
+        and (m["software"], m["version"]) == ("AlphaFold", "2.0")
+        and (m["source"] or {}).get("id") == "AF-P01542-F1"
+        for m in making
+    ) or any(m["by"] == "iki" for m in making):
+        fail(f"{structure['hrid']}'s making is {making}, not AlphaFold DB's word alone")
+    ok(
+        f"{action} fetched {structure['hrid']} through the egress proxy ({run['hrid']}), "
+        f"version {stated[-1]['version']}: made with AlphaFold 2.0, mean pLDDT "
+        f"{made_by['details']['mean_plddt']}, as AlphaFold DB says"
+    )
 
 
 #: The protein plugin's structure-tools image (plugins/protein/environments/structure-tools.yaml).

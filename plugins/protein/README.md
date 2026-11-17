@@ -2,7 +2,7 @@
 
 Iki's protein plugin: proteins, translated from DNA, imported or fetched from
 UniProt, with the properties of their sequences, and their structures, from
-the PDB or a lab's own files, with their secondary structure, and alignments
+the PDB, AlphaFold DB or a lab's own files, with their secondary structure, and alignments
 of proteins, two or many.
 
 - **`protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
@@ -64,6 +64,17 @@ they list none.
   proteins its chains are. Each records the entry, its revision, its link,
   when it was fetched and the file's SHA-256. It reaches only
   `files.rcsb.org`.
+- **`fetch_structures_from_alphafold_db`**: fetches AlphaFold DB's predicted
+  structures of UniProt entries by accession (up to 100, such as `P69905`;
+  AlphaFold DB predicts canonical sequences, so not an isoform's), in mmCIF,
+  and registers each as a structure (method `predicted`), with the protein it
+  predicts. It asks AlphaFold DB's API
+  (`/api/prediction/<accession>`) for each entry's models and takes every one
+  it lists at its latest version. Each records the model (`AF-P69905-F1`), its
+  version, its entry's link, when it was fetched and the file's SHA-256, and
+  says what made it as the file does: AlphaFold and its version (or, for a
+  model another provider gave AlphaFold DB, its tool, such as ColabFold), and
+  the model's mean pLDDT. It reaches only `alphafold.ebi.ac.uk`.
 - **`import_structure`**: registers an mmCIF or PDB file (up to 1 GiB) as a
   structure, with the proteins its chains are. The structure keeps the file
   itself.
@@ -199,6 +210,16 @@ reports it, with the chains together. DSSP takes residues' chemistry from
 the wwPDB's Chemical Component Dictionary in the image (the PDBj snapshot of
 2026-01-01), so a structure with a residue newer than that fails its own run,
 which names the residue.
+
+AlphaFold DB's models are
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), as each file's
+`_pdbx_data_usage` says: people may share and adapt them, crediting AlphaFold
+DB. When you publish what you found with them, cite
+AlphaFold (Jumper et al., Nature 596, 583–589, 2021,
+doi:10.1038/s41586-021-03819-2) and AlphaFold DB (Bertoni et al., Nucleic
+Acids Research, 2026, doi:10.1093/nar/gkaf1226), or, for a model from another
+provider, the work its file's `_citation` names. The predictions are
+theoretical models, as each file says: check them against experiment.
 
 Structure prediction (ESMFold) and embeddings come with shared volumes, for
 their weights.

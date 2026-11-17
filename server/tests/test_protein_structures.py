@@ -422,3 +422,190 @@ def test_a_fetch_fails_whole_and_says_why(
     assert stopped.value.code == 1
     assert capsys.readouterr().out.splitlines()[-1] == error
     assert not (tmp_path / "out.json").exists()
+
+
+# --- Fetching from AlphaFold DB ------------------------------------------------------------------
+
+API = "https://alphafold.ebi.ac.uk/api/prediction/"
+FILES = "https://alphafold.ebi.ac.uk/files/"
+
+
+def _prediction(accession: str, model_id: str, version: int) -> dict[str, Any]:
+    """An entry of AlphaFold DB's API's answer, as it gives them (some of its fields)."""
+    return {
+        "toolUsed": "AlphaFold Monomer v2.0 pipeline",
+        "providerId": "GDM",
+        "entityType": "protein",
+        "modelEntityId": model_id,
+        "globalMetricValue": 93.5,
+        "latestVersion": version,
+        "allVersions": list(range(1, version + 1)),
+        "uniprotAccession": accession,
+        "uniprotDescription": "Crambin",
+        "cifUrl": f"{FILES}{model_id}-model_v{version}.cif",
+        "pdbUrl": f"{FILES}{model_id}-model_v{version}.pdb",
+        "isComplex": False,
+        "entryId": model_id,
+    }
+
+
+class FakeAlphaFold:
+    """alphafold.ebi.ac.uk's API and files, with crambin's model."""
+
+    def __init__(self) -> None:
+        self.models = {"P01542": [_prediction("P01542", "AF-P01542-F1", 6)]}
+        self.files = {"AF-P01542-F1-model_v6.cif": ALPHAFOLD.read_bytes()}
+        self.asked: list[str] = []
+        self.failures: list[int] = []
+
+    def __call__(self, request: Any, timeout: float) -> Any:
+        url = request.full_url
+        self.asked.append(url)
+        assert request.get_header("User-agent") == "iki-protein"
+        if self.failures:
+            raise urllib.error.HTTPError(url, self.failures.pop(0), "Busy", Message(), None)
+        if url.startswith(API):
+            assert request.get_header("Accept") == "application/json"
+            found = self.models.get(url.removeprefix(API))
+            if found is None:
+                raise urllib.error.HTTPError(url, 404, "Not Found", Message(), None)
+            return io.BytesIO(json.dumps(found).encode())
+        name = url.removeprefix(FILES)
+        if name not in self.files:
+            raise urllib.error.HTTPError(url, 404, "Not Found", Message(), None)
+        return io.BytesIO(self.files[name])
+
+
+@pytest.fixture
+def alphafold(rcsb: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The script, loaded here with AlphaFold DB faked."""
+    import urllib.request
+
+    fake = FakeAlphaFold()
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    return SimpleNamespace(script=rcsb.script, fake=fake, slept=rcsb.slept, out_dir=rcsb.out_dir)
+
+
+def predicted(tmp_path: Path, alphafold: Any, accessions: str) -> dict[str, Any]:
+    (tmp_path / "input.json").write_text(json.dumps({"params": {"accessions": accessions}}))
+    sys.argv = ["structures.py", "alphafold"]
+    alphafold.script.main()
+    output: dict[str, Any] = json.loads((tmp_path / "out.json").read_text())
+    assert not list(schemas.check("run-output", output))
+    return output
+
+
+def test_fetches_alphafold_dbs_model_saying_what_made_it(tmp_path: Path, alphafold: Any) -> None:
+    output = predicted(tmp_path, alphafold, "p01542, P01542")
+    assert alphafold.fake.asked == [f"{API}P01542", f"{FILES}AF-P01542-F1-model_v6.cif"]
+    assert alphafold.slept == [0.2]
+    protein, structure = output["creates"]
+    assert protein["key"] == "AF-P01542-F1-1"
+    assert protein["values"]["uniprot_accession"] == "P01542"
+    values = structure["values"]
+    assert values["structure"] == {
+        "$file": "AF-P01542-F1-model_v6.cif",
+        "media_type": "chemical/x-mmcif",
+    }
+    assert (alphafold.out_dir / "AF-P01542-F1-model_v6.cif").read_bytes() == ALPHAFOLD.read_bytes()
+    assert {k: values[k] for k in ("name", "description", "method", "chains", "chain_ids")} == {
+        "name": "AF-P01542-F1",
+        "description": "Crambin (P01542), predicted by AlphaFold Monomer v2.0 pipeline, from "
+        "AlphaFold DB.",
+        "method": "predicted",
+        "chains": [{"$create": "AF-P01542-F1-1"}],
+        "chain_ids": ["A"],
+    }
+    origin = structure["origin"]
+    assert {k: v for k, v in origin.items() if k != "retrieved_at"} == {
+        "source": "AlphaFold DB",
+        "id": "AF-P01542-F1",
+        "version": "6",
+        "url": "https://alphafold.ebi.ac.uk/entry/P01542",
+        "sha256": hashlib.sha256(ALPHAFOLD.read_bytes()).hexdigest(),
+        # What its file says, not its API: the software that made it, and how sure it is.
+        "made": {
+            "kind": "computational",
+            "method": "Ab initio model",
+            "software": [{"name": "AlphaFold", "version": "2.0"}],
+            "details": {"mean_plddt": 93.48},
+        },
+    }
+    assert origin["retrieved_at"].endswith("+00:00")
+    assert protein["origin"] == {k: v for k, v in origin.items() if k != "made"}
+    assert output["metrics"] == {"structures": 1}
+
+
+def test_takes_each_model_alphafold_db_lists(tmp_path: Path, alphafold: Any) -> None:
+    second = _prediction("P01542", "AF-0000000365840314", 1)
+    alphafold.fake.models["P01542"].append(second)
+    alphafold.fake.files["AF-0000000365840314-model_v1.cif"] = ALPHAFOLD.read_bytes().replace(
+        b"AF-P01542-F1", b"AF-0000000365840314"
+    )
+    output = predicted(tmp_path, alphafold, "P01542")
+    names = [c["values"]["name"] for c in output["creates"] if c["type"].endswith("Structure")]
+    assert names == ["AF-P01542-F1", "AF-0000000365840314"]
+    assert output["metrics"] == {"structures": 2}
+
+
+def test_waits_and_asks_again_when_alphafold_db_is_busy(tmp_path: Path, alphafold: Any) -> None:
+    alphafold.fake.failures = [503, 429]
+    output = predicted(tmp_path, alphafold, "P01542")
+    assert len(alphafold.fake.asked) == 4
+    assert alphafold.slept == [2, 4, 0.2]
+    assert output["metrics"] == {"structures": 1}
+
+
+@pytest.mark.parametrize(
+    ("accessions", "error"),
+    [
+        (
+            "P01542 Q00000",
+            "::error AlphaFold DB has no prediction of Q00000. Search for it at "
+            "https://alphafold.ebi.ac.uk.",
+        ),
+        (
+            "P69905-2",
+            "::error AlphaFold DB predicts UniProt's canonical sequences: give P69905, not "
+            "the isoform P69905-2.",
+        ),
+        ("crambin", "::error CRAMBIN isn't a UniProt accession, such as P69905."),
+        (" ", "::error Give at least one UniProt accession, such as P69905."),
+    ],
+)
+def test_a_fetch_from_alphafold_db_fails_whole_and_says_why(
+    tmp_path: Path,
+    alphafold: Any,
+    capsys: pytest.CaptureFixture[str],
+    accessions: str,
+    error: str,
+) -> None:
+    with pytest.raises(SystemExit) as stopped:
+        predicted(tmp_path, alphafold, accessions)
+    assert stopped.value.code == 1
+    assert capsys.readouterr().out.splitlines()[-1] == error
+    assert not (tmp_path / "out.json").exists()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"cifUrl": "https://example.org/AF-P01542-F1-model_v6.cif"},
+        {"latestVersion": "6"},
+        {"modelEntityId": "../../etc"},
+    ],
+)
+def test_an_answer_it_cant_trust_fails_the_fetch(
+    tmp_path: Path,
+    alphafold: Any,
+    capsys: pytest.CaptureFixture[str],
+    change: dict[str, Any],
+) -> None:
+    alphafold.fake.models["P01542"][0].update(change)
+    with pytest.raises(SystemExit):
+        predicted(tmp_path, alphafold, "P01542")
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        "::error AlphaFold DB's answer for P01542 doesn't give a model's ID, version and "
+        "mmCIF file as Iki reads them."
+    )
+    assert alphafold.fake.asked == [f"{API}P01542"]
