@@ -12,6 +12,15 @@ a development tool, and only ever sees glob patterns from our own lint config, s
 attack isn't reachable. The fix is minimatch 11, which ESLint's config-array doesn't \
 accept yet. Remove this once ESLint moves to minimatch 11."""
 
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2027-01-15T00:00:00Z
+reason = """picomatch (ReDoS through repeated extglobs, through 4.0.7, no fixed version yet) \
+is pulled in only by development tools, through tinyglobby: Vite, Vitest and \
+typescript-eslint. They match glob patterns from our own configs and file names in our own \
+checkout, never input from outside, so the attack isn't reachable, and nothing that ships \
+includes it. Remove this once a fixed picomatch is out and the tools take it."""
+
 # --- License corrections -----------------------------------------------------
 # deps.dev reports these with missing or non-SPDX license data; the values
 # below are taken from each project's LICENSE file.
