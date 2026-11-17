@@ -34,7 +34,9 @@ tofu() {
     command tofu "$@"
   fi
 }
-out() { tofu -chdir="$root" output -raw "$1" 2>/dev/null; }
+# An output of deploy/gcp/production's state, or nothing once it's destroyed: then
+# `tofu output -raw` prints a warning, on its standard output, that there are none.
+out() { tofu -chdir="$root" output -json 2>/dev/null | jq -er --arg k "$1" '.[$k].value // empty'; }
 
 [[ -d $root/.terraform ]] || { echo "Initialize $root first: tofu -chdir=$root init -backend-config=backend.hcl" >&2; exit 1; }
 if [[ $(out project_id || true) != "" && $(out project_id) != "$project" ]]; then

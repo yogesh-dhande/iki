@@ -212,11 +212,13 @@ class Gcp:
                 )
                 token = result.stdout.strip().splitlines()[-1:] if result.returncode == 0 else []
                 if token and re.fullmatch(r"[A-Za-z0-9._\-~+/]+=*", token[0]):
-                    descriptor = os.open(
-                        self.token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
-                    )
+                    # Written beside it and renamed over it: a reader (gcloud, tofu)
+                    # never finds it empty or half written.
+                    fresh = self.token_file.with_name("token.new")
+                    descriptor = os.open(fresh, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                     with os.fdopen(descriptor, "w") as out:
                         out.write(token[0])
+                    fresh.replace(self.token_file)
                     self.minted = time.monotonic()
                     return
                 if attempt < 10:
