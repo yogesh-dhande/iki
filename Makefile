@@ -53,16 +53,20 @@ check-chart: ## Helm lint (strict) with the minimum required values
 	  -v "$(CURDIR)/deploy/helm/iki/files:/rules:ro" -w /rules --entrypoint promtool \
 	  $(PROMETHEUS_IMAGE) test rules alerts.test.yaml
 
-#: The AWS modules (ADR 0097), each checked on its own as the root a team copies it into,
-#: and the bootstrap and production roots that put them together.
-INFRA_MODULES := $(wildcard deploy/aws/modules/*) deploy/aws/bootstrap deploy/aws/production
+#: The AWS (ADR 0097) and Google Cloud (ADR 0107) modules, each checked on its own as the
+#: root a team copies it into, and the bootstrap and production roots that put them together.
+INFRA_CLOUDS := deploy/aws deploy/gcp
+INFRA_MODULES := $(foreach cloud,$(INFRA_CLOUDS),$(wildcard $(cloud)/modules/*) $(cloud)/bootstrap $(cloud)/production)
 CHECKOV_VERSION := 3.4.5
 
 .PHONY: check-infra
-check-infra: ## OpenTofu: fmt, validate and tests (a mocked AWS) for the AWS modules and roots; Checkov's checks
-	tofu fmt -recursive -check -diff deploy/aws
-	@# Secrets' values never enter OpenTofu's state: no module writes one (ADR 0097).
-	@! grep -rnE 'resource "aws_secretsmanager_secret_version"|resource "random_(password|bytes|string)"' deploy/aws \
+check-infra: ## OpenTofu: fmt, validate and tests (mocked providers) for the AWS and Google Cloud modules and roots; Checkov's checks
+	tofu fmt -recursive -check -diff $(INFRA_CLOUDS)
+	@# Secrets' values never enter OpenTofu's state: no module writes one (ADR 0097, 0107).
+	@# On Google Cloud, an HMAC key's or service account key's secret, or a database user's
+	@# password, would be in the state too.
+	@! grep -rnE 'resource "(aws_secretsmanager_secret_version|google_secret_manager_secret_version|google_storage_hmac_key|google_service_account_key)"|resource "random_(password|bytes|string)"|^\s*(root_)?password(_wo)?\s*=' \
+	  --include='*.tf' $(INFRA_CLOUDS) \
 	  || (echo "A module writes a secret's value, which would put it in OpenTofu's state." && false)
 	@set -e; for module in $(INFRA_MODULES); do \
 	  echo "== $$module"; \
@@ -70,7 +74,7 @@ check-infra: ## OpenTofu: fmt, validate and tests (a mocked AWS) for the AWS mod
 	  tofu -chdir=$$module validate -no-color; \
 	  tofu -chdir=$$module test -no-color; \
 	done
-	uvx checkov==$(CHECKOV_VERSION) --directory deploy/aws --framework terraform --quiet --compact --skip-path tests
+	uvx checkov==$(CHECKOV_VERSION) $(foreach cloud,$(INFRA_CLOUDS),--directory $(cloud)) --framework terraform --quiet --compact --skip-path tests
 
 #: Tests run in parallel: workers take a file's tests in runs, and idle ones take over the rest.
 PYTEST_PARALLEL ?= -n auto --dist worksteal

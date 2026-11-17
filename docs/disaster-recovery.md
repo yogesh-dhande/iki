@@ -8,7 +8,12 @@ targets: at most **5 minutes of data lost** (RPO) and Iki serving again
 **within 4 hours** (RTO).
 [ADR 0099](adr/0099-restores-are-checked-and-tested-automatically.md) and
 [ADR 0100](adr/0100-recovering-from-a-lost-region-from-the-same-code.md)
-cover the checks and the recovery.
+cover the checks and the recovery. On Google Cloud
+([`deploy/gcp/production`](../deploy/gcp/production), ADR 0107), the
+database's replica is promoted and the dual-region files bucket adopted
+instead: its runbook's
+[Recovering from a lost region](../deploy/gcp/production/README.md#recovering-from-a-lost-region)
+has the steps; `check_restore` and the drills below apply as they are.
 
 Commands run from the repository's root, with the production runbook's
 helper: `out() { tofu -chdir=deploy/aws/production output -raw "$1"; }`.

@@ -1,0 +1,47 @@
+# Copy to terraform.tfvars and fill in. Nothing here is secret.
+
+project_id   = "acme-iki-production"
+region       = "europe-west1"
+dr_region    = "europe-west4"
+multi_region = "europe"
+zones        = ["europe-west1-b", "europe-west1-c", "europe-west1-d"]
+
+kubernetes_version = "1.36"
+admin_members      = ["group:platform-admins@example.com"]
+# Reach the Kubernetes API from outside the VPC through its DNS endpoint, IAM deciding:
+# dns_endpoint = true
+
+# From deploy/gcp/bootstrap: tofu output state_kms_key.
+state_kms_key = "projects/acme-iki-production/locations/europe/keyRings/iki-production-tofu-state/cryptoKeys/state"
+
+public_host = "iki.example.com"
+
+# Reachable only from your network, through a VPN or Interconnect, with a regional
+# certificate you upload:
+# internal             = true
+# internal_certificate = "iki-production-internal"
+# Or from the internet, but only your company's ranges:
+# ingress_cidrs = ["203.0.113.0/24"]
+
+# Your CI's service account, which pushes the worker and plugins' images:
+# image_writers = ["serviceAccount:ci@acme-iki-production.iam.gserviceaccount.com"]
+
+# What the VM tier (ADR 0074) will need, ready for a Compute Engine provisioner:
+# vm_tier = {}
+
+# Shared reference data on Filestore (ADR 0077):
+# filestore = {
+#   capacity_gib             = 1024
+#   root_squash_except_cidrs = ["10.40.1.5/32"]
+# }
+
+# Only to recover from losing the region this deployment ran in, under a new name, in its
+# DR region, with a third region as dr_region (README.md):
+# name      = "iki-production-r1"
+# region    = "europe-west4"
+# dr_region = "europe-west3"
+# recovery  = { name = "iki-production", lost_region = "europe-west1" }
+
+labels = {
+  "cost-centre" = "research-it"
+}

@@ -1430,6 +1430,72 @@ def test_the_aws_production_values_render_a_locked_down_deployment() -> None:
     assert named(docs, "Deployment", "iki-egress-proxy")["spec"]["replicas"] == 2
 
 
+GCP = CHART.parents[1] / "gcp" / "production"
+
+
+def test_the_gcp_production_values_render_a_locked_down_deployment() -> None:
+    # The values deploy/gcp/production writes for its test inputs (its own test checks
+    # they're what it writes), with values-production.yaml, as the runbook installs them.
+    values = _merged(GCP / "values-production.yaml", GCP / "tests" / "helm-values.yaml")
+    docs = manifests(values)
+
+    # Served through the Gateway deploy/gcp/production's gateway output holds.
+    assert not by_kind(docs, "Ingress")
+    service = named(docs, "Service", "iki-web")
+    assert service["spec"]["ports"][0]["port"] == 8000  # the HTTPRoute's backendRef
+
+    # Google's front ends and health checkers reach web pods, and nothing else does. Web
+    # pods keep idle connections longer than Google's load balancers (600 seconds).
+    web_in = named(docs, "NetworkPolicy", "iki-web-ingress")["spec"]["ingress"]
+    peers = [p["ipBlock"]["cidr"] for rule in web_in for p in rule.get("from", [])]
+    assert peers == ["35.191.0.0/16", "130.211.0.0/22"]
+    (web,) = named(docs, "Deployment", "iki-web")["spec"]["template"]["spec"]["containers"]
+    (keep_alive,) = [e["value"] for e in web["env"] if e["name"] == "IKI_KEEP_ALIVE_SECONDS"]
+    assert int(keep_alive) > 600
+
+    # Pods with a Google identity reach GKE's metadata server, and only they do.
+    identity = named(docs, "NetworkPolicy", "iki-pod-identity")["spec"]
+    (components,) = [
+        e["values"]
+        for e in identity["podSelector"]["matchExpressions"]
+        if e["key"] == "app.kubernetes.io/component"
+    ]
+    assert components == ["web", "tasks", "maintenance"]
+    assert [p["ipBlock"]["cidr"] for p in identity["egress"][0]["to"]] == [
+        "169.254.169.254/32",
+        "169.254.169.252/32",
+    ]
+    assert identity["egress"][0]["ports"] == [
+        {"protocol": "TCP", "port": 80},
+        {"protocol": "TCP", "port": 988},
+    ]
+    for name in ("iki-web", "iki-tasks", "iki-maintenance"):
+        notes = named(docs, "ServiceAccount", name)["metadata"]["annotations"]
+        assert notes == values["serviceAccount"]["annotations"]
+
+    # Cloud Storage only through Google's private range, and the database only at its own.
+    storage = named(docs, "NetworkPolicy", "iki-object-storage")["spec"]["egress"]
+    assert [p["ipBlock"]["cidr"] for p in storage[0]["to"]] == ["199.36.153.8/30"]
+
+    # Every Secret a pod reads is one External Secrets makes, or the database's CA.
+    made = {
+        values["secretKey"]["existingSecret"],
+        values["encryptionKeys"]["existingSecret"],
+        values["bundles"]["signingKey"]["existingSecret"],
+        values["runSecrets"]["existingSecret"],
+        values["database"]["existingSecret"],
+        values["database"]["migrator"]["existingSecret"],
+        values["files"]["credentials"]["existingSecret"],
+        "iki-database-ca",
+    }
+    names = set(_secrets_read(docs))
+    assert {"iki-secret-key", "iki-database", "iki-files-hmac"} <= names
+    assert names <= made, names - made
+
+    assert named(docs, "HorizontalPodAutoscaler", "iki-web")["spec"]["minReplicas"] == 3
+    assert named(docs, "PodDisruptionBudget", "iki-web")["spec"]["minAvailable"] == 2
+
+
 def test_an_ingress_routes_public_urls_host_when_asked() -> None:
     assert not by_kind(manifests(), "Ingress")
     docs = manifests({"ingress": {"enabled": True, "className": "nginx", "tlsSecret": "iki-tls"}})

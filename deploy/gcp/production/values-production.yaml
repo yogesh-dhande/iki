@@ -1,0 +1,42 @@
+# The chart's production values on Google Cloud, beside what deploy/gcp/production writes:
+#   tofu output -raw helm_values > values-gcp.yaml
+#   helm upgrade --install iki deploy/helm/iki --namespace iki \
+#     -f values-production.yaml -f values-gcp.yaml
+# Everything here is a choice you may change; values-gcp.yaml is what the
+# infrastructure decided, so change that in OpenTofu instead.
+
+environment: production
+
+image:
+  # Pin the server image by its digest: what's validated is what runs.
+  digest: ""
+
+web:
+  replicas: 3
+  # Three nodes in three zones lose one and still serve.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+  # Spread over zones, so losing one leaves two.
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: topology.kubernetes.io/zone
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: iki
+                app.kubernetes.io/component: web
+
+tasks:
+  replicas: 2
+
+# Actions' runs reach only the hosts their plugins declare, through it.
+egressProxy:
+  enabled: true
+  replicas: 2

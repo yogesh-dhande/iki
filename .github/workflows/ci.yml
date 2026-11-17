@@ -386,9 +386,10 @@ jobs:
         run: make check-deps
 
   infrastructure:
-    name: AWS modules (OpenTofu)
+    name: Cloud modules (OpenTofu, AWS and Google Cloud)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Each module and root tests on its own, about 10 minutes for both clouds.
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -403,9 +404,9 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
-      - name: Format, validate, test against a mocked AWS, and Checkov
+      - name: Format, validate, test against mocked AWS and Google providers, and Checkov
         run: |
-          # Each module downloads the AWS provider once for the whole job.
+          # Each provider is downloaded once for the whole job, not once a module.
           export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/tofu-plugins"
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
           make check-infra

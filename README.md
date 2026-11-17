@@ -41,7 +41,8 @@ Requirements:
   (`corepack enable`), which provides the pinned pnpm
 - [rustup](https://rustup.rs/), which installs the Rust toolchain pinned in
   `worker/rust-toolchain.toml`
-- Helm, OpenTofu (for the AWS modules in `deploy/aws`), and the supply-chain
+- Helm, OpenTofu (for the AWS and Google Cloud modules in `deploy/aws` and
+  `deploy/gcp`), and the supply-chain
   scanners used by `make check`:
   `brew install helm opentofu osv-scanner cargo-deny grype syft`
 

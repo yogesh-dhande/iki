@@ -1,0 +1,69 @@
+# What deploy/gcp/production's helm_values output is for its test inputs: its
+# test checks that, and the chart's tests render the chart with it.
+allowedHosts:
+  - iki.example.com
+backendWorkers:
+  nodeSelector:
+    iki.ikisci.org/pool: runs
+  tolerations:
+    - effect: NoSchedule
+      key: iki.ikisci.org/pool
+      operator: Equal
+      value: runs
+bundles:
+  signingKey:
+    existingSecret: iki-bundle-signing-key
+database:
+  caSecret:
+    key: ca.crt
+    name: iki-database-ca
+  existingSecret: iki-database
+  migrator:
+    existingSecret: iki-database-migrator
+encryptionKeys:
+  existingSecret: iki-encryption-keys
+files:
+  bucket: iki-test-files-iki-test-project
+  credentials:
+    existingSecret: iki-files-hmac
+  endpoint: https://storage.googleapis.com
+  prefix: ""
+  region: auto
+ingress:
+  enabled: false
+networkPolicy:
+  egress:
+    database:
+      to:
+        - ipBlock:
+            cidr: 10.40.240.0/20
+    objectStorage:
+      to:
+        - ipBlock:
+            cidr: 199.36.153.8/30
+    podIdentity:
+      ports:
+        - 80
+        - 988
+      to:
+        - ipBlock:
+            cidr: 169.254.169.254/32
+        - ipBlock:
+            cidr: 169.254.169.252/32
+  ingressFrom:
+    - ipBlock:
+        cidr: 35.191.0.0/16
+    - ipBlock:
+        cidr: 130.211.0.0/22
+publicUrl: https://iki.example.com
+runSecrets:
+  existingSecret: iki-run-secrets
+secretKey:
+  existingSecret: iki-secret-key
+serviceAccount:
+  annotations:
+    iam.gke.io/gcp-service-account: iki-test-server@iki-test-project.iam.gserviceaccount.com
+vmTier:
+  enabled: false
+web:
+  keepAliveSeconds: 620

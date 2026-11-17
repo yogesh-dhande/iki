@@ -136,3 +136,4 @@ supersedes the old one, and update the old one's status.
 | [0104](0104-an-identity-can-name-an-optional-field.md)                               | An identity can name an optional field, beside a required one                                       | Accepted |
 | [0105](0105-an-input-can-include-what-its-references-name.md)                        | An input can include what its references name                                                       | Accepted |
 | [0106](0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)       | How an entity was made: recorded by Iki, or stated by its source                                    | Accepted |
+| [0107](0107-reference-gcp-infrastructure-in-opentofu.md)                             | Reference Google Cloud infrastructure in OpenTofu                                                   | Accepted |
