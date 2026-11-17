@@ -108,15 +108,3 @@ run "refuses_a_single_region_custom_placement" {
   }
   expect_failures = [var.data_locations]
 }
-
-run "a_pair_with_a_predefined_dual_region_is_made_as_it" {
-  variables {
-    location       = "US"
-    data_locations = ["us-east1", "us-central1"]
-    kms_key        = "projects/iki-test-project/locations/us/keyRings/iki-test-files/cryptoKeys/files"
-  }
-  assert {
-    condition     = google_storage_bucket.files.location == "NAM4" && length(google_storage_bucket.files.custom_placement_config) == 0
-    error_message = "Cloud Storage refuses a custom dual-region of us-central1 and us-east1: it's NAM4."
-  }
-}

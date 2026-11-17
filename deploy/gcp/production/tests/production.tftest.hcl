@@ -313,3 +313,23 @@ run "data_access_logs_for_the_services_named" {
     error_message = "Only the services named should have their Data Access audit logs turned on."
   }
 }
+
+run "a_pair_with_a_predefined_dual_region_is_made_as_it_with_its_key_there" {
+  variables {
+    region       = "us-central1"
+    dr_region    = "us-east1"
+    multi_region = "us"
+    zones        = ["us-central1-b", "us-central1-c"]
+  }
+  assert {
+    condition     = module.storage.location == "NAM4" && local.files_dual_region == "NAM4"
+    error_message = "Cloud Storage refuses a custom dual-region of us-central1 and us-east1, and a key for NAM4 in us: it's NAM4, with its key in nam4."
+  }
+}
+
+run "any_other_pair_is_a_custom_dual_region_with_its_key_in_the_multi_region" {
+  assert {
+    condition     = module.storage.location == "EU" && local.files_dual_region == null
+    error_message = "europe-west1 and europe-west4 have no predefined dual-region: a custom one in EU."
+  }
+}

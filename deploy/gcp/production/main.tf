@@ -11,6 +11,25 @@ locals {
     key      = "projects/${var.project_id}/locations/${var.region}/keyRings/${var.recovery.name}-dr/cryptoKeys/database-dr"
     bucket   = "${var.recovery.name}-files-${var.project_id}"
   }
+  # The files bucket's two regions. Recovering, the lost deployment's bucket stays where
+  # it is: changing its regions would replace it.
+  files_regions = local.lost == null ? [var.region, var.dr_region] : [var.recovery.lost_region, var.region]
+  # Cloud Storage makes no custom dual-region of a pair with a predefined one (Iowa and
+  # South Carolina are NAM4's), and a predefined dual-region's key must be in it, not in
+  # the multi-region around it. Such a pair is its predefined dual-region, and its key's
+  # there; any other pair is a custom dual-region, with its key in the multi-region.
+  predefined_dual_regions = {
+    ASIA1 = ["ASIA-NORTHEAST1", "ASIA-NORTHEAST2"]
+    EUR4  = ["EUROPE-NORTH1", "EUROPE-WEST4"]
+    EUR5  = ["EUROPE-WEST1", "EUROPE-WEST2"]
+    EUR7  = ["EUROPE-WEST2", "EUROPE-WEST3"]
+    EUR8  = ["EUROPE-WEST3", "EUROPE-WEST6"]
+    NAM4  = ["US-CENTRAL1", "US-EAST1"]
+  }
+  files_dual_region = one([
+    for name, regions in local.predefined_dual_regions : name
+    if sort(regions) == sort([for r in local.files_regions : upper(r)])
+  ])
 }
 
 module "kms" {
@@ -19,7 +38,7 @@ module "kms" {
   project_id       = var.project_id
   region           = var.region
   dr_region        = var.dr_region
-  files_location   = var.multi_region
+  files_location   = local.files_dual_region == null ? var.multi_region : lower(local.files_dual_region)
   protection_level = var.kms_protection_level
   labels           = var.labels
 }
@@ -97,10 +116,9 @@ module "storage" {
   source     = "../modules/storage"
   name       = var.name
   project_id = var.project_id
-  location   = upper(var.multi_region == "europe" ? "eu" : var.multi_region)
-  # Recovering, the lost deployment's bucket stays where it is: changing its regions
-  # would replace it.
-  data_locations    = local.lost == null ? [var.region, var.dr_region] : [var.recovery.lost_region, var.region]
+  location   = coalesce(local.files_dual_region, upper(var.multi_region == "europe" ? "eu" : var.multi_region))
+  # A custom dual-region's regions; a predefined one's are its own.
+  data_locations    = local.files_dual_region == null ? local.files_regions : []
   turbo_replication = var.turbo_replication
   kms_key           = module.kms.keys["files"]
   prefix            = var.files_prefix

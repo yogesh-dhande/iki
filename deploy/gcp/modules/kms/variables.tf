@@ -29,7 +29,7 @@ variable "dr_region" {
 }
 
 variable "files_location" {
-  description = "Where the files bucket's key is: the bucket's location, lowercase. For a dual-region bucket, the multi-region containing both regions (europe, us or asia), so the key outlives either region."
+  description = "Where the files bucket's key is: the bucket's location, lowercase. For a custom dual-region bucket, the multi-region containing both regions (europe, us or asia), so the key outlives either region; for a predefined dual-region (nam4), that one."
   type        = string
 }
 

@@ -11,30 +11,16 @@ locals {
   # Iki's own rule, which `iki-server setup_storage` sets on S3: abandoned uploads, and
   # staging objects older than 2 days, go.
   staging = var.prefix == "" ? "uploads/" : "${trimsuffix(var.prefix, "/")}/uploads/"
-  # Cloud Storage refuses a custom dual-region of a pair with a predefined one (Iowa and
-  # South Carolina are NAM4's): such a pair is made as its predefined dual-region.
-  predefined = {
-    ASIA1 = ["ASIA-NORTHEAST1", "ASIA-NORTHEAST2"]
-    EUR4  = ["EUROPE-NORTH1", "EUROPE-WEST4"]
-    EUR5  = ["EUROPE-WEST1", "EUROPE-WEST2"]
-    EUR7  = ["EUROPE-WEST2", "EUROPE-WEST3"]
-    EUR8  = ["EUROPE-WEST3", "EUROPE-WEST6"]
-    NAM4  = ["US-CENTRAL1", "US-EAST1"]
-  }
-  pair     = sort([for l in var.data_locations : upper(l)])
-  named    = [for name, regions in local.predefined : name if sort(regions) == local.pair]
-  location = length(local.named) == 0 ? var.location : local.named[0]
-  custom   = length(var.data_locations) != 0 && length(local.named) == 0
 }
 
 resource "google_storage_bucket" "files" {
   #checkov:skip=CKV_GCP_62:Cloud Audit Logs' Data Access logs record every read and write (the logs module); usage logs are Google's legacy for that.
   project  = var.project_id
   name     = local.bucket
-  location = local.location
+  location = var.location
   # A custom dual-region: written to both regions, served from either.
   dynamic "custom_placement_config" {
-    for_each = local.custom ? [1] : []
+    for_each = length(var.data_locations) == 0 ? [] : [1]
     content {
       data_locations = [for l in var.data_locations : upper(l)]
     }
