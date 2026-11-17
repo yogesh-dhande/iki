@@ -25,8 +25,10 @@ service account, add ``--impersonate-service-account=<email>``, or give any comm
 whose last line is a token. Your gcloud configuration and credentials are otherwise
 unused and unchanged. Other settings:
 
-- IKI_GCP_NAME: the deployment's name, ``iki-test`` by default. Everything it makes is
-  named for it and labelled ``<name>=true``.
+- IKI_GCP_NAME: the deployment's name; by default each run gets its own,
+  ``iki-test-<MMDDHHMM>`` (UTC), since a name can't be used again in a project: Cloud KMS
+  key rings are never deleted, and custom IAM roles' IDs are kept for 37 days. Everything
+  it makes is named for it, and labelled ``iki-test=true`` and ``iki-deployment=<name>``.
 - IKI_GCP_REGION, IKI_GCP_DR_REGION, IKI_GCP_MULTI_REGION, IKI_GCP_ZONES (comma
   separated): us-central1, us-east1, us, and the region's b and c zones by default.
 - IKI_GCP_DATA_ACCESS: the services whose Data Access audit logs it turns on, comma
@@ -36,6 +38,7 @@ unused and unchanged. Other settings:
 - IKI_GCP_WORKDIR: where it keeps OpenTofu's state, the kubeconfig and the certificate,
   ``build/gcp-live/<name>`` by default. If a run is killed before tearing down, run
   ``IKI_TEARDOWN_YES=1 deploy/gcp/scripts/teardown.sh <project> <name> --bootstrap``
+  (build/gcp-live/last-run holds the last run's name)
   from there.
 """
 
@@ -110,9 +113,19 @@ class Settings:
     workdir: Path
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls, *, new: bool = False) -> "Settings":
+        """The run's settings. Unless IKI_GCP_NAME names it, a new run (new) gets a name of
+        its own, iki-test-<month><day><hour><minute> in UTC, and is remembered as the last
+        run, which a later look (the cost report) takes."""
         env = os.environ
-        name = env.get("IKI_GCP_NAME", "iki-test")
+        last = REPO / "build" / "gcp-live" / "last-run"
+        name = env.get("IKI_GCP_NAME", "")
+        if not name and new:
+            name = "iki-test-" + datetime.datetime.now(datetime.UTC).strftime("%m%d%H%M")
+            last.parent.mkdir(parents=True, exist_ok=True)
+            last.write_text(name)
+        elif not name:
+            name = last.read_text().strip()
         region = env.get("IKI_GCP_REGION", "us-central1")
         zones = env.get("IKI_GCP_ZONES", f"{region}-b,{region}-c")
         return cls(
@@ -704,14 +717,7 @@ class Deployment:
             ("the facts the cost report needs", lambda: record_facts(gcp, s)),
             (
                 "teardown.sh",
-                lambda: gcp.stream(
-                    "deploy/gcp/scripts/teardown.sh",
-                    s.project,
-                    s.name,
-                    "--bootstrap",
-                    log="teardown.log",
-                    timeout=5400,
-                ),
+                lambda: run_teardown(gcp, s),
             ),
             (
                 "the internal certificate",
@@ -764,6 +770,26 @@ class Deployment:
         self.after.write(s.workdir / "gcp-after.txt")
         problems = leftovers(self.before, self.after, s) if self.before else []
         return [*self.teardown_errors, *problems]
+
+
+def run_teardown(gcp: Gcp, s: Settings) -> None:
+    """teardown.sh, and once more if it fails: it skips what's gone, so a second run
+    finishes what a passing failure (an API's hiccup, a lock) stopped."""
+    for attempt in (1, 2):
+        try:
+            gcp.mint()
+            gcp.stream(
+                "deploy/gcp/scripts/teardown.sh",
+                s.project,
+                s.name,
+                "--bootstrap",
+                log="teardown.log",
+                timeout=5400,
+            )
+            return
+        except AssertionError:
+            if attempt == 2:
+                raise
 
 
 def record_facts(gcp: Gcp, s: Settings) -> None:
@@ -870,7 +896,8 @@ def variables(s: Settings, gcp: Gcp, state_key: str, writers: list[str]) -> dict
         "log_retention_days": 30,
         "optional_secrets": ["backend-worker-token"],
         "image_writers": writers,
-        "labels": {s.name: "true"},
+        # Every run's, besides the modules' iki-deployment=<name>.
+        "labels": {"iki-test": "true"},
     }
 
 
@@ -954,30 +981,48 @@ def build_plugins(root: Path) -> None:
     )
 
 
+#: Cloud Build's own Docker daemon has a BuildKit too old for deploy/worker.Dockerfile's
+#: secret mount into an environment variable (exec.secretenv), so every image builds in
+#: a BuildKit container of its own (buildx's docker-container driver), which pushes it:
+#: the bases too, since such a builder can't see images in the daemon. It signs in to
+#: Artifact Registry as the build's service account, with the metadata server's token.
 CLOUDBUILD = """
 steps:
+  - id: builder
+    name: docker:27.5.1-cli
+    entrypoint: sh
+    args:
+      - -c
+      - >-
+        wget -qO- --header "Metadata-Flavor: Google"
+        http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+        | sed -E 's/.*"access_token":"([^"]+)".*/\\1/'
+        | docker login -u oauth2accesstoken --password-stdin https://${_REGISTRY}
+        && docker buildx create --name iki --driver docker-container --bootstrap
   - id: server-base
-    name: gcr.io/cloud-builders/docker
-    env: [DOCKER_BUILDKIT=1]
-    args: [build, -f, server/Dockerfile, -t, iki-server-base:live, .]
+    name: docker:27.5.1-cli
+    entrypoint: docker
+    args: [buildx, build, --builder, iki, -f, server/Dockerfile, -t, "${_SERVER_BASE}", --push, .]
+    waitFor: [builder]
   - id: server
-    name: gcr.io/cloud-builders/docker
-    env: [DOCKER_BUILDKIT=1]
-    args: [build, -f, deploy/plugins.Dockerfile, --build-arg, IKI_SERVER_IMAGE=iki-server-base:live,
-           -t, "${_SERVER}", build/gcp-live/server]
+    name: docker:27.5.1-cli
+    entrypoint: docker
+    args: [buildx, build, --builder, iki, -f, deploy/plugins.Dockerfile,
+           --build-arg, "IKI_SERVER_IMAGE=${_SERVER_BASE}", -t, "${_SERVER}", --push,
+           build/gcp-live/server]
     waitFor: [server-base]
   - id: worker-base
-    name: gcr.io/cloud-builders/docker
-    env: [DOCKER_BUILDKIT=1]
-    args: [build, -f, worker/Dockerfile, -t, iki-worker-base:live, .]
-    waitFor: ["-"]
+    name: docker:27.5.1-cli
+    entrypoint: docker
+    args: [buildx, build, --builder, iki, -f, worker/Dockerfile, -t, "${_WORKER_BASE}", --push, .]
+    waitFor: [builder]
   - id: worker
-    name: gcr.io/cloud-builders/docker
-    env: [DOCKER_BUILDKIT=1]
-    args: [build, -f, deploy/worker.Dockerfile, --build-arg, IKI_WORKER_IMAGE=iki-worker-base:live,
-           -t, "${_WORKER}", build/gcp-live/worker]
+    name: docker:27.5.1-cli
+    entrypoint: docker
+    args: [buildx, build, --builder, iki, -f, deploy/worker.Dockerfile,
+           --build-arg, "IKI_WORKER_IMAGE=${_WORKER_BASE}", -t, "${_WORKER}", --push,
+           build/gcp-live/worker]
     waitFor: [worker-base]
-images: ["${_SERVER}", "${_WORKER}"]
 options: {machineType: E2_HIGHCPU_8, diskSizeGb: 100, logging: CLOUD_LOGGING_ONLY}
 timeout: 5400s
 """
@@ -1084,6 +1129,7 @@ def stand_up(d: Deployment) -> None:
         gcp.run("tofu", "-chdir=deploy/gcp/production", "output", "-json", "images").stdout
     )
     server, worker = f"{images['server']}/iki-server:live", f"{images['worker']}/iki-worker:live"
+    registry = images["server"].split("/", 1)[0]
     build_plugins(work)
     archive = source_archive(work)
     # Tagged, so the cost report finds its builds.
@@ -1099,20 +1145,22 @@ def stand_up(d: Deployment) -> None:
             "--config",
             str(work / "cloudbuild.yaml"),
             f"--gcs-source-staging-dir=gs://{s.project}_cloudbuild/{s.name}-live",
-            f"--substitutions=_SERVER={server},_WORKER={worker}",
+            f"--substitutions=_SERVER={server},_WORKER={worker},_REGISTRY={registry},"
+            f"_SERVER_BASE={images['server']}/iki-server-base:live,"
+            f"_WORKER_BASE={images['worker']}/iki-worker-base:live",
             timeout=900,
         )
         .strip()
         .splitlines()[-1]
     )
-    # The cluster and the database, the slow parts, alone: each apply fits in its token's hour.
-    gcp.tofu(
-        "production",
-        "apply",
-        "-input=false",
-        "-auto-approve",
-        "-target=module.cluster",
-        "-target=module.database",
+    # Everything but the cluster first, then the cluster and what needs it: each apply fits
+    # in its token's hour, and what Google refuses fails in minutes, before a cluster is
+    # made to be torn down. The images build meanwhile, for longer than both.
+    gcp.tofu("production", "apply", "-input=false", "-auto-approve", "-exclude=module.cluster")
+    # A build that has failed already fails the run now, not after the rest is made.
+    early = gcp.gcloud("builds", "describe", build, "--format=value(status)").strip()
+    assert early in ("QUEUED", "PENDING", "WORKING", "SUCCESS"), (
+        f"build {build}: {early} (gcloud builds log {build})"
     )
     gcp.tofu("production", "apply", "-input=false", "-auto-approve")
     status = until(
@@ -1272,7 +1320,7 @@ def stand_up(d: Deployment) -> None:
 
 @pytest.fixture(scope="module")
 def deployment() -> Iterator[Deployment]:
-    s = Settings.from_env()
+    s = Settings.from_env(new=True)
     s.workdir.mkdir(parents=True, exist_ok=True)
     gcp = Gcp(s)
     d = Deployment(s, gcp)

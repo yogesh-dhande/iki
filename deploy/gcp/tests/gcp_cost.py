@@ -5,7 +5,7 @@ when it was created and deleted. That times the list price of its SKU, fetched f
 the Cloud Billing Catalog API, in the deployment's region. Cloud Build's minutes come
 from its builds, log volume from Cloud Monitoring, and Artifact Registry's storage from
 the image sizes the test noted before tearing down. If the project exports billing to
-BigQuery, the export's rows labelled ``<name>=true`` are queried too, though they lag
+BigQuery, the export's rows labelled ``iki-deployment=<name>`` are queried too, though they lag
 by up to a day.
 
 The test runs it when it has torn down. To run it again for a past run:
@@ -554,7 +554,7 @@ def _log_bytes(cloud: Cloud, window: Window) -> float:
 
 
 def billing_export(cloud: Cloud, window: Window) -> list[dict[str, Any]] | str:
-    """The project's billing export's rows labelled <name>=true, if it has one."""
+    """The project's billing export's rows labelled iki-deployment=<name>, if it has one."""
     headers = {"Authorization": f"Bearer {cloud.access_token()}"}
     api = f"https://bigquery.googleapis.com/bigquery/v2/projects/{window.project}"
     datasets = requests.get(f"{api}/datasets", headers=headers, timeout=60)
@@ -579,7 +579,8 @@ def billing_export(cloud: Cloud, window: Window) -> list[dict[str, Any]] | str:
             " SUM(cost) AS cost, ANY_VALUE(currency) AS currency"
             f" FROM `{table}`"
             " WHERE usage_start_time >= @start AND usage_end_time <= @end"
-            " AND EXISTS (SELECT 1 FROM UNNEST(labels) l WHERE l.key = @label AND l.value = 'true')"
+            " AND EXISTS (SELECT 1 FROM UNNEST(labels) l"
+            " WHERE l.key = 'iki-deployment' AND l.value = @label)"
             " GROUP BY 1, 2, 3 ORDER BY cost DESC"
         )
         end = window.end + datetime.timedelta(hours=2)
@@ -608,7 +609,9 @@ def billing_export(cloud: Cloud, window: Window) -> list[dict[str, Any]] | str:
             for r in answer.json().get("rows", [])
         ]
         if not rows:
-            return f"{table}: no rows labelled {window.name}=true yet (the export lags up to a day)"
+            return (
+                f"{table}: no rows labelled iki-deployment={window.name} yet (it lags up to a day)"
+            )
     return rows
 
 
