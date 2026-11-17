@@ -32,3 +32,8 @@ output "adopted" {
   description = "The promoted replica this database is, recovering from a lost region; null for a database made new."
   value       = local.adopted ? local.instance : null
 }
+
+output "deletion_protection" {
+  description = "Whether OpenTofu and Cloud SQL refuse to delete the database."
+  value       = google_sql_database_instance.this.deletion_protection && one(google_sql_database_instance.this.settings).deletion_protection_enabled
+}

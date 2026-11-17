@@ -237,6 +237,12 @@ variable "recovery" {
   }
 }
 
+variable "deletion_protection" {
+  description = "Refuse to delete the cluster, the database and the secrets. Set false and apply, then destroy, only to tear the deployment down."
+  type        = bool
+  default     = true
+}
+
 variable "labels" {
   description = "Labels on everything made, such as your cost centre's."
   type        = map(string)

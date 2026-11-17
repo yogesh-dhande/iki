@@ -255,3 +255,20 @@ run "refuses_the_same_region_for_dr" {
   }
   expect_failures = [var.dr_region]
 }
+
+run "everything_protected_from_deletion_by_default" {
+  assert {
+    condition     = module.cluster.deletion_protection && module.database.deletion_protection && module.secrets.deletion_protection
+    error_message = "The cluster, the database and the secrets should refuse to be deleted unless told otherwise."
+  }
+}
+
+run "a_teardown_turns_deletion_protection_off_everywhere" {
+  variables {
+    deletion_protection = false
+  }
+  assert {
+    condition     = !module.cluster.deletion_protection && !module.database.deletion_protection && !module.secrets.deletion_protection
+    error_message = "deletion_protection = false should let the cluster, the database and the secrets be destroyed."
+  }
+}

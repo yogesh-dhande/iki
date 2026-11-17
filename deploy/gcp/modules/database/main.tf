@@ -45,7 +45,7 @@ resource "google_sql_database_instance" "this" {
   region              = var.region
   database_version    = "POSTGRES_${var.engine_version}"
   encryption_key_name = local.key
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 
   settings {
     edition           = var.edition
@@ -56,7 +56,7 @@ resource "google_sql_database_instance" "this" {
     disk_autoresize   = true
     # How far Cloud SQL may grow the disk by itself as it fills.
     disk_autoresize_limit       = var.max_disk_size_gib
-    deletion_protection_enabled = true
+    deletion_protection_enabled = var.deletion_protection
     # Kept when the instance is deleted, and a last backup taken first.
     retain_backups_on_delete = true
     final_backup_config {
@@ -203,7 +203,7 @@ resource "google_sql_database_instance" "dr" {
   database_version     = google_sql_database_instance.this.database_version
   master_instance_name = google_sql_database_instance.this.name
   encryption_key_name  = var.dr_kms_key
-  deletion_protection  = true
+  deletion_protection  = var.deletion_protection
 
   replica_configuration {
     failover_target = false
@@ -216,7 +216,7 @@ resource "google_sql_database_instance" "dr" {
     disk_type                   = "PD_SSD"
     disk_autoresize             = true
     disk_autoresize_limit       = var.max_disk_size_gib
-    deletion_protection_enabled = true
+    deletion_protection_enabled = var.deletion_protection
     user_labels                 = local.labels
 
     ip_configuration {

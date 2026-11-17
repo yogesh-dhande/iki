@@ -91,6 +91,20 @@ run "it_recovers_to_any_minute_of_the_last_35_days" {
   }
 }
 
+run "deletable_only_when_told_to_tear_down" {
+  variables {
+    deletion_protection = false
+  }
+  assert {
+    condition     = !google_sql_database_instance.this.deletion_protection && !one(google_sql_database_instance.this.settings).deletion_protection_enabled && !google_sql_database_instance.dr[0].deletion_protection && !one(google_sql_database_instance.dr[0].settings).deletion_protection_enabled
+    error_message = "With deletion_protection off, OpenTofu and Cloud SQL should both let the database and its replica go."
+  }
+  assert {
+    condition     = one(google_sql_database_instance.this.settings).retain_backups_on_delete
+    error_message = "Deleting it should still keep its backups."
+  }
+}
+
 run "a_replica_follows_it_in_the_dr_region" {
   assert {
     condition     = google_sql_database_instance.dr[0].master_instance_name == google_sql_database_instance.this.name && google_sql_database_instance.dr[0].region == "europe-west4"

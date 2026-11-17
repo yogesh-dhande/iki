@@ -53,5 +53,5 @@ resource "google_secret_manager_secret" "this" {
 
   # A destroyed version can be restored for this long.
   version_destroy_ttl = "${var.recovery_window_days * 86400}s"
-  deletion_protection = true
+  deletion_protection = var.deletion_protection
 }

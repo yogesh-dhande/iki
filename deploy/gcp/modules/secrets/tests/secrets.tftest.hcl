@@ -46,6 +46,16 @@ run "kept_in_both_regions_each_under_its_own_key" {
   }
 }
 
+run "deletable_only_when_told_to_tear_down" {
+  variables {
+    deletion_protection = false
+  }
+  assert {
+    condition     = alltrue([for s in google_secret_manager_secret.this : !s.deletion_protection])
+    error_message = "With deletion_protection off, the secrets should be deletable."
+  }
+}
+
 run "refuses_an_unknown_optional_secret" {
   command = plan
   variables {

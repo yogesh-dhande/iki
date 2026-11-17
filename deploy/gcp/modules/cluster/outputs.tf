@@ -42,3 +42,8 @@ output "node_pools" {
     }
   }
 }
+
+output "deletion_protection" {
+  description = "Whether OpenTofu refuses to delete the cluster."
+  value       = google_container_cluster.this.deletion_protection
+}

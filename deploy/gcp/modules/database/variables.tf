@@ -154,6 +154,12 @@ variable "adopt" {
   default = null
 }
 
+variable "deletion_protection" {
+  description = "Refuse to delete the database and its replica, in OpenTofu and in Cloud SQL. Turn off only to tear a deployment down: deleting it still keeps its backups."
+  type        = bool
+  default     = true
+}
+
 variable "labels" {
   description = "Labels on everything this module makes."
   type        = map(string)

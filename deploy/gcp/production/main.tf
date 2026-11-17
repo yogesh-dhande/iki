@@ -66,24 +66,26 @@ module "cluster" {
   dns_endpoint         = var.dns_endpoint
   node_pools           = var.node_pools
   filestore_csi        = var.filestore != null
+  deletion_protection  = var.deletion_protection
   labels               = var.labels
 }
 
 module "database" {
-  source             = "../modules/database"
-  name               = var.name
-  project_id         = var.project_id
-  region             = var.region
-  network_id         = module.network.network_id
-  allocated_ip_range = module.network.managed_services_range_name
-  kms_key            = module.kms.keys["database"]
-  tier               = var.database_tier
-  backup_location    = var.dr_region
-  dr_region          = var.database_replica ? var.dr_region : null
-  dr_kms_key         = module.kms.keys["database-dr"]
-  iam_principals     = var.database_iam_principals
-  adopt              = local.lost == null ? null : { instance = local.lost.instance, kms_key = local.lost.key }
-  labels             = var.labels
+  source              = "../modules/database"
+  name                = var.name
+  project_id          = var.project_id
+  region              = var.region
+  network_id          = module.network.network_id
+  allocated_ip_range  = module.network.managed_services_range_name
+  kms_key             = module.kms.keys["database"]
+  tier                = var.database_tier
+  backup_location     = var.dr_region
+  dr_region           = var.database_replica ? var.dr_region : null
+  dr_kms_key          = module.kms.keys["database-dr"]
+  iam_principals      = var.database_iam_principals
+  deletion_protection = var.deletion_protection
+  adopt               = local.lost == null ? null : { instance = local.lost.instance, kms_key = local.lost.key }
+  labels              = var.labels
   # Cloud SQL's addresses come from the peering with Google's managed services.
   depends_on = [module.network]
 }
@@ -105,15 +107,16 @@ module "storage" {
 }
 
 module "secrets" {
-  source           = "../modules/secrets"
-  name             = var.name
-  project_id       = var.project_id
-  region           = var.region
-  dr_region        = var.dr_region
-  kms_key          = module.kms.keys["secrets"]
-  dr_kms_key       = module.kms.keys["secrets-dr"]
-  optional_secrets = var.optional_secrets
-  labels           = var.labels
+  source              = "../modules/secrets"
+  name                = var.name
+  project_id          = var.project_id
+  region              = var.region
+  dr_region           = var.dr_region
+  kms_key             = module.kms.keys["secrets"]
+  dr_kms_key          = module.kms.keys["secrets-dr"]
+  optional_secrets    = var.optional_secrets
+  deletion_protection = var.deletion_protection
+  labels              = var.labels
 }
 
 module "registry" {

@@ -60,6 +60,12 @@ variable "recovery_window_days" {
   }
 }
 
+variable "deletion_protection" {
+  description = "Refuse to delete the secrets. Turn off only to tear a deployment down."
+  type        = bool
+  default     = true
+}
+
 variable "labels" {
   description = "Labels on everything this module makes."
   type        = map(string)
