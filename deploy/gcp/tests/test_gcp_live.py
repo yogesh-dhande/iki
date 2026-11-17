@@ -800,9 +800,13 @@ def record_facts(gcp: Gcp, s: Settings) -> None:
     )
     for url in json.loads(listed.stdout).values() if listed.returncode == 0 else []:
         images = gcp.gcloud_json("artifacts", "docker", "images", "list", url, "--include-tags")
-        facts["artifact_bytes"][url.rsplit("/", 1)[-1]] = sum(
-            int(i.get("metadata", {}).get("imageSizeBytes", 0) or i.get("sizeBytes", 0) or 0)
+        # gcloud gives sizes as strings, and "None" for a multi-platform index.
+        sizes = (
+            str(i.get("metadata", {}).get("imageSizeBytes") or i.get("sizeBytes") or "")
             for i in images or []
+        )
+        facts["artifact_bytes"][url.rsplit("/", 1)[-1]] = sum(
+            int(size) for size in sizes if size.isdigit()
         )
     (s.workdir / "gcp-facts.json").write_text(json.dumps(facts, indent=1))
 
