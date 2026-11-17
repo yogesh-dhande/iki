@@ -28,7 +28,7 @@ def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
     code = main(["plugin", "validate", str(PLUGINS / "protein"), "--with", str(PLUGINS / "dna")])
     assert code == 0
     assert capsys.readouterr().out == (
-        "✓ protein 3.0.0 is valid: 2 entity types, 0 extensions, 0 settings, 5 actions, "
+        "✓ acme/protein 3.0.0 is valid: 2 entity types, 0 extensions, 0 settings, 5 actions, "
         "1 environment, 5 workflows, 3 triggers, 1 component.\n"
     )
 
@@ -39,7 +39,7 @@ def test_validates_the_current_directory_by_default(
     monkeypatch.chdir(PLUGINS / "dna")
     assert main(["plugin", "validate"]) == 0
     assert (
-        "✓ dna 1.2.0 is valid: 2 entity types, 0 extensions, 2 settings, 0 actions, "
+        "✓ acme/dna 1.2.0 is valid: 2 entity types, 0 extensions, 2 settings, 0 actions, "
         "0 environments, 0 workflows, 0 triggers, 0 components." in capsys.readouterr().out
     )
 
@@ -81,14 +81,14 @@ def test_warnings_pass_unless_strict(tmp_path: Path, capsys: pytest.CaptureFixtu
     plugin = tmp_path / "acme"
     plugin.mkdir()
     (plugin / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/lab\nversion: 1.0.0\n"
         "settings:\n  api_key: { type: string }\n"
     )
     assert main(["plugin", "validate", str(plugin)]) == 0
     out = capsys.readouterr().out
     assert "warning: `api_key` looks like a secret." in out
     assert out.endswith(
-        "✓ acme 1.0.0 is valid: 0 entity types, 0 extensions, 1 setting, 0 actions, "
+        "✓ acme/lab 1.0.0 is valid: 0 entity types, 0 extensions, 1 setting, 0 actions, "
         "0 environments, 0 workflows, 0 triggers, 0 components, with 1 warning.\n"
     )
     assert main(["plugin", "validate", str(plugin), "--strict"]) == 1
@@ -101,9 +101,9 @@ def test_checks_settings_values(tmp_path: Path, capsys: pytest.CaptureFixture[st
     values.write_text("ncbi_emial: lab@example.com\n")
     assert main(["plugin", "validate", str(PLUGINS / "dna"), "--settings", str(values)]) == 1
     out = capsys.readouterr().out
-    assert "error: The dna plugin has no setting `ncbi_emial`. [unknown-setting]" in out
+    assert "error: The acme/dna plugin has no setting `ncbi_emial`. [unknown-setting]" in out
     assert "hint: Did you mean `ncbi_email`?" in out
-    assert "error: The dna plugin needs `ncbi_email` to be set. [missing-setting]" in out
+    assert "error: The acme/dna plugin needs `ncbi_email` to be set. [missing-setting]" in out
 
 
 def test_json_output(broken: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -130,9 +130,9 @@ def test_json_output(broken: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["plugin", "validate", str(PLUGINS / "dna"), "--format", "json"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["plugin"] == {
-        "name": "dna",
+        "name": "acme/dna",
         "version": "1.2.0",
-        "types": ["dna.DNASequence", "dna.Sequence"],
+        "types": ["acme/dna.DNASequence", "acme/dna.Sequence"],
         "extensions": [],
         "settings": ["max_sequence_length", "ncbi_email"],
         "actions": [],

@@ -69,8 +69,8 @@ mod tests {
             "apiVersion": "iki/v1",
             "kind": "RunInput",
             "run": {
-                "id": "r", "hrid": "RUN-1", "attempt": 1, "action": "protein.fold",
-                "plugin": {"name": "protein", "version": "1.0.0", "sha": null},
+                "id": "r", "hrid": "RUN-1", "attempt": 1, "action": "iki/protein.fold",
+                "plugin": {"name": "iki/protein", "version": "1.0.0", "sha": null},
                 "project": "p",
             },
             "job": {
@@ -82,7 +82,7 @@ mod tests {
             "environment": "default",
             "params": {"seed": 1},
             "inputs": {"protein": [{
-                "id": "e", "hrid": "PRO-1", "type": "protein.Protein",
+                "id": "e", "hrid": "PRO-1", "type": "iki/protein.Protein",
                 "schema_version": 1, "revision": 2, "values": {"name": "abl"},
             }]},
         }))
@@ -90,7 +90,7 @@ mod tests {
         assert_eq!(input.api_version, RunInputApiVersion::IkiV1);
         assert_eq!(input.run.plugin.sha, None);
         assert_eq!(input.job.resources.cpu, Some(0.5));
-        assert_eq!(input.inputs["protein"][0].r#type, "protein.Protein");
+        assert_eq!(input.inputs["protein"][0].r#type, "iki/protein.Protein");
     }
 
     #[test]

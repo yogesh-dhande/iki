@@ -33,7 +33,7 @@
         },
         "environment": {
           "type": "string",
-          "description": "plugin.environment"
+          "description": "The plugin and the environment, such as `iki/protein.structure-tools`."
         },
         "plugin": {
           "type": "object",

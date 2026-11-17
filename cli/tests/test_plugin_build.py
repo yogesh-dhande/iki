@@ -19,7 +19,8 @@ def test_builds_every_plugin_given(tmp_path: Path, capsys: pytest.CaptureFixture
     code = main(["plugin", "build", *(str(PLUGINS / n) for n in names), "--output", str(out)])
     assert code == 0
     assert capsys.readouterr().out == "".join(
-        f"Built {out / f'iki_plugin_{n}'}\n" for n in ("dna", "protein", "structure_prediction")
+        f"Built {out / f'iki_plugin_{n}'}\n"
+        for n in ("acme__dna", "acme__protein", "acme__prediction")
     )
     assert (out / "iki_installed_plugins" / "__init__.py").exists()
 
@@ -28,9 +29,9 @@ def test_missing_dependencies_fail(tmp_path: Path, capsys: pytest.CaptureFixture
     code = main(["plugin", "build", str(PLUGINS / "protein"), "--output", str(tmp_path)])
     assert code == 1
     assert capsys.readouterr().err == (
-        "error: protein needs the dna plugin: give its directory too.\n"
+        "error: acme/protein needs the acme/dna plugin: give its directory too.\n"
     )
-    assert not (tmp_path / "iki_plugin_protein").exists()
+    assert not (tmp_path / "iki_plugin_acme__protein").exists()
 
 
 def test_invalid_plugins_fail(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -66,9 +66,9 @@ INSTALLED_APPS = [
     "iki_server.runs",
     "iki_server.plugins",
     "iki_server.bundles",
-    # The core plugin's types (core.Collection), which every deployment has
+    # The core plugin's types (iki/core.Collection), which every deployment has
     # (ADR 0038). Its app is generated like any plugin's: `make core`.
-    "iki_plugin_core.apps.PluginConfig",
+    "iki_plugin_iki__core.apps.PluginConfig",
     "oauth2_provider",
     "allauth",
     "allauth.account",
@@ -597,8 +597,8 @@ except ValueError as _error:
 # --- Run secrets (ADR 0054) ------------------------------------------------
 # The secrets actions declare, kept in the deployment's secret manager and
 # mounted here (a Kubernetes Secret, synced by External Secrets or the like):
-# one file per secret, named for its plugin and name, such as
-# dna.NCBI_API_KEY. Only web pods mount it; each run gets only its own.
+# one file per secret, named for its plugin's label and name, such as
+# iki__dna.NCBI_API_KEY. Only web pods mount it; each run gets only its own.
 
 IKI_RUN_SECRETS_DIR: str = env.str("IKI_RUN_SECRETS_DIR", default="")
 if IKI_RUN_SECRETS_DIR and not Path(IKI_RUN_SECRETS_DIR).is_dir():

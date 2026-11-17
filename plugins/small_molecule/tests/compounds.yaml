@@ -16,14 +16,14 @@ params:
 expect:
   output:
     creates:
-      - type: small_molecule.Compound
+      - type: iki/small_molecule.Compound
         values:
           { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, smiles: CC(=O)Oc1ccccc1C(=O)O, name: aspirin }
-      - type: small_molecule.CompoundBatch
+      - type: iki/small_molecule.CompoundBatch
         values: { formula_weight: 180.159 }
-      - type: small_molecule.Compound
+      - type: iki/small_molecule.Compound
         values: { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, name: aspirin sodium }
-      - type: small_molecule.CompoundBatch
+      - type: iki/small_molecule.CompoundBatch
         values: { salt: sodium, salt_equivalents: 1, formula_weight: 202.141 }
     metrics: { lines: 2, skipped: 0 }
 ---

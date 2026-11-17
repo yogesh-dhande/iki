@@ -38,7 +38,7 @@ def run(hrid: str = "RUN-000001", status: str = "queued", **extra: Any) -> dict[
     return {
         "id": f"00000000-0000-7000-9000-{int(hrid[-6:]):012d}",
         "hrid": hrid,
-        "action": "protein.compute_properties",
+        "action": "iki/protein.compute_properties",
         "status": status,
         "project": PROJECT,
         "requested_by": {"id": "u1", "name": "Rosalind Franklin"},
@@ -175,7 +175,7 @@ def test_problems_become_errors_that_say_what_was_wrong(fake: FakeIki, client: C
         ),
     )
     with pytest.raises(iki.Invalid) as raised:
-        client.entities.create("protein.Protein", {"sequence": "123"}, project=PROJECT)
+        client.entities.create("iki/protein.Protein", {"sequence": "123"}, project=PROJECT)
     error = raised.value
     assert (error.status, error.code, error.request_id) == (422, "validation_failed", "req-1")
     assert [str(e) for e in error.errors] == ["#/values/sequence: isn't a protein sequence."]
@@ -210,6 +210,22 @@ def test_paths_are_escaped(fake: FakeIki, client: Client) -> None:
     assert fake.requests[0].url.raw_path == b"/api/v1/entities/..%2Fme"
 
 
+def test_names_keep_their_namespace(fake: FakeIki, client: Client) -> None:
+    # A plugin's name is `namespace/name`: its `/` goes as it is, and nothing else does.
+    fake.on("GET", "/api/v1/entity-types/iki/protein.Protein", {"name": "iki/protein.Protein"})
+    assert client.types.get("iki/protein.Protein")["name"] == "iki/protein.Protein"
+    assert fake.requests[0].url.raw_path == b"/api/v1/entity-types/iki/protein.Protein"
+    for odd, sent in [
+        ("../runs", b"..%2Fruns"),
+        ("a/b/c", b"a%2Fb%2Fc"),
+        ("/x", b"%2Fx"),
+        ("iki/p q", b"iki/p%20q"),
+    ]:
+        with pytest.raises(iki.NotFound):
+            client.actions.get(odd)
+        assert fake.requests[-1].url.raw_path == b"/api/v1/actions/" + sent
+
+
 # --- Entities ----------------------------------------------------------------------------------
 
 
@@ -221,7 +237,7 @@ def test_searching_goes_through_every_page(fake: FakeIki, client: Client) -> Non
         page([entity("PRT-000003")]),
     )
     found = client.entities.search(
-        "protein.Protein",
+        "iki/protein.Protein",
         project=PROJECT,
         where={"field": "length", "op": "gte", "value": 300},
         sort="-created_at",
@@ -230,7 +246,7 @@ def test_searching_goes_through_every_page(fake: FakeIki, client: Client) -> Non
     assert [e["hrid"] for e in found] == ["PRT-000001", "PRT-000002", "PRT-000003"]
     sent = [json.loads(r.content) for r in fake.sent("POST", "/api/v1/entities/search")]
     assert sent[0] == {
-        "type": "protein.Protein",
+        "type": "iki/protein.Protein",
         "project": PROJECT,
         "where": {"field": "length", "op": "gte", "value": 300},
         "sort": {"field": "created_at", "descending": True},
@@ -264,11 +280,11 @@ def test_projects_are_named_by_slug_or_id(fake: FakeIki, client: Client) -> None
 
 def test_entities_are_looked_up_by_an_external_id(fake: FakeIki, client: Client) -> None:
     fake.on("GET", "/api/v1/entities/lookup", [entity("PRT-000007", lims_id="LIMS-7")])
-    found = client.entities.lookup("protein.Protein", "lims_id", "LIMS-7", project=PROJECT)
+    found = client.entities.lookup("iki/protein.Protein", "lims_id", "LIMS-7", project=PROJECT)
     assert [e["hrid"] for e in found] == ["PRT-000007"]
     sent = fake.requests[-1].url.params
     assert dict(sent) == {
-        "type": "protein.Protein",
+        "type": "iki/protein.Protein",
         "field": "lims_id",
         "value": "LIMS-7",
         "project": PROJECT,
@@ -298,18 +314,18 @@ def test_entities_make_a_dataframe_a_row_each(fake: FakeIki, client: Client) -> 
         "/api/v1/entities/search",
         page([entity("PRT-000001", name="ABL1", length=1130, type="kinase"), linked]),
     )
-    frame = client.entities.search("protein.Protein").to_pandas()
+    frame = client.entities.search("iki/protein.Protein").to_pandas()
     assert list(frame.index) == ["PRT-000001", "PRT-000002"]
     assert frame.loc["PRT-000001", "name"] == "ABL1"
     assert frame.loc["PRT-000002", "length"] == 536
     # References read as the HRIDs they refer to.
     assert frame.loc["PRT-000002", "parent"] == "PRT-000001"
     # A field named like one of every entity's columns keeps both.
-    assert frame.loc["PRT-000001", "type"] == "protein.Protein"
+    assert frame.loc["PRT-000001", "type"] == "iki/protein.Protein"
     assert frame.loc["PRT-000001", "values.type"] == "kinase"
     assert frame.loc["PRT-000001", "project"] == "kinase-atlas"
     assert frame["updated_at"].iloc[0] == pd.Timestamp("2026-11-02T10:30:00Z")
-    assert client.entities.search("protein.Protein").to_pandas(limit=1).shape[0] == 1
+    assert client.entities.search("iki/protein.Protein").to_pandas(limit=1).shape[0] == 1
 
 
 def test_an_empty_search_is_an_empty_dataframe(fake: FakeIki, client: Client) -> None:
@@ -324,9 +340,9 @@ def test_an_empty_search_is_an_empty_dataframe(fake: FakeIki, client: Client) ->
 
 def test_runs_take_inputs_by_hrid_id_or_entity(fake: FakeIki, client: Client) -> None:
     fake.on("GET", "/api/v1/entities/PRT-000002", entity("PRT-000002"))
-    fake.on("POST", "/api/v1/actions/protein.compute_properties/runs", run())
+    fake.on("POST", "/api/v1/actions/iki/protein.compute_properties/runs", run())
     client.runs.start(
-        "protein.compute_properties",
+        "iki/protein.compute_properties",
         project=PROJECT,
         inputs={
             "protein": "PRT-000002",
@@ -335,7 +351,7 @@ def test_runs_take_inputs_by_hrid_id_or_entity(fake: FakeIki, client: Client) ->
         params={"ph": 7.4},
         reason="Weights",
     )
-    assert fake.body("POST", "/api/v1/actions/protein.compute_properties/runs") == {
+    assert fake.body("POST", "/api/v1/actions/iki/protein.compute_properties/runs") == {
         "project": PROJECT,
         "inputs": {
             "protein": "00000000-0000-7000-8000-000000000002",
@@ -355,9 +371,9 @@ def test_runs_take_inputs_by_hrid_id_or_entity(fake: FakeIki, client: Client) ->
 def test_runs_can_run_again_rather_than_reuse_and_be_reproduced(
     fake: FakeIki, client: Client
 ) -> None:
-    fake.on("POST", "/api/v1/actions/protein.import_proteins/runs", run())
-    client.runs.start("protein.import_proteins", project=PROJECT, reuse=False)
-    sent = fake.body("POST", "/api/v1/actions/protein.import_proteins/runs")
+    fake.on("POST", "/api/v1/actions/iki/protein.import_proteins/runs", run())
+    client.runs.start("iki/protein.import_proteins", project=PROJECT, reuse=False)
+    sent = fake.body("POST", "/api/v1/actions/iki/protein.import_proteins/runs")
     assert sent["reuse"] is False
     fake.on("POST", "/api/v1/runs/RUN-000001/reproduce", run("RUN-000002"))
     again = client.runs.reproduce(run(), reason="Audit")
@@ -368,17 +384,17 @@ def test_runs_can_run_again_rather_than_reuse_and_be_reproduced(
 def test_a_batch_runs_one_for_each(fake: FakeIki, client: Client) -> None:
     fake.on(
         "POST",
-        "/api/v1/actions/protein.compute_properties/runs/batch",
+        "/api/v1/actions/iki/protein.compute_properties/runs/batch",
         {"runs": [run("RUN-000001"), run("RUN-000002")]},
     )
     started = client.runs.start_each(
-        "protein.compute_properties",
+        "iki/protein.compute_properties",
         [entity("PRT-000001"), entity("PRT-000002")],
         each="protein",
         project=PROJECT,
     )
     assert [r["hrid"] for r in started] == ["RUN-000001", "RUN-000002"]
-    assert fake.body("POST", "/api/v1/actions/protein.compute_properties/runs/batch")[
+    assert fake.body("POST", "/api/v1/actions/iki/protein.compute_properties/runs/batch")[
         "entities"
     ] == ["00000000-0000-7000-8000-000000000001", "00000000-0000-7000-8000-000000000002"]
 
@@ -581,9 +597,11 @@ def test_the_module_works_through_one_client(
     auth._remember_url(URL, config)
     made = fake.client(auth.Store(config))
     monkeypatch.setattr(iki, "_default", made)
-    fake.on("POST", "/api/v1/actions/protein.compute_properties/runs", run())
+    fake.on("POST", "/api/v1/actions/iki/protein.compute_properties/runs", run())
     fake.on("GET", "/api/v1/runs/RUN-000001", run(status="succeeded"))
-    started = iki.run("protein.compute_properties", project=PROJECT, inputs={"protein": entity()})
+    started = iki.run(
+        "iki/protein.compute_properties", project=PROJECT, inputs={"protein": entity()}
+    )
     assert iki.wait(started)["status"] == "succeeded"
     assert iki.entities is made.entities
     assert iki.client() is made

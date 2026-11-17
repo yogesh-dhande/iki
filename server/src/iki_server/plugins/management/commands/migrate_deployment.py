@@ -9,6 +9,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from iki_server.plugins.deploy import DeployError, migrate_deployment
+from iki_spec import naming
 
 
 class Command(BaseCommand):
@@ -22,7 +23,14 @@ class Command(BaseCommand):
         for line in report.purged:
             self.stdout.write(f"  Purged {line}")
         for app, name in report.reversed:
-            self.stdout.write(f"  Reversed {app}.{name} (rolled back)")
+            self.stdout.write(f"  Reversed {_plugin(app)} {name} (rolled back)")
         for app, name in report.archived:
-            self.stdout.write(f"  Kept a copy of {app}.{name}, to reverse it on a rollback")
+            self.stdout.write(
+                f"  Kept a copy of {_plugin(app)} {name}, to reverse it on a rollback"
+            )
         self.stdout.write("The database matches this build.")
+
+
+def _plugin(label: str) -> str:
+    """The plugin an app label is, by name: ``iki/protein`` for ``iki__protein``."""
+    return naming.plugin_of_label(label) or label

@@ -51,8 +51,7 @@ from iki_server.org import holds
 from iki_server.plugins import sync
 from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
 from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
-from iki_spec import releases
-from iki_spec.validate import RESERVED_PLUGIN_NAMES
+from iki_spec import naming, releases
 
 Key = tuple[str, str]
 
@@ -88,7 +87,17 @@ class Report:
 
 
 def plugin_apps() -> list[str]:
+    """The installed plugins' apps, by label (``iki__protein``): migrations are by label."""
     return [c.label for c in apps.get_app_configs() if c.name.startswith("iki_plugin_")]
+
+
+def _plugin(label: str) -> str:
+    """The plugin an app label is, by name: ``iki/protein`` for ``iki__protein``."""
+    return naming.plugin_of_label(label) or label
+
+
+def _plugins(labels: Iterable[str]) -> str:
+    return ", ".join(_plugin(label) for label in labels)
 
 
 def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django OutputWrapper
@@ -104,7 +113,7 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
     gone = {k[0] for k in unknown if k[0] not in installed} | {
         a for a in archive if a not in installed and any(k[0] == a for k in applied)
     }
-    purging = sorted(gone & registry.purged())
+    purging = sorted(gone & {naming.app_label(name) for name in registry.purged()})
     removed = sorted(a for a in gone - set(purging) if a in archive or _could_be_plugin(a))
     newer = [k for k in unknown if k[0] not in installed and k[0] not in removed + purging]
     if newer:
@@ -115,7 +124,7 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
         )
     if removed:
         raise DeployError(
-            f"The database has the plugin(s) {', '.join(removed)}, but this build doesn't. "
+            f"The database has the plugin(s) {_plugins(removed)}, but this build doesn't. "
             "Removing a plugin needs it detached, then purged (ADR 0092): keep it in the "
             "lockfile."
         )
@@ -149,8 +158,9 @@ def migrate_deployment(stdout: Any = None) -> Report:  # noqa: ANN401 - a Django
 
 
 def _could_be_plugin(label: str) -> bool:
-    """Whether an app the build doesn't have was a plugin rather than part of Iki or Django."""
-    return not label.startswith("iki_") and label not in RESERVED_PLUGIN_NAMES
+    """Whether an app the build doesn't have was a plugin rather than part of Iki or Django:
+    a plugin's label is ``namespace__name``, which no app of Iki's or Django's is."""
+    return naming.plugin_of_label(label) is not None
 
 
 # --- The archive ---------------------------------------------------------------------------------
@@ -237,7 +247,8 @@ def _roll_back(
         target = _last_applied(code, app, applied)
         if target is None:
             raise DeployError(
-                f"Can't roll back {app}: none of this build's migrations for it have run here."
+                f"Can't roll back {_plugin(app)}: none of this build's migrations for it have "
+                "run here."
             )
         targets.append(target)
     plan = executor.migration_plan(targets)
@@ -278,7 +289,7 @@ def _data_loss(executor: MigrationExecutor, plan: list[tuple[Migration, bool]]) 
                 operation.state_forwards(migration.app_label, state)
                 problem = _lost_by_reversing(cursor, migration.app_label, operation, before, state)
                 if problem:
-                    blockers.append(f"{migration.app_label}.{migration.name}: {problem}")
+                    blockers.append(f"{_plugin(migration.app_label)} {migration.name}: {problem}")
     return blockers
 
 
@@ -358,7 +369,7 @@ def _lost_by_reversing(
 
 
 def _purge(
-    names: list[str], archive: dict[str, dict[Key, PluginMigration]], applied: set[Key]
+    labels: list[str], archive: dict[str, dict[Key, PluginMigration]], applied: set[Key]
 ) -> list[str]:
     """Deletes the data of plugins the lockfile purges (ADR 0092), in one transaction.
 
@@ -377,12 +388,12 @@ def _purge(
     audit log. If anything can't be done, nothing is, and the error says why.
     """
     with transaction.atomic():
-        purges = {name: _due(name) for name in names}
-        state = _state_of(names, archive, applied)
+        purges = {label: _due(_plugin(label)) for label in labels}
+        state = _state_of(labels, archive, applied)
         mine = [
             m
             for m in state.apps.get_models(include_auto_created=True)
-            if m._meta.app_label in names and m._meta.managed and not m._meta.proxy
+            if m._meta.app_label in labels and m._meta.managed and not m._meta.proxy
         ]
         others = [
             m
@@ -407,19 +418,22 @@ def _purge(
                     )
             except DatabaseError as error:
                 raise DeployError(
-                    f"Couldn't drop the tables of {', '.join(names)}, so nothing was changed: "
+                    f"Couldn't drop the tables of {_plugins(labels)}, so nothing was changed: "
                     f"{error}".strip()
                 ) from None
             elsewhere = sum(_delete_rows(cursor, m._meta.db_table, ids) for m in others)
         UniqueValue.objects.filter(entity__in=ids).delete()
         Entity.objects.filter(pk__in=ids).update(identity_hash=None)
-        MigrationRecorder.Migration.objects.filter(app__in=names).delete()
-        PluginState.objects.filter(name__in=names).update(state=PluginState.State.PURGED)
+        MigrationRecorder.Migration.objects.filter(app__in=labels).delete()
+        PluginState.objects.filter(name__in=[_plugin(label) for label in labels]).update(
+            state=PluginState.State.PURGED
+        )
         now = timezone.now()
-        for name, scheduled in purges.items():
+        for label, scheduled in purges.items():
+            name = _plugin(label)
             scheduled.done_at = now
             scheduled.save(update_fields=["done_at"])
-            dropped = sorted(m._meta.db_table for m in mine if m._meta.app_label == name)
+            dropped = sorted(m._meta.db_table for m in mine if m._meta.app_label == label)
             entities = Tombstone.objects.filter(purge=scheduled).count()
             audit.record(
                 "plugin.purged",
@@ -478,10 +492,10 @@ def _due(name: str) -> PluginPurge:
 
 
 def _state_of(
-    names: list[str], archive: dict[str, dict[Key, PluginMigration]], applied: set[Key]
+    labels: list[str], archive: dict[str, dict[Key, PluginMigration]], applied: set[Key]
 ) -> ProjectState:
     """The schema the purged plugins' kept migrations made, with everything else's."""
-    mine = sorted(k for k in applied if k[0] in names)
+    mine = sorted(k for k in applied if k[0] in labels)
     missing = [k for k in mine if k not in archive.get(k[0], {})]
     if missing:
         raise DeployError(
@@ -494,11 +508,11 @@ def _state_of(
         (str(child.key[0]), str(child.key[1]))
         for key in mine
         for child in loader.graph.node_map[key].children
-        if child.key[0] not in names and child.key in applied
+        if child.key[0] not in labels and child.key in applied
     )
     if needing:
         raise DeployError(
-            f"Can't purge {', '.join(names)}: {_names(needing)} depend(s) on it. Purge those "
+            f"Can't purge {_plugins(labels)}: {_names(needing)} depend(s) on it. Purge those "
             "plugins too."
         )
     return loader.project_state(mine)
@@ -547,7 +561,8 @@ def _exists(cursor: Any, query: str, *names: str, params: list[Any] | None = Non
 
 
 def _names(keys: Iterable[Key]) -> str:
-    return ", ".join(f"{app}.{name}" for app, name in keys)
+    """Migrations by plugin and name, such as ``iki/protein 0002_structures``."""
+    return ", ".join(f"{_plugin(app)} {name}" for app, name in keys)
 
 
 def _check_iki() -> None:

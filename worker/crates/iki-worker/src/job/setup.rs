@@ -130,7 +130,7 @@ pub fn run(
                 .plugins_dir
                 .as_deref()
                 .unwrap_or(&config.cache_dir)
-                .join(name)
+                .join(crate::plugins::label(name))
         },
         Path::to_path_buf,
     );
@@ -621,8 +621,8 @@ mod tests {
             "kind": "SetupInput",
             "setup": {
                 "id": "s1", "hrid": "SETUP-000001", "version": 2,
-                "environment": "structure_prediction.alphafold-gpu",
-                "plugin": {"name": "structure_prediction", "version": "1.0.0", "sha": null},
+                "environment": "acme/prediction.alphafold-gpu",
+                "plugin": {"name": "acme/prediction", "version": "1.0.0", "sha": null},
             },
             "job": {
                 "id": "s1", "lease_token": "secret-token", "lease_expires_at": "",
@@ -637,7 +637,7 @@ mod tests {
 
     /// A plugin whose setup script is `script`, and a volume, in `dir`.
     fn plugin(dir: &Path, script: &str) -> (PathBuf, PathBuf) {
-        let plugin = dir.join("structure_prediction");
+        let plugin = dir.join("acme__prediction");
         std::fs::create_dir_all(plugin.join("setup")).unwrap();
         std::fs::write(plugin.join("setup/fill.sh"), script).unwrap();
         let volume = dir.join("volume");
@@ -871,12 +871,12 @@ mod tests {
         plugins::Have::in_image(
             PluginCode {
                 environments: None,
-                name: "structure_prediction".into(),
+                name: "acme/prediction".into(),
                 sha: None,
                 bundle: None,
             },
             dir,
-            "structure_prediction.alphafold-gpu",
+            "acme/prediction.alphafold-gpu",
         )
     }
 

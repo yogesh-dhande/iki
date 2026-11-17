@@ -18,7 +18,7 @@ import { NotFound } from "./errors";
 
 export function EntityComponent() {
   const { entity, type, types } = useEntity();
-  const { name } = useParams({ from: "/entities/$ref/components/$name" });
+  const { _splat: name = "" } = useParams({ from: "/entities/$ref/components/$" });
   const components = useSuspenseQuery(componentsQuery).data;
   const tab = entityTabs(entity.type, types, components).find((t) => t.component.name === name);
   const [picked, setPicked] = useState<string[]>([]);

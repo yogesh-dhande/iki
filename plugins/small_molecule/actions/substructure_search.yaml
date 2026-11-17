@@ -32,7 +32,7 @@ params:
     max_length: 200
     description: Without one, it's named after the SMARTS.
 effects:
-  creates: [{ type: core.Collection }]
+  creates: [{ type: iki/core.Collection }]
 software:
   - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
 runs_on: { tier: backend, environment: chemistry-tools, resources: { memory: 1Gi } }

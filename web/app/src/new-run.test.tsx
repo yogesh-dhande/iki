@@ -31,10 +31,10 @@ const PREDICT: Schemas["ActionOut"] = {
 
 const OFFLINE: Schemas["ActionOut"] = {
   ...ACTION,
-  name: "protein.relax",
+  name: "iki/protein.relax",
   label: "Relax",
   available: false,
-  unavailable_reason: "There are no backend workers for protein.protein-tools.",
+  unavailable_reason: "There are no backend workers for iki/protein.protein-tools.",
   params: [],
 };
 
@@ -76,7 +76,7 @@ describe("starting a run", () => {
     );
     const select = await screen.findByRole("combobox", { name: "Action" });
     expect(calls("GET", "/api/v1/actions").at(-1)?.query.getAll("takes")).toEqual([
-      "protein.Protein",
+      "iki/protein.Protein",
     ]);
     expect(
       within(select)
@@ -86,7 +86,7 @@ describe("starting a run", () => {
     const more = screen.getByText("2 more actions you can’t run here").closest("details");
     expect(more).toHaveTextContent("Predict structure: needs the Runner role in Kinase Atlas.");
     expect(more).toHaveTextContent(
-      "Relax: There are no backend workers for protein.protein-tools.",
+      "Relax: There are no backend workers for iki/protein.protein-tools.",
     );
 
     await user.selectOptions(select, "Compute properties");
@@ -130,7 +130,7 @@ describe("starting a run", () => {
         r.body.add_to_project
           ? run()
           : problem(409, "inputs_outside_project", "PRT-000001 isn't in Kinase Atlas.", undefined, {
-              entities: [{ id: PROTEIN_ID, hrid: "PRT-000001", type: "protein.Protein" }],
+              entities: [{ id: PROTEIN_ID, hrid: "PRT-000001", type: "iki/protein.Protein" }],
             }),
     );
     answer("GET /api/v1/runs/RUN-000001", run());
@@ -247,10 +247,10 @@ describe("starting a run", () => {
     onProject();
     const IMPORT: Schemas["ActionOut"] = {
       ...ACTION,
-      name: "protein.import_proteins",
+      name: "iki/protein.import_proteins",
       label: "Import proteins",
       inputs: [],
-      creates: [{ type: "protein.Protein", cardinality: "many", derived_from: [] }],
+      creates: [{ type: "iki/protein.Protein", cardinality: "many", derived_from: [] }],
       updates: [],
       network: ["rest.uniprot.org"],
       secrets: [
@@ -258,14 +258,14 @@ describe("starting a run", () => {
           name: "UNIPROT_TOKEN",
           required: false,
           description: "",
-          key: "protein.UNIPROT_TOKEN",
+          key: "iki__protein.UNIPROT_TOKEN",
           set: true,
         },
         {
           name: "UNSET_TOKEN",
           required: false,
           description: "",
-          key: "protein.UNSET_TOKEN",
+          key: "iki__protein.UNSET_TOKEN",
           set: false,
         },
       ],
@@ -308,7 +308,7 @@ describe("starting a run", () => {
     };
     const notes = { ...fasta, id: SECOND_ID, name: "notes.txt", media_type: "text/plain" };
     answer("GET /api/v1/files", page([fasta, notes]));
-    answer("POST /api/v1/actions/protein.import_proteins/runs", () => run());
+    answer("POST /api/v1/actions/iki/protein.import_proteins/runs", () => run());
     answer("GET /api/v1/runs/RUN-000001", run());
     answer("GET /api/v1/runs/RUN-000001/attempts", []);
     const { user, router } = await renderApp("/projects/kinase-atlas/runs/new/");
@@ -341,7 +341,7 @@ describe("starting a run", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/runs/RUN-000001/");
     });
-    expect(calls("POST", "/api/v1/actions/protein.import_proteins/runs").at(-1)?.body).toEqual({
+    expect(calls("POST", "/api/v1/actions/iki/protein.import_proteins/runs").at(-1)?.body).toEqual({
       project: KINASE.id,
       inputs: {},
       params: { file: FILE_ID },

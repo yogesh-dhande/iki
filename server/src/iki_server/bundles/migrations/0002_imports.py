@@ -108,7 +108,7 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.BigAutoField(primary_key=True, serialize=False)),
                 ("entity_id", models.UUIDField(db_comment="Its ID, which an import keeps.")),
-                ("type", models.CharField(max_length=81)),
+                ("type", models.CharField(max_length=112)),
                 ("hrid", models.CharField(db_comment="Its HRID where it's from.", max_length=32)),
                 ("hrid_here", models.CharField(blank=True, default="", max_length=32)),
                 ("title", models.TextField(blank=True, default="")),

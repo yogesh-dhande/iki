@@ -7,7 +7,7 @@ real LIMS or ELN, copy it and change that file.
 
 It shows the parts of Iki such a plugin needs:
 
-- **`lims_id`**, a field it adds to `protein.Protein`: `unique`, so no two
+- **`lims_id`**, a field it adds to `iki/protein.Protein`: `unique`, so no two
   proteins in a project have the same one, and a `link` to the record's page
   in the LIMS ([ADR 0082](../../docs/adr/0082-unique-fields-link-records-in-other-systems.md)).
   Anyone can find a protein by it with `GET /entities/lookup`, the SDK's
@@ -38,6 +38,6 @@ In the deployment's config repository, give the host:
 lims_host: lims.example.org
 ```
 
-and map the `LIMS_TOKEN` secret to an API token the LIMS issued for Iki,
+and map the `LIMS_TOKEN` secret (key `iki__example_lims.LIMS_TOKEN`) to an API token the LIMS issued for Iki,
 which can read and change proteins. The scripts use only Python's standard
 library.

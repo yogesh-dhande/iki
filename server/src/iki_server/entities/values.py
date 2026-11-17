@@ -48,12 +48,14 @@ class Part:
     #: Every field the table has had, removed ones included.
     fields: dict[str, Field]
     extension: bool
-    #: The table by what it holds: the type's qualified name, such as ``dna.Sequence``, or
-    #: for an extension, its plugin and the type it extends, ``protein:dna.DNASequence``.
+    #: The table by what it holds: the type's qualified name, such as ``iki/dna.Sequence``, or
+    #: for an extension, its plugin and the type it extends, ``acme/lims:iki/dna.DNASequence``.
     name: str = ""
 
     def list_model(self, name: str) -> type[models.Model]:
-        return apps.get_model(self.plugin, naming.list_model(self.model.__name__, name))
+        return apps.get_model(
+            naming.app_label(self.plugin), naming.list_model(self.model.__name__, name)
+        )
 
 
 @dataclass(frozen=True)
@@ -82,7 +84,7 @@ def shape(qualified: str) -> Shape:
         Part(
             plugin=t.plugin,
             model=registry.model(t.qualified_name),
-            history=apps.get_model(t.plugin, naming.history_model(t.name)),
+            history=apps.get_model(naming.app_label(t.plugin), naming.history_model(t.name)),
             fields=t.fields,
             extension=False,
             name=t.qualified_name,
@@ -92,12 +94,16 @@ def shape(qualified: str) -> Shape:
     names = {t.qualified_name for t in chain}
     for e in registry.extensions():
         if e.extends_type in names:
-            model = apps.get_model(e.plugin, naming.extension_model(e.extends_type))
+            model = apps.get_model(
+                naming.app_label(e.plugin), naming.extension_model(e.extends_type)
+            )
             parts.append(
                 Part(
                     plugin=e.plugin,
                     model=model,
-                    history=apps.get_model(e.plugin, naming.history_model(model.__name__)),
+                    history=apps.get_model(
+                        naming.app_label(e.plugin), naming.history_model(model.__name__)
+                    ),
                     fields=e.fields,
                     extension=True,
                     name=f"{e.plugin}:{e.extends_type}",
@@ -112,7 +118,7 @@ def is_list_table(f: Field) -> bool:
 
 def subtypes(qualified: str) -> set[str]:
     """The type and every type that extends it, at any depth."""
-    if qualified == "core.Entity":
+    if qualified == "iki/core.Entity":
         return set(registry.types())
     every = registry.types()
     out = {qualified}

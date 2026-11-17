@@ -1,7 +1,7 @@
 /**
  * Saved views on a viewer's tab (ADR 0086, ADR 0110): what the viewer shows now, saved as a
  * view of this revision, and every view saved before that shows this entity in this viewer,
- * alone or with others. A view is an entity of its own (core.View): its page opens it on the
+ * alone or with others. A view is an entity of its own (iki/core.View): its page opens it on the
  * revisions it showed. Saving one can add other entities to it, each at its latest revision:
  * structures are drawn in one scene with this one, anything else beside it.
  */
@@ -106,7 +106,7 @@ const ADD_FIELD: FieldDef = {
     "where they can be superposed.",
   type: "ref",
   items: null,
-  to: "core.Entity",
+  to: "iki/core.Entity",
   plugin: "",
   required: false,
   immutable: false,

@@ -234,7 +234,7 @@ class CreatedOut(EntityOut):
 
 
 class EntityIn(Schema):
-    type: str = Field(description="Qualified, such as dna.DNASequence.")
+    type: str = Field(description="Qualified, such as iki/dna.DNASequence.")
     project: UUID = Field(description="The project it belongs to. It needs you as an Editor.")
     values: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field("", max_length=2000, description="Why, for the record.")
@@ -377,7 +377,7 @@ class SearchIn(Schema):
 
 
 def _types() -> dict[str, EntityType]:
-    return {n: t for n, t in registry.types().items() if n != "core.Entity"}
+    return {n: t for n, t in registry.types().items() if n != "iki/core.Entity"}
 
 
 def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
@@ -456,7 +456,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "label": entity_type.label or entity_type.name,
         "label_plural": entity_type.label_plural or f"{entity_type.label or entity_type.name}s",
         "description": entity_type.description,
-        "extends": entity_type.extends if entity_type.extends != "core.Entity" else None,
+        "extends": entity_type.extends if entity_type.extends != "iki/core.Entity" else None,
         "abstract": entity_type.abstract,
         "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
@@ -505,7 +505,7 @@ def list_types(request: HttpRequest) -> list[dict[str, Any]]:
     return [_type_out(t) for _, t in sorted(_types().items())]
 
 
-@router.get("/entity-types/{name}", response=EntityTypeOut, summary="An entity type")
+@router.get("/entity-types/{qualified:name}", response=EntityTypeOut, summary="An entity type")
 def get_type(request: HttpRequest, name: str) -> dict[str, Any]:
     caller(request)
     found = _types().get(name)
@@ -803,7 +803,7 @@ LOOKUP_LIMIT = 100
 
 
 class LookupParams(Schema):
-    type: str = Field(description="The entity type, such as `protein.Protein`; subtypes count.")
+    type: str = Field(description="The entity type, such as `iki/protein.Protein`; subtypes count.")
     field: str = Field(description="One of the type's unique fields, such as `lims_id`.")
     value: str = Field(min_length=1, max_length=600)
     project: UUID | None = Field(None, description="Only entities that belong to this project.")

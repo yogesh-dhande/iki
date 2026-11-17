@@ -152,8 +152,8 @@ describe("a project's costs", () => {
       totals: [{ currency: "USD", amount: 40.25, seconds: 80_000 }],
       groups: [
         {
-          key: "protein.relax",
-          label: "protein.relax",
+          key: "iki/protein.relax",
+          label: "iki/protein.relax",
           currency: "USD",
           amount: 40.25,
           seconds: 80_000,
@@ -167,7 +167,7 @@ describe("a project's costs", () => {
     ).closest("section");
     if (!card) throw new Error("no costs card");
     expect(within(card).getByRole("row", { name: /protein\.relax/ })).toHaveTextContent(
-      "protein.relax1222 h 13 min$40.25",
+      "iki/protein.relax1222 h 13 min$40.25",
     );
   });
 

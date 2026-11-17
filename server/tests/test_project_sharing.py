@@ -88,7 +88,7 @@ def test_the_same_thing_registered_elsewhere_is_a_separate_entity(
     assert ours["id"] != theirs["id"] and not ours["reused"]
     assert not ProjectLink.objects.filter(entity_id=theirs["id"], project=world.project).exists()
     # In the CRO's own project, it's still the one it has.
-    again = create(editor, cro, {"sequence": "MKVSRC"}, "protein.Protein")
+    again = create(editor, cro, {"sequence": "MKVSRC"}, "acme/protein.Protein")
     assert again.status_code == 200 and again.json()["id"] == theirs["id"]
 
 
@@ -103,7 +103,7 @@ def test_entities_shared_before_stay_shared(world: World, cro: Project) -> None:
     cro.save()
 
     assert editor.get(f"/entities/{theirs['id']}").status_code == 200
-    again = create(editor, world.project, {"sequence": "MKVSRC"}, "protein.Protein")
+    again = create(editor, world.project, {"sequence": "MKVSRC"}, "acme/protein.Protein")
     assert again.status_code == 200 and again.json()["id"] == theirs["id"]
     ran = launch(editor, world.project, {"protein": theirs["id"]})
     assert ran.status_code == 201, ran.content
@@ -122,7 +122,7 @@ def test_values_elsewhere_cant_refer_to_its_entities_or_files(world: World, cro:
         editor,
         world.project,
         {"structure": str(pdb.pk), "chains": [theirs["id"]]},
-        "protein.ProteinStructure",
+        "acme/protein.ProteinStructure",
     )
 
     body = problem(made, 422, "validation_failed")
@@ -139,7 +139,7 @@ def test_values_elsewhere_cant_refer_to_its_entities_or_files(world: World, cro:
         editor,
         cro,
         {"structure": str(pdb.pk), "chains": [theirs["id"]]},
-        "protein.ProteinStructure",
+        "acme/protein.ProteinStructure",
     )
     assert own.status_code == 201, own.content
 

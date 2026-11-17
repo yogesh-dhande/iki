@@ -118,7 +118,8 @@
       "properties": {
         "type": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
+          "description": "Its type, by its qualified name, such as `iki/protein.Protein`.",
+          "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
         },
         "key": {
           "type": "string",

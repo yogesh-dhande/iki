@@ -316,7 +316,7 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
         </h2>
         <p>
           In {project.name}: its members can read it, and its Editors can change it.{" "}
-          <Link to="/types/$name/" params={{ name: type.name }}>
+          <Link to="/types/$/" params={{ _splat: type.name }}>
             About {inSentence(type.label_plural)}
           </Link>
         </p>

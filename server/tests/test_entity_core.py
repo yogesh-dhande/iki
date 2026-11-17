@@ -44,7 +44,7 @@ def lab() -> dict[str, Any]:
 
 def dna(lab: dict[str, Any], bases: str = "ACGT", **values: Any) -> services.Saved:
     return services.create(
-        lab["alice"], "dna.DNASequence", lab["first"], {"bases": bases, **values}
+        lab["alice"], "acme/dna.DNASequence", lab["first"], {"bases": bases, **values}
     )
 
 
@@ -117,19 +117,19 @@ def test_edit_rules(lab: dict[str, Any]) -> None:
     assert raised.value.errors == {
         "bases": ["can't change once it's set."],
         "length": ["is computed: only actions set it."],
-        "nope": ["dna.DNASequence has no field `nope`."],
+        "nope": ["acme/dna.DNASequence has no field `nope`."],
         "topology": ["must be one of: `linear`, `circular`."],
     }
     with pytest.raises(services.Invalid) as raised:
-        services.create(lab["alice"], "dna.DNASequence", lab["first"], {"gc_content": 50})
+        services.create(lab["alice"], "acme/dna.DNASequence", lab["first"], {"gc_content": 50})
     assert raised.value.errors == {
         "gc_content": ["is computed: only actions set it."],
         "bases": ["is required."],
     }
     with pytest.raises(services.Invalid) as raised:
-        services.create(lab["alice"], "dna.Sequence", lab["first"], {"name": "x"})
+        services.create(lab["alice"], "acme/dna.Sequence", lab["first"], {"name": "x"})
     assert raised.value.errors == {
-        "type": ["dna.Sequence is abstract: create one of its subtypes."]
+        "type": ["acme/dna.Sequence is abstract: create one of its subtypes."]
     }
 
 
@@ -147,7 +147,7 @@ def test_quantities_convert_into_their_unit(lab: dict[str, Any]) -> None:
     sequence = dna(lab).entity
     saved = services.create(
         lab["alice"],
-        "protein.Protein",
+        "acme/protein.Protein",
         lab["first"],
         {
             "sequence": "MKV",
@@ -163,7 +163,7 @@ def test_quantities_convert_into_their_unit(lab: dict[str, Any]) -> None:
     with pytest.raises(services.Invalid) as raised:
         services.create(
             lab["alice"],
-            "protein.Protein",
+            "acme/protein.Protein",
             lab["first"],
             {"sequence": "MKV", "temperature_optimum": {"value": 1, "unit": "g"}},
         )
@@ -171,38 +171,42 @@ def test_quantities_convert_into_their_unit(lab: dict[str, Any]) -> None:
 
 
 def test_references_only_reach_what_the_caller_can_read(lab: dict[str, Any]) -> None:
-    hidden = services.create(lab["bob"], "dna.DNASequence", lab["second"], {"bases": "TTTT"})
+    hidden = services.create(lab["bob"], "acme/dna.DNASequence", lab["second"], {"bases": "TTTT"})
     # Alice is a Viewer in the second project: she can refer to it.
     services.create(
         lab["alice"],
-        "protein.Protein",
+        "acme/protein.Protein",
         lab["first"],
         {"sequence": "MKV", "encoded_by": str(hidden.entity.pk)},
     )
     with pytest.raises(services.Invalid) as raised:
         services.create(
             lab["carol"],
-            "protein.Protein",
+            "acme/protein.Protein",
             lab["first"],
             {"sequence": "MKV", "encoded_by": str(hidden.entity.pk)},
         )
     assert raised.value.errors == {"encoded_by": ["refers to no entity you can read."]}
-    protein = services.create(lab["alice"], "protein.Protein", lab["first"], {"sequence": "MK"})
+    protein = services.create(
+        lab["alice"], "acme/protein.Protein", lab["first"], {"sequence": "MK"}
+    )
     with pytest.raises(services.Invalid) as raised:
         services.create(
             lab["alice"],
-            "protein.Protein",
+            "acme/protein.Protein",
             lab["first"],
             {"sequence": "MKV", "encoded_by": str(protein.entity.pk)},
         )
     assert raised.value.errors == {
-        "encoded_by": ["must refer to a dna.DNASequence, not a protein.Protein."]
+        "encoded_by": ["must refer to a acme/dna.DNASequence, not a acme/protein.Protein."]
     }
 
 
 def test_a_duplicate_is_reused_and_linked(lab: dict[str, Any]) -> None:
     first = dna(lab, "ACGTACGT")
-    again = services.create(lab["bob"], "dna.DNASequence", lab["second"], {"bases": "ACGTACGT"})
+    again = services.create(
+        lab["bob"], "acme/dna.DNASequence", lab["second"], {"bases": "ACGTACGT"}
+    )
     # Bob can't read the first project's entity, so he gets his own.
     assert not again.reused
     assert again.entity.pk != first.entity.pk
@@ -210,7 +214,9 @@ def test_a_duplicate_is_reused_and_linked(lab: dict[str, Any]) -> None:
     ProjectMembership.objects.filter(user=lab["alice"], project=lab["second"]).update(
         role=ProjectRole.EDITOR
     )
-    reused = services.create(lab["alice"], "dna.DNASequence", lab["second"], {"bases": "ACGTACGT"})
+    reused = services.create(
+        lab["alice"], "acme/dna.DNASequence", lab["second"], {"bases": "ACGTACGT"}
+    )
     assert reused.reused and reused.linked
     assert reused.entity.pk == first.entity.pk
     assert reused.revision is None
@@ -225,7 +231,7 @@ def policy(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Gives DNASequence another ``on_duplicate`` policy."""
 
     def use(name: str) -> None:
-        form = values.shape("dna.DNASequence")
+        form = values.shape("acme/dna.DNASequence")
         changed = values.Shape(dataclasses.replace(form.entity_type, on_duplicate=name), form.parts)
         monkeypatch.setattr(services, "shape", lambda _: changed)
 
@@ -239,7 +245,7 @@ def test_warn_refuses_a_duplicate_unless_told_to_go_ahead(lab: dict[str, Any], p
         dna(lab, "GGCC")
     assert [e.pk for e in raised.value.existing] == [first.entity.pk]
     second = services.create(
-        lab["alice"], "dna.DNASequence", lab["first"], {"bases": "GGCC"}, allow_duplicate=True
+        lab["alice"], "acme/dna.DNASequence", lab["first"], {"bases": "GGCC"}, allow_duplicate=True
     )
     assert not second.reused
     assert second.entity.pk != first.entity.pk
@@ -293,7 +299,7 @@ def test_extension_fields_get_their_own_row_and_history(lab: dict[str, Any]) -> 
     pdb = File.objects.create(
         blob=blob, name="a.pdb", media_type="chemical/x-pdb", project=lab["first"]
     )
-    from iki_plugin_protein.models import ProteinStructure  # type: ignore[import-not-found]
+    from iki_plugin_acme__protein.models import ProteinStructure  # type: ignore[import-not-found]
 
     structure = ProteinStructure.objects.create(owner_project=lab["first"], structure=pdb)
     ProjectLink.objects.create(entity_id=structure.pk, project=lab["first"])
@@ -338,7 +344,7 @@ def test_values_of_many_entities_match_each_ones_values(lab: dict[str, Any]) -> 
     second = dna(lab, "CCCC")
     protein = services.create(
         lab["alice"],
-        "protein.Protein",
+        "acme/protein.Protein",
         lab["first"],
         {"sequence": "MKV", "encoded_by": str(first.entity.pk), "uniprot_ids": ["P12345"]},
     )

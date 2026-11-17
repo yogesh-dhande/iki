@@ -26,6 +26,7 @@ import tarfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from iki_spec import naming
 from iki_spec.lockfile import LockedPlugin
 
 __all__ = ["FetchError", "cache_directory", "fetch"]
@@ -66,7 +67,7 @@ def fetch(
         git.fetch(plugin)
     if not git.has_commit(plugin.sha):
         raise FetchError(f"{plugin.name}: {plugin.git} sent something other than {plugin.sha}.")
-    target = into / plugin.name
+    target = into / naming.app_label(plugin.name)
     target.mkdir(parents=True)
     tree = f"{plugin.sha}:{plugin.path}" if plugin.path else plugin.sha
     if git.run("cat-file", "-t", tree, check=False).strip() != "tree":

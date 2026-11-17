@@ -421,7 +421,7 @@ def test_labels_come_from_the_environment_the_deployment_and_the_launcher(
     from iki_server.runs import services
     from iki_spec.compute import Binding, Compute
 
-    found = catalog.action("protein.compute_properties")
+    found = catalog.action("acme/protein.compute_properties")
     assert found is not None
     action = replace(found, tier="self_hosted")
     environment = replace(catalog.environment(action), labels=("chromeleon",))

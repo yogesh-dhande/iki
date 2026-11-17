@@ -31,8 +31,8 @@ pytestmark = pytest.mark.django_db
 
 __all__ = ["keep_connection"]  # the fixture, used here too
 
-PREDICT = "structure_prediction.predict_structure"
-RELAX = "protein.relax_structure"
+PREDICT = "acme/prediction.predict_structure"
+RELAX = "acme/protein.relax_structure"
 
 
 @pytest.fixture
@@ -47,8 +47,8 @@ def world(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[World]:
         "lifecycle": "ephemeral",
         "capacity": _capacity(96, 1152, gpus=8),
     }
-    compute["bindings"]["structure_prediction.alphafold-gpu"] = {
-        "environment": "structure_prediction.alphafold-gpu",
+    compute["bindings"]["acme/prediction.alphafold-gpu"] = {
+        "environment": "acme/prediction.alphafold-gpu",
         "templates": [["a100", 0]],
     }
     file = tmp_path / "with-vm.json"
@@ -64,7 +64,7 @@ def output(**parts: Any) -> dict[str, Any]:
 
 
 def leased(world: World) -> tuple[WorkerClient, dict[str, Any], dict[str, Any]]:
-    """A protein.compute_properties run, leased by a backend worker."""
+    """A acme/protein.compute_properties run, leased by a backend worker."""
     pod = worker(world)
     run = queued(world)
     job = pod.lease().json()
@@ -109,7 +109,7 @@ def test_a_run_writes_its_results_with_provenance(world: World) -> None:
         {
             "entity": entity_id,
             "hrid": run["inputs"][0]["hrid"],
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "kind": "updated",
             "revision": 2,
         }
@@ -129,7 +129,7 @@ def test_a_run_writes_its_results_with_provenance(world: World) -> None:
     assert provenance["molecular_weight"]["run"] == {
         "id": run["id"],
         "hrid": run["hrid"],
-        "action": "protein.compute_properties",
+        "action": "acme/protein.compute_properties",
     }
     assert provenance["sequence"]["run"] is None
     history = editor.get(f"/entities/{entity_id}/revisions").json()["items"]
@@ -173,7 +173,7 @@ def test_results_must_fit_what_the_action_declares(world: World) -> None:
                 ],
                 "dna": [{"entity": entity, "values": {"gc": 1}}],
             },
-            creates=[{"type": "protein.ProteinStructure", "values": {}}],
+            creates=[{"type": "acme/protein.ProteinStructure", "values": {}}],
         ),
     )
     assert errors == {
@@ -182,7 +182,7 @@ def test_results_must_fit_what_the_action_declares(world: World) -> None:
         "`organism`.",
         "#/updates/protein/1/entity": "It wasn't given as `protein`.",
         "#/creates/0/type": "The action doesn't declare that it creates "
-        "protein.ProteinStructure (it creates: nothing).",
+        "acme/protein.ProteinStructure (it creates: nothing).",
     }
     # Nothing was written, the output is kept, and it isn't retried.
     assert Revision.objects.filter(entity_id=entity).count() == 1
@@ -310,7 +310,7 @@ def _structure(
     gpu: WorkerClient, job: dict[str, Any], run: dict[str, Any], **extra: Any
 ) -> dict[str, Any]:
     return {
-        "type": "protein.ProteinStructure",
+        "type": "acme/protein.ProteinStructure",
         "values": {
             "structure": _structure_file(gpu, job),
             "method": "predicted",
@@ -337,8 +337,8 @@ def test_new_entities_record_what_they_were_made_from(world: World, s3: Any) -> 
     runner = api_as(world, "runner")
     effects = runner.get(f"/runs/{run['id']}").json()["effects"]
     assert [(e["type"], e["kind"], e["revision"]) for e in effects] == [
-        ("protein.ProteinStructure", "created", 1),
-        ("protein.ProteinStructure", "created", 1),
+        ("acme/protein.ProteinStructure", "created", 1),
+        ("acme/protein.ProteinStructure", "created", 1),
     ]
     made = Entity.objects.get(pk=effects[0]["entity"])
     assert made.owner_project_id == world.project.pk
@@ -349,7 +349,7 @@ def test_new_entities_record_what_they_were_made_from(world: World, s3: Any) -> 
             "entity": {
                 "id": parent,
                 "hrid": run["inputs"][0]["hrid"],
-                "type": "protein.Protein",
+                "type": "acme/protein.Protein",
                 "archived": False,
                 "purged": False,
             },
@@ -376,19 +376,19 @@ def test_new_entities_must_say_where_they_came_from(world: World, s3: Any) -> No
         output(
             creates=[
                 _structure(gpu, job, run, derived_from=[stranger["id"]]),
-                {"type": "protein.Protein", "values": {"sequence": "MKVW"}},
+                {"type": "acme/protein.Protein", "values": {"sequence": "MKVW"}},
             ]
         ),
     )
     # What the action declares is checked first; values only once that fits.
     assert errors == {
-        "#/creates/0/derived_from/0": "It isn't one of the inputs protein.ProteinStructure "
+        "#/creates/0/derived_from/0": "It isn't one of the inputs acme/protein.ProteinStructure "
         "is derived from (protein).",
-        "#/creates/1/type": "The action doesn't declare that it creates protein.Protein "
-        "(it creates: protein.ProteinStructure).",
+        "#/creates/1/type": "The action doesn't declare that it creates acme/protein.Protein "
+        "(it creates: acme/protein.ProteinStructure).",
     }
     assert RunEffect.objects.count() == 0
-    assert not Entity.objects.filter(type="protein.ProteinStructure").exists()
+    assert not Entity.objects.filter(type="acme/protein.ProteinStructure").exists()
 
 
 def test_one_means_at_most_one(world: World, s3: Any) -> None:
@@ -399,7 +399,7 @@ def test_one_means_at_most_one(world: World, s3: Any) -> None:
     two = [_structure(gpu, job, run), _structure(gpu, job, run)]
     errors = _failed(gpu, job, output(creates=two))
     assert errors == {
-        "#/creates/1": "The action creates at most one protein.ProteinStructure per run."
+        "#/creates/1": "The action creates at most one acme/protein.ProteinStructure per run."
     }
 
 
@@ -410,14 +410,14 @@ def test_a_failed_write_writes_nothing(world: World, s3: Any) -> None:
     bad["values"]["method"] = "guessed"
     errors = _failed(gpu, job, output(creates=[_structure(gpu, job, run), bad]))
     assert list(errors) == ["#/creates/1/values/method"]
-    assert not Entity.objects.filter(type="protein.ProteinStructure").exists()
+    assert not Entity.objects.filter(type="acme/protein.ProteinStructure").exists()
     assert not Lineage.objects.exists()
 
 
 def _also_creating_proteins(run: dict[str, Any]) -> None:
     stored = ActionRun.objects.get(pk=run["id"])
     stored.spec["creates"].append(
-        {"type": "protein.Protein", "cardinality": "many", "derived_from": []}
+        {"type": "acme/protein.Protein", "cardinality": "many", "derived_from": []}
     )
     ActionRun.objects.filter(pk=stored.pk).update(spec=stored.spec)
 
@@ -434,9 +434,13 @@ def test_new_entities_can_refer_to_ones_made_with_them(world: World, s3: Any) ->
         job,
         output(
             creates=[
-                {"type": "protein.Protein", "key": "heavy", "values": {"sequence": "MKVWHEAVY"}},
+                {
+                    "type": "acme/protein.Protein",
+                    "key": "heavy",
+                    "values": {"sequence": "MKVWHEAVY"},
+                },
                 # The same sequence as the input: reused, and referred to as it.
-                {"type": "protein.Protein", "key": "same", "values": {"sequence": sequence}},
+                {"type": "acme/protein.Protein", "key": "same", "values": {"sequence": sequence}},
                 structure,
             ]
         ),
@@ -444,8 +448,10 @@ def test_new_entities_can_refer_to_ones_made_with_them(world: World, s3: Any) ->
     assert body["run_status"] == "succeeded", body
     effects = api_as(world, "runner").get(f"/runs/{run['id']}").json()["effects"]
     kinds = {e["type"]: e for e in effects if e["kind"] == "created"}
-    heavy = kinds["protein.Protein"]["entity"]
-    made = api_as(world, "runner").get(f"/entities/{kinds['protein.ProteinStructure']['entity']}")
+    heavy = kinds["acme/protein.Protein"]["entity"]
+    made = api_as(world, "runner").get(
+        f"/entities/{kinds['acme/protein.ProteinStructure']['entity']}"
+    )
     assert made.json()["values"]["chains"] == [heavy, parent, parent]
     assert [e["kind"] for e in effects if e["entity"] == parent] == ["reused"]
 
@@ -461,8 +467,8 @@ def test_a_new_entity_refers_only_to_earlier_creates_by_their_keys(world: World,
         output(
             creates=[
                 first,
-                {"type": "protein.Protein", "key": "later", "values": {"sequence": "MKV"}},
-                {"type": "protein.Protein", "key": "later", "values": {"sequence": "MKW"}},
+                {"type": "acme/protein.Protein", "key": "later", "values": {"sequence": "MKV"}},
+                {"type": "acme/protein.Protein", "key": "later", "values": {"sequence": "MKW"}},
                 {**_structure(gpu, job, run), "values": {"chains": [{"$create": "nope"}]}},
             ]
         ),
@@ -474,7 +480,7 @@ def test_a_new_entity_refers_only_to_earlier_creates_by_their_keys(world: World,
         "#/creates/3/values/chains/0": "No earlier create has the key 'nope': a create can "
         "refer only to those before it.",
     }
-    assert not Entity.objects.filter(type="protein.ProteinStructure").exists()
+    assert not Entity.objects.filter(type="acme/protein.ProteinStructure").exists()
 
 
 def test_a_reference_to_a_create_that_couldnt_be_written_says_so(world: World, s3: Any) -> None:
@@ -487,7 +493,7 @@ def test_a_reference_to_a_create_that_couldnt_be_written_says_so(world: World, s
         job,
         output(
             creates=[
-                {"type": "protein.Protein", "key": "bad", "values": {"sequence": "not one!"}},
+                {"type": "acme/protein.Protein", "key": "bad", "values": {"sequence": "not one!"}},
                 structure,
             ]
         ),
@@ -510,7 +516,7 @@ def test_workers_upload_result_files_for_their_run(world: World, s3: Any) -> Non
     upload = gpu.report(job, f"uploads/{upload['id']}/complete").json()
     assert upload["state"] == "ready", upload
     structure = {
-        "type": "protein.ProteinStructure",
+        "type": "acme/protein.ProteinStructure",
         "values": {
             "structure": upload["file"],
             "method": "predicted",
@@ -627,7 +633,7 @@ def test_jobs_download_the_files_their_inputs_hold(world: World, s3: Any) -> Non
     abl = protein(editor, world.project)
     file_id = _stored(world, "abl.pdb")
     values = {"structure": file_id, "method": "xray", "chains": [abl["id"]]}
-    made = create(editor, world.project, values, "protein.ProteinStructure")
+    made = create(editor, world.project, values, "acme/protein.ProteinStructure")
     assert made.status_code == 201, made.content
     assert launch(editor, world.project, {"structure": made.json()["id"]}, RELAX).status_code == 201
     pod = worker(world)

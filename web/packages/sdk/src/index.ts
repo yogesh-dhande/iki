@@ -13,7 +13,12 @@
  * `csrfToken` so unsafe methods carry the page's CSRF token.
  */
 
-import createClient, { type Client, type Middleware } from "openapi-fetch";
+import createClient, {
+  type Client,
+  defaultPathSerializer,
+  type Middleware,
+  type PathSerializer,
+} from "openapi-fetch";
 
 import type { components, paths } from "./schema.js";
 
@@ -86,9 +91,37 @@ export type IkiClient = Client<paths>;
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/**
+ * A name in a plugin, such as `iki/protein.Protein`, for a path: the `/` between its
+ * namespace and the rest goes as it is (ADR 0113), as the API's own links write it.
+ * Anything else is escaped whole, so it can't reach another endpoint.
+ */
+export function encodeName(name: string): string {
+  const segments = name.split("/");
+  if (segments.length === 2 && segments.every((s) => s !== "" && s !== "." && s !== "..")) {
+    return segments.map(encodeURIComponent).join("/");
+  }
+  return encodeURIComponent(name);
+}
+
+/** The API's path params that are names in a plugin. */
+const NAME_PARAMS = ["name"];
+
+const serializePath: PathSerializer = (pathname, params) => {
+  let path = pathname;
+  for (const key of NAME_PARAMS) {
+    const value = params[key];
+    if (typeof value === "string") {
+      path = path.replace(`{${key}}`, encodeName(value));
+    }
+  }
+  return defaultPathSerializer(path, params);
+};
+
 export function createIkiClient(options: ClientOptions = {}): IkiClient {
   const client = createClient<paths>({
     baseUrl: options.baseUrl ?? "",
+    pathSerializer: serializePath,
     credentials: options.accessToken ? "omit" : "same-origin",
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });

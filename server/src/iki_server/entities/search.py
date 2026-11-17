@@ -3,7 +3,7 @@
 A search names a type, and its conditions name that type's fields: its own,
 its parents', and those extensions add. Entities of every subtype match too,
 since each type's table holds its subtypes' rows. Without a type (or with
-``core.Entity``), only the columns every entity has can be named: ``hrid``,
+``iki/core.Entity``), only the columns every entity has can be named: ``hrid``,
 ``type``, ``owner_project``, ``created_by``, ``created_at``, ``updated_at``,
 ``archived_at``, and ``made``: how it was made (ADR 0106), matched with ``has``
 against one making at a time, ``{"software": "AlphaFold", "by": "iki"}``.
@@ -22,7 +22,7 @@ Each kind of field takes the operators that make sense for it, and values
 as it stores them: a quantity in any unit of its kind, a reference by ID or
 HRID. Mistakes are reported with a JSON pointer to the condition.
 
-A search can be limited to the members of a collection (``core.Collection``):
+A search can be limited to the members of a collection (``iki/core.Collection``):
 those it lists, or those its own search finds, run as the same caller.
 
 Results come in pages, sorted by one field, then by ID. Pages are keyset
@@ -177,7 +177,7 @@ def stored(data: Mapping[str, Any]) -> Search:
 
 def _in_collection(user: Any, reference: str) -> Q:  # noqa: ANN401 - User
     """Entities in the collection, as ``user`` may see them. Raises :class:`SearchError`."""
-    model = cast("type[Entity]", registry.model("core.Collection"))
+    model = cast("type[Entity]", registry.model("iki/core.Collection"))
     try:
         lookup = Q(pk=uuid.UUID(reference))
     except ValueError:
@@ -187,7 +187,7 @@ def _in_collection(user: Any, reference: str) -> Q:  # noqa: ANN401 - User
         raise SearchError([("#/collection", "No such collection, or you can’t see it.")])
     data = collection.search  # type: ignore[attr-defined]
     if data is None:
-        items = shape("core.Collection").part_of("members").list_model("members")
+        items = shape("iki/core.Collection").part_of("members").list_model("members")
         return Q(pk__in=items._default_manager.filter(entity_id=collection.pk).values("item_id"))
     try:
         inner = queryset(user, stored(data))
@@ -494,7 +494,7 @@ def _ref(c: _Compiler, _: Column, value: Any) -> uuid.UUID:  # noqa: ANN401 - JS
 
 def _type(_: _Compiler, __: Column, value: Any) -> str:  # noqa: ANN401 - JSON
     if not isinstance(value, str) or value not in registry.types():
-        raise ValueError("must be an entity type, such as protein.Protein.")
+        raise ValueError("must be an entity type, such as iki/protein.Protein.")
     return value
 
 
@@ -539,7 +539,7 @@ def column(form: Shape | None, name: str) -> Column | None:
 
 def form_of(type_name: str | None) -> Shape | None:
     """The shape a search's conditions name fields of: None for any entity."""
-    if type_name is None or type_name == "core.Entity":
+    if type_name is None or type_name == "iki/core.Entity":
         return None
     return shape(type_name)
 
@@ -621,7 +621,7 @@ def matching(q: str, type_names: set[str]) -> Q:
     parts: list[QuerySet[Any]] = [Entity.objects.filter(hrid).values("pk")]
     for name in sorted(type_names):
         entity_type = registry.types()[name]
-        if name == "core.Entity" or entity_type.abstract:
+        if name == "iki/core.Entity" or entity_type.abstract:
             continue
         # Titles name the type's own fields; an extension's are in other tables.
         form = shape(name)

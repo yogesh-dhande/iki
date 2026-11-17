@@ -52,7 +52,7 @@ iki-server = "iki_server.manage:main"
 
 [tool.uv.build-backend]
 # The core plugin's generated app ships with the server (ADR 0038).
-module-name = ["iki_server", "iki_plugin_core"]
+module-name = ["iki_server", "iki_plugin_iki__core"]
 
 [build-system]
 requires = ["uv_build>=0.13.7,<0.14"]

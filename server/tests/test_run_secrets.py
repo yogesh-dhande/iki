@@ -27,7 +27,7 @@ def kept(tmp_path: Path, settings: object) -> Path:
 
 
 def test_an_action_needing_a_secret_the_deployment_hasnt_set_cant_run(kept: Path) -> None:
-    compute = catalog.action("protein.compute_properties")
+    compute = catalog.action("acme/protein.compute_properties")
     assert compute is not None
     action = dataclasses.replace(
         compute,
@@ -35,29 +35,29 @@ def test_an_action_needing_a_secret_the_deployment_hasnt_set_cant_run(kept: Path
     )
     assert catalog.availability(action).reason == (
         "It needs `LAB_TOKEN` and `ELN_TOKEN`, which this deployment hasn't set. An Iki "
-        "administrator can add them to the run secrets as `protein.LAB_TOKEN`, "
-        "`protein.ELN_TOKEN`."
+        "administrator can add them to the run secrets as `acme__protein.LAB_TOKEN`, "
+        "`acme__protein.ELN_TOKEN`."
     )
-    (kept / "protein.LAB_TOKEN").write_text("lab")
-    (kept / "protein.ELN_TOKEN").write_text("eln")
+    (kept / "acme__protein.LAB_TOKEN").write_text("lab")
+    (kept / "acme__protein.ELN_TOKEN").write_text("eln")
     # The optional one may stay unset.
     assert catalog.availability(action).available
 
 
 def test_each_plugin_gets_only_its_own_secrets(kept: Path) -> None:
-    (kept / "dna.LAB_TOKEN").write_text("dna's\n")
-    (kept / "protein.EMPTY").write_text("\n")
-    (kept / "protein.HUGE").write_bytes(b"x" * (secrets.MAX_BYTES + 1))
+    (kept / "acme__dna.LAB_TOKEN").write_text("dna's\n")
+    (kept / "acme__protein.EMPTY").write_text("\n")
+    (kept / "acme__protein.HUGE").write_bytes(b"x" * (secrets.MAX_BYTES + 1))
     declared = ["LAB_TOKEN", {"name": "EMPTY"}, {"name": "HUGE"}]
-    assert secrets.for_run("protein", declared) == {}
-    assert secrets.for_run("dna", declared) == {"LAB_TOKEN": "dna's"}
+    assert secrets.for_run("acme/protein", declared) == {}
+    assert secrets.for_run("acme/dna", declared) == {"LAB_TOKEN": "dna's"}
 
 
 def test_a_run_gets_the_secrets_it_declares_and_keeps_only_their_names(
     world: World, kept: Path
 ) -> None:
-    (kept / "protein.LAB_TOKEN").write_text("s3cr3t\n")
-    (kept / "protein.OTHER").write_text("not for it")
+    (kept / "acme__protein.LAB_TOKEN").write_text("s3cr3t\n")
+    (kept / "acme__protein.OTHER").write_text("not for it")
     run = queued(world)
     spec = ActionRun.objects.get(pk=run["id"]).spec
     declared = [{"name": "LAB_TOKEN", "required": True, "description": ""}, "UNSET"]
@@ -71,7 +71,7 @@ def test_a_run_gets_the_secrets_it_declares_and_keeps_only_their_names(
 
 
 def test_runs_that_declare_no_secrets_get_none(world: World, kept: Path) -> None:
-    (kept / "protein.LAB_TOKEN").write_text("s3cr3t")
+    (kept / "acme__protein.LAB_TOKEN").write_text("s3cr3t")
     queued(world)
     job = worker(world).lease().json()
     assert "secrets" not in job["job"]
@@ -83,7 +83,7 @@ def test_actions_say_which_secrets_the_deployment_has_set_never_their_values(
 ) -> None:
     def declared() -> list[dict[str, object]]:
         found: list[dict[str, object]] = (
-            api_as(world, "viewer").get("/actions/protein.fetch_proteins").json()["secrets"]
+            api_as(world, "viewer").get("/actions/acme/protein.fetch_proteins").json()["secrets"]
         )
         return found
 
@@ -92,10 +92,10 @@ def test_actions_say_which_secrets_the_deployment_has_set_never_their_values(
             "name": "UNIPROT_TOKEN",
             "required": False,
             "description": "A token for UniProt's higher rate limits.",
-            "key": "protein.UNIPROT_TOKEN",
+            "key": "acme__protein.UNIPROT_TOKEN",
             "set": False,
         }
     ]
-    (kept / "protein.UNIPROT_TOKEN").write_text("t0ken")
+    (kept / "acme__protein.UNIPROT_TOKEN").write_text("t0ken")
     assert declared()[0]["set"] is True
     assert "t0ken" not in str(declared())

@@ -1,4 +1,4 @@
-"""The core plugin's app (server/src/iki_plugin_core) is current with its manifests."""
+"""The core plugin's app (server/src/iki_plugin_iki__core) is current with its manifests."""
 
 import importlib.util
 import os
@@ -25,7 +25,14 @@ def test_the_generated_app_matches_the_manifests() -> None:
 def test_its_migrations_are_current() -> None:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("DJANGO_", "IKI_"))}
     result = subprocess.run(
-        [sys.executable, "-m", "iki_server.plugins.makemigrations", "core", "--check", "--dry-run"],
+        [
+            sys.executable,
+            "-m",
+            "iki_server.plugins.makemigrations",
+            "iki__core",
+            "--check",
+            "--dry-run",
+        ],
         capture_output=True,
         text=True,
         check=False,

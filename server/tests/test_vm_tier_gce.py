@@ -260,7 +260,7 @@ def test_a_queued_run_gets_an_instance_that_runs_its_image_with_iki_worker(world
     launch = Launch.objects.get()
     assert (launch.template, launch.environment, launch.image, launch.namespace) == (
         "a100-spot",
-        "structure_prediction.alphafold-gpu",
+        "acme/prediction.alphafold-gpu",
         IMAGE,
         "us-central1",
     )

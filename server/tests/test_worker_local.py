@@ -30,14 +30,14 @@ def run_input(command: list[str], **extra: Any) -> dict[str, Any]:
             "id": "00000000-0000-7000-8000-000000000001",
             "hrid": "RUN-000001",
             "attempt": 1,
-            "action": "protein.relax_structure",
-            "plugin": {"name": "protein", "version": "1.0.0", "sha": "dev"},
+            "action": "acme/protein.relax_structure",
+            "plugin": {"name": "acme/protein", "version": "1.0.0", "sha": "dev"},
             "project": "00000000-0000-7000-8000-000000000002",
         },
         "params": {},
         "inputs": {},
         "command": command,
-        "environment": "protein.protein-tools",
+        "environment": "iki/protein.protein-tools",
         **extra,
     }
 
@@ -78,7 +78,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
     structure = {
         "id": "s1",
         "hrid": "PST-000001",
-        "type": "protein.ProteinStructure",
+        "type": "iki/protein.ProteinStructure",
         "schema_version": 1,
         "revision": 1,
         "values": {"structure": "f1", "method": "xray", "chains": ["c1"]},
@@ -88,7 +88,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
                 {
                     "id": "c1",
                     "hrid": "PRT-000001",
-                    "type": "protein.Protein",
+                    "type": "iki/protein.Protein",
                     "schema_version": 1,
                     "revision": 1,
                     "values": {"sequence": "MKVLA"},

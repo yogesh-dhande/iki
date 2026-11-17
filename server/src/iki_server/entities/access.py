@@ -7,7 +7,7 @@
 
 Entities people can't read behave as if they don't exist (404).
 
-A **view** (``core.View``) is read only by people who can read every entity it
+A **view** (``iki/core.View``) is read only by people who can read every entity it
 shows (ADR 0110): to anyone else it doesn't exist either, so a view never shows
 or names what someone can't read. An entity purged with its plugin still counts
 as readable, as its tombstone (ADR 0092).
@@ -60,7 +60,7 @@ def visible_of[E: Entity](user: Any, model: type[E]) -> QuerySet[E]:  # noqa: AN
 
 
 #: The type whose entities show others (ADR 0086, ADR 0110).
-VIEW = "core.View"
+VIEW = "iki/core.View"
 
 
 def _views_they_read(model: type[Entity], projects: QuerySet[Any]) -> Q:

@@ -242,7 +242,7 @@ def test_an_action_says_what_a_run_typically_costs_and_at_most(priced: World) ->
         launch = Launch.objects.create(
             name=f"iki-run-{i}",
             template="gpu-t4",
-            environment="structure_prediction.colabfold",
+            environment="acme/prediction.colabfold",
             provisioner="k8s_job",
             plugin_sha="",
             image="ghcr.io/acme/x@sha256:" + "a" * 64,
@@ -393,7 +393,7 @@ def test_a_pack_splits_its_machine_time_evenly_between_its_runs(priced: World) -
         name="iki-run-pack",
         template="gpu-t4",
         provisioner="k8s_job",
-        environment="protein.protein-tools",
+        environment="acme/protein.protein-tools",
         plugin_sha="",
         image="ghcr.io/acme/x@sha256:" + "a" * 64,
         namespace="iki-runs",

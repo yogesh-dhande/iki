@@ -478,12 +478,12 @@ def creates(structure: Read, file: Any, origin: dict[str, Any]) -> list[dict[str
     """The proteins, then the structure that refers to them. The structure's origin says
     how the file says it was made; the proteins' don't, as their sequences weren't."""
     out: list[dict[str, Any]] = [
-        {"type": "protein.Protein", "key": p.key, "values": p.values, "origin": origin}
+        {"type": "iki/protein.Protein", "key": p.key, "values": p.values, "origin": origin}
         for p in structure.proteins
     ]
     out.append(
         {
-            "type": "protein.ProteinStructure",
+            "type": "iki/protein.ProteinStructure",
             "values": {"structure": file, **structure.values},
             "origin": {**origin, "made": structure.made} if structure.made else origin,
         }

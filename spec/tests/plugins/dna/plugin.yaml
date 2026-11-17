@@ -1,6 +1,6 @@
 apiVersion: iki/v1
 kind: Plugin
-name: dna
+name: acme/dna
 version: 1.2.0
 title: DNA
 description: DNA sequences and primers.

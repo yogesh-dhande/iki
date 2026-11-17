@@ -98,7 +98,7 @@ def predict(run: dict[str, Any]) -> dict[str, Any]:
         "cdr_h3_predicted_error": round(h3, 3) if h3 is not None else None,
     }
     return {
-        "creates": [{"type": "protein.ProteinStructure", "values": values}],
+        "creates": [{"type": "iki/protein.ProteinStructure", "values": values}],
         "metrics": {
             "predicted_error": round(mean, 3),
             **({"cdr_h3_predicted_error": round(h3, 3)} if h3 is not None else {}),

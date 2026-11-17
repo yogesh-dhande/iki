@@ -3,7 +3,7 @@
 # types without declaring a dependency.
 apiVersion: iki/v1
 kind: Plugin
-name: core
+name: iki/core
 version: 0.1.0
 title: Core
 description: The types every Iki deployment has.

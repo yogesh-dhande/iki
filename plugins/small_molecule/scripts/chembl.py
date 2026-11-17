@@ -162,7 +162,7 @@ def fetch(run: dict[str, Any]) -> dict[str, Any]:
         }
         if version:
             origin["version"] = version
-        creates.add({"type": "small_molecule.Compound", "values": values, "origin": origin})
+        creates.add({"type": "iki/small_molecule.Compound", "values": values, "origin": origin})
         print(f"{identifier}: {chembl_id}, {registered.inchikey} {registered.smiles}")
         print(f"::progress {done / len(asked):.2f} {done} of {len(asked)}", flush=True)
     return {**creates.output(), "metrics": {"compounds": len(seen)}, "messages": messages.output()}

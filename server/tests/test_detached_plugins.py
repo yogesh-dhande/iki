@@ -38,7 +38,7 @@ pytestmark = pytest.mark.django_db
 __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 
 APP_ROLE = f"iki_test_detached_{os.environ.get('PYTEST_XDIST_WORKER', 'main')}"
-PLUGINS = ("dna", "protein", "structure_prediction")
+PLUGINS = ("acme/dna", "acme/protein", "acme/prediction")
 
 
 def record(states: dict[str, str] | None = None, version: str = "1.0.0") -> dict[str, Any]:
@@ -92,18 +92,20 @@ def test_a_detached_plugins_entities_can_be_read_not_changed(
     lab: dict[str, Any], deployed: Callable[..., None]
 ) -> None:
     alice, first, second = lab["alice"], lab["first"], lab["second"]
-    saved = services.create(alice, "dna.DNASequence", first, {"bases": "ACGT", "name": "pUC19"})
+    saved = services.create(
+        alice, "acme/dna.DNASequence", first, {"bases": "ACGT", "name": "pUC19"}
+    )
     entity = cast("Entity", saved.entity)
     services.link(alice, entity, second)
     deployed(*PLUGINS)
     why = (
-        "dna.DNASequence is from the dna plugin, which is detached: "
+        "acme/dna.DNASequence is from the acme/dna plugin, which is detached: "
         "its entities can be read but not changed."
     )
 
     assert services.current_values(entity)["name"] == "pUC19"
     with pytest.raises(values.Invalid) as invalid:
-        services.create(alice, "dna.DNASequence", first, {"bases": "GGCC"})
+        services.create(alice, "acme/dna.DNASequence", first, {"bases": "GGCC"})
     assert invalid.value.errors == {"type": [why]}
     with pytest.raises(Refused, match=why):
         services.update(alice, entity, {"name": "pBR322"}, expected_revision=1)
@@ -128,17 +130,19 @@ def test_a_detached_extensions_fields_keep_their_values(
     kept = cast(
         "Entity",
         services.create(
-            alice, "protein.ProteinStructure", first, {"structure": pdb, "job_id": "af-1"}
+            alice, "acme/protein.ProteinStructure", first, {"structure": pdb, "job_id": "af-1"}
         ).entity,
     )
-    deployed("structure_prediction")
-    why = ["is from the structure_prediction plugin, which is detached: it can't change."]
+    deployed("acme/prediction")
+    why = ["is from the acme/prediction plugin, which is detached: it can't change."]
 
     # The type is protein's, so its own fields still change; the extension's don't.
-    made = services.create(alice, "protein.ProteinStructure", first, {"structure": pdb})
+    made = services.create(alice, "acme/protein.ProteinStructure", first, {"structure": pdb})
     assert services.current_values(made.entity)["job_id"] is None
     with pytest.raises(values.Invalid) as invalid:
-        services.create(alice, "protein.ProteinStructure", first, {"structure": pdb, "job_id": "x"})
+        services.create(
+            alice, "acme/protein.ProteinStructure", first, {"structure": pdb, "job_id": "x"}
+        )
     assert invalid.value.errors == {"job_id": why}
     edited = services.update(alice, kept, {"method": "xray"}, expected_revision=1)
     assert edited.revision is not None
@@ -181,17 +185,17 @@ def problems() -> list[str]:
 def test_a_detached_plugins_tables_are_read_only_to_the_app(
     as_app_role: Callable[[str], None], deployed: Callable[..., None]
 ) -> None:
-    deployed("structure_prediction")
+    deployed("acme/prediction")
     tables = registry.detached_tables()
     assert tables
-    assert all(t.startswith("structure_prediction_") for t in tables)
+    assert all(t.startswith("acme__prediction_") for t in tables)
     grant()
     assert problems() == []
     for table in tables:
         as_app_role(f"SELECT count(*) FROM {table}")  # noqa: S608 - a table name from Django
         with pytest.raises(DatabaseError, match="permission denied"):
             as_app_role(f"DELETE FROM {table}")  # noqa: S608
-    as_app_role("DELETE FROM protein_proteinstructure")  # still active
+    as_app_role("DELETE FROM acme__protein_proteinstructure")  # still active
     with pytest.raises(DatabaseError, match="permission denied"):
         as_app_role("DELETE FROM iki_plugin_state")
 
@@ -205,10 +209,10 @@ def test_a_web_pod_that_could_write_a_detached_plugin_never_turns_ready(
     as_app_role: Callable[[str], None], deployed: Callable[..., None]
 ) -> None:
     grant()
-    deployed("structure_prediction")
+    deployed("acme/prediction")
     found = problems()
     assert found
-    assert all(p.split()[-1].startswith("structure_prediction_") for p in found)
+    assert all(p.split()[-1].startswith("acme__prediction_") for p in found)
     assert {p.split()[1] for p in found} == {"INSERT", "UPDATE", "DELETE"}
 
 
@@ -227,35 +231,35 @@ def test_each_deploy_records_what_it_changes_about_plugins(
 ) -> None:
     deployed()
     assert sync._states() == [
-        "dna installed",
-        "protein installed",
-        "structure_prediction installed",
+        "acme/dna installed",
+        "acme/protein installed",
+        "acme/prediction installed",
     ]
     assert sync._states() == []
-    deployed("structure_prediction")
-    assert sync._states() == ["structure_prediction detached"]
+    deployed("acme/prediction")
+    assert sync._states() == ["acme/prediction detached"]
     deployed(version="1.1.0")
     assert sync._states() == [
-        "dna updated",
-        "protein updated",
-        "structure_prediction reattached",
+        "acme/dna updated",
+        "acme/protein updated",
+        "acme/prediction reattached",
     ]
     assert changes()[3:] == [
-        ("plugin.detached", "structure_prediction", {"state": ["active", "detached"]}),
-        ("plugin.updated", "dna", {"version": ["1.0.0", "1.1.0"]}),
-        ("plugin.updated", "protein", {"version": ["1.0.0", "1.1.0"]}),
+        ("plugin.detached", "acme/prediction", {"state": ["active", "detached"]}),
+        ("plugin.updated", "acme/dna", {"version": ["1.0.0", "1.1.0"]}),
+        ("plugin.updated", "acme/protein", {"version": ["1.0.0", "1.1.0"]}),
         (
             "plugin.reattached",
-            "structure_prediction",
+            "acme/prediction",
             {"state": ["detached", "active"], "version": ["1.0.0", "1.1.0"]},
         ),
     ]
     assert changes()[0] == (
         "plugin.installed",
-        "dna",
+        "acme/dna",
         {"state": "active", "version": "1.0.0", "sha": "a" * 40},
     )
-    assert PluginState.objects.get(name="structure_prediction").state == "active"
+    assert PluginState.objects.get(name="acme/prediction").state == "active"
 
 
 def test_a_build_without_a_lockfile_records_nothing() -> None:
@@ -272,15 +276,15 @@ def test_a_detached_plugins_actions_cant_be_launched(
 ) -> None:
     editor = api_as(world, "editor")
     abl = protein(editor, world.project)
-    deployed("protein", "structure_prediction")
+    deployed("acme/protein", "acme/prediction")
     assert catalog.availability(catalog.action(COMPUTE)) == catalog.Availability(  # type: ignore[arg-type]
         False,
-        "The protein plugin is detached, so its actions can't run. Its data can still be "
+        "The acme/protein plugin is detached, so its actions can't run. Its data can still be "
         "read. An Iki administrator can reattach it in the deployment's lockfile.",
     )
     refused = launch(editor, world.project, {"protein": abl["id"]})
     assert refused.status_code == 409, refused.content
-    assert "The protein plugin is detached" in refused.json()["detail"]
+    assert "The acme/protein plugin is detached" in refused.json()["detail"]
     listed = {a["name"]: a for a in editor.get("/actions").json()}
     assert listed[COMPUTE]["available"] is False
 
@@ -290,8 +294,8 @@ def test_runs_queued_before_it_was_detached_end_saying_why(
 ) -> None:
     first, second = queued(world), queued(world)
     pod = worker(world)
-    deployed("protein", "structure_prediction")
-    why = "The protein plugin was detached before it started, so it didn't run."
+    deployed("acme/protein", "acme/prediction")
+    why = "The acme/protein plugin was detached before it started, so it didn't run."
 
     # A worker that asks first is given nothing, and the run it would have had ends.
     assert pod.lease().status_code == 204
@@ -316,12 +320,12 @@ def test_a_running_run_is_asked_to_stop(world: World, deployed: Callable[..., No
     run = queued(world)
     pod = worker(world)
     job = pod.lease().json()
-    deployed("protein", "structure_prediction")
+    deployed("acme/protein", "acme/prediction")
     assert queue.end_detached() == 1
     stopping = ActionRun.objects.get(pk=run["id"])
     assert stopping.cancel_requested_at is not None
     assert AuditEvent.objects.get(action="run.cancel_requested").data == {
-        "reason": "The protein plugin was detached, so it was stopped."
+        "reason": "The acme/protein plugin was detached, so it was stopped."
     }
     assert pod.report(job, "heartbeat").json()["cancel_requested"] is True
     assert pod.report(job, "fail", reason="interrupted").json() == {"run_status": "cancelled"}
@@ -333,28 +337,28 @@ def test_a_detached_plugins_triggers_are_skipped_and_stay_on(
     world: World, deployed: Callable[..., None]
 ) -> None:
     turned_on = api_as(world, "admin").post(
-        f"/projects/{world.project.pk}/triggers/protein.weigh_new_proteins/enable", {}
+        f"/projects/{world.project.pk}/triggers/acme/protein.weigh_new_proteins/enable", {}
     )
     assert turned_on.status_code == 200, turned_on.content
     protein(api_as(world, "editor"), world.project)
-    deployed("protein", "structure_prediction")
+    deployed("acme/protein", "acme/prediction")
     Runner(queues=["default"]).run_ready()
     firing = TriggerFiring.objects.get()
     assert (firing.state, firing.error) == (
         FiringState.SKIPPED,
         {
             "code": "plugin_detached",
-            "message": "The protein plugin is detached, so its triggers don't run.",
+            "message": "The acme/protein plugin is detached, so its triggers don't run.",
         },
     )
     assert ProjectTrigger.objects.get().enabled
     assert ActionRun.objects.count() == 0
     # Nor can one be turned on.
     refused = api_as(world, "admin").post(
-        f"/projects/{world.project.pk}/triggers/protein.weigh_changed_proteins/enable", {}
+        f"/projects/{world.project.pk}/triggers/acme/protein.weigh_changed_proteins/enable", {}
     )
     assert refused.status_code == 409, refused.content
-    assert "The protein plugin is detached" in refused.json()["detail"]
+    assert "The acme/protein plugin is detached" in refused.json()["detail"]
 
 
 # --- People can tell -----------------------------------------------------------------------
@@ -366,14 +370,14 @@ def test_the_api_says_what_a_detached_plugin_keeps(
     editor = api_as(world, "editor")
     abl = protein(editor, world.project)
     assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": True}
-    deployed("structure_prediction")
-    structure = editor.get("/entity-types/protein.ProteinStructure").json()
+    deployed("acme/prediction")
+    structure = editor.get("/entity-types/acme/protein.ProteinStructure").json()
     assert structure["detached"] is False
     fields = {f["name"]: f["detached"] for f in structure["fields"]}
     assert fields["job_id"] is True
     assert fields["structure"] is False
 
-    deployed("protein", "structure_prediction")
-    assert editor.get("/entity-types/protein.Protein").json()["detached"] is True
-    assert editor.get("/entity-types/dna.DNASequence").json()["detached"] is False
+    deployed("acme/protein", "acme/prediction")
+    assert editor.get("/entity-types/acme/protein.Protein").json()["detached"] is True
+    assert editor.get("/entity-types/acme/dna.DNASequence").json()["detached"] is False
     assert editor.get(f"/entities/{abl['id']}").json()["can"] == {"edit": False}

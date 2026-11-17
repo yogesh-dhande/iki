@@ -86,7 +86,7 @@ def test_registers_each_line_by_its_standard_inchikey(tmp_path: Path) -> None:
     )
     first, second, third = output["creates"]
     assert first == {
-        "type": "small_molecule.Compound",
+        "type": "iki/small_molecule.Compound",
         "key": "line-3",
         "values": {
             "smiles": ASPIRIN,
@@ -125,8 +125,8 @@ def test_the_parent_takes_salts_and_solvents_off_and_batches_record_them(
         batches=True,
     )
     creates = output["creates"]
-    compounds = [c for c in creates if c["type"] == "small_molecule.Compound"]
-    batches = [c for c in creates if c["type"] == "small_molecule.CompoundBatch"]
+    compounds = [c for c in creates if c["type"] == "iki/small_molecule.Compound"]
+    batches = [c for c in creates if c["type"] == "iki/small_molecule.CompoundBatch"]
     assert [c["values"]["inchikey"] for c in compounds[:3]] == [ASPIRIN_KEY] * 3
     assert compounds[3]["values"]["smiles"] == "CN(C)CCC(c1ccccc1)c1ccccn1"
     # Each batch refers to its line's compound, made with it (or the one reused).
@@ -682,7 +682,7 @@ def test_pubchem_gives_a_compound_its_cid_names_and_cas_number(
     # Asked again after PubChem was busy.
     assert len(service.asked) == 3
     (create,) = output["creates"]
-    assert create["type"] == "small_molecule.Compound"
+    assert create["type"] == "iki/small_molecule.Compound"
     assert create["values"] == {
         "smiles": ASPIRIN,
         "inchikey": ASPIRIN_KEY,
@@ -867,7 +867,7 @@ def test_conformers_are_embedded_minimised_and_ranked_by_energy(tmp_path: Path) 
     assert not list(schemas.check("run-output", output))
     (create,) = output["creates"]
     values = create["values"]
-    assert create["type"] == "small_molecule.ConformerSet"
+    assert create["type"] == "iki/small_molecule.ConformerSet"
     assert values["compound"] == entity(1)["id"]
     assert values["conformers"] == {
         "$file": "conformers.sdf",
@@ -931,7 +931,7 @@ def test_similar_compounds_are_a_collection_most_similar_first(tmp_path: Path) -
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
     (collection,) = output["creates"]
-    assert collection["type"] == "core.Collection"
+    assert collection["type"] == "iki/core.Collection"
     members = collection["values"]["members"]
     assert members[0] == LIBRARY[0]["id"]
     assert set(members) == {LIBRARY[0]["id"], LIBRARY[1]["id"], LIBRARY[4]["id"]}

@@ -18,7 +18,7 @@ fields:
     type: list
     label: Members
     description: The entities in a static collection, in order.
-    items: { type: ref, to: core.Entity }
+    items: { type: ref, to: Entity }
     max_items: 10000
   search:
     type: json

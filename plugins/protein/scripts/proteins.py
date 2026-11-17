@@ -39,7 +39,7 @@ from Bio.SeqUtils.ProtParam import ProteinAnalysis
 from Bio.SeqUtils.ProtParamData import kd
 
 STANDARD = frozenset("ACDEFGHIKLMNPQRSTVWY")
-#: The longest name a protein takes (core.Sequence's).
+#: The longest name a protein takes (iki/core.Sequence's).
 MAX_NAME = 255
 
 
@@ -168,7 +168,7 @@ def translate(run: dict[str, Any]) -> dict[str, Any]:
             if entity["values"].get("organism"):
                 values["organism"] = entity["values"]["organism"]
             creates.append(
-                {"type": "protein.Protein", "values": values, "derived_from": [entity["id"]]}
+                {"type": "iki/protein.Protein", "values": values, "derived_from": [entity["id"]]}
             )
             print(f"{entity['hrid']}: {len(sequence):,} residues")
         print(f"::progress {done / len(entities):.2f} {done} of {len(entities)}", flush=True)

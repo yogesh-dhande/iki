@@ -226,7 +226,7 @@ class EnableIn(Schema):
 
 
 @router.post(
-    "/projects/{project_id}/triggers/{name}/enable",
+    "/projects/{project_id}/triggers/{qualified:name}/enable",
     response=ProjectTriggerOut,
     summary="Turn a trigger on in a project",
 )
@@ -261,7 +261,7 @@ def enable_trigger(
 
 
 @router.post(
-    "/projects/{project_id}/triggers/{name}/disable",
+    "/projects/{project_id}/triggers/{qualified:name}/disable",
     response=ProjectTriggerOut,
     summary="Turn a trigger off in a project",
 )

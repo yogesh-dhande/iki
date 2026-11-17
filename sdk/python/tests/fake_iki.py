@@ -101,7 +101,7 @@ def entity(hrid: str = "PRT-000001", **values: Any) -> dict[str, Any]:
     return {
         "id": f"00000000-0000-7000-8000-{int(hrid[-6:]):012d}",
         "hrid": hrid,
-        "type": "protein.Protein",
+        "type": "iki/protein.Protein",
         "revision": 1,
         "archived": False,
         "archived_at": None,

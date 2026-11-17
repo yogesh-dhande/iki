@@ -491,7 +491,7 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
       <PageHeader
         eyebrow={
           type ? (
-            <Link to="/types/$name/" params={{ name: type.name }}>
+            <Link to="/types/$/" params={{ _splat: type.name }}>
               {type.label}
             </Link>
           ) : (
@@ -546,8 +546,8 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
         {plugins.map(({ component, label }) => (
           <Link
             key={component.name}
-            to="/entities/$ref/components/$name/"
-            params={{ ref: entity.hrid, name: component.name }}
+            to="/entities/$ref/components/$/"
+            params={{ ref: entity.hrid, _splat: component.name }}
             activeProps={tab}
           >
             {label}

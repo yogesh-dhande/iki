@@ -151,6 +151,6 @@ if ! kc -n "$NAMESPACE" get secret fake-lims-tls >/dev/null 2>&1; then
 fi
 # The secrets plugins' actions declare (runSecrets): the example LIMS plugin's
 # token, which the fake LIMS checks too.
-ensure_secret iki-run-secrets --from-literal=example_lims.LIMS_TOKEN="$(rand 32 32)"
+ensure_secret iki-run-secrets --from-literal=iki__example_lims.LIMS_TOKEN="$(rand 32 32)"
 
 log "Cluster ready. Next: 'tilt up' (interactive) or 'tilt ci' (headless)."

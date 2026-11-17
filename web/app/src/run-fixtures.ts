@@ -11,7 +11,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
   return {
     id: RUN_ID,
     hrid: "RUN-000001",
-    action: "protein.compute_properties",
+    action: "iki/protein.compute_properties",
     plugin_version: "1.2.0",
     plugin_sha: "",
     project: KINASE.id,
@@ -128,12 +128,12 @@ export function attempt(
 
 export const BATCH_ID = "00000000-0000-7000-8000-0000000000b1";
 
-/** BAT-000001: protein.compute_properties on three proteins, one done, one going. */
+/** BAT-000001: iki/protein.compute_properties on three proteins, one done, one going. */
 export function batch(overrides: Partial<Schemas["BatchOut"]> = {}): Schemas["BatchOut"] {
   return {
     id: BATCH_ID,
     hrid: "BAT-000001",
-    action: "protein.compute_properties",
+    action: "iki/protein.compute_properties",
     project: KINASE.id,
     requested_by: { id: ME.id, name: ME.name },
     via: "web",
@@ -151,8 +151,8 @@ export function batch(overrides: Partial<Schemas["BatchOut"]> = {}): Schemas["Ba
 }
 
 export const ACTION = {
-  name: "protein.compute_properties",
-  plugin: "protein",
+  name: "iki/protein.compute_properties",
+  plugin: "iki/protein",
   label: "Compute properties",
   description: null,
   tier: "backend",
@@ -163,7 +163,7 @@ export const ACTION = {
       name: "protein",
       label: "Protein",
       description: null,
-      type: "protein.Protein",
+      type: "iki/protein.Protein",
       cardinality: "one",
       max: null,
       optional: false,
@@ -206,10 +206,10 @@ export const ACTION = {
   estimate: null,
 } satisfies Schemas["ActionOut"];
 
-/** protein.weigh_twice: no inputs to choose here, only the pH, and an approval. */
+/** iki/protein.weigh_twice: no inputs to choose here, only the pH, and an approval. */
 export const WORKFLOW = {
-  name: "protein.weigh_twice",
-  plugin: "protein",
+  name: "iki/protein.weigh_twice",
+  plugin: "iki/protein",
   label: "Weigh twice",
   description: "Weighs, then weighs again once someone has checked.",
   inputs: [],
@@ -246,14 +246,14 @@ export const WORKFLOW = {
 
 export const WORKFLOW_ID = "00000000-0000-7000-8000-0000000000w1";
 
-/** WF-000001: protein.translate_and_characterize, translated, characterizing. */
+/** WF-000001: iki/protein.translate_and_characterize, translated, characterizing. */
 export function workflowRun(
   overrides: Partial<Schemas["WorkflowRunOut"]> = {},
 ): Schemas["WorkflowRunOut"] {
   return {
     id: WORKFLOW_ID,
     hrid: "WF-000001",
-    workflow: "protein.translate_and_characterize",
+    workflow: "iki/protein.translate_and_characterize",
     label: "Translate and characterize",
     plugin_version: "1.2.0",
     project: KINASE.id,
@@ -276,7 +276,7 @@ export function workflowRun(
       {
         id: "translate",
         label: "Translate",
-        action: "protein.translate",
+        action: "iki/protein.translate",
         after: [],
         each: null,
         when: [],
@@ -296,7 +296,7 @@ export function workflowRun(
       {
         id: "properties",
         label: "Properties",
-        action: "protein.compute_properties",
+        action: "iki/protein.compute_properties",
         after: ["translate"],
         each: null,
         when: [],

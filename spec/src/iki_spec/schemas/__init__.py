@@ -316,7 +316,7 @@ def _required_hint(missing: str) -> str | None:
         "schema_version": "Start at `schema_version: 1`, and increase it when the fields change.",
         "unit": "Quantities need the UCUM unit their values are stored in, such as `unit: mg`.",
         "values": "List the allowed values, such as `values: [low, high]`.",
-        "to": "Name the type it refers to, such as `to: core.Entity`.",
+        "to": "Name the type it refers to, such as `to: iki/core.Entity`.",
         "items": "Say what each item is, such as `items: { type: string }`.",
     }.get(missing)
 
@@ -333,8 +333,18 @@ _PATTERN_MESSAGES = {
     "^[a-z][a-z0-9]*(_[a-z0-9]+)*$": "Names use lower-case letters, digits and single "
     "underscores, starting with a letter.",
     "^[A-Z][A-Za-z0-9]*$": "Type names are PascalCase (such as `ProteinStructure`).",
-    "^([a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[A-Z][A-Za-z0-9]*$": "Types are written `plugin.Type` "
-    "(such as `protein.Protein`), or `Type` for one in this plugin.",
+    "^([a-z][a-z0-9]*(_[a-z0-9]+)*(/[a-z][a-z0-9]*(_[a-z0-9]+)*)?\\.)?[A-Z][A-Za-z0-9]*$": "Types "
+    "are written `namespace/plugin.Type` (such as `iki/protein.Protein`), or `Type` for one in "
+    "this plugin.",
+    "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$": "Types are "
+    "written by their qualified name, `namespace/plugin.Type` (such as `iki/protein.Protein`).",
+    "^(?=[a-z0-9_]{2,30}/[a-z0-9_]{2,30}$)[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*$": (  # noqa: E501 - a pattern, as the schema has it
+        "Plugins are named `namespace/name`, such as `acme/assays`: a namespace and a name of 2 to "
+        "30 lower-case letters, digits and single underscores each, starting with a letter."
+    ),
+    "^([a-z][a-z0-9]*(_[a-z0-9]+)*/)?[a-z][a-z0-9]*(_[a-z0-9]+)*$": "Plugins are named "
+    "`namespace/name`, such as `acme/assays`, in lower-case letters, digits and single "
+    "underscores.",
     "^[A-Za-z0-9][A-Za-z0-9_.+-]*$": "Enum values use letters, digits and `_ . + -`, starting with "
     "a letter or digit.",
     "^[\\x21-\\x7e]+$": "Units are UCUM codes in plain ASCII, with no spaces.",

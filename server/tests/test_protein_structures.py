@@ -140,7 +140,7 @@ def test_an_mmcif_file_gives_a_structure_linked_to_its_proteins(tmp_path: Path) 
         "sha256": hashlib.sha256(MMCIF.encode()).hexdigest(),
     }
     assert protein == {
-        "type": "protein.Protein",
+        "type": "iki/protein.Protein",
         "key": "1",
         "values": {
             "name": "Tyrosine-protein kinase ABL1",
@@ -153,7 +153,7 @@ def test_an_mmcif_file_gives_a_structure_linked_to_its_proteins(tmp_path: Path) 
         "origin": origin,
     }
     assert structure == {
-        "type": "protein.ProteinStructure",
+        "type": "iki/protein.ProteinStructure",
         "values": {
             "structure": FILE_ID,
             "name": "1ABC",
@@ -368,10 +368,10 @@ def test_fetches_entries_from_the_pdb_as_mmcif_files_it_attaches(tmp_path: Path,
     ]
     assert rcsb.slept == [0.2]
     assert [(c["type"], c.get("key")) for c in output["creates"]] == [
-        ("protein.Protein", "1ABC-1"),
-        ("protein.ProteinStructure", None),
-        ("protein.Protein", "2XYZ-1"),
-        ("protein.ProteinStructure", None),
+        ("iki/protein.Protein", "1ABC-1"),
+        ("iki/protein.ProteinStructure", None),
+        ("iki/protein.Protein", "2XYZ-1"),
+        ("iki/protein.ProteinStructure", None),
     ]
     structure = output["creates"][1]
     assert structure["values"]["structure"] == {

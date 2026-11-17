@@ -1,4 +1,4 @@
-"""Writes the core plugin's Django app into the server: ``server/src/iki_plugin_core``.
+"""Writes the core plugin's Django app into the server: ``server/src/iki_plugin_iki__core``.
 
 Every deployment has the core plugin (ADR 0038), so the server ships its app,
 generated from ``spec/src/iki_spec/core`` like any plugin's. Its migrations
@@ -23,7 +23,7 @@ from iki_spec import naming
 from iki_spec.builtin import core_plugin
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = ROOT / "server" / "src" / naming.package("core")
+TARGET = ROOT / "server" / "src" / naming.package(naming.CORE)
 #: The generated files; ``migrations/`` is kept as it is.
 FILES = ("__init__.py", "apps.py", "manifest.json", "models.py")
 

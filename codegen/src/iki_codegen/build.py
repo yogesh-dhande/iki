@@ -1,8 +1,8 @@
 """Writes the Django apps for a set of plugins, and the package that installs them.
 
-For each plugin, a package ``iki_plugin_<name>``:
+For each plugin, a package ``iki_plugin_<namespace>__<name>``:
 
-- ``apps.py``: the app, labelled with the plugin's name;
+- ``apps.py``: the app, labelled ``namespace__name`` (:func:`iki_spec.naming.app_label`);
 - ``models.py``: see :mod:`iki_codegen.models`;
 - ``manifest.json``: the plugin as Iki read it, for the server, with the
   hosts its actions name through settings (``{settings.lims_host}``) filled
@@ -64,14 +64,22 @@ def conflicts(plugins: Sequence[Plugin]) -> list[str]:
     """What plugins that each validate on their own can't do together in one deployment.
 
     Each plugin's validator only sees the plugins it depends on. Plugins that
-    don't know each other can still share an HRID prefix, a table name, or
-    a field they add to the same type.
+    don't know each other can still share an HRID prefix, a table name, a
+    field they add to the same type, or the name Django's fields give them
+    (``acme_bio/assays`` and ``acme/bio_assays`` are both ``acme_bio_assays``).
     """
     problems = []
     prefixes: dict[str, str] = {}
     tables: dict[str, str] = {}
     added: dict[tuple[str, str], str] = {}
+    identifiers: dict[str, str] = {}
     for plugin in sorted(plugins, key=lambda p: p.name):
+        other = identifiers.setdefault(naming.identifier(plugin.name), plugin.name)
+        if other != plugin.name:
+            problems.append(
+                f"{other} and {plugin.name} can't be installed together: Django's names for "
+                f"them would both be {naming.identifier(plugin.name)}"
+            )
         for t in plugin.types.values():
             if t.hrid_prefix and not t.abstract:
                 other = prefixes.setdefault(t.hrid_prefix, t.qualified_name)
@@ -219,7 +227,7 @@ def _apps(plugin: Plugin) -> str:
         "from django.apps import AppConfig\n\n\n"
         "class PluginConfig(AppConfig):\n"
         f"    name = {naming.package(plugin.name)!r}\n"
-        f"    label = {plugin.name!r}\n"
+        f"    label = {naming.app_label(plugin.name)!r}\n"
         f"    verbose_name = {title!r}\n"
         "    default_auto_field = 'django.db.models.BigAutoField'\n"
         f"    iki_version = {plugin.version!r}\n"

@@ -5,7 +5,7 @@
 # protein plugin's proteins are untouched without it.
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: protein.Protein
+extends_type: iki/protein.Protein
 fields:
   chain_type:
     type: enum

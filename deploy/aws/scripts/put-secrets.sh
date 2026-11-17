@@ -57,7 +57,7 @@ random_b64url 32 | tr -d '=' | put bundle-signing-key
 # chart adds sslmode=verify-full itself.
 printf 'postgres://iki:%s@%s:5432/iki' "$(openssl rand -hex 32)" "$host" | put database-migrator
 printf 'postgres://iki_app:%s@%s:5432/iki' "$(openssl rand -hex 32)" "$host" | put database
-# Plugins' secrets: none yet. Add them as keys such as dna.NCBI_API_KEY.
+# Plugins' secrets: none yet. Add them as keys such as iki__dna.NCBI_API_KEY (the plugin's label: iki/dna is iki__dna).
 printf '{}' | put run-secrets
 
 echo "Done. The optional secrets (email, backend-worker-token) you put yourself, when you need them."

@@ -54,24 +54,24 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("settings/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
     # Entities and their types (a project's entities are in org.urls).
     path("types/", web.app, name="entity_types"),
-    path("types/<str:name>/", web.app, name="entity_type"),
+    path("types/<qualified:name>/", web.app, name="entity_type"),
     path("entities/<str:ref>/", web.app, name="entity"),
     path("entities/<str:ref>/edit/", web.app, name="entity_edit"),
     path("entities/<str:ref>/history/", web.app, name="entity_history"),
     path("entities/<str:ref>/lineage/", web.app, name="entity_lineage"),
     path("entities/<str:ref>/viewers/<str:viewer>/", web.app, name="entity_viewer"),
-    path("entities/<str:ref>/components/<str:name>/", web.app, name="entity_component"),
+    path("entities/<str:ref>/components/<qualified:name>/", web.app, name="entity_component"),
     path("entities/<str:ref>/apps/<str:app>/", web.app, name="entity_app"),
     # Plugins' components, for the web app's sandboxed frames (ADR 0084).
     # The frames Iki's own viewers run in (ADR 0085).
     path("viewers/structure/", viewers.structure_frame, name="structure_frame"),
     path(
-        "plugin-components/<str:name>/<str:digest>/",
+        "plugin-components/<qualified:name>/<str:digest>/",
         components.frame,
         name="component_frame",
     ),
     path(
-        "plugin-components/<str:name>/<str:digest>.js",
+        "plugin-components/<qualified:name>/<str:digest>.js",
         components.module,
         name="component_module",
     ),

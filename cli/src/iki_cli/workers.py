@@ -2,8 +2,9 @@
 
 ``iki deploy build --workers DIRECTORY`` writes:
 
-- ``plugins/<name>/``: each plugin's code, exported at the commit the lockfile
-  pins (the server's image gets only its manifests);
+- ``plugins/<label>/``: each plugin's code, exported at the commit the lockfile
+  pins (the server's image gets only its manifests), in a directory named by
+  its label (``iki__protein`` for ``iki/protein``, ADR 0113);
 - ``plugins/plugins.json``: what the worker tells the server it has. Each
   plugin's name, version and commit, and each environment it builds, with
   the build's digest and where it's built;
@@ -35,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from iki_spec import API_VERSION
+from iki_spec import API_VERSION, naming
 from iki_spec.model import Environment, Plugin
 
 __all__ = [
@@ -163,7 +164,7 @@ def _has_requirements(file: Path) -> bool:
 def _build_lines(item: WorkerPlugin, env: Environment, prefix: str) -> list[str]:
     q = shlex.quote
     # Files in the bundle, beside this script, wherever it's copied.
-    code = f"plugins/{item.plugin.name}"
+    code = f"plugins/{naming.app_label(item.plugin.name)}"
     if env.conda_lockfile is not None:
         lockfile = f"{code}/{PurePosixPath(env.conda_lockfile)}"
         return [
@@ -199,12 +200,13 @@ def write(
     ]
     for item in sorted(plugins, key=lambda p: p.plugin.name):
         name = item.plugin.name
-        shutil.copytree(item.directory, code / name, ignore=_IGNORED, symlinks=True)
+        label = naming.app_label(name)
+        shutil.copytree(item.directory, code / label, ignore=_IGNORED, symlinks=True)
         environments = {}
         for env_name, env in sorted(item.plugin.environments.items()):
             if not _built(env):
                 continue
-            prefix = f"{env_root}/{name}/{env_name}"
+            prefix = f"{env_root}/{label}/{env_name}"
             definition = _definition(env, item.directory)
             environments[env_name] = {
                 "digest": _digest(definition),
@@ -212,7 +214,7 @@ def write(
                 "prefix": prefix,
             }
             script.append(f"echo {shlex.quote(f'Building {name}.{env_name}')}")
-            script.append(f"mkdir -p {shlex.quote(f'{env_root}/{name}')}")
+            script.append(f"mkdir -p {shlex.quote(f'{env_root}/{label}')}")
             script.extend(_build_lines(item, env, prefix))
         listed.append(
             {

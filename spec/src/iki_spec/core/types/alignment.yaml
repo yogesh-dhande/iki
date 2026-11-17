@@ -18,7 +18,7 @@ fields:
   description: { type: text, max_length: 10000 }
   reference:
     type: ref
-    to: core.Sequence
+    to: Sequence
     immutable: true
     description: >-
       The sequence the others were aligned to, such as the plasmid a construct
@@ -29,7 +29,7 @@ fields:
     description: >-
       The sequences in Iki that it aligns: each is the row headed by its HRID.
       Rows that aren't sequences in Iki, such as reads, aren't listed.
-    items: { type: ref, to: core.Sequence }
+    items: { type: ref, to: Sequence }
     max_items: 10000
     immutable: true
   aligned:

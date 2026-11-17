@@ -50,7 +50,7 @@ function builtIn(name: string, label: string, type: string): FieldDef {
     label,
     type,
     description: null,
-    plugin: "core",
+    plugin: "iki/core",
     required: true,
     immutable: true,
     computed: false,

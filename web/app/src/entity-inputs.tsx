@@ -394,7 +394,9 @@ function RefInput({ field, types, draft, onChange, error, note, disabled, itemLa
   const search = useDeferredValue(typed);
   const found = useQuery(pickerQuery(field.to ?? undefined, search));
   const target =
-    field.to === "core.Entity" ? "any entity" : inSentenceLabel(typeLabel(types, field.to ?? ""));
+    field.to === "iki/core.Entity"
+      ? "any entity"
+      : inSentenceLabel(typeLabel(types, field.to ?? ""));
   const items = (found.data ?? []).map((e) => ({ id: e.id, hrid: e.hrid, title: e.title }));
   if (picked && !items.some((i) => i.id === picked.id)) items.unshift(picked);
   const help = helpText(field, note) ?? `Type an ID or a name to find ${target}.`;

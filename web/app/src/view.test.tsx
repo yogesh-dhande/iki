@@ -1,4 +1,4 @@
-/** Saved views (core.View): saving what a viewer shows, and opening it on its revisions. */
+/** Saved views (iki/core.View): saving what a viewer shows, and opening it on its revisions. */
 
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -8,8 +8,8 @@ import { answer, calls } from "./test-server";
 
 const PLASMID = {
   ...PROTEIN,
-  name: "dna.DNASequence",
-  plugin: "dna",
+  name: "iki/dna.DNASequence",
+  plugin: "iki/dna",
   label: "DNA sequence",
   label_plural: "DNA sequences",
   hrid_prefix: "DNA",
@@ -45,17 +45,17 @@ const SEQUENCED = {
 
 const VIEW = {
   ...PROTEIN,
-  name: "core.View",
-  plugin: "core",
+  name: "iki/core.View",
+  plugin: "iki/core",
   label: "View",
   label_plural: "Views",
   hrid_prefix: "VIEW",
   fields: [
-    field({ name: "name", label: "Name", type: "string", plugin: "core" }),
-    field({ name: "targets", label: "Entities", type: "list", plugin: "core", items: "ref" }),
-    field({ name: "target_revisions", label: "Revisions", type: "list", plugin: "core" }),
-    field({ name: "viewers", label: "Viewers", type: "list", plugin: "core" }),
-    field({ name: "state", label: "State", type: "json", plugin: "core" }),
+    field({ name: "name", label: "Name", type: "string", plugin: "iki/core" }),
+    field({ name: "targets", label: "Entities", type: "list", plugin: "iki/core", items: "ref" }),
+    field({ name: "target_revisions", label: "Revisions", type: "list", plugin: "iki/core" }),
+    field({ name: "viewers", label: "Viewers", type: "list", plugin: "iki/core" }),
+    field({ name: "state", label: "State", type: "json", plugin: "iki/core" }),
   ],
   viewers: [],
 };
@@ -69,7 +69,7 @@ function plasmid(revision: number, features: unknown[]) {
   return entity({
     id: PLASMID_ID,
     hrid: "DNA-000001",
-    type: "dna.DNASequence",
+    type: "iki/dna.DNASequence",
     revision,
     values: { name: "pTest", bases: "ACGT".repeat(40), features },
   });
@@ -78,14 +78,14 @@ function plasmid(revision: number, features: unknown[]) {
 const PLASMID_REF = {
   hrid: "DNA-000001",
   title: "pTest",
-  type: "dna.DNASequence",
+  type: "iki/dna.DNASequence",
   archived: false,
   purged: false,
 };
 const PROTEIN_REF = {
   hrid: "PRT-000001",
   title: "ABL1 kinase",
-  type: "protein.Protein",
+  type: "iki/protein.Protein",
   archived: false,
   purged: false,
 };
@@ -101,7 +101,10 @@ describe("saving a view", () => {
     answer("GET /api/v1/entities/DNA-000001", plasmid(3, [TET, BLA]));
     answer("POST /api/v1/entities/search", { items: [], next_cursor: null });
     answer("POST /api/v1/entities", { id: "v1", hrid: "VIEW-000001", revision: 1 });
-    answer("GET /api/v1/entities/VIEW-000001", entity({ hrid: "VIEW-000001", type: "core.View" }));
+    answer(
+      "GET /api/v1/entities/VIEW-000001",
+      entity({ hrid: "VIEW-000001", type: "iki/core.View" }),
+    );
     const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
     expect(await screen.findByText(/None yet\. A saved view keeps/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show bla" }));
@@ -115,7 +118,7 @@ describe("saving a view", () => {
     });
     const [saved] = calls("POST", "/api/v1/entities");
     expect(saved?.body).toMatchObject({
-      type: "core.View",
+      type: "iki/core.View",
       values: {
         name: "Sequence of pTest",
         targets: [PLASMID_ID],
@@ -139,7 +142,10 @@ describe("saving a view", () => {
     });
     answer("GET /api/v1/entities/PRT-000001", entity({ hrid: "PRT-000001", revision: 4 }));
     answer("POST /api/v1/entities", { id: "v1", hrid: "VIEW-000001", revision: 1 });
-    answer("GET /api/v1/entities/VIEW-000001", entity({ hrid: "VIEW-000001", type: "core.View" }));
+    answer(
+      "GET /api/v1/entities/VIEW-000001",
+      entity({ hrid: "VIEW-000001", type: "iki/core.View" }),
+    );
     const { user } = await renderApp("/entities/DNA-000001/viewers/sequence/");
     await screen.findByText(/None yet\. A saved view keeps/);
     await user.click(screen.getByRole("button", { name: "Save view" }));
@@ -174,7 +180,7 @@ describe("saving a view", () => {
       items: [
         entity({
           hrid: "VIEW-000002",
-          type: "core.View",
+          type: "iki/core.View",
           values: {
             name: "tet for the report",
             targets: [PLASMID_ID],
@@ -184,7 +190,7 @@ describe("saving a view", () => {
         }),
         entity({
           hrid: "VIEW-000003",
-          type: "core.View",
+          type: "iki/core.View",
           values: {
             name: "pTest with its protein",
             targets: [PROTEIN_ID, PLASMID_ID],
@@ -196,7 +202,7 @@ describe("saving a view", () => {
         // It's in this one, but in another viewer: not a view of it here.
         entity({
           hrid: "VIEW-000004",
-          type: "core.View",
+          type: "iki/core.View",
           values: {
             name: "Elsewhere",
             targets: [PLASMID_ID, PROTEIN_ID],
@@ -218,7 +224,7 @@ describe("saving a view", () => {
     expect(screen.queryByRole("link", { name: "Elsewhere" })).not.toBeInTheDocument();
     const [search] = calls("POST", "/api/v1/entities/search");
     expect(search?.body).toMatchObject({
-      type: "core.View",
+      type: "iki/core.View",
       where: {
         all: [
           { field: "targets", op: "has", value: PLASMID_ID },
@@ -239,7 +245,7 @@ describe("a saved view's page", () => {
       entity({
         id: VIEW_ID,
         hrid: "VIEW-000001",
-        type: "core.View",
+        type: "iki/core.View",
         revision: 1,
         values: {
           name: "tet",
@@ -316,7 +322,7 @@ describe("a saved view's page", () => {
       entity({
         id: VIEW_ID,
         hrid: "VIEW-000001",
-        type: "core.View",
+        type: "iki/core.View",
         revision: 3,
         values: {
           name: "pTest and its protein",

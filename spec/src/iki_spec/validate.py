@@ -90,30 +90,6 @@ MAX_INDEXED_LENGTH = 600
 # The largest single object S3 stores.
 MAX_FILE_SIZE = 5 * 1024**4
 
-RESERVED_PLUGIN_NAMES = frozenset(
-    {
-        "iki",
-        "core",
-        "django",
-        "admin",
-        "auth",
-        "contenttypes",
-        "sessions",
-        "messages",
-        "staticfiles",
-        "postgres",
-        "oauth2_provider",
-        "allauth",
-        "account",
-        "socialaccount",
-        "openid_connect",
-        "saml",
-        "test",
-        "tests",
-    }
-    | set(keyword.kwlist)
-)
-
 # Columns and attributes every entity table or model already has.
 RESERVED_FIELD_NAMES = frozenset(
     {
@@ -359,6 +335,16 @@ def _read(root: FilePath) -> _Loaded:
         return loaded
     data = plugin_doc.data
     name = data["name"]
+    if "/" not in name:
+        checker.add(
+            "unqualified-name",
+            f"`{name}` needs a namespace: plugins are named `namespace/name`.",
+            plugin_doc,
+            ("name",),
+            hint=f"Name it under your lab's or company's namespace, such as `acme/{name}`. "
+            "Iki's own plugins are in `iki`.",
+        )
+        return loaded
     loaded.plugin_source = plugin_doc
     if "iki" in data and not releases.fits(data["iki"]):
         checker.add(
@@ -813,20 +799,33 @@ class _Semantics:
 
     def plugin_manifest(self) -> None:
         plugin, source = self.plugin, self.source
-        reserved = plugin.name in RESERVED_PLUGIN_NAMES and not (
-            self.core and plugin.name == "core"
-        )
-        if reserved or plugin.name.startswith("iki_"):
+        namespace, short = naming.split(plugin.name)
+        # A plugin's app is ``namespace__name``, which no app of Iki's or Django's is, so
+        # any name is free but Iki's own namespace and ones that pass for it (ADR 0113).
+        if naming.is_reserved(namespace) and not (
+            plugin.name in naming.FIRST_PARTY and (self.core or plugin.name != naming.CORE)
+        ):
             self.add(
-                "reserved-name",
-                f"`{plugin.name}` is reserved; Iki or Django already uses it.",
+                "reserved-namespace",
+                f"The namespace `{namespace}` is reserved: `{naming.IKI_NAMESPACE}` is Iki's "
+                "own, for the plugins in Iki's repository, and no other namespace may start "
+                f"with `{naming.IKI_NAMESPACE}_`.",
                 source,
                 ("name",),
-                hint="Choose another name, such as your organization's prefix and a topic "
-                "(`acme_assays`).",
+                hint=f"Name it under your lab's or company's namespace, such as `acme/{short}`.",
             )
         for dependency, constraints in plugin.dependencies.items():
             path: Path = ("dependencies", dependency)
+            if "/" not in dependency:
+                self.add(
+                    "unqualified-dependency",
+                    f"`{dependency}` needs its namespace.",
+                    source,
+                    path,
+                    key=True,
+                    hint=f"Write `{self._qualified(dependency)}`.",
+                )
+                continue
             if dependency == plugin.name:
                 self.add(
                     "dependency-is-self", "A plugin can't depend on itself.", source, path, key=True
@@ -835,7 +834,7 @@ class _Semantics:
             other = self.others.get(dependency)
             if other is None or other.plugin is None:
                 core_names = {t.name for t in BUILTIN_TYPES.values()}
-                if dependency == "core" and set(constraints) <= core_names:
+                if dependency == naming.CORE and set(constraints) <= core_names:
                     continue
                 self.unavailable.add(dependency)
                 self.add(
@@ -845,7 +844,7 @@ class _Semantics:
                     path,
                     key=True,
                     hint=f"Pass the {dependency} plugin's directory with "
-                    f"`--with path/to/{dependency}`.",
+                    f"`--with path/to/{naming.short_name(dependency)}`.",
                 )
                 continue
             if plugin.name in other.plugin.dependencies:
@@ -880,6 +879,15 @@ class _Semantics:
                         hint="Update the constraint once this plugin works with that version.",
                     )
 
+    def _qualified(self, plugin: str) -> str:
+        """What to write for a plugin named without its namespace: the one plugin of that
+        name it was given (or is), else Iki's own, else the name in a namespace to fill in."""
+        for candidates in ({*self.others, self.plugin.name}, naming.FIRST_PARTY):
+            known = sorted(n for n in candidates if naming.short_name(n) == plugin)
+            if known:
+                return known[0] if len(known) == 1 else f"<namespace>/{plugin}"
+        return f"<namespace>/{plugin}"
+
     def unpinned(self) -> None:
         for qualified in sorted(self.used):
             plugin, name = qualified.split(".")
@@ -903,6 +911,19 @@ class _Semantics:
     def reference(self, ref: str, source: Document, path: Path) -> EntityType | None:
         """The type `ref` names, or None after reporting why it can't be used."""
         plugin, name = ref.split(".")
+        if "/" not in plugin:
+            own = plugin == naming.short_name(self.plugin.name)
+            self.add(
+                "unqualified-reference",
+                f"`{ref}` doesn't say which namespace the {plugin} plugin is in.",
+                source,
+                path,
+                hint=f"Write `{name}`, since it's this plugin's own type, or "
+                f"`{self.plugin.name}.{name}`."
+                if own
+                else f"Write `{self._qualified(plugin)}.{name}`.",
+            )
+            return None
         if ref in self.types:
             if plugin != self.plugin.name and ref not in BUILTIN_TYPES:
                 if plugin not in self.plugin.dependencies:
@@ -927,7 +948,7 @@ class _Semantics:
                 hint=self._suggest(name, self.plugin.types),
             )
             return None
-        if plugin == "core" and "core" not in self.others:
+        if plugin == naming.CORE and naming.CORE not in self.others:
             self.add(
                 "unknown-type",
                 f"`{ref}` isn't a core type. In this version, core provides "
@@ -1273,9 +1294,9 @@ class _Semantics:
                         path,
                         key=key,
                         hint={
-                            "type": "Shorten the type's name or the plugin's.",
-                            "plugin": "Shorten the plugin's name.",
-                            "field": "Shorten the field's name, the type's or the plugin's.",
+                            "type": "Shorten the type's name, or the plugin's or its namespace.",
+                            "plugin": "Shorten the plugin's name or its namespace.",
+                            "field": "Shorten the field's name, the type's, or the plugin's.",
                         }[shorten],
                     )
                     break
@@ -1338,7 +1359,8 @@ class _Semantics:
                     source,
                     field_path,
                     key=True,
-                    hint=f"Choose another name, for example `{self.plugin.name}_{name}`.",
+                    hint="Choose another name, for example "
+                    f"`{naming.short_name(self.plugin.name)}_{name}`.",
                 )
             if f.required:
                 self.add(

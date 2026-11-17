@@ -6,16 +6,21 @@ installs, each pinned to a git commit::
     apiVersion: iki/v1
     kind: PluginLock
     plugins:
-      - name: dna
-        git: https://github.com/acme/iki-plugins.git
-        path: dna
+      - name: iki/dna
+        git: https://github.com/yogesh-dhande/iki.git
+        path: plugins/dna
         sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
         state: active
         settings: settings/dna.yaml
-      - name: lims
+      - name: acme/assays
+        git: https://github.com/acme/iki-assays.git
+        sha: 9c0b7e6f5a4d3c2b4f1c2b9e0d6a7c3b8e5f1a2d
+        state: active
+      - name: acme/lims
         state: purged
 
 A purged plugin (ADR 0092) has only its name: the deploy drops its tables.
+A plugin in Iki's own namespace, ``iki``, comes from Iki's repository (ADR 0113).
 
 ``iki deploy build`` fetches each plugin at its commit, checks it with the
 others and with its settings, and compiles them for the server image. A
@@ -30,7 +35,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from iki_spec import API_VERSION, schemas
+from iki_spec import API_VERSION, naming, schemas
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
 from iki_spec.yamlsource import Document, read_documents
@@ -180,13 +185,28 @@ def _check(
                 (*at, "name"),
             )
         seen.setdefault(plugin.name, index)
-        if plugin.name == "core":
+        if "/" not in plugin.name:
+            first_party = f"{naming.IKI_NAMESPACE}/{plugin.name}"
+            problems.add(
+                "unqualified-name",
+                f"`{plugin.name}` needs its namespace, as its plugin.yaml names it.",
+                document,
+                (*at, "name"),
+                hint=f"Write `{first_party}`."
+                if first_party in naming.FIRST_PARTY
+                else f"Write `<namespace>/{plugin.name}`, such as `acme/{plugin.name}`.",
+            )
+            continue
+        if plugin.name == naming.CORE:
             problems.add(
                 "core-is-builtin",
                 "The core plugin comes with Iki, at Iki's version. Don't list it.",
                 document,
                 (*at, "name"),
             )
+            continue
+        if naming.split(plugin.name)[0] == naming.IKI_NAMESPACE:
+            _check_first_party(plugin, document, at, problems)
         _check_source(plugin, document, at, problems)
         if plugin.settings is not None and plugin.state != "purged":
             _check_settings(plugin.settings, document, (*at, "settings"), directory, problems)
@@ -242,6 +262,58 @@ def _check_source(
             (*at, "path"),
             hint="Give it relative to the repository's root, without `..`.",
         )
+
+
+def _check_first_party(
+    plugin: LockedPlugin, document: Document, at: DocPath, problems: _Problems
+) -> None:
+    """A plugin in the ``iki`` namespace is one of Iki's, from Iki's repository: a copy of
+    one elsewhere, changed or not, is another plugin and needs a namespace of its own."""
+    short = naming.short_name(plugin.name)
+    if plugin.name not in naming.FIRST_PARTY:
+        problems.add(
+            "reserved-namespace",
+            f"Iki has no plugin `{plugin.name}`: the namespace `{naming.IKI_NAMESPACE}` is "
+            "Iki's own.",
+            document,
+            (*at, "name"),
+            hint=f"Name the plugin under your lab's or company's namespace, such as "
+            f"`acme/{short}`, in its plugin.yaml and here.",
+        )
+        return
+    if plugin.state == "purged" or plugin.local is not None or plugin.git is None:
+        return  # nothing fetched; a local directory is for development only
+    expected = f"plugins/{short}"
+    if _repository(plugin.git) != _repository(naming.IKI_REPOSITORY):
+        problems.add(
+            "first-party-source",
+            f"{plugin.name} is one of Iki's plugins, so it comes from Iki's repository, "
+            f"not `{plugin.git}`.",
+            document,
+            (*at, "git"),
+            hint=f"Use `git: {naming.IKI_REPOSITORY}` and `path: {expected}`. A plugin you "
+            f"changed is your own: give it your namespace, such as `acme/{short}`.",
+        )
+    elif posixpath.normpath(plugin.path or ".") != expected:
+        problems.add(
+            "first-party-source",
+            f"{plugin.name} is at `{expected}` in Iki's repository.",
+            document,
+            (*at, "path") if plugin.path is not None else at,
+            hint=f"Use `path: {expected}`.",
+        )
+
+
+def _repository(url: str) -> str:
+    """A git URL as ``host/owner/repository``, however it's written: https or ssh, with or
+    without ``.git``."""
+    text = url.strip().removesuffix("/").removesuffix(".git").lower()
+    for prefix in ("https://", "ssh://"):
+        text = text.removeprefix(prefix)
+    user, at, rest = text.partition("@")
+    text = rest if at and "/" not in user else text
+    host, colon, path = text.partition(":")
+    return f"{host}/{path}" if colon and "/" not in host else text
 
 
 def _check_settings(

@@ -11,16 +11,16 @@ import { answer, calls, page, project } from "./test-server";
 import type { Schemas } from "@ikisci/sdk";
 
 const OFF: Schemas["ProjectTriggerOut"] = {
-  name: "protein.compute_new_protein_properties",
-  plugin: "protein",
+  name: "iki/protein.compute_new_protein_properties",
+  plugin: "iki/protein",
   label: "Compute each new protein's properties",
   description: null,
   on: "entity.created",
-  type: "protein.Protein",
+  type: "iki/protein.Protein",
   schedule: "",
   timezone: "",
   fields: [],
-  action: "protein.compute_properties",
+  action: "iki/protein.compute_properties",
   action_label: "Compute properties",
   input: "protein",
   params: {},
@@ -50,12 +50,12 @@ const ON: Schemas["ProjectTriggerOut"] = {
 
 const RELAX: Schemas["ProjectTriggerOut"] = {
   ...OFF,
-  name: "protein.relax_changed_structures",
+  name: "iki/protein.relax_changed_structures",
   label: "Relax changed structures",
   on: "entity.updated",
-  type: "protein.ProteinStructure",
+  type: "iki/protein.ProteinStructure",
   fields: ["coordinates", "chains"],
-  action: "protein.relax_structure",
+  action: "iki/protein.relax_structure",
   action_label: "Relax structure",
   tier: "container",
 };
@@ -64,13 +64,13 @@ const ROBOT = { id: "00000000-0000-7000-8000-0000000000b7", name: "Nightly robot
 
 const NIGHTLY: Schemas["ProjectTriggerOut"] = {
   ...OFF,
-  name: "protein.fetch_hemoglobin_nightly",
+  name: "iki/protein.fetch_hemoglobin_nightly",
   label: "Fetch hemoglobin nightly",
   on: "schedule",
   type: "",
   schedule: "0 3 * * *",
   timezone: "Europe/Zurich",
-  action: "protein.fetch_proteins",
+  action: "iki/protein.fetch_proteins",
   action_label: "Fetch proteins",
   input: "",
   run_as_choices: [{ id: "00000000-0000-7000-8000-0000000000b6", name: "Ingest bot" }, ROBOT],
@@ -170,7 +170,7 @@ describe("a project's triggers", () => {
         enabled_at: ON.enabled_at,
         disabled_at: "2026-03-15T09:00:00Z",
         disabled_reason:
-          "Alice Admin can no longer run `protein.compute_properties` in Kinase Atlas.",
+          "Alice Admin can no longer run `iki/protein.compute_properties` in Kinase Atlas.",
         why_not_enable:
           "Its runs would be launched as you, and you can't run backend-tier actions in this project.",
         can: { enable: false, disable: false },

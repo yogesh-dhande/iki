@@ -219,7 +219,7 @@ def test_its_disk_is_made_into_an_image_once_detached(world: World) -> None:
         OWNER_LABEL: "iki-test",
         SETUP_LABEL: build["id"],
         VOLUME_LABEL: "af-db",
-        "iki-environment": "structure_prediction-alphafold-gpu",
+        "iki-environment": "acme-prediction-alphafold-gpu",
     }
     assert image["description"] == f"{ALPHAFOLD} af-db, version 1 ({build['hrid']})"
     provisioner.tick(machines)

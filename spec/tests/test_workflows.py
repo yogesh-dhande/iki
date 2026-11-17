@@ -16,7 +16,7 @@ DNA = EXAMPLES / "plugins" / "dna"
 PLUGIN = """\
 apiVersion: iki/v1
 kind: Plugin
-name: acme
+name: acme/lab
 version: 1.0.0
 """
 
@@ -178,10 +178,10 @@ def test_the_example_workflows_are_valid() -> None:
     assert protein.problems == []
     assert protein.plugin is not None
     flow_ = protein.plugin.workflows["translate_and_characterize"]
-    assert flow_.qualified_name == "protein.translate_and_characterize"
-    assert flow_.inputs["sequence"].type == "dna.DNASequence"
+    assert flow_.qualified_name == "iki/protein.translate_and_characterize"
+    assert flow_.inputs["sequence"].type == "iki/dna.DNASequence"
     assert flow_.order() == ["translate", "properties"]
-    created = "$steps.translate.created.protein.Protein"
+    created = "$steps.translate.created.iki/protein.Protein"
     assert flow_.steps["properties"].inputs == {"protein": created}
 
     template = load_plugin(EXAMPLES / "plugin-template", dependencies=[DNA])
@@ -324,7 +324,7 @@ def test_a_steps_param_value_fits_the_param(tmp_path: Path) -> None:
     [
         ("$inputs.asay", "it has no input `asay`"),
         ("$steps.nope.created.Readout", "it has no step `nope`"),
-        ("$steps.m.created.Assay", "`measure` creates `acme.Readout`"),
+        ("$steps.m.created.Assay", "`measure` creates `acme/lab.Readout`"),
         ("$steps.m.inputs.other", "step `m` isn't given `other`"),
     ],
 )
@@ -345,8 +345,8 @@ def test_a_step_cant_take_from_itself(tmp_path: Path) -> None:
 def test_a_reference_is_of_the_type_the_input_takes(tmp_path: Path) -> None:
     result = make(tmp_path, flow("t: { action: total, inputs: { readout: $inputs.assay } }"))
     message = only(result, "workflow-wrong-type")
-    assert "`$inputs.assay` is `acme.Assay`" in message
-    assert "takes `acme.Readout`" in message
+    assert "`$inputs.assay` is `acme/lab.Assay`" in message
+    assert "takes `acme/lab.Readout`" in message
 
 
 def test_many_cant_go_where_one_is_taken(tmp_path: Path) -> None:

@@ -28,17 +28,17 @@ def test_reads_plugins_from_git_and_local_directories(tmp_path: Path) -> None:
     file = lock(
         tmp_path,
         f"""\
-        - name: dna
+        - name: acme/dna
           git: https://github.com/acme/iki-plugins.git
           path: plugins/dna
           sha: {SHA}
           state: active
           settings: settings/dna.yaml
-        - name: assays
+        - name: acme/assays
           git: git@github.com:acme/assays.git
           sha: {"b" * 64}
           state: active
-        - name: scratch
+        - name: acme/scratch
           local: ../scratch
           state: active
         """,
@@ -48,7 +48,7 @@ def test_reads_plugins_from_git_and_local_directories(tmp_path: Path) -> None:
     assert result.problems == []
     assert result.lock is not None
     assert result.lock.plugins[0] == LockedPlugin(
-        name="dna",
+        name="acme/dna",
         state="active",
         git="https://github.com/acme/iki-plugins.git",
         sha=SHA,
@@ -57,14 +57,16 @@ def test_reads_plugins_from_git_and_local_directories(tmp_path: Path) -> None:
     )
     assert result.lock.has_local
     assert lock_to_dict(result.lock)["plugins"][2] == {
-        "name": "scratch",
+        "name": "acme/scratch",
         "state": "active",
         "local": "../scratch",
     }
 
 
 def test_a_plugin_can_be_detached(tmp_path: Path) -> None:
-    file = lock(tmp_path, f"- {{name: dna, git: https://x.org/p, sha: {SHA}, state: detached}}\n")
+    file = lock(
+        tmp_path, f"- {{name: acme/dna, git: https://x.org/p, sha: {SHA}, state: detached}}\n"
+    )
     result = load_lock(file)
     assert result.problems == []
     assert result.lock is not None
@@ -72,16 +74,16 @@ def test_a_plugin_can_be_detached(tmp_path: Path) -> None:
 
 
 def test_a_purged_plugin_has_only_its_name(tmp_path: Path) -> None:
-    result = load_lock(lock(tmp_path, "- {name: lims, state: purged}\n"))
+    result = load_lock(lock(tmp_path, "- {name: acme/lims, state: purged}\n"))
     assert result.problems == []
     assert result.lock is not None
-    assert result.lock.plugins[0].to_dict() == {"name": "lims", "state": "purged"}
+    assert result.lock.plugins[0].to_dict() == {"name": "acme/lims", "state": "purged"}
     kept = load_lock(
-        lock(tmp_path, f"- {{name: lims, git: https://x.org/p, sha: {SHA}, state: purged}}\n")
+        lock(tmp_path, f"- {{name: acme/lims, git: https://x.org/p, sha: {SHA}, state: purged}}\n")
     )
     assert [(p.code, p.message) for p in kept.problems] == [
-        ("purged-source", "lims is purged, so it isn't fetched or built: remove `git`."),
-        ("purged-source", "lims is purged, so it isn't fetched or built: remove `sha`."),
+        ("purged-source", "acme/lims is purged, so it isn't fetched or built: remove `git`."),
+        ("purged-source", "acme/lims is purged, so it isn't fetched or built: remove `sha`."),
     ]
 
 
@@ -97,29 +99,32 @@ def test_an_empty_deployment(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("entry", "code"),
     [
-        ("- {name: dna, git: https://x.org/p, sha: main, state: active}", "schema"),
-        (f"- {{name: dna, git: https://x.org/p, sha: {SHA[:12]}, state: active}}", "schema"),
-        (f"- {{name: dna, git: 'file:///srv/p', sha: {SHA}, state: active}}", "schema"),
-        (f"- {{name: dna, git: 'ext::sh -c id', sha: {SHA}, state: active}}", "schema"),
-        (f"- {{name: dna, git: https://x.org/p, sha: {SHA}, state: removed}}", "schema"),
-        (f"- {{name: dna, git: https://x.org/p, sha: {SHA}}}", "schema"),
-        ("- {name: dna, git: https://x.org/p, state: active}", "missing-sha"),
-        ("- {name: dna, state: active}", "missing-source"),
-        (f"- {{name: dna, local: ../dna, sha: {SHA}, state: active}}", "mixed-source"),
+        ("- {name: acme/dna, git: https://x.org/p, sha: main, state: active}", "schema"),
+        (f"- {{name: acme/dna, git: https://x.org/p, sha: {SHA[:12]}, state: active}}", "schema"),
+        (f"- {{name: acme/dna, git: 'file:///srv/p', sha: {SHA}, state: active}}", "schema"),
+        (f"- {{name: acme/dna, git: 'ext::sh -c id', sha: {SHA}, state: active}}", "schema"),
+        (f"- {{name: acme/dna, git: https://x.org/p, sha: {SHA}, state: removed}}", "schema"),
+        (f"- {{name: acme/dna, git: https://x.org/p, sha: {SHA}}}", "schema"),
+        ("- {name: acme/dna, git: https://x.org/p, state: active}", "missing-sha"),
+        ("- {name: acme/dna, state: active}", "missing-source"),
+        (f"- {{name: acme/dna, local: ../dna, sha: {SHA}, state: active}}", "mixed-source"),
         (
-            f"- {{name: dna, git: https://x.org/p, sha: {SHA}, path: a/../../b, state: active}}",
+            f"- {{name: acme/dna, git: https://x.org/p, sha: {SHA}, path: a/../../b, "
+            "state: active}",
             "path-outside",
         ),
         (
-            f"- {{name: core, git: https://x.org/p, sha: {SHA}, state: active}}",
+            f"- {{name: iki/core, git: https://x.org/p, sha: {SHA}, state: active}}",
             "core-is-builtin",
         ),
         (
-            f"- {{name: dna, git: https://x.org/p, sha: {SHA}, state: active, settings: s.yaml}}",
+            f"- {{name: acme/dna, git: https://x.org/p, sha: {SHA}, state: active, "
+            "settings: s.yaml}",
             "missing-settings-file",
         ),
         (
-            f"- {{name: dna, git: https://x.org/p, sha: {SHA}, state: active, settings: /s.yaml}}",
+            f"- {{name: acme/dna, git: https://x.org/p, sha: {SHA}, state: active, "
+            "settings: /s.yaml}",
             "absolute-path",
         ),
     ],
@@ -130,7 +135,9 @@ def test_refuses(tmp_path: Path, entry: str, code: str) -> None:
 
 def test_each_plugin_once(tmp_path: Path) -> None:
     file = lock(
-        tmp_path, "- {name: dna, local: a, state: active}\n- {name: dna, local: b, state: active}\n"
+        tmp_path,
+        "- {name: acme/dna, local: a, state: active}\n"
+        "- {name: acme/dna, local: b, state: active}\n",
     )
     problems = load_lock(file).problems
     assert [p.code for p in problems] == ["duplicate-plugin"]
@@ -139,7 +146,7 @@ def test_each_plugin_once(tmp_path: Path) -> None:
 
 
 def test_explains_a_branch_given_as_a_sha(tmp_path: Path) -> None:
-    file = lock(tmp_path, "- {name: dna, git: https://x.org/p, sha: main, state: active}")
+    file = lock(tmp_path, "- {name: acme/dna, git: https://x.org/p, sha: main, state: active}")
     (problem,) = load_lock(file).problems
     assert problem.hint is not None
     assert "git ls-remote" in problem.hint
@@ -147,7 +154,9 @@ def test_explains_a_branch_given_as_a_sha(tmp_path: Path) -> None:
 
 def test_a_sha_yaml_reads_as_a_number(tmp_path: Path) -> None:
     number = "1234567890" * 4
-    file = lock(tmp_path, f"- {{name: dna, git: https://x.org/p, sha: {number}, state: active}}")
+    file = lock(
+        tmp_path, f"- {{name: acme/dna, git: https://x.org/p, sha: {number}, state: active}}"
+    )
     (problem,) = load_lock(file).problems
     assert problem.hint == "YAML read this SHA as a number: put it in quotes."
 
@@ -157,3 +166,62 @@ def test_not_a_lockfile(tmp_path: Path) -> None:
     file.write_text("apiVersion: iki/v1\nkind: Plugin\nname: dna\n")
     assert [p.code for p in load_lock(file).problems] == ["not-a-lockfile"]
     assert [p.code for p in load_lock(tmp_path / "nope.yaml").problems] == ["missing-lockfile"]
+
+
+def test_plugins_are_named_in_a_namespace(tmp_path: Path) -> None:
+    (problem,) = load_lock(lock(tmp_path, "- {name: assays, local: a, state: active}\n")).problems
+    assert problem.code == "unqualified-name"
+    assert problem.message == "`assays` needs its namespace, as its plugin.yaml names it."
+    assert problem.hint == "Write `<namespace>/assays`, such as `acme/assays`."
+    (problem,) = load_lock(lock(tmp_path, "- {name: dna, local: a, state: active}\n")).problems
+    assert problem.hint == "Write `iki/dna`."
+
+
+@pytest.mark.parametrize(
+    "git",
+    [
+        "https://github.com/yogesh-dhande/iki.git",
+        "https://github.com/yogesh-dhande/iki",
+        "https://GitHub.com/yogesh-dhande/iki/",
+        "git@github.com:yogesh-dhande/iki.git",
+        "ssh://git@github.com/yogesh-dhande/iki.git",
+    ],
+)
+def test_iki_plugins_come_from_iki(tmp_path: Path, git: str) -> None:
+    entry = f"- {{name: iki/dna, git: '{git}', path: plugins/dna, sha: {SHA}, state: active}}\n"
+    assert codes(lock(tmp_path, entry)) == []
+
+
+def test_the_iki_namespace_is_reserved(tmp_path: Path) -> None:
+    # A plugin Iki doesn't have.
+    entry = f"- {{name: iki/assays, git: https://x.org/p, sha: {SHA}, state: active}}\n"
+    (problem,) = load_lock(lock(tmp_path, entry)).problems
+    assert problem.code == "reserved-namespace"
+    assert problem.message == "Iki has no plugin `iki/assays`: the namespace `iki` is Iki's own."
+    # One of Iki's, from somewhere else: a fork is another plugin, in its own namespace.
+    fork = (
+        "- {name: iki/dna, git: https://git.acme.example/lab/iki.git, path: plugins/dna, "
+        f"sha: {SHA}, state: active}}\n"
+    )
+    assert codes(lock(tmp_path, fork)) == ["first-party-source"]
+    # Or from another directory of Iki's repository.
+    elsewhere = (
+        "- {name: iki/dna, git: https://github.com/yogesh-dhande/iki.git, path: plugins/protein, "
+        f"sha: {SHA}, state: active}}\n"
+    )
+    assert codes(lock(tmp_path, elsewhere)) == ["first-party-source"]
+    # A local directory is for development, and a purged plugin isn't fetched.
+    assert codes(lock(tmp_path, "- {name: iki/dna, local: ../dna, state: active}\n")) == []
+    assert codes(lock(tmp_path, "- {name: iki/dna, state: purged}\n")) == []
+
+
+def test_the_same_name_in_two_namespaces(tmp_path: Path) -> None:
+    file = lock(
+        tmp_path,
+        "- {name: acme/assays, local: a, state: active}\n"
+        "- {name: globex/assays, local: b, state: active}\n",
+    )
+    result = load_lock(file)
+    assert result.problems == []
+    assert result.lock is not None
+    assert [p.name for p in result.lock.plugins] == ["acme/assays", "globex/assays"]

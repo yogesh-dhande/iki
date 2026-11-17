@@ -438,7 +438,7 @@ class WorkflowStep:
     action: str  # the action's name in the plugin
     label: str = ""
     #: The action's input → where it comes from: ``$inputs.<name>``,
-    #: ``$steps.<id>.inputs.<name>`` or ``$steps.<id>.created.<plugin.Type>``.
+    #: ``$steps.<id>.inputs.<name>`` or ``$steps.<id>.created.<namespace/plugin.Type>``.
     inputs: dict[str, str] = field(default_factory=dict)
     #: The action's param → a value, or ``$params.<name>``.
     params: dict[str, Any] = field(default_factory=dict)

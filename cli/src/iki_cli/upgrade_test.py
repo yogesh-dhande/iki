@@ -4,6 +4,10 @@ It builds the plugin as it was at REF and as it is now, makes a scratch database
 runs :mod:`iki_server.plugins.upgrade_test` there for each step, with that step's build:
 ``before`` (the earlier build, making the samples), ``after`` (the current one), and
 ``rollback`` (the earlier one again).
+
+Plugins were named without a namespace before ADR 0113, and no deployment ran them: a commit
+from then has nothing to upgrade from, so it's skipped, as is one where the plugin had another
+name.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from urllib.parse import urlsplit, urlunsplit
 from iki_codegen import build as build_apps
 from iki_spec import action_tests
 from iki_spec.model import EntityType, Field, Plugin
+from iki_spec.yamlsource import read_documents
 
 #: How much of a failing step's log is shown.
 LOG_LINES = 20
@@ -58,6 +63,19 @@ def run(
         sha, earlier_dir = found
         if earlier_dir is None:
             out.write(f"{plugin.name} isn't at {ref} ({sha[:12]}): there's nothing to upgrade.\n")
+            return True
+        named = _name(earlier_dir)
+        if named != plugin.name:
+            why = (
+                f"it was `{named}`, from before plugins had namespaces (ADR 0113), which no "
+                "deployment ran"
+                if named is not None and "/" not in named
+                else f"it was named `{named}` then"
+            )
+            out.write(
+                f"{plugin.name} wasn't at {ref} ({sha[:12]}): {why}, so there's nothing to "
+                "upgrade from.\n"
+            )
             return True
         earlier = _built(earlier_dir, dependencies, work / "build-earlier", err)
         current = _built(directory, dependencies, work / "build-current", err)
@@ -207,6 +225,14 @@ def _checkout(directory: Path, ref: str, into: Path, err: TextIO) -> tuple[str, 
         tar.extractall(into, filter="data")
     earlier = into / inside
     return sha, earlier if (earlier / "plugin.yaml").is_file() else None
+
+
+def _name(directory: Path) -> str | None:
+    """The name the plugin.yaml in ``directory`` gives, if it gives one."""
+    documents, _ = read_documents(directory / "plugin.yaml", "plugin.yaml")
+    data = documents[0].data if documents else None
+    name = data.get("name") if isinstance(data, dict) else None
+    return name if isinstance(name, str) else None
 
 
 def _git(command: list[str]) -> str | None:

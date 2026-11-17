@@ -38,7 +38,7 @@ ROOMY = {"cpu": 4, "memory": 16 * GI}
 #: The test plugins, from local directories, run with the host's own software.
 LOCAL = [
     {"name": name, "sha": None, "environments": None, "bundle": None}
-    for name in ("dna", "protein", "structure_prediction")
+    for name in ("acme/dna", "acme/prediction", "acme/protein")
 ]
 
 
@@ -348,7 +348,7 @@ def test_a_worker_leases_a_queued_job_with_what_it_needs(world: World) -> None:
     assert job["run"]["hrid"] == run["hrid"]
     assert job["run"]["attempt"] == 1
     assert job["command"][0] == "python"
-    assert job["environment"] == "protein.protein-tools"
+    assert job["environment"] == "acme/protein.protein-tools"
     assert job["params"] == run["params"]
     (entity,) = job["inputs"]["protein"]
     assert entity["hrid"] == run["inputs"][0]["hrid"]
@@ -398,7 +398,7 @@ BUILT = "sha256:" + "b" * 64
 
 
 def _code(sha: str | None, environments: dict[str, str] | None) -> list[dict[str, Any]]:
-    return [{"name": "protein", "sha": sha, "environments": environments, "bundle": None}]
+    return [{"name": "acme/protein", "sha": sha, "environments": environments, "bundle": None}]
 
 
 def test_workers_lease_only_runs_of_the_code_and_environments_they_have(
@@ -458,8 +458,8 @@ def test_what_a_worker_runs_is_checked(world: World) -> None:
     problem(registering.post("/register", {**base, "plugins": twice}), 422, "validation_failed")
     for bad in (
         {"name": "Protein", "sha": None, "environments": None},
-        {"name": "protein", "sha": "main", "environments": None},
-        {"name": "protein", "sha": None, "environments": {"tools": "md5:abc"}},
+        {"name": "acme/protein", "sha": "main", "environments": None},
+        {"name": "acme/protein", "sha": None, "environments": {"tools": "md5:abc"}},
     ):
         made = registering.post("/register", {**base, "plugins": [bad]})
         problem(made, 422, "validation_failed")

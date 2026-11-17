@@ -7,6 +7,6 @@ description: >-
   Writes a protein's new name to its LIMS record when someone renames it in
   Iki. Imports never fire it: changes a triggered run makes fire no trigger.
 on: entity.updated
-type: protein.Protein
+type: iki/protein.Protein
 fields: [name]
 run: send_to_lims

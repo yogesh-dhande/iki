@@ -31,11 +31,11 @@ pytestmark = pytest.mark.django_db
 
 __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 
-WEIGH_AND_ALIGN = "protein.weigh_and_align"
-RELAX_TWICE = "protein.relax_twice"
-IMPORT_AND_WEIGH = "protein.import_and_weigh"
-ALIGN_THEN_WEIGH = "protein.align_then_weigh"
-REVIEW_THEN_WEIGH = "protein.review_then_weigh"
+WEIGH_AND_ALIGN = "acme/protein.weigh_and_align"
+RELAX_TWICE = "acme/protein.relax_twice"
+IMPORT_AND_WEIGH = "acme/protein.import_and_weigh"
+ALIGN_THEN_WEIGH = "acme/protein.align_then_weigh"
+REVIEW_THEN_WEIGH = "acme/protein.review_then_weigh"
 
 
 def run_tasks() -> int:
@@ -102,7 +102,7 @@ def test_lists_installed_workflows(world: World) -> None:
     assert [w["name"] for w in listed] == names
     found = viewer.get(f"/workflows/{WEIGH_AND_ALIGN}").json()
     assert found == listed[4]
-    assert (found["label"], found["plugin"]) == ("Weigh and align", "protein")
+    assert (found["label"], found["plugin"]) == ("Weigh and align", "acme/protein")
     assert [i["name"] for i in found["inputs"]] == ["query", "target"]
     assert found["params"][0]["name"] == "mode"
     assert found["params"][0]["default"] == "local"
@@ -111,7 +111,7 @@ def test_lists_installed_workflows(world: World) -> None:
         {
             "id": "weigh",
             "label": "Weigh",
-            "action": "protein.compute_properties",
+            "action": "acme/protein.compute_properties",
             "inputs": {"protein": "$inputs.query"},
             "params": {},
             "after": [],
@@ -122,7 +122,7 @@ def test_lists_installed_workflows(world: World) -> None:
         {
             "id": "align",
             "label": "Align",
-            "action": "protein.align_pair",
+            "action": "acme/protein.align_pair",
             "inputs": {"query": "$steps.weigh.inputs.protein", "target": "$inputs.target"},
             "params": {"mode": "$params.mode"},
             "after": ["weigh"],
@@ -133,7 +133,7 @@ def test_lists_installed_workflows(world: World) -> None:
     ]
     assert found["available"] is True
     assert found["tiers"] == ["backend"]
-    problem(viewer.get("/workflows/protein.nope"), 404, "not_found")
+    problem(viewer.get("/workflows/acme/protein.nope"), 404, "not_found")
     conditional = listed[0]["steps"][1]
     assert (conditional["id"], conditional["after"]) == ("weigh", ["align"])
     assert listed[3]["steps"][1]["approval"] == {
@@ -228,7 +228,7 @@ def test_starting_again_reuses_steps_that_succeeded(
     monkeypatch.setattr(services, "plugin_sha", lambda plugin: "a" * 40)
     body = started(world)
     built = {"protein-tools": "sha256:" + "b" * 64}
-    pod = worker(world, plugins=[{"name": "protein", "sha": "a" * 40, "environments": built}])
+    pod = worker(world, plugins=[{"name": "acme/protein", "sha": "a" * 40, "environments": built}])
     weigh(pod)
     run_tasks()
     complete(pod)
@@ -362,8 +362,8 @@ def test_a_step_takes_what_an_earlier_step_created(world: World, s3: Any) -> Non
     abl = protein(editor, world.project)
     upload = _empty_file(world)
     values = {"structure": upload, "method": "xray", "chains": [abl["id"]]}
-    structure = create(editor, world.project, values, "protein.ProteinStructure").json()
-    relaxed = create(editor, world.project, values, "protein.ProteinStructure").json()
+    structure = create(editor, world.project, values, "acme/protein.ProteinStructure").json()
+    relaxed = create(editor, world.project, values, "acme/protein.ProteinStructure").json()
     body = start(editor, world, {"structure": structure["id"]}, RELAX_TWICE).json()
     assert steps(body) == {"first": "running", "second": "waiting"}
 
@@ -380,7 +380,7 @@ def test_a_step_with_nothing_created_to_take_fails(world: World, s3: Any) -> Non
     editor = api_as(world, "editor")
     abl = protein(editor, world.project)
     values = {"structure": _empty_file(world), "method": "xray", "chains": [abl["id"]]}
-    structure = create(editor, world.project, values, "protein.ProteinStructure").json()
+    structure = create(editor, world.project, values, "acme/protein.ProteinStructure").json()
     body = start(editor, world, {"structure": structure["id"]}, RELAX_TWICE).json()
     first = ActionRun.objects.get(pk=body["steps"][0]["run"]["id"])
     ActionRun.objects.filter(pk=first.pk).update(status=RunStatus.SUCCEEDED)
@@ -389,7 +389,8 @@ def test_a_step_with_nothing_created_to_take_fails(world: World, s3: Any) -> Non
     assert step.state == "failed"
     assert step.error is not None
     assert step.error["message"] == (
-        "Its run couldn't start: step `first` created no `protein.ProteinStructure` for it to take."
+        "Its run couldn't start: step `first` created no `acme/protein.ProteinStructure` for it "
+        "to take."
     )
 
 
@@ -474,7 +475,7 @@ def test_a_step_run_for_each_with_none_to_run_on_fails(world: World, s3: Any) ->
     failed = get(world, body)
     assert failed["status"] == "failed"
     assert failed["steps"][1]["error"]["message"] == (
-        "Its run couldn't start: step `import` created no `protein.Protein` for it to take."
+        "Its run couldn't start: step `import` created no `acme/protein.Protein` for it to take."
     )
 
 
@@ -565,7 +566,7 @@ def test_a_condition_reads_the_metrics_of_results_reused(
 ) -> None:
     monkeypatch.setattr(services, "plugin_sha", lambda plugin: "a" * 40)
     built = {"protein-tools": "sha256:" + "b" * 64}
-    pod = worker(world, plugins=[{"name": "protein", "sha": "a" * 40, "environments": built}])
+    pod = worker(world, plugins=[{"name": "acme/protein", "sha": "a" * 40, "environments": built}])
     first = aligned(world, pod, 3)
     assert first["status"] == "succeeded"
 

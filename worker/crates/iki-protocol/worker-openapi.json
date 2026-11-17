@@ -73,9 +73,12 @@
             "type": "object"
           },
           "name": {
-            "maxLength": 30,
-            "minLength": 2,
-            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "examples": [
+              "iki/protein"
+            ],
+            "maxLength": 61,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*$",
             "title": "Name",
             "type": "string"
           },
@@ -648,9 +651,12 @@
             "title": "Environments"
           },
           "name": {
-            "maxLength": 30,
-            "minLength": 2,
-            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "examples": [
+              "iki/protein"
+            ],
+            "maxLength": 61,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*$",
             "title": "Name",
             "type": "string"
           },

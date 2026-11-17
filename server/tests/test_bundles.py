@@ -50,14 +50,14 @@ def lab(s3: Any) -> dict[str, Any]:
     ProjectMembership.objects.create(project=kinases, user=bob, role=ProjectRole.EDITOR)
     ProjectMembership.objects.create(project=shared, user=alice, role=ProjectRole.EDITOR)
     elsewhere = services.create(
-        alice, "protein.Protein", shared, {"sequence": "MKV", "name": "Elsewhere"}
+        alice, "acme/protein.Protein", shared, {"sequence": "MKV", "name": "Elsewhere"}
     ).entity
     earlier = services.create(
-        alice, "protein.Protein", kinases, {"sequence": "MKA", "name": "Earlier"}
+        alice, "acme/protein.Protein", kinases, {"sequence": "MKA", "name": "Earlier"}
     ).entity
     kinase = services.create(
         bob,
-        "protein.Protein",
+        "acme/protein.Protein",
         kinases,
         {"sequence": "MKT", "name": "ABL1", "source": str(earlier.pk)},
         reason="From the LIMS",
@@ -67,7 +67,7 @@ def lab(s3: Any) -> dict[str, Any]:
     pdb = stored(kinases, PDB)
     structure = services.create(
         alice,
-        "protein.ProteinStructure",
+        "acme/protein.ProteinStructure",
         kinases,
         {"structure": str(pdb.pk), "method": "xray", "chains": [str(kinase.pk)]},
     ).entity
@@ -119,11 +119,12 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert m["counts"] == {"entities": 2, "revisions": 4, "files": 1, "outside": 2, "runs": 0}
     assert made.counts == m["counts"]
     plugins = {p["name"]: p for p in m["plugins"]}
-    assert plugins["protein"]["types"]["protein.Protein"]["schema_version"] == 3
-    assert plugins["protein"]["types"]["protein.Protein"]["units"]["temperature_optimum"] == "Cel"
-    assert "dna.Sequence" in plugins["dna"]["types"]
-    assert plugins["structure_prediction"]["extensions"] == {
-        "protein.ProteinStructure": {"units": {}}
+    protein = plugins["acme/protein"]["types"]["acme/protein.Protein"]
+    assert protein["schema_version"] == 3
+    assert protein["units"]["temperature_optimum"] == "Cel"
+    assert "acme/dna.Sequence" in plugins["acme/dna"]["types"]
+    assert plugins["acme/prediction"]["extensions"] == {
+        "acme/protein.ProteinStructure": {"units": {}}
     }
 
     entities = {e["hrid"]: e for e in bundle.lines("entities.ndjson")}
@@ -137,16 +138,16 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     people = {p["id"]: p["email"] for p in bundle.lines("people.ndjson")}
     assert [people[r["user"]] for r in k["revisions"]] == ["bob@example.org", "alice@example.org"]
     assert people[k["created_by"]] == "bob@example.org"
-    own = [h for h in k["history"] if h["table"] == "protein.Protein"]
+    own = [h for h in k["history"] if h["table"] == "acme/protein.Protein"]
     assert [(h["revision"], h["values"]["source"]) for h in own] == [
         (1, str(lab["earlier"].pk)),
         (2, str(lab["elsewhere"].pk)),
     ]
     assert any(
-        h["table"] == "core.Sequence" and h["values"]["name"] == "ABL1" for h in k["history"]
+        h["table"] == "iki/core.Sequence" and h["values"]["name"] == "ABL1" for h in k["history"]
     )
     s = entities[structure.hrid]
-    values = [h["values"] for h in s["history"] if h["table"] == "protein.ProteinStructure"]
+    values = [h["values"] for h in s["history"] if h["table"] == "acme/protein.ProteinStructure"]
     assert [v["method"] for v in values] == ["xray", "nmr"]
     assert values[0]["chains"] == [str(kinase.pk)]
     assert values[0]["structure"] == str(lab["pdb"].pk)
@@ -160,7 +161,7 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert outside[str(lab["elsewhere"].pk)] == {
         "id": str(lab["elsewhere"].pk),
         "hrid": lab["elsewhere"].hrid,
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "why": "another-project",
     }
     # Only the kinase's first revision referred to it.

@@ -520,7 +520,8 @@ vmTier:
 
 runSecrets:
   # Secret holding the secrets plugins' actions declare (ADR 0054), one key
-  # each, named for the plugin and the secret: dna.NCBI_API_KEY. Sync it from
+  # each, named for the plugin's label and the secret: iki__dna.NCBI_API_KEY
+  # for iki/dna's NCBI_API_KEY (a key can't hold a /). Sync it from
   # your secret manager (External Secrets, the Vault or AWS Secrets Manager
   # CSI driver). Only web pods mount it; each run gets only the secrets its
   # action declares, and they never appear in logs. An action that needs one

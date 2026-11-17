@@ -82,7 +82,7 @@ def protein(i: int, sequence: str) -> dict[str, Any]:
     return {
         "id": f"00000000-0000-0000-0000-{i:012d}",
         "hrid": f"PRT-{i:06d}",
-        "type": "protein.Protein",
+        "type": "iki/protein.Protein",
         "schema_version": 2,
         "revision": 1,
         "values": {"sequence": sequence},
@@ -93,7 +93,7 @@ def antibody(form: str, heavy: dict[str, Any], light: dict[str, Any] | None) -> 
     return {
         "id": "00000000-0000-0000-0000-000000000100",
         "hrid": "ABY-000001",
-        "type": "antibody.Antibody",
+        "type": "iki/antibody.Antibody",
         "schema_version": 1,
         "revision": 1,
         "values": {
@@ -156,7 +156,7 @@ def test_an_igg_is_modelled_from_its_two_chains(tmp_path: Path) -> None:
     assert output is not None
     (made,) = output["creates"]
     values = made["values"]
-    assert made["type"] == "protein.ProteinStructure"
+    assert made["type"] == "iki/protein.ProteinStructure"
     assert values["structure"] == {"$file": "ABY-000001.pdb", "media_type": "chemical/x-pdb"}
     assert (tmp_path / "out" / "ABY-000001.pdb").read_text().startswith("REMARK")
     assert values["name"] == "Trastuzumab, predicted by ABodyBuilder2"

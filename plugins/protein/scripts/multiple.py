@@ -1,4 +1,4 @@
-"""`align_multiple`: aligns many proteins with MAFFT, into a `core.Alignment` of them.
+"""`align_multiple`: aligns many proteins with MAFFT, into an `iki/core.Alignment` of them.
 
 The rows are in the order the proteins were given, the reference first if there is one,
 each headed by its protein's HRID, so the alignment viewer links each row to its protein
@@ -211,7 +211,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     return {
         "creates": [
             {
-                "type": "core.Alignment",
+                "type": "iki/core.Alignment",
                 "values": values,
                 "derived_from": [e["id"] for e in entities],
             }

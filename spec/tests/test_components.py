@@ -11,7 +11,7 @@ from iki_spec.validate import Result, load_plugin
 PLUGIN = """\
 apiVersion: iki/v1
 kind: Plugin
-name: acme
+name: acme/lab
 version: 1.0.0
 """
 
@@ -78,9 +78,11 @@ def test_a_component_is_read_with_its_modules_digest(tmp_path: Path) -> None:
     plugin = result.plugin
     assert plugin is not None
     (found,) = plugin.components.values()
-    assert found.qualified_name == "acme.assay_plot"
-    assert found.slots == (ComponentSlot(slot="entity.tab", type="acme.Assay", label="Assay plot"),)
-    assert found.selects == "acme.Readout"
+    assert found.qualified_name == "acme/lab.assay_plot"
+    assert found.slots == (
+        ComponentSlot(slot="entity.tab", type="acme/lab.Assay", label="Assay plot"),
+    )
+    assert found.selects == "acme/lab.Readout"
     assert found.sha256 == hashlib.sha256(MODULE.encode()).hexdigest()
     assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
 

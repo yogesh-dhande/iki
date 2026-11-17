@@ -31,8 +31,8 @@ function field(overrides: Partial<Schemas["FieldOut"]>): Schemas["FieldOut"] {
 
 const ALIGNMENT_TYPE: Schemas["EntityTypeOut"] = {
   ...PROTEIN,
-  name: "core.Alignment",
-  plugin: "core",
+  name: "iki/core.Alignment",
+  plugin: "iki/core",
   label: "Alignment",
   label_plural: "Alignments",
   hrid_prefix: "ALN",
@@ -40,8 +40,14 @@ const ALIGNMENT_TYPE: Schemas["EntityTypeOut"] = {
   on_duplicate: null,
   fields: [
     field({ name: "name", label: "Name", type: "string", required: true }),
-    field({ name: "reference", label: "Reference", type: "ref", to: "core.Sequence" }),
-    field({ name: "members", label: "Members", type: "list", items: "ref", to: "core.Sequence" }),
+    field({ name: "reference", label: "Reference", type: "ref", to: "iki/core.Sequence" }),
+    field({
+      name: "members",
+      label: "Members",
+      type: "list",
+      items: "ref",
+      to: "iki/core.Sequence",
+    }),
     field({ name: "aligned", label: "Aligned", type: "file", required: true }),
   ],
   viewers: [
@@ -83,7 +89,7 @@ async function onAlignment(values: Record<string, unknown> = {}, size = FASTA.by
     "GET /api/v1/entities/ALN-000001",
     entity({
       hrid: "ALN-000001",
-      type: "core.Alignment",
+      type: "iki/core.Alignment",
       values: {
         name: "ABL kinases",
         reference: ABL2,
@@ -95,14 +101,14 @@ async function onAlignment(values: Record<string, unknown> = {}, size = FASTA.by
         [ABL1]: {
           hrid: "PRT-000001",
           title: "ABL1 kinase",
-          type: "protein.Protein",
+          type: "iki/protein.Protein",
           archived: false,
           purged: false,
         },
         [ABL2]: {
           hrid: "PRT-000002",
           title: "ABL2 kinase",
-          type: "protein.Protein",
+          type: "iki/protein.Protein",
           archived: false,
           purged: false,
         },
@@ -272,14 +278,14 @@ describe("the alignment viewer's parts", () => {
         [ABL1]: {
           hrid: "PRT-000001",
           title: "ABL1",
-          type: "protein.Protein",
+          type: "iki/protein.Protein",
           archived: false,
           purged: false,
         },
         [ABL2]: {
           hrid: "PRT-000009",
           title: "Not listed",
-          type: "protein.Protein",
+          type: "iki/protein.Protein",
           archived: false,
           purged: false,
         },
@@ -296,7 +302,7 @@ describe("the alignment viewer's parts", () => {
         [ABL1]: {
           hrid: "PRT-000107",
           title: "ABL1",
-          type: "protein.Protein",
+          type: "iki/protein.Protein",
           archived: false,
           purged: false,
           formerly: ["PRT-000012"],

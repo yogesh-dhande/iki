@@ -1,5 +1,5 @@
 /**
- * Collections (core.Collection, ADR 0038): named sets of entities. A static
+ * Collections (iki/core.Collection, ADR 0038): named sets of entities. A static
  * one lists its members; a dynamic one is a search, run as whoever reads it.
  *
  * - The grid saves its search as a collection: kept up to date (the search),
@@ -29,7 +29,7 @@ import { Button, ConfirmDialog, RadioField, TextField, useMessages } from "../ui
 
 type Keep = "search" | "members";
 
-export const COLLECTION = "core.Collection";
+export const COLLECTION = "iki/core.Collection";
 
 /** Collections' own fields, which their page shows in its own way. */
 export const COLLECTION_FIELDS = new Set(["members", "search"]);

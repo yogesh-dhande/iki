@@ -110,7 +110,7 @@ def test_aligns_two_proteins_as_needle_and_keeps_the_alignment(tmp_path: Path) -
     assert [record.split("\n", 1)[0] for record in fasta] == ["X-1", "X-2"]
     (alignment,) = output["creates"]
     assert alignment == {
-        "type": "core.Alignment",
+        "type": "iki/core.Alignment",
         "values": {
             "name": "HBA_HUMAN and HBB_HUMAN",
             "description": "43.6% identical and 60.4% similar over 149 columns, scoring 292.5.",
@@ -255,7 +255,7 @@ def test_translates_into_a_protein_linked_to_its_dna(tmp_path: Path) -> None:
     assert output is not None
     assert output["creates"] == [
         {
-            "type": "protein.Protein",
+            "type": "iki/protein.Protein",
             "values": {
                 "name": "pDemo (+1)",
                 "description": (

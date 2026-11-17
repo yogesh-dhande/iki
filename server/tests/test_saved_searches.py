@@ -13,7 +13,7 @@ from iki_server.searches import services
 pytestmark = pytest.mark.django_db
 
 HUMAN = {
-    "type": "protein.Protein",
+    "type": "acme/protein.Protein",
     "archived": False,
     "where": {"field": "organism", "op": "eq", "value": "Homo sapiens"},
     "sort": {"field": "name", "descending": True},
@@ -42,9 +42,9 @@ def test_saving_a_search_and_running_it(world: World) -> None:
         editor,
         world.project,
         {"sequence": "MKVL", "name": "abl1", "organism": "Homo sapiens"},
-        "protein.Protein",
+        "acme/protein.Protein",
     )
-    create(editor, world.project, {"sequence": "MTMI", "name": "lacz"}, "protein.Protein")
+    create(editor, world.project, {"sequence": "MTMI", "name": "lacz"}, "acme/protein.Protein")
     viewer = api_as(world, "viewer")
     made = save(viewer, world)
     assert made.status_code == 201, made.content
@@ -113,7 +113,10 @@ def test_sharing_takes_editor(world: World) -> None:
 
 def test_searches_are_checked_when_saved(world: World) -> None:
     viewer = api_as(world, "viewer")
-    wrong = {"type": "protein.Protein", "where": {"field": "colour", "op": "eq", "value": "red"}}
+    wrong = {
+        "type": "acme/protein.Protein",
+        "where": {"field": "colour", "op": "eq", "value": "red"},
+    }
     body = problem(
         viewer.post(
             "/saved-searches", {"project": str(world.project.pk), "name": "x", "query": wrong}
@@ -122,7 +125,7 @@ def test_searches_are_checked_when_saved(world: World) -> None:
         "validation_failed",
     )
     assert body["errors"] == [
-        {"pointer": "#/query/where/field", "detail": "protein.Protein has no field `colour`."}
+        {"pointer": "#/query/where/field", "detail": "acme/protein.Protein has no field `colour`."}
     ]
     blank = problem(save(viewer, world, "  "), 422, "validation_failed")
     assert blank["errors"] == [{"pointer": "#/name", "detail": "can't be blank."}]

@@ -358,7 +358,7 @@ def _creates(
         "sha256": hashlib.sha256(record.text.encode("utf-8")).hexdigest(),
     }
     made: dict[str, Any] = {
-        "type": "small_molecule.Compound",
+        "type": "iki/small_molecule.Compound",
         "values": {**compound_values(registered, name), **compound},
         "origin": origin,
     }
@@ -366,7 +366,7 @@ def _creates(
         return [made], registered, left
     key = f"record-{record.number}"
     lot = {
-        "type": "small_molecule.CompoundBatch",
+        "type": "iki/small_molecule.CompoundBatch",
         "values": {"compound": {"$create": key}, **_batch(registered, batch)},
         "origin": origin,
     }

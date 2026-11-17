@@ -479,7 +479,7 @@ def finish(
         found = origin(record)
         if record.made:
             found["made"] = record.made
-        creates.add({"type": "dna.DNASequence", "values": record.values, "origin": found})
+        creates.add({"type": "iki/dna.DNASequence", "values": record.values, "origin": found})
         for warning in record.warnings:
             warned += 1
             if len(messages) < MAX_MESSAGES:

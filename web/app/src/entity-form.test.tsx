@@ -25,7 +25,7 @@ const SAMPLE_ID = "00000000-0000-7000-8000-00000000a001";
 const SAMPLE: Schemas["EntityTypeOut"] = {
   ...PROTEIN,
   name: "lab.Sample",
-  plugin: "lab",
+  plugin: "acme/lab",
   label: "Sample",
   label_plural: "Samples",
   description: null,
@@ -70,7 +70,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
       ],
     }),
     field({ name: "kind", label: "Kind", type: "enum", values: ["blood", "tissue"] }),
-    field({ name: "source", label: "Source", type: "ref", to: "protein.Protein" }),
+    field({ name: "source", label: "Source", type: "ref", to: "iki/protein.Protein" }),
     field({ name: "aliases", label: "Aliases", type: "list", items: "string" }),
     field({ name: "score", label: "Score", type: "float", computed: true }),
   ],
@@ -146,7 +146,7 @@ describe("creating an entity", () => {
       allow_duplicate: false,
     });
     const searched = calls("GET", "/api/v1/entities").map((c) => c.query.get("type"));
-    expect(new Set(searched)).toEqual(new Set(["protein.Protein"]));
+    expect(new Set(searched)).toEqual(new Set(["iki/protein.Protein"]));
   });
 
   it("checks what it can before sending, and focuses the first problem", async () => {
@@ -443,19 +443,19 @@ describe("file fields", () => {
     answer(
       "POST /api/v1/entities",
       respond(201, {
-        ...entity({ hrid: "PST-000001", type: "protein.ProteinStructure", values: {} }),
+        ...entity({ hrid: "PST-000001", type: "iki/protein.ProteinStructure", values: {} }),
         reused: false,
         linked: false,
       }),
     );
     answer(
       "GET /api/v1/entities/PST-000001",
-      entity({ hrid: "PST-000001", type: "protein.ProteinStructure", values: {} }),
+      entity({ hrid: "PST-000001", type: "iki/protein.ProteinStructure", values: {} }),
     );
     answer("GET /api/v1/entities/PST-000001/provenance", {});
     answer("GET /api/v1/entities/PST-000001/projects", []);
     const { user } = await renderApp(
-      "/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure",
+      "/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure",
     );
     const structure = screen.getByRole("group", { name: "Structure" });
     await user.upload(
@@ -527,7 +527,7 @@ describe("file fields", () => {
       respond(202, { ...upload, state: "checking", file: null }),
     );
     answer("GET /api/v1/uploads/" + UPLOAD, { ...upload, state: "ready", file: made });
-    await renderApp("/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure");
+    await renderApp("/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure");
     const user = userEvent.setup({ applyAccept: false });
     const group = screen.getByRole("group", { name: /^Traces/ });
     const several = within(group).getByLabelText("Or upload several at once");
@@ -590,7 +590,7 @@ describe("file fields", () => {
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answer("GET /api/v1/files", page([]));
-    await renderApp("/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure");
+    await renderApp("/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure");
     // As if the browser's file chooser let it through: some do, for "All files".
     const user = userEvent.setup({ applyAccept: false });
     const structure = screen.getByRole("group", { name: "Structure" });
@@ -611,7 +611,13 @@ describe("a detached plugin's data", () => {
     ...SAMPLE,
     fields: [
       ...SAMPLE.fields,
-      field({ name: "lims_id", label: "LIMS ID", type: "string", plugin: "lims", detached: true }),
+      field({
+        name: "lims_id",
+        label: "LIMS ID",
+        type: "string",
+        plugin: "acme/lims",
+        detached: true,
+      }),
     ],
   };
 
@@ -625,7 +631,7 @@ describe("a detached plugin's data", () => {
     answer("GET /api/v1/entities", page([]));
     await renderApp("/entities/SMP-000001/");
     expect(await screen.findByRole("note")).toHaveTextContent(
-      "This entity is from the lab plugin, which is detached. Its values and history are kept " +
+      "This entity is from the acme/lab plugin, which is detached. Its values and history are kept " +
         "and can be read, but can’t change.",
     );
     expect(screen.getByText("Detached plugin")).toBeInTheDocument();
@@ -655,7 +661,9 @@ describe("a detached plugin's data", () => {
     await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
     expect(screen.queryByRole("textbox", { name: "LIMS ID" })).not.toBeInTheDocument();
     expect(
-      screen.getByText("LIMS ID is from the lims plugin, which is detached: it keeps its value."),
+      screen.getByText(
+        "LIMS ID is from the acme/lims plugin, which is detached: it keeps its value.",
+      ),
     ).toBeInTheDocument();
   });
 });
@@ -672,7 +680,7 @@ describe("a purged plugin's data", () => {
           [purged]: {
             hrid: "DNA-000007",
             title: "DNA-000007",
-            type: "dna.DNASequence",
+            type: "iki/dna.DNASequence",
             archived: false,
             purged: true,
           },
@@ -698,7 +706,7 @@ describe("a purged plugin's data", () => {
         {
           entity: {
             hrid: "DNA-000007",
-            type: "dna.DNASequence",
+            type: "iki/dna.DNASequence",
             content_sha256: "ab".repeat(32),
           },
         },

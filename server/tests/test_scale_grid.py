@@ -26,7 +26,7 @@ pytestmark = [pytest.mark.scale, pytest.mark.django_db(transaction=True)]
 
 ROWS = int(os.environ.get("IKI_SCALE_GRID_ROWS", "100000000"))
 CHUNK = 5_000_000
-TYPE = "protein.Protein"
+TYPE = "acme/protein.Protein"
 #: The grid's page, as the web app asks for it.
 LIMIT = 100
 #: What a page may take at the server, at the median of a few tries.

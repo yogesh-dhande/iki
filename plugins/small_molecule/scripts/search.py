@@ -56,7 +56,7 @@ def _compounds(run: dict[str, Any], messages: Messages) -> list[tuple[dict[str, 
 
 def _collection(name: str, description: str, members: list[str]) -> dict[str, Any]:
     return {
-        "type": "core.Collection",
+        "type": "iki/core.Collection",
         "values": {
             "name": cut(name, 200),
             "description": description[:MAX_DESCRIPTION],

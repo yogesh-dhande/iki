@@ -25,7 +25,7 @@ from iki_server.runs.models import Job, JobEgress, JobState
 
 __all__ = ["keep_connection", "world"]  # the fixtures, used here too
 
-FETCH = "protein.fetch_proteins"
+FETCH = "acme/protein.fetch_proteins"
 HOST = "rest.uniprot.org"
 PROXY = "http://iki-egress-proxy:3128"
 
@@ -83,7 +83,7 @@ def test_the_proxy_lets_an_attempt_reach_only_what_its_action_declares(world: Wo
     refusals = {
         ("www.uniprot.org", 443, True): (
             403,
-            "protein.fetch_proteins doesn't declare www.uniprot.org. An action reaches only "
+            "acme/protein.fetch_proteins doesn't declare www.uniprot.org. An action reaches only "
             "the hosts its plugin lists under `network`.",
         ),
         (HOST, 80, True): (403, "Runs reach hosts over HTTPS, on port 443, only."),

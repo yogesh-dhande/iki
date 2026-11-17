@@ -8,8 +8,8 @@ import { answer } from "./test-server";
 
 const PLASMID = {
   ...PROTEIN,
-  name: "dna.DNASequence",
-  plugin: "dna",
+  name: "iki/dna.DNASequence",
+  plugin: "iki/dna",
   label: "DNA sequence",
   label_plural: "DNA sequences",
   hrid_prefix: "DNA",
@@ -38,7 +38,7 @@ function onPlasmid(features: unknown) {
     "GET /api/v1/entities/DNA-000001",
     entity({
       hrid: "DNA-000001",
-      type: "dna.DNASequence",
+      type: "iki/dna.DNASequence",
       values: { name: "pTest", bases: BASES, features },
     }),
   );

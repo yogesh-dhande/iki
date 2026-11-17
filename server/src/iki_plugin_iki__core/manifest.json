@@ -1,7 +1,7 @@
 {
   "apiVersion": "iki/v1",
   "plugin": {
-    "name": "core",
+    "name": "iki/core",
     "version": "0.1.0",
     "title": "Core",
     "description": "The types every Iki deployment has.",
@@ -11,8 +11,8 @@
     "dependencies": {},
     "settings": {},
     "types": {
-      "core.Alignment": {
-        "plugin": "core",
+      "iki/core.Alignment": {
+        "plugin": "iki/core",
         "name": "Alignment",
         "schema_version": 1,
         "label": "Alignment",
@@ -112,7 +112,7 @@
             "display_unit": null,
             "media_types": [],
             "max_size": null,
-            "to": "core.Sequence",
+            "to": "iki/core.Sequence",
             "items": null,
             "min_items": null,
             "max_items": null,
@@ -169,7 +169,7 @@
               "display_unit": null,
               "media_types": [],
               "max_size": null,
-              "to": "core.Sequence",
+              "to": "iki/core.Sequence",
               "items": null,
               "min_items": null,
               "max_items": null,
@@ -262,8 +262,8 @@
         ],
         "file": "types/alignment.yaml"
       },
-      "core.App": {
-        "plugin": "core",
+      "iki/core.App": {
+        "plugin": "iki/core",
         "name": "App",
         "schema_version": 1,
         "label": "App",
@@ -622,8 +622,8 @@
         "viewers": [],
         "file": "types/app.yaml"
       },
-      "core.Collection": {
-        "plugin": "core",
+      "iki/core.Collection": {
+        "plugin": "iki/core",
         "name": "Collection",
         "schema_version": 1,
         "label": "Collection",
@@ -749,7 +749,7 @@
               "display_unit": null,
               "media_types": [],
               "max_size": null,
-              "to": "core.Entity",
+              "to": "iki/core.Entity",
               "items": null,
               "min_items": null,
               "max_items": null,
@@ -829,8 +829,8 @@
         "viewers": [],
         "file": "types/collection.yaml"
       },
-      "core.Entity": {
-        "plugin": "core",
+      "iki/core.Entity": {
+        "plugin": "iki/core",
         "name": "Entity",
         "schema_version": 1,
         "label": "Entity",
@@ -847,8 +847,8 @@
         "viewers": [],
         "file": "types/entity.yaml"
       },
-      "core.Sequence": {
-        "plugin": "core",
+      "iki/core.Sequence": {
+        "plugin": "iki/core",
         "name": "Sequence",
         "schema_version": 1,
         "label": "Sequence",
@@ -959,8 +959,8 @@
         "viewers": [],
         "file": "types/sequence.yaml"
       },
-      "core.View": {
-        "plugin": "core",
+      "iki/core.View": {
+        "plugin": "iki/core",
         "name": "View",
         "schema_version": 3,
         "label": "View",
@@ -1060,7 +1060,7 @@
             "display_unit": null,
             "media_types": [],
             "max_size": null,
-            "to": "core.Entity",
+            "to": "iki/core.Entity",
             "items": null,
             "min_items": null,
             "max_items": null,
@@ -1183,7 +1183,7 @@
               "display_unit": null,
               "media_types": [],
               "max_size": null,
-              "to": "core.Entity",
+              "to": "iki/core.Entity",
               "items": null,
               "min_items": null,
               "max_items": null,

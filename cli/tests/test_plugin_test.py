@@ -96,7 +96,7 @@ def test_each_test_passes_or_says_why(plugin: Path, capsys: pytest.CaptureFixtur
     )
     assert run(plugin) == 1
     out = capsys.readouterr().out
-    assert out.splitlines()[0] == "Running 2 test(s) of protein 3.0.0:"
+    assert out.splitlines()[0] == "Running 2 test(s) of acme/protein 3.0.0:"
     assert "  FAILED  mkv  (" in out
     assert "          tests/properties.yaml\n" in out
     assert "updates.protein[0].values.molecular_weight: expected 374.5, got 374.49" in out
@@ -120,7 +120,7 @@ def test_its_run_input_is_made_from_the_manifests(
     assert "          Its log ended:\n          | ::error Unknown residue\n" in out
     seen = json.loads((plugin.parent / "seen.jsonl").read_text().splitlines()[0])
     given = seen["input"]
-    assert given["run"]["action"] == "protein.compute_properties"
+    assert given["run"]["action"] == "acme/protein.compute_properties"
     assert given["command"] == ["python", "./scripts/properties.py"]
     assert given["inputs"]["protein"][0]["values"] == {"sequence": "MKV"}
     assert seen["argv"][:2] == ["run", "--local"]
@@ -145,8 +145,9 @@ def test_a_broken_fixture_runs_nothing(plugin: Path, capsys: pytest.CaptureFixtu
     fixture(plugin, PROPERTIES.replace("action: fetch_proteins", "action: fold"))
     assert run(plugin) == 1
     captured = capsys.readouterr()
-    assert "tests/properties.yaml:17:9: error: protein has no action fold. [unknown-action]" in (
-        captured.err
+    assert (
+        "tests/properties.yaml:17:9: error: acme/protein has no action fold. [unknown-action]"
+        in (captured.err)
     )
     assert not (plugin.parent / "seen.jsonl").exists()
 

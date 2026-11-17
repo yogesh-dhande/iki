@@ -19,7 +19,7 @@ from iki_server.plugins.models import PluginPurge, PluginState
 
 pytestmark = pytest.mark.django_db
 
-PLUGINS = ("dna", "protein", "structure_prediction")
+PLUGINS = ("acme/dna", "acme/protein", "acme/prediction")
 
 
 @pytest.fixture
@@ -51,11 +51,11 @@ def deployed(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
 def sequences(world: World) -> list[Any]:
     editor = world.users["editor"]
     made = [
-        services.create(editor, "dna.DNASequence", world.project, {"bases": bases}).entity
+        services.create(editor, "acme/dna.DNASequence", world.project, {"bases": bases}).entity
         for bases in ("ACGT", "GGCC")
     ]
     services.create(
-        editor, "core.Collection", world.project, {"name": "Plasmids", "members": [made[0].pk]}
+        editor, "iki/core.Collection", world.project, {"name": "Plasmids", "members": [made[0].pk]}
     )
     return made
 
@@ -65,9 +65,11 @@ def test_the_dry_run_says_what_would_go_and_what_refers_to_it(
 ) -> None:
     sequences(world)
     deployed(*PLUGINS)
-    found = purge.report("dna")
+    found = purge.report("acme/dna")
     assert found["entities"] == 2
-    assert found["types"] == [{"type": "dna.DNASequence", "label": "DNA sequences", "count": 2}]
+    assert found["types"] == [
+        {"type": "acme/dna.DNASequence", "label": "DNA sequences", "count": 2}
+    ]
     assert [(p["name"], p["held"]) for p in found["projects"]] == [(world.project.name, False)]
     assert [r["count"] for r in found["references"]] == [1]  # the collection's member
 
@@ -77,18 +79,18 @@ def test_only_a_detached_plugin_not_on_hold_can_be_purged(
 ) -> None:
     sequences(world)
     deployed()
-    assert "isn’t detached" in (purge.why_not("dna") or "")
+    assert "isn’t detached" in (purge.why_not("acme/dna") or "")
     deployed(*PLUGINS)
-    assert purge.why_not("dna") is None
+    assert purge.why_not("acme/dna") is None
     hold = holds.place(world.users["org_admin"], world.project, "Case 24-117")
-    assert purge.why_not("dna") == (
+    assert purge.why_not("acme/dna") == (
         f"Some of its data is in {world.project.name}, which is on legal hold. It can be "
         "purged once the hold is released."
     )
     with pytest.raises(Refused, match="legal hold"):
-        purge.request(world.users["org_admin"], "dna", "Retention over", "dna")
+        purge.request(world.users["org_admin"], "acme/dna", "Retention over", "acme/dna")
     holds.release(world.users["org_admin"], hold)
-    assert purge.why_not("dna") is None
+    assert purge.why_not("acme/dna") is None
     assert purge.why_not("nothing") == "There’s no plugin nothing installed."
 
 
@@ -99,27 +101,29 @@ def test_an_org_admin_schedules_it_with_a_reason_and_its_name(
     deployed(*PLUGINS)
     admin = world.users["org_admin"]
     with pytest.raises(PermissionDenied):
-        purge.request(world.users["admin"], "dna", "Retention over", "dna")
-    with pytest.raises(Refused, match="Type dna to confirm"):
-        purge.request(admin, "dna", "Retention over", "DNA")
+        purge.request(world.users["admin"], "acme/dna", "Retention over", "acme/dna")
+    with pytest.raises(Refused, match="Type acme/dna to confirm"):
+        purge.request(admin, "acme/dna", "Retention over", "ACME/DNA")
     with pytest.raises(Refused, match="Say why"):
-        purge.request(admin, "dna", "  ", "dna")
+        purge.request(admin, "acme/dna", "  ", "acme/dna")
 
     settings.IKI_PURGE_WAIT = 30 * 86400
-    scheduled = purge.request(admin, "dna", "Retention of 10 years over; QA approved.", " dna ")
+    scheduled = purge.request(
+        admin, "acme/dna", "Retention of 10 years over; QA approved.", " acme/dna "
+    )
     assert scheduled.run_after - timezone.now() > dt.timedelta(days=29, hours=23)
     assert scheduled.report["entities"] == 2
     with pytest.raises(Refused, match="already scheduled"):
-        purge.request(admin, "dna", "Again", "dna")
-    assert purge.pending("dna") == scheduled
+        purge.request(admin, "acme/dna", "Again", "acme/dna")
+    assert purge.pending("acme/dna") == scheduled
 
     purge.cancel(admin, scheduled)
-    assert purge.pending("dna") is None
+    assert purge.pending("acme/dna") is None
     assert PluginPurge.objects.get().cancelled_by == admin
     events = AuditEvent.objects.filter(action__startswith="plugin.purge").order_by("occurred_at")
     assert [(e.action, e.actor, e.data["plugin"]) for e in events] == [
-        ("plugin.purge_requested", admin, "dna"),
-        ("plugin.purge_cancelled", admin, "dna"),
+        ("plugin.purge_requested", admin, "acme/dna"),
+        ("plugin.purge_cancelled", admin, "acme/dna"),
     ]
     assert events[0].data["entities"] == 2
     assert events[0].data["reason"] == "Retention of 10 years over; QA approved."
@@ -131,25 +135,27 @@ def test_the_plugins_page(world: World, deployed: Callable[..., None]) -> None:
     admin = world.browser("org_admin")
     listing = admin.get("/settings/plugins/").content.decode()
     assert "Detached" in listing
-    page = admin.get("/settings/plugins/dna/").content.decode()
+    page = admin.get("/settings/plugins/acme/dna/").content.decode()
     assert "<dt>Works with</dt><dd>Iki <code>&gt;=0.1</code></dd>" in page
     assert "What a purge would delete" in page
     assert "2 DNA sequences" in page
 
     refused = post(
-        admin, "/settings/plugins/dna/", {"action": "purge", "reason": "Over", "confirm": "x"}
+        admin, "/settings/plugins/acme/dna/", {"action": "purge", "reason": "Over", "confirm": "x"}
     )
     assert refused.status_code == 200
-    assert "Type dna to confirm." in refused.content.decode()
+    assert "Type acme/dna to confirm." in refused.content.decode()
     made = post(
-        admin, "/settings/plugins/dna/", {"action": "purge", "reason": "Over", "confirm": "dna"}
+        admin,
+        "/settings/plugins/acme/dna/",
+        {"action": "purge", "reason": "Over", "confirm": "acme/dna"},
     )
     assert made.status_code == 302
-    assert "Purge scheduled" in admin.get("/settings/plugins/dna/").content.decode()
+    assert "Purge scheduled" in admin.get("/settings/plugins/acme/dna/").content.decode()
     assert "Purge on" in admin.get("/settings/plugins/").content.decode()
-    cancelled = post(admin, "/settings/plugins/dna/", {"action": "cancel"})
+    cancelled = post(admin, "/settings/plugins/acme/dna/", {"action": "cancel"})
     assert cancelled.status_code == 302
-    assert purge.pending("dna") is None
+    assert purge.pending("acme/dna") is None
 
     assert world.browser("auditor").get("/settings/plugins/").status_code == 403
     assert admin.get("/settings/plugins/nothing/").status_code == 404
@@ -161,7 +167,7 @@ def test_the_plugins_page(world: World, deployed: Callable[..., None]) -> None:
 def due(world: World, deployed: Callable[..., None]) -> tuple[list[Any], PluginPurge]:
     made = sequences(world)
     deployed(*PLUGINS)
-    scheduled = purge.request(world.users["org_admin"], "dna", "Retention over", "dna")
+    scheduled = purge.request(world.users["org_admin"], "acme/dna", "Retention over", "acme/dna")
     PluginPurge.objects.filter(pk=scheduled.pk).update(run_after=timezone.now())
     return made, scheduled
 
@@ -179,7 +185,7 @@ def test_each_entity_leaves_a_tombstone_that_proves_what_it_was(
     scheduled.refresh_from_db()
     assert scheduled.tombstoned_at is not None
     event = AuditEvent.objects.get(action="plugin.purge_tombstoned")
-    assert event.data == {"plugin": "dna", "entities": 2}
+    assert event.data == {"plugin": "acme/dna", "entities": 2}
     with pytest.raises(Refused, match="already purged"):
         purge.cancel(world.users["org_admin"], scheduled)
 
@@ -199,11 +205,11 @@ def test_a_purged_entity_is_gone_but_named(world: World, deployed: Callable[...,
     # It's in no list, and what referred to it still names it.
     listed = api.get("/api/v1/entities", {"project": str(world.project.pk)}).json()["items"]
     assert hrid not in {e["hrid"] for e in listed}
-    (collection,) = [e for e in listed if e["type"] == "core.Collection"]
+    (collection,) = [e for e in listed if e["type"] == "iki/core.Collection"]
     assert collection["refs"][str(made[0].pk)] == {
         "hrid": hrid,
         "title": hrid,
-        "type": "dna.DNASequence",
+        "type": "acme/dna.DNASequence",
         "archived": False,
         "purged": True,
         "formerly": [],
@@ -228,14 +234,14 @@ def test_a_hold_placed_during_the_wait_stops_it(
 def test_a_purged_plugin_stays_on_record(world: World) -> None:
     admin = world.users["org_admin"]
     now = timezone.now()
-    PluginState.objects.create(name="lims", state="purged", version="2.1.0", sha="b" * 40)
+    PluginState.objects.create(name="acme/lims", state="purged", version="2.1.0", sha="b" * 40)
     PluginPurge.objects.create(
-        plugin="lims",
+        plugin="acme/lims",
         reason="Retention of 10 years over",
         report={
-            "plugin": "lims",
+            "plugin": "acme/lims",
             "entities": 3,
-            "types": [{"type": "lims.Sample", "label": "Samples", "count": 3}],
+            "types": [{"type": "acme/lims.Sample", "label": "Samples", "count": 3}],
             "projects": [],
             "references": [],
         },
@@ -247,13 +253,13 @@ def test_a_purged_plugin_stays_on_record(world: World) -> None:
     browser = world.browser("org_admin")
     listing = browser.get("/settings/plugins/").content.decode()
     assert f"Purged on {now:%Y-%m-%d}" in listing
-    page = browser.get("/settings/plugins/lims/").content.decode()
+    page = browser.get("/settings/plugins/acme/lims/").content.decode()
     assert "What the purge deleted" in page
     assert "3 Samples" in page
     assert "Retention of 10 years over" in page
     assert "dropped its tables" in page
     assert "Schedule the purge" not in page
     assert "Cancel the purge" not in page
-    again = post(browser, "/settings/plugins/lims/", {"action": "cancel"})
+    again = post(browser, "/settings/plugins/acme/lims/", {"action": "cancel"})
     assert again.status_code == 200
     assert PluginPurge.objects.get().done_at == now

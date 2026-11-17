@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
 kind: Plugin
-name: dna
+name: iki/dna
 version: 0.4.2
 title: DNA
 description: DNA sequences, with their features, and primers.

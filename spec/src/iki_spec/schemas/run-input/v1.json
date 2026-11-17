@@ -25,7 +25,7 @@
         },
         "action": {
           "type": "string",
-          "description": "The qualified name, such as `protein.compute_properties`."
+          "description": "The qualified name, such as `iki/protein.compute_properties`."
         },
         "plugin": {
           "type": "object",
@@ -49,7 +49,7 @@
           "properties": {
             "name": {
               "type": "string",
-              "description": "The trigger's qualified name, such as `lims.sync_samples`."
+              "description": "The trigger's qualified name, such as `acme/lims.sync_samples`."
             },
             "scheduled_for": { "type": "string", "format": "date-time" },
             "since": { "type": ["string", "null"], "format": "date-time" }
@@ -156,7 +156,10 @@
       "minItems": 1,
       "description": "The action's command, run in its environment from the plugin's directory."
     },
-    "environment": { "type": "string", "description": "plugin.environment" },
+    "environment": {
+      "type": "string",
+      "description": "The plugin and the environment, such as `iki/protein.structure-tools`."
+    },
     "params": {
       "type": "object",
       "description": "Every param, by name, with its default filled in. A file param's value is the file's ID, in `files`."
@@ -234,7 +237,7 @@
         "hrid": { "type": "string" },
         "type": {
           "type": "string",
-          "description": "The qualified type, such as `protein.Protein`."
+          "description": "The qualified type, such as `iki/protein.Protein`."
         },
         "schema_version": { "type": "integer", "minimum": 1 },
         "revision": {

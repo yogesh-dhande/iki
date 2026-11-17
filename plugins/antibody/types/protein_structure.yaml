@@ -5,7 +5,7 @@
 # untouched without it.
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: protein.ProteinStructure
+extends_type: iki/protein.ProteinStructure
 fields:
   predicted_error:
     type: quantity

@@ -281,7 +281,9 @@ def finish(
             raise UnreadableError(
                 f"It holds more than the {MAX_RECORDS:,} records one run imports: split it."
             )
-        creates.add({"type": "protein.Protein", "values": record.values, "origin": origin(record)})
+        creates.add(
+            {"type": "iki/protein.Protein", "values": record.values, "origin": origin(record)}
+        )
         for warning in record.warnings:
             warned += 1
             if len(messages) < MAX_MESSAGES:

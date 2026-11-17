@@ -1,5 +1,5 @@
 /**
- * Views (core.View, ADR 0086, ADR 0110): a saved look at entities in Iki's viewers, each at
+ * Views (iki/core.View, ADR 0086, ADR 0110): a saved look at entities in Iki's viewers, each at
  * the revision it showed. A view lists its entities in order, each with its revision and its
  * viewer; those in the structure viewer are drawn together, in one Mol* scene, and each other
  * one has a viewer of its own. Each viewer keeps its own part of the state: the sequence
@@ -15,7 +15,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { iki } from "./api";
 import type { Entity } from "./entities";
 
-export const VIEW_TYPE = "core.View";
+export const VIEW_TYPE = "iki/core.View";
 /** How many entities a view shows at most (`targets`' `max_items`). */
 export const MAX_TARGETS = 20;
 

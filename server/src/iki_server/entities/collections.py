@@ -1,4 +1,4 @@
-"""Collections (core.Collection, ADR 0038) from searches: fixed lists of what a search finds.
+"""Collections (iki/core.Collection, ADR 0038) from searches: fixed lists of what a search finds.
 
 - **Freezing** a dynamic collection replaces its search with the members it
   finds now, in its order, as one revision. A run or a paper can then cite
@@ -22,7 +22,7 @@ from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, shape
 from iki_server.org.models import Project
 
-COLLECTION = "core.Collection"
+COLLECTION = "iki/core.Collection"
 
 
 def max_members() -> int:

@@ -32,7 +32,7 @@ async function onStructure(
     "GET /api/v1/entities/PST-000001",
     entity({
       hrid: "PST-000001",
-      type: "protein.ProteinStructure",
+      type: "iki/protein.ProteinStructure",
       values: { name: "Crambin", structure: FILE },
       files: {
         [FILE]: {
@@ -151,14 +151,14 @@ describe("the structure viewer", () => {
 
 const VIEW = {
   ...PROTEIN,
-  name: "core.View",
-  plugin: "core",
+  name: "iki/core.View",
+  plugin: "iki/core",
   label: "View",
   label_plural: "Views",
   hrid_prefix: "VIEW",
   fields: [
-    field({ name: "name", label: "Name", type: "string", plugin: "core" }),
-    field({ name: "state", label: "State", type: "json", plugin: "core" }),
+    field({ name: "name", label: "Name", type: "string", plugin: "iki/core" }),
+    field({ name: "state", label: "State", type: "json", plugin: "iki/core" }),
   ],
   viewers: [],
 };
@@ -176,7 +176,7 @@ describe("a view of several structures", () => {
     const ref = (hrid: string, title: string) => ({
       hrid,
       title,
-      type: "protein.ProteinStructure",
+      type: "iki/protein.ProteinStructure",
       archived: false,
       purged: false,
     });
@@ -185,7 +185,7 @@ describe("a view of several structures", () => {
       entity({
         id: VIEW_ID,
         hrid: "VIEW-000001",
-        type: "core.View",
+        type: "iki/core.View",
         revision: 1,
         values: {
           name: "Apo and holo",
@@ -217,7 +217,7 @@ describe("a view of several structures", () => {
         entity({
           id,
           hrid,
-          type: "protein.ProteinStructure",
+          type: "iki/protein.ProteinStructure",
           revision: 1,
           values: { structure: file },
         }),

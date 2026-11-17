@@ -1,10 +1,12 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
-# Your plugin. Rename it (`name`, lowercase with underscores) before its first
-# migration: the name is in every table it makes, so it can't change later.
+# Your plugin. Name it before its first migration: `namespace/name`, where the
+# namespace is your lab's or company's (`acme` is a placeholder) and both are
+# lowercase with underscores. The name is in every table it makes, so it can't
+# change later. The `iki` namespace is Iki's own.
 apiVersion: iki/v1
 kind: Plugin
-name: example
+name: acme/example
 version: 0.1.0
 title: Example
 description: A starting point for a lab's own entity types.
@@ -14,7 +16,7 @@ license: Apache-2.0
 iki: ">=0.1"
 # The plugins whose types this one uses, with the schema versions it works with.
 dependencies:
-  dna:
+  iki/dna:
     types:
       DNASequence: ">=1"
 # Settings a deployment gives values for, checked when it builds. Your actions

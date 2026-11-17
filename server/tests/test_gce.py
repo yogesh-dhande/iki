@@ -66,7 +66,7 @@ def request(spot: bool = True, attempt: int = 0, image: str = IMAGE, **gcp: Any)
         name="iki-run-01a1d3a104c4765786e79bdd0aa33e57",
         machine=machine_name("iki-prod", "iki-run-01a1d3a104c4765786e79bdd0aa33e57"),
         template=template(**gcp),
-        environment="structure_prediction.alphafold-gpu",
+        environment="acme/prediction.alphafold-gpu",
         image=image,
         machines=MACHINES,
         once=True,
@@ -117,7 +117,7 @@ def test_the_instance_request_is_one_compute_engine_takes() -> None:
         "cost-center": "rd-42",
         "iki-deployment": "iki-prod",
         "iki-template": "a100-spot",
-        "iki-environment": "structure_prediction-alphafold-gpu",
+        "iki-environment": "acme-prediction-alphafold-gpu",
         "iki-launch": LAUNCH,
     }
     assert boot["initializeParams"]["labels"] == labels
@@ -171,7 +171,7 @@ def test_the_disk_holds_the_scratch_space_and_the_system() -> None:
 
 def test_names_and_labels_are_ones_compute_engine_takes() -> None:
     assert machine_name("iki-prod", "iki-setup-" + "a" * 32) == "iki-prod-setup-" + "a" * 32
-    assert label("structure_prediction.AlphaFold-GPU") == "structure_prediction-alphafold-gpu"
+    assert label("acme/prediction.AlphaFold-GPU") == "acme-prediction-alphafold-gpu"
     assert len(label("x" * 100)) == 63
 
 
@@ -348,12 +348,12 @@ def made_image() -> dict[str, Any]:
     return image_request(
         build_id="0193a1b2-0000-7000-8000-000000000001",
         name="iki-prod-setup-000001-v1",
-        description="structure_prediction.alphafold-gpu af-db, version 1 (SETUP-000001)",
+        description="acme/prediction.alphafold-gpu af-db, version 1 (SETUP-000001)",
         disk="projects/acme-iki/zones/us-central1-a/disks/iki-prod-setup-000001-d1",
         region="us-central1",
         kms_key=KEY,
         machines=MACHINES,
-        environment="structure_prediction.alphafold-gpu",
+        environment="acme/prediction.alphafold-gpu",
         volume="af-db",
     )
 
@@ -368,7 +368,7 @@ def test_a_setup_builds_disk_is_made_into_an_encrypted_image_in_its_region() -> 
         "iki-deployment": "iki-prod",
         "iki-setup": "0193a1b2-0000-7000-8000-000000000001",
         "iki-volume": "af-db",
-        "iki-environment": "structure_prediction-alphafold-gpu",
+        "iki-environment": "acme-prediction-alphafold-gpu",
     }
     # One image however often it's asked for.
     assert made["requestId"] == made_image()["requestId"]

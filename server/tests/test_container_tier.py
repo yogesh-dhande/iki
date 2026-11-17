@@ -26,7 +26,7 @@ from iki_server.runs.models import ActionRun, Job, JobState, Launch, LaunchState
 
 pytestmark = pytest.mark.django_db
 
-COLABFOLD = "structure_prediction.predict_with_colabfold"
+COLABFOLD = "acme/prediction.predict_with_colabfold"
 IMAGE = (
     "ghcr.io/acme/colabfold@sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
 )
@@ -62,8 +62,8 @@ def world(settings: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Ite
             "runtime_class": "nvidia",
         },
     }
-    compute["bindings"]["structure_prediction.colabfold"] = {
-        "environment": "structure_prediction.colabfold",
+    compute["bindings"]["acme/prediction.colabfold"] = {
+        "environment": "acme/prediction.colabfold",
         "templates": [["gpu-t4", 0]],
     }
     file = tmp_path / "with-containers.json"
@@ -215,7 +215,7 @@ def register(token: str, name: str = "iki-run-pod") -> Any:
             # Whatever the pod says it has, it gets the template's.
             "version": "0.1.0",
             "capacity": {"cpu": 64, "memory": 512 * GI, "gpu_count": 8},
-            "plugins": [{"name": "dna", "sha": None, "environments": None}],
+            "plugins": [{"name": "acme/dna", "sha": None, "environments": None}],
         },
     )
 
@@ -236,7 +236,7 @@ def test_a_queued_run_gets_a_pod_that_runs_its_image_with_iki_worker(world: Worl
     assert (launch.name, launch.template, launch.environment, launch.image) == (
         name,
         "gpu-t4",
-        "structure_prediction.colabfold",
+        "acme/prediction.colabfold",
         IMAGE,
     )
     assert launch.state == LaunchState.STARTING
@@ -274,7 +274,7 @@ def test_a_queued_run_gets_a_pod_that_runs_its_image_with_iki_worker(world: Worl
         }
     env = {e["name"]: e.get("value", e.get("valueFrom")) for e in main["env"]}
     assert env["IKI_URL"] == "https://iki.example.com"
-    assert env["IKI_WORKER_ENVIRONMENT"] == "structure_prediction.colabfold"
+    assert env["IKI_WORKER_ENVIRONMENT"] == "acme/prediction.colabfold"
     assert env["IKI_WORKER_IMAGE"] == IMAGE
     assert env["IKI_REGISTRATION_TOKEN"] == {"secretKeyRef": {"name": name, "key": "token"}}
     assert "IKI_ALLOW_HTTP" not in env
@@ -350,7 +350,7 @@ def test_the_pods_worker_runs_one_job_of_its_environment_with_its_image(world: W
     }
     digest = IMAGE.rpartition("@")[2]
     assert worker.plugins == [
-        {"name": "structure_prediction", "sha": "", "environments": {"colabfold": digest}}
+        {"name": "acme/prediction", "sha": "", "environments": {"colabfold": digest}}
     ]
     launch = Launch.objects.get()
     assert launch.state == LaunchState.RUNNING
@@ -469,7 +469,7 @@ def test_a_run_says_what_its_pod_is_waiting_for(world: World) -> None:
 
 # --- Warm, persistent pods (ADR 0062) --------------------------------------------------------
 
-SCREEN = "structure_prediction.screen_with_colabfold"
+SCREEN = "acme/prediction.screen_with_colabfold"
 
 
 def rewrite_compute(change: Any) -> None:
@@ -494,7 +494,7 @@ def warm(world: World) -> World:
             "min_warm": 1,
             "idle_shutdown": 600,
         }
-        compute["bindings"]["structure_prediction.colabfold"]["templates"] = [
+        compute["bindings"]["acme/prediction.colabfold"]["templates"] = [
             ["gpu-warm", 0],
             ["gpu-t4", 1],
         ]

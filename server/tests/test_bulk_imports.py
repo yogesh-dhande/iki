@@ -43,7 +43,7 @@ def storage(s3: Any) -> Any:
 
 def protein(sequence: str, name: str, file_id: str, **values: Any) -> dict[str, Any]:
     return {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "values": {"name": name, "sequence": sequence, **values},
         "origin": origin(file_id, name),
     }
@@ -127,13 +127,13 @@ def test_a_run_imports_its_creates_from_a_file(world: World) -> None:
     assert job.state == JobState.COMMITTING
     assert job.lease_token is None
     # Nobody sees any of it before it's all written.
-    assert not Entity.objects.filter(type="protein.Protein").exists()
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
 
     body = finished(world, run)
     assert body["status"] == "succeeded", body
     assert body["metrics"] == {"records": 4}
     assert [e["kind"] for e in body["effects"]] == ["created"] * 4
-    made = list(Entity.objects.filter(type="protein.Protein").order_by("hrid"))
+    made = list(Entity.objects.filter(type="acme/protein.Protein").order_by("hrid"))
     assert [e.hrid for e in made] == [e["hrid"] for e in body["effects"]]
     hrids = [int(e.hrid.split("-")[1]) for e in made]
     assert hrids == sorted(hrids)
@@ -168,7 +168,7 @@ def test_a_run_imports_its_creates_from_a_file(world: World) -> None:
 def test_its_lines_take_every_kind_of_value_a_create_does(world: World) -> None:
     editor = api_as(world, "editor")
     source = create(
-        editor, world.project, {"name": "S", "sequence": "MKKK"}, "protein.Protein"
+        editor, world.project, {"name": "S", "sequence": "MKKK"}, "acme/protein.Protein"
     ).json()
     run, _ = started(
         world,
@@ -199,7 +199,7 @@ def test_its_lines_take_every_kind_of_value_a_create_does(world: World) -> None:
 def test_duplicates_are_reused_as_one_at_a_time(world: World) -> None:
     editor = api_as(world, "editor")
     existing = create(
-        editor, world.project, {"name": "Old", "sequence": KINASES[1]}, "protein.Protein"
+        editor, world.project, {"name": "Old", "sequence": KINASES[1]}, "acme/protein.Protein"
     ).json()
     run, _ = started(
         world,
@@ -215,7 +215,7 @@ def test_duplicates_are_reused_as_one_at_a_time(world: World) -> None:
     kinds = {e["hrid"]: e["kind"] for e in body["effects"]}
     assert kinds[existing["hrid"]] == "reused"
     assert sorted(kinds.values()) == ["created", "created", "reused"]
-    assert Entity.objects.filter(type="protein.Protein").count() == 3
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == 3
     imported = RunImport.objects.get(run_id=run["id"])
     assert (imported.created, imported.reused, imported.linked) == (2, 1, 0)
 
@@ -227,7 +227,9 @@ def test_a_project_that_keeps_its_entities_has_none_reused_or_referred_to(world:
     ProjectMembership.objects.create(
         project=cro, user=world.users["editor"], role=ProjectRole.EDITOR
     )
-    theirs = create(editor, cro, {"name": "Old", "sequence": KINASES[1]}, "protein.Protein").json()
+    theirs = create(
+        editor, cro, {"name": "Old", "sequence": KINASES[1]}, "acme/protein.Protein"
+    ).json()
     run, _ = started(world, lambda f: lines(protein(KINASES[1], "B", f)))
     body = finished(world, run)
     assert body["status"] == "succeeded", body
@@ -255,8 +257,12 @@ def test_a_line_that_doesnt_fit_fails_the_run_and_writes_nothing(world: World) -
             b"",
             b"{not json",
             protein("not a protein!", "B", f),
-            {"type": "dna.DNASequence", "values": {"name": "X", "bases": "ACGT"}},
-            {"type": "protein.Protein", "values": {"name": "C", "sequence": "MKK"}, "extra": 1},
+            {"type": "acme/dna.DNASequence", "values": {"name": "X", "bases": "ACGT"}},
+            {
+                "type": "acme/protein.Protein",
+                "values": {"name": "C", "sequence": "MKK"},
+                "extra": 1,
+            },
             protein(KINASES[1], "D", f, structure="0193a0b4-0000-7000-8000-000000000000"),
         ),
     )
@@ -272,8 +278,10 @@ def test_a_line_that_doesnt_fit_fails_the_run_and_writes_nothing(world: World) -
         "#/creates_file/7/values/structure",
     }
     assert problems["#/creates_file/3"].startswith("The line isn't JSON")
-    assert "doesn't declare that it creates dna.DNASequence" in problems["#/creates_file/5/type"]
-    assert not Entity.objects.filter(type="protein.Protein").exists()
+    assert (
+        "doesn't declare that it creates acme/dna.DNASequence" in problems["#/creates_file/5/type"]
+    )
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
     assert RunImport.objects.get(run_id=run["id"]).phase == ImportPhase.ENDED
     assert not _staged_tables()
 
@@ -294,7 +302,7 @@ def test_two_lines_with_one_unique_value_fail_the_import(world: World) -> None:
             "detail": "Line 1 has the same lims_id: each record comes once in a file.",
         }
     ]
-    assert not Entity.objects.filter(type="protein.Protein").exists()
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
 
 
 def test_lines_that_match_entities_update_them(world: World) -> None:
@@ -321,10 +329,10 @@ def test_lines_that_match_entities_update_them(world: World) -> None:
     assert body["status"] == "succeeded", body.get("error")
     imported = RunImport.objects.get(run_id=second["id"])
     assert (imported.created, imported.updated, imported.reused) == (1, 1, 1)
-    assert Entity.objects.filter(type="protein.Protein").count() == 3
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == 3
     api = api_as(world, "editor")
     (one,) = api.get(
-        "/entities/lookup", type="protein.Protein", field="lims_id", value="LIMS-1"
+        "/entities/lookup", type="acme/protein.Protein", field="lims_id", value="LIMS-1"
     ).json()
     assert (one["values"]["name"], one["revision"]) == ("A2", 2)
     origins = api.get(f"/entities/{one['hrid']}/origins").json()
@@ -398,10 +406,10 @@ def test_lines_claim_the_same_entities_without_a_record(world: World) -> None:
 
     editor = world.users["editor"]
     before = services.create(
-        editor, "protein.Protein", world.project, {"sequence": KINASES[0]}
+        editor, "acme/protein.Protein", world.project, {"sequence": KINASES[0]}
     ).entity
     taken = services.create(
-        editor, "protein.Protein", world.project, {"sequence": KINASES[1], "lims_id": "LIMS-9"}
+        editor, "acme/protein.Protein", world.project, {"sequence": KINASES[1], "lims_id": "LIMS-9"}
     ).entity
     clash, _ = started(
         world,
@@ -429,7 +437,7 @@ def test_lines_claim_the_same_entities_without_a_record(world: World) -> None:
     assert (effect["hrid"], effect["kind"]) == (claimed.hrid, "updated")
     (one,) = (
         api_as(world, "editor")
-        .get("/entities/lookup", type="protein.Protein", field="lims_id", value="LIMS-1")
+        .get("/entities/lookup", type="acme/protein.Protein", field="lims_id", value="LIMS-1")
         .json()
     )
     assert one["hrid"] == claimed.hrid
@@ -441,7 +449,7 @@ def test_a_creates_files_lines_cant_refer_to_one_another(world: World) -> None:
         lambda f: lines(
             {**protein(KINASES[0], "A", f), "key": "a"},
             {
-                "type": "protein.ProteinStructure",
+                "type": "acme/protein.ProteinStructure",
                 "values": {"method": "predicted", "chains": [{"$create": "a"}]},
             },
         ),
@@ -454,7 +462,7 @@ def test_a_creates_files_lines_cant_refer_to_one_another(world: World) -> None:
         "and `$create`) in `creates`."
     )
     assert problems["#/creates_file/1"] == refused
-    assert not Entity.objects.filter(type="protein.Protein").exists()
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
 
 
 def _staged_tables() -> list[Any]:
@@ -491,7 +499,7 @@ def test_an_import_goes_on_from_where_it_was_interrupted(
     body = finished(world, run)
     assert body["status"] == "succeeded", body
     assert len(body["effects"]) == 20
-    assert Entity.objects.filter(type="protein.Protein").count() == 20
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == 20
 
 
 def test_an_import_that_keeps_failing_gives_up(
@@ -525,7 +533,7 @@ def test_cancelling_an_import_writes_nothing(world: World) -> None:
     assert cancelled.status_code == 200, cancelled.content
     body = finished(world, run)
     assert body["status"] == "cancelled"
-    assert not Entity.objects.filter(type="protein.Protein").exists()
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
     assert not _staged_tables()
 
 
@@ -574,30 +582,38 @@ def test_a_line_is_plainly_a_create_only_when_the_schema_says_so() -> None:
     file_id = "0193a0b4-0000-7000-8000-000000000000"
     cases: list[Any] = [
         protein(KINASES[0], "A", file_id),
-        {"type": "protein.Protein", "values": {}},
-        {"type": "protein.Protein", "values": {}, "derived_from": ["a", "a"]},
-        {"type": "protein.Protein", "values": {}, "derived_from": "a"},
-        {"type": "protein.Protein", "values": []},
+        {"type": "acme/protein.Protein", "values": {}},
+        {"type": "acme/protein.Protein", "values": {}, "derived_from": ["a", "a"]},
+        {"type": "acme/protein.Protein", "values": {}, "derived_from": "a"},
+        {"type": "acme/protein.Protein", "values": []},
         {"type": "Protein", "values": {}},
-        {"type": "protein.Protein"},
-        {"type": "protein.Protein", "values": {}, "origin": None},
-        {"type": "protein.Protein", "values": {}, "origin": {"source": "x"}},
-        {"type": "protein.Protein", "values": {}, "origin": {"source": "", "id": "x"}},
-        {"type": "protein.Protein", "values": {}, "origin": {"source": "s" * 101, "id": "x"}},
+        {"type": "acme/protein.Protein"},
+        {"type": "acme/protein.Protein", "values": {}, "origin": None},
+        {"type": "acme/protein.Protein", "values": {}, "origin": {"source": "x"}},
+        {"type": "acme/protein.Protein", "values": {}, "origin": {"source": "", "id": "x"}},
+        {"type": "acme/protein.Protein", "values": {}, "origin": {"source": "s" * 101, "id": "x"}},
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "values": {},
             "origin": {"source": "s", "id": "x", "url": "http://a"},
         },
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "values": {},
             "origin": {"source": "s", "id": "x", "sha256": "A" * 64},
         },
-        {"type": "protein.Protein", "values": {}, "origin": {"source": "s", "id": "x", "file": 1}},
-        {"type": "protein.Protein", "values": {}, "origin": {"source": "s", "id": "x", "more": 1}},
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
+            "values": {},
+            "origin": {"source": "s", "id": "x", "file": 1},
+        },
+        {
+            "type": "acme/protein.Protein",
+            "values": {},
+            "origin": {"source": "s", "id": "x", "more": 1},
+        },
+        {
+            "type": "acme/protein.Protein",
             "values": {},
             "origin": {
                 "source": "s",

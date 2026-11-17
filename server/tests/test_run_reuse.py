@@ -42,14 +42,14 @@ def built(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def pod(world: World, name: str = "pod-1") -> WorkerClient:
-    code = [{"name": p, "sha": SHA, "environments": {"protein-tools": BUILT}} for p in ("protein",)]
+    code = [{"name": "acme/protein", "sha": SHA, "environments": {"protein-tools": BUILT}}]
     made: WorkerClient = worker(world, name=name, plugins=code)
     return made
 
 
 KINASES: list[dict[str, Any]] = [
-    {"type": "protein.Protein", "values": {"name": "ABL1", "sequence": "MKVLEIC"}},
-    {"type": "protein.Protein", "values": {"name": "SRC", "sequence": "MGSNKSK"}},
+    {"type": "acme/protein.Protein", "values": {"name": "ABL1", "sequence": "MKVLEIC"}},
+    {"type": "acme/protein.Protein", "values": {"name": "SRC", "sequence": "MGSNKSK"}},
 ]
 
 
@@ -335,7 +335,7 @@ def test_a_reproduction_says_where_its_results_differ(world: World) -> None:
         {"pointer": "#/metrics/records", "original": 2, "reproduced": 3},
     ]
     # Nothing was imported.
-    assert Entity.objects.filter(type="protein.Protein").count() == 2
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == 2
 
 
 def test_a_reused_run_is_reproduced_as_the_run_it_reused(world: World) -> None:

@@ -709,7 +709,7 @@ def check_inputs(
 
 
 def is_a(entity_type: str, wanted: str) -> bool:
-    if wanted in (entity_type, "core.Entity"):
+    if wanted in (entity_type, "iki/core.Entity"):
         return True
     own = registry.types().get(entity_type)
     return own is not None and any(t.qualified_name == wanted for t in registry.ancestors(own))

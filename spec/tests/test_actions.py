@@ -18,7 +18,7 @@ DNA, PROTEIN, PREDICTION = PLUGINS / "dna", PLUGINS / "protein", PLUGINS / "stru
 PLUGIN = """\
 apiVersion: iki/v1
 kind: Plugin
-name: acme
+name: acme/lab
 version: 1.0.0
 """
 
@@ -140,8 +140,8 @@ def test_the_example_actions_and_environments_are_valid() -> None:
     assert protein.problems == []
     assert protein.plugin is not None
     compute = protein.plugin.actions["compute_properties"]
-    assert compute.qualified_name == "protein.compute_properties"
-    assert compute.inputs["protein"].type == "protein.Protein"
+    assert compute.qualified_name == "acme/protein.compute_properties"
+    assert compute.inputs["protein"].type == "acme/protein.Protein"
     assert compute.tier == "backend"
     assert compute.lifecycle is None
     assert compute.batchable == 100
@@ -432,17 +432,17 @@ def test_inputs_resolve_and_fit(tmp_path: Path) -> None:
     assert "unknown-type" in codes(result)
     result = make(tmp_path, action(inputs='{ assay: { type: Assay, schema: ">=4" } }'))
     message = only(result, "input-schema-unsatisfied")
-    assert message == "`acme.Assay` is at schema version 3, which `>=4` doesn't allow."
+    assert message == "`acme/lab.Assay` is at schema version 3, which `>=4` doesn't allow."
     result = make(tmp_path, action(inputs="{ assay: { type: Assay, max: 10 } }"))
     assert only(result, "max-needs-many")
 
 
 def test_an_input_includes_the_entities_its_references_name(tmp_path: Path) -> None:
-    plugin = PLUGIN + 'dependencies: { protein: { types: { Protein: ">=1" } } }\n'
+    plugin = PLUGIN + 'dependencies: { acme/protein: { types: { Protein: ">=1" } } }\n'
 
     def check(include: str) -> Result:
         other = action(
-            inputs=f"{{ protein: {{ type: protein.Protein, include: {include} }} }}",
+            inputs=f"{{ protein: {{ type: acme/protein.Protein, include: {include} }} }}",
             effects="",
             artifacts="{ keep: [out.txt] }",
         )
@@ -455,7 +455,7 @@ def test_an_input_includes_the_entities_its_references_name(tmp_path: Path) -> N
     made = result.plugin.actions["score"]
     assert made.inputs["protein"].include == ("encoded_by", "source")
     message = only(check("[nope]"), "include-unknown-field")
-    assert message == "`protein.Protein` has no field `nope`."
+    assert message == "`acme/protein.Protein` has no field `nope`."
     assert check("[nope]").problems[0].hint == "Name one of its references: `encoded_by`, `source`."
     assert only(check("[sequence]"), "include-not-reference").startswith(
         "`sequence` isn't a reference"
@@ -464,9 +464,9 @@ def test_an_input_includes_the_entities_its_references_name(tmp_path: Path) -> N
 
 
 def test_a_list_of_references_is_included_item_by_item(tmp_path: Path) -> None:
-    plugin = PLUGIN + 'dependencies: { protein: { types: { ProteinStructure: ">=1" } } }\n'
+    plugin = PLUGIN + 'dependencies: { acme/protein: { types: { ProteinStructure: ">=1" } } }\n'
     other = action(
-        inputs="{ structure: { type: protein.ProteinStructure, include: [chains] } }",
+        inputs="{ structure: { type: acme/protein.ProteinStructure, include: [chains] } }",
         effects="",
         artifacts="{ keep: [out.txt] }",
     )
@@ -476,7 +476,9 @@ def test_a_list_of_references_is_included_item_by_item(tmp_path: Path) -> None:
 
 def test_inputs_from_other_plugins_need_a_dependency(tmp_path: Path) -> None:
     other = action(
-        inputs="{ seq: { type: dna.DNASequence } }", effects="", artifacts="{ keep: [out.txt] }"
+        inputs="{ seq: { type: acme/dna.DNASequence } }",
+        effects="",
+        artifacts="{ keep: [out.txt] }",
     )
     assert only(make(tmp_path, other, with_=(DNA,)), "undeclared-dependency")
 
@@ -591,21 +593,21 @@ def test_updates(tmp_path: Path) -> None:
     result = make(tmp_path, action(effects=updates))
     assert codes(result) == ["updates-immutable", "unknown-field", "unknown-field", "unknown-input"]
     messages = [p.message for p in result.problems]
-    assert messages[1] == "`acme.Assay` has no field `old` any more (it was removed)."
-    assert messages[2] == "`acme.Assay` has no field `scor`."
+    assert messages[1] == "`acme/lab.Assay` has no field `old` any more (it was removed)."
+    assert messages[2] == "`acme/lab.Assay` has no field `scor`."
     assert result.problems[2].hint == "Did you mean `score`?"
     twice = "{ updates: [{ input: assay, fields: [score] }, { input: assay, fields: [score] }] }"
     assert only(make(tmp_path, action(effects=twice)), "duplicate-updates")
 
 
 def test_updates_reach_inherited_and_extension_fields(tmp_path: Path) -> None:
-    plugin = PLUGIN + 'dependencies: { protein: { types: { Protein: ">=1" } } }\n'
+    plugin = PLUGIN + 'dependencies: { acme/protein: { types: { Protein: ">=1" } } }\n'
     other = action(
-        inputs="{ protein: { type: protein.Protein } }",
+        inputs="{ protein: { type: acme/protein.Protein } }",
         effects="{ updates: [{ input: protein, fields: [molecular_weight, acme_score] }] }",
     )
     extension = (
-        "apiVersion: iki/v1\nkind: EntityTypeExtension\nextends_type: protein.Protein\n"
+        "apiVersion: iki/v1\nkind: EntityTypeExtension\nextends_type: acme/protein.Protein\n"
         "fields: { acme_score: { type: float, computed: true } }\n"
     )
     result = make(

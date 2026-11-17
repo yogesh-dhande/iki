@@ -7,7 +7,7 @@ either end are free, as in needle's defaults.
 
 It keeps the alignment as artifacts (ADR 0068): `alignment.txt`, in EMBOSS's pair
 format, and `alignment.fasta`, aligned, gaps as `-`, each record headed by its protein's
-HRID. That file is also a `core.Alignment` it creates (ADR 0088), of the two proteins,
+HRID. That file is also an `iki/core.Alignment` it creates (ADR 0088), of the two proteins,
 the target its reference, so Iki's alignment viewer shows it and lineage leads back to
 both. Its metrics are the score, the alignment's length, and its identity, similarity
 and gaps as percentages of that length, as EMBOSS reports them.
@@ -153,7 +153,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     return {
         "creates": [
             {
-                "type": "core.Alignment",
+                "type": "iki/core.Alignment",
                 "values": {
                     "name": f"{titles[0]} and {titles[1]}"[:200],
                     "description": (

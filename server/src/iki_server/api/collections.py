@@ -1,6 +1,6 @@
 """Collections from searches (ADR 0038): keep the search, or the members it finds now.
 
-A collection is an entity (``core.Collection``): read, edit and archive it at
+A collection is an entity (``iki/core.Collection``): read, edit and archive it at
 ``/entities/{ref}``, and list its members with ``collection`` on
 ``POST /entities/search``. These two endpoints run a search on the server, as
 the caller, so a fixed list of up to 10,000 entities is made in one step.

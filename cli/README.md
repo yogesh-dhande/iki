@@ -43,7 +43,7 @@ database to match, and commit it with the change. It needs no database.
 ```console
 $ iki plugin makemigrations plugins/protein --with plugins/dna
 Was protein.organism renamed to protein.host_organism (a CharField)? [y/N] y
-Migrations for 'protein':
+Migrations for 'iki__protein':
   plugins/protein/migrations/0002_rename_organism_protein_host_organism_and_more.py
     - Remove constraint protein_protein__organism__not_empty from model protein
     - Remove constraint protein_protein__organism__one_line from model protein
@@ -79,14 +79,15 @@ Iki's rules for history (see [ADR 0033](../docs/adr/0033-plugin-codegen-and-migr
 ## `iki plugin build`
 
 Compiles plugins into Django apps for the server: a package
-`iki_plugin_<name>` per plugin, with its models and migrations, and
+`iki_plugin_<namespace>__<name>` per plugin (its label, as `iki/protein` is
+`iki__protein`), with its models and migrations, and
 `iki_installed_plugins`, which the server installs. Give every plugin a
 deployment installs; their dependencies must be among them.
 
 ```console
 $ iki plugin build plugins/dna plugins/protein --output build/plugins
-Built build/plugins/iki_plugin_dna
-Built build/plugins/iki_plugin_protein
+Built build/plugins/iki_plugin_iki__dna
+Built build/plugins/iki_plugin_iki__protein
 ```
 
 ## `iki plugin test`
@@ -100,7 +101,7 @@ declares it changes, and against the test's `expect`.
 
 ```console
 $ iki plugin test plugins/protein --with plugins/dna
-Running 2 test(s) of protein 0.8.0:
+Running 2 test(s) of iki/protein 0.8.0:
   ok      haemoglobin_alpha  (0.3s)
   FAILED  cystines  (0.2s)
           tests/compute_properties.yaml
@@ -159,9 +160,9 @@ for its server image:
 
 ```console
 $ iki deploy build deployments/prod --output build/plugins
-Fetched dna at 4f1c2b9e0d6a from https://github.com/acme/iki-plugins.git
-Fetched protein at 4f1c2b9e0d6a from https://github.com/acme/iki-plugins.git
-Built build/plugins: dna 1.2.0, protein 3.0.0.
+Fetched iki/dna at 4f1c2b9e0d6a from https://github.com/yogesh-dhande/iki.git
+Fetched acme/assays at 9b2e4c1d0a7f from https://github.com/acme/iki-assays.git
+Built build/plugins: iki/dna 0.4.2, acme/assays 1.2.0.
 $ docker build -f plugins.Dockerfile \
     --build-arg IKI_SERVER_IMAGE=ghcr.io/yogesh-dhande/iki-server:0.1.0@sha256:… build
 ```
@@ -192,7 +193,8 @@ backend workers need, from the same commits as the server, so the two
 agree on what each run's code is
 ([ADR 0047](../docs/adr/0047-workers-run-only-the-code-a-run-was-launched-with.md)):
 
-- `plugins/<name>/`: each plugin's code at its commit;
+- `plugins/<label>/`: each plugin's code at its commit, by its label
+  (`iki__protein`);
 - `plugins/plugins.json`: what the worker tells the server it has;
 - `build-environments.sh`: builds each Python or conda environment the
   plugins declare for the backend or self-hosted tier, installing only the

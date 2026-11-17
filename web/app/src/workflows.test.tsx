@@ -20,7 +20,7 @@ const ON_MACHINES: Schemas["WorkflowOut"] = {
 
 const OFFLINE: Schemas["WorkflowOut"] = {
   ...WORKFLOW,
-  name: "protein.relax_all",
+  name: "iki/protein.relax_all",
   label: "Relax all",
   available: false,
   unavailable_reason: "Step `relax` can't run here. There are no backend workers.",

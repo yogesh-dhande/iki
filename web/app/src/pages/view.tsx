@@ -1,5 +1,5 @@
 /**
- * A saved view's page (core.View, ADR 0086, ADR 0110): its entities, each as it was at the
+ * A saved view's page (iki/core.View, ADR 0086, ADR 0110): its entities, each as it was at the
  * revision the view pinned, in their viewers, as the view saved them. Structures share one
  * Mol* scene; every other entity has a viewer of its own. It says when an entity has changed
  * since, and a switch shows the latest revisions instead. Saving is explicit, and each save is

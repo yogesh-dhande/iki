@@ -8,8 +8,8 @@ description: >-
   chain is for a VHH or an scFv. An antibody already in Iki with the same chains
   is reused.
 inputs:
-  heavy_chain: { type: protein.Protein, schema: ">=2", label: Heavy chain }
-  light_chain: { type: protein.Protein, schema: ">=2", label: Light chain, optional: true }
+  heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
+  light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
 params:
   name:
     type: string

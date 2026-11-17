@@ -16,7 +16,7 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 #: A search the API refuses (a condition with no value).
 REFUSED = (
-    '{"type": "protein.Protein", "exact_type": false, "limit": 5, '
+    '{"type": "acme/protein.Protein", "exact_type": false, "limit": 5, '
     '"where": {"field": "name", "op": "eq", "value": null}}'
 )
 

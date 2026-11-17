@@ -46,7 +46,7 @@ from iki_server.runs.models import (
 
 pytestmark = pytest.mark.django_db
 
-ALPHAFOLD = "structure_prediction.alphafold-gpu"
+ALPHAFOLD = "acme/prediction.alphafold-gpu"
 GI = 1024**3
 TI = 1024 * GI
 ZONES = ["us-east-1a", "us-east-1b"]

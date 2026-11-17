@@ -193,8 +193,15 @@ class Capacity(Schema):
     scratch_disk: Bytes = 0
 
 
+#: ``namespace/name``, such as ``iki/protein`` (ADR 0113).
 PluginName = Annotated[
-    str, Field(min_length=2, max_length=30, pattern=r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
+    str,
+    Field(
+        min_length=5,
+        max_length=61,
+        pattern=r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+        examples=["iki/protein"],
+    ),
 ]
 EnvironmentName = Annotated[
     str, Field(min_length=1, max_length=63, pattern=r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
@@ -430,7 +437,7 @@ def available(request: HttpRequest) -> dict[str, Any]:
 
 
 @api.get(
-    "/plugins/{name}/{sha}",
+    "/plugins/{plugin:name}/{sha}",
     response={200: None},
     summary="Download a plugin's code",
     openapi_extra={

@@ -9,32 +9,38 @@ from iki_spec.identity import canonical, encode, identity_hash
 
 def test_the_encoding_is_canonical_json() -> None:
     values = {"bases": ("string", "ACGT"), "copies": ("int", 2)}
-    assert encode("dna.DNASequence", values) == (
-        b'{"type":"dna.DNASequence","v":1,"values":{"bases":"ACGT","copies":2}}'
+    assert encode("acme/dna.DNASequence", values) == (
+        b'{"type":"acme/dna.DNASequence","v":1,"values":{"bases":"ACGT","copies":2}}'
     )
     # Field order doesn't matter.
     reordered = {"copies": ("int", 2), "bases": ("string", "ACGT")}
-    assert identity_hash("dna.DNASequence", values) == identity_hash("dna.DNASequence", reordered)
+    assert identity_hash("acme/dna.DNASequence", values) == identity_hash(
+        "acme/dna.DNASequence", reordered
+    )
 
 
 def test_a_known_hash() -> None:
     """A test vector, for other implementations of the spec."""
-    expected = hashlib.sha256(b'{"type":"dna.DNASequence","v":1,"values":{"bases":"ACGT"}}')
-    assert identity_hash("dna.DNASequence", {"bases": ("string", "ACGT")}) == (expected.hexdigest())
+    expected = hashlib.sha256(b'{"type":"acme/dna.DNASequence","v":1,"values":{"bases":"ACGT"}}')
+    assert identity_hash("acme/dna.DNASequence", {"bases": ("string", "ACGT")}) == (
+        expected.hexdigest()
+    )
 
 
 def test_an_optional_field_without_a_value_is_null() -> None:
     """A test vector: an antibody without a light chain (a single-domain one)."""
     heavy = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8057")
     values = {"heavy_chain": ("ref", heavy), "light_chain": ("ref", None)}
-    assert encode("antibody.Antibody", values) == (
-        b'{"type":"antibody.Antibody","v":1,"values":'
+    assert encode("iki/antibody.Antibody", values) == (
+        b'{"type":"iki/antibody.Antibody","v":1,"values":'
         b'{"heavy_chain":"01890a5d-ac96-774b-bcce-b302099a8057","light_chain":null}}'
     )
     # Without one isn't with one.
     light = uuid.UUID("01890a5d-ac96-774b-bcce-b302099a8058")
     paired = {**values, "light_chain": ("ref", light)}
-    assert identity_hash("antibody.Antibody", values) != identity_hash("antibody.Antibody", paired)
+    assert identity_hash("iki/antibody.Antibody", values) != identity_hash(
+        "iki/antibody.Antibody", paired
+    )
     with pytest.raises(ValueError, match="float fields can't be part of an identity"):
         canonical("float", None)
 

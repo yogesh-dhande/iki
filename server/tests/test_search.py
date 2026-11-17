@@ -31,10 +31,10 @@ def lab(world: World) -> dict[str, dict[str, Any]]:
     api = api_as(world)
     out = {
         "puc19": made(
-            api, world.project, {"bases": "ATGC", "name": "pUC19 kinase"}, "dna.DNASequence"
+            api, world.project, {"bases": "ATGC", "name": "pUC19 kinase"}, "acme/dna.DNASequence"
         ),
         "lambda": made(
-            api, world.project, {"bases": "GGCC", "topology": "circular"}, "dna.DNASequence"
+            api, world.project, {"bases": "GGCC", "topology": "circular"}, "acme/dna.DNASequence"
         ),
     }
     for name, values in {
@@ -59,7 +59,7 @@ def lab(world: World) -> dict[str, dict[str, Any]]:
         },
         "mystery": {"sequence": "MAAA"},
     }.items():
-        out[name] = made(api, world.project, {"name": name, **values}, "protein.Protein")
+        out[name] = made(api, world.project, {"name": name, **values}, "acme/protein.Protein")
     return out
 
 
@@ -88,18 +88,18 @@ def errors(world: World, body: dict[str, Any]) -> list[dict[str, str]]:
 
 def test_a_parents_fields_find_its_subtypes(world: World, lab: dict[str, Any]) -> None:
     where: dict[str, Any] = {"field": "name", "op": "contains", "value": "KINASE"}
-    # dna.Sequence is abstract: its name is shared by DNA sequences and proteins.
-    assert find(world, {"type": "dna.Sequence", "where": where}) == ["pUC19 kinase"]
+    # acme/dna.Sequence is abstract: its name is shared by DNA sequences and proteins.
+    assert find(world, {"type": "acme/dna.Sequence", "where": where}) == ["pUC19 kinase"]
     where = {"field": "name", "op": "in", "value": ["abl1", "pUC19 kinase"]}
-    assert find(world, {"type": "dna.Sequence", "where": where}) == ["pUC19 kinase", "abl1"]
-    assert find(world, {"type": "dna.Sequence", "exact_type": True, "where": where}) == []
-    assert find(world, {"type": "protein.Protein", "where": where}) == ["abl1"]
+    assert find(world, {"type": "acme/dna.Sequence", "where": where}) == ["pUC19 kinase", "abl1"]
+    assert find(world, {"type": "acme/dna.Sequence", "exact_type": True, "where": where}) == []
+    assert find(world, {"type": "acme/protein.Protein", "where": where}) == ["abl1"]
 
 
 def test_conditions_combine(world: World, lab: dict[str, Any]) -> None:
     human = {"field": "organism", "op": "eq", "value": "Homo sapiens"}
     warm = {"field": "temperature_optimum", "op": "gt", "value": 35}
-    body = {"type": "protein.Protein"}
+    body = {"type": "acme/protein.Protein"}
     assert find(world, {**body, "where": {"all": [human, warm]}}) == ["abl1"]
     assert find(
         world, {**body, "where": {"any": [warm, {"field": "name", "op": "eq", "value": "lacz"}]}}
@@ -115,7 +115,7 @@ def test_conditions_combine(world: World, lab: dict[str, Any]) -> None:
 
 
 def test_quantities_compare_in_any_unit_of_their_kind(world: World, lab: dict[str, Any]) -> None:
-    body = {"type": "protein.Protein", "sort": {"field": "temperature_optimum"}}
+    body = {"type": "acme/protein.Protein", "sort": {"field": "temperature_optimum"}}
     # 300 K is 26.85 °C; 86 °F is 30 °C.
     over = {"field": "temperature_optimum", "op": "gte", "value": {"value": 300, "unit": "K"}}
     assert find(world, {**body, "where": over}) == ["src", "abl1"]
@@ -124,7 +124,7 @@ def test_quantities_compare_in_any_unit_of_their_kind(world: World, lab: dict[st
 
 
 def test_text_and_strings(world: World, lab: dict[str, Any]) -> None:
-    body = {"type": "protein.Protein"}
+    body = {"type": "acme/protein.Protein"}
     assert find(
         world, {**body, "where": {"field": "organism", "op": "starts_with", "value": "homo"}}
     ) == ["abl1", "src"]
@@ -144,7 +144,7 @@ def test_text_and_strings(world: World, lab: dict[str, Any]) -> None:
 
 
 def test_references_lists_and_enums(world: World, lab: dict[str, Any]) -> None:
-    body = {"type": "protein.Protein"}
+    body = {"type": "acme/protein.Protein"}
     by_hrid = {"field": "encoded_by", "op": "eq", "value": lab["puc19"]["hrid"]}
     assert find(world, {**body, "where": by_hrid}) == ["src"]
     by_id = {"field": "encoded_by", "op": "in", "value": [lab["puc19"]["id"]]}
@@ -156,7 +156,9 @@ def test_references_lists_and_enums(world: World, lab: dict[str, Any]) -> None:
         world, {**body, "where": {"field": "uniprot_ids", "op": "is_set", "value": True}}
     ) == ["abl1"]
     circular = {"field": "topology", "op": "eq", "value": "circular"}
-    assert find(world, {"type": "dna.DNASequence", "where": circular}) == [lab["lambda"]["hrid"]]
+    assert find(world, {"type": "acme/dna.DNASequence", "where": circular}) == [
+        lab["lambda"]["hrid"]
+    ]
 
 
 def test_lists_of_references_and_extension_fields(world: World, lab: dict[str, Any]) -> None:
@@ -168,11 +170,14 @@ def test_lists_of_references_and_extension_fields(world: World, lab: dict[str, A
     )
     api = api_as(world)
     values = {"structure": str(pdb.pk), "chains": [lab["abl1"]["id"]], "ranking": {"rank": 1}}
-    one = made(api, world.project, {**values, "method": "xray"}, "protein.ProteinStructure")
+    one = made(api, world.project, {**values, "method": "xray"}, "acme/protein.ProteinStructure")
     two = made(
-        api, world.project, {"structure": str(pdb.pk), "method": "nmr"}, "protein.ProteinStructure"
+        api,
+        world.project,
+        {"structure": str(pdb.pk), "method": "nmr"},
+        "acme/protein.ProteinStructure",
     )
-    body = {"type": "protein.ProteinStructure"}
+    body = {"type": "acme/protein.ProteinStructure"}
     has = {"field": "chains", "op": "has", "value": lab["abl1"]["hrid"]}
     assert find(world, {**body, "where": has}) == [one["hrid"]]
     assert find(world, {**body, "where": {"field": "chains", "op": "is_set", "value": False}}) == [
@@ -193,7 +198,7 @@ def test_lists_of_references_and_extension_fields(world: World, lab: dict[str, A
 def test_every_entity_has_its_own_columns(world: World, lab: dict[str, Any]) -> None:
     hrids = {"field": "hrid", "op": "in", "value": [lab["abl1"]["hrid"], lab["puc19"]["hrid"]]}
     assert find(world, {"where": hrids}) == ["pUC19 kinase", "abl1"]
-    proteins = {"field": "type", "op": "eq", "value": "protein.Protein"}
+    proteins = {"field": "type", "op": "eq", "value": "acme/protein.Protein"}
     assert len(find(world, {"where": proteins})) == 4
     mine = {"field": "created_by", "op": "eq", "value": str(world.users["editor"].pk)}
     assert len(find(world, {"where": mine})) == 6
@@ -205,10 +210,10 @@ def test_every_entity_has_its_own_columns(world: World, lab: dict[str, Any]) -> 
 
 
 def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
-    assert find(world, {"type": "protein.Protein"}, "outsider") == []
+    assert find(world, {"type": "acme/protein.Protein"}, "outsider") == []
     # Naming one you can't read reveals nothing about it.
     body = {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "where": {"field": "encoded_by", "op": "eq", "value": lab["puc19"]["hrid"]},
     }
     response = api_as(world, "outsider").post("/entities/search", body)
@@ -224,8 +229,11 @@ def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
     ("body", "expected"),
     [
         (
-            {"type": "protein.Protein", "where": {"field": "colour", "op": "eq", "value": "red"}},
-            [{"pointer": "#/where/field", "detail": "protein.Protein has no field `colour`."}],
+            {
+                "type": "acme/protein.Protein",
+                "where": {"field": "colour", "op": "eq", "value": "red"},
+            },
+            [{"pointer": "#/where/field", "detail": "acme/protein.Protein has no field `colour`."}],
         ),
         (
             {"where": {"field": "name", "op": "eq", "value": "x"}},
@@ -238,7 +246,7 @@ def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
         ),
         (
             {
-                "type": "protein.Protein",
+                "type": "acme/protein.Protein",
                 "where": {
                     "all": [
                         {"field": "organism", "op": "gt", "value": "x"},
@@ -270,44 +278,44 @@ def test_only_entities_you_can_read(world: World, lab: dict[str, Any]) -> None:
         ),
         (
             {
-                "type": "dna.DNASequence",
+                "type": "acme/dna.DNASequence",
                 "where": {"field": "topology", "op": "in", "value": ["round"]},
             },
             [{"pointer": "#/where/value/0", "detail": "must be one of `linear` or `circular`."}],
         ),
         (
             {
-                "type": "protein.Protein",
+                "type": "acme/protein.Protein",
                 "where": {"field": "summary", "op": "contains", "value": "  "},
             },
             [{"pointer": "#/where/value", "detail": "must be some text, up to 200 characters."}],
         ),
         (
-            {"type": "protein.Protein", "where": {"field": "name", "op": "eq"}},
+            {"type": "acme/protein.Protein", "where": {"field": "name", "op": "eq"}},
             [{"pointer": "#/where/value", "detail": "is missing."}],
         ),
         (
-            {"type": "protein.Protein", "where": {"all": []}},
+            {"type": "acme/protein.Protein", "where": {"all": []}},
             [{"pointer": "#/where/all", "detail": "must be a list of conditions."}],
         ),
         (
             {
-                "type": "protein.Protein",
+                "type": "acme/protein.Protein",
                 "where": {"field": "name", "op": "eq", "value": "x", "all": []},
             },
             [{"pointer": "#/where", "detail": "has `all`, so it can't have anything else."}],
         ),
         (
-            {"type": "protein.Protein", "sort": {"field": "uniprot_ids"}},
+            {"type": "acme/protein.Protein", "sort": {"field": "uniprot_ids"}},
             [{"pointer": "#/sort", "detail": "`uniprot_ids` can't be sorted by."}],
         ),
         (
-            {"type": "protein.Protein", "sort": {"field": "colour"}},
+            {"type": "acme/protein.Protein", "sort": {"field": "colour"}},
             [{"pointer": "#/sort", "detail": "There’s no field `colour` to sort by."}],
         ),
         (
-            {"type": "protein.Prion"},
-            [{"pointer": "#/type", "detail": "There’s no entity type protein.Prion."}],
+            {"type": "acme/protein.Prion"},
+            [{"pointer": "#/type", "detail": "There’s no entity type acme/protein.Prion."}],
         ),
     ],
 )
@@ -357,13 +365,13 @@ def test_the_api_says_when_a_search_ran_too_long(
 
 
 def test_sorted_by_a_field_with_unset_values_last(world: World, lab: dict[str, Any]) -> None:
-    body: dict[str, Any] = {"type": "protein.Protein", "sort": {"field": "organism"}}
+    body: dict[str, Any] = {"type": "acme/protein.Protein", "sort": {"field": "organism"}}
     # Ties (the two human proteins) keep the order they were made in, across pages.
     assert find(world, body) == ["lacz", "abl1", "src", "mystery"]
     # Descending reverses it, ties too, as an index reads backwards; unset values stay last.
     body["sort"]["descending"] = True
     assert find(world, body) == ["src", "abl1", "lacz", "mystery"]
-    by_age = {"type": "dna.Sequence", "sort": {"field": "created_at", "descending": True}}
+    by_age = {"type": "acme/dna.Sequence", "sort": {"field": "created_at", "descending": True}}
     assert find(world, by_age) == [
         "mystery",
         "lacz",
@@ -381,7 +389,7 @@ def test_a_sort_too_long_for_a_page_is_refused_at_once(
     the search says so before it starts, not when its time is up (ADR 0103)."""
     monkeypatch.setattr(search, "UNINDEXED_SORT_MAX", 0)
     api = api_as(world, "viewer")
-    body = {"type": "protein.Protein", "sort": {"field": "temperature_optimum"}}
+    body = {"type": "acme/protein.Protein", "sort": {"field": "temperature_optimum"}}
     refused = problem(api.post("/entities/search", body), 422, "search_too_slow")
     assert refused["detail"].startswith("Sorting about ")
     assert refused["detail"].endswith(
@@ -389,13 +397,13 @@ def test_a_sort_too_long_for_a_page_is_refused_at_once(
         "the search with conditions on indexed fields, or sort by an indexed field."
     )
     # An indexed field's index orders it, however many there are.
-    indexed = {"type": "protein.Protein", "sort": {"field": "molecular_weight"}}
+    indexed = {"type": "acme/protein.Protein", "sort": {"field": "molecular_weight"}}
     assert api.post("/entities/search", indexed).status_code == 200
 
 
 def test_cursors_belong_to_their_search(world: World, lab: dict[str, Any]) -> None:
     api = api_as(world, "viewer")
-    body = {"type": "protein.Protein", "sort": {"field": "organism"}, "limit": 1}
+    body = {"type": "acme/protein.Protein", "sort": {"field": "organism"}, "limit": 1}
     cursor = api.post("/entities/search", body).json()["next_cursor"]
     other = {**body, "sort": {"field": "name"}, "cursor": cursor}
     assert problem(api.post("/entities/search", other), 422, "validation_failed")["errors"] == [
@@ -413,17 +421,17 @@ def test_cursors_belong_to_their_search(world: World, lab: dict[str, Any]) -> No
 @pytest.mark.parametrize(
     ("where", "index"),
     [
-        (search.Search(type="protein.Protein", q="kin"), "iki_entity_hrid_trgm"),
+        (search.Search(type="acme/protein.Protein", q="kin"), "iki_entity_hrid_trgm"),
         (
             search.Search(
-                type="protein.Protein",
+                type="acme/protein.Protein",
                 where={"field": "organism", "op": "contains", "value": "sapi"},
             ),
             "organism_trgm_",
         ),
         (
             search.Search(
-                type="protein.Protein",
+                type="acme/protein.Protein",
                 where={"field": "summary", "op": "matches", "value": "kinase"},
             ),
             "summary_fts_",

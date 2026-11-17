@@ -23,7 +23,7 @@ pytestmark = pytest.mark.django_db
 
 def test_a_type_lists_the_viewers_it_configures(world: World) -> None:
     types = {t["name"]: t for t in api_as(world, "viewer").get("/entity-types").json()}
-    assert types["protein.Protein"]["viewers"] == [
+    assert types["acme/protein.Protein"]["viewers"] == [
         {
             "viewer": "sequence",
             "label": "Sequence",
@@ -33,8 +33,8 @@ def test_a_type_lists_the_viewers_it_configures(world: World) -> None:
             "tracks": [{"field": "hydropathy", "label": "Hydropathy", "min": -4.5, "max": 4.5}],
         }
     ]
-    assert types["dna.DNASequence"]["viewers"] == []
-    assert types["protein.ProteinStructure"]["viewers"] == [
+    assert types["acme/dna.DNASequence"]["viewers"] == []
+    assert types["acme/protein.ProteinStructure"]["viewers"] == [
         {"viewer": "structure", "label": "Structure", "structure": "structure"}
     ]
 

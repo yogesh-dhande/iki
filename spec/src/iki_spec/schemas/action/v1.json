@@ -9,7 +9,7 @@
     "apiVersion": { "const": "iki/v1" },
     "kind": { "const": "Action" },
     "name": {
-      "description": "The action's name in snake_case. Elsewhere it is `plugin.name`.",
+      "description": "The action's name in snake_case. Elsewhere it is `namespace/plugin.name`, such as `iki/protein.translate`.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
     "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },

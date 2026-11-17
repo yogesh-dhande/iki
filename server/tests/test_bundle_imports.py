@@ -59,7 +59,10 @@ def bundle_of(world: World, tmp_path: Path, make: Callable[[], list[Any]]) -> Pa
 
 def protein(world: World, sequence: str, **values: Any) -> Any:
     return services.create(
-        world.users["admin"], "protein.Protein", world.project, {"sequence": sequence, **values}
+        world.users["admin"],
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": sequence, **values},
     ).entity
 
 
@@ -109,7 +112,7 @@ def test_a_bundle_of_new_entities_is_planned_and_nothing_changes(
     plan = made["plan"]
     assert plan["applicable"] is True and plan["problems"] == []
     assert plan["counts"]["new"] == 1 and plan["counts"]["conflict"] == 0
-    assert {t["type"] for t in plan["types"]} >= {"protein.Protein", "core.Sequence"}
+    assert {t["type"] for t in plan["types"]} >= {"acme/protein.Protein", "iki/core.Sequence"}
     (row,) = entities_of(api, made)
     assert row["action"] == "new" and row["hrid_here"] == row["hrid"]
     assert row["title"] == "ABL1"
@@ -212,12 +215,12 @@ def test_types_must_be_here_at_the_bundles_version(
     path = bundle_of(world, tmp_path, lambda: [protein(world, "MKEEEEEE")])
     real = registry.types()
     monkeypatch.setattr(
-        registry, "types", lambda: {k: v for k, v in real.items() if k != "protein.Protein"}
+        registry, "types", lambda: {k: v for k, v in real.items() if k != "acme/protein.Protein"}
     )
     made = upload(Api(world.browser("admin")), world.project, path)
     assert made["plan"]["applicable"] is False
     assert made["plan"]["problems"][0].startswith(
-        "This deployment has no protein.Protein: deploy protein "
+        "This deployment has no acme/protein.Protein: deploy acme/protein "
     )
 
 
@@ -296,7 +299,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
         )
         kinase = services.create(
             chemist,
-            "protein.Protein",
+            "acme/protein.Protein",
             world.project,
             {"sequence": "MKTAYIAKQR", "name": "ABL1"},
             reason="From the LIMS",
@@ -311,7 +314,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
         )
         structure = services.create(
             chemist,
-            "protein.ProteinStructure",
+            "acme/protein.ProteinStructure",
             world.project,
             {"structure": str(pdb.pk), "method": "xray", "chains": [str(kinase.pk)]},
         ).entity
@@ -333,7 +336,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
     assert done["applied_by"]["id"] == str(admin.pk)
 
     # Each entity has its ID, HRID, revisions and values, as they were.
-    kinase_line = lines["protein.Protein"]
+    kinase_line = lines["acme/protein.Protein"]
     kinase = Entity.objects.get(pk=kinase_line["id"])
     assert kinase.hrid == kinase_line["hrid"]
     assert kinase.owner_project_id == world.project.pk
@@ -351,7 +354,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
     history = api.get(f"/entities/{kinase.hrid}/revisions").json()["items"]
     assert len(history) == 2
     # Its file's bytes came in the bundle.
-    structure = Entity.objects.get(pk=lines["protein.ProteinStructure"]["id"])
+    structure = Entity.objects.get(pk=lines["acme/protein.ProteinStructure"]["id"])
     detail = api.get(f"/entities/{structure.hrid}").json()
     assert detail["values"]["chains"] == [str(kinase.pk)]
     content = api.get(f"/files/{detail['values']['structure']}/content")
@@ -420,16 +423,16 @@ def test_a_view_comes_with_the_entities_it_shows_each_at_its_revision(
             "viewers": ["sequence", "sequence"],
             "state": {"version": 2, "targets": [{"label": "kinase"}, {}]},
         }
-        view = cast(Entity, services.create(admin, "core.View", world.project, values).entity)
+        view = cast(Entity, services.create(admin, "iki/core.View", world.project, values).entity)
         services.update(admin, view, {"target_revisions": [1, 2]}, expected_revision=1)
         return [Entity.objects.get(pk=view.pk)]
 
     path = bundle_of(world, tmp_path, elsewhere)
-    lines = {e["type"]: e for e in registry_lines(path) if e["type"] == "core.View"}
+    lines = {e["type"]: e for e in registry_lines(path) if e["type"] == "iki/core.View"}
     api = Api(world.browser("admin"))
     done = applied(api, upload(api, world.project, path))
     assert done["state"] == "applied", done
-    view = Entity.objects.get(pk=lines["core.View"]["id"])
+    view = Entity.objects.get(pk=lines["iki/core.View"]["id"])
     body = api.get(f"/entities/{view.hrid}").json()
     shown = [body["refs"][t]["title"] for t in body["values"]["targets"]]
     assert shown == ["kinase", "antigen, renamed"]
@@ -491,7 +494,7 @@ def ran(world: World, made: Any, read: Any, *, hrid: str = "RUN-009001") -> Any:
     now = timezone.now()
     run = ActionRun.objects.create(
         hrid=hrid,
-        action="protein.compute_properties",
+        action="acme/protein.compute_properties",
         plugin_version="1.0.0",
         plugin_sha="a" * 40,
         spec={"name": "compute_properties"},
@@ -515,7 +518,7 @@ def ran(world: World, made: Any, read: Any, *, hrid: str = "RUN-009001") -> Any:
         state="succeeded",
         project=world.project,
         tier="backend",
-        environment="protein.python",
+        environment="acme/protein.python",
         started_at=now,
         finished_at=now,
     )
@@ -616,7 +619,7 @@ def test_a_run_whose_input_isnt_coming_keeps_it_on_record(world: World, tmp_path
 
     def elsewhere() -> list[Any]:
         read = services.create(
-            world.users["admin"], "protein.Protein", other, {"sequence": "MKOTHER"}
+            world.users["admin"], "acme/protein.Protein", other, {"sequence": "MKOTHER"}
         ).entity
         made = protein(world, "MKMADEHERE")
         ran(world, made, read, hrid="RUN-009002")
@@ -679,21 +682,21 @@ def test_an_apps_viewer_names_a_renumbered_entity_by_its_hrid_here(
             ],
         }
         app = services.create(
-            admin, "core.App", world.project, {"name": "Kinase", "spec": spec}
+            admin, "iki/core.App", world.project, {"name": "Kinase", "spec": spec}
         ).entity
         return [Entity.objects.get(pk=app.pk), shown]
 
     path = bundle_of(world, tmp_path, elsewhere)
     lines = {e["type"]: e for e in registry_lines(path)}
-    source_hrid = lines["protein.Protein"]["hrid"]
+    source_hrid = lines["acme/protein.Protein"]["hrid"]
     taken = protein(world, "MKTAKENHERE")
     Entity.objects.filter(pk=taken.pk).update(hrid=source_hrid)
     api = Api(world.browser("admin"))
     done = applied(api, upload(api, world.project, path))
     assert done["state"] == "applied", done
-    shown = Entity.objects.get(pk=lines["protein.Protein"]["id"])
+    shown = Entity.objects.get(pk=lines["acme/protein.Protein"]["id"])
     assert shown.hrid != source_hrid
-    app = Entity.objects.get(pk=lines["core.App"]["id"])
+    app = Entity.objects.get(pk=lines["iki/core.App"]["id"])
     body = api.get(f"/entities/{app.hrid}").json()
     assert body["values"]["spec"]["panels"][0]["props"]["entity"] == shown.hrid
     assert body["revision"] == 2

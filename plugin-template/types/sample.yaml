@@ -18,7 +18,7 @@ fields:
   storage: { type: string, max_length: 100, indexed: true }
   # A reference: to a type of this plugin by its name, to another plugin's as plugin.Type.
   derived_from: { type: ref, to: Sample, description: The sample it was taken from. }
-  construct: { type: ref, to: dna.DNASequence, description: The construct it carries. }
+  construct: { type: ref, to: iki/dna.DNASequence, description: The construct it carries. }
   notes: { type: text }
 display:
   title: "{{ name }}"

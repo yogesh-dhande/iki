@@ -36,7 +36,7 @@ def _launch(name: str, state: str, template: str = "gpu-pods") -> None:
     Launch.objects.create(
         template=template,
         provisioner="k8s_job",
-        environment="protein.protein-tools",
+        environment="acme/protein.protein-tools",
         plugin_sha="0" * 40,
         image="ghcr.io/acme/tools@sha256:" + "a" * 64,
         namespace="iki-runs",
@@ -67,7 +67,7 @@ def test_compute_admins_see_whats_waiting_running_and_on_what(world: World) -> N
     body = admin.get("/compute/overview").json()
     (line,) = body["queues"]
     assert line["tier"] == "backend"
-    assert line["environment"] == "protein.protein-tools"
+    assert line["environment"] == "acme/protein.protein-tools"
     assert (line["awaiting_approval"], line["queued"], line["running"]) == (0, 1, 1)
     assert 600 <= line["waiting_seconds"] < 660
     backend = next(w for w in body["workers"] if w["tier"] == "backend")
@@ -117,7 +117,7 @@ def test_metrics_say_what_the_page_says(world: World) -> None:
     _launch("run-a", "starting")
 
     attempts = _observed(overview._queued)
-    labels = {"tier": "backend", "environment": "protein.protein-tools"}
+    labels = {"tier": "backend", "environment": "acme/protein.protein-tools"}
     assert (1, {**labels, "state": "queued"}) in attempts
     assert (1, {**labels, "state": "running"}) in attempts
     assert (1, {"tier": "backend", "state": "busy"}) in _observed(overview._workers)

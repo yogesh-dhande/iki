@@ -111,7 +111,7 @@ function planned(overrides: Partial<Schemas["ImportOut"]> = {}): Schemas["Import
         runs_here: 0,
         runs_renumbered: 0,
       },
-      types: [{ type: "protein.Protein", plugin: "protein", schema_version: 2, here: 2 }],
+      types: [{ type: "iki/protein.Protein", plugin: "iki/protein", schema_version: 2, here: 2 }],
       files: { files: 0, here: 0, carried: 0, registered: 0 },
       outside: { count: 0, here: 0, items: [] },
       problems: ["1 entity is in conflict: see each one’s reason."],
@@ -589,7 +589,7 @@ describe("settings", () => {
     const collection = entity({
       id: "00000000-0000-7000-8000-0000000000c1",
       hrid: "COL-000001",
-      type: "core.Collection",
+      type: "iki/core.Collection",
       title: "Validated kinases",
     });
     answer("POST /api/v1/entities/search", page([collection]));
@@ -692,7 +692,7 @@ describe("an import", () => {
         [
           {
             id: "00000000-0000-7000-8000-0000000000a1",
-            type: "protein.Protein",
+            type: "iki/protein.Protein",
             hrid: "PRT-000012",
             hrid_here: "",
             title: "ABL1",
@@ -703,7 +703,7 @@ describe("an import", () => {
           },
           {
             id: "00000000-0000-7000-8000-0000000000a2",
-            type: "protein.Protein",
+            type: "iki/protein.Protein",
             hrid: "PRT-000013",
             hrid_here: "PRT-000013",
             title: "SRC",

@@ -1,4 +1,4 @@
-"""Collections (core.Collection): static ones list members, dynamic ones are a search."""
+"""Collections (iki/core.Collection): static ones list members, dynamic ones are a search."""
 
 from typing import Any
 
@@ -12,7 +12,7 @@ from iki_server.org.models import Project, ProjectMembership, ProjectRole
 pytestmark = pytest.mark.django_db
 
 HUMAN = {
-    "type": "protein.Protein",
+    "type": "acme/protein.Protein",
     "where": {"field": "organism", "op": "eq", "value": "Homo sapiens"},
 }
 
@@ -26,13 +26,13 @@ def protein(api: Api, project: Project, name: str, organism: str | None = None) 
     values = {"sequence": "MK" + "".join(chr(65 + (ord(c) % 20)) for c in name), "name": name}
     if organism:
         values["organism"] = organism
-    made = create(api, project, values, "protein.Protein")
+    made = create(api, project, values, "acme/protein.Protein")
     assert made.status_code == 201, made.content
     return made.json()
 
 
 def collection(api: Api, world: World, **values: Any) -> Any:
-    return create(api, world.project, {"name": "Picks", **values}, "core.Collection")
+    return create(api, world.project, {"name": "Picks", **values}, "iki/core.Collection")
 
 
 def members(api: Api, ref: str, **search: Any) -> list[str]:
@@ -53,7 +53,7 @@ def secret(world: World) -> Project:
 
 def test_collections_are_a_core_type(world: World) -> None:
     types = api_as(world, "viewer").get("/entity-types").json()
-    found = next(t for t in types if t["name"] == "core.Collection")
+    found = next(t for t in types if t["name"] == "iki/core.Collection")
     assert {f["name"] for f in found["fields"]} >= {"name", "description", "members", "search"}
     made = collection(api_as(world), world).json()
     assert made["hrid"].startswith("COL-")
@@ -69,14 +69,14 @@ def test_a_static_collection_shows_only_members_you_can_read(world: World, secre
     made = collection(admin, world, members=[src["id"], abl["id"], hidden["id"]])
     assert made.status_code == 201, made.content
     made = made.json()
-    assert members(admin, made["hrid"], type="protein.Protein", sort={"field": "name"}) == [
+    assert members(admin, made["hrid"], type="acme/protein.Protein", sort={"field": "name"}) == [
         "abl1",
         "hidden",
         "src",
     ]
     # The viewer reads the collection, but not the Secret project's entity in it.
     viewer = api_as(world, "viewer")
-    assert members(viewer, made["id"], type="protein.Protein", sort={"field": "name"}) == [
+    assert members(viewer, made["id"], type="acme/protein.Protein", sort={"field": "name"}) == [
         "abl1",
         "src",
     ]
@@ -100,7 +100,7 @@ def test_a_dynamic_collection_runs_its_search_as_the_reader(world: World, secret
     protein(admin, secret, "hidden", "Homo sapiens")
     made = collection(admin, world, search=HUMAN).json()
     assert made["values"]["search"] == HUMAN
-    assert members(admin, made["hrid"], type="protein.Protein", sort={"field": "name"}) == [
+    assert members(admin, made["hrid"], type="acme/protein.Protein", sort={"field": "name"}) == [
         "abl1",
         "hidden",
     ]
@@ -108,7 +108,7 @@ def test_a_dynamic_collection_runs_its_search_as_the_reader(world: World, secret
     assert members(viewer, made["hrid"]) == ["abl1"]
     # New matches join it.
     protein(admin, world.project, "egfr", "Homo sapiens")
-    assert members(viewer, made["hrid"], type="protein.Protein", sort={"field": "name"}) == [
+    assert members(viewer, made["hrid"], type="acme/protein.Protein", sort={"field": "name"}) == [
         "abl1",
         "egfr",
     ]
@@ -144,12 +144,12 @@ def test_members_or_a_search_not_both(world: World) -> None:
 
 def test_a_search_is_checked_as_its_author(world: World, secret: Project) -> None:
     editor = api_as(world)
-    wrong = {"type": "protein.Protein", "where": {"field": "colour", "op": "eq", "value": 1}}
+    wrong = {"type": "acme/protein.Protein", "where": {"field": "colour", "op": "eq", "value": 1}}
     body = problem(collection(editor, world, search=wrong), 422, "validation_failed")
     assert body["errors"] == [
         {
             "pointer": "#/values/search",
-            "detail": "`where.field`: protein.Protein has no field `colour`.",
+            "detail": "`where.field`: acme/protein.Protein has no field `colour`.",
         }
     ]
     # A project the author can't read is no project at all to them.
@@ -170,7 +170,7 @@ def test_a_search_that_stopped_working_says_so(world: World) -> None:
     # A type it names is gone, as after a plugin is detached: store one directly.
     from iki_server.entities import registry
 
-    model = registry.model("core.Collection")
+    model = registry.model("iki/core.Collection")
     model._default_manager.filter(pk=made["id"]).update(search={"type": "gone.Thing"})
     body = problem(
         editor.post("/entities/search", {"collection": made["hrid"]}), 422, "validation_failed"
@@ -269,13 +269,13 @@ def test_a_fixed_list_has_a_limit(world: World, monkeypatch: pytest.MonkeyPatch)
 
 def test_making_one_checks_its_search(world: World) -> None:
     editor = api_as(world)
-    wrong = {"type": "protein.Protein", "where": {"field": "colour", "op": "eq", "value": 1}}
+    wrong = {"type": "acme/protein.Protein", "where": {"field": "colour", "op": "eq", "value": 1}}
     for keep in ("search", "members"):
         body = problem(make(editor, world, wrong, keep), 422, "validation_failed")
         assert body["errors"] == [
             {
                 "pointer": "#/search",
-                "detail": "`where.field`: protein.Protein has no field `colour`.",
+                "detail": "`where.field`: acme/protein.Protein has no field `colour`.",
             }
         ]
     problem(make(api_as(world, "viewer"), world, HUMAN, "search"), 403, "forbidden")
@@ -290,11 +290,13 @@ def test_a_long_list_is_checked_in_one_query(
     ids = [
         str(
             services.create(
-                editor, "dna.DNASequence", world.project, {"bases": "ACGT" + "A" * i}
+                editor, "acme/dna.DNASequence", world.project, {"bases": "ACGT" + "A" * i}
             ).entity.pk
         )
         for i in range(60)
     ]
     # However many members, their references are looked up together.
     with django_assert_max_num_queries(40):
-        services.create(editor, "core.Collection", world.project, {"name": "Many", "members": ids})
+        services.create(
+            editor, "iki/core.Collection", world.project, {"name": "Many", "members": ids}
+        )

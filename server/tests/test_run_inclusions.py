@@ -42,7 +42,7 @@ def structure(world: World, *chains: dict[str, Any]) -> dict[str, Any]:
         "method": "xray",
         "chains": [c["id"] for c in chains],
     }
-    made = create(api_as(world, "editor"), world.project, values, "protein.ProteinStructure")
+    made = create(api_as(world, "editor"), world.project, values, "acme/protein.ProteinStructure")
     assert made.status_code == 201, made.content
     body: dict[str, Any] = made.json()
     return body
@@ -78,7 +78,7 @@ def test_a_run_reads_what_its_inputs_references_name_as_of_launch(world: World) 
         (src["hrid"], 1, None),
     ]
     assert chains[1]["values"]["sequence"] == src["values"]["sequence"]
-    assert chains[0]["type"] == "protein.Protein"
+    assert chains[0]["type"] == "acme/protein.Protein"
 
 
 def test_an_input_that_includes_nothing_has_no_included(world: World) -> None:
@@ -98,7 +98,7 @@ def test_a_reference_from_another_project_is_refused_unless_added(world: World) 
     body = outside(relax(world, pst))
 
     assert body["entities"] == [
-        {"id": theirs["id"], "hrid": theirs["hrid"], "type": "protein.Protein"}
+        {"id": theirs["id"], "hrid": theirs["hrid"], "type": "acme/protein.Protein"}
     ]
     assert not ActionRun.objects.exists()
     made = relax(world, pst, add_to_project=True)
@@ -136,7 +136,7 @@ def test_a_change_to_what_was_included_runs_again(
     pod = built_pod(world)
     job = pod.lease().json()
     values = {**job["inputs"]["structure"][0]["values"]}
-    made = {"type": "protein.ProteinStructure", "values": values}
+    made = {"type": "acme/protein.ProteinStructure", "values": values}
     assert done(pod, job, output(creates=[made]))["run_status"] == "succeeded"
 
     same = relax(world, pst).json()
@@ -159,7 +159,7 @@ def test_reproducing_reads_what_the_run_read(world: World, monkeypatch: pytest.M
     pod = built_pod(world)
     job = pod.lease().json()
     values = {**job["inputs"]["structure"][0]["values"]}
-    made = {"type": "protein.ProteinStructure", "values": values}
+    made = {"type": "acme/protein.ProteinStructure", "values": values}
     assert done(pod, job, output(creates=[made]))["run_status"] == "succeeded"
     changed = patch(editor, abl["id"], {"values": {"name": "Renamed"}}, '"1"')
     assert changed.status_code == 200, changed.content
@@ -191,7 +191,7 @@ def test_a_bundle_keeps_what_its_runs_read_through_references(
         pod = worker(world)
         job = pod.lease().json()
         values = {**job["inputs"]["structure"][0]["values"]}
-        made = {"type": "protein.ProteinStructure", "values": values}
+        made = {"type": "acme/protein.ProteinStructure", "values": values}
         assert done(pod, job, output(creates=[made]))["run_status"] == "succeeded"
         kept.update(run=run, abl=abl)
         relaxed = ActionRun.objects.get(pk=run["id"]).effects.get().entity_id
@@ -248,7 +248,7 @@ def test_a_workflow_checks_what_its_steps_include_when_it_starts(world: World) -
     pst = structure(world, theirs)
 
     started = editor.post(
-        "/workflows/protein.relax_twice/runs",
+        "/workflows/acme/protein.relax_twice/runs",
         {"project": str(world.project.pk), "inputs": {"structure": pst["id"]}},
     )
 

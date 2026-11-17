@@ -19,7 +19,7 @@ params: { isotype: igg1, target: HER2 }
 expect:
   output:
     creates:
-      - type: antibody.Antibody
+      - type: iki/antibody.Antibody
         values:
           heavy_chain: 00000000-0000-7000-8003-000000000001
           light_chain: 00000000-0000-7000-8003-000000000002

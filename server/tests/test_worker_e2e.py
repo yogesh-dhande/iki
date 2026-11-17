@@ -36,7 +36,7 @@ from iki_server.runs.models import ActionRun, Job, JobLog, JobState, Worker
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.worker_e2e]
 
-RELAX = "protein.relax_structure"
+RELAX = "acme/protein.relax_structure"
 SECRET_NAME = "LAB_TOKEN"
 SECRET = "s3cr3t-lab-token-0451"
 
@@ -88,7 +88,7 @@ def server(
             p for p in (str(ensure_built()), os.environ.get("PYTHONPATH")) if p
         )
         secrets = tmp_path_factory.mktemp("run-secrets")
-        (secrets / f"protein.{SECRET_NAME}").write_text(SECRET + "\n", encoding="utf-8")
+        (secrets / f"acme__protein.{SECRET_NAME}").write_text(SECRET + "\n", encoding="utf-8")
         env = server_env(
             role,
             tmp_path_factory.mktemp("static"),
@@ -513,7 +513,7 @@ def test_a_worker_leases_only_runs_of_plugins_it_has(
     (only_dna / "dna").symlink_to(PLUGINS / "dna", target_is_directory=True)
     running = start(registration(world), plugins=only_dna)
     pod = eventually(lambda: Worker.objects.filter(name="e2e-worker").first())
-    assert pod.plugins == [{"name": "dna", "sha": None, "environments": None, "bundle": None}]
+    assert pod.plugins == [{"name": "acme/dna", "sha": None, "environments": None, "bundle": None}]
     time.sleep(2)  # Long enough to lease, were it allowed to.
     assert Job.objects.get(run_id=run["id"]).state == JobState.QUEUED
     running.process.send_signal(signal.SIGTERM)
@@ -536,7 +536,7 @@ def test_input_files_are_staged_and_result_files_uploaded(
     )
     abl = protein(editor, world.project)
     values = {"structure": added["file"]["id"], "method": "xray", "chains": [abl["id"]]}
-    structure = create(editor, world.project, values, "protein.ProteinStructure")
+    structure = create(editor, world.project, values, "acme/protein.ProteinStructure")
     assert structure.status_code == 201, structure.content
     made = launch(editor, world.project, {"structure": structure.json()["id"]}, RELAX)
     assert made.status_code == 201, made.content
@@ -572,7 +572,7 @@ with (Path(os.environ["IKI_OUT_DIR"]) / "creates.ndjson").open("w") as out:
     for n in range(1500):
         sequence = "M" + letters[n // 400] + letters[n // 20 % 20] + letters[n % 20] + "KV"
         create = {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "values": {"name": f"P{n}", "sequence": sequence},
             "origin": {"source": "FASTA file", "id": f"P{n}", "file": file_id},
         }
@@ -603,7 +603,9 @@ def test_a_run_keeps_the_files_its_action_keeps_whether_it_succeeds_or_not(
 ) -> None:
     editor = api_as(world)
     a, b = protein(editor, world.project, "abl1"), protein(editor, world.project, "src")
-    run = launch(editor, world.project, {"query": a["id"], "target": b["id"]}, "protein.align_pair")
+    run = launch(
+        editor, world.project, {"query": a["id"], "target": b["id"]}, "acme/protein.align_pair"
+    )
     assert run.status_code == 201, run.content
     plugins = tmp_path / "plugins"
     shutil.copytree(PLUGINS / "protein", plugins / "protein")
@@ -707,7 +709,7 @@ def test_an_admin_registers_a_self_hosted_machine_and_it_runs_its_teams_runs(
     # It kept its token: a registered machine isn't for one process.
     registered.refresh_from_db()
     assert registered.revoked_at is None
-    assert {p["name"] for p in registered.plugins} >= {"protein"}
+    assert {p["name"] for p in registered.plugins} >= {"acme/protein"}
 
     out = worker("deregister")
     assert out.returncode == 0, out.stderr
@@ -729,11 +731,11 @@ def _bundled_record(out: Path) -> dict[str, Any]:
     assert loaded.plugin is not None
     out.mkdir(parents=True, exist_ok=True)
     protein = {
-        "name": "protein",
+        "name": "acme/protein",
         "version": loaded.plugin.version,
         "sha": BUNDLED_SHA,
         "state": "active",
-        "bundle": bundles.bundle(directory, out / f"protein-{BUNDLED_SHA}.tar.gz"),
+        "bundle": bundles.bundle(directory, out / f"acme__protein-{BUNDLED_SHA}.tar.gz"),
         "environments": bundles.environments(loaded.plugin, directory),
     }
     return {"plugins": [protein]}
@@ -810,11 +812,11 @@ def test_a_worker_with_no_plugins_dir_fetches_and_builds_what_the_server_install
     digest = record["plugins"][0]["environments"]["protein-tools"]["digest"]
     job = Job.objects.get(run_id=run["id"])
     assert job.environment_build == digest
-    assert (cache / "plugins" / "protein" / BUNDLED_SHA / "plugin.yaml").is_file()
+    assert (cache / "plugins" / "acme__protein" / BUNDLED_SHA / "plugin.yaml").is_file()
     worker = Worker.objects.get(name="fetcher")
     assert worker.plugins == [
         {
-            "name": "protein",
+            "name": "acme/protein",
             "sha": BUNDLED_SHA,
             "environments": {"protein-tools": digest},
             "bundle": None,

@@ -1,6 +1,6 @@
 """What an app's spec (ADR 0090) must be beyond its schema, checked on every save.
 
-The schema (``app/v1``, in ``core.App``'s manifest) says which props each component
+The schema (``app/v1``, in ``iki/core.App``'s manifest) says which props each component
 takes. This says the rest, run as the person saving, as they'd see the page:
 
 - Panel IDs are unique.
@@ -72,7 +72,7 @@ COMPONENTS: Mapping[str, Component] = {
     "iki.entities": Component(
         "A grid of the entities a search finds, as the person viewing the app may read them.",
         {
-            "type": "The entity type to search, such as protein.Protein (list_entity_types).",
+            "type": "The entity type to search, such as iki/protein.Protein (list_entity_types).",
             "scope": "`project` (the default): only the app's project. `all`: every project "
             "the person viewing it can read.",
             "where": "Conditions on the type's fields, as search_entities takes them. A "
@@ -111,7 +111,7 @@ COMPONENTS: Mapping[str, Component] = {
 
 ABOUT_GUIDE = (
     'An app can be about one entity of a type: `"entity": {"type": '
-    '"protein.Protein"}` in its spec. Each such entity\'s page then shows the app as a tab '
+    '"iki/protein.Protein"}` in its spec. Each such entity\'s page then shows the app as a tab '
     "(for those entities in the app's projects, to people who can read the app), and its "
     "expressions read that entity as `entity`, " + ENTITY_VALUE + ". No panel may then "
     "have the ID `entity`."
@@ -133,9 +133,9 @@ EXPRESSIONS = (
 
 def guide() -> dict[str, Any]:
     """What agents need to write an app: its schema, the components, and expressions."""
-    schema = registry.types()["core.App"].fields["spec"].schema
+    schema = registry.types()["iki/core.App"].fields["spec"].schema
     return {
-        "type": "core.App",
+        "type": "iki/core.App",
         "spec_schema": schema,
         "grid": "Panels are laid out in order on a grid twelve columns wide: `width` is how "
         "many each spans (12 if not given), and a panel that doesn't fit starts a new row. "
@@ -155,7 +155,7 @@ def guide() -> dict[str, Any]:
                     "width": 6,
                     "component": "iki.entities",
                     "props": {
-                        "type": "protein.Protein",
+                        "type": "iki/protein.Protein",
                         "sort": "name",
                         "columns": [
                             {"field": "name"},
@@ -221,7 +221,7 @@ def _kind(expected: Any) -> str:  # noqa: ANN401 - JSON Schema's `type`
 def check(user: User, spec: Any) -> list[str]:  # noqa: ANN401 - JSON
     """Everything wrong with a spec, as saving it would say, but each schema problem on its
     own with where it is. Nothing if it would save."""
-    schema = registry.types()["core.App"].fields["spec"].schema or {}
+    schema = registry.types()["iki/core.App"].fields["spec"].schema or {}
     errors = sorted(
         Draft202012Validator(schema).iter_errors(spec),
         key=lambda e: [str(p) for p in e.absolute_path],
@@ -445,7 +445,7 @@ def about(user: User, entity: Entity) -> QuerySet[Entity]:
         entity_type.qualified_name,
         *(t.qualified_name for t in registry.ancestors(entity_type)),
     ]
-    model = cast("type[Entity]", registry.model("core.App"))
+    model = cast("type[Entity]", registry.model("iki/core.App"))
     projects = ProjectLink.objects.filter(entity=entity).values("project_id")
     return (
         access.visible_of(user, model)

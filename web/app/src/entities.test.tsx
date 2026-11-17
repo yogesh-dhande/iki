@@ -43,7 +43,7 @@ describe("the type browser", () => {
   it("lists the types by plugin, and shows a type's fields and rules", async () => {
     withTypes();
     const { user } = await renderApp("/types/");
-    expect(screen.getByRole("heading", { level: 2, name: "protein" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "iki/protein" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Types" })).toHaveAttribute("aria-current", "page");
     await user.click(screen.getByRole("link", { name: "Protein structure" }));
     await screen.findByRole("heading", { level: 1, name: "Protein structure" });
@@ -59,7 +59,7 @@ describe("the type browser", () => {
 
   it("says what makes two the same, and what creating a duplicate does", async () => {
     withTypes();
-    await renderApp("/types/protein.Protein/");
+    await renderApp("/types/iki/protein.Protein/");
     expect(
       screen.getByText(/Two are the same when their Sequence match\. Creating one that’s already/),
     ).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe("the type browser", () => {
 
   it("says when there's no such type", async () => {
     withTypes();
-    await renderApp("/types/nope.Nope/");
+    await renderApp("/types/acme/nope.Nope/");
     expect(
       screen.getByText("There’s nothing here, or you don’t have access to it."),
     ).toBeInTheDocument();
@@ -84,7 +84,7 @@ describe("a project's entities", () => {
   it("shows one type's fields as columns, in their display units", async () => {
     onProject();
     answer("POST /api/v1/entities/search", page([entity()]));
-    await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
     const grid = await screen.findByRole("table", { name: "1 protein" });
     const rows = within(grid).getAllByRole("row");
     const head = nth(rows, 0);
@@ -107,7 +107,7 @@ describe("a project's entities", () => {
       limit: 100,
       exact_type: false,
       project: KINASE.id,
-      type: "protein.Protein",
+      type: "iki/protein.Protein",
       archived: false,
     });
   });
@@ -122,13 +122,13 @@ describe("a project's entities", () => {
     await user.selectOptions(screen.getByLabelText("Show"), "Current and archived");
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
-        type: "protein.ProteinStructure",
+        type: "iki/protein.ProteinStructure",
         show: "all",
       });
     });
     const sent = calls("POST", "/api/v1/entities/search");
     const last = nth(sent, sent.length - 1).body as Record<string, unknown>;
-    expect(last["type"]).toBe("protein.ProteinStructure");
+    expect(last["type"]).toBe("iki/protein.ProteinStructure");
     expect(last).not.toHaveProperty("archived");
   });
 
@@ -138,7 +138,7 @@ describe("a project's entities", () => {
       "POST /api/v1/entities/search",
       page([entity(), entity({ id: SECOND_ID, hrid: "PRT-000002" })]),
     );
-    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
     await screen.findByRole("table", { name: "2 proteins" });
     expect(screen.queryByRole("link", { name: "Run action" })).not.toBeInTheDocument();
 
@@ -176,7 +176,7 @@ describe("a project's entities", () => {
       }),
     );
     answer("POST /api/v1/entities/search", { items: many, next_cursor: null });
-    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
     await screen.findByRole("table", { name: "201 proteins" });
     await user.click(screen.getByRole("checkbox", { name: "Select all 201 shown" }));
     expect(
@@ -189,7 +189,7 @@ describe("a project's entities", () => {
     withTypes();
     answer("GET /api/v1/projects", page([project({ can: { ...KINASE.can, run: [] } })]));
     answer("POST /api/v1/entities/search", page([entity()]));
-    await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
     await screen.findByRole("table", { name: "1 protein" });
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
@@ -207,7 +207,7 @@ describe("a project's entities", () => {
         ? page([entity({ id: "00000000-0000-7000-8000-0000000fffff", hrid: "PRT-000041" })])
         : { items: many, next_cursor: "next" },
     );
-    await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
     await screen.findByRole("table", { name: "41 proteins" });
     const sent = calls("POST", "/api/v1/entities/search");
     expect(nth(sent, sent.length - 1).body).toMatchObject({ cursor: "next" });
@@ -217,12 +217,12 @@ describe("a project's entities", () => {
     onProject();
     answer("POST /api/v1/entities/search", page([entity()]));
     const { router, user } = await renderApp(
-      "/projects/kinase-atlas/entities/?type=protein.Protein",
+      "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
     );
     await screen.findByRole("table", { name: "1 protein" });
     await user.type(screen.getByRole("searchbox", { name: "Search" }), "abl");
     await waitFor(() => {
-      expect(router.state.location.search).toEqual({ type: "protein.Protein", q: "abl" });
+      expect(router.state.location.search).toEqual({ type: "iki/protein.Protein", q: "abl" });
     });
     const sent = calls("POST", "/api/v1/entities/search");
     expect(nth(sent, sent.length - 1).body).toMatchObject({ q: "abl" });
@@ -233,7 +233,7 @@ describe("a project's entities", () => {
     onProject();
     answer("POST /api/v1/entities/search", page([entity()]));
     const { router, user } = await renderApp(
-      "/projects/kinase-atlas/entities/?type=protein.Protein",
+      "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
     );
     await screen.findByRole("table", { name: "1 protein" });
     await user.click(screen.getByRole("button", { name: "Filters" }));
@@ -244,7 +244,7 @@ describe("a project's entities", () => {
     await user.type(within(panel).getByLabelText("Filter 1: value"), "50");
     const want = [{ field: "molecular_weight", op: "gte", value: 50 }];
     await waitFor(() => {
-      expect(router.state.location.search).toEqual({ type: "protein.Protein", filters: want });
+      expect(router.state.location.search).toEqual({ type: "iki/protein.Protein", filters: want });
     });
     const sent = calls("POST", "/api/v1/entities/search");
     expect(nth(sent, sent.length - 1).body).toMatchObject({ where: { all: want } });
@@ -260,7 +260,7 @@ describe("a project's entities", () => {
     expect(within(panel).getByLabelText("Filter 2: value")).toBeInTheDocument();
     await user.click(within(panel).getByRole("button", { name: "Remove filter 1" }));
     await waitFor(() => {
-      expect(router.state.location.search).toEqual({ type: "protein.Protein" });
+      expect(router.state.location.search).toEqual({ type: "iki/protein.Protein" });
     });
   });
 
@@ -271,14 +271,14 @@ describe("a project's entities", () => {
       JSON.stringify([{ field: "name", op: "contains", value: "abl" }]),
     );
     const { router, user } = await renderApp(
-      `/projects/kinase-atlas/entities/?type=protein.Protein&filters=${filters}`,
+      `/projects/kinase-atlas/entities/?type=iki/protein.Protein&filters=${filters}`,
     );
     const panel = await screen.findByRole("region", { name: "Filters" });
     expect(within(panel).getByLabelText("Filter 1: value")).toHaveValue("abl");
     expect(within(panel).getByLabelText("Filter 1: condition")).toHaveDisplayValue("contains");
     await user.selectOptions(screen.getByLabelText("Type"), "Protein structure");
     await waitFor(() => {
-      expect(router.state.location.search).toEqual({ type: "protein.ProteinStructure" });
+      expect(router.state.location.search).toEqual({ type: "iki/protein.ProteinStructure" });
     });
   });
 
@@ -286,14 +286,14 @@ describe("a project's entities", () => {
     onProject();
     answer("POST /api/v1/entities/search", page([entity()]));
     const { router, user } = await renderApp(
-      "/projects/kinase-atlas/entities/?type=protein.Protein",
+      "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
     );
     const grid = await screen.findByRole("table", { name: "1 protein" });
     const heading = within(grid).getByRole("columnheader", { name: /Name/ });
     expect(heading).toHaveAttribute("aria-sort", "none");
     await user.click(within(heading).getByRole("button", { name: "Name" }));
     await waitFor(() => {
-      expect(router.state.location.search).toEqual({ type: "protein.Protein", sort: "name" });
+      expect(router.state.location.search).toEqual({ type: "iki/protein.Protein", sort: "name" });
     });
     expect(within(grid).getByRole("columnheader", { name: /Name/ })).toHaveAttribute(
       "aria-sort",
@@ -302,7 +302,7 @@ describe("a project's entities", () => {
     await user.click(within(grid).getByRole("button", { name: "Name" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
-        type: "protein.Protein",
+        type: "iki/protein.Protein",
         sort: "name",
         desc: true,
       });
@@ -321,7 +321,7 @@ describe("a project's entities", () => {
       project: KINASE.id,
       name: "Human proteins",
       query: {
-        type: "protein.Protein",
+        type: "iki/protein.Protein",
         archived: false,
         where: { all: [{ field: "name", op: "contains", value: "abl" }] },
       },
@@ -334,13 +334,13 @@ describe("a project's entities", () => {
     answer("GET /api/v1/saved-searches", [human]);
     answer("POST /api/v1/saved-searches", respond(201, { ...human, name: "Sorted" }));
     const { router, user } = await renderApp(
-      "/projects/kinase-atlas/entities/?type=protein.Protein",
+      "/projects/kinase-atlas/entities/?type=iki/protein.Protein",
     );
     const saved = await screen.findByRole("navigation", { name: "Saved searches" });
     await user.click(within(saved).getByRole("link", { name: "Human proteins" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
-        type: "protein.Protein",
+        type: "iki/protein.Protein",
         filters: [{ field: "name", op: "contains", value: "abl" }],
       });
     });
@@ -361,7 +361,7 @@ describe("a project's entities", () => {
       shared: true,
       query: {
         exact_type: false,
-        type: "protein.Protein",
+        type: "iki/protein.Protein",
         archived: false,
         where: { all: [{ field: "name", op: "contains", value: "abl" }] },
       },
@@ -374,14 +374,14 @@ describe("a project's entities", () => {
       "POST /api/v1/entities/search",
       problem(422, "search_too_slow", "This search took too long. Narrow it."),
     );
-    await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein&q=a");
+    await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein&q=a");
     expect(await screen.findByText("This search took too long. Narrow it.")).toBeInTheDocument();
   });
 
   it("says when there's nothing to show", async () => {
     onProject();
     answer("POST /api/v1/entities/search", page([]));
-    await renderApp("/projects/kinase-atlas/entities/?type=protein.Protein");
+    await renderApp("/projects/kinase-atlas/entities/?type=iki/protein.Protein");
     expect(await screen.findByText("No proteins in this project.")).toBeInTheDocument();
   });
 });
@@ -394,13 +394,13 @@ describe("an entity's page", () => {
       entity({
         id: "00000000-0000-7000-8000-00000000e002",
         hrid: "PST-000001",
-        type: "protein.ProteinStructure",
+        type: "iki/protein.ProteinStructure",
         values: { structure: FILE_ID, resolution: 2.1, chains: [PROTEIN_ID, "gone"] },
         refs: {
           [PROTEIN_ID]: {
             hrid: "PRT-000001",
             title: "ABL1 kinase",
-            type: "protein.Protein",
+            type: "iki/protein.Protein",
             archived: false,
             purged: false,
           },
@@ -517,7 +517,7 @@ describe("an entity's page", () => {
       retrieved_at: "2026-11-11T09:30:00Z",
       sha256: "ab12".repeat(16),
       file: null,
-      run: { id: "r1", hrid: "RUN-000007", action: "protein.fetch_uniprot" },
+      run: { id: "r1", hrid: "RUN-000007", action: "iki/protein.fetch_uniprot" },
       revision: 1,
       recorded_at: "2026-11-11T09:31:00Z",
     };
@@ -564,7 +564,7 @@ describe("an entity's page", () => {
     const run = {
       id: "r1",
       hrid: "RUN-000009",
-      action: "antibody.predict_structure_with_immunebuilder",
+      action: "iki/antibody.predict_structure_with_immunebuilder",
     };
     const recorded = {
       by: "iki",
@@ -613,7 +613,7 @@ describe("an entity's page", () => {
     ];
     // One line per run, its tools together.
     expect(iki).toHaveTextContent(
-      "Computed with ImmuneBuilder 1.2, OpenMM 8.6.1, by RUN-000009 (antibody.predict_structure_with_immunebuilder)Recorded by Iki",
+      "Computed with ImmuneBuilder 1.2, OpenMM 8.6.1, by RUN-000009 (iki/antibody.predict_structure_with_immunebuilder)Recorded by Iki",
     );
     expect(within(iki).getByRole("link", { name: "RUN-000009" })).toHaveAttribute(
       "href",

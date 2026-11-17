@@ -24,7 +24,7 @@ from iki_server.entities import hrids, identity, registry
 from iki_server.org.models import Project
 
 #: A qualified type name, ``plugin.Type``.
-TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$"
+TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$"
 #: The constraint a second entity in a project with a unique field's value breaks.
 UNIQUE_CONSTRAINT = "iki_unique_value_once"
 #: ``PRT-000123``: a type's prefix and a number, zero-padded to the type's digits.
@@ -33,8 +33,10 @@ HRID_PATTERN = r"^[A-Z0-9]{2,8}-[0-9]{3,}$"
 
 class Entity(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    #: The entity's own type, the most specific one, such as ``protein.Protein``.
-    type = models.CharField(max_length=81, db_comment="The entity's type, such as protein.Protein.")
+    #: The entity's own type, the most specific one, such as ``iki/protein.Protein``.
+    type = models.CharField(
+        max_length=112, db_comment="The entity's type, such as iki/protein.Protein."
+    )
     hrid = models.CharField(
         max_length=32, unique=True, db_comment="Human-readable ID, such as PRT-000123."
     )

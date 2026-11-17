@@ -22,8 +22,8 @@ cat > "$work/deployment/plugins.lock.yaml" <<EOF
 apiVersion: iki/v1
 kind: PluginLock
 plugins:
-  - { name: dna, local: ../plugins/dna, state: active, settings: settings/dna.yaml }
-  - { name: protein, local: ../plugins/protein, state: active }
+  - { name: acme/dna, local: ../plugins/dna, state: active, settings: settings/dna.yaml }
+  - { name: acme/protein, local: ../plugins/protein, state: active }
 EOF
 uv run --frozen iki deploy build "$work/deployment" --output "$work/server" \
   --workers "$work/worker" --allow-local
@@ -37,10 +37,10 @@ check 'iki-worker --version' | grep -q '^iki-worker '
 echo "ok: $(check 'iki-worker --version')"
 check 'micromamba --version' >/dev/null
 echo "ok: micromamba for conda environments"
-prefix=/opt/iki/envs/protein/protein-tools
+prefix=/opt/iki/envs/acme__protein/protein-tools
 check "test \"\$($prefix/bin/python -c 'import sys; print(sys.prefix)')\" = $prefix"
-echo "ok: protein.protein-tools is built, with its own Python"
-check 'test -f /opt/iki/plugins/plugins.json && test -f /opt/iki/plugins/protein/scripts/properties.py'
+echo "ok: acme/protein.protein-tools is built, with its own Python"
+check 'test -f /opt/iki/plugins/plugins.json && test -f /opt/iki/plugins/acme__protein/scripts/properties.py'
 echo "ok: the plugins' code and plugins.json"
 if check 'touch /opt/iki/plugins/x || touch /opt/iki/envs/x' 2>/dev/null; then
   echo "FAIL: the worker can change plugin code or environments" >&2

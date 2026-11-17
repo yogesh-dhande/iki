@@ -206,7 +206,7 @@ def _component_frame(open_as: Any, world: World) -> tuple[Page, Any]:
 
     made = entities.create(
         world.users["admin"],
-        "protein.Protein",
+        "acme/protein.Protein",
         world.project,
         {"sequence": "MLEICLKLVG", "name": "ABL1"},
     )
@@ -214,7 +214,7 @@ def _component_frame(open_as: Any, world: World) -> tuple[Page, Any]:
     page = open_as("admin", f"/entities/{hrid}/")
     page.get_by_role("link", name="Residues").click()
     page.frame_locator('iframe[title="Residues"]').get_by_text(f"{hrid}: 10 residues").wait_for()
-    (frame,) = [f for f in page.frames if "/plugin-components/protein.residues/" in f.url]
+    (frame,) = [f for f in page.frames if "/plugin-components/acme/protein.residues/" in f.url]
     return page, frame
 
 
@@ -230,7 +230,7 @@ def test_a_components_code_gets_nothing_out(
     assert tried["frames"] == 0
     assert not [f for f in page.frames if f.url.startswith("about:")], browser_name
     # The frame is still the component's: none of that took it, or the page, elsewhere.
-    assert "/plugin-components/protein.residues/" in frame.url
+    assert "/plugin-components/acme/protein.residues/" in frame.url
     assert page.url.endswith("/") and "/entities/" in page.url
 
 
@@ -247,7 +247,7 @@ def test_a_component_that_takes_its_frame_elsewhere_reaches_nothing(
     closed = page.get_by_role("alert").get_by_text(
         "Residues tried to open another page, so Iki closed it."
     )
-    assert closed.count() == 1 or "/plugin-components/protein.residues/" in frame.url
+    assert closed.count() == 1 or "/plugin-components/acme/protein.residues/" in frame.url
 
 
 #: Written into every text a person sets, to break out of wherever it's shown.
@@ -270,7 +270,7 @@ def test_values_written_to_attack_a_page_are_only_ever_text(
     hostile = _hostile(attacker)
     made = entities.create(
         world.users["admin"],
-        "protein.Protein",
+        "acme/protein.Protein",
         world.project,
         {"sequence": "MLEICLKLVG", "name": hostile},
     )
@@ -281,10 +281,10 @@ def test_values_written_to_attack_a_page_are_only_ever_text(
     # Each page, and whether it shows the name: the project's overview shows counts.
     for path, shown in (
         (f"/projects/{world.project.slug}/", False),
-        (f"/projects/{world.project.slug}/entities/?type=protein.Protein", True),
+        (f"/projects/{world.project.slug}/entities/?type=acme/protein.Protein", True),
         (f"/entities/{entity.hrid}/", True),
         (f"/entities/{entity.hrid}/history/", True),
-        (f"/projects/{world.project.slug}/entities/?type=protein.Protein&q=img", True),
+        (f"/projects/{world.project.slug}/entities/?type=acme/protein.Protein&q=img", True),
     ):
         page = open_as("admin", path)
         if shown:

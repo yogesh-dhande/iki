@@ -17,14 +17,14 @@ files: { stockroom: tests/data/stockroom.sdf }
 expect:
   output:
     creates:
-      - type: small_molecule.Compound
+      - type: iki/small_molecule.Compound
         values:
           {
             inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N,
             smiles: CC(=O)Oc1ccccc1C(=O)O,
             name: aspirin sodium,
           }
-      - type: small_molecule.CompoundBatch
+      - type: iki/small_molecule.CompoundBatch
         values:
           salt: sodium
           salt_equivalents: 1
@@ -33,8 +33,8 @@ expect:
           amount: 250
           supplier: Stockroom
           supplier_lot: B-17
-      - type: small_molecule.Compound
+      - type: iki/small_molecule.Compound
         values: { inchikey: IJHNSHDBIRRJRN-UHFFFAOYSA-N, name: pheniramine }
-      - type: small_molecule.CompoundBatch
+      - type: iki/small_molecule.CompoundBatch
         values: { salt: hydrochloride, salt_equivalents: 1, formula_weight: 276.811 }
     metrics: { records: 2, skipped: 0 }

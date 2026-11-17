@@ -94,7 +94,7 @@ check-python: ## Ruff, mypy (strict) and pytest
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations
 	uv run python scripts/build_core.py
-	cd server && uv run python -m iki_server.plugins.makemigrations core
+	cd server && uv run python -m iki_server.plugins.makemigrations iki__core
 
 .PHONY: client
 client: ## Regenerate the API clients (TypeScript, and the Python SDK's types) from the OpenAPI document

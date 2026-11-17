@@ -108,7 +108,7 @@ def test_draws_a_compound_from_its_smiles_reaching_nothing(
     entity = {
         "id": "00000000-0000-0000-0000-000000000001",
         "hrid": "CPD-000001",
-        "type": "small_molecule.Compound",
+        "type": "iki/small_molecule.Compound",
         "values": {"smiles": "CC(=O)Oc1ccccc1C(=O)O", "name": "aspirin"},
     }
     context = browser.new_context()

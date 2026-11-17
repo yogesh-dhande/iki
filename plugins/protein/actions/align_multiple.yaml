@@ -35,7 +35,7 @@ params:
     type: string
     description: The alignment's name. Without one, it's named after its proteins.
 effects:
-  creates: [{ type: core.Alignment, derived_from: [proteins, reference] }]
+  creates: [{ type: iki/core.Alignment, derived_from: [proteins, reference] }]
 software:
   - { name: MAFFT, version: "7.505", url: https://mafft.cbrc.jp/alignment/software/ }
 runs_on: { tier: container, environment: alignment-tools }

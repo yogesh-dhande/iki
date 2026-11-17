@@ -15,7 +15,7 @@ const PARENT = "00000000-0000-7000-8000-00000000e000";
 const CHILD = "00000000-0000-7000-8000-00000000e002";
 
 function node(id: string, hrid: string, title = hrid) {
-  return { id, hrid, title, type: "protein.Protein", archived: false, purged: false };
+  return { id, hrid, title, type: "iki/protein.Protein", archived: false, purged: false };
 }
 
 /** DNA-000001 → RUN-000001 → PRT-000001 (the page's) → a hidden run → PRT-000002. */

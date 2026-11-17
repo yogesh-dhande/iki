@@ -1,8 +1,8 @@
 {
   "apiVersion": "iki/v1",
   "bindings": {
-    "protein.protein-tools": {
-      "environment": "protein.protein-tools",
+    "acme/protein.protein-tools": {
+      "environment": "acme/protein.protein-tools",
       "templates": [["backend-small", 0]]
     }
   },

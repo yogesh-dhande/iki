@@ -152,7 +152,7 @@ def migrated(tmp_path: Path, _migrated_plugins: Path) -> Path:
 
 def test_makemigrations_writes_to_the_plugin(plugins: Path) -> None:
     out = made("dna", "--no-input", cwd=plugins)
-    assert "Migrations for 'dna':\n  dna/migrations/0001_initial.py\n" in out
+    assert "Migrations for 'acme__dna':\n  dna/migrations/0001_initial.py\n" in out
     assert sorted(p.name for p in (plugins / "dna" / "migrations").iterdir()) == ["0001_initial.py"]
     again = iki("plugin", "makemigrations", "dna", "--check", cwd=plugins)
     assert again.returncode == 0, again.stderr
@@ -167,7 +167,7 @@ def test_makemigrations_needs_dependencies(plugins: Path) -> None:
     result = iki("plugin", "makemigrations", "protein", "--with", "dna", cwd=plugins)
     assert result.returncode == 1
     assert result.stderr == (
-        "error: dna has no migrations. Run `iki plugin makemigrations` in dna first.\n"
+        "error: acme/dna has no migrations. Run `iki plugin makemigrations` in dna first.\n"
     )
 
 
@@ -176,7 +176,8 @@ def test_check_fails_when_manifests_change(plugins: Path) -> None:
     types = plugins / "dna" / "types" / "sequence.yaml"
     types.write_text(
         types.read_text().replace(
-            "extends: core.Sequence\n", "extends: core.Sequence\nfields:\n  note: { type: text }\n"
+            "extends: iki/core.Sequence\n",
+            "extends: iki/core.Sequence\nfields:\n  note: { type: text }\n",
         )
     )
     result = iki("plugin", "makemigrations", "dna", "--check", cwd=plugins)
@@ -195,29 +196,28 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         for row in query(
             database,
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND "
-            "(tablename LIKE 'dna%%' OR tablename LIKE 'protein%%' "
-            "OR tablename LIKE 'structure%%')",
+            "tablename LIKE 'acme\\_\\_%%'",
         )
     }
     assert tables == {
-        "dna_sequence",
-        "dna_sequence__history",
-        "dna_dnasequence",
-        "dna_dnasequence__history",
-        "protein_protein",
-        "protein_protein__history",
-        "protein_proteinstructure",
-        "protein_proteinstructure__history",
-        "protein_proteinstructure__chains",
-        "structure_prediction__protein_proteinstructure",
-        "structure_prediction__protein_proteinstructure__history",
+        "acme__dna_sequence",
+        "acme__dna_sequence__history",
+        "acme__dna_dnasequence",
+        "acme__dna_dnasequence__history",
+        "acme__protein_protein",
+        "acme__protein_protein__history",
+        "acme__protein_proteinstructure",
+        "acme__protein_proteinstructure__history",
+        "acme__protein_proteinstructure__chains",
+        "acme__prediction__acme__protein_proteinstructure",
+        "acme__prediction__acme__protein_proteinstructure__history",
     }
-    for app in ("structure_prediction", "protein", "dna"):
+    for app in ("acme__prediction", "acme__protein", "acme__dna"):
         migrate(out, database, app, "zero")
     left = query(
         database,
         "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
-        "(tablename LIKE 'dna%%' OR tablename LIKE 'protein%%' OR tablename LIKE 'structure%%')",
+        "tablename LIKE 'acme\\_\\_%%'",
     )
     assert left == [(0,)]
 
@@ -229,39 +229,47 @@ def test_generated_models_store_entities(migrated: Path, database: str) -> None:
         out,
         database,
         """
-        from iki_plugin_dna.models import DNASequence
-        from iki_plugin_protein.models import Protein, ProteinStructure, ProteinStructure_chains
-        from iki_plugin_structure_prediction.models import Ext_protein_ProteinStructure
+        from iki_plugin_acme__dna.models import DNASequence
+        from iki_plugin_acme__protein.models import (
+            Protein,
+            ProteinStructure,
+            ProteinStructure_chains,
+        )
+        from iki_plugin_acme__prediction.models import Ext_acme_protein_ProteinStructure
         from iki_server.entities.models import Entity
 
         dna = DNASequence.objects.create(
-            type="dna.DNASequence", hrid="DNA-000001", owner_project=project,
+            type="acme/dna.DNASequence", hrid="DNA-000001", owner_project=project,
             name="pUC19", bases="ACGTN", length=2686,
         )
         protein = Protein.objects.create(
-            type="protein.Protein", hrid="PRT-000001", owner_project=project,
+            type="acme/protein.Protein", hrid="PRT-000001", owner_project=project,
             sequence="MKV", encoded_by=dna, source=dna, molecular_weight=12000.5,
             uniprot_ids=["P69905"],
         )
         structure = ProteinStructure.objects.create(
-            type="protein.ProteinStructure", hrid="PST-001", owner_project=project,
+            type="acme/protein.ProteinStructure", hrid="PST-001", owner_project=project,
             structure=pdb,
         )
         ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein)
-        Ext_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
+        Ext_acme_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
         dna.refresh_from_db()
         result = {
             "topology": dna.topology,
             "entities": sorted(Entity.objects.values_list("type", flat=True)),
             "name": Protein.objects.get(pk=protein.pk).sequence_ptr.name,
             "chain": ProteinStructure_chains.objects.get().item.sequence,
-            "plddt": structure.structure_prediction_Ext.plddt_mean,
+            "plddt": structure.acme_prediction_Ext.plddt_mean,
         }
         """,
     )
     assert result == {
         "topology": "linear",
-        "entities": ["dna.DNASequence", "protein.Protein", "protein.ProteinStructure"],
+        "entities": [
+            "acme/dna.DNASequence",
+            "acme/protein.Protein",
+            "acme/protein.ProteinStructure",
+        ],
         "name": None,
         "chain": "MKV",
         "plddt": 91.5,
@@ -280,8 +288,8 @@ def test_a_deployment_built_from_its_lockfile(migrated: Path, database: str) -> 
     (deployment / "dna.yaml").write_text("ncbi_email: lab@example.org\n")
     (deployment / "plugins.lock.yaml").write_text(
         "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
-        "  - {name: protein, local: ../../plugins/protein, state: active}\n"
-        "  - {name: dna, local: ../../plugins/dna, state: active, settings: dna.yaml}\n"
+        "  - {name: acme/protein, local: ../../plugins/protein, state: active}\n"
+        "  - {name: acme/dna, local: ../../plugins/dna, state: active, settings: dna.yaml}\n"
     )
     out = migrated.parent / "image-plugins"
     result = iki("deploy", "build", deployment, "-o", out, "--allow-local", cwd=migrated)
@@ -293,11 +301,11 @@ def test_a_deployment_built_from_its_lockfile(migrated: Path, database: str) -> 
         database,
         """
         from iki_server.entities import registry
-        from iki_plugin_dna.models import DNASequence
+        from iki_plugin_acme__dna.models import DNASequence
 
         made = DNASequence.objects.create(owner_project=project, bases="ACGT")
         result = {
-            "settings": registry.settings("dna"),
+            "settings": registry.settings("acme/dna"),
             "from": [
                 (p["name"], p.get("local"), p["version"]) for p in registry.installed()["plugins"]
             ],
@@ -308,8 +316,8 @@ def test_a_deployment_built_from_its_lockfile(migrated: Path, database: str) -> 
     assert result == {
         "settings": {"max_sequence_length": 10_000_000, "ncbi_email": "lab@example.org"},
         "from": [
-            ["protein", "../../plugins/protein", "3.0.0"],
-            ["dna", "../../plugins/dna", "1.2.0"],
+            ["acme/protein", "../../plugins/protein", "3.0.0"],
+            ["acme/dna", "../../plugins/dna", "1.2.0"],
         ],
         "hrid": "DNA-000001",
     }
@@ -335,9 +343,13 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         out,
         database,
         """
-        from iki_plugin_dna.models import DNASequence, Sequence
-        from iki_plugin_protein.models import Protein, ProteinStructure, ProteinStructure_chains
-        from iki_plugin_structure_prediction.models import Ext_protein_ProteinStructure
+        from iki_plugin_acme__dna.models import DNASequence, Sequence
+        from iki_plugin_acme__protein.models import (
+            Protein,
+            ProteinStructure,
+            ProteinStructure_chains,
+        )
+        from iki_plugin_acme__prediction.models import Ext_acme_protein_ProteinStructure
         from iki_spec.identity import identity_hash
 
         first = DNASequence.objects.create(owner_project=project, bases="ACGT", name="pUC19")
@@ -345,7 +357,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         protein = Protein.objects.create(owner_project=project, sequence="MKV", encoded_by=first)
         structure = ProteinStructure.objects.create(owner_project=project, structure=pdb)
         ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein)
-        Ext_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
+        Ext_acme_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
         try:
             Sequence.objects.create(owner_project=project, name="abstract")
             abstract = "saved"
@@ -355,7 +367,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
             "hrids": [first.hrid, second.hrid, protein.hrid, structure.hrid],
             "types": [first.type, protein.type],
             "identity": first.identity_hash == identity_hash(
-                "dna.DNASequence", {"bases": ("string", "ACGT")}
+                "acme/dna.DNASequence", {"bases": ("string", "ACGT")}
             ),
             "no identity": structure.identity_hash,
             "abstract": abstract,
@@ -364,27 +376,28 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         """,
     )
     assert result["hrids"] == ["DNA-000001", "DNA-000002", "PRT-000001", "PST-000001"]
-    assert result["types"] == ["dna.DNASequence", "protein.Protein"]
+    assert result["types"] == ["acme/dna.DNASequence", "acme/protein.Protein"]
     assert result["identity"] is True
     assert result["no identity"] is None
-    assert result["abstract"] == "dna.Sequence is abstract: create one of its subtypes."
+    assert result["abstract"] == "acme/dna.Sequence is abstract: create one of its subtypes."
 
     # Views join a type's tables, its parents' and extensions'.
     assert query(
-        database, "SELECT hrid, name, bases, topology FROM iki_views.dna_dnasequence ORDER BY hrid"
+        database,
+        "SELECT hrid, name, bases, topology FROM iki_views.acme__dna_dnasequence ORDER BY hrid",
     ) == [("DNA-000001", "pUC19", "ACGT", "linear"), ("DNA-000002", None, "ACGTT", "linear")]
-    assert query(database, "SELECT hrid FROM iki_views.dna_sequence ORDER BY hrid") == [
+    assert query(database, "SELECT hrid FROM iki_views.acme__dna_sequence ORDER BY hrid") == [
         ("DNA-000001",),
         ("DNA-000002",),
         ("PRT-000001",),
     ]
     ((hrid, chains, plddt),) = query(
-        database, "SELECT hrid, chains, plddt_mean FROM iki_views.protein_proteinstructure"
+        database, "SELECT hrid, chains, plddt_mean FROM iki_views.acme__protein_proteinstructure"
     )
     assert (hrid, [str(c) for c in chains], plddt) == ("PST-000001", [result["protein"]], 91.5)
-    assert query(database, "SELECT encoded_by_id IS NOT NULL FROM iki_views.protein_protein") == [
-        (True,)
-    ]
+    assert query(
+        database, "SELECT encoded_by_id IS NOT NULL FROM iki_views.acme__protein_protein"
+    ) == [(True,)]
 
     def comment(table: str, column: str) -> str:
         ((text,),) = query(
@@ -397,14 +410,17 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         )
         return str(text)
 
-    assert comment("protein_protein", "molecular_weight") == "Molecular weight. In u (UCUM)."
-    assert comment("dna_dnasequence", "gc_content") == "Gc content. In % (UCUM)."
-    assert comment("protein_protein", "encoded_by_id") == "Encoded by. Refers to a dna.DNASequence."
-    assert comment("iki_views.protein_protein", "molecular_weight") == (
+    assert comment("acme__protein_protein", "molecular_weight") == "Molecular weight. In u (UCUM)."
+    assert comment("acme__dna_dnasequence", "gc_content") == "Gc content. In % (UCUM)."
+    assert (
+        comment("acme__protein_protein", "encoded_by_id")
+        == "Encoded by. Refers to a acme/dna.DNASequence."
+    )
+    assert comment("iki_views.acme__protein_protein", "molecular_weight") == (
         "Molecular weight. In u (UCUM)."
     )
-    assert query(database, "SELECT obj_description('dna_dnasequence'::regclass)") == [
-        ("DNA sequence (dna.DNASequence), schema version 2.",)
+    assert query(database, "SELECT obj_description('acme__dna_dnasequence'::regclass)") == [
+        ("DNA sequence (acme/dna.DNASequence), schema version 2.",)
     ]
 
 
@@ -413,12 +429,13 @@ def test_history_is_append_only_for_every_role(migrated: Path, database: str) ->
     migrate(out, database)
     with psycopg.connect(database, autocommit=True) as connection:
         connection.execute(
-            "INSERT INTO dna_sequence__history (entity_id, revision) VALUES (gen_random_uuid(), 1)"
+            "INSERT INTO acme__dna_sequence__history (entity_id, revision) "
+            "VALUES (gen_random_uuid(), 1)"
         )
         for statement in (
-            "UPDATE dna_sequence__history SET revision = 2",
-            "DELETE FROM dna_sequence__history",
-            "TRUNCATE dna_sequence__history",
+            "UPDATE acme__dna_sequence__history SET revision = 2",
+            "DELETE FROM acme__dna_sequence__history",
+            "TRUNCATE acme__dna_sequence__history",
         ):
             with pytest.raises(psycopg.errors.InsufficientPrivilege, match="append-only"):
                 connection.execute(statement)
@@ -436,9 +453,13 @@ def test_an_analyst_role_reads_only_the_views(migrated: Path, database: str) -> 
         )
         with psycopg.connect(database) as connection:
             connection.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(role)))
-            assert connection.execute("SELECT count(*) FROM iki_views.dna_dnasequence").fetchall()
-            # Core types too, and the core tables plugins' types extend (core.Sequence).
-            assert connection.execute("SELECT count(*) FROM iki_views.core_alignment").fetchall()
+            assert connection.execute(
+                "SELECT count(*) FROM iki_views.acme__dna_dnasequence"
+            ).fetchall()
+            # Core types too, and the core tables plugins' types extend (iki/core.Sequence).
+            assert connection.execute(
+                "SELECT count(*) FROM iki_views.iki__core_alignment"
+            ).fetchall()
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("SELECT * FROM iki_audit_event")
     finally:
@@ -452,24 +473,28 @@ def test_an_analyst_role_reads_only_the_views(migrated: Path, database: str) -> 
 
 #: Writes the database refuses, and the CHECK constraint that refuses each.
 VIOLATIONS = {
-    "bases": ("DNASequence", {"bases": "ACGU"}, "dna_dnasequence__bases__format"),
-    "empty": ("DNASequence", {"bases": ""}, "dna_dnasequence__bases__not_empty"),
-    "two lines": ("DNASequence", {"name": "pUC\n19"}, "core_sequence__name__one_line"),
-    "topology": ("DNASequence", {"topology": "knotted"}, "dna_dnasequence__topology__values"),
-    "gc": ("DNASequence", {"gc_content": 101.0}, "dna_dnasequence__gc_content__max"),
-    "nan": ("DNASequence", {"gc_content": "nan"}, "dna_dnasequence__gc_content__finite"),
-    "inf": ("DNASequence", {"length": "inf"}, "dna_dnasequence__length__finite"),
+    "bases": ("DNASequence", {"bases": "ACGU"}, "acme__dna_dnasequence__bases__format"),
+    "empty": ("DNASequence", {"bases": ""}, "acme__dna_dnasequence__bases__not_empty"),
+    "two lines": ("DNASequence", {"name": "pUC\n19"}, "iki__core_sequence__name__one_line"),
+    "topology": ("DNASequence", {"topology": "knotted"}, "acme__dna_dnasequence__topology__values"),
+    "gc": ("DNASequence", {"gc_content": 101.0}, "acme__dna_dnasequence__gc_content__max"),
+    "nan": ("DNASequence", {"gc_content": "nan"}, "acme__dna_dnasequence__gc_content__finite"),
+    "inf": ("DNASequence", {"length": "inf"}, "acme__dna_dnasequence__length__finite"),
     "uniprot": (
         "Protein",
         {"uniprot_ids": ["p69905"]},
-        "protein_protein__uniprot_ids__item_pattern",
+        "acme__protein_protein__uniprot_ids__item_pattern",
     ),
     "null item": (
         "Protein",
         {"uniprot_ids": ["P69905", None]},
-        "protein_protein__uniprot_ids__plain_list",
+        "acme__protein_protein__uniprot_ids__plain_list",
     ),
-    "empty item": ("Protein", {"uniprot_ids": [""]}, "protein_protein__uniprot_ids__item_length"),
+    "empty item": (
+        "Protein",
+        {"uniprot_ids": [""]},
+        "acme__protein_protein__uniprot_ids__item_length",
+    ),
 }
 
 
@@ -483,12 +508,12 @@ def test_the_database_enforces_field_rules(migrated: Path, database: str) -> Non
         """
         import itertools
         from django.db import IntegrityError, DataError, transaction
-        from iki_plugin_dna.models import DNASequence
-        from iki_plugin_protein.models import Protein
+        from iki_plugin_acme__dna.models import DNASequence
+        from iki_plugin_acme__protein.models import Protein
         models = {"DNASequence": DNASequence, "Protein": Protein}
         base = {
-            "DNASequence": {"type": "dna.DNASequence", "bases": "ACGT"},
-            "Protein": {"type": "protein.Protein", "sequence": "MKV"},
+            "DNASequence": {"type": "acme/dna.DNASequence", "bases": "ACGT"},
+            "Protein": {"type": "acme/protein.Protein", "sequence": "MKV"},
         }
         numbers = itertools.count(1)
         result = {}
@@ -506,13 +531,13 @@ def test_the_database_enforces_field_rules(migrated: Path, database: str) -> Non
         # Arrays the ORM never writes, but SQL could.
         from django.db import connection
         protein = Protein.objects.create(
-            owner_project=project, hrid="Y001-001", type="protein.Protein", sequence="MKV"
+            owner_project=project, hrid="Y001-001", type="acme/protein.Protein", sequence="MKV"
         )
         for name, value in {"nested": "{{P69905},{P69906}}", "from 0": "[0:0]={P69905}"}.items():
             try:
                 with transaction.atomic(), connection.cursor() as cursor:
                     cursor.execute(
-                        "UPDATE protein_protein SET uniprot_ids = %s WHERE entity_id = %s",
+                        "UPDATE acme__protein_protein SET uniprot_ids = %s WHERE entity_id = %s",
                         [value, protein.pk],
                     )
                 result[name] = "saved"
@@ -522,8 +547,8 @@ def test_the_database_enforces_field_rules(migrated: Path, database: str) -> Non
     )
     assert result == {
         **{name: constraint for name, (_, _, constraint) in VIOLATIONS.items()},
-        "nested": "protein_protein__uniprot_ids__plain_list",
-        "from 0": "protein_protein__uniprot_ids__plain_list",
+        "nested": "acme__protein_protein__uniprot_ids__plain_list",
+        "from 0": "acme__protein_protein__uniprot_ids__plain_list",
     }
 
 
@@ -532,7 +557,7 @@ def test_the_database_enforces_field_rules(migrated: Path, database: str) -> Non
 LAB = """\
 apiVersion: iki/v1
 kind: Plugin
-name: lab
+name: acme/lab
 version: 1.0.0
 """
 
@@ -576,9 +601,9 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
         out,
         database,
         """
-        from iki_plugin_lab.models import Sample, Sample_History
+        from iki_plugin_acme__lab.models import Sample, Sample_History
         sample = Sample.objects.create(
-            type="lab.Sample", hrid="SMP-000001", owner_project=project,
+            type="acme/lab.Sample", hrid="SMP-000001", owner_project=project,
             name="S1", mass=1.5, count=3, old="x", temperature=20.0,
         )
         Sample_History.objects.create(
@@ -604,10 +629,10 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
     assert "iki_server.plugins.operations.ConvertUnit(" in migration
     out = build(lab.parent, "lab")
     migrate(out, database)
-    row = query(database, "SELECT title, mass, count, temperature FROM lab_sample")
+    row = query(database, "SELECT title, mass, count, temperature FROM acme__lab_sample")
     assert row == [("S1", 1500.0, 3.0, 293.15)]
     history = query(
-        database, "SELECT title, mass, count, old, temperature FROM lab_sample__history"
+        database, "SELECT title, mass, count, old, temperature FROM acme__lab_sample__history"
     )
     assert history == [("S1", 1500.0, 3.0, "x", 293.15)]
     columns = {
@@ -615,13 +640,13 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
         for r in query(
             database,
             "SELECT attname FROM pg_attribute "
-            "WHERE attrelid = 'lab_sample'::regclass AND attnum > 0",
+            "WHERE attrelid = 'acme__lab_sample'::regclass AND attnum > 0",
         )
     }
     assert "old" not in columns
 
-    migrate(out, database, "lab", "0001")
-    assert query(database, "SELECT name, mass, count, temperature FROM lab_sample") == [
+    migrate(out, database, "acme__lab", "0001")
+    assert query(database, "SELECT name, mass, count, temperature FROM acme__lab_sample") == [
         ("S1", 1.5, 3, pytest.approx(20.0))
     ]
 
@@ -635,7 +660,7 @@ def test_migrations_change_columns_under_the_views_and_sync_makes_them_again(
     out = build(lab.parent, "lab")
     migrate(out, database)
     sync(out, database)
-    assert query(database, "SELECT count(*) FROM iki_views.lab_sample") == [(0,)]
+    assert query(database, "SELECT count(*) FROM iki_views.acme__lab_sample") == [(0,)]
 
     write_sample(
         lab,
@@ -645,7 +670,7 @@ def test_migrations_change_columns_under_the_views_and_sync_makes_them_again(
     made("lab", "--name", "changes", "--no-input", cwd=lab.parent)
     out = build(lab.parent, "lab")
     migrate(out, database)
-    migrate(out, database, "lab", "0001")
+    migrate(out, database, "acme__lab", "0001")
     migrate(out, database)
     sync(out, database)
 
@@ -653,7 +678,7 @@ def test_migrations_change_columns_under_the_views_and_sync_makes_them_again(
         query(
             database,
             "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_schema = 'iki_views' AND table_name = 'lab_sample'",
+            "WHERE table_schema = 'iki_views' AND table_name = 'acme__lab_sample'",
         )
     )
     assert types["count"] == "double precision"
@@ -675,7 +700,10 @@ def test_indexing_a_field_adds_search_indexes_after_pg_trgm(lab: Path, database:
     assert "('iki_entities', '0004_search')" in migration
     migrate(build(lab.parent, "lab"), database)
     indexes = dict(
-        query(database, "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'lab_sample'")
+        query(
+            database,
+            "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'acme__lab_sample'",
+        )
     )
     defs = sorted(indexes.values())
     # name keeps its B-tree and gains trigrams; notes, as text, is searched by its words.
@@ -701,17 +729,18 @@ def test_migrations_are_named_after_what_changed(lab: Path) -> None:
     [
         (
             ("  old: { type: string }\n", ""),
-            "error: `old` is gone from lab.Sample. Iki keeps every field's history, so a field "
-            "can't be deleted.",
+            "error: `old` is gone from acme/lab.Sample. Iki keeps every field's history, so a "
+            "field can't be deleted.",
         ),
         (
             ("old: { type: string }", "old: { type: int }"),
-            "error: `old` of lab.Sample would change from text to a whole number, which its "
+            "error: `old` of acme/lab.Sample would change from text to a whole number, which its "
             "history can't be converted to.",
         ),
         (
             ("unit: g,", "unit: m,"),
-            "error: `mass` of lab.Sample can't change from g to m: they measure different things.",
+            "error: `mass` of acme/lab.Sample can't change from g to m: they measure different "
+            "things.",
         ),
     ],
 )
@@ -732,8 +761,8 @@ def test_types_cant_be_deleted(lab: Path) -> None:
     result = iki("plugin", "makemigrations", "lab", "--no-input", cwd=lab.parent)
     assert result.returncode == 1
     assert result.stderr.startswith(
-        "error: Lab.Sample is gone. Iki keeps every entity's history, so a plugin can't delete "
-        "a type or an extension: put its manifest back."
+        "error: acme/lab.Sample is gone. Iki keeps every entity's history, so a plugin can't "
+        "delete a type or an extension: put its manifest back."
     ), result.stderr
 
 
@@ -745,8 +774,8 @@ def test_renaming_a_type_renames_its_entities(lab: Path, database: str) -> None:
         out,
         database,
         """
-        from iki_plugin_lab.models import Sample
-        Sample.objects.create(type="lab.Sample", hrid="SMP-000001", owner_project=project)
+        from iki_plugin_acme__lab.models import Sample
+        Sample.objects.create(type="acme/lab.Sample", hrid="SMP-000001", owner_project=project)
         result = None
         """,
     )
@@ -756,10 +785,54 @@ def test_renaming_a_type_renames_its_entities(lab: Path, database: str) -> None:
     assert "RenameEntityType(" in migration
     out = build(lab.parent, "lab")
     migrate(out, database)
-    assert query(database, "SELECT type FROM iki_entity") == [("lab.Specimen",)]
-    assert query(database, "SELECT count(*) FROM lab_specimen__history") == [(0,)]
-    migrate(out, database, "lab", "0001")
-    assert query(database, "SELECT type FROM iki_entity") == [("lab.Sample",)]
+    assert query(database, "SELECT type FROM iki_entity") == [("acme/lab.Specimen",)]
+    assert query(database, "SELECT count(*) FROM acme__lab_specimen__history") == [(0,)]
+    migrate(out, database, "acme__lab", "0001")
+    assert query(database, "SELECT type FROM iki_entity") == [("acme/lab.Sample",)]
+
+
+def test_two_namespaces_plugins_of_one_name_install_side_by_side(lab: Path, database: str) -> None:
+    # Another lab's plugin, also named `lab`, with a type also named Sample (ADR 0113).
+    other = lab.parent / "globex_lab"
+    (other / "types").mkdir(parents=True)
+    (other / "plugin.yaml").write_text(LAB.replace("acme/lab", "globex/lab"))
+    (other / "types" / "sample.yaml").write_text(SAMPLE.replace("SMP", "GSMP"))
+    made("lab", "--no-input", cwd=lab.parent)
+    made("globex_lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab", "globex_lab")
+    migrate(out, database)
+    tables = {
+        row[0]
+        for row in query(
+            database,
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND "
+            "tablename LIKE '%%\\_\\_lab\\_sample%%'",
+        )
+    }
+    assert tables == {
+        "acme__lab_sample",
+        "acme__lab_sample__history",
+        "globex__lab_sample",
+        "globex__lab_sample__history",
+    }
+    counts = orm(
+        out,
+        database,
+        """
+        from iki_plugin_acme__lab.models import Sample as Ours
+        from iki_plugin_globex__lab.models import Sample as Theirs
+        Ours.objects.create(type="acme/lab.Sample", hrid="SMP-000001", owner_project=project)
+        Theirs.objects.create(type="globex/lab.Sample", hrid="GSMP-000001", owner_project=project)
+        result = [Ours.objects.count(), Theirs.objects.count()]
+        """,
+    )
+    assert counts == [1, 1]
+    assert sorted(query(database, "SELECT type FROM iki_entity")) == [
+        ("acme/lab.Sample",),
+        ("globex/lab.Sample",),
+    ]
+    assert applied(database, "acme__lab") == ["0001_initial"]
+    assert applied(database, "globex__lab") == ["0001_initial"]
 
 
 # --- Deploying and rolling back -------------------------------------------------------------------
@@ -804,7 +877,7 @@ def columns(database: str, table: str) -> set[str]:
 
 
 SAMPLE_ROW = """
-from iki_plugin_lab.models import Sample
+from iki_plugin_acme__lab.models import Sample
 Sample.objects.create(hrid="SMP-000001", owner_project=project, name="S1", NOTES)
 result = None
 """
@@ -824,23 +897,23 @@ def test_deploying_an_older_build_reverses_what_it_lacks(
     two_builds: tuple[Path, Path], database: str
 ) -> None:
     v1, v2 = two_builds
-    assert "Kept a copy of lab.0001_initial" in deployed(v1, database)
+    assert "Kept a copy of acme/lab 0001_initial" in deployed(v1, database)
     out = deployed(v2, database)
-    assert "Kept a copy of lab.0002_notes" in out
-    assert "lab.0001_initial" not in out  # kept once
+    assert "Kept a copy of acme/lab 0002_notes" in out
+    assert "acme/lab 0001_initial" not in out  # kept once
     orm(v2, database, SAMPLE_ROW.replace("NOTES", "notes=None"))
     sync(v2, database)  # its views read notes, which the rollback drops
 
     out = deployed(v1, database)
-    assert "Reversed lab.0002_notes (rolled back)" in out
-    assert applied(database, "lab") == ["0001_initial"]
-    assert "notes" not in columns(database, "lab_sample")
-    assert "notes" not in columns(database, "lab_sample__history")
-    assert query(database, "SELECT name FROM lab_sample") == [("S1",)]
+    assert "Reversed acme/lab 0002_notes (rolled back)" in out
+    assert applied(database, "acme__lab") == ["0001_initial"]
+    assert "notes" not in columns(database, "acme__lab_sample")
+    assert "notes" not in columns(database, "acme__lab_sample__history")
+    assert query(database, "SELECT name FROM acme__lab_sample") == [("S1",)]
     # Deploying the same build again changes nothing; the newer one applies again.
     assert "Reversed" not in deployed(v1, database)
     deployed(v2, database)
-    assert "notes" in columns(database, "lab_sample")
+    assert "notes" in columns(database, "acme__lab_sample")
 
 
 def test_a_rollback_that_would_lose_data_changes_nothing(
@@ -852,10 +925,12 @@ def test_a_rollback_that_would_lose_data_changes_nothing(
     orm(v2, database, SAMPLE_ROW.replace("NOTES", "notes='Grown at 37 °C'"))
     err = refused(v1, database)
     assert "Rolling back would lose data, so nothing was changed:" in err
-    assert "lab.0002_notes: lab_sample.notes has values, and reversing would drop it." in err
+    assert (
+        "acme/lab 0002_notes: acme__lab_sample.notes has values, and reversing would drop it."
+    ) in err
     assert "restore the database from the backup" in err
-    assert applied(database, "lab") == ["0001_initial", "0002_notes"]
-    assert "notes" in columns(database, "lab_sample")
+    assert applied(database, "acme__lab") == ["0001_initial", "0002_notes"]
+    assert "notes" in columns(database, "acme__lab_sample")
 
 
 def test_irreversible_migrations_block_a_rollback(lab: Path, database: str) -> None:
@@ -865,15 +940,15 @@ def test_irreversible_migrations_block_a_rollback(lab: Path, database: str) -> N
         "from django.db import migrations\n\n\n"
         "def backfill(apps, schema_editor):\n    pass\n\n\n"
         "class Migration(migrations.Migration):\n"
-        '    dependencies = [("lab", "0001_initial")]\n'
+        '    dependencies = [("acme__lab", "0001_initial")]\n'
         "    operations = [migrations.RunPython(backfill)]\n"
     )
     v2 = build_to(lab.parent, "v2", "lab")
     deployed(v1, database)
     deployed(v2, database)
     err = refused(v1, database)
-    assert "lab.0002_backfill: Raw Python operation can't be reversed." in err
-    assert applied(database, "lab") == ["0001_initial", "0002_backfill"]
+    assert "acme/lab 0002_backfill: Raw Python operation can't be reversed." in err
+    assert applied(database, "acme__lab") == ["0001_initial", "0002_backfill"]
 
 
 def test_plugins_cant_simply_disappear(two_builds: tuple[Path, Path], database: str) -> None:
@@ -885,7 +960,7 @@ def test_plugins_cant_simply_disappear(two_builds: tuple[Path, Path], database: 
 
     (empty / "__init__.py").write_text(f"IKI_VERSION = {__version__!r}\nLOCAL = False\nAPPS = []\n")
     err = refused(empty.parent, database)
-    assert "The database has the plugin(s) lab, but this build doesn't." in err
+    assert "The database has the plugin(s) acme/lab, but this build doesn't." in err
     assert "needs it detached, then purged (ADR 0092)" in err
 
 
@@ -900,7 +975,7 @@ def test_a_database_a_newer_iki_migrated_is_refused(
             "VALUES ('iki_entities', '0099_future', now())"
         )
     err = refused(v1, database)
-    assert "A newer Iki migrated this database (iki_entities.0099_future)" in err
+    assert "A newer Iki migrated this database (iki_entities 0099_future)" in err
 
 
 def test_a_plugin_made_for_another_iki_is_refused(
@@ -908,7 +983,7 @@ def test_a_plugin_made_for_another_iki_is_refused(
 ) -> None:
     # As built by a newer CLI: this one refuses it at build (ADR 0095).
     v1, _ = two_builds
-    manifest = v1 / "iki_plugin_lab" / "manifest.json"
+    manifest = v1 / "iki_plugin_acme__lab" / "manifest.json"
     data = json.loads(manifest.read_text())
     data["plugin"]["iki"] = ">=99"
     manifest.write_text(json.dumps(data))
@@ -917,7 +992,7 @@ def test_a_plugin_made_for_another_iki_is_refused(
     from iki_spec import releases
 
     this = ".".join(map(str, releases.release(__version__)))
-    assert f"This is Iki {this}, and lab works with Iki >=99." in err
+    assert f"This is Iki {this}, and acme/lab works with Iki >=99." in err
     assert "nothing was migrated" in err
     assert query(database, "SELECT to_regclass('django_migrations')") == [(None,)]
 
@@ -925,10 +1000,10 @@ def test_a_plugin_made_for_another_iki_is_refused(
 def test_applied_migrations_cant_change(two_builds: tuple[Path, Path], database: str) -> None:
     v1, _ = two_builds
     deployed(v1, database)
-    migration = v1 / "iki_plugin_lab" / "migrations" / "0001_initial.py"
+    migration = v1 / "iki_plugin_acme__lab" / "migrations" / "0001_initial.py"
     migration.write_text(migration.read_text() + "# edited\n")
     err = refused(v1, database)
-    assert "Applied migrations changed since they ran here: lab.0001_initial." in err
+    assert "Applied migrations changed since they ran here: acme/lab 0001_initial." in err
 
 
 def test_the_app_can_only_read_the_kept_copies() -> None:
@@ -956,9 +1031,9 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
 
     def built(state: str) -> Path:
         entry = (
-            "  - {name: dna, state: purged}\n"
+            "  - {name: acme/dna, state: purged}\n"
             if state == "purged"
-            else f"  - {{name: dna, local: ../../plugins/dna, state: {state}, "
+            else f"  - {{name: acme/dna, local: ../../plugins/dna, state: {state}, "
             "settings: dna.yaml}\n"
         )
         (deployment / "plugins.lock.yaml").write_text(
@@ -976,7 +1051,7 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
         active,
         database,
         """
-        from iki_plugin_dna.models import DNASequence
+        from iki_plugin_acme__dna.models import DNASequence
         from iki_server.accounts.models import User
         dna = DNASequence.objects.create(owner_project=project, name="pUC19", bases="ACGT")
         User.objects.create_user("admin@example.com", "Org Admin")
@@ -985,12 +1060,13 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
     )
     query(
         database,
-        "INSERT INTO core_sequence__history (entity_id, revision) VALUES (%s, 1) RETURNING 1",
+        "INSERT INTO iki__core_sequence__history (entity_id, revision) VALUES (%s, 1) RETURNING 1",
         made,
     )
     query(
         database,
-        "INSERT INTO dna_dnasequence__history (entity_id, revision) VALUES (%s, 1) RETURNING 1",
+        "INSERT INTO acme__dna_dnasequence__history (entity_id, revision) VALUES (%s, 1) "
+        "RETURNING 1",
         made,
     )
     query(
@@ -1012,13 +1088,13 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
         from iki_server.accounts.models import User
         from iki_server.plugins.models import PluginPurge
         PluginPurge.objects.create(
-            plugin="dna", reason="Retention over", report={}, requested_by=User.objects.get(),
+            plugin="acme/dna", reason="Retention over", report={}, requested_by=User.objects.get(),
             run_after=timezone.now() + dt.timedelta(days=30),
         )
         result = None
         """,
     )
-    assert "dna's purge isn't due until" in refused(purged, database)
+    assert "acme/dna's purge isn't due until" in refused(purged, database)
     run(
         detached,
         database,
@@ -1042,18 +1118,19 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
         """,
     )
     err = refused(purged, database)
-    assert "Some of dna's data is on legal hold" in err
+    assert "Some of acme/dna's data is on legal hold" in err
     assert "Case 24-117" not in err and "Antibodies" not in err  # holds are confidential
     query(database, "DELETE FROM iki_legal_hold WHERE id = %s RETURNING 1", hold)
-    assert query(database, "SELECT count(*) FROM dna_dnasequence") == [(1,)]
+    assert query(database, "SELECT count(*) FROM acme__dna_dnasequence") == [(1,)]
 
     out = deployed(purged, database)
-    assert "Purged dna: dropped 4 table(s); 1 entities keep their tombstones" in out
+    assert "Purged acme/dna: dropped 4 table(s); 1 entities keep their tombstones" in out
     assert "row(s) their entities had in other plugins' tables" in out
-    assert query(database, "SELECT tablename FROM pg_tables WHERE tablename LIKE 'dna\\_%%'") == []
+    left = "SELECT tablename FROM pg_tables WHERE tablename LIKE 'acme\\_\\_dna\\_%%'"
+    assert query(database, left) == []
     for gone in (
-        "SELECT count(*) FROM core_sequence WHERE entity_id = %s",
-        "SELECT count(*) FROM core_sequence__history WHERE entity_id = %s",
+        "SELECT count(*) FROM iki__core_sequence WHERE entity_id = %s",
+        "SELECT count(*) FROM iki__core_sequence__history WHERE entity_id = %s",
         "SELECT count(*) FROM iki_unique_value WHERE entity_id = %s",
     ):
         assert query(database, gone, made) == [(0,)]
@@ -1061,12 +1138,14 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
         database,
         "SELECT e.hrid, e.type, e.purged_at IS NOT NULL, e.identity_hash, length(t.content_sha256)"
         " FROM iki_entity e JOIN iki_tombstone t ON t.entity_id = e.id",
-    ) == [("DNA-000001", "dna.DNASequence", True, None, 64)]
-    assert applied(database, "dna") == []
+    ) == [("DNA-000001", "acme/dna.DNASequence", True, None, 64)]
+    assert applied(database, "acme__dna") == []
     assert query(database, "SELECT done_at IS NOT NULL FROM iki_plugin_purge") == [(True,)]
-    assert query(database, "SELECT state FROM iki_plugin_state WHERE name = 'dna'") == [("purged",)]
+    assert query(database, "SELECT state FROM iki_plugin_state WHERE name = 'acme/dna'") == [
+        ("purged",)
+    ]
     events = query(database, "SELECT data FROM iki_audit_event WHERE action = 'plugin.purged'")
-    assert [e[0]["plugin"] for e in events] == ["dna"]
+    assert [e[0]["plugin"] for e in events] == ["acme/dna"]
     assert "dna" not in sync(purged, database)  # its views went; the rest are made again
     assert "Purged" not in deployed(purged, database)  # once
 
@@ -1147,7 +1226,7 @@ def test_an_upgrade_keeps_the_samples_and_rolls_back(versioned: Path, _postgres_
     assert result.returncode == 0, result.stdout + result.stderr
     lines = result.stdout.splitlines()
     header = re.fullmatch(
-        r"Upgrading lab from [0-9a-f]{12} \(1\.0\.0\) to 1\.1\.0 on the scratch database "
+        r"Upgrading acme/lab from [0-9a-f]{12} \(1\.0\.0\) to 1\.1\.0 on the scratch database "
         r"(iki_upgrade_[0-9a-f]{8}), with 1 sample\(s\):",
         lines[0],
     )
@@ -1172,8 +1251,9 @@ def test_a_type_that_changes_needs_a_higher_schema_version(
     assert result.returncode == 1
     assert "  FAILED  each type whose fields changed has a higher schema_version" in result.stdout
     assert (
-        "lab.Sample changed (added notes; changed name's max_length), and its schema_version is "
-        "still 1. Increase it to 2: plugins that depend on lab pin its types' schema versions."
+        "acme/lab.Sample changed (added notes; changed name's max_length), and its "
+        "schema_version is still 1. Increase it to 2: plugins that depend on acme/lab pin its "
+        "types' schema versions."
     ) in result.stdout
     assert "migrated to the earlier commit" not in result.stdout  # nothing ran
 
@@ -1182,7 +1262,7 @@ def test_a_type_that_changes_needs_a_higher_schema_version(
     write_sample(versioned)
     result = upgrade(versioned, _postgres_url, "-k", "none")
     assert result.returncode == 1
-    assert "lab.Sample's schema_version went down, from 2 to 1." in result.stdout
+    assert "acme/lab.Sample's schema_version went down, from 2 to 1." in result.stdout
 
 
 def test_how_a_field_is_shown_isnt_a_new_schema(versioned: Path, _postgres_url: str) -> None:
@@ -1196,7 +1276,7 @@ def test_how_a_field_is_shown_isnt_a_new_schema(versioned: Path, _postgres_url: 
     assert "  ok      each type whose fields changed has a higher schema_version" in result.stdout
     # The index is a migration, and the plugin is still 1.0.0.
     assert (
-        "Note: the migrations changed, and lab's version is still 1.0.0. Increase it when you "
+        "Note: the migrations changed, and acme/lab's version is still 1.0.0. Increase it when you "
         "release this, so a deployment's history tells the two apart."
     ) in result.stdout
 
@@ -1208,14 +1288,14 @@ def test_an_upgrade_that_cant_be_rolled_back_fails_unless_its_one_way(
         "from django.db import migrations\n\n\n"
         "def backfill(apps, schema_editor):\n    pass\n\n\n"
         "class Migration(migrations.Migration):\n"
-        '    dependencies = [("lab", "0001_initial")]\n'
+        '    dependencies = [("acme__lab", "0001_initial")]\n'
         "    operations = [migrations.RunPython(backfill)]\n"
     )
     result = upgrade(versioned, _postgres_url, "-k", "none")
     assert result.returncode == 1
     assert "  FAILED  rolled back: the samples have their values" in result.stdout
     assert "The deploy refused it: Rolling back would lose data" in result.stdout
-    assert "lab.0002_backfill: Raw Python operation can't be reversed." in result.stdout
+    assert "acme/lab 0002_backfill: Raw Python operation can't be reversed." in result.stdout
     one_way = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
     assert one_way.returncode == 0, one_way.stdout + one_way.stderr
     assert "rolled back" not in one_way.stdout
@@ -1225,10 +1305,10 @@ def test_a_rollback_that_loses_a_value_fails(versioned: Path, _postgres_url: str
     (versioned / "migrations" / "0002_rename_all.py").write_text(
         "from django.db import migrations\n\n\n"
         "class Migration(migrations.Migration):\n"
-        '    dependencies = [("lab", "0001_initial")]\n'
+        '    dependencies = [("acme__lab", "0001_initial")]\n'
         "    operations = [\n"
         "        migrations.RunSQL(\n"
-        "            \"UPDATE lab_sample SET name = 'renamed'\", migrations.RunSQL.noop\n"
+        "            \"UPDATE acme__lab_sample SET name = 'renamed'\", migrations.RunSQL.noop\n"
         "        )\n"
         "    ]\n"
     )
@@ -1274,5 +1354,15 @@ def test_an_upgrade_needs_a_commit_and_a_database(versioned: Path, _postgres_url
         cwd=added,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "lab isn't at main (" in result.stdout
+    assert "acme/lab isn't at main (" in result.stdout
     assert "there's nothing to upgrade." in result.stdout
+    # A commit from before plugins had namespaces has nothing to upgrade from: no deployment
+    # ran it (ADR 0113).
+    manifest = versioned / "plugin.yaml"
+    manifest.write_text(manifest.read_text().replace("name: acme/lab", "name: lab"))
+    git(versioned.parent, "commit", "-q", "-am", "before namespaces")
+    manifest.write_text(manifest.read_text().replace("name: lab", "name: acme/lab"))
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "acme/lab wasn't at main (" in result.stdout
+    assert "it was `lab`, from before plugins had namespaces (ADR 0113)" in result.stdout

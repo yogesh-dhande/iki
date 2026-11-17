@@ -60,7 +60,7 @@ def test_goes_back_and_on_as_many_generations_as_asked(world: World) -> None:
         "id": a["id"],
         "hrid": a["hrid"],
         "title": a["title"],
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "archived": False,
         "purged": False,
         "formerly": [],

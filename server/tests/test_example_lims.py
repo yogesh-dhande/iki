@@ -125,7 +125,7 @@ def test_imports_every_record_a_page_at_a_time(lims: Any) -> None:
         ("GET", "/api/v1/proteins", {"cursor": ["2"]}),
     ]
     first, second, third = output["creates"]
-    assert first["type"] == "protein.Protein"
+    assert first["type"] == "iki/protein.Protein"
     assert first["values"] == {"lims_id": "P-1", "sequence": "MKVLEIC", "name": "ABL1"}
     assert second["values"] == {"lims_id": "P-2", "sequence": "MKKK"}
     assert third["values"]["lims_id"] == "P-3"
@@ -141,7 +141,7 @@ def test_imports_every_record_a_page_at_a_time(lims: Any) -> None:
 
 def test_a_scheduled_run_asks_for_what_changed_since_the_last(lims: Any) -> None:
     trigger = {
-        "name": "example_lims.import_nightly",
+        "name": "iki/example_lims.import_nightly",
         "scheduled_for": "2026-11-14T02:00:00Z",
         "since": "2026-11-12T02:00:00Z",
     }

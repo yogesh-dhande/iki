@@ -4,7 +4,7 @@ Iki's antibody plugin: antibodies, assembled from the proteins that are their
 chains, what their variable domains say about them, and their predicted
 structures.
 
-- **`antibody.Antibody`** (`ABY-000001`): an antibody, by its chains.
+- **`iki/antibody.Antibody`** (`ABY-000001`): an antibody, by its chains.
   - A whole antibody (`igg`) or a Fab (`fab`) has a heavy chain and a light
     chain. A single domain (`vhh`, a camelid's or a nanobody) or both variable
     domains on one chain (`scfv`) has one chain, its `heavy_chain`.
@@ -15,7 +15,7 @@ structures.
   - It keeps its format, its isotype (a constant region's, so only `igg` and
     `fab` take one) and what it binds (`target`).
 
-- **Proteins' numbering** (an extension of `protein.Protein`): what numbering a
+- **Proteins' numbering** (an extension of `iki/protein.Protein`): what numbering a
   chain finds, in the plugin's own table.
   - Its variable domains (`variable_domains`), in order along the chain: each
     residue's number and insertion code, and where each domain starts and
@@ -29,7 +29,7 @@ structures.
     `light_germline_identity`). A human antibody is usually above 90%, a
     humanized one above 80%.
 
-- **Proteins' sequence liabilities** (the same extension of `protein.Protein`):
+- **Proteins' sequence liabilities** (the same extension of `iki/protein.Protein`):
   the motifs a developability screen reports in a numbered chain
   (`liabilities`), each with where it is, whether it falls in a CDR or in
   framework, and how severe published screens call it; how many of each kind it
@@ -38,7 +38,7 @@ structures.
   `liability_count` 0, which is not the same as one that hasn't been screened
   (it has none of the three fields).
 
-- **Predicted structures' errors** (an extension of `protein.ProteinStructure`):
+- **Predicted structures' errors** (an extension of `iki/protein.ProteinStructure`):
   for a structure `predict_structure_with_immunebuilder` made, how far ImmuneBuilder's models
   disagree (`predicted_error`, `cdr_h3_predicted_error`).
 
@@ -154,7 +154,7 @@ antibody's chains (ADR 0105), so it reads their sequences as they were when it w
 launched. ABodyBuilder2 models a heavy and a light chain's variable domains, from
 an IgG's or a Fab's two chains or an scFv's one; NanoBodyBuilder2 a VHH's single
 domain. Each runs four models and keeps the one closest to the others, refined
-with OpenMM. It makes a `protein.ProteinStructure` of the antibody's chains
+with OpenMM. It makes an `iki/protein.ProteinStructure` of the antibody's chains
 (chain IDs H and L), derived from the antibody, with how far the four models
 disagree: `predicted_error` over every residue and `cdr_h3_predicted_error` over
 CDR-H3, in Å, and each residue's in the file as its B-factor. Refining isn't

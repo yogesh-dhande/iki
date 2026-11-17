@@ -11,27 +11,27 @@ capacity: { cpu: 0.25, memory: 2Gi, scratch_disk: 2Gi }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: dna.sequence-tools
+environment: iki/dna.sequence-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: protein.protein-tools
+environment: iki/protein.protein-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: antibody.antibody-tools
+environment: iki/antibody.antibody-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: small_molecule.chemistry-tools
+environment: iki/small_molecule.chemistry-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: example_lims.lims-tools
+environment: iki/example_lims.lims-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
@@ -52,7 +52,7 @@ price: { per_hour: 0.05, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: example.tools
+environment: acme/example.tools
 templates: [{ template: container-small }, { template: container-warm }]
 ---
 # The protein plugin's DSSP (structure-tools): its image is about 1 GB, and a
@@ -67,7 +67,7 @@ price: { per_hour: 0.12, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: protein.structure-tools
+environment: iki/protein.structure-tools
 templates: [{ template: container-structures }]
 ---
 # The protein plugin's MAFFT (alignment-tools): its minimum, one thread and
@@ -83,7 +83,7 @@ price: { per_hour: 0.20, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: protein.alignment-tools
+environment: iki/protein.alignment-tools
 templates: [{ template: container-alignments }]
 ---
 # The antibody plugin's ANARCI (numbering-tools): on one CPU and in 1 GiB, a
@@ -98,7 +98,7 @@ price: { per_hour: 0.10, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: antibody.numbering-tools
+environment: iki/antibody.numbering-tools
 templates: [{ template: container-numbering }]
 ---
 # The antibody plugin's ImmuneBuilder (structure-tools): on one CPU, an antibody
@@ -115,7 +115,7 @@ price: { per_hour: 0.20, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: antibody.structure-tools
+environment: iki/antibody.structure-tools
 templates: [{ template: container-antibody-structures }]
 ---
 # The plugin template's reference data (ADR 0075): a setup build fills a disk
@@ -169,7 +169,7 @@ volumes:
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: example.reference
+environment: acme/example.reference
 templates:
   - { template: container-reference }
   - { template: container-reference-shared }

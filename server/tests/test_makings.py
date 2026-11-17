@@ -21,7 +21,7 @@ pytestmark = pytest.mark.django_db
 
 __all__ = ["keep_connection", "world"]  # the fixtures, used here too
 
-SEQUENCE = {"type": "protein.Protein", "values": {"name": "ABL1", "sequence": "MKVLEIC"}}
+SEQUENCE = {"type": "acme/protein.Protein", "values": {"name": "ABL1", "sequence": "MKVLEIC"}}
 ALPHAFOLD_DB = {
     "source": "AlphaFold DB",
     "id": "AF-P69905-F1",
@@ -68,7 +68,7 @@ def test_a_run_records_what_its_actions_software_made(world: World) -> None:
         "method": "",
         "software": "ImmuneBuilder",
         "version": "1.2",
-        "run": {"id": run["id"], "hrid": run["hrid"], "action": "protein.import_proteins"},
+        "run": {"id": run["id"], "hrid": run["hrid"], "action": "acme/protein.import_proteins"},
         "source": None,
         "recorded_at": row["recorded_at"],
     }
@@ -202,7 +202,7 @@ def test_makings_are_append_only() -> None:
 
 
 def found(world: World, made: Any, op: str = "has") -> list[str]:
-    body = {"type": "protein.Protein", "where": {"field": "made", "op": op, "value": made}}
+    body = {"type": "acme/protein.Protein", "where": {"field": "made", "op": op, "value": made}}
     response = api_as(world, "viewer").post("/entities/search", body)
     assert response.status_code == 200, response.content
     return sorted(e["values"]["name"] for e in response.json()["items"])
@@ -210,7 +210,7 @@ def found(world: World, made: Any, op: str = "has") -> list[str]:
 
 def protein(name: str, sequence: str, **origin: Any) -> dict[str, Any]:
     out: dict[str, Any] = {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "values": {"name": name, "sequence": sequence},
     }
     if origin:

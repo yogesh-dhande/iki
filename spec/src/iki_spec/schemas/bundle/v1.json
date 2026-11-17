@@ -181,6 +181,7 @@
       "required": ["name", "version", "sha", "types", "extensions"],
       "properties": {
         "name": {
+          "description": "The plugin, such as `iki/protein`.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName"
         },
         "version": {
@@ -413,7 +414,7 @@
           "$ref": "#/$defs/uuid"
         },
         "type": {
-          "description": "Its type, such as `protein.Protein`.",
+          "description": "Its type, such as `iki/protein.Protein`.",
           "type": "string",
           "maxLength": 81
         },
@@ -537,9 +538,9 @@
       "required": ["table", "revision", "values"],
       "properties": {
         "table": {
-          "description": "The type in the entity's chain whose table it is, such as `dna.Sequence`, or for an extension, its plugin and the type it extends, such as `protein:dna.DNASequence`.",
+          "description": "The type in the entity's chain whose table it is, such as `iki/dna.Sequence`, or for an extension, its plugin and the type it extends, such as `acme/lims:iki/dna.DNASequence`.",
           "type": "string",
-          "pattern": "^([a-z][a-z0-9_]*:)?[a-z][a-z0-9_]*\\.[A-Z][A-Za-z0-9]*$"
+          "pattern": "^([a-z][a-z0-9_]*/[a-z][a-z0-9_]*:)?[a-z][a-z0-9_]*/[a-z][a-z0-9_]*\\.[A-Z][A-Za-z0-9]*$"
         },
         "revision": {
           "type": "integer",

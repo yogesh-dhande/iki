@@ -64,12 +64,13 @@ def deployment(tmp_path: Path, sha: str, *, settings: str | None = "ncbi_email: 
     directory = tmp_path / "deployments" / "prod"
     (directory / "settings").mkdir(parents=True)
     dna = (
-        f"  - name: dna\n    git: {URL}\n    path: plugins/dna\n    sha: {sha}\n    state: active\n"
+        f"  - name: acme/dna\n    git: {URL}\n    path: plugins/dna\n    sha: {sha}\n"
+        "    state: active\n"
     )
     if settings is not None:
         (directory / "settings" / "dna.yaml").write_text(settings)
         dna += "    settings: settings/dna.yaml\n"
-    protein = f"  - name: protein\n    git: {URL}\n    path: plugins/protein\n    sha: {sha}\n"
+    protein = f"  - name: acme/protein\n    git: {URL}\n    path: plugins/protein\n    sha: {sha}\n"
     (directory / "plugins.lock.yaml").write_text(
         "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n" + dna + protein + "    state: active\n"
     )
@@ -92,26 +93,28 @@ def test_builds_the_pinned_commits(
     assert main(["deploy", "build", str(deployment(tmp_path, sha)), "-o", str(out)]) == 0
     captured = capsys.readouterr()
     printed = captured.out
-    assert f"Fetched dna at {sha[:12]} from {URL}" in printed
-    assert printed.endswith(f"Built {out}: dna 1.2.0, protein 3.0.0.\n")
+    assert f"Fetched acme/dna at {sha[:12]} from {URL}" in printed
+    assert printed.endswith(f"Built {out}: acme/dna 1.2.0, acme/protein 3.0.0.\n")
     assert sorted(p.name for p in out.iterdir()) == [
         "compute.json",
         "iki_installed_plugins",
-        "iki_plugin_dna",
-        "iki_plugin_protein",
+        "iki_plugin_acme__dna",
+        "iki_plugin_acme__protein",
     ]
     # Without a compute.yaml, the deployment runs only self-hosted actions, and says so.
-    assert "warning: `protein.protein-tools` has no template for the backend tier" in captured.err
+    assert (
+        "warning: `acme/protein.protein-tools` has no template for the backend tier" in captured.err
+    )
     assert json.loads((out / "compute.json").read_text()) == {
         "apiVersion": "iki/v1",
         "bindings": {},
         "templates": {},
     }
-    assert json.loads((out / "iki_plugin_dna" / "settings.json").read_text()) == {
+    assert json.loads((out / "iki_plugin_acme__dna" / "settings.json").read_text()) == {
         "max_sequence_length": 10_000_000,
         "ncbi_email": "a@b.org",
     }
-    assert sorted(p.name for p in (out / "iki_plugin_protein" / "migrations").iterdir()) == [
+    assert sorted(p.name for p in (out / "iki_plugin_acme__protein" / "migrations").iterdir()) == [
         "0001_initial.py",
         "__init__.py",
     ]
@@ -120,9 +123,9 @@ def test_builds_the_pinned_commits(
     assert "LOCAL = False" in installed
     record = json.loads((out / "iki_installed_plugins" / "lock.json").read_text())
     bundles = out / "iki_installed_plugins" / "bundles"
-    packed = (bundles / f"dna-{sha}.tar.gz").read_bytes()
+    packed = (bundles / f"acme__dna-{sha}.tar.gz").read_bytes()
     assert record["plugins"][0] == {
-        "name": "dna",
+        "name": "acme/dna",
         "git": URL,
         "path": "plugins/dna",
         "sha": sha,
@@ -133,8 +136,8 @@ def test_builds_the_pinned_commits(
         "environments": {},
     }
     assert sorted(p.name for p in bundles.iterdir()) == [
-        f"dna-{sha}.tar.gz",
-        f"protein-{sha}.tar.gz",
+        f"acme__dna-{sha}.tar.gz",
+        f"acme__protein-{sha}.tar.gz",
     ]
     protein = record["plugins"][1]["environments"]["protein-tools"]
     assert protein["kind"] == "python" and protein["python"] == "3.12"
@@ -142,7 +145,7 @@ def test_builds_the_pinned_commits(
     assert protein["requirements"] == "requirements.txt"
     assert protein["packages"] is False  # it names none
     # Each bundle is the plugin's code at its commit: regular files, no times or owners.
-    with tarfile.open(bundles / f"protein-{sha}.tar.gz") as tar:
+    with tarfile.open(bundles / f"acme__protein-{sha}.tar.gz") as tar:
         members = tar.getmembers()
         names = [m.name for m in members]
         assert "plugin.yaml" in names and "scripts/relax.py" in names
@@ -169,7 +172,7 @@ def test_builds_what_workers_need_from_the_same_commits(
     assert f"Wrote what workers need to {bundle}." in capsys.readouterr().out
     assert sorted(p.name for p in bundle.iterdir()) == ["build-environments.sh", "plugins"]
     # Each plugin's code, exported at its commit.
-    script = bundle / "plugins" / "protein" / "scripts" / "relax.py"
+    script = bundle / "plugins" / "acme__protein" / "scripts" / "relax.py"
     assert script.read_bytes() == (repo / "plugins/protein/scripts/relax.py").read_bytes()
     manifest = json.loads((bundle / "plugins" / "plugins.json").read_text())
     requirements = (repo / "plugins/protein/requirements.txt").read_bytes()
@@ -183,23 +186,23 @@ def test_builds_what_workers_need_from_the_same_commits(
         "apiVersion": "iki/v1",
         "kind": "WorkerPlugins",
         "plugins": [
-            {"name": "dna", "version": "1.2.0", "sha": sha, "environments": {}},
+            {"name": "acme/dna", "version": "1.2.0", "sha": sha, "environments": {}},
             {
-                "name": "protein",
+                "name": "acme/protein",
                 "version": "3.0.0",
                 "sha": sha,
                 "environments": {
                     "protein-tools": {
                         "digest": "sha256:" + hashlib.sha256(canonical).hexdigest(),
                         "kind": "python",
-                        "prefix": "/opt/iki/envs/protein/protein-tools",
+                        "prefix": "/opt/iki/envs/acme__protein/protein-tools",
                     }
                 },
             },
         ],
     }
     built = (bundle / "build-environments.sh").read_text()
-    assert "uv venv --quiet --python 3.12 /opt/iki/envs/protein/protein-tools" in built
+    assert "uv venv --quiet --python 3.12 /opt/iki/envs/acme__protein/protein-tools" in built
     # Its requirements name no packages, so there's nothing to install.
     assert "uv pip install" not in built
 
@@ -219,7 +222,7 @@ def test_git_cant_be_sent_to_other_transports(
     code = main(["deploy", "build", str(deployment(tmp_path, upstream[1])), "-o", str(tmp_path)])
     assert code == 1
     err = capsys.readouterr().err
-    assert f"error: dna: couldn't fetch commit {upstream[1][:12]} from {URL}" in err
+    assert f"error: acme/dna: couldn't fetch commit {upstream[1][:12]} from {URL}" in err
     assert "transport 'file' not allowed" in err
 
 
@@ -235,7 +238,7 @@ def test_commits_that_arent_there(tmp_path: Path, capsys: pytest.CaptureFixture[
         ]
     )
     assert code == 1
-    assert "error: dna: couldn't fetch commit 000000000000" in capsys.readouterr().err
+    assert "error: acme/dna: couldn't fetch commit 000000000000" in capsys.readouterr().err
 
 
 COMPUTE = """\
@@ -247,7 +250,7 @@ capacity: { cpu: 1, memory: 2Gi }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: protein.protein-tools
+environment: acme/protein.protein-tools
 templates: [{ template: backend-small }]
 """
 
@@ -262,14 +265,15 @@ def test_compute_is_checked_against_the_plugins(
     assert main(["deploy", "build", str(directory), "-o", str(out)]) == 0
     assert capsys.readouterr().err == ""
     compute = json.loads((out / "compute.json").read_text())
-    assert compute["bindings"]["protein.protein-tools"]["templates"] == [["backend-small", 0]]
+    assert compute["bindings"]["acme/protein.protein-tools"]["templates"] == [["backend-small", 0]]
     assert compute["templates"]["backend-small"]["capacity"]["memory"] == 2 * 1024**3
 
     (directory / "compute.yaml").write_text(COMPUTE.replace("memory: 2Gi", "memory: 256Mi"))
     assert main(["deploy", "build", str(directory), "-o", str(out)]) == 1
     err = capsys.readouterr().err
     assert (
-        "/compute.yaml:10:25: error: `backend-small` is smaller than `protein.protein-tools`" in err
+        "/compute.yaml:10:25: error: `backend-small` is smaller than `acme/protein.protein-tools`"
+        in err
     )
     assert "512Mi of memory (it has 256Mi)" in err
 
@@ -282,7 +286,7 @@ def test_settings_are_checked(
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
     err = capsys.readouterr().err
     assert "settings/dna.yaml:1:13: error: `ncbi_email`" in err
-    assert "The dna plugin has no setting `max_length`." in err
+    assert "The acme/dna plugin has no setting `max_length`." in err
     assert not (tmp_path / "o").exists()
 
 
@@ -293,7 +297,7 @@ def test_required_settings_need_a_file(
     directory = deployment(tmp_path, upstream[1], settings=None)
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
     err = capsys.readouterr().err
-    assert "The dna plugin needs `ncbi_email` to be set." in err
+    assert "The acme/dna plugin needs `ncbi_email` to be set." in err
     assert "with `settings:` in the lockfile" in err
 
 
@@ -304,12 +308,12 @@ def test_dependencies_must_be_in_the_lockfile(
     directory = deployment(tmp_path, upstream[1])
     lockfile = directory / "plugins.lock.yaml"
     text = lockfile.read_text()
-    lockfile.write_text(text[: text.index("  - name: protein")].replace("dna", "protein", 1))
+    lockfile.write_text(text[: text.index("  - name: acme/protein")].replace("dna", "protein", 1))
     lockfile.write_text(lockfile.read_text().replace("plugins/dna", "plugins/protein"))
     lockfile.write_text(lockfile.read_text().replace("    settings: settings/dna.yaml\n", ""))
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
     assert capsys.readouterr().err == (
-        "error: protein needs the dna plugin: add it to the lockfile.\n"
+        "error: acme/protein needs the acme/dna plugin: add it to the lockfile.\n"
     )
 
 
@@ -323,8 +327,8 @@ def test_what_depends_on_a_detached_plugin_is_detached_too(
     lockfile.write_text(text.replace("state: active", "state: detached", 1))
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
     assert capsys.readouterr().err == (
-        "error: protein depends on dna, which the lockfile detaches. "
-        "Detach protein too, or keep dna active.\n"
+        "error: acme/protein depends on acme/dna, which the lockfile detaches. "
+        "Detach acme/protein too, or keep acme/dna active.\n"
     )
     lockfile.write_text(text.replace("state: active", "state: detached"))
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 0
@@ -339,17 +343,17 @@ def test_a_purged_plugin_isnt_built_but_is_recorded(
     directory = deployment(tmp_path, upstream[1])
     lockfile = directory / "plugins.lock.yaml"
     text = lockfile.read_text()
-    dna = text[text.index("  - name: dna") : text.index("  - name: protein")]
-    lockfile.write_text(text.replace(dna, "  - name: dna\n    state: purged\n"))
+    dna = text[text.index("  - name: acme/dna") : text.index("  - name: acme/protein")]
+    lockfile.write_text(text.replace(dna, "  - name: acme/dna\n    state: purged\n"))
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
     assert capsys.readouterr().err == (
-        "error: protein depends on dna, which the lockfile purges. "
-        "Purge protein too, or keep dna detached.\n"
+        "error: acme/protein depends on acme/dna, which the lockfile purges. "
+        "Purge acme/protein too, or keep acme/dna detached.\n"
     )
-    protein = text[text.index("  - name: protein") :]
+    protein = text[text.index("  - name: acme/protein") :]
     lockfile.write_text(
-        text.replace(dna, "  - name: dna\n    state: purged\n").replace(
-            protein, "  - name: protein\n    state: purged\n"
+        text.replace(dna, "  - name: acme/dna\n    state: purged\n").replace(
+            protein, "  - name: acme/protein\n    state: purged\n"
         )
     )
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 0
@@ -357,8 +361,8 @@ def test_a_purged_plugin_isnt_built_but_is_recorded(
     built = tmp_path / "o" / "iki_installed_plugins"
     record = json.loads((built / "lock.json").read_text())
     assert record["plugins"] == [
-        {"name": "dna", "state": "purged"},
-        {"name": "protein", "state": "purged"},
+        {"name": "acme/dna", "state": "purged"},
+        {"name": "acme/protein", "state": "purged"},
     ]
     assert not any(built.parent.glob("iki_plugin_*"))
 
@@ -372,7 +376,7 @@ def test_the_name_must_match(
     lockfile.write_text(lockfile.read_text().replace("path: plugins/protein", "path: plugins/dna"))
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
     err = capsys.readouterr().err
-    assert "error: the lockfile's protein is the plugin `dna`" in err
+    assert "error: the lockfile's acme/protein is the plugin `acme/dna`" in err
 
 
 @pytest.mark.usefixtures("allow_file")
@@ -395,7 +399,8 @@ def test_migrations_must_be_complete(
     types = repo / "plugins/dna/types/sequence.yaml"
     types.write_text(
         types.read_text().replace(
-            "extends: core.Sequence\n", "extends: core.Sequence\nfields:\n  notes: { type: text }\n"
+            "extends: iki/core.Sequence\n",
+            "extends: iki/core.Sequence\nfields:\n  notes: { type: text }\n",
         )
     )
     git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qam", "notes")
@@ -425,7 +430,7 @@ def test_local_plugins_are_for_development(
     shutil.copytree(PLUGINS / "dna", local)
     (directory / "plugins.lock.yaml").write_text(
         "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
-        "  - {name: dna, local: ../local, state: active, settings: dna.yaml}\n"
+        "  - {name: acme/dna, local: ../local, state: active, settings: dna.yaml}\n"
     )
     (directory / "dna.yaml").write_text("ncbi_email: a@b.org\n")
     assert main(["deploy", "build", str(directory), "-o", str(out)]) == 1
@@ -456,7 +461,7 @@ def test_lockfile_problems_point_at_the_line(
     monkeypatch.chdir(tmp_path)
     Path("plugins.lock.yaml").write_text(
         "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
-        f"  - {{name: dna, git: {URL}, sha: v1.2.0, state: active}}\n"
+        f"  - {{name: acme/dna, git: {URL}, sha: v1.2.0, state: active}}\n"
     )
     assert main(["deploy", "build", ".", "-o", "out"]) == 1
     err = capsys.readouterr().err
@@ -503,7 +508,7 @@ def test_the_images_runs_use_are_those_bound_to_container_templates(tmp_path: Pa
     assert run_images(plugins, unbound) == []
     file.write_text(
         file.read_text() + "---\napiVersion: iki/v1\nkind: EnvironmentBinding\n"
-        "environment: structure_prediction.colabfold\ntemplates: [{ template: gpu }]\n"
+        "environment: acme/prediction.colabfold\ntemplates: [{ template: gpu }]\n"
     )
     bound = compute_spec.load_compute(file, plugins, "compute.yaml").compute
     assert bound is not None

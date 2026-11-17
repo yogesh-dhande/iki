@@ -1,6 +1,6 @@
 """Load test: the job queue's throughput, with a deep backlog and a long history.
 
-A run of ``protein.compute_properties`` is launched through Iki, then copied in bulk, as
+A run of ``acme/protein.compute_properties`` is launched through Iki, then copied in bulk, as
 a restore loads a database: ``IKI_SCALE_QUEUE_JOBS`` queued (100,000 by default) across
 ``PROJECTS`` projects, behind ``IKI_SCALE_QUEUE_HISTORY`` finished ones (1,000,000).
 Then workers, each in its own thread, lease jobs and complete them over ``/worker/v1`` of

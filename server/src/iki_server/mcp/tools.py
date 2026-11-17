@@ -156,7 +156,7 @@ Params = Annotated[
 RunReason = Annotated[
     str, Field(min_length=1, max_length=2000, description="Why, for the record: people read it.")
 ]
-#: How many entities a view shows at most (core.View's `targets`).
+#: How many entities a view shows at most (iki/core.View's `targets`).
 MAX_VIEW_TARGETS = 20
 
 
@@ -219,7 +219,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="List entity types")
     async def list_entity_types() -> CallToolResult:
-        """Every installed entity type: its name (such as dna.DNASequence), label,
+        """Every installed entity type: its name (such as iki/dna.DNASequence), label,
         plugin and the type it extends. describe_entity_type gives one's fields."""
         types = await call("GET", "/entity-types")
         return answer(
@@ -231,7 +231,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Describe an entity type")
     async def describe_entity_type(
-        name: Annotated[str, Field(description="Its name, such as protein.Protein.")],
+        name: Annotated[str, Field(description="Its name, such as iki/protein.Protein.")],
     ) -> CallToolResult:
         """A type's fields (with units and rules), what makes two the same, and the JSON
         Schema its values follow."""
@@ -240,7 +240,7 @@ def build() -> MCPServer:
     @server.tool(annotations=READ, title="Search entities")
     async def search_entities(
         type: Annotated[
-            str | None, Field(description="This type and its subtypes, such as dna.Primer.")
+            str | None, Field(description="This type and its subtypes, such as iki/dna.Primer.")
         ] = None,
         project: Annotated[UUID | None, Field(description="Only this project's.")] = None,
         q: Annotated[
@@ -285,7 +285,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Look up entities by an external ID")
     async def lookup_entities(
-        type: Annotated[str, Field(description="The type, such as protein.Protein.")],
+        type: Annotated[str, Field(description="The type, such as iki/protein.Protein.")],
         field: Annotated[
             str,
             Field(
@@ -357,7 +357,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=ADD, title="Create an entity")
     async def create_entity(
-        type: Annotated[str, Field(description="Its type, such as dna.DNASequence.")],
+        type: Annotated[str, Field(description="Its type, such as iki/dna.DNASequence.")],
         project: Annotated[
             UUID, Field(description="The project it belongs to. It needs the person as Editor.")
         ],
@@ -426,7 +426,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="How to write an app")
     async def describe_apps() -> CallToolResult:
-        """How to write an app (core.App): a page of Iki's own components, an entities
+        """How to write an app (iki/core.App): a page of Iki's own components, an entities
         grid, a viewer and text, laid out on a grid and bound to each other by expressions.
         Gives the spec's JSON Schema, each component's props and what it offers later
         panels, how expressions work, and an example. Read it before check_app."""
@@ -461,7 +461,7 @@ def build() -> MCPServer:
         values: dict[str, Any] = {"name": name, "spec": spec}
         if description:
             values["description"] = description
-        body = {"type": "core.App", "project": str(project), "values": values, "reason": reason}
+        body = {"type": "iki/core.App", "project": str(project), "values": values, "reason": reason}
         made = await call("POST", "/entities", body=body)
         page = web_url(f"/entities/{made['hrid']}/")
         return answer(made, note=f"Created {made['hrid']}. The person can open it at {page}")
@@ -484,7 +484,7 @@ def build() -> MCPServer:
         description: Annotated[str, Field(max_length=10000)] = "",
         reason: Annotated[str, Field(max_length=2000, description="Why, for its history.")] = "",
     ) -> CallToolResult:
-        """A saved view (core.View): entities in Iki's viewers, each pinned to a revision, so
+        """A saved view (iki/core.View): entities in Iki's viewers, each pinned to a revision, so
         it shows them as they were, whatever changes later. Structures are drawn together in
         one Mol* scene, each its own; every other entity has a viewer of its own beside them,
         such as a protein's sequence beside its structure. Only people who can read every
@@ -505,7 +505,12 @@ def build() -> MCPServer:
         }
         if description:
             values["description"] = description
-        body = {"type": "core.View", "project": str(project), "values": values, "reason": reason}
+        body = {
+            "type": "iki/core.View",
+            "project": str(project),
+            "values": values,
+            "reason": reason,
+        }
         made = await call("POST", "/entities", body=body)
         page = web_url(f"/entities/{made['hrid']}/")
         return answer(made, note=f"Saved {made['hrid']}. The person can open it at {page}")

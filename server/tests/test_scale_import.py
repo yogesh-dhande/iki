@@ -45,7 +45,7 @@ def write(path: Path, file_id: str, count: int) -> None:
         for n in range(count):
             seq = sequence(n)
             out.write(
-                f'{{"type":"protein.Protein","values":{{"name":"P{n}","sequence":"{seq}"}},'
+                f'{{"type":"acme/protein.Protein","values":{{"name":"P{n}","sequence":"{seq}"}},'
                 f'"origin":{{"source":"FASTA file","id":"P{n}","file":"{file_id}"}}}}\n'
             )
 
@@ -129,7 +129,7 @@ def test_a_run_imports_10m_entities_and_goes_on_after_an_interruption(
     )
     assert (imported.created, imported.reused) == (RECORDS, 0)
     assert Job.objects.get(pk=imported.job_id).state == JobState.SUCCEEDED
-    assert Entity.objects.filter(type="protein.Protein").count() == RECORDS
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == RECORDS
     assert RunEffect.objects.filter(run_id=imported.run_id).count() == RECORDS
-    hrids = Entity.objects.filter(type="protein.Protein").order_by("hrid")
+    hrids = Entity.objects.filter(type="acme/protein.Protein").order_by("hrid")
     assert hrids.values_list("hrid", flat=True).first() == "PRT-000001"

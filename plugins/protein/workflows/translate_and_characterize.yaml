@@ -7,7 +7,7 @@ description: >-
   Translates a DNA sequence into the protein it encodes, then computes that
   protein's properties.
 inputs:
-  sequence: { type: dna.DNASequence, schema: ">=1" }
+  sequence: { type: iki/dna.DNASequence, schema: ">=1" }
 params:
   frame:
     type: int

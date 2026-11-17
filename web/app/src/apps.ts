@@ -1,5 +1,5 @@
 /**
- * Apps (core.App, ADR 0090): pages of Iki's own components, each panel bound to those
+ * Apps (iki/core.App, ADR 0090): pages of Iki's own components, each panel bound to those
  * before it by CEL expressions between `{{` and `}}`. The server checked the spec when it
  * was saved; this reads it, and renders its templates with iki-wasm in a Web Worker.
  */
@@ -12,7 +12,7 @@ import { ENTITIES, type Entity } from "./entities";
 import { newWorker } from "./reading";
 import expressionsUrl from "./workers/expressions.ts?worker&url";
 
-export const APP_TYPE = "core.App";
+export const APP_TYPE = "iki/core.App";
 
 export interface EntitiesProps {
   type: string;

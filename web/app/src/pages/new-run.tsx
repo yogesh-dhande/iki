@@ -72,7 +72,7 @@ export function listed(items: string[]): string {
 
 /** Whether entities of `type` can be given to an input taking `wanted`. */
 function isA(types: EntityType[], type: string, wanted: string): boolean {
-  if (wanted === type || wanted === "core.Entity") return true;
+  if (wanted === type || wanted === "iki/core.Entity") return true;
   return types.find((t) => t.name === wanted)?.subtypes.includes(type) ?? false;
 }
 

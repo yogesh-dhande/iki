@@ -35,7 +35,7 @@ def run_tasks() -> int:
     return Runner(queues=["default"]).run_ready()
 
 
-def made(world: World, values: dict[str, Any], type_name: str = "protein.Protein") -> Any:
+def made(world: World, values: dict[str, Any], type_name: str = "acme/protein.Protein") -> Any:
     return services.create(world.users["admin"], type_name, world.project, values).entity
 
 
@@ -43,7 +43,7 @@ def collection(world: World, members: list[Any]) -> Any:
     return made(
         world,
         {"name": "Validated kinases", "members": [str(m.pk) for m in members]},
-        "core.Collection",
+        "iki/core.Collection",
     )
 
 
@@ -97,8 +97,8 @@ def test_an_admin_exports_a_collection_and_downloads_it(world: World, tmp_path: 
 
 def test_a_dynamic_collection_takes_what_its_search_finds_now(world: World) -> None:
     made(world, {"sequence": "MKT", "name": "ABL1"})
-    search = {"project": str(world.project.pk), "type": "protein.Protein"}
-    dynamic = made(world, {"name": "All proteins", "search": search}, "core.Collection")
+    search = {"project": str(world.project.pk), "type": "acme/protein.Protein"}
+    dynamic = made(world, {"name": "All proteins", "search": search}, "iki/core.Collection")
     started = exports.start(
         world.users["admin"], world.project, reason="r", collection=str(dynamic.pk)
     )

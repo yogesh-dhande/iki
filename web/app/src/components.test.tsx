@@ -20,18 +20,18 @@ import { entity, PROTEIN, PROTEIN_ID, renderApp, STRUCTURE, withTypes } from "./
 import { answer, calls, page } from "./test-server";
 
 const RESIDUES: PluginComponent = {
-  name: "protein.residues",
-  plugin: "protein",
+  name: "iki/protein.residues",
+  plugin: "iki/protein",
   label: "Residues",
   description: "How many residues a protein has.",
   element: "protein-residues",
-  slots: [{ slot: "entity.tab", type: "protein.Protein", label: "Residues" }],
-  selects: "protein.Protein",
+  slots: [{ slot: "entity.tab", type: "iki/protein.Protein", label: "Residues" }],
+  selects: "iki/protein.Protein",
   sha256: "ab".repeat(32),
-  frame: `/plugin-components/protein.residues/${"ab".repeat(32)}/`,
+  frame: `/plugin-components/iki/protein.residues/${"ab".repeat(32)}/`,
 };
 
-const CHILD = { ...STRUCTURE, name: "protein.Mutant", extends: "protein.Protein" };
+const CHILD = { ...STRUCTURE, name: "iki/protein.Mutant", extends: "iki/protein.Protein" };
 
 function onResidues() {
   withTypes();
@@ -63,18 +63,21 @@ afterEach(() => {
 describe("tabs", () => {
   it("show on the pages of the type they name and its subtypes", () => {
     const types = [PROTEIN, STRUCTURE, CHILD];
-    expect(lineageOf("protein.Mutant", types)).toEqual(["protein.Mutant", "protein.Protein"]);
-    expect(entityTabs("protein.Mutant", types, [RESIDUES])).toEqual([
+    expect(lineageOf("iki/protein.Mutant", types)).toEqual([
+      "iki/protein.Mutant",
+      "iki/protein.Protein",
+    ]);
+    expect(entityTabs("iki/protein.Mutant", types, [RESIDUES])).toEqual([
       { component: RESIDUES, label: "Residues" },
     ]);
-    expect(entityTabs("protein.ProteinStructure", types, [RESIDUES])).toEqual([]);
+    expect(entityTabs("iki/protein.ProteinStructure", types, [RESIDUES])).toEqual([]);
   });
 
   it("appear beside the entity's own, and open the component in a sandboxed frame", async () => {
     onResidues();
-    await renderApp("/entities/PRT-000001/components/protein.residues/");
+    await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     const tab = await screen.findByRole("link", { name: "Residues" });
-    expect(tab).toHaveAttribute("href", "/entities/PRT-000001/components/protein.residues/");
+    expect(tab).toHaveAttribute("href", "/entities/PRT-000001/components/iki/protein.residues/");
     expect(tab).toHaveAttribute("aria-current", "page");
     const frame = screen.getByTitle("Residues");
     expect(frame.tagName).toBe("IFRAME");
@@ -88,7 +91,7 @@ describe("tabs", () => {
   it("say so when there's no such component for the entity", async () => {
     onResidues();
     answer("GET /api/v1/components", []);
-    await renderApp("/entities/PRT-000001/components/protein.residues/");
+    await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
   });
 });
@@ -96,7 +99,7 @@ describe("tabs", () => {
 describe("the frame", () => {
   it("gets one port, then the entity once its component is ready", async () => {
     onResidues();
-    await renderApp("/entities/PRT-000001/components/protein.residues/");
+    await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
     const { message, origin, port, received } = connect(frame);
     expect(message).toEqual({ type: "iki-connect" });
@@ -114,7 +117,7 @@ describe("the frame", () => {
 
   it("is closed if it opens another page in its frame", async () => {
     onResidues();
-    await renderApp("/entities/PRT-000001/components/protein.residues/");
+    await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
     connect(frame);
     fireEvent.load(frame);
@@ -127,7 +130,7 @@ describe("the frame", () => {
   it("says so if its component doesn't start", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     onResidues();
-    await renderApp("/entities/PRT-000001/components/protein.residues/");
+    await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     await screen.findByTitle("Residues");
     act(() => {
       vi.advanceTimersByTime(START_TIMEOUT_MS);
@@ -138,7 +141,7 @@ describe("the frame", () => {
 
 describe("a selection", () => {
   async function pick(entities: unknown[]) {
-    const { user } = await renderApp("/entities/PRT-000001/components/protein.residues/");
+    const { user } = await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
     const frame = await screen.findByTitle<HTMLIFrameElement>("Residues");
     const { port } = connect(frame);
     port.postMessage({ type: "ready" });
@@ -168,7 +171,7 @@ describe("a selection", () => {
 
   it("leaves out entities of other types", async () => {
     onResidues();
-    const structure = entity({ hrid: "PST-000001", type: "protein.ProteinStructure" });
+    const structure = entity({ hrid: "PST-000001", type: "iki/protein.ProteinStructure" });
     answer("POST /api/v1/entities/search", page([structure]));
     await pick(["PST-000001"]);
     expect(await screen.findByText(/^0 proteins selected/)).toBeInTheDocument();

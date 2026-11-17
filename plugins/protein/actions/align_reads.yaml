@@ -38,7 +38,7 @@ params:
     type: string
     description: The alignment's name. Without one, it's named after the protein.
 effects:
-  creates: [{ type: core.Alignment, derived_from: [reference] }]
+  creates: [{ type: iki/core.Alignment, derived_from: [reference] }]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: protein-tools, resources: { memory: 1Gi } }

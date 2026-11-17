@@ -1,7 +1,8 @@
-"""Apps (core.App, ADR 0090): pages of Iki's own components, each panel bound to those
+"""Apps (iki/core.App, ADR 0090): pages of Iki's own components, each panel bound to those
 before it by expressions. The server checks a spec on every save, as the person saving
 it, and says which panel and prop is wrong."""
 
+import json
 from typing import Any
 
 import pytest
@@ -22,7 +23,7 @@ GRID = {
     "width": 6,
     "component": "iki.entities",
     "props": {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "where": {"all": [{"field": "name", "op": "starts_with", "value": "ABL"}]},
         "sort": "name",
         "columns": [
@@ -51,7 +52,7 @@ def world() -> World:
 
 def app(api: Api, project: Project, *panels: dict[str, Any]) -> Any:
     spec = {"version": 1, "panels": list(panels)}
-    return create(api, project, {"name": "Kinases", "spec": spec}, "core.App")
+    return create(api, project, {"name": "Kinases", "spec": spec}, "iki/core.App")
 
 
 def problems(response: Any) -> list[str]:
@@ -136,7 +137,7 @@ def test_each_expression_reads_and_says_why_not(world: World) -> None:
 def test_a_viewer_shows_one_entity(world: World) -> None:
     editor = api_as(world)
     made = create(
-        editor, world.project, {"sequence": "MKVLAAGIVG", "name": "ABL1"}, "protein.Protein"
+        editor, world.project, {"sequence": "MKVLAAGIVG", "name": "ABL1"}, "acme/protein.Protein"
     )
     abl = made.json()["hrid"]
     by_hrid = with_props(VIEWER, entity=abl)
@@ -157,8 +158,8 @@ def test_a_viewer_shows_one_entity(world: World) -> None:
 
 def test_a_grid_searches_a_type_with_its_fields(world: World) -> None:
     editor = api_as(world)
-    assert problems(app(editor, world.project, with_props(GRID, type="protein.Nope"))) == [
-        "Panel `proteins`, `type`: there’s no entity type protein.Nope."
+    assert problems(app(editor, world.project, with_props(GRID, type="acme/protein.Nope"))) == [
+        "Panel `proteins`, `type`: there’s no entity type acme/protein.Nope."
     ]
     bad = with_props(
         GRID,
@@ -167,7 +168,9 @@ def test_a_grid_searches_a_type_with_its_fields(world: World) -> None:
     )
     found = problems(app(editor, world.project, bad))
     assert found[0].startswith("Panel `proteins`, `where.all.0.field`:")
-    assert found[1] == "Panel `proteins`, `columns.0.field`: protein.Protein has no field colour."
+    assert (
+        found[1] == "Panel `proteins`, `columns.0.field`: acme/protein.Protein has no field colour."
+    )
 
 
 def test_its_ids_are_unique(world: World) -> None:
@@ -189,7 +192,7 @@ def test_its_text_is_bounded(world: World, monkeypatch: pytest.MonkeyPatch) -> N
 def test_it_checks_as_the_person_saving_it(world: World) -> None:
     """Someone who can't read an entity can't show it in an app, nor learn it exists."""
     made = create(
-        api_as(world), world.project, {"sequence": "MKV", "name": "ABL1"}, "protein.Protein"
+        api_as(world), world.project, {"sequence": "MKV", "name": "ABL1"}, "acme/protein.Protein"
     )
     abl = made.json()["hrid"]
     theirs = Project.objects.create(team=world.team, name="Theirs")
@@ -220,7 +223,11 @@ def test_how_to_write_one_and_its_example_saves(world: World) -> None:
         "iki.text": set(),
     }
     assert "{{" in guide["expressions"]
-    made = app(api_as(world), world.project, *guide["example"]["panels"])
+    # Its example searches Iki's iki/protein; here, the fixture plugin acme/protein stands in.
+    panels = json.loads(
+        json.dumps(guide["example"]["panels"]).replace("iki/protein.", "acme/protein.")
+    )
+    made = app(api_as(world), world.project, *panels)
     assert made.status_code == 201, made.content
 
 
@@ -242,16 +249,16 @@ def test_checking_one_says_every_problem_and_saves_nothing(world: World) -> None
     ]
     spec = {"version": 1, "panels": [GRID, VIEWER, TEXT]}
     assert api.post("/apps/check", {"spec": spec}).json() == {"problems": []}
-    assert not api.get("/entities", params={"type": "core.App"}).json().get("items")
+    assert not api.get("/entities", params={"type": "iki/core.App"}).json().get("items")
 
 
-ABOUT = {"type": "protein.Protein"}
+ABOUT = {"type": "acme/protein.Protein"}
 SAME_ORGANISM = {
     "id": "kin",
     "title": "From the same organism",
     "component": "iki.entities",
     "props": {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "where": {
             "all": [
                 {"field": "organism", "op": "eq", "value": "{{ entity.values.organism }}"},
@@ -270,7 +277,7 @@ ITSELF = {
 
 def about(api: Api, project: Project, *panels: dict[str, Any], name: str = "Kin") -> Any:
     spec = {"version": 1, "entity": ABOUT, "panels": list(panels)}
-    return create(api, project, {"name": name, "spec": spec}, "core.App")
+    return create(api, project, {"name": name, "spec": spec}, "iki/core.App")
 
 
 def test_an_app_about_an_entity_reads_it_and_its_grids_conditions_can_too(
@@ -288,9 +295,9 @@ def test_an_app_about_an_entity_reads_it_and_its_grids_conditions_can_too(
     texty = {"field": "name", "op": "starts_with", "value": "x{{ entity.hrid }}"}
     reads = {"field": "nope", "op": "eq", "value": "{{ entity.secret }}"}
     grid = with_props(SAME_ORGANISM, where={"any": [texty, reads]})
-    spec = {"version": 1, "entity": {"type": "protein.Nope"}, "panels": [grid]}
+    spec = {"version": 1, "entity": {"type": "acme/protein.Nope"}, "panels": [grid]}
     found = check("/apps/check", {"spec": spec}).json()["problems"]
-    assert found[0] == "`entity.type`: there’s no entity type protein.Nope."
+    assert found[0] == "`entity.type`: there’s no entity type acme/protein.Nope."
     assert found[1].startswith("Panel `kin`, `where.any.1.field`:")
     assert found[2:] == [
         "Panel `kin`, `where.any.0.value`: a condition’s value is one expression between "
@@ -319,11 +326,11 @@ def test_an_app_about_an_entity_reads_it_and_its_grids_conditions_can_too(
 def test_an_entitys_page_lists_the_apps_about_it_in_its_projects(world: World) -> None:
     """An app is a tab on the entities of its own projects, for those who can read it."""
     editor = api_as(world)
-    abl = create(editor, world.project, {"sequence": "MKV", "name": "ABL1"}, "protein.Protein")
+    abl = create(editor, world.project, {"sequence": "MKV", "name": "ABL1"}, "acme/protein.Protein")
     abl_hrid = abl.json()["hrid"]
     ours = about(editor, world.project, ITSELF, name="Variants").json()["hrid"]
-    dna = {"version": 1, "entity": {"type": "dna.DNASequence"}, "panels": [TEXT]}
-    create(editor, world.project, {"name": "Plasmid", "spec": dna}, "core.App")
+    dna = {"version": 1, "entity": {"type": "acme/dna.DNASequence"}, "panels": [TEXT]}
+    create(editor, world.project, {"name": "Plasmid", "spec": dna}, "iki/core.App")
     plain = app(editor, world.project, GRID).json()["hrid"]
     assert plain
     gone = about(editor, world.project, ITSELF, name="Old").json()["hrid"]
@@ -372,12 +379,14 @@ def test_a_projects_admins_choose_the_app_its_page_opens_with(world: World) -> N
         editor,
         world.project,
         {"name": "Atlas", "spec": {"version": 1, "panels": [NOTE]}},
-        "core.App",
+        "iki/core.App",
     ).json()["hrid"]
     tab = about(editor, world.project, ITSELF, name="Variants").json()["hrid"]
     old = app(editor, world.project, NOTE).json()["hrid"]
     Entity.objects.filter(hrid=old).update(archived_at=timezone.now())
-    protein = create(editor, world.project, {"sequence": "MKV"}, "protein.Protein").json()["hrid"]
+    protein = create(editor, world.project, {"sequence": "MKV"}, "acme/protein.Protein").json()[
+        "hrid"
+    ]
     elsewhere = Project.objects.create(team=world.team, name="Elsewhere")
     ProjectMembership.objects.create(
         project=elsewhere, user=world.users["admin"], role=ProjectRole.EDITOR
@@ -463,7 +472,7 @@ def test_a_draft_is_for_its_person_to_look_at_for_a_day(world: World) -> None:
     assert "`proteins` isn’t" in found["errors"][0]["detail"]
 
     # An app about an entity is drafted on one of its type in the project.
-    abl = create(editor, world.project, {"sequence": "MKV", "name": "ABL1"}, "protein.Protein")
+    abl = create(editor, world.project, {"sequence": "MKV", "name": "ABL1"}, "acme/protein.Protein")
     abl_hrid = abl.json()["hrid"]
     tab = {**body, "spec": {"version": 1, "entity": ABOUT, "panels": [ITSELF]}}
 
@@ -471,12 +480,14 @@ def test_a_draft_is_for_its_person_to_look_at_for_a_day(world: World) -> None:
         detail: str = problem(editor.post("/apps/drafts", payload), 409, "refused")["detail"]
         return detail
 
-    assert refused(tab) == "This app is about one protein.Protein: say which to show it on."
+    assert refused(tab) == "This app is about one acme/protein.Protein: say which to show it on."
     assert refused({**body, "entity": abl_hrid}) == (
         "This app isn’t about an entity, so it takes none."
     )
-    plasmid = create(editor, world.project, {"bases": "ACGT"}, "dna.DNASequence").json()["hrid"]
-    assert refused({**tab, "entity": plasmid}) == f"{plasmid} isn’t a protein.Protein."
+    plasmid = create(editor, world.project, {"bases": "ACGT"}, "acme/dna.DNASequence").json()[
+        "hrid"
+    ]
+    assert refused({**tab, "entity": plasmid}) == f"{plasmid} isn’t a acme/protein.Protein."
     assert refused({**tab, "entity": "PRT-999999"}) == (
         f"There’s no entity PRT-999999 in {world.project.name} that you can read."
     )

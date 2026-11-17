@@ -250,7 +250,8 @@ class ActionFilters(Schema):
     takes: list[str] = Field(
         default_factory=list,
         description="Only actions with an input that takes entities of each of these types, "
-        "such as `takes=dna.Primer`. An input takes its own type and every type that extends it.",
+        "such as `takes=iki/dna.Primer`. An input takes its own type and every type that "
+        "extends it.",
     )
 
 
@@ -265,7 +266,7 @@ def list_actions(request: HttpRequest, filters: Query[ActionFilters]) -> list[di
     ]
 
 
-@router.get("/actions/{name}", response=ActionOut, summary="An action")
+@router.get("/actions/{qualified:name}", response=ActionOut, summary="An action")
 def get_action(request: HttpRequest, name: str) -> dict[str, Any]:
     caller(request)
     return _action_out(_action(name))
@@ -986,7 +987,9 @@ def invalid_problem(error: Invalid) -> Problem:
     )
 
 
-@router.post("/actions/{name}/runs", response={201: RunOut}, summary="Run an action", tags=["runs"])
+@router.post(
+    "/actions/{qualified:name}/runs", response={201: RunOut}, summary="Run an action", tags=["runs"]
+)
 def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpResponse) -> Any:  # noqa: ANN401
     """Queue a run. Everything is checked first: your role for the action's tier, that it can
     run on this deployment, its inputs (entities you can read, of the right types, not archived,
@@ -1122,7 +1125,7 @@ _FINISHED = frozenset(s.value for s in FINISHED)
 
 
 @router.post(
-    "/actions/{name}/runs/batch",
+    "/actions/{qualified:name}/runs/batch",
     response={201: RunBatchOut},
     summary="Run an action on each of several entities",
     tags=["runs"],

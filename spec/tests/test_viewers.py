@@ -9,7 +9,7 @@ from iki_spec.validate import Result, load_plugin
 PLUGIN = """\
 apiVersion: iki/v1
 kind: Plugin
-name: acme
+name: acme/lab
 version: 1.0.0
 """
 
@@ -27,9 +27,9 @@ fields:
   map: {{ type: file, media_types: [chemical/x-mmcif, application/octet-stream] }}
   anything: {{ type: file }}
   aligned: {{ type: file, media_types: [chemical/seq-aa-fasta, text/plain] }}
-  members: {{ type: list, items: {{ type: ref, to: core.Sequence }} }}
+  members: {{ type: list, items: {{ type: ref, to: iki/core.Sequence }} }}
   names: {{ type: list, items: {{ type: string }} }}
-  plasmid: {{ type: ref, to: core.Sequence }}
+  plasmid: {{ type: ref, to: iki/core.Sequence }}
   hydropathy: {{ type: json, schema: {{ type: array, items: {{ type: [number, "null"] }} }} }}
   charge: {{ type: json, schema: {{ type: array, items: {{ type: integer }} }} }}
   labels: {{ type: json, schema: {{ type: array, items: {{ type: string }} }} }}
@@ -55,7 +55,7 @@ def test_a_sequence_viewer_names_its_sequence_and_features(tmp_path: Path) -> No
     assert result.problems == []
     plugin = result.plugin
     assert plugin is not None
-    plasmid = plugin.types["acme.Plasmid"]
+    plasmid = plugin.types["acme/lab.Plasmid"]
     assert plasmid.viewers == (
         Viewer(viewer="sequence", label="Sequence", sequence="bases", features="features"),
     )
@@ -65,7 +65,7 @@ def test_a_sequence_viewer_names_its_sequence_and_features(tmp_path: Path) -> No
 def test_a_viewer_can_name_its_tab(tmp_path: Path) -> None:
     plugin = made(tmp_path, "[{ viewer: sequence, sequence: bases, label: Map }]").plugin
     assert plugin is not None
-    assert plugin.types["acme.Plasmid"].viewers[0].label == "Map"
+    assert plugin.types["acme/lab.Plasmid"].viewers[0].label == "Map"
 
 
 def test_its_fields_must_exist_and_be_what_it_shows(tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ def test_a_structure_viewer_shows_a_file_of_structures(tmp_path: Path) -> None:
     assert result.problems == []
     plugin = result.plugin
     assert plugin is not None
-    assert plugin.types["acme.Plasmid"].viewers[1] == Viewer(
+    assert plugin.types["acme/lab.Plasmid"].viewers[1] == Viewer(
         viewer="structure", label="Structure", structure="model"
     )
     assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
@@ -128,7 +128,7 @@ def test_a_sequence_viewer_shows_tracks_of_values_along_its_residues(tmp_path: P
     assert result.problems == []
     plugin = result.plugin
     assert plugin is not None
-    assert plugin.types["acme.Plasmid"].viewers[0].tracks == (
+    assert plugin.types["acme/lab.Plasmid"].viewers[0].tracks == (
         Track(field="hydropathy"),
         Track(field="charge", label="Net charge"),
     )
@@ -164,7 +164,7 @@ def test_an_alignment_viewer_names_its_file_and_rows(tmp_path: Path) -> None:
     assert result.problems == []
     plugin = result.plugin
     assert plugin is not None
-    assert plugin.types["acme.Plasmid"].viewers == (
+    assert plugin.types["acme/lab.Plasmid"].viewers == (
         Viewer(
             viewer="alignment",
             label="Alignment",

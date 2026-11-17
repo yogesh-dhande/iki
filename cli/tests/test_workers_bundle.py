@@ -28,8 +28,8 @@ def test_pinned_packages_are_installed_by_hash_and_nothing_else(tmp_path: Path) 
     workers.write([item], tmp_path / "bundle", "/envs")
     script = (tmp_path / "bundle" / workers.SCRIPT).read_text()
     assert (
-        "uv pip install --quiet --python /envs/protein/protein-tools --require-hashes "
-        '--no-deps --requirement "$here"/plugins/protein/requirements.txt'
+        "uv pip install --quiet --python /envs/acme__protein/protein-tools --require-hashes "
+        '--no-deps --requirement "$here"/plugins/acme__protein/requirements.txt'
     ) in script
 
 
@@ -49,7 +49,7 @@ def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:
     item = _protein(tmp_path, "# nothing\n")
     workers.write([item], tmp_path / "bundle", "/opt/my envs/it's")
     script = (tmp_path / "bundle" / workers.SCRIPT).read_text()
-    assert "'/opt/my envs/it'\"'\"'s/protein/protein-tools'" in script
+    assert "'/opt/my envs/it'\"'\"'s/acme__protein/protein-tools'" in script
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")

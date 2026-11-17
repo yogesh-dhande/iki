@@ -89,7 +89,7 @@ fn in_image(environment: Option<String>, image: Option<String>) -> Result<Option
             if !crate::plugins::is_plugin_name(found.plugin()) || found.name().is_empty() {
                 return Err(
                     "IKI_WORKER_ENVIRONMENT must be plugin.environment, such as \
-                            protein.esmfold."
+                            iki/protein.esmfold."
                         .to_owned(),
                 );
             }
@@ -478,18 +478,18 @@ mod tests {
         let digest = format!("sha256:{}", "a".repeat(64));
         let image = format!("ghcr.io/acme/fold@{digest}");
         let mut pairs = BASE.to_vec();
-        pairs.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        pairs.push(("IKI_WORKER_ENVIRONMENT", "iki/protein.esmfold"));
         pairs.push(("IKI_WORKER_IMAGE", &image));
         pairs.push(("IKI_WORKER_IDLE_EXIT", "300"));
         let config = Config::from_env(&env(&pairs)).unwrap();
         let found = config.image.unwrap();
         assert_eq!(
             (found.plugin(), found.name(), found.digest()),
-            ("protein", "esmfold", digest.as_str())
+            ("iki/protein", "esmfold", digest.as_str())
         );
         assert_eq!(config.idle_exit, Some(Duration::from_secs(300)));
         let mut unpinned = BASE.to_vec();
-        unpinned.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        unpinned.push(("IKI_WORKER_ENVIRONMENT", "iki/protein.esmfold"));
         unpinned.push(("IKI_WORKER_IMAGE", "ghcr.io/acme/fold:latest"));
         assert!(
             Config::from_env(&env(&unpinned))
@@ -497,7 +497,7 @@ mod tests {
                 .contains("digest")
         );
         let mut half = BASE.to_vec();
-        half.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        half.push(("IKI_WORKER_ENVIRONMENT", "iki/protein.esmfold"));
         assert!(Config::from_env(&env(&half)).unwrap_err().contains("both"));
     }
 
@@ -522,7 +522,7 @@ mod tests {
                 .contains("every job")
         );
         let image = format!("ghcr.io/acme/fold@sha256:{}", "a".repeat(64));
-        inside.push(("IKI_WORKER_ENVIRONMENT", "protein.esmfold"));
+        inside.push(("IKI_WORKER_ENVIRONMENT", "iki/protein.esmfold"));
         inside.push(("IKI_WORKER_IMAGE", &image));
         assert!(Config::from_env(&env(&inside)).is_ok());
         for odd in ["scratch", "/"] {

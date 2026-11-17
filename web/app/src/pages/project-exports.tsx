@@ -55,7 +55,7 @@ function collectionsQuery(projectId: string) {
         await iki.POST("/api/v1/entities/search", {
           body: {
             project: projectId,
-            type: "core.Collection",
+            type: "iki/core.Collection",
             exact_type: true,
             archived: false,
             limit: 100,

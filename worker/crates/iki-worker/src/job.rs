@@ -790,7 +790,7 @@ pub fn run(
                 .plugins_dir
                 .as_deref()
                 .unwrap_or(&config.cache_dir)
-                .join(name)
+                .join(crate::plugins::label(name))
         },
         Path::to_path_buf,
     );
@@ -1437,15 +1437,15 @@ mod tests {
             "apiVersion": "iki/v1",
             "kind": "RunInput",
             "run": {
-                "id": "r", "hrid": "RUN-1", "attempt": 1, "action": "dna.gc",
-                "plugin": {"name": "dna", "version": "1.0.0", "sha": null}, "project": "p",
+                "id": "r", "hrid": "RUN-1", "attempt": 1, "action": "iki/dna.gc",
+                "plugin": {"name": "iki/dna", "version": "1.0.0", "sha": null}, "project": "p",
             },
             "job": {
                 "id": "j", "lease_token": "t", "lease_expires_at": "", "heartbeat_every": 20,
                 "timeout": 60, "resources": {},
             },
             "command": command,
-            "environment": "dna.tools",
+            "environment": "iki/dna.tools",
             "params": {},
             "inputs": {},
         }))
@@ -1568,7 +1568,7 @@ mod tests {
         let venv = Built {
             digest: "sha256:x".into(),
             kind: Kind::Python,
-            prefix: "/opt/iki/envs/dna/tools".into(),
+            prefix: "/opt/iki/envs/iki__dna/tools".into(),
         };
         let plan = Plan {
             input: &input,
@@ -1584,8 +1584,8 @@ mod tests {
         let env: std::collections::HashMap<_, _> = environment(&dirs, &input, Some(&venv))
             .into_iter()
             .collect();
-        assert!(env["PATH"].starts_with("/opt/iki/envs/dna/tools/bin:"));
-        assert_eq!(env["VIRTUAL_ENV"], "/opt/iki/envs/dna/tools");
+        assert!(env["PATH"].starts_with("/opt/iki/envs/iki__dna/tools/bin:"));
+        assert_eq!(env["VIRTUAL_ENV"], "/opt/iki/envs/iki__dna/tools");
 
         let conda = Built {
             kind: Kind::Conda,
@@ -1602,7 +1602,7 @@ mod tests {
             [
                 "run",
                 "--prefix",
-                "/opt/iki/envs/dna/tools",
+                "/opt/iki/envs/iki__dna/tools",
                 "python",
                 "gc.py"
             ]

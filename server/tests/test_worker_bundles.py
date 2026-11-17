@@ -46,15 +46,15 @@ def installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]
     out = tmp_path / "bundles"
     out.mkdir()
     entry = {
-        "name": "protein",
+        "name": "acme/protein",
         "version": loaded.plugin.version,
         "sha": SHA,
         "state": "active",
-        "bundle": bundles.bundle(directory, out / f"protein-{SHA}.tar.gz"),
+        "bundle": bundles.bundle(directory, out / f"acme__protein-{SHA}.tar.gz"),
         "environments": bundles.environments(loaded.plugin, directory),
     }
     # dna comes from a local directory here: nothing to fetch.
-    record = {"plugins": [entry, {"name": "dna", "version": "1.0.0", "local": "x"}]}
+    record = {"plugins": [entry, {"name": "acme/dna", "version": "1.0.0", "local": "x"}]}
     monkeypatch.setattr(registry, "installed", lambda: record)
     monkeypatch.setattr(registry, "bundles", lambda: out)
     return entry
@@ -73,7 +73,7 @@ def test_workers_see_which_plugins_to_fetch(world: World, installed: dict[str, A
     listed = pod(world).call("GET", "/plugins")
     assert listed.status_code == 200, listed.content
     plugins = listed.json()["plugins"]
-    assert [p["name"] for p in plugins] == ["protein"]
+    assert [p["name"] for p in plugins] == ["acme/protein"]
     assert plugins[0]["sha"] == SHA
     assert plugins[0]["bundle"] == installed["bundle"]
     tools = plugins[0]["environments"]["protein-tools"]
@@ -84,7 +84,7 @@ def test_workers_see_which_plugins_to_fetch(world: World, installed: dict[str, A
 def test_workers_download_a_plugins_code(
     world: World, installed: dict[str, Any], tmp_path: Path
 ) -> None:
-    got = pod(world).call("GET", f"/plugins/protein/{SHA}")
+    got = pod(world).call("GET", f"/plugins/acme/protein/{SHA}")
     assert got.status_code == 200
     assert got["Content-Type"] == "application/gzip"
     body = b"".join(got.streaming_content)
@@ -103,7 +103,7 @@ def test_served_over_asgi_a_download_streams_without_blocking(
 
     async def download() -> tuple[Any, bytes]:
         got: Any = await AsyncClient().get(
-            f"/worker/v1/plugins/protein/{SHA}",
+            f"/worker/v1/plugins/acme/protein/{SHA}",
             secure=True,
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -118,7 +118,11 @@ def test_served_over_asgi_a_download_streams_without_blocking(
 
 @pytest.mark.parametrize(
     "path",
-    [f"/plugins/protein/{'d' * 40}", f"/plugins/dna/{SHA}", "/plugins/protein/..%2f..%2fetc"],
+    [
+        f"/plugins/acme/protein/{'d' * 40}",
+        f"/plugins/acme/dna/{SHA}",
+        "/plugins/acme/protein/..%2f..%2fetc",
+    ],
 )
 def test_only_what_the_build_installs_is_downloaded(
     world: World, installed: dict[str, Any], path: str
@@ -127,7 +131,7 @@ def test_only_what_the_build_installs_is_downloaded(
 
 
 def test_only_workers_see_or_download_plugin_code(world: World, installed: dict[str, Any]) -> None:
-    for path in ("/plugins", f"/plugins/protein/{SHA}"):
+    for path in ("/plugins", f"/plugins/acme/protein/{SHA}"):
         problem(WorkerClient("iki_wkr_nope").call("GET", path), 401, "not_authenticated")
 
 
@@ -138,7 +142,7 @@ def test_a_worker_that_fetched_the_code_runs_what_was_launched_with_it(
     assert ActionRun.objects.get(pk=run["id"]).plugin_sha == SHA
     digest = installed["environments"]["protein-tools"]["digest"]
     fetched = pod(
-        world, [{"name": "protein", "sha": SHA, "environments": {"protein-tools": digest}}]
+        world, [{"name": "acme/protein", "sha": SHA, "environments": {"protein-tools": digest}}]
     )
     leased = fetched.lease()
     assert leased.status_code == 200, leased.content
@@ -160,7 +164,7 @@ def test_a_worker_with_a_local_directorys_code_leases_only_while_its_still_insta
     monkeypatch.setattr(registry, "installed", lambda: record)
     queued(world)
     digest = installed["environments"]["protein-tools"]["digest"]
-    code = {"name": "protein", "sha": None, "environments": {"protein-tools": digest}}
+    code = {"name": "acme/protein", "sha": None, "environments": {"protein-tools": digest}}
     stale = pod(world, [{**code, "bundle": "0" * 64}])
     assert stale.lease().status_code == 204
     current = pod(world, [{**code, "bundle": installed["bundle"]["sha256"]}])

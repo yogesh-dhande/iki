@@ -11,7 +11,7 @@ description: >-
   scFv's chain has two domains, a heavy and a light one. A protein without one
   is left as it was, and the run says so.
 inputs:
-  protein: { type: protein.Protein, schema: ">=2", label: Chain }
+  protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
 params:
   scheme:
     type: enum

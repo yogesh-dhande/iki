@@ -95,13 +95,13 @@ def test_a_notebook_signs_in_and_works_with_entities(
 
     project = world.project.slug
     made = iki.entities.create(
-        "protein.Protein",
+        "acme/protein.Protein",
         {"name": "ABL1", "sequence": "MKVLEICLK"},
         project=project,
         reason="From the paper's table 2",
     )
     assert made["hrid"].startswith("PRT-")
-    found = iki.entities.search("protein.Protein", project=project, q="ABL1")
+    found = iki.entities.search("acme/protein.Protein", project=project, q="ABL1")
     assert [e["hrid"] for e in found] == [made["hrid"]]
     table = found.to_pandas()
     assert list(table.index) == [made["hrid"]]
@@ -140,9 +140,9 @@ def test_a_notebook_runs_an_action_and_waits_for_it(
 ) -> None:
     signed_in(world, server, sdk, monkeypatch)
     project = world.project.slug
-    abl = iki.entities.create("protein.Protein", {"sequence": "MKVLEICLK"}, project=project)
+    abl = iki.entities.create("acme/protein.Protein", {"sequence": "MKVLEICLK"}, project=project)
     run = iki.run(
-        "protein.compute_properties",
+        "acme/protein.compute_properties",
         project=project,
         inputs={"protein": abl["hrid"]},
         reason="Weights for the summary table",

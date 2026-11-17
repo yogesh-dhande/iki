@@ -2,7 +2,7 @@
 
 Its manifests are in ``iki_spec/core``, written and checked like any
 plugin's. Deployments don't list it in ``plugins.lock.yaml``, and other
-plugins use its types, such as ``core.Entity``, without declaring a
+plugins use its types, such as ``iki/core.Entity``, without declaring a
 dependency. Its version is Iki's.
 """
 

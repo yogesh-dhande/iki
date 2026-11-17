@@ -1,6 +1,6 @@
 """The dna plugin's alignment of reads to a reference: trace, FASTQ and FASTA files, read
 by their first bytes, trimmed, aligned on the better strand and round a circular
-reference's origin, into a core.Alignment, with where they cover it and every
+reference's origin, into an iki/core.Alignment, with where they cover it and every
 difference from it."""
 
 import importlib.util
@@ -166,7 +166,7 @@ def test_a_trace_is_trimmed_aligned_and_its_difference_named(tmp_path: Path) -> 
 
     assert output is not None, result.stdout
     (created,) = output["creates"]
-    assert created["type"] == "core.Alignment"
+    assert created["type"] == "iki/core.Alignment"
     values = created["values"]
     assert values["reference"] == values["members"][0] == created["derived_from"][0]
     assert values["name"] == "1 read on pTEST"

@@ -15,7 +15,7 @@ inputs:
   antibody: { type: Antibody, schema: ">=1", include: [heavy_chain, light_chain] }
 effects:
   creates:
-    - type: protein.ProteinStructure
+    - type: iki/protein.ProteinStructure
       cardinality: one
       derived_from: [antibody]
 software:

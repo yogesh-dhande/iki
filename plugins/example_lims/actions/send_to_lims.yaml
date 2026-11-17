@@ -8,7 +8,7 @@ description: >-
   wrote (`sent.json`) with the run. Iki changes nothing; proteins without a
   LIMS record are skipped.
 inputs:
-  proteins: { type: protein.Protein, cardinality: many }
+  proteins: { type: iki/protein.Protein, cardinality: many }
 runs_on: { tier: backend, environment: lims-tools }
 command: [python, ./scripts/send.py]
 network: ["{settings.lims_host}"]

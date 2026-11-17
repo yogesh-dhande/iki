@@ -146,7 +146,7 @@ def test_a_genbank_record_keeps_its_names_features_and_where_it_came_from(
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
     first, second = output["creates"]
-    assert first["type"] == "dna.DNASequence"
+    assert first["type"] == "iki/dna.DNASequence"
     values = first["values"]
     assert values == {
         "name": "pDemo",

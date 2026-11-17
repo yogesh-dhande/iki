@@ -63,17 +63,24 @@
       "pattern": "^[A-Z][A-Za-z0-9]*$"
     },
     "pluginName": {
-      "description": "Lower-case letters, digits and single underscores, starting with a letter.",
+      "description": "A plugin's name: `namespace/name`, such as `iki/protein` or `acme/assays`. The namespace is the lab's or company's, and `iki` is Iki's own. Each part is 2 to 30 lower-case letters, digits and single underscores, starting with a letter.",
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 61,
+      "pattern": "^(?=[a-z0-9_]{2,30}/[a-z0-9_]{2,30}$)[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+    },
+    "pluginRef": {
+      "description": "A plugin, by its name (`iki/protein`). A name without its namespace (`protein`) is read only to say what to write instead.",
       "type": "string",
       "minLength": 2,
-      "maxLength": 30,
-      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+      "maxLength": 61,
+      "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*/)?[a-z][a-z0-9]*(_[a-z0-9]+)*$"
     },
     "typeRef": {
-      "description": "An entity type: `plugin.Type`, or just `Type` for one in the same plugin.",
+      "description": "An entity type: `namespace/plugin.Type` (such as `iki/protein.Protein`), or just `Type` for one in the same plugin.",
       "type": "string",
-      "maxLength": 81,
-      "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*\\.)?[A-Z][A-Za-z0-9]*$"
+      "maxLength": 112,
+      "pattern": "^([a-z][a-z0-9]*(_[a-z0-9]+)*(/[a-z][a-z0-9]*(_[a-z0-9]+)*)?\\.)?[A-Z][A-Za-z0-9]*$"
     },
     "label": {
       "description": "What people see. Defaults to the name, with underscores as spaces.",
@@ -181,7 +188,7 @@
           "pattern": "^[1-9][0-9]*(B|KiB|MiB|GiB|TiB|kB|MB|GB|TB)$"
         },
         "to": {
-          "description": "The type of entity this refers to. `core.Entity` accepts any entity.",
+          "description": "The type of entity this refers to. `iki/core.Entity` accepts any entity.",
           "$ref": "#/$defs/typeRef"
         },
         "items": {

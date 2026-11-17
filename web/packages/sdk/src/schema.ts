@@ -2913,7 +2913,7 @@ export interface components {
         ActionFilters: {
             /**
              * Takes
-             * @description Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it.
+             * @description Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it.
              */
             takes?: string[];
         };
@@ -3224,7 +3224,7 @@ export interface components {
             };
             /**
              * Type
-             * @description The entity type an app is: core.App.
+             * @description The entity type an app is: iki/core.App.
              */
             type: string;
         };
@@ -4392,7 +4392,7 @@ export interface components {
             reason: string;
             /**
              * Type
-             * @description Qualified, such as dna.DNASequence.
+             * @description Qualified, such as iki/dna.DNASequence.
              */
             type: string;
             /** Values */
@@ -5698,7 +5698,7 @@ export interface components {
             project?: string | null;
             /**
              * Type
-             * @description The entity type, such as `protein.Protein`; subtypes count.
+             * @description The entity type, such as `iki/protein.Protein`; subtypes count.
              */
             type: string;
             /** Value */
@@ -9762,7 +9762,7 @@ export interface operations {
     iki_server_api_runs_list_actions: {
         parameters: {
             query?: {
-                /** @description Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it. */
+                /** @description Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it. */
                 takes?: string[];
             };
             header?: never;
@@ -10822,7 +10822,7 @@ export interface operations {
     iki_server_api_entities_lookup_entities: {
         parameters: {
             query: {
-                /** @description The entity type, such as `protein.Protein`; subtypes count. */
+                /** @description The entity type, such as `iki/protein.Protein`; subtypes count. */
                 type: string;
                 /** @description One of the type's unique fields, such as `lims_id`. */
                 field: string;

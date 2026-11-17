@@ -21,7 +21,7 @@ from iki_server.entities.models import Entity, ProjectDashboard
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 
-APP = "core.App"
+APP = "iki/core.App"
 
 
 def _apps(user: User, project: Project) -> QuerySet[Entity]:

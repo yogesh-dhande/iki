@@ -24,7 +24,7 @@ pytestmark = pytest.mark.django_db
 
 __all__ = ["keep_connection", "world"]  # the fixtures, used here too
 
-IMPORT = "protein.import_proteins"
+IMPORT = "acme/protein.import_proteins"
 SHA = "a" * 64
 
 
@@ -186,7 +186,7 @@ def imported(world: World, *created: dict[str, Any]) -> tuple[dict[str, Any], di
 
 
 def test_imported_entities_keep_where_they_came_from(world: World) -> None:
-    sequence = {"type": "protein.Protein", "values": {"name": "ABL1", "sequence": "MKVLEIC"}}
+    sequence = {"type": "acme/protein.Protein", "values": {"name": "ABL1", "sequence": "MKVLEIC"}}
     run, answer = imported(world, sequence)
     assert answer["run_status"] == "succeeded", answer
     body = api_as(world).get(f"/runs/{run['id']}").json()
@@ -220,7 +220,7 @@ def test_imported_entities_keep_where_they_came_from(world: World) -> None:
 
 def test_a_database_record_keeps_its_version_link_and_when_it_was_fetched(world: World) -> None:
     fetched = {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "values": {"name": "P00519", "sequence": "MLEIC"},
         "origin": {
             "source": "UniProtKB",
@@ -259,7 +259,7 @@ def test_an_origin_must_be_when_and_what_the_run_was_given(
     world: World, given: dict[str, Any], pointer: str, detail: str
 ) -> None:
     sequence = {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "values": {"name": "ABL1", "sequence": "MKV"},
         "origin": given,
     }
@@ -270,7 +270,7 @@ def test_an_origin_must_be_when_and_what_the_run_was_given(
 
 
 def test_origins_dont_show_runs_or_files_the_reader_cant(world: World) -> None:
-    sequence = {"type": "protein.Protein", "values": {"name": "ABL1", "sequence": "MKVL"}}
+    sequence = {"type": "acme/protein.Protein", "values": {"name": "ABL1", "sequence": "MKVL"}}
     run, _ = imported(world, sequence)
     entity = ActionRun.objects.get(pk=run["id"]).effects.get().entity
     # Shared into a project the run isn't in, it's read by someone who can't see the run.
@@ -317,7 +317,7 @@ def test_an_import_may_attach_the_file_it_was_given(world: World) -> None:
     file_id = stored(world, "1abc.pdb")
     stored_run = ActionRun.objects.get(pk=run["id"])
     stored_run.spec["creates"].append(
-        {"type": "protein.ProteinStructure", "cardinality": "many", "derived_from": []}
+        {"type": "acme/protein.ProteinStructure", "cardinality": "many", "derived_from": []}
     )
     ActionRun.objects.filter(pk=stored_run.pk).update(
         spec=stored_run.spec, params={"file": file_id}
@@ -325,14 +325,14 @@ def test_an_import_may_attach_the_file_it_was_given(world: World) -> None:
     pod = worker(world)
     job = pod.lease().json()
     structure = {
-        "type": "protein.ProteinStructure",
+        "type": "acme/protein.ProteinStructure",
         "key": "s",
         "values": {"structure": file_id, "method": "xray", "chains": [{"$create": "a"}]},
     }
-    chain = {"type": "protein.Protein", "key": "a", "values": {"sequence": "MKVW"}}
+    chain = {"type": "acme/protein.Protein", "key": "a", "values": {"sequence": "MKVW"}}
     body = done(pod, job, output(creates=[chain, structure]))
     assert body["run_status"] == "succeeded", body
-    made = Entity.objects.get(type="protein.ProteinStructure")
+    made = Entity.objects.get(type="acme/protein.ProteinStructure")
     values = api_as(world, "editor").get(f"/entities/{made.pk}").json()["values"]
     assert values["structure"] == file_id
 
@@ -342,7 +342,7 @@ def test_an_import_may_attach_the_file_it_was_given(world: World) -> None:
 
 def lims(name: str, sequence: str = "MKVLEIC", lims_id: str = "LIMS-1", **values: Any) -> Any:
     return {
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "values": {"name": name, "sequence": sequence, "lims_id": lims_id, **values},
         "origin": {"id": lims_id},
     }
@@ -362,7 +362,7 @@ def test_a_record_that_comes_again_updates_its_entity(world: World) -> None:
         "ABL1 kinase",
         "Homo sapiens",
     )
-    assert Entity.objects.filter(type="protein.Protein").count() == 1
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == 1
     revisions = api_as(world).get(f"/entities/{made['hrid']}/revisions").json()["items"]
     assert (revisions[0]["number"], revisions[0]["via"]) == (2, "run")
     later, first = api_as(world).get(f"/entities/{made['hrid']}/origins").json()
@@ -378,7 +378,7 @@ def test_only_the_runs_projects_own_entity_is_matched(world: World) -> None:
     other = Project.objects.create(team=world.team, name="Enzymes")
     elsewhere = services.create(
         world.users["admin"],
-        "protein.Protein",
+        "acme/protein.Protein",
         other,
         {"name": "Theirs", "sequence": "MKKK", "lims_id": "LIMS-1"},
     ).entity
@@ -392,7 +392,7 @@ def test_only_the_runs_projects_own_entity_is_matched(world: World) -> None:
 def test_a_record_claims_the_same_entity_without_one(world: World) -> None:
     # Registered before the LIMS knew it: the same sequence, with no lims_id yet.
     before = services.create(
-        world.users["editor"], "protein.Protein", world.project, {"sequence": "MKVLEIC"}
+        world.users["editor"], "acme/protein.Protein", world.project, {"sequence": "MKVLEIC"}
     ).entity
     run, answer = imported(world, lims("ABL1"))
     assert answer["run_status"] == "succeeded", answer
@@ -404,7 +404,7 @@ def test_a_record_claims_the_same_entity_without_one(world: World) -> None:
     again, answer = imported(world, lims("ABL1"))
     (effect,) = api_as(world).get(f"/runs/{again['id']}").json()["effects"]
     assert (effect["hrid"], effect["kind"]) == (hrid, "reused")
-    assert Entity.objects.filter(type="protein.Protein").count() == 1
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == 1
 
 
 def test_two_records_cant_be_one_entity(world: World) -> None:

@@ -1,6 +1,6 @@
 # Anything with a sequence of residues: DNA, RNA, proteins. Plugins add the
-# concrete types (dna.DNASequence, protein.Protein), each with its residues,
-# so searching core.Sequence finds every kind at once.
+# concrete types (iki/dna.DNASequence, iki/protein.Protein), each with its residues,
+# so searching iki/core.Sequence finds every kind at once.
 apiVersion: iki/v1
 kind: EntityType
 name: Sequence

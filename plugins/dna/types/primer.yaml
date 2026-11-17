@@ -4,7 +4,7 @@ kind: EntityType
 name: Primer
 label: Primer
 label_plural: Primers
-extends: core.Sequence
+extends: iki/core.Sequence
 schema_version: 1
 description: >-
   An oligonucleotide primer. Two with the same bases are the same primer, so

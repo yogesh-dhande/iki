@@ -9,8 +9,8 @@
     "apiVersion": { "const": "iki/v1" },
     "kind": { "const": "Plugin" },
     "name": {
-      "description": "The plugin's name. Its types are `name.Type`, and its tables start with `name_`.",
-      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName"
+      "description": "The plugin's name, as `namespace/name`: your lab's or company's namespace, such as `acme/assays`. Its types are `acme/assays.Type`, and its tables start with `acme__assays_`. The `iki` namespace is Iki's own.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef"
     },
     "version": {
       "description": "The plugin's release, as a semantic version such as `1.4.0`. Deployments pin the git commit; this is for people.",
@@ -38,9 +38,9 @@
       "pattern": "^\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\.[0-9]+){0,2}(\\s*,\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\.[0-9]+){0,2})*\\s*$"
     },
     "dependencies": {
-      "description": "Other plugins this one uses, by name, with the schema versions of their types it works with.",
+      "description": "Other plugins this one uses, by name (such as `iki/protein`), with the schema versions of their types it works with.",
       "type": "object",
-      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginName" },
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef" },
       "additionalProperties": {
         "type": "object",
         "properties": {

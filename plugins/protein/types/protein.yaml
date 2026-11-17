@@ -4,7 +4,7 @@ kind: EntityType
 name: Protein
 label: Protein
 label_plural: Proteins
-extends: core.Sequence
+extends: iki/core.Sequence
 schema_version: 2
 description: >-
   A protein, by its amino acid sequence. Two with the same sequence are the same
@@ -93,7 +93,7 @@ fields:
     description: The gene that encodes it, such as HBA1.
   encoded_by:
     type: ref
-    to: dna.DNASequence
+    to: iki/dna.DNASequence
     description: The DNA sequence it was translated from.
 display:
   title: "{{ name or uniprot_accession or hrid }}"

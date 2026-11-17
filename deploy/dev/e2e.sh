@@ -124,7 +124,7 @@ pass "only task runners reach webhook receivers"
 tasks_probe seaweedfs 8333 || fail "task runners cannot reach object storage (SeaweedFS)"
 pass "task runners reach object storage"
 worker_python() { # runs Python in a worker pod, as a run's command would
-  kc exec deploy/iki-worker -c worker -- /opt/iki/envs/dna/sequence-tools/bin/python -I -c "$1" 2>/dev/null
+  kc exec deploy/iki-worker -c worker -- /opt/iki/envs/iki__dna/sequence-tools/bin/python -I -c "$1" 2>/dev/null
 }
 if worker_python "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(s.connect_ex(('1.1.1.1', 443)))"; then
   fail "a worker pod reached the internet directly; runs go through the egress proxy"

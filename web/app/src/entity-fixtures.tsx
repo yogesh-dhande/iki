@@ -36,7 +36,7 @@ export type Field = Schemas["FieldOut"];
 export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" | "type">): Field {
   return {
     description: null,
-    plugin: "protein",
+    plugin: "iki/protein",
     required: false,
     immutable: false,
     computed: false,
@@ -58,8 +58,8 @@ export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" |
 }
 
 export const PROTEIN: Schemas["EntityTypeOut"] = {
-  name: "protein.Protein",
-  plugin: "protein",
+  name: "iki/protein.Protein",
+  plugin: "iki/protein",
   label: "Protein",
   label_plural: "Proteins",
   description: "A protein sequence.",
@@ -92,7 +92,7 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
 
 export const STRUCTURE: Schemas["EntityTypeOut"] = {
   ...PROTEIN,
-  name: "protein.ProteinStructure",
+  name: "iki/protein.ProteinStructure",
   label: "Protein structure",
   label_plural: "Protein structures",
   description: null,
@@ -108,14 +108,20 @@ export const STRUCTURE: Schemas["EntityTypeOut"] = {
       unit: "Ao",
       unit_symbol: "Å",
     }),
-    field({ name: "chains", label: "Chains", type: "list", items: "ref", to: "protein.Protein" }),
+    field({
+      name: "chains",
+      label: "Chains",
+      type: "list",
+      items: "ref",
+      to: "iki/protein.Protein",
+    }),
   ],
 };
 
 export const COLLECTION_TYPE: Schemas["EntityTypeOut"] = {
   ...PROTEIN,
-  name: "core.Collection",
-  plugin: "core",
+  name: "iki/core.Collection",
+  plugin: "iki/core",
   label: "Collection",
   label_plural: "Collections",
   description: "A named set of entities, listed one by one or found by a search.",
@@ -123,17 +129,17 @@ export const COLLECTION_TYPE: Schemas["EntityTypeOut"] = {
   identity: [],
   on_duplicate: null,
   fields: [
-    field({ name: "name", label: "Name", type: "string", required: true, plugin: "core" }),
-    field({ name: "description", label: "Description", type: "text", plugin: "core" }),
+    field({ name: "name", label: "Name", type: "string", required: true, plugin: "iki/core" }),
+    field({ name: "description", label: "Description", type: "text", plugin: "iki/core" }),
     field({
       name: "members",
       label: "Members",
       type: "list",
       items: "ref",
-      to: "core.Entity",
-      plugin: "core",
+      to: "iki/core.Entity",
+      plugin: "iki/core",
     }),
-    field({ name: "search", label: "Search", type: "json", plugin: "core" }),
+    field({ name: "search", label: "Search", type: "json", plugin: "iki/core" }),
   ],
 };
 
@@ -160,7 +166,7 @@ export function entity(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["
     id: PROTEIN_ID,
     hrid,
     title: typeof values["name"] === "string" ? values["name"] : hrid,
-    type: "protein.Protein",
+    type: "iki/protein.Protein",
     revision: 2,
     owner_project: { id: KINASE.id, name: KINASE.name, slug: KINASE.slug },
     created_by: ALICE,

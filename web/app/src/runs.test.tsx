@@ -191,7 +191,7 @@ describe("a run's page", () => {
     const [ph] = ACTION.params as [Schemas["ParamOut"]];
     const IMPORT = {
       ...ACTION,
-      name: "protein.import_proteins",
+      name: "iki/protein.import_proteins",
       inputs: [],
       params: [
         { ...ph, name: "file", label: "FASTA file", type: "file" as const },
@@ -297,7 +297,7 @@ describe("a run's page", () => {
     const at = "2026-03-14T09:00:10Z";
     const reached = { port: 443, first_at: at, last_at: at };
     onRun(
-      () => run({ action: "protein.fetch_proteins", network: ["rest.uniprot.org"] }),
+      () => run({ action: "iki/protein.fetch_proteins", network: ["rest.uniprot.org"] }),
       () => [
         attempt({
           secrets: ["UNIPROT_TOKEN"],
@@ -313,7 +313,7 @@ describe("a run's page", () => {
             {
               ...reached,
               host: "www.uniprot.org",
-              refused: "protein.fetch_proteins doesn't declare www.uniprot.org.",
+              refused: "iki/protein.fetch_proteins doesn't declare www.uniprot.org.",
               connections: 1,
               bytes_sent: 0,
               bytes_received: 0,
@@ -338,7 +338,7 @@ describe("a run's page", () => {
       "rest.uniprot.org · 2 connections, 3.0 MiB received, 1.0 KiB sent",
     );
     expect(refused).toHaveTextContent(
-      "www.uniprot.org · refused: protein.fetch_proteins doesn't declare www.uniprot.org.",
+      "www.uniprot.org · refused: iki/protein.fetch_proteins doesn't declare www.uniprot.org.",
     );
   });
 
@@ -456,7 +456,7 @@ describe("a run's page", () => {
         {
           entity: "00000000-0000-7000-8000-00000000e001",
           hrid: "PRT-000001",
-          type: "protein.Protein",
+          type: "iki/protein.Protein",
           kind: "updated",
           revision: 3,
         },
@@ -489,7 +489,7 @@ describe("a run's page", () => {
     const effect = (n: number): Schemas["EffectOut"] => ({
       entity: `00000000-0000-7000-8000-${String(n).padStart(12, "0")}`,
       hrid: `PRT-${String(n).padStart(6, "0")}`,
-      type: "protein.Protein",
+      type: "iki/protein.Protein",
       kind: "created",
       revision: 1,
     });
@@ -1093,7 +1093,7 @@ describe("a run's page", () => {
 
     it("says when a trigger asked, for the Admin who turned it on", async () => {
       const trigger = {
-        name: "protein.relax_new_structures",
+        name: "iki/protein.relax_new_structures",
         label: "Relax new structures",
         event: "entity.created" as const,
         entity: "00000000-0000-7000-8000-0000000000e1",
@@ -1135,7 +1135,7 @@ describe("a run's page", () => {
       const robot = { id: "00000000-0000-7000-8000-0000000000b7", name: "Nightly robot" };
       const admin = { id: "00000000-0000-7000-8000-00000000a11c", name: "Alice Admin" };
       const trigger = {
-        name: "protein.fetch_hemoglobin_nightly",
+        name: "iki/protein.fetch_hemoglobin_nightly",
         label: "Fetch hemoglobin nightly",
         event: "schedule" as const,
         entity: null,
@@ -1204,7 +1204,7 @@ describe("an entity's provenance", () => {
         number: 3,
         kind: "edited",
         via: "run",
-        run: { id: RUN_ID, hrid: "RUN-000001", action: "protein.compute_properties" },
+        run: { id: RUN_ID, hrid: "RUN-000001", action: "iki/protein.compute_properties" },
       }),
       name: revision({ via: "run", run: null }),
     });

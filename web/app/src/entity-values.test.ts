@@ -123,12 +123,17 @@ describe("drafts from values", () => {
   });
 
   it("names references by their title", () => {
-    const source = field({ name: "source", label: "Source", type: "ref", to: "protein.Protein" });
+    const source = field({
+      name: "source",
+      label: "Source",
+      type: "ref",
+      to: "iki/protein.Protein",
+    });
     const refs = {
       e1: {
         hrid: "PRT-000001",
         title: "ABL1 kinase",
-        type: "protein.Protein",
+        type: "iki/protein.Protein",
         archived: false,
         purged: false,
       },

@@ -1712,7 +1712,7 @@ class ImportLine(models.Model):
     line = models.BigIntegerField()
     #: The new entity's ID, if it's new.
     entity_id = models.UUIDField()
-    type = models.CharField(max_length=81)
+    type = models.CharField(max_length=112)
     identity_hash = models.CharField(max_length=64, null=True)
     #: Each table's values, by table then field: {"protein_protein": {"sequence": …}}.
     parts = models.JSONField()

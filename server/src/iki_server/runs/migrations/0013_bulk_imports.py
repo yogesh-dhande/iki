@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
                 ("round", models.PositiveSmallIntegerField()),
                 ("line", models.BigIntegerField()),
                 ("entity_id", models.UUIDField()),
-                ("type", models.CharField(max_length=81)),
+                ("type", models.CharField(max_length=112)),
                 ("identity_hash", models.CharField(max_length=64, null=True)),
                 ("parts", models.JSONField()),
                 (

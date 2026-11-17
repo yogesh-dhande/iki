@@ -167,7 +167,8 @@ fn fetch(api: &Api, cache: &Path, plugin: &AvailableOut, local: bool) -> Result<
     if !crate::plugins::is_plugin_name(&plugin.name) || !named {
         return Err("the server named it oddly".to_owned());
     }
-    let dir = cache.join("plugins").join(&plugin.name).join(&plugin.sha);
+    let label = crate::plugins::label(&plugin.name);
+    let dir = cache.join("plugins").join(&label).join(&plugin.sha);
     if dir.join(DONE).is_file() {
         return Ok(dir);
     }
@@ -177,7 +178,7 @@ fn fetch(api: &Api, cache: &Path, plugin: &AvailableOut, local: bool) -> Result<
         .ok_or("its bundle is too big")?;
     let downloads = cache.join("downloads");
     std::fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
-    let packed = downloads.join(format!("{}-{}.tar.gz", plugin.name, plugin.sha));
+    let packed = downloads.join(format!("{label}-{}.tar.gz", plugin.sha));
     let path = fill(paths::PLUGINS_NAME_SHA, &[&plugin.name, &plugin.sha]);
     let body = api.download(&path).map_err(|e| e.to_string())?;
     let got = save(body, &packed, size);
@@ -450,7 +451,7 @@ fn build(
     }
     let prefix = cache
         .join("envs")
-        .join(plugin)
+        .join(crate::plugins::label(plugin))
         .join(env)
         .join(&hex_digest[..16]);
     let (kind, definition, file) = match wanted.kind {
@@ -587,31 +588,31 @@ mod tests {
     #[test]
     fn notices_when_a_plugins_code_changed_since_it_was_listed() {
         let was = [
-            available("example", "local", "aa", 10),
-            available("dna", "b".repeat(40).as_str(), "cc", 20),
+            available("acme/example", "local", "aa", 10),
+            available("iki/dna", "b".repeat(40).as_str(), "cc", 20),
         ];
         // Another plugin's change, or a new environment build, isn't this one's.
         let mut other = was.to_vec();
         other[1].sha = "d".repeat(40);
         other[0].version = "1.0.1".to_owned();
-        assert!(!code_changed(&was, &other, "example"));
+        assert!(!code_changed(&was, &other, "acme/example"));
         // A local directory edited: same name, another bundle.
-        let edited = [available("example", "local", "ab", 11), was[1].clone()];
-        assert!(code_changed(&was, &edited, "example"));
+        let edited = [available("acme/example", "local", "ab", 11), was[1].clone()];
+        assert!(code_changed(&was, &edited, "acme/example"));
         // Upgraded to another commit, or no longer installed.
-        assert!(code_changed(&was, &other, "dna"));
-        assert!(code_changed(&was, &was[..1], "dna"));
+        assert!(code_changed(&was, &other, "iki/dna"));
+        assert!(code_changed(&was, &was[..1], "iki/dna"));
     }
 
     #[test]
     fn knows_a_local_directorys_code_from_a_commits() {
         let listed = [
-            available("example", "local", "aa", 10),
-            available("dna", "b".repeat(40).as_str(), "cc", 20),
+            available("acme/example", "local", "aa", 10),
+            available("iki/dna", "b".repeat(40).as_str(), "cc", 20),
         ];
-        assert!(is_local(&listed, "example"));
-        assert!(!is_local(&listed, "dna"));
-        assert!(!is_local(&listed, "protein"));
+        assert!(is_local(&listed, "acme/example"));
+        assert!(!is_local(&listed, "iki/dna"));
+        assert!(!is_local(&listed, "iki/protein"));
     }
 
     #[test]
@@ -664,13 +665,13 @@ mod tests {
     #[test]
     fn keeps_only_what_is_still_needed() {
         let root = scratch("tidy");
-        for path in ["protein/aaa", "protein/bbb", "dna/ccc"] {
+        for path in ["iki__protein/aaa", "iki__protein/bbb", "iki__dna/ccc"] {
             std::fs::create_dir_all(root.join(path)).unwrap();
         }
-        tidy(&root, &BTreeSet::from([root.join("protein/bbb")]));
-        assert!(root.join("protein/bbb").is_dir());
-        assert!(!root.join("protein/aaa").exists());
-        assert!(!root.join("dna").exists());
+        tidy(&root, &BTreeSet::from([root.join("iki__protein/bbb")]));
+        assert!(root.join("iki__protein/bbb").is_dir());
+        assert!(!root.join("iki__protein/aaa").exists());
+        assert!(!root.join("iki__dna").exists());
         std::fs::remove_dir_all(&root).unwrap();
     }
 

@@ -39,7 +39,7 @@ import light from "molstar/build/viewer/theme/light.css?inline";
 
 type Format = "mmcif" | "pdb";
 
-/** Where the camera is, as a view saves it (core.View's state). */
+/** Where the camera is, as a view saves it (iki/core.View's state). */
 interface Camera {
   position: number[];
   target: number[];

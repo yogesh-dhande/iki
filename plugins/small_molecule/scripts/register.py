@@ -77,14 +77,14 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
         key = f"line-{number}"
         creates.add(
             {
-                "type": "small_molecule.Compound",
+                "type": "iki/small_molecule.Compound",
                 "key": key,
                 "values": compound_values(registered, name),
             }
         )
         if batches:
             values = {"compound": {"$create": key}, **batch_values(registered)}
-            creates.add({"type": "small_molecule.CompoundBatch", "values": values})
+            creates.add({"type": "iki/small_molecule.CompoundBatch", "values": values})
         for warning in registered.warnings:
             messages.add("warning", f"Line {number}: {warning}")
         taken = ", ".join(

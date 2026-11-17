@@ -7,7 +7,8 @@
 //!   and commit, and the environments the image built, with each build's digest and
 //!   prefix. A deployment's workers run this way.
 //! - **Otherwise**, each directory holding a `plugin.yaml` is a plugin from a local
-//!   directory, run with the host's own software. It runs only what a development
+//!   directory, run with the host's own software, named as its `plugin.yaml` names it
+//!   (`iki/protein`), whatever the directory is called. It runs only what a development
 //!   server launches, whose plugins are local too.
 
 use std::collections::BTreeMap;
@@ -64,7 +65,7 @@ pub struct Have {
     /// Whether it came from `plugins.json`, so every environment must be built.
     from_manifest: bool,
     /// Where each plugin's code is, when the worker fetched it (ADR 0059); otherwise in
-    /// `IKI_PLUGINS_DIR`, by name.
+    /// `IKI_PLUGINS_DIR`, by label (see [`label`]).
     dirs: BTreeMap<String, PathBuf>,
     /// The environment whose image the worker runs in (ADR 0061), by
     /// `plugin.environment`: its commands run with the image's own software.
@@ -74,15 +75,30 @@ pub struct Have {
 /// The file `iki deploy build --workers` writes in `IKI_PLUGINS_DIR`.
 pub const MANIFEST: &str = "plugins.json";
 
-/// A plugin's name, as `spec/` allows it: `protein`, `structure_prediction`.
+/// A plugin's name, as `spec/` allows it (ADR 0113): a namespace and a name,
+/// `iki/protein` or `acme/structure_prediction`.
 pub fn is_plugin_name(name: &str) -> bool {
-    (2..=30).contains(&name.len())
-        && name.starts_with(|c: char| c.is_ascii_lowercase())
-        && !name.ends_with('_')
-        && !name.contains("__")
-        && name
+    name.split_once('/')
+        .is_some_and(|(namespace, short)| is_part(namespace) && is_part(short))
+}
+
+/// One part of a plugin's name: 2 to 30 lower-case letters, digits and single
+/// underscores, starting with a letter.
+fn is_part(part: &str) -> bool {
+    (2..=30).contains(&part.len())
+        && part.starts_with(|c: char| c.is_ascii_lowercase())
+        && !part.ends_with('_')
+        && !part.contains("__")
+        && part
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// A plugin's label, `namespace__name` (`iki__protein` for `iki/protein`): what names
+/// it on disk, where a `/` would be another directory. `iki deploy build` names its
+/// code's directory, and its environments', by it.
+pub fn label(name: &str) -> String {
+    name.replacen('/', "__", 1)
 }
 
 /// What `dir` holds.
@@ -97,20 +113,31 @@ pub fn discover(dir: &Path) -> Result<Have, String> {
             dir.display()
         )
     })?;
+    let mut paths: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+    paths.sort();
     let mut code = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.join("plugin.yaml").is_file() {
+    let mut dirs = BTreeMap::new();
+    for path in paths {
+        let manifest = path.join("plugin.yaml");
+        if !manifest.is_file() {
             continue;
         }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !is_plugin_name(&name) {
+        let text = std::fs::read_to_string(&manifest).unwrap_or_default();
+        let Some(name) = manifest_name(&text).filter(|name| is_plugin_name(name)) else {
             say::warn(
-                "Skipped a plugin whose directory isn't named for it.",
+                "Skipped a plugin whose plugin.yaml doesn't name it as namespace/name.",
                 &[("path", &path.display())],
             );
             continue;
+        };
+        if dirs.contains_key(&name) {
+            say::warn(
+                "Skipped a second directory holding the same plugin.",
+                &[("plugin", &name), ("path", &path.display())],
+            );
+            continue;
         }
+        dirs.insert(name.clone(), path);
         code.push(PluginCode {
             name,
             sha: None,
@@ -121,8 +148,28 @@ pub fn discover(dir: &Path) -> Result<Have, String> {
     code.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Have {
         code,
+        dirs,
         ..Have::default()
     })
+}
+
+/// The `name` a `plugin.yaml` gives at its top level, if it gives one on a line of its
+/// own: `name: iki/protein`, quoted or not, with or without a comment after it. The
+/// worker reads no more YAML than that; the server checked the rest.
+fn manifest_name(text: &str) -> Option<String> {
+    let line = text.lines().find_map(|line| line.strip_prefix("name:"))?;
+    let value = line.trim();
+    let name = if let Some(rest) = value.strip_prefix('"') {
+        &rest[..rest.find('"')?]
+    } else if let Some(rest) = value.strip_prefix('\'') {
+        &rest[..rest.find('\'')?]
+    } else {
+        value
+            .find(" #")
+            .map_or(value, |comment| &value[..comment])
+            .trim_end()
+    };
+    Some(name.to_owned())
 }
 
 fn from_manifest(dir: &Path, file: &Path) -> Result<Have, String> {
@@ -141,7 +188,7 @@ fn from_manifest(dir: &Path, file: &Path) -> Result<Have, String> {
         ..Have::default()
     };
     for plugin in manifest.plugins {
-        if !is_plugin_name(&plugin.name) || !dir.join(&plugin.name).is_dir() {
+        if !is_plugin_name(&plugin.name) || !dir.join(label(&plugin.name)).is_dir() {
             return Err(format!(
                 "{shown} lists {}, whose code isn't in {}.",
                 plugin.name,
@@ -256,22 +303,35 @@ mod tests {
     #[test]
     fn finds_local_plugins_by_their_directories() {
         let dir = scratch("local");
-        for name in ["protein", "dna", "Not_A_Name", "no_manifest"] {
-            std::fs::create_dir_all(dir.join(name)).unwrap();
-            if name != "no_manifest" {
-                std::fs::write(dir.join(name).join("plugin.yaml"), "").unwrap();
+        // Each named as its plugin.yaml says, whatever its directory is called.
+        for (directory, manifest) in [
+            ("protein", Some("name: iki/protein\n")),
+            ("dna", Some("name: acme/dna\n")),
+            ("copy_of_dna", Some("name: acme/dna\n")),
+            ("unnamed", Some("name: dna\n")),
+            ("no_manifest", None),
+        ] {
+            std::fs::create_dir_all(dir.join(directory)).unwrap();
+            if let Some(text) = manifest {
+                std::fs::write(dir.join(directory).join("plugin.yaml"), text).unwrap();
             }
         }
         let have = discover(&dir).unwrap();
         let names: Vec<&str> = have.code.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["dna", "protein"]);
+        assert_eq!(names, ["acme/dna", "iki/protein"]);
+        // Found where they are: the first directory, by name, for a plugin in two.
+        assert_eq!(have.dir("iki/protein"), Some(dir.join("protein").as_path()));
+        assert_eq!(
+            have.dir("acme/dna"),
+            Some(dir.join("copy_of_dna").as_path())
+        );
         assert!(
             have.code
                 .iter()
                 .all(|p| p.sha.is_none() && p.environments.is_none())
         );
         // The host's own software.
-        assert_eq!(have.for_run("dna", None, "dna.tools"), Ok(None));
+        assert_eq!(have.for_run("acme/dna", None, "acme/dna.tools"), Ok(None));
         assert!(discover(&dir.join("missing")).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -280,15 +340,15 @@ mod tests {
     fn reads_what_the_build_wrote() {
         let dir = scratch("built");
         let sha = "a".repeat(40);
-        let built = dir.join("envs/dna/dna-tools");
+        let built = dir.join("envs/iki__dna/dna-tools");
         std::fs::create_dir_all(&built).unwrap();
-        std::fs::create_dir_all(dir.join("dna")).unwrap();
+        std::fs::create_dir_all(dir.join("iki__dna")).unwrap();
         let digest = format!("sha256:{}", "b".repeat(64));
         let manifest = serde_json::json!({
             "apiVersion": "iki/v1",
             "kind": "WorkerPlugins",
             "plugins": [{
-                "name": "dna", "version": "1.0.0", "sha": sha,
+                "name": "iki/dna", "version": "1.0.0", "sha": sha,
                 "environments": {
                     "dna-tools": {"digest": digest, "kind": "python", "prefix": built},
                     "missing": {"digest": digest, "kind": "conda", "prefix": dir.join("nope")},
@@ -301,13 +361,15 @@ mod tests {
         let listed = have.code[0].environments.clone().unwrap();
         assert_eq!(listed.keys().collect::<Vec<_>>(), ["dna-tools"]);
         let found = have
-            .for_run("dna", Some(&sha), "dna.dna-tools")
+            .for_run("iki/dna", Some(&sha), "iki/dna.dna-tools")
             .unwrap()
             .unwrap();
         assert_eq!((found.kind, found.prefix.clone()), (Kind::Python, built));
-        let missing = have.for_run("dna", Some(&sha), "dna.missing").unwrap_err();
+        let missing = have
+            .for_run("iki/dna", Some(&sha), "iki/dna.missing")
+            .unwrap_err();
         assert!(
-            missing.contains("hasn't built the environment dna.missing"),
+            missing.contains("hasn't built the environment iki/dna.missing"),
             "{missing}"
         );
 
@@ -326,11 +388,55 @@ mod tests {
 
     #[test]
     fn plugin_names_follow_the_spec() {
-        for good in ["dna", "structure_prediction", "p2"] {
+        for good in [
+            "iki/protein",
+            "acme/assays",
+            "acme/structure_prediction",
+            "p2/x9",
+        ] {
             assert!(is_plugin_name(good), "{good}");
         }
-        for bad in ["d", "DNA", "2dna", "dna_", "a__b", "dna-tools"] {
+        for bad in [
+            "protein",
+            "a/b/c",
+            "Acme/x",
+            "../x",
+            "iki/",
+            "/protein",
+            "iki/d",
+            "acme/dna_",
+            "acme/a__b",
+            "acme/dna-tools",
+            "acme//dna",
+            "iki/protein/../x",
+        ] {
             assert!(!is_plugin_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_plugin_is_named_on_disk_by_its_label() {
+        assert_eq!(label("iki/protein"), "iki__protein");
+        assert_eq!(
+            label("acme/structure_prediction"),
+            "acme__structure_prediction"
+        );
+    }
+
+    #[test]
+    fn reads_a_local_plugins_name_from_its_manifest() {
+        for (text, name) in [
+            ("apiVersion: iki/v1\nname: iki/dna\n", Some("iki/dna")),
+            (
+                "# a comment\nname: \"acme/lab\"  # quoted\n",
+                Some("acme/lab"),
+            ),
+            ("name: 'acme/lab'\n", Some("acme/lab")),
+            ("name: acme/lab # mine\n", Some("acme/lab")),
+            ("settings:\n  name: acme/x\n", None),
+            ("title: x\n", None),
+        ] {
+            assert_eq!(manifest_name(text).as_deref(), name, "{text}");
         }
     }
 
@@ -338,7 +444,7 @@ mod tests {
     fn runs_only_the_code_it_was_launched_with() {
         let have = Have {
             code: vec![PluginCode {
-                name: "protein".into(),
+                name: "iki/protein".into(),
                 sha: Some("a".repeat(40)),
                 environments: None,
                 bundle: None,
@@ -346,16 +452,18 @@ mod tests {
             ..Have::default()
         };
         assert!(
-            have.for_run("protein", Some(&"a".repeat(40)), "protein.t")
+            have.for_run("iki/protein", Some(&"a".repeat(40)), "iki/protein.t")
                 .is_ok()
         );
         let other = have
-            .for_run("protein", Some(&"b".repeat(40)), "protein.t")
+            .for_run("iki/protein", Some(&"b".repeat(40)), "iki/protein.t")
             .unwrap_err();
         assert!(other.contains("aaaaaaaaaaaa, not bbbbbbbbbbbb"), "{other}");
-        let local = have.for_run("protein", None, "protein.t").unwrap_err();
+        let local = have
+            .for_run("iki/protein", None, "iki/protein.t")
+            .unwrap_err();
         assert!(local.contains("not a local directory"), "{local}");
-        let none = have.for_run("dna", None, "dna.t").unwrap_err();
-        assert!(none.contains("no code for the plugin dna"), "{none}");
+        let none = have.for_run("iki/dna", None, "iki/dna.t").unwrap_err();
+        assert!(none.contains("no code for the plugin iki/dna"), "{none}");
     }
 }

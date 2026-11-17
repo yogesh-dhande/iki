@@ -1,5 +1,5 @@
 """The protein plugin's alignment of reads to a protein: reads translated in six frames,
-the best kept, frameshifts found in the rest, into a core.Alignment, with where they cover
+the best kept, frameshifts found in the rest, into an iki/core.Alignment, with where they cover
 the protein and every difference from it, named as HGVS names a protein's."""
 
 import importlib.util

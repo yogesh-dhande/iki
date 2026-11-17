@@ -67,7 +67,7 @@ kubernetes: { runtime_class: gvisor }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: protein.protein-tools
+environment: iki/protein.protein-tools
 templates: [{ template: backend-small }]
 ```
 
@@ -129,7 +129,8 @@ create_registration_token --tier backend --label ...` in a web pod). Store it in
 - Plugins' actions declare the secrets they need (an API key, a LIMS token).
   Keep them in your secret manager, sync them into one Kubernetes Secret
   (External Secrets, or the Vault or AWS Secrets Manager CSI driver) with a
-  key per secret named for its plugin (`dna.NCBI_API_KEY`), and set
+  key per secret named for its plugin's label (`iki__dna.NCBI_API_KEY` for
+  `iki/dna`'s `NCBI_API_KEY`), and set
   `runSecrets.existingSecret`. Only web pods mount it; each run gets only
   the secrets its action declares. Rotate them in the secret manager: the
   next run gets the new value.

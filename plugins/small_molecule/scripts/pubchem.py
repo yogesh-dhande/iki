@@ -152,7 +152,7 @@ def fetch(run: dict[str, Any]) -> dict[str, Any]:
             )
         creates.add(
             {
-                "type": "small_molecule.Compound",
+                "type": "iki/small_molecule.Compound",
                 "values": values,
                 "origin": {
                     "source": "PubChem",

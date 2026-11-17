@@ -7,7 +7,7 @@ identity of the type that declares it, so the hash names that type.
 
 The encoding, which other implementations must reproduce byte for byte, is
 UTF-8 JSON with sorted keys, no spaces and no escaped non-ASCII characters,
-such as ``{"type":"dna.DNASequence","v":1,"values":{"bases":"ACGT"}}``.
+such as ``{"type":"iki/dna.DNASequence","v":1,"values":{"bases":"ACGT"}}``.
 
 Each value is encoded by its field's type:
 

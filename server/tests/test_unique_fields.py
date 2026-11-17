@@ -15,7 +15,7 @@ from iki_server.plugins import sync
 
 pytestmark = pytest.mark.django_db
 
-KEY = "protein_protein.lims_id"
+KEY = "acme__protein_protein.lims_id"
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def protein(api: Api, project: Project, sequence: str, **values: Any) -> Any:
     return api.post(
         "/entities",
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "project": str(project.pk),
             "values": {"sequence": sequence, **values},
         },
@@ -98,7 +98,8 @@ def test_the_database_refuses_a_duplicate_whatever_writes_it(world: World) -> No
         connection.cursor() as cursor,
     ):
         cursor.execute(
-            "UPDATE protein_protein SET lims_id = 'LIMS-1' WHERE entity_id = %s", [second["id"]]
+            "UPDATE acme__protein_protein SET lims_id = 'LIMS-1' WHERE entity_id = %s",
+            [second["id"]],
         )
 
 
@@ -111,7 +112,7 @@ def test_a_value_written_at_the_same_moment_is_refused_too(
     monkeypatch.setattr(unique, "taken", lambda *a, **k: {})
     body = problem(protein(api, world.project, "MKVL", lims_id="LIMS-1"), 422, "validation_failed")
     assert body["errors"][0]["pointer"] == "#/values/unique"
-    assert Entity.objects.filter(type="protein.Protein").count() == 1
+    assert Entity.objects.filter(type="acme/protein.Protein").count() == 1
 
 
 def test_extension_fields_can_be_unique(world: World) -> None:
@@ -121,16 +122,15 @@ def test_extension_fields_can_be_unique(world: World) -> None:
     )
     user = world.users["editor"]
     values = {"structure": str(pdb.pk), "job_id": "JOB-7"}
-    services.create(user, "protein.ProteinStructure", world.project, values)
+    services.create(user, "acme/protein.ProteinStructure", world.project, values)
     with pytest.raises(services.Invalid) as raised:
-        services.create(user, "protein.ProteinStructure", world.project, values)
+        services.create(user, "acme/protein.ProteinStructure", world.project, values)
     assert list(raised.value.errors) == ["job_id"]
 
 
 def test_types_say_which_fields_are_unique(world: World) -> None:
-    fields = {
-        f["name"]: f for f in api_as(world).get("/entity-types/protein.Protein").json()["fields"]
-    }
+    found = api_as(world).get("/entity-types/acme/protein.Protein").json()
+    fields = {f["name"]: f for f in found["fields"]}
     assert fields["lims_id"]["unique"] is True
     assert fields["organism"]["unique"] is False
 
@@ -141,10 +141,11 @@ def test_sync_fills_in_values_and_stops_at_entities_sharing_one(world: World) ->
     second = protein(api, world.project, "MKVL").json()
     with connection.cursor() as cursor:
         # As before the field was marked unique: no trigger, no values kept.
-        cursor.execute("DROP TRIGGER iki_unique__lims_id ON protein_protein")
+        cursor.execute("DROP TRIGGER iki_unique__lims_id ON acme__protein_protein")
         cursor.execute("DELETE FROM iki_unique_value")
         cursor.execute(
-            "UPDATE protein_protein SET lims_id = 'LIMS-1' WHERE entity_id = %s", [second["id"]]
+            "UPDATE acme__protein_protein SET lims_id = 'LIMS-1' WHERE entity_id = %s",
+            [second["id"]],
         )
     with pytest.raises(unique.Clash) as raised, transaction.atomic():
         sync.sync()
@@ -155,7 +156,8 @@ def test_sync_fills_in_values_and_stops_at_entities_sharing_one(world: World) ->
 
     with connection.cursor() as cursor:
         cursor.execute(
-            "UPDATE protein_protein SET lims_id = 'LIMS-2' WHERE entity_id = %s", [second["id"]]
+            "UPDATE acme__protein_protein SET lims_id = 'LIMS-2' WHERE entity_id = %s",
+            [second["id"]],
         )
     report = sync.sync()
     assert KEY in report.unique
@@ -173,7 +175,7 @@ def test_sync_fills_in_values_and_stops_at_entities_sharing_one(world: World) ->
 def lookup(api: Api, value: str, **params: Any) -> Any:
     return api.get(
         "/entities/lookup",
-        **{"type": "protein.Protein", "field": "lims_id", "value": value, **params},
+        **{"type": "acme/protein.Protein", "field": "lims_id", "value": value, **params},
     )
 
 
@@ -194,7 +196,7 @@ def test_an_external_id_finds_its_entity_in_each_project_you_can_read(world: Wor
     ]
     assert lookup(api, "LIMS-2").json() == []
     # A subtype's lookup by its parent's type finds it too; another type's doesn't.
-    assert lookup(api, "LIMS-1", type="dna.Sequence").status_code == 422  # no such field there
+    assert lookup(api, "LIMS-1", type="acme/dna.Sequence").status_code == 422  # no such field there
 
     # Someone who can read only the first project sees only its entity.
     viewer = world.users["viewer"]
@@ -207,17 +209,17 @@ def test_only_a_unique_field_looks_entities_up(world: World) -> None:
     api = api_as(world)
     body = problem(lookup(api, "Homo sapiens", field="organism"), 422, "validation_failed")
     assert body["errors"] == [{"parameter": "field", "detail": "isn't a unique field of the type."}]
-    problem(lookup(api, "X", type="protein.Nope"), 404, "not_found")
+    problem(lookup(api, "X", type="acme/protein.Nope"), 404, "not_found")
 
 
 def test_fields_link_to_the_record_in_the_other_system(world: World) -> None:
     api = api_as(world)
-    proteins = {f["name"]: f for f in api.get("/entity-types/protein.Protein").json()["fields"]}
+    found = api.get("/entity-types/acme/protein.Protein").json()
+    proteins = {f["name"]: f for f in found["fields"]}
     assert proteins["lims_id"]["link"] == "https://lims.example.org/proteins/{value}"
     assert proteins["organism"]["link"] is None
-    structures = {
-        f["name"]: f for f in api.get("/entity-types/protein.ProteinStructure").json()["fields"]
-    }
+    found = api.get("/entity-types/acme/protein.ProteinStructure").json()
+    structures = {f["name"]: f for f in found["fields"]}
     # From the plugin's setting, as the deployment set it.
     assert structures["job_id"]["link"] == "https://predict.example.org/jobs/{value}"
 
@@ -237,5 +239,5 @@ def test_a_link_is_only_ever_https(
     from iki_server.entities import registry, values
 
     monkeypatch.setattr(registry, "settings", lambda plugin: {"jobs_url": setting})
-    field = values.shape("protein.ProteinStructure").fields()["job_id"]
+    field = values.shape("acme/protein.ProteinStructure").fields()["job_id"]
     assert unique.link(field, "structure_prediction") == link

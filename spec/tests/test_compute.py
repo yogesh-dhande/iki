@@ -77,17 +77,17 @@ price: { per_hour: 32.77, currency: USD }
 BINDINGS = """\
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: protein.protein-tools
+environment: acme/protein.protein-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: structure_prediction.alphafold-gpu
+environment: acme/prediction.alphafold-gpu
 templates: [{ template: a100-spot }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: structure_prediction.colabfold
+environment: acme/prediction.colabfold
 templates: [{ template: gpu-t4 }, { template: gpu-t4-warm }]
 """
 
@@ -114,11 +114,13 @@ def test_a_deployment_that_runs_every_action(tmp_path: Path, plugins: list[Plugi
     a100 = result.compute.templates["a100-spot"]
     assert (a100.tier, a100.lifecycle, a100.capacity.gpu_count) == ("vm", "ephemeral", 8)
     assert a100.capacity.memory == 1152 * 1024**3
-    assert result.compute.bindings["protein.protein-tools"].templates == (("backend-small", 0),)
+    assert result.compute.bindings["acme/protein.protein-tools"].templates == (
+        ("backend-small", 0),
+    )
     data = json.loads(json.dumps(compute_to_dict(result.compute)))
     assert compute_from_dict(data) == result.compute
     assert data["templates"]["a100-spot"]["aws"]["instance_type"] == "p4d.24xlarge"
-    assert data["bindings"]["structure_prediction.alphafold-gpu"]["templates"] == [["a100-spot", 0]]
+    assert data["bindings"]["acme/prediction.alphafold-gpu"]["templates"] == [["a100-spot", 0]]
 
 
 def test_without_compute_yaml_only_the_client_tier_runs(
@@ -133,12 +135,16 @@ def test_without_compute_yaml_only_the_client_tier_runs(
         ("unbound-environment", Severity.WARNING),
         ("unbound-environment", Severity.WARNING),
     ]
-    assert result.problems[0].message == (
-        "`protein.protein-tools` has no template for the backend tier, so its actions there "
+    messages = [p.message for p in result.problems]
+    assert (
+        "`acme/protein.protein-tools` has no template for the backend tier, so its actions there "
         "can't run on this deployment."
-    )
+    ) in messages
     # Only the tiers its actions use: predict_structure runs on vm, not container.
-    assert "no template for the vm tier" in result.problems[1].message
+    assert any(
+        m.startswith("`acme/prediction.alphafold-gpu` has no template for the vm tier")
+        for m in messages
+    )
 
 
 @pytest.mark.parametrize(
@@ -208,13 +214,13 @@ def test_bindings_name_real_environments_and_templates(
     tmp_path: Path, plugins: list[Plugin]
 ) -> None:
     binding = (
-        "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: protein.protein-tool\n"
+        "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: acme/protein.protein-tool\n"
         "templates: [{ template: backend-smal }]\n"
     )
     result = load(tmp_path, plugins, BACKEND, A100, BINDINGS.split("---\n")[1], binding)
     assert "unknown-environment" in codes(result)
     problem = next(p for p in result.problems if p.code == "unknown-environment")
-    assert problem.hint == "Did you mean `protein.protein-tools`?"
+    assert problem.hint == "Did you mean `acme/protein.protein-tools`?"
     fixed = binding.replace("protein-tool\n", "protein-tools\n")
     result = load(tmp_path, plugins, BACKEND, A100, BINDINGS.split("---\n")[1], fixed)
     problem = next(p for p in result.problems if p.code == "unknown-template")
@@ -226,14 +232,14 @@ def test_a_binding_gives_self_hosted_runs_this_deployments_labels(
     tmp_path: Path, plugins: list[Plugin]
 ) -> None:
     labelled = (
-        "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: protein.protein-tools\n"
+        "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: acme/protein.protein-tools\n"
         "labels: [lab-3, chromeleon]\n"
     )
     others = "---\n".join(BINDINGS.split("---\n")[1:])
     result = load(tmp_path, plugins, BACKEND, A100, others, labelled)
     assert result.ok, [(p.code, p.message) for p in result.problems]
     assert result.compute is not None
-    bound = result.compute.bindings["protein.protein-tools"]
+    bound = result.compute.bindings["acme/protein.protein-tools"]
     assert (bound.templates, bound.labels) == ((), ("chromeleon", "lab-3"))
     data = json.loads(json.dumps(compute_to_dict(result.compute)))
     assert compute_from_dict(data) == result.compute
@@ -249,7 +255,9 @@ def test_a_binding_gives_self_hosted_runs_this_deployments_labels(
     )
     assert only(load(tmp_path, plugins, BACKEND, A100, vm), "labels-wrong-tier")
     # A binding gives templates, labels or both.
-    empty = "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: protein.protein-tools\n"
+    empty = (
+        "apiVersion: iki/v1\nkind: EnvironmentBinding\nenvironment: acme/protein.protein-tools\n"
+    )
     assert not load(tmp_path, plugins, BACKEND, A100, others, empty).ok
 
 
@@ -270,7 +278,7 @@ def test_templates_are_big_enough_for_the_environment(
     result = load(tmp_path, plugins, BACKEND, small, BINDINGS)
     message = only(result, "template-too-small")
     assert message == (
-        "`a100-spot` is smaller than `structure_prediction.alphafold-gpu` needs: 8 CPUs (it has "
+        "`a100-spot` is smaller than `acme/prediction.alphafold-gpu` needs: 8 CPUs (it has "
         "4), 64Gi of memory (it has 32Gi), 40Gi per GPU (it has 24Gi)."
     )
 
@@ -279,7 +287,7 @@ def test_every_action_fits_a_template(tmp_path: Path, plugins: list[Plugin]) -> 
     # The environment needs 64Gi; predict_structure asks for 96Gi.
     tight = A100.replace("memory: 1152Gi", "memory: 64Gi")
     message = only(load(tmp_path, plugins, BACKEND, tight, BINDINGS), "action-does-not-fit")
-    assert message.startswith("`structure_prediction.predict_structure` needs more than any vm")
+    assert message.startswith("`acme/prediction.predict_structure` needs more than any vm")
     assert "96Gi of memory (it has 64Gi)" in message
 
 

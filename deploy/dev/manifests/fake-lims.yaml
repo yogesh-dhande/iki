@@ -22,7 +22,7 @@ data:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, unquote, urlsplit
 
-    TOKEN = open("/secrets/example_lims.LIMS_TOKEN").read().strip()
+    TOKEN = open("/secrets/iki__example_lims.LIMS_TOKEN").read().strip()
     PAGE = 2
     lock = threading.Lock()
     received = collections.deque(maxlen=200)
@@ -179,7 +179,7 @@ spec:
         - name: secrets
           secret:
             secretName: iki-run-secrets
-            items: [{ key: example_lims.LIMS_TOKEN, path: example_lims.LIMS_TOKEN }]
+            items: [{ key: iki__example_lims.LIMS_TOKEN, path: iki__example_lims.LIMS_TOKEN }]
 ---
 apiVersion: v1
 kind: Service

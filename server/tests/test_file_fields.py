@@ -17,7 +17,7 @@ from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 pytestmark = pytest.mark.django_db
 
 GiB = 1024**3
-STRUCTURE = "protein.ProteinStructure"
+STRUCTURE = "acme/protein.ProteinStructure"
 
 
 def person(email: str) -> User:

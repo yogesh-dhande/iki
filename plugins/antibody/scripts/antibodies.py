@@ -65,7 +65,7 @@ def assembled(
         if params.get(key):
             values[key] = params[key]
     derived = [heavy["id"], *([light["id"]] if light is not None else [])]
-    return {"type": "antibody.Antibody", "values": values, "derived_from": derived}
+    return {"type": "iki/antibody.Antibody", "values": values, "derived_from": derived}
 
 
 def assemble(run: dict[str, Any]) -> dict[str, Any]:

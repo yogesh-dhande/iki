@@ -411,16 +411,16 @@ def test_entities_from_the_grid_to_their_history(open_as: Any, world: World) -> 
 
     admin = world.users["admin"]
     made = entities.create(
-        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+        admin, "acme/protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
     )
     entity = Entity.objects.get(pk=made.entity.pk)
     entities.update(admin, entity, {"name": "ABL1 kinase"}, expected_revision=1, reason="Full name")
-    for path in ("/types/", "/types/protein.Protein/"):
+    for path in ("/types/", "/types/acme/protein.Protein/"):
         page = open_as("admin", path)
         assert_clean(page)
         page.context.close()
 
-    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/protein.Protein")
     grid = page.get_by_role("table", name="1 protein")
     grid.get_by_role("cell", name="ABL1 kinase").wait_for()
     assert_clean(page)
@@ -445,7 +445,7 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
     ):
         entities.create(
             admin,
-            "protein.Protein",
+            "acme/protein.Protein",
             world.project,
             {
                 "sequence": sequence,
@@ -454,7 +454,7 @@ def test_searching_filtering_and_sorting_the_grid(open_as: Any, world: World) ->
                 "temperature_optimum": temperature,
             },
         )
-    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/protein.Protein")
     page.get_by_role("table", name="3 proteins").wait_for()
 
     page.get_by_role("searchbox", name="Search").fill("ab")
@@ -501,11 +501,11 @@ def test_saving_and_sharing_a_search(open_as: Any, world: World) -> None:
     for name, sequence in (("ABL1", "MKVL"), ("SRC", "MSTL")):
         entities.create(
             world.users["admin"],
-            "protein.Protein",
+            "acme/protein.Protein",
             world.project,
             {"sequence": sequence, "name": name},
         )
-    page = open_as("editor", "/projects/kinase-atlas/entities/?type=protein.Protein&q=abl")
+    page = open_as("editor", "/projects/kinase-atlas/entities/?type=acme/protein.Protein&q=abl")
     page.get_by_role("table", name="1 protein match").wait_for()
     page.get_by_role("button", name="Save this search").click()
     dialog = page.get_by_role("alertdialog", name="Save this search")
@@ -534,11 +534,11 @@ def test_saving_a_search_as_a_collection(open_as: Any, world: World) -> None:
     for name, sequence in (("ABL1", "MKVL"), ("ABL2", "MKVI"), ("SRC", "MSTL")):
         entities.create(
             world.users["admin"],
-            "protein.Protein",
+            "acme/protein.Protein",
             world.project,
             {"sequence": sequence, "name": name},
         )
-    page = open_as("editor", "/projects/kinase-atlas/entities/?type=protein.Protein&q=abl")
+    page = open_as("editor", "/projects/kinase-atlas/entities/?type=acme/protein.Protein&q=abl")
     page.get_by_role("table", name="2 proteins match").wait_for()
     page.get_by_role("button", name="Save as collection").click()
     dialog = page.get_by_role("alertdialog", name="Save as a collection")
@@ -554,7 +554,7 @@ def test_saving_a_search_as_a_collection(open_as: Any, world: World) -> None:
     # New matches join it, for everyone who can read it.
     entities.create(
         world.users["admin"],
-        "protein.Protein",
+        "acme/protein.Protein",
         world.project,
         {"sequence": "MKVA", "name": "ABL3"},
     )
@@ -570,7 +570,7 @@ def test_freezing_a_collection(open_as: Any, world: World) -> None:
     for name, sequence in (("ABL1", "MKVL"), ("ABL2", "MKVI")):
         entities.create(
             world.users["admin"],
-            "protein.Protein",
+            "acme/protein.Protein",
             world.project,
             {"sequence": sequence, "name": name},
         )
@@ -579,9 +579,9 @@ def test_freezing_a_collection(open_as: Any, world: World) -> None:
     made = Entity.objects.get(
         pk=entities.create(
             world.users["admin"],
-            "core.Collection",
+            "iki/core.Collection",
             world.project,
-            {"name": "ABL kinases", "search": {"type": "protein.Protein", "q": "abl"}},
+            {"name": "ABL kinases", "search": {"type": "acme/protein.Protein", "q": "abl"}},
         ).entity.pk
     )
     page = open_as("editor", f"/entities/{made.hrid}/")
@@ -602,10 +602,13 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
 
     gene = Entity.objects.get(
         pk=entities.create(
-            world.users["admin"], "dna.DNASequence", world.project, {"bases": "ATG", "name": "abl1"}
+            world.users["admin"],
+            "acme/dna.DNASequence",
+            world.project,
+            {"bases": "ATG", "name": "abl1"},
         ).entity.pk
     )
-    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/protein.Protein")
     page.get_by_role("link", name="New protein").click()
     page.get_by_role("heading", level=2, name="New protein").wait_for()
     assert_clean(page)
@@ -629,7 +632,7 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     assert_clean(page)
     page.get_by_role("button", name="Create protein").click()
     page.wait_for_url(re.compile(r"/entities/PRT-\d+/$"))
-    made = Entity.objects.get(type="protein.Protein")
+    made = Entity.objects.get(type="acme/protein.Protein")
     page.get_by_text(f"Created {made.hrid}.").wait_for()
     values = entities.current_values_of([made])[made.pk]
     assert values["temperature_optimum"] == pytest.approx(37.0)
@@ -672,9 +675,14 @@ def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: S
     from iki_server.files.models import File
 
     protein = entities.create(
-        world.users["admin"], "protein.Protein", world.project, {"sequence": "MKVL", "name": "abl1"}
+        world.users["admin"],
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": "MKVL", "name": "abl1"},
     ).entity
-    page = open_as("admin", "/projects/kinase-atlas/entities/new/?type=protein.ProteinStructure")
+    page = open_as(
+        "admin", "/projects/kinase-atlas/entities/new/?type=acme/protein.ProteinStructure"
+    )
     page.get_by_role("heading", level=2, name="New protein structure").wait_for()
     structure = page.get_by_role("group", name="Structure")
     # Big enough to go in several parts, and typeless, as browsers give .pdb files.
@@ -697,7 +705,7 @@ def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: S
     page.get_by_role("option", name=re.compile("abl1")).click()
     page.get_by_role("button", name="Create protein structure").click()
     page.wait_for_url(re.compile(r"/entities/PST-\d+/$"))
-    made = Entity.objects.get(type="protein.ProteinStructure")
+    made = Entity.objects.get(type="acme/protein.ProteinStructure")
     values = entities.current_values_of([made])[made.pk]
     assert values["structure"] == stored.pk and values["chains"] == [protein.pk]
     page.get_by_role("link", name="1abc.pdb").wait_for()
@@ -711,11 +719,14 @@ def test_exporting_a_collection_and_downloading_its_bundle(
     from iki_server.entities import services as entities
 
     protein: Any = entities.create(
-        world.users["admin"], "protein.Protein", world.project, {"sequence": "MKVL", "name": "ABL1"}
+        world.users["admin"],
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": "MKVL", "name": "ABL1"},
     ).entity
     kinases: Any = entities.create(
         world.users["admin"],
-        "core.Collection",
+        "iki/core.Collection",
         world.project,
         {"name": "Validated kinases", "members": [str(protein.pk)]},
     ).entity
@@ -765,7 +776,7 @@ def test_importing_a_bundle_and_reading_its_plan(
     # app's role can only do through iki_hrid_advance.
     with contextlib.suppress(UndoError), transaction.atomic():
         made: Any = entities.create(
-            admin, "protein.Protein", world.project, {"sequence": "MKWWYYHH", "name": "ABL1"}
+            admin, "acme/protein.Protein", world.project, {"sequence": "MKWWYYHH", "name": "ABL1"}
         ).entity
         Entity.objects.filter(pk=made.pk).update(hrid="PRT-000900")
         made.refresh_from_db()
@@ -797,7 +808,7 @@ def test_importing_a_bundle_and_reading_its_plan(
     page.get_by_text(re.compile("^test’s Kinase Atlas, where it’s PRT-")).wait_for()
     assert_clean(page)
     after: Any = entities.create(
-        admin, "protein.Protein", world.project, {"sequence": "MKAFTER"}
+        admin, "acme/protein.Protein", world.project, {"sequence": "MKAFTER"}
     ).entity
     assert int(after.hrid.removeprefix("PRT-")) > 900  # sequences outlive each test
 
@@ -811,7 +822,10 @@ def test_starting_a_run_and_following_it_live(open_as: Any, world: World) -> Non
     from iki_server.runs.models import ActionRun
 
     made = entities.create(
-        world.users["admin"], "protein.Protein", world.project, {"sequence": "MKV", "name": "ABL1"}
+        world.users["admin"],
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": "MKV", "name": "ABL1"},
     )
     protein = Entity.objects.get(pk=made.entity.pk)
     page = open_as("admin", f"/entities/{protein.hrid}/")
@@ -864,11 +878,11 @@ def test_picking_rows_and_running_an_action_on_each(open_as: Any, world: World) 
     for name, sequence in [("ABL1", "MKV"), ("SRC", "MGS")]:
         entities.create(
             world.users["admin"],
-            "protein.Protein",
+            "acme/protein.Protein",
             world.project,
             {"sequence": sequence, "name": name},
         )
-    page = open_as("admin", "/projects/kinase-atlas/entities/?type=protein.Protein")
+    page = open_as("admin", "/projects/kinase-atlas/entities/?type=acme/protein.Protein")
     page.get_by_role("checkbox", name="Select all 2 shown").check()
     page.get_by_text("2 selected").wait_for()
     assert_clean(page)
@@ -905,10 +919,10 @@ def test_approving_a_run_an_ai_agent_asked_for(
     from iki_server.runs.models import ActionRun, RunStatus
 
     admin = world.users["admin"]
-    action = catalog.action("protein.compute_properties")
+    action = catalog.action("acme/protein.compute_properties")
     assert action is not None
     made = [
-        entities.create(admin, "protein.Protein", world.project, {"sequence": s, "name": n})
+        entities.create(admin, "acme/protein.Protein", world.project, {"sequence": s, "name": n})
         for n, s in [("ABL1", "MKV"), ("SRC", "MGS")]
     ]
     # The test deployment has backend workers only: hold that tier, as Iki holds the
@@ -953,12 +967,12 @@ def test_following_lineage_from_entity_to_entity(
     from iki_server.runs.models import Lineage
 
     admin = world.users["admin"]
-    action = catalog.action("protein.compute_properties")
+    action = catalog.action("acme/protein.compute_properties")
     assert action is not None
     made = []
     for name, sequence in [("ABL1 precursor", "MKV"), ("ABL1", "MKVL"), ("ABL1 fragment", "KVL")]:
         created = entities.create(
-            admin, "protein.Protein", world.project, {"sequence": sequence, "name": name}
+            admin, "acme/protein.Protein", world.project, {"sequence": sequence, "name": name}
         )
         made.append(Entity.objects.get(pk=created.entity.pk))
     for parent, child in itertools.pairwise(made):
@@ -994,9 +1008,9 @@ def test_a_proteins_sequence_in_its_viewer(open_as: Any, world: World, color_sch
     admin = world.users["admin"]
     sequence = "MLEICLKLVGCKSKKGLSSSSSCYLEEALQRPVASDFEPQGLSEAARWNSKENLLAGPSENDPNLFVALYDFVASG"
     made = entities.create(
-        admin, "protein.Protein", world.project, {"sequence": sequence, "name": "ABL1"}
+        admin, "acme/protein.Protein", world.project, {"sequence": sequence, "name": "ABL1"}
     )
-    from iki_plugin_protein.models import Protein  # type: ignore[import-not-found]
+    from iki_plugin_acme__protein.models import Protein  # type: ignore[import-not-found]
 
     # Its hydropathy, as compute_properties sets it: Kyte-Doolittle over a window of nine.
     window = [KYTE_DOOLITTLE[r] for r in sequence]
@@ -1113,7 +1127,7 @@ def test_a_structure_in_mol_star_in_its_frame(
 
     admin = world.users["admin"]
     crambin = entities.create(
-        admin, "protein.Protein", world.project, {"sequence": "TTCCPSIVAR", "name": "Crambin"}
+        admin, "acme/protein.Protein", world.project, {"sequence": "TTCCPSIVAR", "name": "Crambin"}
     ).entity
     file = _stored_file(
         world,
@@ -1124,7 +1138,7 @@ def test_a_structure_in_mol_star_in_its_frame(
     )
     made = entities.create(
         admin,
-        "protein.ProteinStructure",
+        "acme/protein.ProteinStructure",
         world.project,
         {"structure": file.pk, "method": "xray", "chains": [crambin.pk]},
     )
@@ -1159,7 +1173,7 @@ def test_a_structure_in_mol_star_in_its_frame(
     page.get_by_text(f"Revision 1 of {hrid}, as the view saved it.").wait_for()
     page.get_by_text("Drawing crambin.pdb…").wait_for(state="detached", timeout=60_000)
     page.frame_locator("iframe.structure-frame").locator("canvas").first.wait_for()
-    saved = entities.current_values_of([Entity.objects.get(type="core.View")])
+    saved = entities.current_values_of([Entity.objects.get(type="iki/core.View")])
     (state,) = [v["state"] for v in saved.values()]
     assert set(state) == {"version", "camera", "targets"} and state["version"] == 2
     assert len(state["camera"]["position"]) == 3 and state["targets"] == [{}]
@@ -1214,7 +1228,7 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
         file = _stored_file(world, _s3_endpoint, _s3_bucket, path, "chemical/x-pdb")
         made.append(
             entities.create(
-                admin, "protein.ProteinStructure", world.project, {"structure": file.pk}
+                admin, "acme/protein.ProteinStructure", world.project, {"structure": file.pk}
             ).entity
         )
     values = {
@@ -1224,7 +1238,7 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
         "viewers": ["structure", "structure"],
         "state": {"version": 2, "targets": [{"label": "first"}, {"label": "moved"}]},
     }
-    view = entities.create(admin, "core.View", world.project, values).entity
+    view = entities.create(admin, "iki/core.View", world.project, values).entity
     hrid = Entity.objects.get(pk=view.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/")
     page.get_by_role("list", name="Structures").wait_for()
@@ -1299,10 +1313,10 @@ def test_an_alignment_in_its_viewer(
 
     admin = world.users["admin"]
     abl1 = entities.create(
-        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+        admin, "acme/protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
     ).entity
     abl2 = entities.create(
-        admin, "protein.Protein", world.project, {"sequence": "MLEVCLKLVGA", "name": "ABL2"}
+        admin, "acme/protein.Protein", world.project, {"sequence": "MLEVCLKLVGA", "name": "ABL2"}
     ).entity
     hrid1, hrid2 = (Entity.objects.get(pk=e.pk).hrid for e in (abl1, abl2))
     fasta = tmp_path / "abl.afa"
@@ -1316,7 +1330,7 @@ def test_an_alignment_in_its_viewer(
     file = _stored_file(world, _s3_endpoint, _s3_bucket, fasta, "chemical/seq-aa-fasta")
     made = entities.create(
         admin,
-        "core.Alignment",
+        "iki/core.Alignment",
         world.project,
         {
             "name": "ABL kinases",
@@ -1374,7 +1388,7 @@ def test_an_alignment_in_its_viewer(
     page.get_by_text(f"Revision 1 of {hrid}, as the view saved it.").wait_for()
     page.get_by_role("application", name="Alignment of abl.afa").wait_for()
     assert page.locator(".alignment-at").inner_text().startswith(f"{hrid1}, column 311")
-    saved = entities.current_values_of([Entity.objects.get(type="core.View")])
+    saved = entities.current_values_of([Entity.objects.get(type="iki/core.View")])
     (state,) = [v["state"] for v in saved.values()]
     assert state == {"version": 2, "targets": [{"position": {"column": 311, "row": 2}}]}
     assert_clean(page)
@@ -1412,7 +1426,7 @@ def test_a_plugins_component_runs_sandboxed_in_its_tab(
 
     admin = world.users["admin"]
     made = entities.create(
-        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+        admin, "acme/protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
     )
     hrid = Entity.objects.get(pk=made.entity.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/", color_scheme)
@@ -1427,7 +1441,7 @@ def test_a_plugins_component_runs_sandboxed_in_its_tab(
     assert_clean(page)
 
     # Its code can't read Iki's cookies, storage or page, or call the API as the person.
-    (frame,) = [f for f in page.frames if "/plugin-components/protein.residues/" in f.url]
+    (frame,) = [f for f in page.frames if "/plugin-components/acme/protein.residues/" in f.url]
     assert frame.evaluate(SANDBOX_PROBES) == {
         "origin": "null",
         "api": "refused",
@@ -1535,7 +1549,7 @@ def test_an_app_whose_panels_read_the_ones_before(
     admin = world.users["admin"]
     for name, sequence in (("ABL1", "MLEICLKLVG"), ("ABL2", "MLEVCLKLVGAKQ")):
         entities.create(
-            admin, "protein.Protein", world.project, {"sequence": sequence, "name": name}
+            admin, "acme/protein.Protein", world.project, {"sequence": sequence, "name": name}
         )
     spec = {
         "version": 1,
@@ -1546,7 +1560,7 @@ def test_an_app_whose_panels_read_the_ones_before(
                 "width": 5,
                 "component": "iki.entities",
                 "props": {
-                    "type": "protein.Protein",
+                    "type": "acme/protein.Protein",
                     "where": {"all": [{"field": "name", "op": "starts_with", "value": "ABL"}]},
                     "sort": "name",
                     "columns": [
@@ -1571,7 +1585,7 @@ def test_an_app_whose_panels_read_the_ones_before(
             },
         ],
     }
-    made = entities.create(admin, "core.App", world.project, {"name": "Kinases", "spec": spec})
+    made = entities.create(admin, "iki/core.App", world.project, {"name": "Kinases", "spec": spec})
     hrid = Entity.objects.get(pk=made.entity.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/", color_scheme)
     # By text, not role, until axe has run: Playwright's Firefox crashes running axe after
@@ -1605,14 +1619,14 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
     ):
         found = entities.create(
             admin,
-            "protein.Protein",
+            "acme/protein.Protein",
             world.project,
             {"sequence": sequence, "name": name, "organism": organism},
         )
         made[name] = Entity.objects.get(pk=found.entity.pk).hrid
     spec = {
         "version": 1,
-        "entity": {"type": "protein.Protein"},
+        "entity": {"type": "acme/protein.Protein"},
         "panels": [
             {
                 "id": "length",
@@ -1627,7 +1641,7 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
                 "title": "From the same organism",
                 "component": "iki.entities",
                 "props": {
-                    "type": "protein.Protein",
+                    "type": "acme/protein.Protein",
                     "select": "none",
                     "where": {
                         "all": [
@@ -1644,7 +1658,7 @@ def test_an_app_about_an_entity_is_a_tab_on_its_page(open_as: Any, world: World)
             },
         ],
     }
-    entities.create(admin, "core.App", world.project, {"name": "Relatives", "spec": spec})
+    entities.create(admin, "iki/core.App", world.project, {"name": "Relatives", "spec": spec})
     page = open_as("admin", f"/entities/{made['ABL1']}/")
     # By CSS and text, not role, until axe has run (Firefox; see above).
     page.locator(".tabs a", has_text="Relatives").click()
@@ -1661,7 +1675,7 @@ def test_a_projects_page_opens_with_its_dashboard(open_as: Any, world: World) ->
 
     admin = world.users["admin"]
     entities.create(
-        admin, "protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
+        admin, "acme/protein.Protein", world.project, {"sequence": "MLEICLKLVG", "name": "ABL1"}
     )
     spec = {
         "version": 1,
@@ -1671,7 +1685,7 @@ def test_a_projects_page_opens_with_its_dashboard(open_as: Any, world: World) ->
                 "title": "Our proteins",
                 "component": "iki.entities",
                 "props": {
-                    "type": "protein.Protein",
+                    "type": "acme/protein.Protein",
                     "select": "none",
                     "columns": [{"field": "name"}],
                 },
@@ -1683,7 +1697,7 @@ def test_a_projects_page_opens_with_its_dashboard(open_as: Any, world: World) ->
             },
         ],
     }
-    made = entities.create(admin, "core.App", world.project, {"name": "Atlas", "spec": spec})
+    made = entities.create(admin, "iki/core.App", world.project, {"name": "Atlas", "spec": spec})
     dashboards.choose(world.project, str(made.entity.pk), by=admin)
     page = open_as("viewer", f"/projects/{world.project.slug}/")
     # By CSS and text, not role, until axe has run (Firefox; see above).
@@ -1708,7 +1722,9 @@ def test_a_draft_app_opens_for_its_person_and_previews_as_its_written(
     page.get_by_text("A draft, not saved.").wait_for()
     assert_clean(page)
 
-    made = entities.create(editor, "core.App", world.project, {"name": "Greeting", "spec": spec})
+    made = entities.create(
+        editor, "iki/core.App", world.project, {"name": "Greeting", "spec": spec}
+    )
     page.goto(page.url.split("/projects/")[0] + f"/entities/{made.entity.pk}/edit/")
     # By CSS and text, not role, until axe has run (Firefox; see above).
     page.locator(".app-preview button", has_text="Preview").click()

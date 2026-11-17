@@ -15,7 +15,7 @@ on_duplicate: reuse
 fields:
   heavy_chain:
     type: ref
-    to: protein.Protein
+    to: iki/protein.Protein
     required: true
     immutable: true
     description: >-
@@ -23,7 +23,7 @@ fields:
       for a VHH, its one domain.
   light_chain:
     type: ref
-    to: protein.Protein
+    to: iki/protein.Protein
     immutable: true
     description: Its light chain. A VHH or an scFv has none.
   name: { type: string, max_length: 255, indexed: true }

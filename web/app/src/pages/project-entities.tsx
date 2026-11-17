@@ -322,7 +322,7 @@ export function ProjectEntities() {
         </button>
         {type ? (
           <p className="toolbar-note">
-            <Link to="/types/$name/" params={{ name: type.name }}>
+            <Link to="/types/$/" params={{ _splat: type.name }}>
               About {type.label_plural}
             </Link>
           </p>

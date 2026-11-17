@@ -118,7 +118,7 @@ def generate(run: dict[str, Any]) -> dict[str, Any]:
     )
     print("::progress 1.0 Written", flush=True)
     return {
-        "creates": [{"type": "small_molecule.ConformerSet", "values": values}],
+        "creates": [{"type": "iki/small_molecule.ConformerSet", "values": values}],
         "metrics": {"conformers": len(ids)},
         "messages": messages.output(),
     }

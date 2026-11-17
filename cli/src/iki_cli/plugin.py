@@ -77,7 +77,8 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Compile plugins into Django apps.",
         description=(
             "Check plugins, then compile them into Django apps: a package per plugin "
-            "(iki_plugin_<name>) with its models and migrations, and iki_installed_plugins, "
+            "(iki_plugin_<namespace>__<name>) with its models and migrations, and "
+            "iki_installed_plugins, "
             "which the server installs. Give every plugin the deployment installs."
         ),
     )
@@ -276,7 +277,12 @@ def run_makemigrations(args: argparse.Namespace) -> int:
         built = Path(tmp) / naming.package(plugin.name) / "migrations"
         before = {f.name for f in built.glob("*.py")}
         target = directory / "migrations"
-        command = [sys.executable, "-m", "iki_server.plugins.makemigrations", plugin.name]
+        command = [
+            sys.executable,
+            "-m",
+            "iki_server.plugins.makemigrations",
+            naming.app_label(plugin.name),
+        ]
         command += [f"--name={args.name}"] if args.name else []
         for flag in ("check", "dry_run", "no_input", "merge", "empty"):
             if getattr(args, flag):

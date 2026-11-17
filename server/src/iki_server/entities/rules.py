@@ -3,11 +3,11 @@
 A manifest checks each field on its own. Core types can need more, checked
 on every create and edit, so they hold for the web, the API, MCP and runs alike:
 
-- ``core.Collection`` lists its ``members`` or has a ``search``, not both. Its
+- ``iki/core.Collection`` lists its ``members`` or has a ``search``, not both. Its
   search must work for the person saving it, in a project they can read.
-- ``core.View`` (ADR 0086, ADR 0110) shows, for each of its entities, a revision
+- ``iki/core.View`` (ADR 0086, ADR 0110) shows, for each of its entities, a revision
   that entity has, in a viewer its type has, with what that viewer keeps.
-- ``core.App`` (ADR 0090) has a spec whose panels, props and expressions work for
+- ``iki/core.App`` (ADR 0090) has a spec whose panels, props and expressions work for
   the person saving it (see :mod:`iki_server.entities.app_specs`).
 
 Subtypes follow their parents' rules.
@@ -182,9 +182,9 @@ def _app(user: User, values: Mapping[str, Any]) -> Errors:
 
 
 RULES: dict[str, Rule] = {
-    "core.App": Rule(("spec",), _app),
-    "core.Collection": Rule(("members", "search"), _collection),
-    "core.View": Rule(("targets", "target_revisions", "viewers", "state"), _view),
+    "iki/core.App": Rule(("spec",), _app),
+    "iki/core.Collection": Rule(("members", "search"), _collection),
+    "iki/core.View": Rule(("targets", "target_revisions", "viewers", "state"), _view),
 }
 
 

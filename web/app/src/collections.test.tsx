@@ -25,7 +25,7 @@ afterAll(() => {
 
 const SEARCH = {
   project: KINASE.id,
-  type: "protein.Protein",
+  type: "iki/protein.Protein",
   archived: false,
   where: { all: [{ field: "name", op: "contains", value: "abl" }] },
   sort: "name",
@@ -36,7 +36,7 @@ function collection(values: Record<string, unknown>) {
   return entity({
     id: "00000000-0000-7000-8000-00000000c001",
     hrid: "COL-000001",
-    type: "core.Collection",
+    type: "iki/core.Collection",
     title: "Kinase picks",
     values: { name: "Kinase picks", ...values },
   });
@@ -72,7 +72,7 @@ describe("collections", () => {
       JSON.stringify([{ field: "name", op: "contains", value: "abl" }]),
     );
     const { router, user } = await renderApp(
-      `/projects/kinase-atlas/entities/?type=protein.Protein&filters=${filters}&sort=name&desc=true`,
+      `/projects/kinase-atlas/entities/?type=iki/protein.Protein&filters=${filters}&sort=name&desc=true`,
     );
     await screen.findByRole("table");
     await user.click(screen.getByRole("button", { name: "Save as collection" }));
@@ -124,7 +124,7 @@ describe("collections", () => {
     expect(href.pathname).toBe("/projects/kinase-atlas/entities/");
     expect(Object.fromEntries(href.searchParams)).toEqual({
       collection: "COL-000001",
-      type: "protein.Protein",
+      type: "iki/protein.Protein",
       show: "all",
       sort: "name",
       desc: "true",
@@ -170,7 +170,9 @@ describe("collections", () => {
     onProject();
     onCollection({ members: [PROTEIN_ID] });
     answer("POST /api/v1/entities/search", page([entity()]));
-    await renderApp("/projects/kinase-atlas/entities/?collection=COL-000001&type=protein.Protein");
+    await renderApp(
+      "/projects/kinase-atlas/entities/?collection=COL-000001&type=iki/protein.Protein",
+    );
     await screen.findByRole("table");
     const note = await screen.findByText(/Members of/);
     await waitFor(() => {
@@ -184,7 +186,7 @@ describe("collections", () => {
       limit: 100,
       exact_type: false,
       collection: "COL-000001",
-      type: "protein.Protein",
+      type: "iki/protein.Protein",
       archived: false,
     });
   });

@@ -21,6 +21,7 @@ from iki_cli.plugin import _missing_dependencies, write_problems
 from iki_codegen import REGISTRY
 from iki_codegen import build as build_apps
 from iki_spec import compute as compute_spec
+from iki_spec import naming
 from iki_spec.lockfile import FILENAME, Lock, LockedPlugin, load_lock, lock_to_dict
 from iki_spec.model import Plugin
 from iki_spec.validate import load_plugin, read_settings
@@ -358,7 +359,7 @@ LOCAL = "local"
 
 
 def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]:
-    """Each pinned plugin's bundle in `output`, as ``<name>-<sha>.tar.gz``, and what the
+    """Each pinned plugin's bundle in `output`, as ``<label>-<sha>.tar.gz``, and what the
     server tells workers of it, by plugin."""
     made: dict[str, dict[str, Any]] = {}
     for item in fetched:
@@ -369,7 +370,8 @@ def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]
         output.mkdir(exist_ok=True)
         try:
             packed = workers.bundle(
-                item.directory, output / f"{item.entry.name}-{item.entry.sha or LOCAL}.tar.gz"
+                item.directory,
+                output / f"{naming.app_label(item.entry.name)}-{item.entry.sha or LOCAL}.tar.gz",
             )
         except ValueError as error:
             raise ValueError(f"{item.label}: {error}") from None
@@ -407,8 +409,8 @@ def _sha256(file: Path) -> str:
 
 def _migrations_complete(fetched: Sequence[_Fetched], build: Path, err: TextIO) -> bool:
     """Whether every plugin's migrations make the tables its manifests describe."""
-    names = [f.entry.name for f in fetched]
-    command = [sys.executable, "-m", "iki_server.plugins.makemigrations", *names]
+    labels = [naming.app_label(f.entry.name) for f in fetched]
+    command = [sys.executable, "-m", "iki_server.plugins.makemigrations", *labels]
     command += ["--check", "--dry-run", "--no-input"]
     env = {
         **os.environ,

@@ -189,7 +189,7 @@ def list_workflows(request: HttpRequest) -> list[dict[str, Any]]:
     return [_workflow_out(w) for w in workflows.workflows().values()]
 
 
-@router.get("/workflows/{name}", response=WorkflowOut, summary="A workflow")
+@router.get("/workflows/{qualified:name}", response=WorkflowOut, summary="A workflow")
 def get_workflow(request: HttpRequest, name: str) -> dict[str, Any]:
     caller(request)
     return _workflow_out(_workflow(name))
@@ -483,7 +483,9 @@ def find(me: User, ref: str) -> WorkflowRun:
     return run
 
 
-@router.post("/workflows/{name}/runs", response={201: WorkflowRunOut}, summary="Start a workflow")
+@router.post(
+    "/workflows/{qualified:name}/runs", response={201: WorkflowRunOut}, summary="Start a workflow"
+)
 def start_workflow(
     request: HttpRequest, name: str, payload: WorkflowRunIn, response: HttpResponse
 ) -> Any:  # noqa: ANN401

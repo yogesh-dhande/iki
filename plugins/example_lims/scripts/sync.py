@@ -69,7 +69,7 @@ def create(item: dict[str, Any], lims_host: str, retrieved: str) -> dict[str, An
     }
     if item.get("modified_at"):
         origin["version"] = f"modified {item['modified_at']}"[:100]
-    return {"type": "protein.Protein", "values": values, "origin": origin}
+    return {"type": "iki/protein.Protein", "values": values, "origin": origin}
 
 
 def main() -> None:

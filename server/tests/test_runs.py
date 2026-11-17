@@ -17,9 +17,9 @@ from iki_server.runs.models import ActionRun, Job, JobState, RunInput
 
 pytestmark = pytest.mark.django_db
 
-COMPUTE = "protein.compute_properties"
-PREDICT = "structure_prediction.predict_structure"
-RELAX = "protein.relax_structure"
+COMPUTE = "acme/protein.compute_properties"
+PREDICT = "acme/prediction.predict_structure"
+RELAX = "acme/protein.relax_structure"
 
 TEMPLATE: dict[str, Any] = {
     "label": "",
@@ -56,7 +56,7 @@ def world() -> Iterator[World]:
 
 def protein(api: Api, project: Project, name: str = "abl1") -> Any:
     made = create(
-        api, project, {"sequence": "MKV" + name.upper().replace("1", "A")}, "protein.Protein"
+        api, project, {"sequence": "MKV" + name.upper().replace("1", "A")}, "acme/protein.Protein"
     )
     assert made.status_code == 201, made.content
     return made.json()
@@ -74,16 +74,16 @@ def launch(
 def test_lists_installed_actions_and_where_they_run(world: World) -> None:
     actions = api_as(world, "viewer").get("/actions").json()
     assert [a["name"] for a in actions] == [
-        "protein.align_pair",
-        COMPUTE,
-        "protein.fetch_proteins",
-        "protein.import_proteins",
-        RELAX,
         PREDICT,
-        "structure_prediction.predict_with_colabfold",
-        "structure_prediction.screen_with_colabfold",
+        "acme/prediction.predict_with_colabfold",
+        "acme/prediction.screen_with_colabfold",
+        "acme/protein.align_pair",
+        COMPUTE,
+        "acme/protein.fetch_proteins",
+        "acme/protein.import_proteins",
+        RELAX,
     ]
-    _, compute, _, _, _, predict, _, _ = actions
+    predict, _, _, _, compute, _, _, _ = actions
     assert compute["tier"] == "backend"
     assert compute["available"] is True
     assert compute["needs"] == "Editor"
@@ -92,7 +92,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
             "name": "protein",
             "label": "Protein",
             "description": None,
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "cardinality": "one",
             "max": None,
             "optional": False,
@@ -102,8 +102,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
     assert predict["available"] is False
     assert predict["needs"] == "Runner"
     assert (
-        "no vm-tier machines for `structure_prediction.alphafold-gpu`"
-        in (predict["unavailable_reason"])
+        "no vm-tier machines for `acme/prediction.alphafold-gpu`" in (predict["unavailable_reason"])
     )
     assert {p["name"]: p["default"] for p in predict["params"]} == {
         "model_preset": "monomer",
@@ -121,7 +120,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
     assert seed == {
         **seed,
         "type": "int",
-        "plugin": "structure_prediction",
+        "plugin": "acme/prediction",
         "required": False,
         "unit": None,
         "input_units": [],
@@ -130,7 +129,7 @@ def test_lists_installed_actions_and_where_they_run(world: World) -> None:
         "max": None,
     }
     assert api_as(world, "viewer").get(f"/actions/{PREDICT}").json() == predict
-    problem(api_as(world, "viewer").get("/actions/protein.nope"), 404, "not_found")
+    problem(api_as(world, "viewer").get("/actions/acme/protein.nope"), 404, "not_found")
     assert api_as(world, "anonymous").get("/actions").status_code == 401
 
 
@@ -142,16 +141,16 @@ def test_lists_the_actions_that_take_a_type(world: World) -> None:
         assert found.status_code == 200, found.content
         return [a["name"] for a in found.json()]
 
-    assert taking("protein.Protein") == [
-        "protein.align_pair",
-        COMPUTE,
+    assert taking("acme/protein.Protein") == [
         PREDICT,
-        "structure_prediction.predict_with_colabfold",
-        "structure_prediction.screen_with_colabfold",
+        "acme/prediction.predict_with_colabfold",
+        "acme/prediction.screen_with_colabfold",
+        "acme/protein.align_pair",
+        COMPUTE,
     ]
-    assert taking("protein.ProteinStructure") == [RELAX]
-    assert taking("protein.Protein", "protein.ProteinStructure") == []
-    assert taking("dna.DNASequence") == []
+    assert taking("acme/protein.ProteinStructure") == [RELAX]
+    assert taking("acme/protein.Protein", "acme/protein.ProteinStructure") == []
+    assert taking("acme/dna.DNASequence") == []
 
 
 def test_without_compute_only_client_tier_actions_run(
@@ -195,7 +194,7 @@ def test_launches_a_run_on_an_entity(world: World) -> None:
     assert (job.state, job.tier, job.environment) == (
         JobState.QUEUED,
         "backend",
-        "protein.protein-tools",
+        "acme/protein.protein-tools",
     )
     assert job.resources["memory"] == 512 * 1024**2
     event = AuditEvent.objects.get(action="run.launched")
@@ -265,7 +264,7 @@ def test_inputs_are_checked(world: World) -> None:
     }
     assert _errors(launch(editor, world.project, {"protein": dna["id"], "dna": dna["id"]})) == {
         "#/inputs/dna": f"`{COMPUTE}` has no input `dna`.",
-        "#/inputs/protein": f"{dna['hrid']} is a dna.DNASequence, not a protein.Protein.",
+        "#/inputs/protein": f"{dna['hrid']} is a acme/dna.DNASequence, not a acme/protein.Protein.",
     }
     missing = "0195f2a8-0000-7000-8000-000000000000"
     assert _errors(launch(editor, world.project, {"protein": missing})) == {
@@ -318,8 +317,8 @@ def bind_vm(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "lifecycle": "ephemeral",
         "capacity": _capacity(96, 1152, gpus=8),
     }
-    compute["bindings"]["structure_prediction.alphafold-gpu"] = {
-        "environment": "structure_prediction.alphafold-gpu",
+    compute["bindings"]["acme/prediction.alphafold-gpu"] = {
+        "environment": "acme/prediction.alphafold-gpu",
         "templates": [["a100", 0]],
     }
     file = tmp_path / "with-vm.json"
@@ -386,7 +385,7 @@ def test_a_batch_runs_all_or_none(world: World) -> None:
     missing = "0195f2a8-0000-7000-8000-000000000000"
     errors = _errors(launch_each(editor, world.project, [abl["id"], dna["id"], missing]))
     assert errors == {
-        "#/entities": f"{dna['hrid']} is a dna.DNASequence, not a protein.Protein. "
+        "#/entities": f"{dna['hrid']} is a acme/dna.DNASequence, not a acme/protein.Protein. "
         f"No such entity, or you can't read it: {missing}."
     }
     assert _errors(launch_each(editor, world.project, [abl["id"], abl["id"]])) == {

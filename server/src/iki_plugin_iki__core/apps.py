@@ -4,8 +4,8 @@ from django.apps import AppConfig
 
 
 class PluginConfig(AppConfig):
-    name = 'iki_plugin_core'
-    label = 'core'
+    name = 'iki_plugin_iki__core'
+    label = 'iki__core'
     verbose_name = 'Core'
     default_auto_field = 'django.db.models.BigAutoField'
     iki_version = '0.1.0'

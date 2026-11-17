@@ -5,7 +5,7 @@ UniProt, with the properties of their sequences, and their structures, from
 the PDB, AlphaFold DB or a lab's own files, with their secondary structure, and alignments
 of proteins, two or many.
 
-- **`protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
+- **`iki/protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
   - Its identity is its sequence, so registering the same protein again
     reuses it.
   - It keeps its UniProt accession and gene where it has them, and the DNA
@@ -14,7 +14,7 @@ of proteins, two or many.
     GRAVY, instability index and hydropathy along its sequence are computed by
     the plugin's actions. Its Sequence tab draws the hydropathy as a track.
 
-- **`protein.ProteinStructure`** (`PST-000001`): a three-dimensional
+- **`iki/protein.ProteinStructure`** (`PST-000001`): a three-dimensional
   structure, experimental or predicted, in mmCIF or PDB format.
   - Its identity is its file, so importing the same file again reuses it.
   - It keeps its PDB ID, title, method, resolution and first release, and the
@@ -23,7 +23,7 @@ of proteins, two or many.
     shares of its residues in helices and strands, and its solvent-accessible
     surface, and keeps its annotated mmCIF (`dssp`).
 
-`Protein` extends `core.Sequence`, so a search for sequences finds proteins
+`Protein` extends `iki/core.Sequence`, so a search for sequences finds proteins
 alongside DNA. The plugin depends on the [dna plugin](../dna) for
 `encoded_by`.
 
@@ -88,12 +88,12 @@ they list none.
   it, and keeps the alignment as two artifacts
   ([ADR 0068](../../docs/adr/0068-runs-keep-artifacts-for-a-while.md)):
   `alignment.txt` in EMBOSS's pair format, and `alignment.fasta`. The FASTA
-  is also a `core.Alignment` of the two, the target its reference, which
+  is also an `iki/core.Alignment` of the two, the target its reference, which
   Iki's alignment viewer shows
   ([ADR 0088](../../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
   Up to 100 million cells (10,000 residues by 10,000).
 - **`align_multiple`**: aligns up to 2,000 proteins with MAFFT 7.505 (from
-  Debian, without its GPL-licensed extensions) into a `core.Alignment` of them,
+  Debian, without its GPL-licensed extensions) into an `iki/core.Alignment` of them,
   each row headed by its protein's HRID, in the order given. A reference, if
   chosen, is the first row. MAFFT's strategy is the run's: Auto (the default)
   lets MAFFT choose by how many proteins there are and how long, and the
@@ -105,7 +105,7 @@ they list none.
   alignment's file. Proteins up to 40,000 residues, and 5 million in all.
 - **`align_reads`**: aligns sequencing reads to a protein, such as Sanger
   reads of an expression construct to the protein it should make, into a
-  `core.Alignment` the alignment viewer shows, the protein its reference. It
+  `iki/core.Alignment` the alignment viewer shows, the protein its reference. It
   takes the same files as the dna plugin's `align_reads`: up to 96, AB1
   traces, FASTQ or FASTA files, up to 1,000 reads in all
   ([ADR 0089](../../docs/adr/0089-a-param-can-take-several-files.md)). It

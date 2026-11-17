@@ -40,18 +40,43 @@ Every manifest starts with `apiVersion: iki/v1` and a `kind`.
 ```yaml
 apiVersion: iki/v1
 kind: Plugin
-name: protein # lower case; types are protein.Name, tables protein_name
+name: acme/proteins # namespace/name; types are acme/proteins.Name, tables acme__proteins_name
 version: 3.0.0 # semantic version, for people (deployments pin the git commit)
 iki: ">=0.1,<0.3" # the Iki releases it works with: others refuse it
 title: Proteins
 license: Apache-2.0
 dependencies:
-  dna:
+  iki/dna:
     types:
       DNASequence: ">=2,<4" # schema versions this plugin works with
 settings:
   uniprot_mirror: { type: string, format: uri, default: "https://rest.uniprot.org" }
 ```
+
+### Names
+
+A plugin is named `namespace/name`, as Terraform's providers and GitHub's
+actions are, so two labs' plugins can have the same short name and still be
+installed together: `acme/assays` and `globex/assays` are different plugins
+([ADR 0113](../docs/adr/0113-plugins-are-named-in-a-namespace.md)). Both
+parts are 2 to 30 lower-case letters, digits and single underscores, starting
+with a letter. The namespace is your lab's or company's.
+
+- The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
+  `iki/antibody`, `iki/small_molecule` and `iki/example_lims`. No other
+  plugin may use it, or a namespace starting with `iki_`
+  (`reserved-namespace`), and a lockfile takes an `iki/...` plugin only from
+  Iki's repository.
+- A plugin names its own types, actions and the rest without its namespace
+  (`Protein`, or in full, `acme/proteins.Protein`). Anything of another
+  plugin's is named in full: `iki/dna.DNASequence`, `iki/protein.translate`,
+  and dependencies by their full names. A short name for another plugin's
+  (`dna.DNASequence`) is refused, with what to write instead
+  (`unqualified-reference`, `unqualified-dependency`).
+- Where a name can't hold a `/`, the plugin goes by its label,
+  `namespace__name` (`iki__protein`): its Django app and tables, its
+  package `iki_plugin_iki__protein`, its code's directory in a worker's
+  bundle, and its secrets' keys (`iki__dna.NCBI_API_KEY`).
 
 ## Entity types
 
@@ -60,7 +85,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Protein
 schema_version: 3 # increase it whenever the fields change
-extends: dna.Sequence # optional parent type (multi-table inheritance)
+extends: iki/dna.Sequence # optional parent type (multi-table inheritance)
 hrid: { prefix: PRT, digits: 6 } # PRT-000123, never reused
 identity: [sequence] # what makes two entities the same
 on_duplicate: reuse # reuse (default) | warn | allow
@@ -68,7 +93,7 @@ fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
   molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }
   organism: { type: string, max_length: 200, indexed: true }
-  source: { type: ref, to: core.Entity } # any entity
+  source: { type: ref, to: iki/core.Entity } # any entity
 display:
   title: "{{ name or hrid }}"
 ```
@@ -93,11 +118,11 @@ Subtypes share the identity of the type that declares it. The hash is the
 SHA-256, in lower-case hex, of UTF-8 JSON with sorted keys and no spaces:
 
 ```json
-{ "type": "dna.DNASequence", "v": 1, "values": { "bases": "ACGT" } }
+{ "type": "iki/dna.DNASequence", "v": 1, "values": { "bases": "ACGT" } }
 ```
 
 Here written with spaces for reading; the hashed form is
-`{"type":"dna.DNASequence","v":1,"values":{"bases":"ACGT"}}`. `type` is the
+`{"type":"iki/dna.DNASequence","v":1,"values":{"bases":"ACGT"}}`. `type` is the
 type that declares the identity. Each value is encoded by its field's type:
 
 | Type                     | Encoded as                                |
@@ -112,7 +137,7 @@ type that declares the identity. Each value is encoded by its field's type:
 
 An optional field without a value is `null`. An antibody is its heavy chain
 and its light chain, which a single-domain antibody hasn't got:
-`{"type":"antibody.Antibody","v":1,"values":{"heavy_chain":"…","light_chain":null}}`.
+`{"type":"iki/antibody.Antibody","v":1,"values":{"heavy_chain":"…","light_chain":null}}`.
 Every identity has at least one required field.
 
 [`iki_spec.identity`](src/iki_spec/identity.py) implements it.
@@ -121,19 +146,20 @@ Every identity has at least one required field.
 
 A plugin adds fields to another plugin's type with an extension. The fields
 live in the extending plugin's own table
-(`structure_prediction__protein_proteinstructure`).
+(`acme__prediction__iki__protein_proteinstructure`, for `acme/prediction`'s fields
+on `iki/protein.ProteinStructure`).
 
 ```yaml
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: protein.ProteinStructure
+extends_type: iki/protein.ProteinStructure
 fields:
   plddt_mean: { type: float, computed: true, indexed: true, min: 0, max: 100 }
 ```
 
 Extension fields can't be `required` (existing entities, and the owning
 plugin, wouldn't have them), can't reuse a name the type already has, and
-`core.Entity` can't be extended.
+`iki/core.Entity` can't be extended.
 
 ## Fields
 
@@ -183,7 +209,7 @@ type's history. Identity fields can't be removed.
 | `datetime` |                                                 | Always with a time zone. No default.                                       |
 | `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.               |
 | `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).          |
-| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `core.Entity` for any.       |
+| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any.   |
 | `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.   |
 | `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.     |
 
@@ -203,14 +229,15 @@ plugin's generated models use, are reserved.
 
 `iki plugin build` compiles a plugin into a Django app with these tables
 (see [ADR 0033](../docs/adr/0033-plugin-codegen-and-migrations.md)). Every
-name must fit PostgreSQL's 63 characters.
+name must fit PostgreSQL's 63 characters. Each starts with the plugin's
+label, `namespace__name`, so a table says whose it is.
 
-| Table                                            | Holds                                                     |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| `protein_protein`                                | `protein.Protein`'s own fields, keyed by `entity_id`      |
-| `protein_protein__history`                       | Its values at each revision, removed fields included      |
-| `protein_proteinstructure__chains`               | A list of references or files: one row per item, in order |
-| `structure_prediction__protein_proteinstructure` | The fields `structure_prediction` adds to that type       |
+| Table                                             | Holds                                                     |
+| ------------------------------------------------- | --------------------------------------------------------- |
+| `iki__protein_protein`                            | `iki/protein.Protein`'s own fields, keyed by `entity_id`  |
+| `iki__protein_protein__history`                   | Its values at each revision, removed fields included      |
+| `iki__protein_proteinstructure__chains`           | A list of references or files: one row per item, in order |
+| `acme__prediction__iki__protein_proteinstructure` | The fields `acme/prediction` adds to that type            |
 
 Other lists are arrays. PostgreSQL checks every rule it can (formats,
 patterns, enums, bounds, lengths, list sizes) with CHECK constraints, so bad
@@ -220,7 +247,7 @@ every role.
 At deploy time, `iki-server sync_plugins` creates each prefix's HRID
 sequence, comments every table and column from the manifests, and builds a
 read-only view per type in the `iki_views` schema, such as
-`iki_views.protein_protein`. Each view joins the type's fields, its parents'
+`iki_views.iki__protein_protein`. Each view joins the type's fields, its parents'
 and those other plugins add. Plugins installed together can't share an HRID
 prefix, a table, or a field they add to the same type.
 
@@ -275,12 +302,12 @@ apiVersion: iki/v1
 kind: Action
 name: predict_structure_with_alphafold
 inputs: # leave out for actions that import or fetch
-  protein: { type: protein.Protein, schema: ">=2" } # cardinality: one (default) or many
+  protein: { type: iki/protein.Protein, schema: ">=2" } # cardinality: one (default) or many
   # include: [encoded_by] # references whose entities the run reads too (ADR 0105)
 params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
 effects: # what a run may write; anything else is refused
-  creates: [{ type: protein.ProteinStructure, cardinality: many, derived_from: [protein] }]
+  creates: [{ type: iki/protein.ProteinStructure, cardinality: many, derived_from: [protein] }]
   updates: [] # e.g. [{ input: protein, fields: [molecular_weight] }]
 runs_on: { tier: vm, environment: alphafold-gpu, lifecycle: ephemeral, resources: { memory: 96Gi } }
 command: [python, /app/run.py] # a list of arguments, no shell; ./path is a file in the plugin
@@ -353,7 +380,7 @@ actions can't keep artifacts.
 
 A run gets the secrets its action declares under `secrets` as environment
 variables, and no others. Each deployment keeps them in its own secret
-manager, for this plugin alone (`dna.NCBI_API_KEY` is the dna plugin's), so a
+manager, for this plugin alone (`iki__dna.NCBI_API_KEY` is the `iki/dna` plugin's), so a
 secret is never another plugin's even under the same name. Their values are
 never in `input.json`, and `***` stands for them in the log. A required secret
 the deployment hasn't set keeps the action from running, and says so; give
@@ -436,10 +463,10 @@ written `$$`.
 ```yaml
 apiVersion: iki/v1
 kind: Workflow
-name: translate_and_characterize # snake_case; qualified as protein.translate_and_characterize
+name: translate_and_characterize # snake_case; qualified as iki/protein.translate_and_characterize
 label: Translate and characterize
 inputs:
-  sequence: { type: dna.DNASequence, schema: ">=1" } # as an action's inputs
+  sequence: { type: iki/dna.DNASequence, schema: ">=1" } # as an action's inputs
 params:
   frame: { type: int, min: 1, max: 3, default: 1 } # as an action's params
 steps:
@@ -619,7 +646,7 @@ tab. The validator checks that each field exists and is what its viewer
 shows, and that each viewer is given once.
 
 A viewer's tab lists the views it's in and saves what it shows as a
-`core.View`, on the revision it shows, with other entities beside it if
+`iki/core.View`, on the revision it shows, with other entities beside it if
 wanted (ADR 0086, ADR 0110).
 
 ## Components
@@ -670,35 +697,35 @@ migrates anything. A build of Iki counts as its release: `0.2.0.dev3` is
 A plugin lists the plugins whose types it uses, with the schema versions it
 works with. To check those references, pass the dependencies' directories
 with `--with`. Without them, the validator says it can't check them rather
-than guessing. Core types (`core.Entity`, `core.Sequence`, `core.Collection`,
-`core.View`, `core.Alignment`, `core.App`) need no dependency.
+than guessing. Core types (`iki/core.Entity`, `iki/core.Sequence`, `iki/core.Collection`,
+`iki/core.View`, `iki/core.Alignment`, `iki/core.App`) need no dependency.
 
 ## The core plugin
 
 Every deployment has the core plugin, released with Iki. Its manifests are
 in [`iki_spec/core`](src/iki_spec/core). Other plugins use its types without
-declaring a dependency, and no other plugin can be named `core`:
+declaring a dependency. It's `iki/core`:
 
-- `core.Entity`: any entity. It's the server's own model, so it isn't generated.
-- `core.Sequence`: anything with a sequence of residues (abstract). Plugins'
+- `iki/core.Entity`: any entity. It's the server's own model, so it isn't generated.
+- `iki/core.Sequence`: anything with a sequence of residues (abstract). Plugins'
   sequence types extend it, so one search finds DNA and proteins alike.
-- `core.Collection`: a named set of entities. A static collection lists its
+- `iki/core.Collection`: a named set of entities. A static collection lists its
   `members`; a dynamic one has a `search`, run as whoever reads it
   ([ADR 0038](../docs/adr/0038-core-plugin-app-and-collections.md)).
-- `core.Alignment`: sequences aligned, as FASTA in `aligned`. Its `members`
+- `iki/core.Alignment`: sequences aligned, as FASTA in `aligned`. Its `members`
   are the sequences in Iki it aligns, each the row headed by its HRID; other
   rows, such as reads, go by their own names. Its `reference`, if it has
   one, is the sequence the others were aligned to. Iki's alignment viewer
   draws it
   ([ADR 0088](../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
-- `core.View`: a saved look at 1 to 20 entities in Iki's viewers, each
+- `iki/core.View`: a saved look at 1 to 20 entities in Iki's viewers, each
   pinned to the revision it showed: its `targets`, their `target_revisions`
   and `viewers` in the same order, and what the viewers keep of each in
   `state`. Its structures share one Mol\* scene, superposed if wanted. Only
   people who can read every entity it shows can read it
   ([ADR 0086](../docs/adr/0086-saved-views-are-entities-pinned-to-a-revision.md),
   [ADR 0110](../docs/adr/0110-a-view-shows-several-entities-each-at-its-revision.md)).
-- `core.App`: a page of Iki's own components. Its `spec` (`app/v1`) lists
+- `iki/core.App`: a page of Iki's own components. Its `spec` (`app/v1`) lists
   panels on a twelve-column grid, each an entities grid, a viewer or text,
   bound to the panels before it by CEL expressions between `{{` and `}}`
   ([ADR 0090](../docs/adr/0090-apps-are-compositions-of-ikis-components.md)).
@@ -718,12 +745,16 @@ Each deployment's config repository pins the plugins it installs in
 apiVersion: iki/v1
 kind: PluginLock
 plugins:
-  - name: dna
-    git: https://github.com/acme/iki-plugins.git
-    path: dna # the plugin's directory in the repository, if not its root
+  - name: iki/dna # Iki's own plugins come from Iki's repository
+    git: https://github.com/yogesh-dhande/iki.git
+    path: plugins/dna # the plugin's directory in the repository, if not its root
     sha: 4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b
     state: active
     settings: settings/dna.yaml # relative to the lockfile
+  - name: acme/assays # a lab's, in its namespace, from its repository
+    git: https://github.com/acme/iki-assays.git
+    sha: 9b2e4c1d0a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d
+    state: active
 ```
 
 `sha` is a full commit, never a branch or tag, so the same lockfile always
@@ -960,7 +991,7 @@ When a worker leases a job, it gets the run input and writes it to
     "id": "…",
     "hrid": "RUN-000123",
     "attempt": 1,
-    "action": "protein.compute_properties",
+    "action": "iki/protein.compute_properties",
     "plugin": { "name": "protein", "version": "1.2.0", "sha": "…" },
     "project": "…"
   },
@@ -971,7 +1002,7 @@ When a worker leases a job, it gets the run input and writes it to
       {
         "id": "…",
         "hrid": "PRT-000042",
-        "type": "protein.Protein",
+        "type": "iki/protein.Protein",
         "schema_version": 1,
         "revision": 3,
         "values": { "sequence": "MKV…" }
@@ -988,7 +1019,7 @@ When a worker leases a job, it gets the run input and writes it to
     }
   },
   "command": ["python", "scripts/properties.py"],
-  "environment": "protein.protein-tools",
+  "environment": "iki/protein.protein-tools",
   "job": { "…": "the lease, for iki-worker" }
 }
 ```
@@ -1056,12 +1087,12 @@ change what its action declares:
   },
   "creates": [
     {
-      "type": "protein.ProteinStructure",
+      "type": "iki/protein.ProteinStructure",
       "values": { "method": "predicted", "structure": "…" },
       "derived_from": ["…"]
     },
     {
-      "type": "dna.DNASequence",
+      "type": "iki/dna.DNASequence",
       "values": { "name": "pUC19", "bases": "TCGCGCGTTT…" },
       "origin": {
         "source": "NCBI Nucleotide",
@@ -1165,9 +1196,9 @@ field (or an item of a list of refs) `{"$create": "<key>"}`:
 
 ```json
 [
-  { "type": "protein.Protein", "key": "A", "values": { "sequence": "MVLSPADKTN…" } },
+  { "type": "iki/protein.Protein", "key": "A", "values": { "sequence": "MVLSPADKTN…" } },
   {
-    "type": "protein.ProteinStructure",
+    "type": "iki/protein.ProteinStructure",
     "values": { "structure": { "$file": "1abc.cif" }, "chains": [{ "$create": "A" }] }
   }
 ]
@@ -1327,7 +1358,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                                                                                                                                                                                                                                      | Where manifests are             |
 | `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                             | A manifest's header             |
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Anything the JSON Schemas catch |
-| `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                       | Names                           |
+| `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                          | Names                           |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                    | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                  | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                                                                                                                                                                                                                         | Identities                      |
@@ -1338,7 +1369,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                    | Extensions                      |
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                    | Dependencies                    |
 | `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`                                                                                                                                                                                                                                                                                                                          | Settings                        |
-| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                | Lockfiles                       |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                          | Actions                         |
 | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `action-does-nothing`                                                                                                                                                                                                                                                                                                        | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                           | Where actions run               |

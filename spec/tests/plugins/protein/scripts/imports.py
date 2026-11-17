@@ -15,7 +15,7 @@ for chunk in text.split(">")[1:]:
     name = header.split()[0]
     creates.append(
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "values": {"name": name, "sequence": "".join(body.split())},
             "origin": {
                 "source": "FASTA file",

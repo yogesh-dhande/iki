@@ -195,7 +195,7 @@ const projectMembersRoute = createRoute({
 const projectEntitiesRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "entities",
-  // ?type=dna.DNASequence: one type and its subtypes; ?show=archived|all.
+  // ?type=iki/dna.DNASequence: one type and its subtypes; ?show=archived|all.
   validateSearch: validateEntitySearch,
   loader: ({ context }) => context.queryClient.query(typesQuery),
   component: ProjectEntities,
@@ -204,7 +204,7 @@ const projectEntitiesRoute = createRoute({
 const projectEntityNewRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "entities/new",
-  // ?type=dna.DNASequence: its form; without one, a choice of types first.
+  // ?type=iki/dna.DNASequence: its form; without one, a choice of types first.
   validateSearch: validateNewEntitySearch,
   loader: ({ context }) => context.queryClient.query(typesQuery),
   component: NewEntity,
@@ -224,7 +224,7 @@ const projectRunsRoute = createRoute({
 const projectRunNewRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "runs/new",
-  // ?entities=PRT-000001,PRT-000002: what it runs on; ?action=protein.compute_properties.
+  // ?entities=PRT-000001,PRT-000002: what it runs on; ?action=iki/protein.compute_properties.
   validateSearch: validateNewRunSearch,
   loader: ({ context }) => context.queryClient.query(typesQuery),
   component: NewRun,
@@ -248,7 +248,7 @@ const projectWorkflowsRoute = createRoute({
 const projectWorkflowNewRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "workflows/new",
-  // ?workflow=protein.translate_and_characterize: its form.
+  // ?workflow=iki/protein.translate_and_characterize: its form.
   validateSearch: (search: Record<string, unknown>): { workflow?: string | undefined } =>
     typeof search["workflow"] === "string" && search["workflow"]
       ? { workflow: search["workflow"] }
@@ -260,7 +260,7 @@ const projectWorkflowNewRoute = createRoute({
 const projectTriggersRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "triggers",
-  // ?trigger=protein.compute_new_protein_properties: only what that trigger fired.
+  // ?trigger=iki/protein.compute_new_protein_properties: only what that trigger fired.
   validateSearch: (search: Record<string, unknown>): { trigger?: string | undefined } =>
     typeof search["trigger"] === "string" && search["trigger"]
       ? { trigger: search["trigger"] }
@@ -312,9 +312,10 @@ const typeListRoute = createRoute({
   component: TypeList,
 });
 
+// A type's name is `namespace/plugin.Type`: the rest of the path, `/` and all (ADR 0113).
 const typeRoute = createRoute({
   getParentRoute: () => typesRoute,
-  path: "$name",
+  path: "$",
   loader: ({ context }) => context.queryClient.query(typesQuery),
   component: TypeDetail,
 });
@@ -362,9 +363,10 @@ const entityViewerRoute = createRoute({
   component: EntityViewer,
 });
 
+// A component's name is `namespace/plugin.component`, `/` and all.
 const entityComponentRoute = createRoute({
   getParentRoute: () => entityRoute,
-  path: "components/$name",
+  path: "components/$",
   loader: ({ context }) => context.queryClient.query(componentsQuery),
   component: EntityComponent,
 });

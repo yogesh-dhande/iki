@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
 kind: Plugin
-name: example_lims
+name: iki/example_lims
 version: 0.1.0
 title: Example LIMS
 description: >-
@@ -11,7 +11,7 @@ description: >-
 license: Apache-2.0
 homepage: https://ikisci.org/plugins/example_lims
 dependencies:
-  protein:
+  iki/protein:
     types:
       Protein: ">=1"
 settings:

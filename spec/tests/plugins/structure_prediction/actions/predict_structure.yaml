@@ -3,14 +3,14 @@ kind: Action
 name: predict_structure
 label: Predict structure
 inputs:
-  protein: { type: protein.Protein, schema: ">=1" }
+  protein: { type: acme/protein.Protein, schema: ">=1" }
 params:
   model_preset: { type: enum, values: [monomer, multimer], default: monomer }
   seed: { type: int, default: 0, min: 0 }
 effects:
   creates:
     # A job the service already ran comes back as the same structure, updated.
-    - type: protein.ProteinStructure
+    - type: acme/protein.ProteinStructure
       cardinality: many
       derived_from: [protein]
       match_on: job_id

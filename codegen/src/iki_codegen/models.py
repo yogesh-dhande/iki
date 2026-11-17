@@ -2,7 +2,7 @@
 
 For each entity type:
 
-- its table, extending ``core.Entity`` (or its parent type) with multi-table
+- its table, extending ``iki/core.Entity`` (or its parent type) with multi-table
   inheritance, with a typed column per field and CHECK constraints for every
   rule the database can enforce;
 - its history table, append-only, one row per revision, with every field the
@@ -65,7 +65,7 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
         {
             t.extends.split(".")[0]
             for t in plugin.types.values()
-            if t.extends and t.extends != "core.Entity" and t.extends.split(".")[0] != plugin.name
+            if t.extends and t.extends != naming.ENTITY and t.extends.split(".")[0] != plugin.name
         }
     )
     if imports:
@@ -80,7 +80,7 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
 def _in_order(plugin: Plugin) -> list[EntityType]:
     """Parents before subtypes (Python needs the class first), else by name.
 
-    ``core.Entity`` is the server's own model (``iki_server.entities``), not a generated one.
+    ``iki/core.Entity`` is the server's own model (``iki_server.entities``), not a generated one.
     """
     done: dict[str, EntityType] = {}
 
@@ -92,7 +92,7 @@ def _in_order(plugin: Plugin) -> list[EntityType]:
         done[t.qualified_name] = t
 
     for name in sorted(plugin.types):
-        if name != "core.Entity":
+        if name != naming.ENTITY:
             visit(plugin.types[name])
     return list(done.values())
 
@@ -137,14 +137,14 @@ class _Model:
 def _links(name: str, types: Mapping[str, EntityType]) -> list[str]:
     """The parent links along a type's ancestry, from the top down: its own last."""
     t = types.get(name)
-    if t is None or t.extends is None or t.extends == "core.Entity":
+    if t is None or t.extends is None or t.extends == naming.ENTITY:
         return []
     above = _links(t.extends, types)
     return [*above, naming.parent_link(t.extends, above)]
 
 
 def _type(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> list[str]:
-    if t.extends is None or t.extends == "core.Entity":
+    if t.extends is None or t.extends == naming.ENTITY:
         base, link_name, link_to = "Entity", "entity", "Entity"
     else:
         base = _class_ref(t.extends, plugin.name)
@@ -192,7 +192,7 @@ def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
             "entity",
             _call(
                 "models.OneToOneField",
-                e.extends_type,
+                naming.model_label(e.extends_type),
                 _raw("models.PROTECT"),
                 primary_key=True,
                 db_column="entity_id",
@@ -316,7 +316,7 @@ def _column(
         )
     if kind == "ref":
         assert f.to is not None  # noqa: S101 - refs have a target
-        target = _raw("Entity") if f.to == "core.Entity" else _model_ref(f.to, plugin)
+        target = _raw("Entity") if f.to == naming.ENTITY else _model_ref(f.to, plugin)
         return _call(
             "models.ForeignKey", target, _raw("models.PROTECT"), related_name="+", **options
         )
@@ -578,4 +578,4 @@ def _class_ref(qualified: str, plugin: str) -> str:
 
 def _model_ref(qualified: str, plugin: str) -> str:
     owner, name = qualified.split(".")
-    return name if owner == plugin else qualified
+    return name if owner == plugin else naming.model_label(qualified)

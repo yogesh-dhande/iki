@@ -1,4 +1,4 @@
-/** Apps (core.App, ADR 0090): panels that read the ones before them, rendered with the
+/** Apps (iki/core.App, ADR 0090): panels that read the ones before them, rendered with the
  * real iki-wasm, run here without a worker. */
 
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
@@ -41,8 +41,8 @@ vi.mock("./apps", async (original) => {
 
 const PLASMID = {
   ...PROTEIN,
-  name: "dna.DNASequence",
-  plugin: "dna",
+  name: "iki/dna.DNASequence",
+  plugin: "iki/dna",
   label: "DNA sequence",
   label_plural: "DNA sequences",
   hrid_prefix: "DNA",
@@ -64,15 +64,15 @@ const PLASMID = {
 
 const APP = {
   ...PROTEIN,
-  name: "core.App",
-  plugin: "core",
+  name: "iki/core.App",
+  plugin: "iki/core",
   label: "App",
   label_plural: "Apps",
   hrid_prefix: "APP",
   fields: [
-    field({ name: "name", label: "Name", type: "string", plugin: "core" }),
-    field({ name: "description", label: "Description", type: "text", plugin: "core" }),
-    field({ name: "spec", label: "Spec", type: "json", plugin: "core" }),
+    field({ name: "name", label: "Name", type: "string", plugin: "iki/core" }),
+    field({ name: "description", label: "Description", type: "text", plugin: "iki/core" }),
+    field({ name: "spec", label: "Spec", type: "json", plugin: "iki/core" }),
   ],
   viewers: [],
 };
@@ -81,7 +81,7 @@ function plasmid(n: number, name: string, bases: string) {
   return entity({
     id: `0190f5c2-0000-7000-8000-00000000d0a${String(n)}`,
     hrid: `DNA-00000${String(n)}`,
-    type: "dna.DNASequence",
+    type: "iki/dna.DNASequence",
     values: { name, bases },
   });
 }
@@ -93,7 +93,7 @@ function app(panels: unknown[]) {
   return entity({
     id: "0190f5c2-0000-7000-8000-0000000a0001",
     hrid: "APP-000001",
-    type: "core.App",
+    type: "iki/core.App",
     values: { name: "Plasmid QC", spec: { version: 1, panels } },
   });
 }
@@ -104,7 +104,7 @@ const GRID = {
   width: 6,
   component: "iki.entities",
   props: {
-    type: "dna.DNASequence",
+    type: "iki/dna.DNASequence",
     where: { all: [{ field: "name", op: "starts_with", value: "p" }] },
     sort: "name",
     columns: [{ field: "name" }, { label: "Length", value: "{{ size(row.values.bases) }} bp" }],
@@ -150,7 +150,7 @@ describe("an app", () => {
     // The grid searches as the app says, in the app's project, as the person viewing it.
     const search = calls("POST", "/api/v1/entities/search")[0]?.body as Record<string, unknown>;
     expect(search).toMatchObject({
-      type: "dna.DNASequence",
+      type: "iki/dna.DNASequence",
       project: app([]).owner_project?.id,
       where: GRID.props.where,
       sort: { field: "name", descending: false },
@@ -206,7 +206,10 @@ function about(panels: unknown[]) {
   const made = app(panels);
   return {
     ...made,
-    values: { ...made.values, spec: { version: 1, entity: { type: "dna.DNASequence" }, panels } },
+    values: {
+      ...made.values,
+      spec: { version: 1, entity: { type: "iki/dna.DNASequence" }, panels },
+    },
   };
 }
 
@@ -444,7 +447,7 @@ describe("a project's dashboard", () => {
     await renderApp("/projects/kinase-atlas/settings/");
     expect(await screen.findByRole("link", { name: "make one" })).toHaveAttribute(
       "href",
-      "/projects/kinase-atlas/entities/new/?type=core.App",
+      "/projects/kinase-atlas/entities/new/?type=iki%2Fcore.App",
     );
   });
 });
@@ -484,7 +487,7 @@ describe("an app's draft", () => {
       expect(router.state.location.pathname).toBe("/entities/APP-000001/");
     });
     expect(calls("POST", "/api/v1/entities")[0]?.body).toEqual({
-      type: "core.App",
+      type: "iki/core.App",
       project: KINASE.id,
       values: { name: "Atlas", spec: DRAFT.spec },
       allow_duplicate: false,

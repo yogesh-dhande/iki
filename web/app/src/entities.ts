@@ -127,7 +127,7 @@ export function pickerQuery(type: string | undefined, q: string) {
             query: {
               limit: 20,
               archived: false,
-              ...(type && type !== "core.Entity" ? { type } : {}),
+              ...(type && type !== "iki/core.Entity" ? { type } : {}),
               ...(q.trim() ? { q: q.trim() } : {}),
             },
           },
@@ -263,7 +263,7 @@ export function validateEntitySearch(search: Record<string, unknown>): EntitySea
   return out;
 }
 
-/** A new entity's form: ?type=dna.DNASequence. */
+/** A new entity's form: ?type=iki/dna.DNASequence. */
 export interface NewEntitySearch {
   type?: string | undefined;
 }
@@ -379,7 +379,7 @@ export function inSentence(label: string): string {
   return label.charAt(0).toLowerCase() + label.slice(1);
 }
 
-/** "dna.DNASequence" → the type's label, or the name if it isn't installed. */
+/** "iki/dna.DNASequence" → the type's label, or the name if it isn't installed. */
 export function typeLabel(types: EntityType[] | undefined, name: string): string {
   return types?.find((t) => t.name === name)?.label ?? name;
 }

@@ -9,7 +9,7 @@ description: >-
   Iki already has is updated, not made again, and one Iki has under the same
   sequence, without a LIMS ID yet, takes the record's.
 effects:
-  creates: [{ type: protein.Protein, cardinality: many, match_on: lims_id }]
+  creates: [{ type: iki/protein.Protein, cardinality: many, match_on: lims_id }]
 runs_on: { tier: backend, environment: lims-tools }
 command: [python, ./scripts/sync.py]
 network: ["{settings.lims_host}"]

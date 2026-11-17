@@ -13,7 +13,7 @@ description: >-
   numbered first (number_chains), since the motifs are read off its numbering;
   one that hasn't been is left as it was, and the run says so.
 inputs:
-  protein: { type: protein.Protein, schema: ">=2", label: Chain }
+  protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
 effects:
   updates:
     - input: protein

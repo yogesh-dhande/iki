@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
 kind: Plugin
-name: antibody
+name: iki/antibody
 version: 0.4.0
 title: Antibody
 description: Antibodies, by the proteins that are their chains, what their variable domains say about them, and their predicted structures.
@@ -9,7 +9,7 @@ license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/antibody
 dependencies:
-  protein:
+  iki/protein:
     types:
       Protein: ">=2"
       ProteinStructure: ">=2"

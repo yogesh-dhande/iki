@@ -19,7 +19,7 @@ const DUPLICATES: Record<string, string> = {
 function TypeLink({ name, types }: { name: string; types: EntityType[] }) {
   const found = types.find((t) => t.name === name);
   return (
-    <Link to="/types/$name/" params={{ name }}>
+    <Link to="/types/$/" params={{ _splat: name }}>
       {found?.label ?? name}
     </Link>
   );
@@ -50,7 +50,7 @@ export function TypeList() {
               .map((t) => (
                 <li className="row" key={t.name}>
                   <div className="row-main">
-                    <Link className="row-title" to="/types/$name/" params={{ name: t.name }}>
+                    <Link className="row-title" to="/types/$/" params={{ _splat: t.name }}>
                       {t.label}
                     </Link>
                     <span className="row-meta">
@@ -102,7 +102,7 @@ export function fieldKind(field: FieldDef, types: EntityType[]): string {
       case "datetime":
         return "Date and time";
       case "ref":
-        return `Reference to ${field.to === "core.Entity" ? "any entity" : label(field.to ?? "")}`;
+        return `Reference to ${field.to === "iki/core.Entity" ? "any entity" : label(field.to ?? "")}`;
       case "file":
         return "File";
       case "json":
@@ -116,7 +116,7 @@ export function fieldKind(field: FieldDef, types: EntityType[]): string {
 }
 
 export function TypeDetail() {
-  const { name } = useParams({ from: "/types/$name" });
+  const { _splat: name = "" } = useParams({ from: "/types/$" });
   const type = useSuspenseQuery(typeQuery(name)).data;
   const types = useSuspenseQuery(typesQuery).data;
   usePageTitle(type.label);

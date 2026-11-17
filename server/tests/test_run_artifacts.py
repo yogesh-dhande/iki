@@ -28,7 +28,7 @@ pytestmark = pytest.mark.django_db
 
 __all__ = ["keep_connection", "world"]
 
-ALIGN = "protein.align_pair"
+ALIGN = "acme/protein.align_pair"
 ALIGNMENT = b"# Aligned\nX-1  1 MKV  3\n     |||\nX-2  1 MKV  3\n"
 
 

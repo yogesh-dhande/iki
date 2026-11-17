@@ -8,33 +8,33 @@ from iki_spec.validate import load_plugin
 def test_the_core_plugin_is_valid_and_strict() -> None:
     result = load_plugin(CORE_DIRECTORY, core=True)
     assert result.problems == []
-    assert core_plugin().name == "core"
+    assert core_plugin().name == "iki/core"
 
 
 def test_its_types_are_the_builtin_ones() -> None:
     assert sorted(BUILTIN_TYPES) == [
-        "core.Alignment",
-        "core.App",
-        "core.Collection",
-        "core.Entity",
-        "core.Sequence",
-        "core.View",
+        "iki/core.Alignment",
+        "iki/core.App",
+        "iki/core.Collection",
+        "iki/core.Entity",
+        "iki/core.Sequence",
+        "iki/core.View",
     ]
-    entity = BUILTIN_TYPES["core.Entity"]
+    entity = BUILTIN_TYPES["iki/core.Entity"]
     assert entity.abstract
     assert entity.fields == {}
-    collection = BUILTIN_TYPES["core.Collection"]
+    collection = BUILTIN_TYPES["iki/core.Collection"]
     assert not collection.abstract
     assert set(collection.fields) == {"name", "description", "members", "search"}
     assert collection.hrid_prefix == "COL"
-    sequence = BUILTIN_TYPES["core.Sequence"]
+    sequence = BUILTIN_TYPES["iki/core.Sequence"]
     assert sequence.abstract
     assert set(sequence.fields) == {"name", "description", "organism"}
-    app = BUILTIN_TYPES["core.App"]
+    app = BUILTIN_TYPES["iki/core.App"]
     assert not app.abstract
     assert set(app.fields) == {"name", "description", "spec"}
     assert app.hrid_prefix == "APP"
-    view = BUILTIN_TYPES["core.View"]
+    view = BUILTIN_TYPES["iki/core.View"]
     assert not view.abstract
     # A view of one entity named it in `target`; those fields are removed, kept in history,
     # and a view lists the entities it shows (ADR 0110).
@@ -45,7 +45,7 @@ def test_its_types_are_the_builtin_ones() -> None:
     assert view.fields["targets"].immutable and view.fields["viewers"].immutable
     assert not view.fields["target_revisions"].immutable
     assert view.hrid_prefix == "VIEW"
-    alignment = BUILTIN_TYPES["core.Alignment"]
+    alignment = BUILTIN_TYPES["iki/core.Alignment"]
     assert set(alignment.fields) == {
         "name",
         "description",

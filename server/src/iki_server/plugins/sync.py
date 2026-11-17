@@ -162,15 +162,15 @@ def _type_model(t: EntityType) -> type[models.Model]:
 
 
 def _extension_model(e: Extension) -> type[models.Model]:
-    return apps.get_model(e.plugin, naming.extension_model(e.extends_type))
+    return apps.get_model(naming.app_label(e.plugin), naming.extension_model(e.extends_type))
 
 
 def _history_model(plugin: str, model: type[models.Model]) -> type[models.Model]:
-    return apps.get_model(plugin, naming.history_model(model.__name__))
+    return apps.get_model(naming.app_label(plugin), naming.history_model(model.__name__))
 
 
 def _list_model(plugin: str, owner: type[models.Model], f: Field) -> type[models.Model]:
-    return apps.get_model(plugin, naming.list_model(owner.__name__, f.name))
+    return apps.get_model(naming.app_label(plugin), naming.list_model(owner.__name__, f.name))
 
 
 def _is_list_table(f: Field) -> bool:
@@ -185,9 +185,9 @@ def _column(model: type[models.Model], name: str) -> str:
 def _tables() -> Iterable[tuple[str, type[models.Model], dict[str, Field], str]]:
     """(plugin, model, fields, description) for every type's and extension's own table."""
     for t in registry.types().values():
-        # The core plugin's types are generated like any plugin's, but core.Entity is
+        # The core plugin's types are generated like any plugin's, but iki/core.Entity is
         # the server's own model.
-        if t.qualified_name == "core.Entity":
+        if t.qualified_name == "iki/core.Entity":
             continue
         described = f"{t.label} ({t.qualified_name}), schema version {t.schema_version}."
         yield t.plugin, _type_model(t), t.fields, _sentence(described, t.description)
@@ -289,7 +289,7 @@ def _views(cursor: Any) -> list[str]:  # noqa: ANN401 - Django's cursor
     drop_views(cursor)
     made = []
     for t in sorted(registry.types().values(), key=lambda t: t.qualified_name):
-        if t.qualified_name == "core.Entity":
+        if t.qualified_name == "iki/core.Entity":
             continue
         name, select, comments = _view(t)
         cursor.execute(

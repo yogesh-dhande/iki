@@ -36,7 +36,7 @@ params:
     type: string
     description: The alignment's name. Without one, it's named after the sequence.
 effects:
-  creates: [{ type: core.Alignment, derived_from: [reference] }]
+  creates: [{ type: iki/core.Alignment, derived_from: [reference] }]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: sequence-tools, resources: { memory: 1Gi } }

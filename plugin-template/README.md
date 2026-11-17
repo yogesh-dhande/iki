@@ -7,12 +7,12 @@ yours.
 
 What's here:
 
-- `plugin.yaml`: the plugin, its version, the plugins it depends on (here,
-  Iki's `dna` plugin), and its settings.
-- `types/sample.yaml`: an entity type, `example.Sample`, with references to
-  its own type and to `dna.DNASequence`.
+- `plugin.yaml`: the plugin, `acme/example`, its version, the plugins it
+  depends on (here, Iki's `iki/dna`), and its settings.
+- `types/sample.yaml`: an entity type, `acme/example.Sample`, with references to
+  its own type and to `iki/dna.DNASequence`.
 - `types/dna_sequence.yaml`: an extension adding two fields to
-  `dna.DNASequence`. They live in this plugin's tables.
+  `iki/dna.DNASequence`. They live in this plugin's tables.
 - `actions/assign_storage.yaml` and `scripts/storage.py`: an action that sets
   a sample's storage to the plugin's setting, and the command it runs.
 - `actions/tidy_storage.yaml`: another, with the same script, that asks for a
@@ -45,9 +45,13 @@ complete and check it as you type.
 
 1. Install the `iki` CLI at the version your deployments run:
    `uv tool install iki-cli==0.1.0`.
-2. Rename the plugin in `plugin.yaml`. The name is in every table it makes,
-   so choose it before the first deployment: lowercase, with underscores
-   (`acme_assays`).
+2. Rename the plugin in `plugin.yaml`: `namespace/name`, where the namespace
+   is your lab's or company's (`acme` is a placeholder) and both are
+   lowercase, with underscores (`acme/assays`). Plugins in different
+   namespaces can share a short name, so pick a namespace that's yours alone.
+   `iki` is Iki's own. The name is in every table it makes, so choose it
+   before the first deployment. Other plugins' types are written with their
+   full names (`iki/dna.DNASequence`); your own need none (`Sample`).
 3. Replace the example types with yours. Keep only the dependencies you use.
 4. Delete `migrations/` and make your first migration:
 

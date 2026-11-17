@@ -44,7 +44,7 @@
           "properties": {
             "hrid": { "$ref": "#/$defs/hrid" },
             "type": {
-              "description": "Its type, if it's a subtype of the input's: `plugin.Type`.",
+              "description": "Its type, if it's a subtype of the input's: `namespace/plugin.Type`.",
               "type": "string"
             },
             "values": { "type": "object" },

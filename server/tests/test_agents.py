@@ -37,7 +37,7 @@ def create(world: World, token: str, name: str = "ABL1", **headers: str) -> Any:
         "POST",
         "/entities",
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "project": str(world.project.pk),
             # Each its own sequence, so none is found already there.
             "values": {"sequence": "MKV" + "".join(AMINO[ord(c) % 20] for c in name), "name": name},
@@ -107,7 +107,7 @@ def test_changes_in_the_web_app_name_no_agent(world: World) -> None:
     made = api.post(
         "/entities",
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "project": str(world.project.pk),
             "values": {"sequence": "MKVLA", "name": "ABL1"},
         },

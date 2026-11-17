@@ -17,7 +17,7 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 
 class ActionFilters(TypedDict):
-    #: Only actions with an input that takes entities of each of these types, such as `takes=dna.Primer`. An input takes its own type and every type that extends it.
+    #: Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it.
     takes: NotRequired[list[str]]
 
 
@@ -160,7 +160,7 @@ class AppGuideOut(TypedDict):
     grid: str
     #: The JSON Schema its spec follows (app/v1).
     spec_schema: dict[str, Any]
-    #: The entity type an app is: core.App.
+    #: The entity type an app is: iki/core.App.
     type: str
 
 
@@ -712,7 +712,7 @@ class EntityIn(TypedDict):
     project: str
     #: Why, for the record.
     reason: NotRequired[str]
-    #: Qualified, such as dna.DNASequence.
+    #: Qualified, such as iki/dna.DNASequence.
     type: str
     values: NotRequired[dict[str, Any]]
 
@@ -1325,7 +1325,7 @@ class LookupParams(TypedDict):
     field: str
     #: Only entities that belong to this project.
     project: NotRequired[str | None]
-    #: The entity type, such as `protein.Protein`; subtypes count.
+    #: The entity type, such as `iki/protein.Protein`; subtypes count.
     type: str
     value: str
 

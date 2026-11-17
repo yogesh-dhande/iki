@@ -157,8 +157,11 @@ def _autodetector() -> type:
                     )
                 if isinstance(op, migrations.DeleteModel) and _is_history(op.name):
                     owner = self._describe(app_label, op.name, self.from_state)
+                    # A type's name starts lowercase, with its plugin's namespace: only
+                    # "the fields …" begins with a word to capitalize.
+                    owner = f"T{owner[1:]}" if owner.startswith("the ") else owner
                     raise CommandError(
-                        f"{owner[0].upper()}{owner[1:]} is gone. Iki keeps every entity's "
+                        f"{owner} is gone. Iki keeps every entity's "
                         "history, so a plugin can't delete a type or an extension: put its "
                         "manifest back.\n"
                         "  If you renamed the type, run this again and answer yes when asked "
@@ -174,8 +177,9 @@ def _autodetector() -> type:
                 if isinstance(op, migrations.CreateModel) and _is_history(op.name):
                     out.append(AppendOnly(op.name))
                 if isinstance(op, migrations.RenameModel) and not _is_derived(op.new_name):
+                    plugin = _plugin(app_label)
                     out.append(
-                        RenameEntityType(f"{app_label}.{op.old_name}", f"{app_label}.{op.new_name}")
+                        RenameEntityType(f"{plugin}.{op.old_name}", f"{plugin}.{op.new_name}")
                     )
             return out
 
@@ -183,9 +187,9 @@ def _autodetector() -> type:
             name = state.models[app_label, model_name.lower()].name
             base = name[: -len(HISTORY)] if _is_history(name) else name
             if base.startswith("Ext_"):
-                _, plugin, type_name = base.split("_", 2)
-                return f"the fields {app_label} adds to {plugin}.{type_name}"
-            return f"{app_label}.{base}"
+                target = state.models[app_label, model_name.lower()].fields["entity"].related_model
+                return f"the fields {_plugin(app_label)} adds to {_type_of(target)}"
+            return f"{_plugin(app_label)}.{base}"
 
         def _check_history_type(self, app_label: str, op: Any, old: Any) -> None:  # noqa: ANN401 - Django fields and operations
             before, after = _kind(old), _kind(op.field)
@@ -260,6 +264,19 @@ class _HistoryQuestioner:
         answer = bool(self._questioner.ask_rename_model(old, new))
         self._models[key] = answer
         return answer
+
+
+def _plugin(app_label: str) -> str:
+    """The plugin an app is, by its name (``iki/protein``) rather than its label."""
+    from iki_spec import naming
+
+    return naming.plugin_of_label(app_label) or app_label
+
+
+def _type_of(model: Any) -> str:  # noqa: ANN401 - a model reference in a migration's state
+    """``iki/protein.Protein`` for ``iki__protein.protein``, as migrations' states name models."""
+    label, _, name = str(model).partition(".")
+    return f"{_plugin(label)}.{name}"
 
 
 def _is_plugin(app_label: str) -> bool:

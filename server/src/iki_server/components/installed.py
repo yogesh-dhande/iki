@@ -13,6 +13,7 @@ from pathlib import Path
 from django.apps import apps
 
 from iki_server.entities import registry
+from iki_spec import naming
 from iki_spec.model import Component
 
 
@@ -49,7 +50,7 @@ def module(qualified_name: str) -> bytes:
     """The component's module, as the build copied it. Raises :class:`KeyError` for one
     that isn't installed, :class:`ModuleChanged` if its digest doesn't match."""
     component = components()[qualified_name]
-    config = apps.get_app_config(component.plugin)
+    config = apps.get_app_config(naming.app_label(component.plugin))
     data = (Path(config.path) / "components" / f"{component.name}.js").read_bytes()
     if hashlib.sha256(data).hexdigest() != component.sha256:
         raise ModuleChanged(qualified_name)

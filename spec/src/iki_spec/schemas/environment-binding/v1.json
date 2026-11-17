@@ -10,10 +10,10 @@
     "apiVersion": { "const": "iki/v1" },
     "kind": { "const": "EnvironmentBinding" },
     "environment": {
-      "description": "The plugin and its environment, such as `structure_prediction.alphafold-gpu`.",
+      "description": "The plugin and its environment, such as `iki/protein.structure-tools`.",
       "type": "string",
       "maxLength": 200,
-      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[a-z][a-z0-9]*(-[a-z0-9]+)*$"
     },
     "templates": {
       "type": "array",

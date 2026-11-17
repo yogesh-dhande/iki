@@ -58,9 +58,26 @@ def _version() -> str:
         return "0+unknown"
 
 
+class _Name(str):
+    """A name in a plugin, such as ``iki/protein.Protein``: :func:`_path` keeps its ``/``."""
+
+    __slots__ = ()
+
+
+def _escape(value: str | int) -> str:
+    if isinstance(value, _Name):
+        # ``namespace/name.Thing`` goes as it is, as the API's own links write it. Anything
+        # else is escaped whole, so it can't reach another endpoint.
+        segments = value.split("/")
+        if len(segments) == 2 and all(s and s not in (".", "..") for s in segments):
+            return "/".join(quote(s, safe="") for s in segments)
+    return quote(str(value), safe="")
+
+
 def _path(template: str, **parts: str | int) -> str:
-    """An API path, each part escaped, so a value can't reach another endpoint."""
-    return template.format(**{k: quote(str(v), safe="") for k, v in parts.items()})
+    """An API path, each part escaped, so a value can't reach another endpoint. A name
+    (:class:`_Name`) keeps the ``/`` between its namespace and the rest."""
+    return template.format(**{k: _escape(v) for k, v in parts.items()})
 
 
 class Results[T]:
@@ -330,7 +347,7 @@ class Entities(_Part):
         the API takes it::
 
             iki.entities.search(
-                "protein.Protein",
+                "iki/protein.Protein",
                 project="kinase-atlas",
                 where={"field": "length", "op": "gte", "value": 300},
                 sort="-created_at",
@@ -374,7 +391,9 @@ class Entities(_Part):
         """The entities whose unique `field` is `value`, such as the ID a LIMS gives its
         record, in each project you can read: at most one of each project's own::
 
-            iki.entities.lookup("protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas")
+            iki.entities.lookup(
+                "iki/protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas"
+            )
         """
         client = self._client
         params = {"type": type, "field": field, "value": value}
@@ -474,9 +493,9 @@ class Types(_Part):
         return cast("builtins.list[EntityTypeOut]", self._client.request("GET", "/entity-types"))
 
     def get(self, name: str) -> EntityTypeOut:
-        """A type, such as ``protein.Protein``: its fields, units and rules."""
+        """A type, such as ``iki/protein.Protein``: its fields, units and rules."""
         return cast(
-            "EntityTypeOut", self._client.request("GET", _path("/entity-types/{n}", n=name))
+            "EntityTypeOut", self._client.request("GET", _path("/entity-types/{n}", n=_Name(name)))
         )
 
 
@@ -569,9 +588,9 @@ class Actions(_Part):
         )
 
     def get(self, name: str) -> ActionOut:
-        """An action, such as ``protein.compute_properties``: its inputs, params,
+        """An action, such as ``iki/protein.compute_properties``: its inputs, params,
         effects and where it runs."""
-        return cast("ActionOut", self._client.request("GET", _path("/actions/{n}", n=name)))
+        return cast("ActionOut", self._client.request("GET", _path("/actions/{n}", n=_Name(name))))
 
 
 class Runs(_Part):
@@ -614,7 +633,7 @@ class Runs(_Part):
         }
         return cast(
             "RunOut",
-            client.request("POST", _path("/actions/{n}/runs", n=action), json=body),
+            client.request("POST", _path("/actions/{n}/runs", n=_Name(action)), json=body),
         )
 
     def start_each(
@@ -647,7 +666,7 @@ class Runs(_Part):
             "add_to_project": add_to_project,
             "labels": list(labels),
         }
-        batch = client.request("POST", _path("/actions/{n}/runs/batch", n=action), json=body)
+        batch = client.request("POST", _path("/actions/{n}/runs/batch", n=_Name(action)), json=body)
         return cast("builtins.list[RunOut]", batch["runs"])
 
     def get(self, ref: str | Mapping[str, Any]) -> RunOut:

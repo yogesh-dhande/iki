@@ -13,7 +13,7 @@ import iki
 
 iki.login("https://iki.example.com")  # once: you enter a code in your browser
 
-proteins = iki.entities.search("protein.Protein", project="kinase-atlas")
+proteins = iki.entities.search("iki/protein.Protein", project="kinase-atlas")
 table = proteins.to_pandas()  # one row per entity, a column per field
 ```
 
@@ -57,7 +57,7 @@ inspect TLS.
 ```python
 # Search: a type (with its subtypes), a project (its slug or ID), text, conditions.
 found = iki.entities.search(
-    "protein.Protein",
+    "iki/protein.Protein",
     project="kinase-atlas",
     q="kinase",
     where={
@@ -79,7 +79,7 @@ abl1 = iki.entities.get("PRT-000123")
 [sample] = iki.entities.lookup("lab.Sample", "lims_id", "S-0042", project="kinase-atlas")
 
 made = iki.entities.create(
-    "protein.Protein",
+    "iki/protein.Protein",
     {"name": "ABL1", "sequence": "MLEICLKLVG"},
     project="kinase-atlas",
     reason="From the paper's table 2",
@@ -105,11 +105,11 @@ Conditions take `op` as one of `eq`, `ne`, `in`, `lt`, `lte`, `gt`, `gte`,
 ## Running actions
 
 ```python
-iki.actions.list(takes=["protein.Protein"])  # what can run on proteins
-iki.actions.get("protein.compute_properties")  # its inputs, params, tier
+iki.actions.list(takes=["iki/protein.Protein"])  # what can run on proteins
+iki.actions.get("iki/protein.compute_properties")  # its inputs, params, tier
 
 run = iki.run(
-    "protein.compute_properties",
+    "iki/protein.compute_properties",
     project="kinase-atlas",
     inputs={"protein": "PRT-000123"},  # by HRID, ID, or the entity itself
     params={"ph": 7.4},
@@ -120,7 +120,7 @@ print(run["effects"])  # what it created or changed
 
 # One run for each, all or none.
 runs = iki.run_each(
-    "protein.compute_properties",
+    "iki/protein.compute_properties",
     [p for p in found],
     each="protein",
     project="kinase-atlas",
@@ -175,7 +175,7 @@ from iki.schema import EntityOut, RunOut
 
 ```python
 staging = iki.Client("https://iki-staging.example.com")
-staging.entities.search("dna.DNASequence").first()
+staging.entities.search("iki/dna.DNASequence").first()
 ```
 
 `iki.Client(url, token=...)` takes a token directly, too. For anything the SDK

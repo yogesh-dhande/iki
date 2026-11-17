@@ -106,7 +106,7 @@ def _entity(w: World) -> Any:
     from iki_server.entities import services as entities
 
     return entities.create(
-        w.users["editor"], "dna.DNASequence", w.project, {"bases": "ACGT"}
+        w.users["editor"], "acme/dna.DNASequence", w.project, {"bases": "ACGT"}
     ).entity
 
 
@@ -117,7 +117,9 @@ def dashboard(w: World) -> tuple[Any, ...]:
         "version": 1,
         "panels": [{"id": "hi", "component": "iki.text", "props": {"text": "Hi"}}],
     }
-    made = entities.create(w.users["editor"], "core.App", w.project, {"name": "Hi", "spec": spec})
+    made = entities.create(
+        w.users["editor"], "iki/core.App", w.project, {"name": "Hi", "spec": spec}
+    )
     return f"/projects/{w.project.pk}/dashboard", {"app": str(made.entity.pk)}
 
 
@@ -146,7 +148,7 @@ def dynamic_collection(w: World) -> tuple[Any, ...]:
     from iki_server.entities.models import Entity
 
     made = entities.create(
-        w.users["editor"], "core.Collection", w.project, {"name": "Kin", "search": {"q": "kin"}}
+        w.users["editor"], "iki/core.Collection", w.project, {"name": "Kin", "search": {"q": "kin"}}
     )
     found = Entity.objects.get(pk=made.entity.pk)
     return f"/collections/{found.pk}/freeze", {}, {"If-Match": f'"{found.revision}"'}
@@ -207,7 +209,7 @@ def _protein(w: World) -> Any:
     from iki_server.entities import services as entities
 
     return entities.create(
-        w.users["editor"], "protein.Protein", w.project, {"sequence": "MKV"}
+        w.users["editor"], "acme/protein.Protein", w.project, {"sequence": "MKV"}
     ).entity
 
 
@@ -215,32 +217,32 @@ def _run(w: World) -> Any:
     from iki_server.runs import catalog
     from iki_server.runs import services as runs
 
-    action = catalog.action("protein.compute_properties")
+    action = catalog.action("acme/protein.compute_properties")
     assert action is not None
     return runs.launch(w.users["editor"], action, w.project, {"protein": [_protein(w).pk]}, {})
 
 
 def launch_run(w: World) -> tuple[str, Any]:
     body = {"project": str(w.project.pk), "inputs": {"protein": str(_protein(w).pk)}}
-    return "/actions/protein.compute_properties/runs", body
+    return "/actions/acme/protein.compute_properties/runs", body
 
 
 def launch_batch(w: World) -> tuple[str, Any]:
     body = {"project": str(w.project.pk), "each": "protein", "entities": [str(_protein(w).pk)]}
-    return "/actions/protein.compute_properties/runs/batch", body
+    return "/actions/acme/protein.compute_properties/runs/batch", body
 
 
 def start_workflow(w: World) -> tuple[str, Any]:
     kit = str(_protein(w).pk)
     body = {"project": str(w.project.pk), "inputs": {"query": kit, "target": kit}}
-    return "/workflows/protein.weigh_and_align/runs", body
+    return "/workflows/acme/protein.weigh_and_align/runs", body
 
 
 def workflow_run(suffix: str = "", body: Any = None) -> Build:
     def build(w: World) -> tuple[str, Any]:
         from iki_server.runs import workflows
 
-        found = workflows.workflow("protein.weigh_and_align")
+        found = workflows.workflow("acme/protein.weigh_and_align")
         assert found is not None
         kit = _protein(w).pk
         made = workflows.start(
@@ -273,7 +275,7 @@ def gated_step(verb: str, body: Any) -> Build:
         from iki_server.runs import workflows
         from iki_server.runs.models import ActionRun, RunStatus
 
-        found = workflows.workflow("protein.review_then_weigh")
+        found = workflows.workflow("acme/protein.review_then_weigh")
         assert found is not None
         kit = _protein(w).pk
         made = workflows.start(
@@ -295,7 +297,7 @@ def batch(suffix: str = "", body: Any = None) -> Build:
         from iki_server.runs import catalog
         from iki_server.runs import services as runs
 
-        action = catalog.action("protein.compute_properties")
+        action = catalog.action("acme/protein.compute_properties")
         assert action is not None
         (made,) = runs.launch_each(
             w.users["editor"], action, w.project, "protein", [_protein(w).pk], {}, {}
@@ -364,7 +366,7 @@ def _setup(w: World, state: str = "awaiting_approval") -> Any:
 
     return SetupBuild.objects.create(
         hrid="SETUP-000099",
-        environment="structure_prediction.alphafold-gpu",
+        environment="acme/prediction.alphafold-gpu",
         plugin_version="1.0.0",
         image="ghcr.io/acme/alphafold@sha256:" + "a" * 64,
         place="iki-runs",
@@ -599,13 +601,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     # Entities: read with a role in any of their projects, changed by the owner's Editors.
     ("GET", "/entity-types", fixed("/entity-types"), row(200)),
-    ("GET", "/entity-types/{name}", fixed("/entity-types/dna.DNASequence"), row(200)),
+    ("GET", "/entity-types/{name}", fixed("/entity-types/acme/dna.DNASequence"), row(200)),
     ("GET", "/entities", fixed("/entities"), row(200)),
     ("POST", "/entities/search", lambda w: ("/entities/search", {"q": "kin"}), row(200)),
     (
         "GET",
         "/entities/lookup",
-        fixed("/entities/lookup?type=protein.Protein&field=lims_id&value=LIMS-1"),
+        fixed("/entities/lookup?type=acme/protein.Protein&field=lims_id&value=LIMS-1"),
         row(200),
     ),
     # Saved searches: a project's readers save their own; the owner changes one; Admins
@@ -638,7 +640,11 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/entities",
         lambda w: (
             "/entities",
-            {"type": "dna.DNASequence", "project": str(w.project.pk), "values": {"bases": "GC"}},
+            {
+                "type": "acme/dna.DNASequence",
+                "project": str(w.project.pk),
+                "values": {"bases": "GC"},
+            },
         ),
         visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
     ),
@@ -712,7 +718,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # Actions are listed to everyone signed in. Running on the backend tier takes Editor;
     # runs are read with their project, and cancelled by whoever may run them.
     ("GET", "/actions", fixed("/actions"), row(200)),
-    ("GET", "/actions/{name}", fixed("/actions/protein.compute_properties"), row(200)),
+    ("GET", "/actions/{name}", fixed("/actions/acme/protein.compute_properties"), row(200)),
     (
         "POST",
         "/actions/{name}/runs",
@@ -744,7 +750,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/batches/{ref}", batch(), readers(200)),
     ("POST", "/batches/{ref}/cancel", batch("/cancel", {}), editors(200)),
     ("GET", "/workflows", fixed("/workflows"), row(200)),
-    ("GET", "/workflows/{name}", fixed("/workflows/protein.weigh_and_align"), row(200)),
+    ("GET", "/workflows/{name}", fixed("/workflows/acme/protein.weigh_and_align"), row(200)),
     (
         "POST",
         "/workflows/{name}/runs",
@@ -808,7 +814,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/compute/setups",
-        fixed("/compute/setups", {"environment": "structure_prediction.alphafold-gpu"}),
+        fixed("/compute/setups", {"environment": "acme/prediction.alphafold-gpu"}),
         row(403, compute_admin=409),
     ),
     (
@@ -1001,13 +1007,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/projects/{project_id}/triggers/{name}/enable",
-        project("/triggers/protein.weigh_new_proteins/enable", {}),
+        project("/triggers/acme/protein.weigh_new_proteins/enable", {}),
         visible(403, admin=200),
     ),
     (
         "POST",
         "/projects/{project_id}/triggers/{name}/disable",
-        project("/triggers/protein.weigh_new_proteins/disable", {}),
+        project("/triggers/acme/protein.weigh_new_proteins/disable", {}),
         visible(403, admin=200),
     ),
     (

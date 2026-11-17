@@ -213,11 +213,11 @@ CASES: list[Case] = [
     ("people", "GET", lambda w: ("/people/", {}), row(FORBIDDEN, org_admin=OK)),
     ("audit_log", "GET", lambda w: ("/audit/", {}), row(FORBIDDEN, auditor=OK)),
     ("plugins", "GET", lambda w: ("/settings/plugins/", {}), row(FORBIDDEN, org_admin=OK)),
-    ("plugin", "GET", lambda w: ("/settings/plugins/dna/", {}), row(FORBIDDEN, org_admin=OK)),
+    ("plugin", "GET", lambda w: ("/settings/plugins/acme/dna/", {}), row(FORBIDDEN, org_admin=OK)),
     (
         "plugin",
         "POST",
-        lambda w: ("/settings/plugins/dna/", {"action": "cancel"}),
+        lambda w: ("/settings/plugins/acme/dna/", {"action": "cancel"}),
         row(FORBIDDEN, org_admin=OK),
     ),
     (

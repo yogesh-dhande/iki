@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: EntityType
 name: Protein
-extends: dna.Sequence
+extends: acme/dna.Sequence
 schema_version: 3
 hrid: { prefix: PRT, digits: 6 }
 identity: [sequence]
@@ -16,8 +16,8 @@ fields:
     indexed: true
     unique: true
     link: https://lims.example.org/proteins/{value}
-  source: { type: ref, to: core.Entity }
-  encoded_by: { type: ref, to: dna.DNASequence }
+  source: { type: ref, to: iki/core.Entity }
+  encoded_by: { type: ref, to: acme/dna.DNASequence }
   temperature_optimum: { type: quantity, unit: Cel }
   uniprot_ids: { type: list, items: { type: string, pattern: "^[A-Z0-9]{6,10}$" } }
   summary: { type: text }

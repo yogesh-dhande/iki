@@ -4,7 +4,7 @@ kind: EntityType
 name: DNASequence
 label: DNA sequence
 label_plural: DNA sequences
-extends: core.Sequence
+extends: iki/core.Sequence
 schema_version: 1
 description: >-
   A DNA sequence: a plasmid, a gene, a construct, a genome. Two with the same

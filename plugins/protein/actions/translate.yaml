@@ -8,7 +8,7 @@ description: >-
   registers the protein it encodes, linked to the DNA. A protein already in Iki
   (the same sequence) is reused.
 inputs:
-  sequence: { type: dna.DNASequence, schema: ">=1" }
+  sequence: { type: iki/dna.DNASequence, schema: ">=1" }
 params:
   strand:
     type: enum

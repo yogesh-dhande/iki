@@ -36,7 +36,7 @@ from iki_server.runs.models import (
 
 pytestmark = pytest.mark.django_db
 
-PREDICT = "structure_prediction.predict_structure"
+PREDICT = "acme/prediction.predict_structure"
 FILLED = setups.filled
 IMAGE = (
     "ghcr.io/acme/alphafold@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
@@ -84,8 +84,8 @@ def use(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *templates: dict[str, A
     compute = json.loads(Path(catalog._compute_file()).read_text())  # type: ignore[arg-type]
     for template in templates:
         compute["templates"][template["name"]] = template
-    compute["bindings"]["structure_prediction.alphafold-gpu"] = {
-        "environment": "structure_prediction.alphafold-gpu",
+    compute["bindings"]["acme/prediction.alphafold-gpu"] = {
+        "environment": "acme/prediction.alphafold-gpu",
         "templates": [[t["name"], i] for i, t in enumerate(templates)],
     }
     file = tmp_path / "with-vms.json"
@@ -319,7 +319,7 @@ def register(token: str) -> Any:
             "name": "iki-run-vm",
             "version": "0.1.0",
             "capacity": {"cpu": 2, "memory": 4 * GI},
-            "plugins": [{"name": "dna", "sha": None, "environments": None}],
+            "plugins": [{"name": "acme/dna", "sha": None, "environments": None}],
         },
     )
 
@@ -344,7 +344,7 @@ def test_a_queued_run_gets_an_instance_that_runs_its_image_with_iki_worker(world
     launch = Launch.objects.get()
     assert (launch.template, launch.environment, launch.image, launch.namespace) == (
         "a100-spot",
-        "structure_prediction.alphafold-gpu",
+        "acme/prediction.alphafold-gpu",
         IMAGE,
         "us-east-1",
     )
@@ -382,7 +382,7 @@ def test_a_queued_run_gets_an_instance_that_runs_its_image_with_iki_worker(world
     host = ec2.host(instance)
     assert (host["image"], host["once"], host["spot"], host["gpus"]) == (IMAGE, True, True, 8)
     assert host["env"]["IKI_URL"] == "https://iki.internal.example.com"
-    assert host["env"]["IKI_WORKER_ENVIRONMENT"] == "structure_prediction.alphafold-gpu"
+    assert host["env"]["IKI_WORKER_ENVIRONMENT"] == "acme/prediction.alphafold-gpu"
     assert host["env"]["IKI_WORKER_NAME"] == launch.name
     assert WORKER_IMAGE in request["UserData"]
     token = ec2.token(instance)

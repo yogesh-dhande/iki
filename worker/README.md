@@ -94,7 +94,7 @@ iki-worker start
 | `IKI_URL`                                  | The server. `https://` only; `http://` is accepted for localhost. After `register`, the one it registered with.                       |
 | `IKI_REGISTRATION_TOKEN`                   | Registers the worker. Not needed again once `IKI_WORKER_STATE` holds a token.                                                         |
 | `IKI_WORKER_STATE`                         | A file to keep the worker's own token in (mode 0600), so restarts reuse it. After `register`, `~/.config/iki/worker.json` unless set. |
-| `IKI_PLUGINS_DIR`                          | Each plugin's code, in a directory named for the plugin. All the worker runs. Unless set, it fetches the server's.                    |
+| `IKI_PLUGINS_DIR`                          | Each plugin's code, a directory each (its `plugin.yaml` names it). All the worker runs. Unless set, it fetches the server's.          |
 | `IKI_WORKER_CACHE`                         | Where it keeps the plugins it fetched and the environments it built. `~/.cache/iki/worker` unless set.                                |
 | `IKI_WORK_DIR`                             | Where jobs run, a private directory each. A temporary directory unless set.                                                           |
 | `IKI_WORKER_NAME`                          | How people tell it apart under Compute → Workers. The host name unless set.                                                           |
@@ -146,7 +146,8 @@ An init container copies the worker in with `iki-worker install /iki/bin`.
 The binary is static, so it runs in any Linux image. The pod then runs
 `iki-worker start --once` with:
 
-- `IKI_WORKER_ENVIRONMENT`: the environment it runs (`plugin.environment`).
+- `IKI_WORKER_ENVIRONMENT`: the environment it runs (`plugin.environment`, such as
+  `iki/protein.structure-tools`).
   It fetches only that plugin's code and builds nothing, since the image is
   the environment.
 - `IKI_WORKER_IMAGE`: the image, pinned by its digest. Each attempt records

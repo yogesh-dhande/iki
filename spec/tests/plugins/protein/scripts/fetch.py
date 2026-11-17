@@ -19,7 +19,7 @@ output = {
     "kind": "RunOutput",
     "creates": [
         {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "values": {"name": accession, "sequence": "".join(body.split())},
             "origin": {
                 "source": "UniProtKB",

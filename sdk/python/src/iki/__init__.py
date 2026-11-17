@@ -6,11 +6,11 @@ Sign in once, then work with Iki from notebooks and scripts::
 
     iki.login("https://iki.example.com")  # once: you enter a code in your browser
 
-    proteins = iki.entities.search("protein.Protein", project="kinase-atlas")
+    proteins = iki.entities.search("iki/protein.Protein", project="kinase-atlas")
     table = proteins.to_pandas()
 
     run = iki.run(
-        "protein.compute_properties",
+        "iki/protein.compute_properties",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
         reason="Weights for the summary table",

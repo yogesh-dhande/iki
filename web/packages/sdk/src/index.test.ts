@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiError, createIkiClient, isProblem, unwrap } from "./index.js";
+import { ApiError, createIkiClient, encodeName, isProblem, unwrap } from "./index.js";
 
 function recorder(body: unknown, status = 200) {
   const requests: Request[] = [];
@@ -54,6 +54,32 @@ describe("createIkiClient", () => {
     await iki.GET("/api/v1/me");
     expect(requests[0]?.headers.get("Authorization")).toBe("Bearer at-123");
     expect(requests[0]?.credentials).toBe("omit");
+  });
+
+  it("keeps the / of a name's namespace in its path, and escapes everything else", async () => {
+    const { requests, fetch } = recorder({});
+    const iki = createIkiClient({ baseUrl: BASE, fetch });
+    await iki.GET("/api/v1/entity-types/{name}", {
+      params: { path: { name: "iki/protein.Protein" } },
+    });
+    await iki.GET("/api/v1/actions/{name}", { params: { path: { name: "../runs" } } });
+    await iki.GET("/api/v1/entities/{ref}", { params: { path: { ref: "a/b" } } });
+    expect(requests.map((r) => r.url)).toEqual([
+      `${BASE}/api/v1/entity-types/iki/protein.Protein`,
+      `${BASE}/api/v1/actions/..%2Fruns`,
+      `${BASE}/api/v1/entities/a%2Fb`,
+    ]);
+  });
+});
+
+describe("encodeName", () => {
+  it("keeps one / between non-empty segments", () => {
+    expect(encodeName("iki/protein.Protein")).toBe("iki/protein.Protein");
+    expect(encodeName("acme/lab.p q")).toBe("acme/lab.p%20q");
+    expect(encodeName("a/b/c")).toBe("a%2Fb%2Fc");
+    expect(encodeName("/x")).toBe("%2Fx");
+    expect(encodeName("../x")).toBe("..%2Fx");
+    expect(encodeName("iki/protein.Protein")).toBe("iki/protein.Protein");
   });
 });
 

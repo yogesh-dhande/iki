@@ -57,12 +57,12 @@ def test_fixtures_are_checked_against_the_plugin(
     assert not loaded.ok
     assert [(p.code, p.message) for p in loaded.problems] == [
         ("unknown-param", "compute_properties has no param ph."),
-        ("unknown-field", "protein.Protein has no field weight."),
-        ("unknown-field", "protein.Protein has no field structure."),
+        ("unknown-field", "acme/protein.Protein has no field weight."),
+        ("unknown-field", "acme/protein.Protein has no field structure."),
         ("unknown-file", "There's no file missing in `files`."),
         ("unknown-input", "compute_properties has no input target."),
         ("missing-file", "There's no file at `data/abl.pdb`."),
-        ("unknown-action", "protein has no action fold."),
+        ("unknown-action", "acme/protein has no action fold."),
     ]
     assert loaded.problems[0].location is not None
     assert loaded.problems[0].file == "tests/bad.yaml"
@@ -118,7 +118,7 @@ def test_the_run_input_is_the_servers(
     assert made["params"] == {"file": file_id}
     assert made["files"][file_id] == {"path": "../protein/data/a.fasta"}
     assert made["command"] == ["python", "./scripts/imports.py"]
-    assert made["environment"] == "protein.protein-tools"
+    assert made["environment"] == "acme/protein.protein-tools"
     assert made["settings"] == {"a": 1}
     assert made["run"]["seed"] == action_tests.SEED
     assert "pack" not in made
@@ -126,7 +126,7 @@ def test_the_run_input_is_the_servers(
     packed = action_tests.run_input(two, plugin, types, directory, {}, work)
     first, second = packed["inputs"]["protein"]
     assert (first["hrid"], second["hrid"]) == ("PRT-000001", "PRT-9")
-    assert first["schema_version"] == plugin.types["protein.Protein"].schema_version
+    assert first["schema_version"] == plugin.types["acme/protein.Protein"].schema_version
     assert [p["entity"] for p in packed["pack"]] == [first["id"], second["id"]]
     assert [p["hrid"] for p in packed["pack"]] == ["RUN-000001", "RUN-000002"]
 
@@ -158,7 +158,7 @@ def test_an_input_gives_what_its_references_name(
     first, second = given["included"]["chains"]
     assert given["values"]["chains"] == [first["id"], second["id"]]
     assert (first["hrid"], second["hrid"]) == ("PRT-000002", "PRT-9")
-    assert first["type"] == "protein.Protein" and first["values"] == {"sequence": "MKV"}
+    assert first["type"] == "acme/protein.Protein" and first["values"] == {"sequence": "MKV"}
 
     wrong = structure.replace("chains:", "source:").replace("sequence: MKV }", "weight: 1 }")
     write(
@@ -180,7 +180,7 @@ def test_an_input_may_have_the_fields_this_plugins_extension_adds(tmp_path: Path
     directory = tmp_path / "prediction"
     (directory / "actions" / "rescore.yaml").write_text(
         "apiVersion: iki/v1\nkind: Action\nname: rescore\n"
-        'inputs:\n  structure: { type: protein.ProteinStructure, schema: ">=1" }\n'
+        'inputs:\n  structure: { type: acme/protein.ProteinStructure, schema: ">=1" }\n'
         "effects:\n  updates: [{ input: structure, fields: [plddt_mean] }]\n"
         "runs_on: { tier: container, environment: colabfold }\n"
         "command: [python, /app/rescore.py]\ntimeout: 10m\n"
@@ -202,7 +202,7 @@ def test_an_input_may_have_the_fields_this_plugins_extension_adds(tmp_path: Path
     loaded = action_tests.load_tests(directory, result.plugin, types)
 
     assert [(p.code, p.message) for p in loaded.problems] == [
-        ("unknown-field", "protein.ProteinStructure has no field nope.")
+        ("unknown-field", "acme/protein.ProteinStructure has no field nope.")
     ]
 
 
@@ -274,10 +274,10 @@ def test_outputs_may_change_only_what_the_action_declares(
         action,
         {
             "updates": {"protein": [{"values": {"sequence": "M"}}], "other": []},
-            "creates": [{"type": "protein.Structure"}],
+            "creates": [{"type": "acme/protein.Structure"}],
         },
     ) == [
         "It sets sequence on protein, which compute_properties doesn't declare it updates.",
         "It updates other, which compute_properties doesn't declare it updates.",
-        "It creates a protein.Structure, which compute_properties doesn't declare.",
+        "It creates a acme/protein.Structure, which compute_properties doesn't declare.",
     ]

@@ -15,6 +15,7 @@ from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
+from iki_spec import naming
 from iki_spec.model import (
     BUILTIN_TYPES,
     EntityType,
@@ -27,18 +28,19 @@ from iki_spec.model import (
 
 @cache
 def plugins() -> dict[str, Plugin]:
-    """Installed plugins by name, dependencies first."""
+    """Installed plugins by name (``iki/protein``), dependencies first."""
     out: dict[str, Plugin] = {}
     for config in apps.get_app_configs():
         if config.name.startswith("iki_plugin_"):
             data = json.loads((Path(config.path) / "manifest.json").read_text("utf-8"))
-            out[config.label] = plugin_from_dict(data["plugin"])
+            plugin = plugin_from_dict(data["plugin"])
+            out[plugin.name] = plugin
     return out
 
 
 @cache
 def types() -> dict[str, EntityType]:
-    """Every type by qualified name, ``core.Entity`` included."""
+    """Every type by qualified name, ``iki/core.Entity`` included."""
     out = dict(BUILTIN_TYPES)
     for plugin in plugins().values():
         out.update(plugin.types)
@@ -50,11 +52,11 @@ def extensions() -> list[Extension]:
 
 
 def ancestors(entity_type: EntityType) -> list[EntityType]:
-    """Parent types, nearest first, without ``core.Entity``."""
+    """Parent types, nearest first, without ``iki/core.Entity``."""
     out = []
     every = types()
     current = entity_type
-    while current.extends and current.extends != "core.Entity":
+    while current.extends and current.extends != naming.ENTITY:
         current = every[current.extends]
         out.append(current)
     return out
@@ -88,14 +90,20 @@ def duplicate_policy(entity_type: EntityType) -> str | None:
 
 
 def model(qualified: str) -> type[models.Model]:
+    """The Django model of a type, by its qualified name (``iki/protein.Protein``)."""
     plugin, name = qualified.split(".")
-    return apps.get_model(plugin, name)
+    return apps.get_model(naming.app_label(plugin), name)
+
+
+def app(plugin: str) -> Any:  # noqa: ANN401 - Django's AppConfig
+    """A plugin's Django app, by its name (``iki/protein``)."""
+    return apps.get_app_config(naming.app_label(plugin))
 
 
 @cache
 def settings(plugin: str) -> dict[str, Any]:
     """The deployment's values for a plugin's settings, with defaults, as the build checked them."""
-    file = Path(apps.get_app_config(plugin).path) / "settings.json"
+    file = Path(app(plugin).path) / "settings.json"
     if not file.is_file():
         raise ImproperlyConfigured(
             f"The {plugin} plugin was built without a deployment's settings. "
@@ -119,9 +127,15 @@ def bundle(name: str, sha: str) -> Path | None:
         return None
     for entry in (installed() or {}).get("plugins", ()):
         if entry.get("name") == name and (entry.get("sha") or LOCAL) == sha and entry.get("bundle"):
-            found = directory / f"{name}-{sha}.tar.gz"
+            found = directory / bundle_file(name, sha)
             return found if found.is_file() else None
     return None
+
+
+def bundle_file(name: str, sha: str) -> str:
+    """The file a plugin's bundle is in: ``iki__protein-<sha>.tar.gz``, by its label, since a
+    file name can't hold the ``/`` of its name."""
+    return f"{naming.app_label(name)}-{sha}.tar.gz"
 
 
 def bundles() -> Path | None:
@@ -174,5 +188,5 @@ def detached_tables() -> list[str]:
         model._meta.db_table
         for name in detached()
         if name in plugins()
-        for model in apps.get_app_config(name).get_models(include_auto_created=True)
+        for model in app(name).get_models(include_auto_created=True)
     )

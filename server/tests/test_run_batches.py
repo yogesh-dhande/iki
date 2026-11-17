@@ -31,7 +31,7 @@ NAMES = ("kit", "met", "ret", "egfr", "alk")
 
 
 def batch(world: World, count: int = 3, *, first: int = 0, reason: str = "") -> dict[str, Any]:
-    """A batch of protein.compute_properties (``batchable: 100``) on `count` proteins."""
+    """A batch of acme/protein.compute_properties (``batchable: 100``) on `count` proteins."""
     editor = api_as(world, "editor")
     made = [protein(editor, world.project, name) for name in NAMES[first : first + count]]
     launched = editor.post(
@@ -105,7 +105,7 @@ def test_runs_launched_together_share_a_batch(world: World) -> None:
     }
     listed = viewer.get("/batches", project=str(world.project.pk)).json()["items"]
     assert [b["hrid"] for b in listed] == [record["hrid"]]
-    assert viewer.get("/batches", action="protein.nope").json()["items"] == []
+    assert viewer.get("/batches", action="acme/protein.nope").json()["items"] == []
 
     outsider = api_as(world, "outsider")
     problem(outsider.get(f"/batches/{record['hrid']}"), 404, "not_found")
@@ -456,7 +456,7 @@ def test_a_new_entity_can_refer_only_to_its_own_runs_new_entities(world: World) 
 
     def made(key: str, parent: str, chains: list[Any]) -> dict[str, Any]:
         return {
-            "type": "protein.ProteinStructure",
+            "type": "acme/protein.ProteinStructure",
             "key": key,
             "values": {"chains": chains},
             "derived_from": [parent],
@@ -464,7 +464,7 @@ def test_a_new_entity_can_refer_only_to_its_own_runs_new_entities(world: World) 
 
     document = output(
         creates=[
-            {"type": "protein.Protein", "key": "a", "values": {}, "derived_from": [first]},
+            {"type": "acme/protein.Protein", "key": "a", "values": {}, "derived_from": [first]},
             made("own", first, [{"$create": "a"}]),
             made("other", second, [second, {"$create": "a"}]),
         ]

@@ -26,12 +26,12 @@ APP_PAGES = [
     "/projects/a-b/entities/",
     "/projects/a-b/entities/new/",
     "/types/",
-    "/types/dna.DNASequence/",
+    "/types/acme/dna.DNASequence/",
     "/entities/DNA-000001/",
     "/entities/DNA-000001/edit/",
     "/entities/DNA-000001/history/",
     "/entities/DNA-000001/lineage/",
-    "/entities/PRT-000001/components/protein.residues/",
+    "/entities/PRT-000001/components/acme/protein.residues/",
     "/entities/PRT-000001/viewers/sequence/",
     "/projects/a-b/runs/",
     "/projects/a-b/runs/new/",
@@ -50,12 +50,15 @@ ROUTER = Path(__file__).parents[2] / "web" / "app" / "src" / "router.tsx"
 SAMPLES = {
     "slug": "a-b",
     "ref": "DNA-000001",
-    "name": "dna.DNASequence",
+    "name": "acme/dna.DNASequence",
     "viewer": "sequence",
     "app": "APP-000001",
     "webhookId": "01a1c452-a14b-7195-acd0-4b6ba266a652",
     "draft": "01a1c452-a14b-7195-acd0-4b6ba266a653",
     "importId": "01a1c452-a14b-7195-acd0-4b6ba266a654",
+    # A splat, `$`, takes the rest of the path: a name with its `/`, as a type's or a
+    # component's has (ADR 0113).
+    "": "acme/protein.Protein",
 }
 
 
@@ -81,7 +84,7 @@ def routed_pages() -> list[str]:
 
     # A route without a page of its own only lays out its children's.
     pages = {(full(name) or "") + "/" for name, route in routes.items() if route[2]}
-    return sorted(re.sub(r"\$(\w+)", lambda m: SAMPLES[m[1]], p.replace("//", "/")) for p in pages)
+    return sorted(re.sub(r"\$(\w*)", lambda m: SAMPLES[m[1]], p.replace("//", "/")) for p in pages)
 
 
 def test_every_page_the_app_routes_loads_it(world: World) -> None:

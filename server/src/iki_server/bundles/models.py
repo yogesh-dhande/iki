@@ -155,7 +155,7 @@ class ImportEntity(models.Model):
     id = models.BigAutoField(primary_key=True)
     bundle_import = models.ForeignKey(BundleImport, on_delete=models.CASCADE, related_name="+")
     entity_id = models.UUIDField(db_comment="Its ID, which an import keeps.")
-    type = models.CharField(max_length=81)
+    type = models.CharField(max_length=112)
     hrid = models.CharField(max_length=32, db_comment="Its HRID where it's from.")
     #: Its HRID here: the same, or blank when it's renumbered from this deployment's own
     #: sequence as it's applied.

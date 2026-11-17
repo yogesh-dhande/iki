@@ -22,7 +22,7 @@ fields:
   # these; `targets`, `target_revisions` and `viewers` took their place.
   target:
     type: ref
-    to: core.Entity
+    to: Entity
     immutable: true
     removed: true
     description: The entity it showed, before a view could show several.
@@ -41,7 +41,7 @@ fields:
   targets:
     type: list
     label: Entities
-    items: { type: ref, to: core.Entity }
+    items: { type: ref, to: Entity }
     min_items: 1
     max_items: 20
     required: true

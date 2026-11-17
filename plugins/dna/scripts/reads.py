@@ -1,5 +1,5 @@
 """`align_reads`: aligns sequencing reads to a reference, such as Sanger reads of a
-construct to the plasmid it should be, into a `core.Alignment` (ADR 0088).
+construct to the plasmid it should be, into an `iki/core.Alignment` (ADR 0088).
 
 Reads come from the run's files: AB1 traces, one read each, named by their file, or FASTQ
 or FASTA files of any number of reads, named by their records. Each file's format is
@@ -395,7 +395,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     return {
         "creates": [
             {
-                "type": "core.Alignment",
+                "type": "iki/core.Alignment",
                 "values": {
                     "name": name[:200],
                     "description": (

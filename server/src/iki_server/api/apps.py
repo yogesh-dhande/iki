@@ -1,6 +1,6 @@
 """Apps (ADR 0090): what's needed to write one, and checking one before saving it.
 
-An app is an entity (``core.App``): create, read, change and archive it at
+An app is an entity (``iki/core.App``): create, read, change and archive it at
 ``/entities``. Saving checks its spec as the person saving it; these endpoints say how
 to write a spec, and say everything wrong with one without saving it, so an agent can
 put it right first. They also list the apps about an entity, and choose the app a
@@ -33,7 +33,7 @@ class AppComponentOut(Schema):
 
 
 class AppGuideOut(Schema):
-    type: str = Field(description="The entity type an app is: core.App.")
+    type: str = Field(description="The entity type an app is: iki/core.App.")
     spec_schema: dict[str, Any] = Field(description="The JSON Schema its spec follows (app/v1).")
     grid: str
     components: list[AppComponentOut]

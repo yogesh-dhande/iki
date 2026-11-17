@@ -43,8 +43,8 @@ from iki_server.runs.models import (
 
 pytestmark = pytest.mark.django_db
 
-ALPHAFOLD = "structure_prediction.alphafold-gpu"
-PREDICT = "structure_prediction.predict_structure"
+ALPHAFOLD = "acme/prediction.alphafold-gpu"
+PREDICT = "acme/prediction.predict_structure"
 WORKER_IMAGE = "ghcr.io/yogesh-dhande/iki-worker:0.1.0@sha256:" + "b" * 64
 GI = 1024**3
 TI = 1024 * GI
@@ -89,7 +89,7 @@ def world(settings: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Ite
     predict = catalog.action(PREDICT)
     assert predict is not None
     monkeypatch.setitem(
-        registry.plugins()["structure_prediction"].actions,
+        registry.plugins()["acme/prediction"].actions,
         "predict_structure",
         dataclasses.replace(predict, tier="container"),
     )

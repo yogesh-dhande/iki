@@ -16,7 +16,9 @@ def project() -> Project:
 
 
 def test_entities_get_their_creation_time_from_the_database(project: Project) -> None:
-    entity = Entity.objects.create(type="protein.Protein", hrid="PRT-000001", owner_project=project)
+    entity = Entity.objects.create(
+        type="acme/protein.Protein", hrid="PRT-000001", owner_project=project
+    )
     assert entity.created_at is not None
     assert str(entity) == "PRT-000001"
 
@@ -34,15 +36,15 @@ def test_entities_get_their_creation_time_from_the_database(project: Project) ->
 def test_the_database_checks_entity_rows(
     project: Project, values: dict[str, str], constraint: str
 ) -> None:
-    fields = {"type": "protein.Protein", "hrid": "PRT-000001", **values}
+    fields = {"type": "acme/protein.Protein", "hrid": "PRT-000001", **values}
     with pytest.raises(IntegrityError, match=constraint), transaction.atomic():
         Entity.objects.create(owner_project=project, **fields)
 
 
 def test_hrids_are_unique(project: Project) -> None:
-    Entity.objects.create(type="protein.Protein", hrid="PRT-000001", owner_project=project)
+    Entity.objects.create(type="acme/protein.Protein", hrid="PRT-000001", owner_project=project)
     with pytest.raises(IntegrityError), transaction.atomic():
-        Entity.objects.create(type="protein.Protein", hrid="PRT-000001", owner_project=project)
+        Entity.objects.create(type="acme/protein.Protein", hrid="PRT-000001", owner_project=project)
 
 
 def test_blobs_are_stored_once_per_content() -> None:

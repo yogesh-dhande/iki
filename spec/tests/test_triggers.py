@@ -12,7 +12,7 @@ from iki_spec.validate import Result, load_plugin
 PLUGIN = """\
 apiVersion: iki/v1
 kind: Plugin
-name: acme
+name: acme/lab
 version: 1.0.0
 """
 
@@ -163,18 +163,18 @@ def test_a_good_trigger(tmp_path: Path) -> None:
     assert result.plugin is not None
     found = result.plugin.triggers["on_assay"]
     assert found == Trigger(
-        plugin="acme",
+        plugin="acme/lab",
         name="on_assay",
         label="Measure new assays",
         on="entity.created",
-        type="acme.Assay",
+        type="acme/lab.Assay",
         run="measure",
         # Left out, and the only input that takes an Assay.
         input="assay",
         params={"mode": "fast"},
         file=found.file,
     )
-    assert found.qualified_name == "acme.on_assay"
+    assert found.qualified_name == "acme/lab.on_assay"
     assert found.file is not None and found.file.endswith("t0.yaml")
 
 
@@ -217,7 +217,7 @@ def test_updates_can_watch_fields_of_the_type_and_its_parents(tmp_path: Path) ->
 def test_watched_fields_must_be_the_types(tmp_path: Path) -> None:
     body = "on: entity.updated\ntype: Assay\nfields: [plat]\nrun: describe\n"
     message = only(make(tmp_path, trigger(body)), "unknown-field")
-    assert message == "`acme.Assay` has no field `plat`."
+    assert message == "`acme/lab.Assay` has no field `plat`."
 
 
 def test_a_new_entity_has_no_changed_fields(tmp_path: Path) -> None:
@@ -258,7 +258,7 @@ def test_some_input_must_take_the_type(tmp_path: Path) -> None:
         "trigger-wrong-type",
     )
     assert message == (
-        "None of `measure`'s inputs takes `acme.Readout`, which the trigger fires for."
+        "None of `measure`'s inputs takes `acme/lab.Readout`, which the trigger fires for."
     )
 
 
@@ -266,7 +266,7 @@ def test_a_named_input_must_take_the_type(tmp_path: Path) -> None:
     body = "on: entity.created\ntype: Readout\nrun: describe\ninput: thing\n"
     message = only(make(tmp_path, trigger(body)), "trigger-wrong-type")
     assert message == (
-        "The trigger fires for `acme.Readout`, and `describe`'s `thing` takes `acme.Base`."
+        "The trigger fires for `acme/lab.Readout`, and `describe`'s `thing` takes `acme/lab.Base`."
     )
 
 

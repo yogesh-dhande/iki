@@ -35,9 +35,9 @@ pytestmark = pytest.mark.django_db
 
 __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 
-NEW = "protein.weigh_new_proteins"
-NIGHTLY = "protein.fetch_hemoglobin_nightly"
-CHANGED = "protein.weigh_changed_proteins"
+NEW = "acme/protein.weigh_new_proteins"
+NIGHTLY = "acme/protein.fetch_hemoglobin_nightly"
+CHANGED = "acme/protein.weigh_changed_proteins"
 
 
 @pytest.fixture(autouse=True)
@@ -90,11 +90,11 @@ def test_lists_installed_triggers(world: World) -> None:
     assert [t["name"] for t in found] == [NIGHTLY, CHANGED, NEW]
     assert found[2] == {
         "name": NEW,
-        "plugin": "protein",
+        "plugin": "acme/protein",
         "label": "Weigh new proteins",
         "description": None,
         "on": "entity.created",
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
         "schedule": "",
         "timezone": "",
         "fields": [],
@@ -141,7 +141,7 @@ def test_only_admins_who_can_run_its_action_turn_it_on(world: World) -> None:
         problem(api_as(world, who).post(url, {}), 403, "forbidden")
     problem(
         api_as(world, "admin").post(
-            f"/projects/{world.project.pk}/triggers/protein.nope/enable", {}
+            f"/projects/{world.project.pk}/triggers/acme/protein.nope/enable", {}
         ),
         404,
         "not_found",
@@ -211,7 +211,7 @@ def test_a_new_entity_fires_a_run_as_the_admin(world: World) -> None:
     assert listed_firing["entity"] == {
         "id": kit["id"],
         "hrid": kit["hrid"],
-        "type": "protein.Protein",
+        "type": "acme/protein.Protein",
     }
     assert listed_firing["run"] == {"id": str(run.pk), "hrid": run.hrid, "status": "queued"}
     assert (listed_firing["state"], listed_firing["error"]) == ("launched", None)
@@ -272,18 +272,18 @@ def test_a_change_by_a_person_fires_an_update_trigger(world: World) -> None:
 
 def test_watched_fields_narrow_what_fires() -> None:
     spec = Trigger(
-        plugin="protein",
+        plugin="acme/protein",
         name="t",
         on="entity.updated",
-        type="protein.Protein",
+        type="acme/protein.Protein",
         fields=("organism",),
         run="compute_properties",
         input="protein",
     )
-    assert triggers._fires(spec, "entity.updated", "protein.Protein", ["organism", "summary"])
-    assert not triggers._fires(spec, "entity.updated", "protein.Protein", ["summary"])
-    assert not triggers._fires(spec, "entity.created", "protein.Protein", [])
-    assert not triggers._fires(spec, "entity.updated", "dna.DNASequence", ["organism"])
+    assert triggers._fires(spec, "entity.updated", "acme/protein.Protein", ["organism", "summary"])
+    assert not triggers._fires(spec, "entity.updated", "acme/protein.Protein", ["summary"])
+    assert not triggers._fires(spec, "entity.created", "acme/protein.Protein", [])
+    assert not triggers._fires(spec, "entity.updated", "acme/dna.DNASequence", ["organism"])
 
 
 def test_entities_of_other_projects_fire_nothing(world: World) -> None:

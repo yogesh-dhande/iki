@@ -41,7 +41,7 @@ def create(
     api: Api,
     project: Project,
     values: dict[str, Any],
-    type_name: str = "dna.DNASequence",
+    type_name: str = "acme/dna.DNASequence",
     **kw: Any,
 ) -> Any:
     return api.post(
@@ -60,16 +60,15 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     api = api_as(world, "viewer")
     names = [t["name"] for t in api.get("/entity-types").json()]
     assert names == sorted(names)
-    assert {"dna.Sequence", "dna.DNASequence", "protein.Protein"} <= set(names)
-    assert "core.Entity" not in names
-    dna = api.get("/entity-types/dna.DNASequence").json()
-    assert dna["extends"] == "dna.Sequence"
+    assert {"acme/dna.Sequence", "acme/dna.DNASequence", "acme/protein.Protein"} <= set(names)
+    assert "iki/core.Entity" not in names
+    dna = api.get("/entity-types/acme/dna.DNASequence").json()
+    assert dna["extends"] == "acme/dna.Sequence"
     assert dna["identity"] == ["bases"] and dna["on_duplicate"] == "reuse"
     assert dna["hrid_prefix"] == "DNA"
     fields = {f["name"]: f for f in dna["fields"]}
-    assert (
-        fields["name"]["plugin"] == "core"
-    )  # inherited from core.Sequence, by way of dna.Sequence
+    # Inherited from iki/core.Sequence, by way of acme/dna.Sequence.
+    assert fields["name"]["plugin"] == "iki/core"
     assert fields["length"]["computed"] and fields["length"]["unit"] == "{bp}"
     schema = dna["values_schema"]
     jsonschema.Draft202012Validator.check_schema(schema)
@@ -80,9 +79,24 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert not check.is_valid({"bases": "ACGT", "colour": "blue"})
     assert schema["properties"]["length"]["readOnly"] is True
     assert schema["properties"]["bases"]["x-iki-immutable"] is True
-    sequence = api.get("/entity-types/dna.Sequence").json()
-    assert sequence["abstract"] and "protein.Protein" in sequence["subtypes"]
-    problem(api.get("/entity-types/dna.Nothing"), 404, "not_found")
+    sequence = api.get("/entity-types/acme/dna.Sequence").json()
+    assert sequence["abstract"] and "acme/protein.Protein" in sequence["subtypes"]
+    problem(api.get("/entity-types/acme/dna.Nothing"), 404, "not_found")
+
+
+def test_a_name_in_a_path_can_have_its_slash_escaped(world: World) -> None:
+    # Iki's own clients send a name's `/` as it is; others may escape it (ADR 0113).
+    api = api_as(world, "viewer")
+    raw = api.get("/entity-types/acme/dna.DNASequence")
+    escaped = api.get("/entity-types/acme%2Fdna.DNASequence")
+    assert raw.status_code == escaped.status_code == 200
+    assert raw.json() == escaped.json()
+    action = api.get("/actions/acme%2Fprotein.compute_properties")
+    assert action.status_code == 200
+    assert action.json()["name"] == "acme/protein.compute_properties"
+    # Without its namespace, the name reaches the view, which says it doesn't know it.
+    problem(api.get("/entity-types/dna.DNASequence"), 404, "not_found")
+    problem(api.get("/actions/protein.compute_properties"), 404, "not_found")
 
 
 # --- Creating ----------------------------------------------------------------------------------
@@ -114,8 +128,12 @@ def test_invalid_values_point_at_their_field(world: World) -> None:
         "#/values/bases": "isn't a valid dna sequence.",
         "#/values/length": "is computed: only actions set it.",
     }
-    body = problem(create(api, world.project, {}, type_name="dna.Nope"), 422, "validation_failed")
-    assert body["errors"] == [{"pointer": "#/type", "detail": "There's no entity type dna.Nope."}]
+    body = problem(
+        create(api, world.project, {}, type_name="acme/dna.Nope"), 422, "validation_failed"
+    )
+    assert body["errors"] == [
+        {"pointer": "#/type", "detail": "There's no entity type acme/dna.Nope."}
+    ]
 
 
 def test_a_readable_duplicate_is_returned_and_linked(world: World, other: Project) -> None:
@@ -162,7 +180,7 @@ def test_quantities_can_come_in_any_convertible_unit(world: World) -> None:
         api,
         world.project,
         {"sequence": "MKV", "temperature_optimum": {"value": 310.15, "unit": "K"}},
-        type_name="protein.Protein",
+        type_name="acme/protein.Protein",
     ).json()
     assert made["values"]["temperature_optimum"] == pytest.approx(37.0)
     body = problem(
@@ -170,7 +188,7 @@ def test_quantities_can_come_in_any_convertible_unit(world: World) -> None:
             api,
             world.project,
             {"sequence": "MKW", "temperature_optimum": {"value": 1, "unit": "g"}},
-            type_name="protein.Protein",
+            type_name="acme/protein.Protein",
         ),
         422,
         "validation_failed",
@@ -201,7 +219,7 @@ def test_listing_filters_by_type_with_subtypes_project_and_archived(
 ) -> None:
     api = api_as(world)
     dna = create(api, world.project, {"bases": "AAAA"}).json()
-    protein = create(api, other, {"sequence": "MKV"}, type_name="protein.Protein").json()
+    protein = create(api, other, {"sequence": "MKV"}, type_name="acme/protein.Protein").json()
     archived = create(api, world.project, {"bases": "TTTT"}).json()
     patch(api, archived["id"], {"archived": True}, '"1"')
 
@@ -211,15 +229,15 @@ def test_listing_filters_by_type_with_subtypes_project_and_archived(
         return [e["id"] for e in response.json()["items"]]
 
     assert ids() == [dna["id"], protein["id"], archived["id"]]
-    assert ids(type="dna.Sequence") == [dna["id"], protein["id"], archived["id"]]
-    assert ids(type="dna.Sequence", exact_type="true") == []
-    assert ids(type="protein.Protein") == [protein["id"]]
+    assert ids(type="acme/dna.Sequence") == [dna["id"], protein["id"], archived["id"]]
+    assert ids(type="acme/dna.Sequence", exact_type="true") == []
+    assert ids(type="acme/protein.Protein") == [protein["id"]]
     assert ids(project=str(other.pk)) == [protein["id"]]
     assert ids(archived="false") == [dna["id"], protein["id"]]
     assert ids(archived="true") == [archived["id"]]
-    listed = api.get("/entities", type="protein.Protein").json()["items"][0]
+    listed = api.get("/entities", type="acme/protein.Protein").json()["items"][0]
     assert listed["values"]["sequence"] == "MKV"
-    problem(api.get("/entities", type="dna.Nope"), 422, "validation_failed")
+    problem(api.get("/entities", type="acme/dna.Nope"), 422, "validation_failed")
     # The viewer reads only the first project's.
     viewer = [e["id"] for e in api_as(world, "viewer").get("/entities").json()["items"]]
     assert viewer == [dna["id"], archived["id"]]
@@ -265,7 +283,7 @@ def test_edit_rules_answer_422(world: World) -> None:
     assert {e["pointer"]: e["detail"] for e in body["errors"]} == {
         "#/values/bases": "can't change once it's set.",
         "#/values/gc_content": "is computed: only actions set it.",
-        "#/values/colour": "dna.DNASequence has no field `colour`.",
+        "#/values/colour": "acme/dna.DNASequence has no field `colour`.",
     }
     assert api.get(f"/entities/{ref}").json()["revision"] == 1
 
@@ -384,7 +402,7 @@ def test_changes_reach_webhooks_without_their_values(world: World, other: Projec
     assert data["entity"] == {
         "id": made["id"],
         "hrid": made["hrid"],
-        "type": "dna.DNASequence",
+        "type": "acme/dna.DNASequence",
         "revision": 2,
         "owner_project": {"id": str(world.project.pk)},
         "archived": False,
@@ -415,11 +433,11 @@ def test_file_fields_take_a_file_the_caller_can_read(world: World) -> None:
         blob=blob, name="notes.txt", media_type="text/plain", project=world.project
     )
     api = api_as(world)
-    made = create(api, world.project, {"structure": str(pdb.pk)}, "protein.ProteinStructure")
+    made = create(api, world.project, {"structure": str(pdb.pk)}, "acme/protein.ProteinStructure")
     assert made.status_code == 201, made.content
     assert made.json()["values"]["structure"] == str(pdb.pk)
     body = problem(
-        create(api, world.project, {"structure": str(notes.pk)}, "protein.ProteinStructure"),
+        create(api, world.project, {"structure": str(notes.pk)}, "acme/protein.ProteinStructure"),
         422,
         "validation_failed",
     )
@@ -432,14 +450,14 @@ def test_file_fields_take_a_file_the_caller_can_read(world: World) -> None:
 
 
 def test_quantities_say_how_to_show_them_in_their_display_unit(world: World) -> None:
-    body = api_as(world, "viewer").get("/entity-types/protein.Protein").json()
+    body = api_as(world, "viewer").get("/entity-types/acme/protein.Protein").json()
     fields = {f["name"]: f for f in body["fields"]}
     weight = fields["molecular_weight"]
     assert (weight["unit"], weight["display_unit"]) == ("u", "ku")
     resolution = {
         f["name"]: f
         for f in api_as(world, "viewer")
-        .get("/entity-types/protein.ProteinStructure")
+        .get("/entity-types/acme/protein.ProteinStructure")
         .json()["fields"]
     }["resolution"]
     assert (resolution["unit"], resolution["unit_symbol"]) == ("Ao", "Å")
@@ -452,14 +470,14 @@ def test_entities_name_what_their_values_refer_to(world: World, other: Project) 
     from iki_server.files.models import Blob, File
 
     api = api_as(world)
-    protein = create(api, world.project, {"sequence": "MKV"}, "protein.Protein").json()
-    hidden = create(api, other, {"sequence": "MKW"}, "protein.Protein").json()
+    protein = create(api, world.project, {"sequence": "MKV"}, "acme/protein.Protein").json()
+    hidden = create(api, other, {"sequence": "MKW"}, "acme/protein.Protein").json()
     blob = Blob.objects.create(sha256="a" * 64, size=10, storage_uri="s3://iki/a")
     pdb = File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
     )
     values = {"structure": str(pdb.pk), "chains": [protein["id"], hidden["id"]]}
-    made = create(api, world.project, values, "protein.ProteinStructure")
+    made = create(api, world.project, values, "acme/protein.ProteinStructure")
     assert made.status_code == 201, made.content
     # The viewer can read this project, but not the other one.
     seen = api_as(world, "viewer").get(f"/entities/{made.json()['id']}").json()
@@ -467,7 +485,7 @@ def test_entities_name_what_their_values_refer_to(world: World, other: Project) 
         protein["id"]: {
             "hrid": protein["hrid"],
             "title": protein["hrid"],
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "archived": False,
             "purged": False,
             "formerly": [],
@@ -476,34 +494,38 @@ def test_entities_name_what_their_values_refer_to(world: World, other: Project) 
     assert seen["files"] == {
         str(pdb.pk): {"name": "1abc.pdb", "media_type": "chemical/x-pdb", "size": 10}
     }
-    listed = api_as(world, "viewer").get("/entities", type="protein.ProteinStructure").json()
+    listed = api_as(world, "viewer").get("/entities", type="acme/protein.ProteinStructure").json()
     assert listed["items"][0]["refs"] == seen["refs"]
 
 
 def test_entities_have_their_types_display_title(world: World) -> None:
     api = api_as(world)
-    named = create(api, world.project, {"sequence": "MKV", "name": "Lysozyme"}, "protein.Protein")
-    unnamed = create(api, world.project, {"sequence": "MKW"}, "protein.Protein").json()
+    named = create(
+        api, world.project, {"sequence": "MKV", "name": "Lysozyme"}, "acme/protein.Protein"
+    )
+    unnamed = create(api, world.project, {"sequence": "MKW"}, "acme/protein.Protein").json()
     assert named.json()["title"] == "Lysozyme"
     assert unnamed["title"] == unnamed["hrid"]
     # References carry their target's title too.
     values = {"sequence": "MKY", "source": named.json()["id"]}
-    variant = create(api, world.project, values, "protein.Protein").json()
+    variant = create(api, world.project, values, "acme/protein.Protein").json()
     assert variant["refs"][named.json()["id"]]["title"] == "Lysozyme"
 
 
 def test_q_finds_entities_by_hrid_or_the_text_in_their_title(world: World) -> None:
     api = api_as(world)
     lysozyme = create(
-        api, world.project, {"sequence": "MKV", "name": "Lysozyme C"}, "protein.Protein"
+        api, world.project, {"sequence": "MKV", "name": "Lysozyme C"}, "acme/protein.Protein"
     ).json()
-    other = create(api, world.project, {"sequence": "MKW", "name": "Insulin"}, "protein.Protein")
+    other = create(
+        api, world.project, {"sequence": "MKW", "name": "Insulin"}, "acme/protein.Protein"
+    )
     dna = create(api, world.project, {"bases": "ACGT", "name": "lysozyme gene"}).json()
 
     def found(**query: Any) -> list[str]:
         return [e["hrid"] for e in api.get("/entities", **query).json()["items"]]
 
-    assert found(q="lysoZ", type="protein.Protein") == [lysozyme["hrid"]]
+    assert found(q="lysoZ", type="acme/protein.Protein") == [lysozyme["hrid"]]
     assert found(q="lysoz") == [lysozyme["hrid"], dna["hrid"]]
     assert found(q=other.json()["hrid"].lower()) == [other.json()["hrid"]]
     # The start of an HRID finds those it starts; a part of one, those it's in.
@@ -512,12 +534,12 @@ def test_q_finds_entities_by_hrid_or_the_text_in_their_title(world: World) -> No
     assert found(q=f"{prefix[1:]}-0") == []
     assert other.json()["hrid"] in found(q=other.json()["hrid"][2:])
     # Subtypes are searched through their parent: a Sequence can be either.
-    assert found(q="lysozyme", type="dna.Sequence") == [lysozyme["hrid"], dna["hrid"]]
-    assert found(q="  ", type="protein.Protein") == [lysozyme["hrid"], other.json()["hrid"]]
+    assert found(q="lysozyme", type="acme/dna.Sequence") == [lysozyme["hrid"], dna["hrid"]]
+    assert found(q="  ", type="acme/protein.Protein") == [lysozyme["hrid"], other.json()["hrid"]]
 
 
 def test_quantity_fields_offer_the_common_units_of_their_kind(world: World) -> None:
-    body = api_as(world, "viewer").get("/entity-types/protein.Protein").json()
+    body = api_as(world, "viewer").get("/entity-types/acme/protein.Protein").json()
     fields = {f["name"]: f for f in body["fields"]}
     assert [u["symbol"] for u in fields["molecular_weight"]["input_units"]] == [
         "kDa",
@@ -535,10 +557,15 @@ def test_quantity_fields_offer_the_common_units_of_their_kind(world: World) -> N
 
 def test_revisions_name_what_their_changes_referred_to(world: World) -> None:
     api = api_as(world)
-    first = create(api, world.project, {"sequence": "MKV", "name": "Lysozyme"}, "protein.Protein")
-    second = create(api, world.project, {"sequence": "MKW"}, "protein.Protein").json()
+    first = create(
+        api, world.project, {"sequence": "MKV", "name": "Lysozyme"}, "acme/protein.Protein"
+    )
+    second = create(api, world.project, {"sequence": "MKW"}, "acme/protein.Protein").json()
     made = create(
-        api, world.project, {"sequence": "MKY", "source": first.json()["id"]}, "protein.Protein"
+        api,
+        world.project,
+        {"sequence": "MKY", "source": first.json()["id"]},
+        "acme/protein.Protein",
     ).json()
     patch(api, made["id"], {"values": {"source": second["id"]}}, '"1"')
     changed = api.get(f"/entities/{made['id']}/revisions/2").json()

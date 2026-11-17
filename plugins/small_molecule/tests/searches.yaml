@@ -14,7 +14,7 @@ inputs:
 expect:
   output:
     creates:
-      - type: core.Collection
+      - type: iki/core.Collection
         values:
           name: With [CX3](=O)[OX2H1]
           description: >-
@@ -36,6 +36,6 @@ inputs:
 expect:
   output:
     creates:
-      - type: core.Collection
+      - type: iki/core.Collection
         values: { name: Like CC(=O)Oc1ccccc1C(=O)O (Tanimoto ≥ 0.5) }
     metrics: { hits: 1, searched: 2, best: 1.0 }

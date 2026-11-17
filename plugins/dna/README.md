@@ -3,17 +3,17 @@
 Iki's DNA plugin: DNA sequences and primers, and sequencing reads aligned to
 them.
 
-- **`dna.DNASequence`** (`DNA-000001`): a plasmid, gene, construct or genome.
+- **`iki/dna.DNASequence`** (`DNA-000001`): a plasmid, gene, construct or genome.
   - Its identity is its bases and topology (linear or circular), so
     registering the same sequence again reuses it.
   - Its features are kept as GenBank lists them: type, location, strand and
     qualifiers.
   - Its length and GC content are computed by the plugin's actions.
-- **`dna.Primer`** (`PRM-000001`): an oligonucleotide, up to 200 bases,
+- **`iki/dna.Primer`** (`PRM-000001`): an oligonucleotide, up to 200 bases,
   optionally bound to the sequence it targets. Its identity is its bases. Its
   length, GC content and melting temperature are computed.
 
-Both extend `core.Sequence`, so a search for sequences finds them alongside
+Both extend `iki/core.Sequence`, so a search for sequences finds them alongside
 proteins and other plugins' sequences.
 
 ## Settings
@@ -25,7 +25,7 @@ proteins and other plugins' sequences.
 
 - `NCBI_API_KEY` (optional, for `fetch_sequences`): an NCBI API key, from an
   NCBI account's settings, raises NCBI's rate limit from 3 to 10 requests a
-  second. Set it in the deployment's run secrets as `dna.NCBI_API_KEY`.
+  second. Set it in the deployment's run secrets as `iki__dna.NCBI_API_KEY` (the plugin's label, `iki__dna`, then the name).
 
 ## Actions
 
@@ -56,7 +56,7 @@ makes is recorded as made with it
   computed, by gene prediction, with Gnomon and the pipeline at its version.
   Other records don't say how their sequence was made, so theirs say nothing.
 - **`align_reads`**: aligns sequencing reads to a DNA sequence, such as Sanger
-  reads of a clone to the plasmid it should be, into a `core.Alignment` the
+  reads of a clone to the plasmid it should be, into an `iki/core.Alignment` the
   alignment viewer shows, the sequence its reference
   ([ADR 0088](../../docs/adr/0088-alignments-are-entities-of-sequence-entities.md)).
   It takes up to 96 files, chosen together

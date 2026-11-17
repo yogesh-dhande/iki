@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 from typing import Any
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 
 from django.conf import settings
 from django.core.handlers.asgi import ASGIHandler
@@ -73,7 +73,11 @@ def web_url(web_path: str) -> str:
 
 
 def path(template: str, **parts: str | int) -> str:
-    """An API path, each part escaped: ``path("/entities/{ref}", ref="PRT-000001")``."""
+    """An API path, each part escaped: ``path("/entities/{ref}", ref="PRT-000001")``.
+
+    A name's ``/`` is escaped too (``iki%2Fprotein.Protein``); :func:`call` decodes the
+    path as a server does, so the API's routes take it as they take a raw ``/``.
+    """
     return template.format(**{k: quote(str(v), safe="") for k, v in parts.items()})
 
 
@@ -116,7 +120,8 @@ async def call(
         "http_version": "1.1",
         "method": method,
         "scheme": outer.get("scheme", "http"),
-        "path": full,
+        # As ASGI servers give it: decoded, with the bytes as sent in raw_path.
+        "path": unquote(full),
         "raw_path": full.encode(),
         "root_path": "",
         "query_string": _query(query),

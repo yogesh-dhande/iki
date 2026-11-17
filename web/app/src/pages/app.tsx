@@ -1,5 +1,5 @@
 /**
- * An app's page (core.App, ADR 0090): its panels on a twelve-column grid, each one of
+ * An app's page (iki/core.App, ADR 0090): its panels on a twelve-column grid, each one of
  * Iki's components, reading what the panels before it offer. It shows what the person
  * viewing it may read: each grid is their search, each viewer an entity they can open.
  * What expressions make is shown as text, never as HTML.

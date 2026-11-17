@@ -23,7 +23,7 @@ DNA, PROTEIN, PREDICTION = PLUGINS / "dna", PLUGINS / "protein", PLUGINS / "stru
 PLUGIN = """\
 apiVersion: iki/v1
 kind: Plugin
-name: acme
+name: acme/lab
 version: 1.0.0
 """
 
@@ -75,7 +75,7 @@ def test_example_plugins_are_valid() -> None:
     assert dna.ok
     assert dna.problems == []
     assert dna.plugin is not None
-    assert set(dna.plugin.types) == {"dna.Sequence", "dna.DNASequence"}
+    assert set(dna.plugin.types) == {"acme/dna.Sequence", "acme/dna.DNASequence"}
 
     protein = load_plugin(PROTEIN, dependencies=[DNA])
     assert protein.problems == []
@@ -86,10 +86,10 @@ def test_example_plugins_are_valid() -> None:
 def test_builds_the_model_codegen_reads() -> None:
     result = load_plugin(PROTEIN, dependencies=[DNA])
     assert result.plugin is not None
-    protein = result.plugin.types["protein.Protein"]
-    assert protein.qualified_name == "protein.Protein"
-    assert protein.table == "protein_protein"
-    assert protein.extends == "dna.Sequence"
+    protein = result.plugin.types["acme/protein.Protein"]
+    assert protein.qualified_name == "acme/protein.Protein"
+    assert protein.table == "acme__protein_protein"
+    assert protein.extends == "acme/dna.Sequence"
     assert protein.hrid_prefix == "PRT"
     assert protein.identity == ("sequence",)
     assert protein.label == "Protein"
@@ -97,25 +97,25 @@ def test_builds_the_model_codegen_reads() -> None:
     # Without a plural of its own, a type's is its label's, not its name's.
     dna = load_plugin(DNA).plugin
     assert dna is not None
-    assert dna.types["dna.DNASequence"].label_plural == "DNA sequences"
+    assert dna.types["acme/dna.DNASequence"].label_plural == "DNA sequences"
     weight = protein.fields["molecular_weight"]
     assert weight.type == "quantity"
     assert weight.unit == "u"
     assert weight.label == "Molecular weight"
-    assert protein.fields["encoded_by"].to == "dna.DNASequence"
-    assert result.plugin.dependencies == {"dna": {"Sequence": ">=1", "DNASequence": ">=2,<4"}}
-    structure = result.plugin.types["protein.ProteinStructure"]
+    assert protein.fields["encoded_by"].to == "acme/dna.DNASequence"
+    assert result.plugin.dependencies == {"acme/dna": {"Sequence": ">=1", "DNASequence": ">=2,<4"}}
+    structure = result.plugin.types["acme/protein.ProteinStructure"]
     assert structure.fields["structure"].max_size == 2 * 1024**3
     chains = structure.fields["chains"]
     assert chains.items is not None
-    assert chains.items.to == "protein.Protein"
-    assert result.plugin.types["protein.ProteinStructure"].label == "Protein Structure"
+    assert chains.items.to == "acme/protein.Protein"
+    assert result.plugin.types["acme/protein.ProteinStructure"].label == "Protein Structure"
 
     prediction = load_plugin(PREDICTION, dependencies=[PROTEIN, DNA]).plugin
     assert prediction is not None
     (extension,) = prediction.extensions
-    assert extension.extends_type == "protein.ProteinStructure"
-    assert extension.table == "structure_prediction__protein_proteinstructure"
+    assert extension.extends_type == "acme/protein.ProteinStructure"
+    assert extension.table == "acme__prediction__acme__protein_proteinstructure"
     assert prediction.settings["allowed_presets"].default == ["monomer"]
 
 
@@ -182,7 +182,7 @@ def test_reads_every_yaml_file_and_document_under_types(tmp_path: Path) -> None:
     )
     assert result.problems == []
     assert result.plugin is not None
-    assert sorted(result.plugin.types) == ["acme.Assay", "acme.Plate", "acme.Sample"]
+    assert sorted(result.plugin.types) == ["acme/lab.Assay", "acme/lab.Plate", "acme/lab.Sample"]
 
 
 def test_refuses_symlinked_manifests(tmp_path: Path) -> None:
@@ -280,7 +280,7 @@ def test_bad_plugin_manifests(tmp_path: Path) -> None:
     assert any("Versions are semantic versions" in m for m in messages)
     result = make(
         tmp_path,
-        plugin=PLUGIN + "dependencies:\n  dna:\n    types:\n      DNASequence: '2'\n",
+        plugin=PLUGIN + "dependencies:\n  acme/dna:\n    types:\n      DNASequence: '2'\n",
     )
     assert any("Constraints compare whole schema versions" in p.message for p in result.problems)
 
@@ -288,13 +288,43 @@ def test_bad_plugin_manifests(tmp_path: Path) -> None:
 # --- Rules across the plugin ---------------------------------------------------------------------
 
 
-def test_reserved_plugin_names(tmp_path: Path) -> None:
-    result = make(tmp_path, plugin=PLUGIN.replace("acme", "iki_tools"))
-    assert "reserved" in only(result, "reserved-name")
-    result = make(tmp_path, plugin=PLUGIN.replace("acme", "auth"))
-    assert codes(result) == ["reserved-name"]
-    result = make(tmp_path, plugin=PLUGIN.replace("acme", "core"))
-    assert codes(result) == ["reserved-name"]
+def test_plugins_are_named_in_a_namespace(tmp_path: Path) -> None:
+    result = make(tmp_path, plugin=PLUGIN.replace("acme/lab", "lab"))
+    assert only(result, "unqualified-name") == (
+        "`lab` needs a namespace: plugins are named `namespace/name`."
+    )
+    assert result.problems[0].hint == (
+        "Name it under your lab's or company's namespace, such as `acme/lab`. Iki's own "
+        "plugins are in `iki`."
+    )
+    result = make(tmp_path, plugin=PLUGIN.replace("acme/lab", "acme/lab/x"))
+    assert codes(result) == ["schema"]
+    result = make(tmp_path, plugin=PLUGIN.replace("acme/lab", "Acme/lab"))
+    assert codes(result) == ["schema"]
+
+
+def test_the_iki_namespace_is_reserved(tmp_path: Path) -> None:
+    result = make(tmp_path, plugin=PLUGIN.replace("acme/lab", "iki/lab"))
+    assert "`iki` is Iki's own" in only(result, "reserved-namespace")
+    assert result.problems[0].hint == (
+        "Name it under your lab's or company's namespace, such as `acme/lab`."
+    )
+    # Not even with a first-party plugin's name, outside Iki's repository's build.
+    assert codes(make(tmp_path, plugin=PLUGIN.replace("acme/lab", "iki/core"))) == [
+        "reserved-namespace"
+    ]
+    # Nor a namespace that would pass for Iki's.
+    assert codes(make(tmp_path, plugin=PLUGIN.replace("acme/lab", "iki_labs/lab"))) == [
+        "reserved-namespace"
+    ]
+    # Iki's own plugins use it.
+    assert codes(make(tmp_path, plugin=PLUGIN.replace("acme/lab", "iki/dna"))) == []
+
+
+def test_any_name_is_free_in_a_namespace(tmp_path: Path) -> None:
+    # A plugin's app is `namespace__name`, which no app of Iki's or Django's is.
+    for name in ("acme/core", "acme/auth", "acme/iki_tools", "acme/class", "django/admin"):
+        assert codes(make(tmp_path, plugin=PLUGIN.replace("acme/lab", name))) == [], name
 
 
 def test_duplicate_types(tmp_path: Path) -> None:
@@ -312,7 +342,7 @@ def test_types_whose_tables_would_collide(tmp_path: Path) -> None:
         + "---\n"
         + TYPE.replace("Assay", "Assayrun").replace("ASY", "ASR"),
     )
-    assert "share the table `acme_assayrun`" in only(result, "duplicate-table")
+    assert "share the table `acme__lab_assayrun`" in only(result, "duplicate-table")
 
 
 def test_names_that_are_too_long_for_postgres(tmp_path: Path) -> None:
@@ -345,10 +375,10 @@ def test_hrid_prefixes_are_unique(tmp_path: Path) -> None:
     result = make(
         tmp_path,
         dna_clash,
-        plugin=PLUGIN + "dependencies:\n  dna: {}\n",
+        plugin=PLUGIN + "dependencies:\n  acme/dna: {}\n",
         with_=(DNA,),
     )
-    assert "`dna.DNASequence` already uses" in only(result, "duplicate-hrid-prefix")
+    assert "`acme/dna.DNASequence` already uses" in only(result, "duplicate-hrid-prefix")
 
 
 def test_reserved_field_names(tmp_path: Path) -> None:
@@ -413,7 +443,7 @@ def test_a_unique_external_id(tmp_path: Path) -> None:
     )
     assert result.problems == []
     assert result.plugin is not None
-    assert result.plugin.types["acme.Assay"].fields["lims_id"].unique
+    assert result.plugin.types["acme/lab.Assay"].fields["lims_id"].unique
 
 
 @pytest.mark.parametrize(
@@ -438,7 +468,7 @@ def test_a_link_can_start_with_a_setting(tmp_path: Path) -> None:
     )
     assert result.problems == []
     assert result.plugin is not None
-    assert result.plugin.types["acme.Assay"].fields["x"].link == "{settings.lims_url}/s/{value}"
+    assert result.plugin.types["acme/lab.Assay"].fields["x"].link == "{settings.lims_url}/s/{value}"
 
 
 def test_indexable_fields(tmp_path: Path) -> None:
@@ -607,7 +637,7 @@ def test_subtypes(tmp_path: Path) -> None:
         + "extends: Assay\nfields:\n  name: { type: string }\n"
     )
     result = make(tmp_path, parent + "---\n" + child)
-    assert "already a field of `acme.Assay`" in only(result, "field-shadows-parent")
+    assert "already a field of `acme/lab.Assay`" in only(result, "field-shadows-parent")
 
 
 def test_subtype_cycles(tmp_path: Path) -> None:
@@ -615,7 +645,7 @@ def test_subtype_cycles(tmp_path: Path) -> None:
     b = TYPE.replace("Assay", "Elisa").replace("ASY", "ELI") + "extends: Assay\n"
     result = make(tmp_path, a + "---\n" + b)
     assert codes(result) == ["extends-cycle", "extends-cycle"]
-    assert "`acme.Assay` → `acme.Elisa` → `acme.Assay`" in result.problems[0].message
+    assert "`acme/lab.Assay` → `acme/lab.Elisa` → `acme/lab.Assay`" in result.problems[0].message
 
 
 def test_unknown_types_in_this_plugin(tmp_path: Path) -> None:
@@ -625,53 +655,57 @@ def test_unknown_types_in_this_plugin(tmp_path: Path) -> None:
 
 
 def test_core_entity_needs_no_dependency(tmp_path: Path) -> None:
-    assert make(tmp_path, fields("x: { type: ref, to: core.Entity }\n")).problems == []
-    assert make(tmp_path, fields("x: { type: ref, to: core.Collection }\n")).problems == []
-    result = make(tmp_path, fields("x: { type: ref, to: core.Sample }\n"))
+    assert make(tmp_path, fields("x: { type: ref, to: iki/core.Entity }\n")).problems == []
+    assert make(tmp_path, fields("x: { type: ref, to: iki/core.Collection }\n")).problems == []
+    result = make(tmp_path, fields("x: { type: ref, to: iki/core.Sample }\n"))
     provides = (
-        "In this version, core provides `core.Alignment`, `core.App`, "
-        "`core.Collection`, `core.Entity`, `core.Sequence`, `core.View`."
+        "In this version, core provides `iki/core.Alignment`, `iki/core.App`, "
+        "`iki/core.Collection`, `iki/core.Entity`, `iki/core.Sequence`, `iki/core.View`."
     )
     assert provides in only(result, "unknown-type")
 
 
 def test_other_plugins_types_need_a_declared_dependency(tmp_path: Path) -> None:
-    result = make(tmp_path, fields("x: { type: ref, to: dna.DNASequence }\n"), with_=(DNA,))
+    result = make(tmp_path, fields("x: { type: ref, to: acme/dna.DNASequence }\n"), with_=(DNA,))
     assert "which plugin.yaml doesn't list under `dependencies`" in only(
         result, "undeclared-dependency"
     )
     assert 'dna: { types: { DNASequence: ">=2" } }' in (result.problems[0].hint or "")
-    result = make(tmp_path, fields("x: { type: ref, to: dna.DNASequence }\n"))
+    result = make(tmp_path, fields("x: { type: ref, to: acme/dna.DNASequence }\n"))
     assert codes(result) == ["undeclared-dependency"]
 
 
 def test_dependencies_must_be_given_to_check_them(tmp_path: Path) -> None:
     result = make(
         tmp_path,
-        fields("x: { type: ref, to: dna.DNASequence }\ny: { type: ref, to: dna.Primer }\n"),
-        plugin=PLUGIN + "dependencies:\n  dna: {}\n",
+        fields(
+            "x: { type: ref, to: acme/dna.DNASequence }\ny: { type: ref, to: acme/dna.Primer }\n"
+        ),
+        plugin=PLUGIN + "dependencies:\n  acme/dna: {}\n",
     )
     # Reported once, on the dependency, not on every use.
     problem = result.problems[0]
     assert codes(result) == ["dependency-not-available"]
     assert problem.file == "plugin.yaml"
     assert problem.location == Location(6, 3)
-    assert problem.hint == "Pass the dna plugin's directory with `--with path/to/dna`."
+    assert problem.hint == "Pass the acme/dna plugin's directory with `--with path/to/dna`."
 
 
 def test_uses_of_a_dependency(tmp_path: Path) -> None:
-    plugin = PLUGIN + "dependencies:\n  dna:\n    types:\n      DNASequence: '>=2'\n"
-    result = make(tmp_path, fields("x: { type: ref, to: dna.Primer }\n"), plugin, with_=(DNA,))
-    assert only(result, "unknown-type") == "The dna plugin has no type `Primer`."
-    ok = make(tmp_path, fields("x: { type: ref, to: dna.DNASequence }\n"), plugin, with_=(DNA,))
+    plugin = PLUGIN + "dependencies:\n  acme/dna:\n    types:\n      DNASequence: '>=2'\n"
+    result = make(tmp_path, fields("x: { type: ref, to: acme/dna.Primer }\n"), plugin, with_=(DNA,))
+    assert only(result, "unknown-type") == "The acme/dna plugin has no type `Primer`."
+    ok = make(
+        tmp_path, fields("x: { type: ref, to: acme/dna.DNASequence }\n"), plugin, with_=(DNA,)
+    )
     assert ok.problems == []
 
 
 def test_unpinned_dependency_types_are_a_warning(tmp_path: Path) -> None:
     result = make(
         tmp_path,
-        fields("x: { type: ref, to: dna.DNASequence }\n"),
-        PLUGIN + "dependencies:\n  dna: {}\n",
+        fields("x: { type: ref, to: acme/dna.DNASequence }\n"),
+        PLUGIN + "dependencies:\n  acme/dna: {}\n",
         with_=(DNA,),
     )
     assert codes(result) == ["dependency-unpinned"]
@@ -685,7 +719,7 @@ def test_unpinned_dependency_types_are_a_warning(tmp_path: Path) -> None:
     [(">=3", "dependency-version"), ("<2", "dependency-version"), ("==2", None), ("!=1", None)],
 )
 def test_dependency_versions(tmp_path: Path, constraint: str, code: str | None) -> None:
-    plugin = PLUGIN + f"dependencies:\n  dna:\n    types:\n      DNASequence: '{constraint}'\n"
+    plugin = PLUGIN + f"dependencies:\n  acme/dna:\n    types:\n      DNASequence: '{constraint}'\n"
     result = make(tmp_path, "", plugin, with_=(DNA,))
     assert codes(result) == ([code] if code else [])
 
@@ -704,10 +738,13 @@ def test_a_plugin_says_which_iki_it_works_with(
     assert make(tmp_path, "").plugin.iki is None  # type: ignore[union-attr]
 
     result = make(tmp_path, "", PLUGIN + "iki: '>=0.3, <1'\n")
-    assert only(result, "iki-version") == "acme works with Iki >=0.3, <1, and this is Iki 0.2.0."
+    assert (
+        only(result, "iki-version") == "acme/lab works with Iki >=0.3, <1, and this is Iki 0.2.0."
+    )
     problem = result.problems[0]
     assert (
-        problem.hint == "Use a release of acme made for Iki 0.2.0, or deploy an Iki it works with."
+        problem.hint
+        == "Use a release of acme/lab made for Iki 0.2.0, or deploy an Iki it works with."
     )
     assert problem.location is not None
     assert problem.location.line == 5
@@ -717,14 +754,14 @@ def test_a_plugin_says_which_iki_it_works_with(
 
 
 def test_dependency_types_must_exist(tmp_path: Path) -> None:
-    plugin = PLUGIN + "dependencies:\n  dna:\n    types:\n      DnaSequence: '>=1'\n"
+    plugin = PLUGIN + "dependencies:\n  acme/dna:\n    types:\n      DnaSequence: '>=1'\n"
     result = make(tmp_path, "", plugin, with_=(DNA,))
-    assert only(result, "unknown-type") == "The dna plugin has no type `DnaSequence`."
+    assert only(result, "unknown-type") == "The acme/dna plugin has no type `DnaSequence`."
     assert result.problems[0].hint == "Did you mean `DNASequence`?"
 
 
 def test_dependency_problems(tmp_path: Path) -> None:
-    result = make(tmp_path, "", PLUGIN + "dependencies:\n  acme: {}\n")
+    result = make(tmp_path, "", PLUGIN + "dependencies:\n  acme/lab: {}\n")
     assert codes(result) == ["dependency-is-self"]
     result = make(tmp_path, "", with_=(tmp_path / "acme",))
     assert codes(result) == ["dependency-is-self"]
@@ -741,10 +778,70 @@ def test_dependency_cycles(tmp_path: Path) -> None:
     other = tmp_path / "other"
     other.mkdir()
     (other / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: other\nversion: 1.0.0\ndependencies:\n  acme: {}\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\n"
+        "dependencies:\n  acme/lab: {}\n"
     )
-    result = make(tmp_path, "", PLUGIN + "dependencies:\n  other: {}\n", with_=(other,))
+    result = make(tmp_path, "", PLUGIN + "dependencies:\n  acme/other: {}\n", with_=(other,))
     assert codes(result) == ["dependency-cycle"]
+
+
+# --- Namespaces ----------------------------------------------------------------------------------
+
+
+def _globex_dna(tmp_path: Path) -> Path:
+    """The fixture dna plugin under another namespace: the same short name, another plugin."""
+    copy = tmp_path / "globex_dna"
+    shutil.copytree(DNA, copy, dirs_exist_ok=True)
+    manifest = copy / "plugin.yaml"
+    manifest.write_text(manifest.read_text().replace("name: acme/dna", "name: globex/dna"))
+    for file in (copy / "types").glob("*.yaml"):
+        file.write_text(file.read_text().replace("acme/dna.", "globex/dna."))
+    return copy
+
+
+def test_dependencies_are_named_in_full(tmp_path: Path) -> None:
+    result = make(tmp_path, "", PLUGIN + "dependencies:\n  dna: {}\n", with_=(DNA,))
+    assert only(result, "unqualified-dependency") == "`dna` needs its namespace."
+    assert result.problems[0].hint == "Write `acme/dna`."
+
+
+def test_other_plugins_types_are_named_in_full(tmp_path: Path) -> None:
+    text = fields("construct: { type: ref, to: dna.DNASequence }\n")
+    result = make(tmp_path, text, DNA_PIN, with_=(DNA,))
+    assert "`dna.DNASequence`" in only(result, "unqualified-reference")
+    assert result.problems[0].hint == "Write `acme/dna.DNASequence`."
+    # The plugin's own types are named without it, or in full.
+    own = {
+        "types/assay.yaml": TYPE,
+        "types/run.yaml": TYPE.replace("Assay", "Run").replace("ASY", "RUN")
+        + "fields:\n  assay: { type: ref, to: Assay }\n"
+        + "  again: { type: ref, to: acme/lab.Assay }\n",
+    }
+    assert make(tmp_path, own).problems == []
+
+
+def test_the_same_name_in_two_namespaces(tmp_path: Path) -> None:
+    globex = _globex_dna(tmp_path)
+    plugin = (
+        PLUGIN
+        + "dependencies:\n  acme/dna: { types: { DNASequence: '>=2' } }\n"
+        + "  globex/dna: { types: { DNASequence: '>=2' } }\n"
+    )
+    text = fields(
+        "ours: { type: ref, to: acme/dna.DNASequence }\n"
+        "theirs: { type: ref, to: globex/dna.DNASequence }\n"
+    )
+    result = make(tmp_path, text, plugin, with_=(DNA, globex))
+    assert result.problems == []
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"]
+    assert assay.fields["ours"].to == "acme/dna.DNASequence"
+    assert assay.fields["theirs"].to == "globex/dna.DNASequence"
+    # Without the namespace, it could be either: the hint says to choose.
+    vague = fields("which: { type: ref, to: dna.DNASequence }\n")
+    result = make(tmp_path, vague, plugin, with_=(DNA, globex))
+    assert codes(result) == ["unqualified-reference"]
+    assert result.problems[0].hint == "Write `<namespace>/dna.DNASequence`."
 
 
 # --- Extensions ----------------------------------------------------------------------------------
@@ -752,10 +849,10 @@ def test_dependency_cycles(tmp_path: Path) -> None:
 EXTENSION = """\
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: dna.DNASequence
+extends_type: acme/dna.DNASequence
 fields:
 """
-DNA_PIN = PLUGIN + "dependencies:\n  dna:\n    types:\n      DNASequence: '>=2'\n"
+DNA_PIN = PLUGIN + "dependencies:\n  acme/dna:\n    types:\n      DNASequence: '>=2'\n"
 
 
 def extension(text: str) -> str:
@@ -766,25 +863,28 @@ def test_extensions(tmp_path: Path) -> None:
     result = make(tmp_path, extension("codon_usage: { type: json }\n"), DNA_PIN, with_=(DNA,))
     assert result.problems == []
     assert result.plugin is not None
-    assert result.plugin.extensions[0].table == "acme__dna_dnasequence"
+    assert result.plugin.extensions[0].table == "acme__lab__acme__dna_dnasequence"
 
 
 def test_extension_fields_cant_clash_with_the_types(tmp_path: Path) -> None:
     result = make(tmp_path, extension("name: { type: string }\n"), DNA_PIN, with_=(DNA,))
     message = only(result, "extension-field-conflict")
-    assert message == "`name` is already a field of `dna.DNASequence` (from `core.Sequence`)."
-    assert result.problems[0].hint == "Choose another name, for example `acme_name`."
+    assert (
+        message == "`name` is already a field of `acme/dna.DNASequence` (from `iki/core.Sequence`)."
+    )
+    assert result.problems[0].hint == "Choose another name, for example `lab_name`."
 
 
 def test_extension_fields_cant_clash_with_other_extensions(tmp_path: Path) -> None:
     other = tmp_path / "other"
     (other / "types").mkdir(parents=True)
     (other / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: other\nversion: 1.0.0\ndependencies:\n  dna: {}\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\n"
+        "dependencies:\n  acme/dna: {}\n"
     )
     (other / "types" / "x.yaml").write_text(extension("tm: { type: float }\n"))
     result = make(tmp_path, extension("tm: { type: float }\n"), DNA_PIN, with_=(DNA, other))
-    assert "(from the other plugin's extension)" in only(result, "extension-field-conflict")
+    assert "(from the acme/other plugin's extension)" in only(result, "extension-field-conflict")
 
 
 def test_extension_fields_cant_be_required(tmp_path: Path) -> None:
@@ -793,14 +893,14 @@ def test_extension_fields_cant_be_required(tmp_path: Path) -> None:
 
 
 def test_extension_targets(tmp_path: Path) -> None:
-    own = EXTENSION.replace("dna.DNASequence", "Assay") + "  x: { type: int }\n"
+    own = EXTENSION.replace("acme/dna.DNASequence", "Assay") + "  x: { type: int }\n"
     result = make(tmp_path, {"types/assay.yaml": TYPE, "types/ext.yaml": own})
     assert result.problems[0].hint == "Add the fields to the type itself."
-    builtin = EXTENSION.replace("dna.DNASequence", "core.Entity") + "  x: { type: int }\n"
+    builtin = EXTENSION.replace("acme/dna.DNASequence", "iki/core.Entity") + "  x: { type: int }\n"
     assert codes(make(tmp_path, builtin)) == ["extends-builtin"]
     twice = extension("x: { type: int }\n") + "---\n" + extension("y: { type: int }\n")
     result = make(tmp_path, twice, DNA_PIN, with_=(DNA,))
-    assert "already extends `dna.DNASequence` (in types/assay.yaml, line 1)" in only(
+    assert "already extends `acme/dna.DNASequence` (in types/assay.yaml, line 1)" in only(
         result, "duplicate-extension"
     )
 
@@ -810,14 +910,16 @@ def test_extension_table_names(tmp_path: Path) -> None:
     other = tmp_path / "other"
     (other / "types").mkdir(parents=True)
     (other / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: other\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\n"
     )
     (other / "types" / "x.yaml").write_text(TYPE.replace("Assay", long_type))
     plugin = (
         PLUGIN.replace("acme", "a" * 30)
-        + f"dependencies:\n  other:\n    types:\n      {long_type}: '>=1'\n"
+        + f"dependencies:\n  acme/other:\n    types:\n      {long_type}: '>=1'\n"
     )
-    text = extension("x: { type: int }\n").replace("dna.DNASequence", f"other.{long_type}")
+    text = extension("x: { type: int }\n").replace(
+        "acme/dna.DNASequence", f"acme/other.{long_type}"
+    )
     result = make(tmp_path, text, plugin, with_=(other,))
     assert "PostgreSQL allows 63" in only(result, "name-too-long")
 
@@ -825,7 +927,7 @@ def test_extension_table_names(tmp_path: Path) -> None:
 def test_list_tables(tmp_path: Path) -> None:
     text = fields(
         """\
-        parents: { type: list, items: { type: ref, to: core.Entity } }
+        parents: { type: list, items: { type: ref, to: iki/core.Entity } }
         tags: { type: list, items: { type: string } }
         """
     )
@@ -834,21 +936,21 @@ def test_list_tables(tmp_path: Path) -> None:
     text = fields(f"{long}: {{ type: list, items: {{ type: file }} }}\n")
     message = only(make(tmp_path, text, PLUGIN.replace("acme", "acme_lab")), "name-too-long")
     assert message == (
-        f"The table `acme_lab_assay__{long}` for the list `{long}` of `Assay` would be 66 "
+        f"The table `acme_lab__lab_assay__{long}` for the list `{long}` of `Assay` would be 71 "
         "characters; PostgreSQL allows 63."
     )
 
 
 def test_model_names_cant_clash(tmp_path: Path) -> None:
-    # The type `Ext` with a list `dna_dnasequence` would be the model `Ext_dna_DNASequence`'s
-    # twin: the extension of `dna.DNASequence`.
+    # The type `Ext` with a list `acme_dna_dnasequence` would be the model
+    # `Ext_acme_dna_DNASequence`'s twin: the extension of `acme/dna.DNASequence`.
     text = {
         "types/assay.yaml": TYPE.replace("Assay", "Ext").replace("ASY", "EXT")
-        + "fields:\n  dna_dnasequence: { type: list, items: { type: file } }\n",
+        + "fields:\n  acme_dna_dnasequence: { type: list, items: { type: file } }\n",
         "types/ext.yaml": extension("x: { type: int }\n"),
     }
     message = only(make(tmp_path, text, DNA_PIN, with_=(DNA,)), "duplicate-table")
-    assert "would share the model `Ext_dna_DNASequence`" in message
+    assert "would share the model `Ext_acme_dna_DNASequence`" in message
 
 
 def test_removed_fields(tmp_path: Path) -> None:
@@ -856,7 +958,7 @@ def test_removed_fields(tmp_path: Path) -> None:
     result = make(tmp_path, text)
     assert result.problems == []
     assert result.plugin is not None
-    assay = result.plugin.types["acme.Assay"]
+    assay = result.plugin.types["acme/lab.Assay"]
     assert assay.fields["old"].removed
     assert assay.current_fields == {}
     identity = fields("code: { type: string, required: true, immutable: true, removed: true }\n")
@@ -873,10 +975,10 @@ def test_parent_link_names_are_reserved(tmp_path: Path) -> None:
 
 
 def test_a_type_named_like_its_ancestor_links_with_its_plugin() -> None:
-    # dna.Sequence's row links to core.Sequence's as `sequence_ptr`, so DNASequence's own
-    # link to dna.Sequence can't be called that too.
-    assert naming.parent_link("core.Sequence") == "sequence_ptr"
-    assert naming.parent_link("dna.Sequence", ["sequence_ptr"]) == "dna_sequence_ptr"
+    # acme/dna.Sequence's row links to iki/core.Sequence's as `sequence_ptr`, so
+    # DNASequence's own link to acme/dna.Sequence can't be called that too.
+    assert naming.parent_link("iki/core.Sequence") == "sequence_ptr"
+    assert naming.parent_link("acme/dna.Sequence", ["sequence_ptr"]) == "acme_dna_sequence_ptr"
 
 
 @pytest.mark.parametrize(
@@ -998,7 +1100,7 @@ def test_settings_values_of_every_type(tmp_path: Path) -> None:
     no_settings = make(tmp_path, "").plugin
     assert no_settings is not None
     (problem,) = check_settings_text(no_settings, "x: 1\n", "acme.yaml")
-    assert problem.hint == "The acme plugin takes no settings."
+    assert problem.hint == "The acme/lab plugin takes no settings."
 
 
 def test_settings_files(tmp_path: Path) -> None:
@@ -1066,7 +1168,8 @@ def test_every_schema_is_valid_draft_2020_12() -> None:
 def test_the_manifest_schema_dispatches_on_kind() -> None:
     assert schemas.check("manifest", {"apiVersion": "iki/v1", "kind": "Plugin"})
     assert not schemas.check(
-        "manifest", {"apiVersion": "iki/v1", "kind": "Plugin", "name": "acme", "version": "1.0.0"}
+        "manifest",
+        {"apiVersion": "iki/v1", "kind": "Plugin", "name": "acme/lab", "version": "1.0.0"},
     )
     issues = schemas.check("manifest", {"apiVersion": "iki/v1", "kind": "Nope"})
     assert [i.message for i in issues] == [

@@ -1,4 +1,4 @@
-"""The protein plugin's multiple alignments: proteins through MAFFT, into a core.Alignment
+"""The protein plugin's multiple alignments: proteins through MAFFT, into an iki/core.Alignment
 of them, rows in the order given, the reference first.
 
 MAFFT is in the plugin's image, not here: these tests put a stand-in on the PATH that
@@ -132,7 +132,7 @@ def test_aligns_proteins_into_an_alignment_of_them_in_the_order_given(tmp_path: 
     )
     (created,) = output["creates"]
     assert created == {
-        "type": "core.Alignment",
+        "type": "iki/core.Alignment",
         "values": {
             "name": "A, B and C",
             "description": (

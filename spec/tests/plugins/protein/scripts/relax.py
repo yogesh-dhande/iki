@@ -25,7 +25,7 @@ def main() -> None:
     relaxed = b"REMARK   1 RELAXED BY IKI EXAMPLE\n" + original
     (Path(os.environ["IKI_OUT_DIR"]) / "relaxed.pdb").write_bytes(relaxed)
     made = {
-        "type": "protein.ProteinStructure",
+        "type": "acme/protein.ProteinStructure",
         "values": {
             "structure": {"$file": "relaxed.pdb", "media_type": "chemical/x-pdb"},
             "method": "predicted",

@@ -20,7 +20,7 @@ __all__ = ["world"]
 
 pytestmark = pytest.mark.django_db
 
-RESIDUES = "protein.residues"
+RESIDUES = "acme/protein.residues"
 
 
 def test_components_are_listed_with_where_they_appear(world: World) -> None:
@@ -29,12 +29,12 @@ def test_components_are_listed_with_where_they_appear(world: World) -> None:
     module = installed.module(RESIDUES)
     assert found == {
         "name": RESIDUES,
-        "plugin": "protein",
+        "plugin": "acme/protein",
         "label": "Residues",
         "description": "How many residues a protein has.",
         "element": "protein-residues",
-        "slots": [{"slot": "entity.tab", "type": "protein.Protein", "label": "Residues"}],
-        "selects": "protein.Protein",
+        "slots": [{"slot": "entity.tab", "type": "acme/protein.Protein", "label": "Residues"}],
+        "selects": "acme/protein.Protein",
         "sha256": hashlib.sha256(module).hexdigest(),
         "frame": f"/plugin-components/{RESIDUES}/{hashlib.sha256(module).hexdigest()}/",
     }
@@ -42,10 +42,10 @@ def test_components_are_listed_with_where_they_appear(world: World) -> None:
 
 
 def test_subtypes_pages_show_their_parents_components() -> None:
-    assert [c.qualified_name for c in installed.for_type("protein.Protein", "entity.tab")] == [
+    assert [c.qualified_name for c in installed.for_type("acme/protein.Protein", "entity.tab")] == [
         RESIDUES
     ]
-    assert installed.for_type("dna.DNASequence", "entity.tab") == []
+    assert installed.for_type("acme/dna.DNASequence", "entity.tab") == []
 
 
 def test_a_module_that_changed_after_the_build_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -117,7 +117,7 @@ def test_only_installed_components_at_their_digest_are_served() -> None:
     frame, module_url, _ = addresses()
     browser = Browser()
     for path in (frame, module_url):
-        assert browser.get(path.replace(RESIDUES, "protein.gone")).status_code == 404
+        assert browser.get(path.replace(RESIDUES, "acme/protein.gone")).status_code == 404
         digest = path.split("/")[3].removesuffix(".js")
         assert browser.get(path.replace(digest, "0" * 64)).status_code == 404
 

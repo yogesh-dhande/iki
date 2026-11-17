@@ -92,7 +92,7 @@ class Migration(migrations.Migration):
                 (
                     "type",
                     models.CharField(
-                        db_comment="The entity's type, such as protein.Protein.", max_length=81
+                        db_comment="The entity's type, such as iki/protein.Protein.", max_length=112
                     ),
                 ),
                 (
@@ -142,7 +142,10 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.CheckConstraint(
                         condition=models.Q(
-                            ("type__regex", "^[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$")
+                            (
+                                "type__regex",
+                                "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$",
+                            )
                         ),
                         name="iki_entity_type",
                     ),

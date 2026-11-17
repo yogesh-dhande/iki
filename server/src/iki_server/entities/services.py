@@ -191,7 +191,7 @@ def prepare(
 
     Bulk imports (ADR 0056) check each record with this, as :func:`create` does.
     """
-    if type_name not in registry.types() or type_name == "core.Entity":
+    if type_name not in registry.types() or type_name == "iki/core.Entity":
         raise Invalid({"type": [f"There's no entity type {type_name}."]})
     form = shape(type_name)
     entity_type = form.entity_type

@@ -286,17 +286,17 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     projects = data(await tool(token, "list_projects", member=True, archived=False))
     assert [p["name"] for p in projects["items"]] == ["Kinase Atlas"]
     types = data(await tool(token, "list_entity_types"))
-    assert {"name": "protein.Protein", "label": "Protein"}.items() <= next(
-        t for t in types if t["name"] == "protein.Protein"
+    assert {"name": "acme/protein.Protein", "label": "Protein"}.items() <= next(
+        t for t in types if t["name"] == "acme/protein.Protein"
     ).items()
-    described = data(await tool(token, "describe_entity_type", name="protein.Protein"))
+    described = data(await tool(token, "describe_entity_type", name="acme/protein.Protein"))
     assert "sequence" in {f["name"] for f in described["fields"]}
 
     found = data(
         await tool(
             token,
             "search_entities",
-            type="protein.Protein",
+            type="acme/protein.Protein",
             project=str(world.project.pk),
             where={"field": "sequence", "op": "starts_with", "value": "MKV"},
         )
@@ -304,7 +304,7 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     assert [e["hrid"] for e in found["items"]] == [abl["hrid"]]
     looked_up = data(
         await tool(
-            token, "lookup_entities", type="protein.Protein", field="lims_id", value="LIMS-ABL"
+            token, "lookup_entities", type="acme/protein.Protein", field="lims_id", value="LIMS-ABL"
         )
     )
     assert [e["hrid"] for e in looked_up] == [abl["hrid"]]
@@ -318,9 +318,9 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     lineage = data(await tool(token, "get_lineage", ref=abl["hrid"], up=1))
     assert lineage["root"] == abl["id"]
 
-    actions = data(await tool(token, "list_actions", takes=["protein.Protein"]))
-    assert "protein.compute_properties" in {a["name"] for a in actions}
-    action = data(await tool(token, "describe_action", name="protein.compute_properties"))
+    actions = data(await tool(token, "list_actions", takes=["acme/protein.Protein"]))
+    assert "acme/protein.compute_properties" in {a["name"] for a in actions}
+    action = data(await tool(token, "describe_action", name="acme/protein.compute_properties"))
     assert action["tier"] == "backend"
     runs = data(await tool(token, "list_runs", project=str(world.project.pk), status="queued"))
     assert [r["hrid"] for r in runs["items"]] == [run["hrid"]]
@@ -375,14 +375,16 @@ async def test_agents_write_an_app_check_it_and_create_it(world: World) -> None:
     guide = data(await tool(token, "describe_apps"))
     assert [c["name"] for c in guide["components"]] == ["iki.entities", "iki.viewer", "iki.text"]
     assert guide["spec_schema"]["properties"]["version"] == {"const": 1}
-    # Its example is one that checks.
-    assert data(await tool(token, "check_app", spec=guide["example"])) == {"problems": []}
+    # Its example is one that checks. It searches Iki's iki/protein; here, the fixture plugin
+    # acme/protein stands in.
+    example = json.loads(json.dumps(guide["example"]).replace("iki/protein.", "acme/protein."))
+    assert data(await tool(token, "check_app", spec=example)) == {"problems": []}
 
     grid = {
         "id": "proteins",
         "component": "iki.entities",
         "width": 13,
-        "props": {"type": "protein.Protein"},
+        "props": {"type": "acme/protein.Protein"},
     }
     text: dict[str, Any] = {
         "id": "summary",
@@ -491,7 +493,7 @@ def _create(name: str, sequence: str, project: Project) -> dict[str, Any]:
     return {
         "name": "create_entity",
         "arguments": {
-            "type": "protein.Protein",
+            "type": "acme/protein.Protein",
             "project": str(project.pk),
             "values": {"sequence": sequence, "name": name},
         },
@@ -597,7 +599,7 @@ async def test_agents_create_and_change_entities_on_the_record(world: World) -> 
         await tool(
             token,
             "create_entity",
-            type="protein.Protein",
+            type="acme/protein.Protein",
             project=str(world.project.pk),
             values={"sequence": "MKVLA", "name": "ABL1"},
             reason="From the paper's table 2",
@@ -648,7 +650,7 @@ async def test_writes_need_the_scope_and_the_role(world: World) -> None:
         await tool(
             reader,
             "create_entity",
-            type="protein.Protein",
+            type="acme/protein.Protein",
             project=str(world.project.pk),
             values={"sequence": "MKV"},
         )
@@ -660,7 +662,7 @@ async def test_writes_need_the_scope_and_the_role(world: World) -> None:
         await tool(
             viewer,
             "create_entity",
-            type="protein.Protein",
+            type="acme/protein.Protein",
             project=str(world.project.pk),
             values={"sequence": "MKV"},
         )
@@ -689,7 +691,7 @@ async def test_agents_run_actions_and_costly_runs_wait_for_the_person(
     computed = await tool(
         token,
         "run_action",
-        name="protein.compute_properties",
+        name="acme/protein.compute_properties",
         project=project,
         inputs={"protein": abl["id"]},
         reason="For the summary table",
@@ -706,7 +708,7 @@ async def test_agents_run_actions_and_costly_runs_wait_for_the_person(
         await tool(
             token,
             "run_batch",
-            name="protein.compute_properties",
+            name="acme/protein.compute_properties",
             project=project,
             each="protein",
             entities=[src["id"], lck["id"]],
@@ -773,14 +775,14 @@ async def test_agents_run_workflows_and_are_told_what_waits_for_people(world: Wo
     token = await token_for(world, "editor", scope="read write run")
     project = str(world.project.pk)
     listed = data(await tool(token, "list_workflows"))
-    assert "protein.review_then_weigh" in [w["name"] for w in listed]
-    described = data(await tool(token, "describe_workflow", name="protein.review_then_weigh"))
+    assert "acme/protein.review_then_weigh" in [w["name"] for w in listed]
+    described = data(await tool(token, "describe_workflow", name="acme/protein.review_then_weigh"))
     assert described["steps"][1]["approval"]["role"] == "runner"
 
     started = await tool(
         token,
         "run_workflow",
-        name="protein.review_then_weigh",
+        name="acme/protein.review_then_weigh",
         project=project,
         inputs={"query": abl["id"], "target": src["id"]},
         reason="Check the pair",

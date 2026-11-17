@@ -20,7 +20,7 @@ pub struct RunInputFile {
 pub struct RunInputEntity {
     pub id: String,
     pub hrid: String,
-    /// The qualified type, such as `protein.Protein`.
+    /// The qualified type, such as `iki/protein.Protein`.
     pub r#type: String,
     pub schema_version: i64,
     /// The revision the run reads.
@@ -43,7 +43,7 @@ pub struct RunInput {
     pub job: RunInputJob,
     /// The action's command, run in its environment from the plugin's directory.
     pub command: Vec<String>,
-    /// plugin.environment
+    /// The plugin and the environment, such as `iki/protein.structure-tools`.
     pub environment: String,
     /// Every param, by name, with its default filled in. A file param's value is the file's ID, in `files`.
     pub params: serde_json::Map<String, serde_json::Value>,
@@ -83,7 +83,7 @@ pub struct RunInputRun {
     /// For the command's random numbers, also in `IKI_SEED`. A run reproduced exactly gets its seed again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// The qualified name, such as `protein.compute_properties`.
+    /// The qualified name, such as `iki/protein.compute_properties`.
     pub action: String,
     pub plugin: RunInputRunPlugin,
     pub project: String,
@@ -103,7 +103,7 @@ pub struct RunInputRunPlugin {
 /// For a run a scheduled trigger launched (ADR 0080): which, the time it was for, and the time the last run of it that succeeded was for, to carry on from. An import fetches what changed since `since`; null on its first run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputRunTrigger {
-    /// The trigger's qualified name, such as `lims.sync_samples`.
+    /// The trigger's qualified name, such as `acme/lims.sync_samples`.
     pub name: String,
     pub scheduled_for: String,
     pub since: Option<String>,
@@ -266,6 +266,7 @@ pub struct RunOutputMadeSoftwareItem {
 /// A new entity, of a type the action declares it creates.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputCreate {
+    /// Its type, by its qualified name, such as `iki/protein.Protein`.
     pub r#type: String,
     /// A name for it, unique in `creates`, that a later create's ref fields can give as `{"$create": "<key>"}` to refer to it, such as a structure to the chains made with it. Not in a `creates_file`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -383,7 +384,7 @@ pub struct SetupInputSetup {
     pub hrid: String,
     /// The version of the environment's volumes it makes.
     pub version: i64,
-    /// plugin.environment
+    /// The plugin and the environment, such as `iki/protein.structure-tools`.
     pub environment: String,
     pub plugin: SetupInputSetupPlugin,
 }

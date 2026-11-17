@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
 kind: Plugin
-name: small_molecule
+name: iki/small_molecule
 version: 0.1.0
 title: Small molecule
 description: >-

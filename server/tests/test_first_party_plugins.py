@@ -64,18 +64,18 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         out,
         database,
         """
-        from iki_plugin_dna.models import DNASequence, Primer
-        from iki_plugin_example.models import Ext_dna_DNASequence, Sample
-        from iki_plugin_protein.models import Protein
-        from iki_plugin_antibody.models import Antibody
-        from iki_plugin_small_molecule.models import Compound, CompoundBatch
+        from iki_plugin_iki__dna.models import DNASequence, Primer
+        from iki_plugin_acme__example.models import Ext_iki_dna_DNASequence, Sample
+        from iki_plugin_iki__protein.models import Protein
+        from iki_plugin_iki__antibody.models import Antibody
+        from iki_plugin_iki__small_molecule.models import Compound, CompoundBatch
 
         puc = DNASequence.objects.create(
             owner_project=project, bases="ACGT", topology="circular", name="pUC19",
             features=[{"type": "rep_origin", "start": 1, "end": 4, "strand": "forward"}],
         )
         primer = Primer.objects.create(owner_project=project, bases="ACG", target=puc)
-        Ext_dna_DNASequence.objects.create(entity_id=puc.pk, construct_id="PUC-19")
+        Ext_iki_dna_DNASequence.objects.create(entity_id=puc.pk, construct_id="PUC-19")
         sample = Sample.objects.create(owner_project=project, name="S1", kind="dna", construct=puc)
         bla = Protein.objects.create(
             owner_project=project, sequence="MSIQHFRVAL", name="bla (+1)", encoded_by=puc,
@@ -116,13 +116,13 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         """,
     )
     assert result["types"] == [
-        "dna.DNASequence",
-        "dna.Primer",
-        "example.Sample",
-        "protein.Protein",
-        "antibody.Antibody",
-        "small_molecule.Compound",
-        "small_molecule.CompoundBatch",
+        "iki/dna.DNASequence",
+        "iki/dna.Primer",
+        "acme/example.Sample",
+        "iki/protein.Protein",
+        "iki/antibody.Antibody",
+        "iki/small_molecule.Compound",
+        "iki/small_molecule.CompoundBatch",
     ]
     assert [h.split("-")[0] for h in result["hrids"]] == [
         "DNA",
@@ -135,14 +135,14 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     ]
     # A compound is its standard InChIKey.
     assert result["aspirin"] == identity_hash(
-        "small_molecule.Compound", {"inchikey": ("string", "BSYNRYMUTXBXSQ-UHFFFAOYSA-N")}
+        "iki/small_molecule.Compound", {"inchikey": ("string", "BSYNRYMUTXBXSQ-UHFFFAOYSA-N")}
     )
     # An antibody is its chains, its light chain if it has one (a VHH hasn't).
     chains = {"heavy_chain": ("ref", result["heavy"]), "light_chain": ("ref", None)}
     paired = {**chains, "light_chain": ("ref", result["light"])}
     assert result["identities"] == [
-        identity_hash("antibody.Antibody", chains),
-        identity_hash("antibody.Antibody", paired),
+        identity_hash("iki/antibody.Antibody", chains),
+        identity_hash("iki/antibody.Antibody", paired),
     ]
     assert result["refused"] == {
         "light_chain": [
@@ -150,7 +150,13 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             "register another with it instead."
         ]
     }
-    for app in ("small_molecule", "antibody", "example", "protein", "dna"):
+    for app in (
+        "iki__small_molecule",
+        "iki__antibody",
+        "acme__example",
+        "iki__protein",
+        "iki__dna",
+    ):
         migrate(out, database, app, "zero")
     left = query(
         database,

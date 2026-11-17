@@ -54,7 +54,7 @@ def test_an_input_from_another_project_is_refused_naming_it(world: World) -> Non
         f"{name} first, and its members will be able to read it."
     )
     assert body["entities"] == [
-        {"id": theirs["id"], "hrid": theirs["hrid"], "type": "protein.Protein"}
+        {"id": theirs["id"], "hrid": theirs["hrid"], "type": "acme/protein.Protein"}
     ]
     assert not ActionRun.objects.exists()
     assert not ProjectLink.objects.filter(entity_id=theirs["id"], project=world.project).exists()
