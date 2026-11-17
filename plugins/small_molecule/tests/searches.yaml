@@ -1,0 +1,41 @@
+# Run with `iki plugin test plugins/small_molecule` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: carboxylic_acids
+description: >-
+  Of aspirin, caffeine and salicylic acid, the two with a carboxylic acid.
+action: substructure_search
+params: { smarts: "[CX3](=O)[OX2H1]" }
+inputs:
+  compounds:
+    - { values: { smiles: CC(=O)Oc1ccccc1C(=O)O, inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N } }
+    - { values: { smiles: Cn1c(=O)c2c(ncn2C)n(C)c1=O, inchikey: RYYVLZVUVIJVGH-UHFFFAOYSA-N } }
+    - { values: { smiles: O=C(O)c1ccccc1O, inchikey: YGSDEFSMJLZEOE-UHFFFAOYSA-N } }
+expect:
+  output:
+    creates:
+      - type: core.Collection
+        values:
+          name: With [CX3](=O)[OX2H1]
+          description: >-
+            2 of 3 compounds with the substructure [CX3](=O)[OX2H1], as RDKit
+            matches SMARTS.
+    metrics: { hits: 2, searched: 3 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: like_aspirin
+description: >-
+  Compounds like aspirin's SMILES: aspirin itself (1.0), not caffeine.
+action: similarity_search
+params: { smiles: CC(=O)Oc1ccccc1C(=O)O, threshold: 0.5 }
+inputs:
+  compounds:
+    - { values: { smiles: CC(=O)Oc1ccccc1C(=O)O, inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N } }
+    - { values: { smiles: Cn1c(=O)c2c(ncn2C)n(C)c1=O, inchikey: RYYVLZVUVIJVGH-UHFFFAOYSA-N } }
+expect:
+  output:
+    creates:
+      - type: core.Collection
+        values: { name: Like CC(=O)Oc1ccccc1C(=O)O (Tanimoto ≥ 0.5) }
+    metrics: { hits: 1, searched: 2, best: 1.0 }

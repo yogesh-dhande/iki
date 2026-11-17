@@ -1,7 +1,8 @@
 """The small_molecule plugin's actions: registering compounds from SMILES and SDF files,
 their descriptors and batches' formula weights, exporting them, and fetching them from
-PubChem and ChEMBL (from fakes of them), and generating conformers, run as a worker runs
-them (an input.json in, an output.json out) or, for the fetches, in-process."""
+PubChem and ChEMBL (from fakes of them), generating conformers, and searching them by
+similarity and substructure, run as a worker runs them (an input.json in, an output.json
+out) or, for the fetches, in-process."""
 
 import hashlib
 import importlib
@@ -904,3 +905,85 @@ def test_a_salt_has_no_conformers_of_its_own(tmp_path: Path) -> None:
         "::error X-1 has more than one part (a salt, say): register its parent, and "
         "generate its conformers."
     )
+
+
+# --- Searching -----------------------------------------------------------------------------------
+
+LIBRARY = [
+    entity(1, smiles=ASPIRIN, name="aspirin"),
+    entity(2, smiles="O=C(O)c1ccccc1O", name="salicylic acid"),
+    entity(3, smiles="CC(=O)Nc1ccc(O)cc1", name="paracetamol"),
+    entity(4, smiles="c1ccccc1", name="benzene"),
+    entity(5, smiles="COC(=O)c1ccccc1OC(C)=O", name="methyl acetylsalicylate"),
+]
+
+
+def test_similar_compounds_are_a_collection_most_similar_first(tmp_path: Path) -> None:
+    result, output = script(
+        tmp_path,
+        "search.py",
+        {
+            "params": {"threshold": 0.3},
+            "inputs": {"compounds": LIBRARY, "query": [LIBRARY[0]]},
+        },
+        "similar",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    (collection,) = output["creates"]
+    assert collection["type"] == "core.Collection"
+    members = collection["values"]["members"]
+    assert members[0] == LIBRARY[0]["id"]
+    assert set(members) == {LIBRARY[0]["id"], LIBRARY[1]["id"], LIBRARY[4]["id"]}
+    assert collection["values"]["name"] == "Like aspirin (Tanimoto ≥ 0.3)"
+    assert collection["values"]["description"].startswith(
+        "3 of 5 compounds with a Tanimoto similarity of at least 0.3 to aspirin, by Morgan "
+        "fingerprints (radius 2, 2,048 bits), most similar first: X-1 1.00, X-5 "
+    )
+    assert output["metrics"] == {"hits": 3, "searched": 5, "best": 1.0}
+    table = (tmp_path / "out" / "similarity.csv").read_text().splitlines()
+    assert table[0] == "hrid,name,smiles,tanimoto"
+    assert table[1] == f"X-1,aspirin,{ASPIRIN},1.0"
+    assert len(table) == 6
+
+
+def test_a_query_is_a_compound_or_a_smiles_not_both(tmp_path: Path) -> None:
+    result, _ = script(
+        tmp_path,
+        "search.py",
+        {"params": {"smiles": "c1ccccc1"}, "inputs": {"compounds": LIBRARY, "query": [LIBRARY[0]]}},
+        "similar",
+    )
+    assert result.returncode == 1
+    assert last_error(result) == "::error Give a query compound, or a query's SMILES, but not both."
+
+
+def test_compounds_with_a_substructure_are_a_collection(tmp_path: Path) -> None:
+    result, output = script(
+        tmp_path,
+        "search.py",
+        {"params": {"smarts": "c1ccccc1C(=O)[OX2H1]"}, "inputs": {"compounds": LIBRARY}},
+        "substructure",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    (collection,) = output["creates"]
+    assert collection["values"] == {
+        "name": "With c1ccccc1C(=O)[OX2H1]",
+        "description": (
+            "2 of 5 compounds with the substructure c1ccccc1C(=O)[OX2H1], as RDKit matches SMARTS."
+        ),
+        "members": [LIBRARY[0]["id"], LIBRARY[1]["id"]],
+    }
+    assert output["metrics"] == {"hits": 2, "searched": 5}
+
+
+def test_smarts_that_cant_be_read_fails_the_search_saying_why(tmp_path: Path) -> None:
+    result, _ = script(
+        tmp_path,
+        "search.py",
+        {"params": {"smarts": "c1ccccc1C(=O"}, "inputs": {"compounds": LIBRARY}},
+        "substructure",
+    )
+    assert result.returncode == 1
+    assert last_error(result).startswith("::error 'c1ccccc1C(=O' isn't SMARTS RDKit can read: ")

@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: substructure_search
+label: Find compounds with a substructure
+description: >-
+  Finds the compounds chosen that have a substructure, given as SMARTS (a SMILES
+  is SMARTS too), as RDKit matches it, stereochemistry included if asked. They're
+  saved as a collection, in the order given.
+inputs:
+  compounds:
+    type: Compound
+    schema: ">=1"
+    cardinality: many
+    max: 100000
+    description: The compounds to search, such as a project's library.
+params:
+  smarts:
+    type: string
+    label: Substructure (SMARTS)
+    required: true
+    max_length: 5000
+    description: Such as c1ccccc1C(=O)[OH] for a benzoic acid, or [NX3;H2] for a primary amine.
+  chirality:
+    type: bool
+    label: Match stereochemistry
+    default: false
+    description: Only match compounds whose stereocentres are as the SMARTS gives them.
+  name:
+    type: string
+    label: Collection name
+    max_length: 200
+    description: Without one, it's named after the SMARTS.
+effects:
+  creates: [{ type: core.Collection }]
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: chemistry-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/search.py, substructure]
+deterministic: true
+metrics:
+  hits: { label: Found, description: How many have it. }
+  searched: { label: Searched, description: How many compounds it searched. }
+timeout: 1h

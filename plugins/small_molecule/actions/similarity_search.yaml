@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: similarity_search
+label: Find similar compounds
+description: >-
+  Finds the compounds chosen that are like a query compound (one in Iki, or a
+  SMILES): the Tanimoto similarity of their Morgan fingerprints (radius 2, as
+  ECFP4, folded into 2,048 bits) at least the threshold. They're saved as a
+  collection, most similar first, and the run keeps a table of every compound's
+  similarity.
+inputs:
+  compounds:
+    type: Compound
+    schema: ">=1"
+    cardinality: many
+    max: 100000
+    description: The compounds to search, such as a project's library.
+  query:
+    type: Compound
+    schema: ">=1"
+    optional: true
+    description: The compound to find others like. Or give its SMILES.
+params:
+  smiles:
+    type: string
+    label: Query SMILES
+    max_length: 20000
+    description: A structure to find compounds like, when the query isn't a compound in Iki.
+  threshold:
+    type: float
+    label: Threshold
+    default: 0.7
+    min: 0
+    max: 1
+    description: The least Tanimoto similarity a compound found has, from 0 to 1.
+  name:
+    type: string
+    label: Collection name
+    max_length: 200
+    description: Without one, it's named after the query and the threshold.
+effects:
+  creates: [{ type: core.Collection, derived_from: [query] }]
+software:
+  - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
+runs_on: { tier: backend, environment: chemistry-tools, resources: { memory: 1Gi } }
+command: [python, ./scripts/search.py, similar]
+deterministic: true
+artifacts: { keep: [similarity.csv] }
+metrics:
+  hits: { label: Found, description: How many are at least the threshold. }
+  searched: { label: Searched, description: How many compounds it compared. }
+  best: { label: Most similar, description: The highest Tanimoto similarity of any. }
+timeout: 1h

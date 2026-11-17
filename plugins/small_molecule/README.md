@@ -128,6 +128,26 @@ only standardises and identifies, and the services don't say how their
 structures were made. A name, ID or InChIKey a service doesn't have fails the
 run, naming it, so nothing is half fetched.
 
+- **`similarity_search`**: of the compounds chosen (up to 100,000, such as a
+  project's library), those like a query compound, or a query SMILES: the
+  Tanimoto similarity of their Morgan fingerprints (radius 2, the environments
+  ECFP4 describes, folded into 2,048 bits, as RDKit's fingerprint generator
+  makes them) at least the threshold (0.7 unless chosen). They're saved as a
+  collection, most similar first, named after the query unless named, whose
+  description lists the most similar with their similarity; the run keeps a
+  table of every compound's similarity (`similarity.csv`).
+- **`substructure_search`**: of the compounds chosen, those with a
+  substructure, given as SMARTS (a SMILES is SMARTS too), as RDKit matches it,
+  stereochemistry included if asked; saved as a collection, in the order
+  given. SMARTS RDKit can't read fails the run, saying why.
+
+The searches' results are static collections (`core.Collection`), so they're
+what was found when the run ran, kept as they were, to share, export or run
+another action on; a collection holds 10,000, and past that the run keeps the
+most similar (or the first) and says so. They run over the compounds a run is
+given, because a search inside Iki's own (`POST /entities/search`) matches
+values, not structures: a dynamic collection can't be a chemical search.
+
 ### Standardising
 
 A structure is standardised as RDKit's MolStandardize does it
@@ -227,7 +247,8 @@ migrations match its manifests, and that it migrates forwards and back. The
 dev cluster's end-to-end check (`deploy/dev/sso.py`) registers aspirin and its
 sodium salt, checks its InChIKey, batches and descriptors, and that aspirin
 drawn another way is reused, and fetches caffeine from PubChem through the
-egress proxy, checking that it reached PubChem alone.
+egress proxy, checking that it reached PubChem alone, and finds aspirin's
+carboxylic acid with a substructure search, saved as a collection of it.
 
 The fetches' tests (in `server/tests/test_small_molecule_actions.py`) answer
 them from fakes of PubChem and ChEMBL, shaped as the services answered when

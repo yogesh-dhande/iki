@@ -1337,8 +1337,8 @@ CAFFEINE_KEY = "RYYVLZVUVIJVGH-UHFFFAOYSA-N"
 def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
     """The small_molecule plugin, in its environment with RDKit: aspirin and its sodium
     salt registered as one compound, by its InChIKey, with a batch of each; its
-    descriptors; aspirin drawn another way, which is the same compound, reused; and
-    caffeine fetched from PubChem."""
+    descriptors; aspirin drawn another way, which is the same compound, reused;
+    caffeine fetched from PubChem; and a substructure only aspirin has, found."""
     action = "small_molecule.register_compounds"
     params = {
         "smiles": f"{ASPIRIN} aspirin\n{ASPIRIN_SODIUM} aspirin sodium",
@@ -1395,7 +1395,8 @@ def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
     if [(e["kind"], e["entity"]) for e in again] != [("reused", compound["id"])]:
         fail(f"{run['hrid']} made {run['effects']}, not {compound['hrid']} reused")
     ok(f"aspirin drawn another way is {compound['hrid']}, reused ({run['hrid']})")
-    pubchem(alice, project)
+    caffeine = pubchem(alice, project)
+    substructure(alice, project, compound["id"], caffeine["id"])
 
 
 def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
@@ -1436,6 +1437,26 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
         f"({CAFFEINE_KEY}, CID 2519, CAS 58-08-2) ({run['hrid']})"
     )
     return compound
+
+
+def substructure(
+    alice: requests.Session, project: dict[str, Any], aspirin: str, caffeine: str
+) -> None:
+    """small_molecule.substructure_search over aspirin and caffeine: a carboxylic acid,
+    which only aspirin has, saved as a collection of it."""
+    action = "small_molecule.substructure_search"
+    smarts = "[CX3](=O)[OX2H1]"
+    run = launch(alice, project, action, {"compounds": [aspirin, caffeine]}, {"smarts": smarts})
+    made = [e for e in run["effects"] if e["type"] == "core.Collection"]
+    if len(made) != 1 or run["metrics"] != {"hits": 1, "searched": 2}:
+        fail(f"{run['hrid']} ({action}) made {run['effects']} with {run['metrics']}")
+    collection = api_call(alice, "GET", f"/entities/{made[0]['entity']}").json()
+    if collection["values"].get("members") != [aspirin]:
+        fail(f"{run['hrid']} made {collection['hrid']} of {collection['values']}, not aspirin")
+    ok(
+        f"{action} found the carboxylic acid ({smarts}) in aspirin, not caffeine, and saved "
+        f"it as {collection['hrid']} ({run['hrid']})"
+    )
 
 
 #: Human haemoglobin's alpha and beta chains (UniProt P69905, P68871).
