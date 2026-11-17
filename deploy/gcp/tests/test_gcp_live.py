@@ -1042,6 +1042,60 @@ def digest(gcp: Gcp, ref: str) -> str:
     return found.strip()
 
 
+def diagnose(gcp: Gcp) -> None:
+    """What the cluster says, in logs/diagnose.log, when standing up fails: once it's torn
+    down, nothing tells why a pod never started."""
+    if not (gcp.root / "kubeconfig").exists():
+        return
+    for args in (
+        ("get", "nodes", "-o", "wide"),
+        ("get", "pods", "-A", "-o", "wide"),
+        ("get", "events", "-A", "--sort-by=.lastTimestamp"),
+        ("describe", "pods", "-n", "external-secrets"),
+        ("describe", "pods", "-n", "iki"),
+    ):
+        try:
+            gcp.stream("kubectl", *args, log="diagnose.log", timeout=120)
+        except Exception as error:  # whatever it says, the teardown goes on
+            sys.stdout.write(f"kubectl {' '.join(args)}: {error!r}\n")
+    # Whether a pod resolves public names and reaches them (an image allowed in, which
+    # Google's own registry serves through the VPC's private zones).
+    probe = (
+        "getent ahosts ghcr.io; getent ahosts github.com;"
+        " timeout 10 bash -c '</dev/tcp/ghcr.io/443' && echo ghcr.io:443 reached"
+    )
+    probing: tuple[tuple[str, ...], ...] = (
+        (
+            "-n",
+            "default",
+            "run",
+            "iki-probe",
+            "--image=mirror.gcr.io/library/postgres:17",
+            "--restart=Never",
+            "--command",
+            "--",
+            "bash",
+            "-c",
+            probe,
+        ),
+        (
+            "-n",
+            "default",
+            "wait",
+            "--for=jsonpath={.status.phase}=Succeeded",
+            "pod/iki-probe",
+            "--timeout=120s",
+        ),
+        ("-n", "default", "logs", "iki-probe"),
+        ("-n", "default", "describe", "pod", "iki-probe"),
+    )
+    for step in probing:
+        try:
+            gcp.stream("kubectl", *step, log="diagnose.log", timeout=180)
+        except Exception as error:  # whatever it says, the teardown goes on
+            sys.stdout.write(f"kubectl {' '.join(step[:4])}: {error!r}\n")
+
+
 def write_kubeconfig(gcp: Gcp, s: Settings) -> None:
     """kubectl to the cluster's DNS endpoint (IAM decides), with the token file: what
     get_credentials writes, but reading the token Gcp keeps fresh rather than through
@@ -1341,7 +1395,11 @@ def deployment() -> Iterator[Deployment]:
     started = datetime.datetime.now(datetime.UTC)
     (s.workdir / "gcp-window.json").write_text(json.dumps({"start": started.isoformat()}))
     try:
-        stand_up(d)
+        try:
+            stand_up(d)
+        except BaseException:
+            diagnose(gcp)
+            raise
         yield d
     finally:
         problems = d.tear_down()
