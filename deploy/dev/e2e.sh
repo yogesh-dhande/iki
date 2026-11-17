@@ -26,9 +26,12 @@ forward() { # forward <target> <local-port> <remote-port>
 
 echo "Iki dev cluster end-to-end checks"
 
-# Wait for any rollout in progress, so logs and execs hit the current pods.
-kc rollout status deploy/iki-web --timeout=180s >/dev/null
-kc rollout status deploy/iki-tasks --timeout=180s >/dev/null
+# Wait for every rollout in progress, so logs, execs and port-forwards hit the current
+# pods: a dependency's new image (SeaweedFS's, say) replaces its pod too, and a forward to
+# its Service can land on the old one as it shuts down.
+for deployment in $(kc get deploy -o name); do
+  kc rollout status "$deployment" --timeout=180s >/dev/null || fail "$deployment did not roll out"
+done
 
 # A port-forward to the Service could land on a pod that is still shutting
 # down after the rollout; forward to a ready pod that isn't terminating.
