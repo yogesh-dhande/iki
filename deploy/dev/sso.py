@@ -2290,7 +2290,7 @@ def _sample(alice: requests.Session, project: dict[str, Any], **values: str) -> 
         "POST",
         "/entities",
         {
-            "type": "example.Sample",
+            "type": "acme/example.Sample",
             "project": project["id"],
             "values": {"name": f"e2e-{secrets.token_hex(4)}", "kind": "dna", **values},
         },
@@ -2334,10 +2334,10 @@ def containers() -> None:
     mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
     project = next(p for p in mine if p["name"] == "Atlas")
     listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
-    for action in ("example.assign_storage", "example.tidy_storage"):
+    for action in ("acme/example.assign_storage", "acme/example.tidy_storage"):
         if not listed.get(action, {}).get("available"):
             fail(f"{action} isn't available to run: {listed.get(action)}")
-    action = "example.assign_storage"
+    action = "acme/example.assign_storage"
     run, attempt, storage = _contained(alice, project, action, _sample(alice, project))
     if storage != "-80 °C freezer":
         fail(f"{run['hrid']} wrote {storage!r}, not the plugin's default storage")
@@ -2366,7 +2366,7 @@ def containers() -> None:
         time.sleep(2)
     ok(f"{attempt['worker']} is labelled with {run['hrid']}'s run and project")
 
-    action = "example.tidy_storage"
+    action = "acme/example.tidy_storage"
     ran = [
         _contained(alice, project, action, _sample(alice, project, storage=" -80C   freezer"))
         for _ in range(2)
@@ -2489,7 +2489,7 @@ def setup_builds(project: dict[str, Any]) -> None:
         if granted.status_code != 200:
             fail(f"{me['email']} couldn't be made a Compute Admin")
     try:
-        environment = "example.reference"
+        environment = "acme/example.reference"
         (listed,) = [
             e
             for e in api_call(bob, "GET", "/compute/volumes").json()
@@ -2554,7 +2554,7 @@ def setup_builds(project: dict[str, Any]) -> None:
         ok(f"{bucket['hrid']} filled a disk, which a Job copied into the bucket, {prefix}")
 
         sample = _sample(alice, project, storage="-80")
-        run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
+        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
         if storage != "-80 °C freezer" or read.get("hrid") != snapshots["hrid"]:
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
@@ -2574,7 +2574,7 @@ def setup_builds(project: dict[str, Any]) -> None:
 
         # With no version in iki-runs, runs go where one is ready, and mount it read-only.
         sample = _sample(alice, project, storage="ln2")
-        run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
+        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
         if storage != "Liquid nitrogen dewar" or read.get("hrid") != shared["hrid"]:
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
@@ -2594,7 +2594,7 @@ def setup_builds(project: dict[str, Any]) -> None:
 
         # And then to the bucket.
         sample = _sample(alice, project, storage="4")
-        run, attempt, storage = _contained(alice, project, "example.decode_storage", sample)
+        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
         if storage != "4 °C fridge" or read.get("hrid") != bucket["hrid"]:
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")

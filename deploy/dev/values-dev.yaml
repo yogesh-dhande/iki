@@ -99,7 +99,7 @@ backendWorkers:
 containerTier:
   enabled: true
   namespace: iki-runs
-  # Where example.reference's runs read a shared file system, and a bucket
+  # Where acme/example.reference's runs read a shared file system, and a bucket
   # (compute.yaml).
   extraNamespaces: [iki-runs-shared, iki-runs-bucket]
   workerImage:
