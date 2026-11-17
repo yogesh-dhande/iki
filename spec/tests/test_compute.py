@@ -168,7 +168,10 @@ def test_the_schemas(tmp_path: Path, plugins: list[Plugin], document: str, fragm
 @pytest.mark.parametrize(
     ("document", "message"),
     [
-        (BACKEND + "lifecycle: persistent\n", "`lifecycle` is for `aws_ec2` templates."),
+        (
+            BACKEND + "lifecycle: persistent\n",
+            "`lifecycle` is for `aws_ec2` and `gcp_gce` templates.",
+        ),
         (
             BACKEND + "volumes: { db: { strategy: object_mount } }\n",
             "`volumes` is for `k8s_job` and `k8s_deployment` and `aws_ec2` templates.",
@@ -440,3 +443,89 @@ def test_a_vms_disk_holds_its_scratch_space(tmp_path: Path, plugins: list[Plugin
     assert "at least 8Gi more" in problem.message
     big = A100.replace("  spot: true", "  root_disk: 9Ti\n  spot: true")
     assert "root-disk-too-small" not in codes(load(tmp_path, plugins, big))
+
+
+GCE = """\
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: a100-gce
+provisioner: gcp_gce
+capacity:
+  cpu: 96
+  memory: 1360Gi
+  gpu: { count: 8, memory: 40Gi, model: A100 }
+  scratch_disk: 2Ti
+gcp:
+  machine_type: a2-highgpu-8g
+  image: projects/cos-cloud/global/images/family/cos-stable
+  spot: true
+  fallback: on_demand
+  region: us-central1
+  zones: [us-central1-a, us-central1-b]
+  labels: { cost-center: rd-42 }
+price: { per_hour: 29.39, currency: USD }
+"""
+
+
+def test_a_compute_engine_template(tmp_path: Path, plugins: list[Plugin]) -> None:
+    result = load(tmp_path, plugins, GCE)
+    assert not [p for p in result.problems if p.is_error]
+    assert result.compute is not None
+    template = result.compute.templates["a100-gce"]
+    assert (template.tier, template.lifecycle) == ("vm", "ephemeral")
+    assert template.gcp["zones"] == ["us-central1-a", "us-central1-b"]
+    data = json.loads(json.dumps(compute_to_dict(result.compute)))
+    assert compute_from_dict(data) == result.compute
+
+
+@pytest.mark.parametrize(
+    ("change", "fragment"),
+    [
+        (("  machine_type: a2-highgpu-8g\n", ""), "machine_type"),
+        (("[us-central1-a, us-central1-b]", "[]"), "zones"),
+        (("projects/cos-cloud/global/images/family/cos-stable", "cos-stable"), "image"),
+        (("{ cost-center: rd-42 }", "{ iki-run: x }"), "labels"),
+        (("{ cost-center: rd-42 }", "{ cost-center: RD-42 }"), "labels"),
+        (("  spot: true", "  subnets: [subnet-0a1b2c3d4e5f60718]\n  spot: true"), "subnets"),
+    ],
+)
+def test_the_compute_engine_schema(
+    tmp_path: Path, plugins: list[Plugin], change: tuple[str, str], fragment: str
+) -> None:
+    result = load(tmp_path, plugins, GCE.replace(*change))
+    assert result.compute is None
+    assert codes(result)[0] == "schema"
+    assert any(fragment in p.message + str(p.path) for p in result.problems)
+
+
+def test_compute_engine_rules(tmp_path: Path, plugins: list[Plugin]) -> None:
+    elsewhere = GCE.replace("[us-central1-a, us-central1-b]", "[us-central1-a, europe-west4-a]")
+    found = only(_errors(tmp_path, plugins, elsewhere), "zone-outside-region")
+    assert "isn't in `us-central1`" in found
+    template = GCE.replace(
+        "  spot: true",
+        "  instance_template: projects/acme-iki/regions/europe-west4/instanceTemplates/vm\n"
+        "  spot: true",
+    )
+    assert only(_errors(tmp_path, plugins, template), "instance-template-outside-region")
+    no_gpus = GCE.replace("  gpu: { count: 8, memory: 40Gi, model: A100 }\n", "").replace(
+        "  spot: true", "  gpu_type: nvidia-tesla-t4\n  spot: true"
+    )
+    assert only(_errors(tmp_path, plugins, no_gpus), "gpu-type-without-gpus")
+    no_spot = GCE.replace("  spot: true\n", "")
+    assert only(_errors(tmp_path, plugins, no_spot), "fallback-without-spot")
+    small = GCE.replace("  spot: true", "  root_disk: 2Ti\n  spot: true")
+    assert only(_errors(tmp_path, plugins, small), "root-disk-too-small")
+    assert only(
+        _errors(tmp_path, plugins, GCE + "kubernetes: { namespace: gpu }\n"),
+        "wrong-provisioner",
+    )
+    # No volumes on Compute Engine yet.
+    volumes = GCE + "volumes: { af-db: { strategy: clone_from_snapshot } }\n"
+    assert only(_errors(tmp_path, plugins, volumes), "wrong-provisioner")
+
+
+def _errors(tmp_path: Path, plugins: list[Plugin], document: str) -> ComputeResult:
+    result = load(tmp_path, plugins, document)
+    result.problems = [p for p in result.problems if p.is_error]
+    return result

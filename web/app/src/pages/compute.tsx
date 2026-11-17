@@ -190,4 +190,5 @@ const PROVISIONER: Record<string, string> = {
   k8s_job: "Kubernetes Jobs, one per run",
   k8s_deployment: "Kubernetes pods kept running",
   aws_ec2: "EC2 instances",
+  gcp_gce: "Compute Engine instances",
 };

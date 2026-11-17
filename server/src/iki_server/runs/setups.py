@@ -157,7 +157,8 @@ def staged(build: SetupBuild, volume: str) -> bool:
 
 def place_of(template: Template) -> str | None:
     """Where the template's machines go, if this deployment starts them: its namespace, if
-    the provisioner may start pods there, or its region, if it starts EC2 instances."""
+    the provisioner may start pods there, or its region, if it starts EC2 or Compute Engine
+    instances."""
     from django.conf import settings
 
     from iki_server.runs.provisioner import namespace_of, namespaces
@@ -165,8 +166,12 @@ def place_of(template: Template) -> str | None:
     if template.provisioner in KUBERNETES:
         namespace = namespace_of(template)
         return namespace if namespace in namespaces() else None
-    if template.provisioner == "aws_ec2" and settings.IKI_RUNS_VM_OWNER:
+    if not settings.IKI_RUNS_VM_OWNER:
+        return None
+    if template.provisioner == "aws_ec2" and settings.IKI_RUNS_VM_CLOUD == "aws":
         return str(template.aws["region"])
+    if template.provisioner == "gcp_gce" and settings.IKI_RUNS_VM_CLOUD == "gcp":
+        return str(template.gcp["region"])
     return None
 
 

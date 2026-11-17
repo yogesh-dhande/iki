@@ -1,6 +1,7 @@
 """``iki-server provision``: starts machines for container- and vm-tier runs and tidies up
 after them (ADR 0061, ADR 0074), until stopped (SIGTERM or Ctrl-C). It drives the container
-tier when ``IKI_RUNS_NAMESPACE`` is set, and the vm tier when ``IKI_RUNS_VM_OWNER`` is.
+tier when ``IKI_RUNS_NAMESPACE`` is set, and the vm tier when ``IKI_RUNS_VM_OWNER`` is: on
+EC2, or on Compute Engine when ``IKI_RUNS_VM_CLOUD`` is ``gcp``.
 
 Only one provisioner acts at a time: it holds a Postgres advisory lock, and others wait
 for it. It runs a round every few seconds, and as soon as a job is queued on its tiers.
@@ -26,6 +27,8 @@ from iki_server.observability.telemetry import configure_telemetry
 from iki_server.runs import provisioner, queue
 from iki_server.runs.ec2 import Boto3Ec2
 from iki_server.runs.ec2_fleet import Ec2Fleet
+from iki_server.runs.gce import GoogleGce
+from iki_server.runs.gce_fleet import GceFleet
 from iki_server.runs.kubernetes import InCluster
 from iki_server.tasks.runner import listen_connection
 
@@ -71,8 +74,8 @@ def _needs(*names: str) -> None:
 
 
 def fleets() -> list[provisioner.Fleet]:
-    """The machines this deployment starts: pods with the container tier, EC2 instances
-    with the vm tier."""
+    """The machines this deployment starts: pods with the container tier, EC2 or Compute
+    Engine instances with the vm tier."""
     found: list[provisioner.Fleet] = []
     if settings.IKI_RUNS_NAMESPACE:
         _needs("IKI_RUNS_WORKER_IMAGE", "IKI_RUNS_SERVER_URL")
@@ -83,7 +86,11 @@ def fleets() -> list[provisioner.Fleet]:
         found.append(provisioner.KubernetesFleet(InCluster(host, port)))
     if settings.IKI_RUNS_VM_OWNER:
         _needs("IKI_RUNS_WORKER_IMAGE", "IKI_RUNS_VM_SERVER_URL")
-        found.append(Ec2Fleet(Boto3Ec2()))
+        if settings.IKI_RUNS_VM_CLOUD == "gcp":
+            _needs("IKI_RUNS_VM_GCP_PROJECT", "IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE")
+            found.append(GceFleet(GoogleGce()))
+        else:
+            found.append(Ec2Fleet(Boto3Ec2()))
     if not found:
         raise CommandError(
             "Set IKI_RUNS_NAMESPACE (the container tier) or IKI_RUNS_VM_OWNER (the vm tier) "

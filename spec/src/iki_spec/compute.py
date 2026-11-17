@@ -65,6 +65,7 @@ TIER = {
     "k8s_job": "container",
     "k8s_deployment": "container",
     "aws_ec2": "vm",
+    "gcp_gce": "vm",
 }
 
 #: The provisioners that start Kubernetes pods.
@@ -81,9 +82,11 @@ STRATEGIES = {
         "object_mount",
     },
     "aws_ec2": {"clone_from_snapshot", "attach_exclusive", "shared_filesystem", "object_mount"},
+    # No volumes yet on Compute Engine.
+    "gcp_gce": set(),
 }
 
-#: What an EC2 instance's disk needs besides the scratch space runs get: at least this
+#: What a cloud machine's disk needs besides the scratch space runs get: at least this
 #: (and unless the template says, :data:`ROOT_DEFAULT`) for the system and the run's image.
 ROOT_SYSTEM = 8 * 1024**3
 ROOT_DEFAULT = 40 * 1024**3
@@ -145,6 +148,7 @@ class Template:
     gpu_model: str | None = None
     kubernetes: dict[str, Any] = field(default_factory=dict)
     aws: dict[str, Any] = field(default_factory=dict)
+    gcp: dict[str, Any] = field(default_factory=dict)
     volumes: dict[str, TemplateVolume] = field(default_factory=dict)
     max_concurrent: int | None = None
     min_warm: int = 0
@@ -306,7 +310,8 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
 #: Keys only some provisioners take.
 _ONLY_FOR = {
     "aws": ("aws_ec2",),
-    "lifecycle": ("aws_ec2",),
+    "gcp": ("gcp_gce",),
+    "lifecycle": ("aws_ec2", "gcp_gce"),
     "kubernetes": ("backend_pool", "k8s_job", "k8s_deployment"),
     "volumes": ("k8s_job", "k8s_deployment", "aws_ec2"),
 }
@@ -352,6 +357,7 @@ def _template(data: dict[str, Any]) -> Template:
         gpu_model=gpu.get("model"),
         kubernetes=dict(data.get("kubernetes") or {}),
         aws=dict(data.get("aws") or {}),
+        gcp=dict(data.get("gcp") or {}),
         volumes={
             n: TemplateVolume(
                 v["strategy"],
@@ -472,7 +478,8 @@ class _Rules:
         if template.provisioner == "backend_pool" and template.capacity.gpu_count:
             self.add(
                 "gpu-wrong-tier",
-                "Backend worker pods have no GPUs; use `k8s_job` or `aws_ec2` for GPU work.",
+                "Backend worker pods have no GPUs; use `k8s_job`, `aws_ec2` or `gcp_gce` for GPU "
+                "work.",
                 document,
                 ("capacity", "gpu"),
                 key=True,
@@ -490,27 +497,31 @@ class _Rules:
                     ("limits", key),
                     key=True,
                 )
-        if template.aws.get("fallback") == "on_demand" and not template.aws.get("spot"):
-            self.add(
-                "fallback-without-spot",
-                "`fallback` is for spot instances, and this template doesn't use them.",
-                document,
-                ("aws", "fallback"),
-                key=True,
-            )
-        root = template.aws.get("root_disk")
-        if (
-            root is not None
-            and (parse_quantity(root) or 0) < (template.capacity.scratch_disk or 0) + ROOT_SYSTEM
-        ):
-            self.add(
-                "root-disk-too-small",
-                "`root_disk` must hold `capacity.scratch_disk` and at least 8Gi more for the "
-                "system and the run's image.",
-                document,
-                ("aws", "root_disk"),
-                hint="Leave it out for `scratch_disk` and 40Gi.",
-            )
+        for cloud, machine in (("aws", template.aws), ("gcp", template.gcp)):
+            if machine.get("fallback") == "on_demand" and not machine.get("spot"):
+                self.add(
+                    "fallback-without-spot",
+                    "`fallback` is for spot instances, and this template doesn't use them.",
+                    document,
+                    (cloud, "fallback"),
+                    key=True,
+                )
+            root = machine.get("root_disk")
+            if (
+                root is not None
+                and (parse_quantity(root) or 0)
+                < (template.capacity.scratch_disk or 0) + ROOT_SYSTEM
+            ):
+                self.add(
+                    "root-disk-too-small",
+                    "`root_disk` must hold `capacity.scratch_disk` and at least 8Gi more for "
+                    "the system and the run's image.",
+                    document,
+                    (cloud, "root_disk"),
+                    hint="Leave it out for `scratch_disk` and 40Gi.",
+                )
+        if template.provisioner == "gcp_gce":
+            self.gcp(template, document)
         for name, volume in template.volumes.items():
             path: DocPath = ("volumes", name)
             allowed = STRATEGIES.get(template.provisioner, set())
@@ -637,6 +648,37 @@ class _Rules:
                     (*path, "snapshot_class"),
                     key=True,
                 )
+
+    def gcp(self, template: Template, document: Document) -> None:
+        """What a Compute Engine template must agree on that its schema can't say."""
+        given = template.gcp
+        region = str(given["region"])
+        for index, zone in enumerate(given["zones"]):
+            if not str(zone).startswith(f"{region}-"):
+                self.add(
+                    "zone-outside-region",
+                    f"`{zone}` isn't in `{region}`.",
+                    document,
+                    ("gcp", "zones", index),
+                    hint=f"Its zones are named {region}-a, {region}-b and so on.",
+                )
+        source = str(given.get("instance_template") or "")
+        if "/regions/" in source and f"/regions/{region}/" not in source:
+            self.add(
+                "instance-template-outside-region",
+                f"The instance template is in another region than `{region}`.",
+                document,
+                ("gcp", "instance_template"),
+                hint="A regional instance template starts machines in its own region only.",
+            )
+        if given.get("gpu_type") and not template.capacity.gpu_count:
+            self.add(
+                "gpu-type-without-gpus",
+                "`gpu_type` attaches `capacity.gpu.count` GPUs, and this template has none.",
+                document,
+                ("gcp", "gpu_type"),
+                key=True,
+            )
 
     def binding(self, binding: Binding, document: Document) -> None:
         env = self.environments.get(binding.environment)

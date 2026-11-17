@@ -736,8 +736,8 @@ like the lockfile's. Point editors at
 apiVersion: iki/v1
 kind: ComputeTemplate
 name: a100-spot
-provisioner: aws_ec2 # backend_pool, k8s_job, k8s_deployment or aws_ec2
-lifecycle: ephemeral # aws_ec2 only; k8s_job is ephemeral, k8s_deployment persistent
+provisioner: aws_ec2 # backend_pool, k8s_job, k8s_deployment, aws_ec2 or gcp_gce
+lifecycle: ephemeral # aws_ec2 and gcp_gce; k8s_job is ephemeral, k8s_deployment persistent
 capacity:
   { cpu: 96, memory: 1152Gi, gpu: { count: 8, memory: 40Gi, model: A100 }, scratch_disk: 8Ti }
 aws:
@@ -776,7 +776,31 @@ NVIDIA's drivers and container toolkit), in one of `subnets`, with
 `security_groups` and `instance_profile`. With `spot`, Iki tries spot capacity
 in each subnet's zone first, then on-demand with `fallback: on_demand`; spot
 instances AWS takes back are retried, and checkpointable runs resume (ADR
-0074). `iki deploy build` checks that:
+0074).
+
+`gcp_gce` templates take `gcp` instead, on Compute Engine (ADR 0107). Each
+instance starts from the deployment's instance template (the `vm-tier`
+module's), which gives it its subnet with no public address, its service
+account and network tag; the template says what changes:
+
+```yaml
+provisioner: gcp_gce
+gcp:
+  machine_type: a2-highgpu-8g # or n1-standard-16 with gpu_type: nvidia-tesla-t4
+  image: projects/cos-cloud/global/images/family/cos-stable # Docker; for GPUs, NVIDIA's too
+  spot: true # taken back with two minutes' notice
+  fallback: on_demand
+  region: us-central1
+  zones: [us-central1-a, us-central1-b] # tried in turn
+  # root_disk: 9Ti, disk_type: pd-ssd, labels: { cost-center: rd-42 },
+  # kms_key and instance_template: the deployment's unless set
+```
+
+Each is a Shielded VM, named for the deployment (`<owner>-run-<launch>`),
+with its disk encrypted by the deployment's Cloud KMS key. With `spot`, Iki
+tries Spot capacity in each zone, then standard with `fallback: on_demand`;
+Spot VMs Compute Engine takes back are retried, and checkpointable runs
+resume. `iki deploy build` checks that:
 
 - every binding names an environment of an installed plugin, and templates
   in this file on that environment's tiers

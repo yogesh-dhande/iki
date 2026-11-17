@@ -3,8 +3,9 @@ them (ADR 0061, ADR 0074). ``iki-server provision`` runs it; it's the only part 
 may talk to the Kubernetes API or start cloud machines.
 
 Each kind of machine is a :class:`Fleet`: Kubernetes pods (:class:`KubernetesFleet`, here)
-for the container tier, EC2 instances (:class:`iki_server.runs.ec2_fleet.Ec2Fleet`) for the
-vm tier. What to start, keep warm and stop is decided the same way for each.
+for the container tier, EC2 instances (:class:`iki_server.runs.ec2_fleet.Ec2Fleet`) or
+Compute Engine instances (:class:`iki_server.runs.gce_fleet.GceFleet`) for the vm tier.
+What to start, keep warm and stop is decided the same way for each.
 
 Each :func:`tick`:
 

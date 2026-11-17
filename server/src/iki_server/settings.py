@@ -110,7 +110,7 @@ IKI_RUNS_SERVICE_ACCOUNT: str = env.str("IKI_RUNS_SERVICE_ACCOUNT", default="iki
 IKI_RUNS_IMAGE_PULL_SECRETS: list[str] = env.list("IKI_RUNS_IMAGE_PULL_SECRETS", default=[])
 #: Plain http:// to the server, for a development cluster without TLS.
 IKI_RUNS_ALLOW_HTTP: bool = env.bool("IKI_RUNS_ALLOW_HTTP", default=False)
-# The vm tier (ADR 0074): `iki-server provision` starts EC2 instances for runs, tagged
+# The vm tier (ADR 0074): `iki-server provision` starts cloud machines for runs, tagged
 # with IKI_RUNS_VM_OWNER (this deployment's name, which its IAM policy can require), that
 # reach the server at IKI_RUNS_VM_SERVER_URL: an address in their VPC, not the cluster's.
 IKI_RUNS_VM_OWNER: str = env.str("IKI_RUNS_VM_OWNER", default="")
@@ -126,6 +126,47 @@ if IKI_RUNS_VM_SERVER_URL and not (
     raise environ.ImproperlyConfigured(
         "IKI_RUNS_VM_SERVER_URL must be an https:// address: machines send their token to it."
     )
+# Where the vm tier's machines start: EC2 (`aws`, ADR 0074), or Compute Engine (`gcp`,
+# ADR 0107), in IKI_RUNS_VM_GCP_PROJECT, from IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE (the
+# vm-tier module's, unless a compute template names its own), with disks encrypted by
+# IKI_RUNS_VM_GCP_KMS_KEY (unless a template names its own). On Compute Engine,
+# IKI_RUNS_VM_OWNER starts every machine's, disk's and image's name, as the provisioner's
+# IAM condition requires, and labels them, so it's a short lowercase name.
+IKI_RUNS_VM_CLOUD: str = env.str("IKI_RUNS_VM_CLOUD", default="aws")
+IKI_RUNS_VM_GCP_PROJECT: str = env.str("IKI_RUNS_VM_GCP_PROJECT", default="")
+IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE: str = env.str(
+    "IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE", default=""
+).removeprefix("https://www.googleapis.com/compute/v1/")
+IKI_RUNS_VM_GCP_KMS_KEY: str = env.str("IKI_RUNS_VM_GCP_KMS_KEY", default="")
+if IKI_RUNS_VM_CLOUD not in ("aws", "gcp"):
+    raise environ.ImproperlyConfigured("IKI_RUNS_VM_CLOUD must be aws or gcp.")
+if IKI_RUNS_VM_CLOUD == "gcp" and IKI_RUNS_VM_OWNER:
+    if not re.fullmatch(r"[a-z][a-z0-9-]{1,18}[a-z0-9]", IKI_RUNS_VM_OWNER):
+        raise environ.ImproperlyConfigured(
+            "IKI_RUNS_VM_OWNER on Compute Engine must be 3 to 20 lowercase letters, digits "
+            "and hyphens, starting with a letter, such as iki-production: it starts machines' "
+            "names."
+        )
+    if not re.fullmatch(r"[a-z][-a-z0-9.:]{4,61}[a-z0-9]", IKI_RUNS_VM_GCP_PROJECT):
+        raise environ.ImproperlyConfigured(
+            "Set IKI_RUNS_VM_GCP_PROJECT to the project the vm tier's machines start in."
+        )
+    if IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE and not re.fullmatch(
+        r"projects/[^/]+/(global|regions/[a-z0-9-]+)/instanceTemplates/[a-z][-a-z0-9]*",
+        IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE,
+    ):
+        raise environ.ImproperlyConfigured(
+            "IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE must be an instance template, such as "
+            "projects/<project>/regions/<region>/instanceTemplates/<name>."
+        )
+    if IKI_RUNS_VM_GCP_KMS_KEY and not re.fullmatch(
+        r"projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+",
+        IKI_RUNS_VM_GCP_KMS_KEY,
+    ):
+        raise environ.ImproperlyConfigured(
+            "IKI_RUNS_VM_GCP_KMS_KEY must be a Cloud KMS key, such as "
+            "projects/<project>/locations/<region>/keyRings/<ring>/cryptoKeys/<key>."
+        )
 if find_spec("iki_installed_plugins") is not None:
     import iki_installed_plugins as _plugins  # type: ignore[import-not-found]
 

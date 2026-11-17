@@ -9,7 +9,9 @@
 //!
 //! A spot machine's two-minute warning, read from its instance metadata, stops the
 //! container as Kubernetes would evict a pod: the worker is sent SIGTERM, checkpoints, and
-//! reports its job interrupted, so it's retried elsewhere (ADR 0069).
+//! reports its job interrupted, so it's retried elsewhere (ADR 0069). On EC2 that's the
+//! spot instance-action notice; on Compute Engine, the `preempted` metadata value turning
+//! `TRUE`, which a Spot VM given a preemption notice sees two minutes ahead.
 //!
 //! When it gives up before the worker could start, it says why on the machine's console
 //! as `IKI-HOST-ERROR <reason>: <message>`, which the provisioner reads back.
@@ -64,6 +66,9 @@ pub struct Config {
     pub image: String,
     pub once: bool,
     pub spot: bool,
+    /// Whose metadata server the machine has, which says when it's being reclaimed.
+    #[serde(default)]
+    pub cloud: Cloud,
     pub env: BTreeMap<String, String>,
     /// This binary, on the machine.
     pub worker: PathBuf,
@@ -88,6 +93,15 @@ pub struct Config {
     /// once the server has taken the build as succeeded, on the machine.
     #[serde(default)]
     pub succeeded_file: Option<PathBuf>,
+}
+
+/// The cloud a machine is in: EC2 unless its config says.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Cloud {
+    #[default]
+    Aws,
+    Gcp,
 }
 
 /// One of the environment's volumes: a disk attached to the machine, or a version's
@@ -895,9 +909,21 @@ fn watch(config: &Config, machine: &Machine, interrupted: &AtomicBool) -> Result
                 && looked.is_none_or(|at| at.elapsed() >= SPOT_EVERY)
             {
                 looked = Some(Instant::now());
-                if let Some(notice) = metadata.spot_notice() {
+                let notice = match config.cloud {
+                    Cloud::Aws => metadata.spot_notice(),
+                    Cloud::Gcp => metadata.preempted(),
+                };
+                if let Some(notice) = notice {
                     say::warn(
-                        "EC2 is reclaiming this spot machine: stopping the run's container.",
+                        match config.cloud {
+                            Cloud::Aws => {
+                                "EC2 is reclaiming this spot machine: stopping the run's container."
+                            }
+                            Cloud::Gcp => {
+                                "Compute Engine is preempting this Spot VM: stopping the run's \
+                                 container."
+                            }
+                        },
                         &[("machine", &config.name), ("notice", &notice)],
                     );
                     stop(machine, config.spot_stop_timeout);
@@ -982,8 +1008,9 @@ fn shut_down(machine: &Machine) {
     }
 }
 
-/// The machine's own instance metadata, version 2: a session token first, then each read with it.
-/// It's reached directly, never through a proxy.
+/// The machine's own instance metadata: on EC2, version 2, a session token first, then
+/// each read with it; on Compute Engine, each read with `Metadata-Flavor: Google`. It's
+/// reached directly, never through a proxy.
 struct Metadata {
     agent: ureq::Agent,
     base: String,
@@ -1043,6 +1070,24 @@ impl Metadata {
             }
         }
         None
+    }
+
+    /// Compute Engine's notice that it's preempting the machine, if it's given one.
+    fn preempted(&mut self) -> Option<String> {
+        let mut response = self
+            .agent
+            .get(&format!(
+                "{}/computeMetadata/v1/instance/preempted",
+                self.base
+            ))
+            .header("Metadata-Flavor", "Google")
+            .call()
+            .ok()?;
+        if response.status().as_u16() != 200 {
+            return None;
+        }
+        let said = response.body_mut().read_to_string().ok()?;
+        (said.trim() == "TRUE").then(|| "preempted".to_owned())
     }
 }
 
@@ -1623,6 +1668,59 @@ esac
         assert!(seen[0].contains("x-aws-ec2-metadata-token-ttl-seconds: 21600"));
         assert!(seen[1].starts_with("get /latest/meta-data/spot/instance-action"));
         assert!(seen[1].contains("x-aws-ec2-metadata-token: session-1"));
+    }
+
+    /// Compute Engine's metadata server, saying the machine isn't preempted and then that
+    /// it is.
+    fn fake_gce_metadata() -> (String, std::thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let served = std::thread::spawn(move || {
+            let mut seen = vec![];
+            for (n, stream) in listener.incoming().take(2).enumerate() {
+                let mut stream = stream.unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request = String::new();
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    request.push_str(&line);
+                }
+                let body = if n == 0 { "FALSE" } else { "TRUE" };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                seen.push(request.to_lowercase());
+            }
+            seen
+        });
+        (url, served)
+    }
+
+    #[test]
+    fn a_preemption_notice_stops_the_run_on_compute_engine() {
+        let dir = Dir::new("preempted");
+        let (_, file, mut machine) = setup(&dir.0, true);
+        let mut json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        json["cloud"] = "gcp".into();
+        std::fs::write(&file, json.to_string()).unwrap();
+        let config = read(&file).unwrap();
+        assert_eq!(config.cloud, Cloud::Gcp);
+        let (url, served) = fake_gce_metadata();
+        machine.metadata = url;
+        let ended = run(&config, &file, &machine, &AtomicBool::new(false));
+        assert_eq!(ended, Ok(Ended::Reclaimed(143)));
+        assert!(calls(&dir.0).contains(&"stop --time 100 iki-run".to_owned()));
+        let seen = served.join().unwrap();
+        for each in &seen {
+            assert!(each.starts_with("get /computemetadata/v1/instance/preempted"));
+            assert!(each.contains("metadata-flavor: google"));
+        }
     }
 
     #[test]

@@ -22,11 +22,11 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
     },
     "provisioner": {
-      "description": "How machines start. `backend_pool`: Iki's backend worker pods (backend tier). `k8s_job`: a Kubernetes Job for each run, and `k8s_deployment`: a warm pool of pods (container tier). `aws_ec2`: EC2 instances (vm tier).",
-      "enum": ["backend_pool", "k8s_job", "k8s_deployment", "aws_ec2"]
+      "description": "How machines start. `backend_pool`: Iki's backend worker pods (backend tier). `k8s_job`: a Kubernetes Job for each run, and `k8s_deployment`: a warm pool of pods (container tier). `aws_ec2`: EC2 instances, and `gcp_gce`: Compute Engine instances (vm tier).",
+      "enum": ["backend_pool", "k8s_job", "k8s_deployment", "aws_ec2", "gcp_gce"]
     },
     "lifecycle": {
-      "description": "For `aws_ec2`: a machine for each run (`ephemeral`, the default), or warm machines that shut down when idle (`persistent`).",
+      "description": "For `aws_ec2` and `gcp_gce`: a machine for each run (`ephemeral`, the default), or warm machines that shut down when idle (`persistent`).",
       "enum": ["ephemeral", "persistent"]
     },
     "capacity": {
@@ -224,6 +224,88 @@
       },
       "additionalProperties": false
     },
+    "gcp": {
+      "description": "For `gcp_gce`: the Compute Engine instances and where they start. Each starts from the deployment's instance template (the vm-tier module's), which gives it its subnet with no public address, its service account, Shielded VM and OS Login; these say what a template changes.",
+      "type": "object",
+      "required": ["machine_type", "image", "region", "zones"],
+      "properties": {
+        "machine_type": {
+          "description": "Such as `a2-highgpu-8g`, `n2-standard-32`, or `n1-standard-8` with `gpu_type`.",
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-z][a-z0-9]*-[a-z0-9-]*[a-z0-9]$"
+        },
+        "image": {
+          "description": "The boot image: an image or an image family, such as Container-Optimized OS (`projects/cos-cloud/global/images/family/cos-stable`) or, for GPUs, a Deep Learning VM image with NVIDIA's drivers. It needs Docker, and for GPUs NVIDIA's container toolkit.",
+          "type": "string",
+          "maxLength": 300,
+          "pattern": "^projects/[a-z][-a-z0-9.:]*[a-z0-9]/global/images/(family/)?[a-z]([-a-z0-9]*[a-z0-9])?$"
+        },
+        "spot": {
+          "description": "Use Spot VMs, which cost less but can be taken back with two minutes' notice.",
+          "type": "boolean"
+        },
+        "fallback": {
+          "description": "With `spot`: start a standard instance when no Spot capacity is free (`on_demand`), or wait (`none`, the default).",
+          "enum": ["on_demand", "none"]
+        },
+        "region": {
+          "description": "Such as `us-central1`: the instance template's region.",
+          "type": "string",
+          "pattern": "^[a-z]+-[a-z]+[0-9]+$"
+        },
+        "zones": {
+          "description": "The region's zones runs may use, tried in turn.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]+-[a-z]+[0-9]+-[a-z]$"
+          }
+        },
+        "instance_template": {
+          "description": "The instance template machines start from, if not the deployment's (IKI_RUNS_VM_GCP_INSTANCE_TEMPLATE): `projects/<project>/regions/<region>/instanceTemplates/<name>`, or `.../global/...`.",
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^(https://www\\.googleapis\\.com/compute/v1/)?projects/[a-z][-a-z0-9.:]*[a-z0-9]/(global|regions/[a-z]+-[a-z]+[0-9]+)/instanceTemplates/[a-z]([-a-z0-9]*[a-z0-9])?$"
+        },
+        "gpu_type": {
+          "description": "With `capacity.gpu`, on machine types that don't come with GPUs (N1): the accelerator attached, `capacity.gpu.count` of it, such as `nvidia-tesla-t4`. A2, A3 and G2 machine types come with theirs.",
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$"
+        },
+        "root_disk": {
+          "description": "The size of each instance's disk, encrypted and deleted with it. Unless set, `capacity.scratch_disk` and 40Gi for the image and the system.",
+          "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
+        },
+        "disk_type": {
+          "description": "The type of its disks: `pd-balanced` unless set.",
+          "enum": ["pd-balanced", "pd-ssd", "pd-standard", "hyperdisk-balanced"]
+        },
+        "kms_key": {
+          "description": "The Cloud KMS key that encrypts its disks, if not the deployment's (IKI_RUNS_VM_GCP_KMS_KEY): `projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>`, in the template's region.",
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$"
+        },
+        "labels": {
+          "description": "More labels for the instances and their disks, such as a cost center. Iki's own (`iki-…`) and Google's (`goog…`) are taken.",
+          "type": "object",
+          "maxProperties": 30,
+          "propertyNames": {
+            "pattern": "^(?!iki-|goog)[a-z][a-z0-9_-]{0,62}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 63,
+            "pattern": "^[a-z0-9_-]*$"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "volumes": {
       "description": "How machines get each environment volume, by the volume's name.",
       "type": "object",
@@ -354,6 +436,19 @@
       },
       "then": {
         "required": ["aws"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provisioner": {
+            "const": "gcp_gce"
+          }
+        },
+        "required": ["provisioner"]
+      },
+      "then": {
+        "required": ["gcp"]
       }
     }
   ],

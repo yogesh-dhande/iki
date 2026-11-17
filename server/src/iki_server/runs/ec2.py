@@ -36,6 +36,7 @@ import base64
 import json
 import re
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -55,6 +56,7 @@ __all__ = [
     "Disk",
     "Ec2",
     "Ec2Error",
+    "Host",
     "Shared",
     "VmMachines",
     "cleanup_request",
@@ -275,7 +277,9 @@ def disks(volumes: dict[str, dict[str, Any]], *, setup: bool = False) -> list[Di
     return found
 
 
-def _host_volumes(data: list[Disk | Shared]) -> list[dict[str, Any]]:
+def _host_volumes(
+    data: list[Disk | Shared], devices: tuple[str, ...] = DEVICES
+) -> list[dict[str, Any]]:
     """Each volume as ``iki-worker host`` reads it: a disk by its device, or a version's
     directory on a shared file system."""
     found: list[dict[str, Any]] = []
@@ -288,7 +292,7 @@ def _host_volumes(data: list[Disk | Shared]) -> list[dict[str, Any]]:
             "writable": each.writable,
         }
         if isinstance(each, Disk):
-            given["device"] = DEVICES[attached]
+            given["device"] = devices[attached]
             attached += 1
             if each.publish is not None:
                 kind, source = each.publish.filesystem
@@ -305,6 +309,31 @@ def _host_volumes(data: list[Disk | Shared]) -> list[dict[str, Any]]:
             given |= {"root": each.root, "directory": each.directory}
         found.append(given)
     return found
+
+
+@dataclass(frozen=True)
+class Host:
+    """How a cloud's machines boot ``iki-worker host``: where it's kept, what the boot
+    script does first, how Docker signs in to the cloud's registry, and how the disks for
+    volumes are named. EC2's is :data:`AWS`; Compute Engine's is ``gce.GCE``."""
+
+    #: Where iki-worker is kept on the machine: it runs from there, so not ``noexec``.
+    root: str
+    #: Shell lines the boot script runs before it sets anything up.
+    prepare: str
+    #: Signs Docker in to the registries the images are in, as shell lines.
+    logins: Callable[..., str]
+    #: The devices volumes' disks are attached as, in order.
+    devices: tuple[str, ...] = DEVICES
+    #: More lines for iki-host.service's [Service] section.
+    unit: str = ""
+    #: Which cloud's metadata the host reads (spot notices): None for EC2's, which the
+    #: host assumes.
+    cloud: str | None = None
+
+    @property
+    def worker(self) -> str:
+        return f"{self.root}/bin/iki-worker"
 
 
 def gib(size: int) -> int:
@@ -333,9 +362,11 @@ def host_config(
     once: bool,
     spot: bool,
     data: list[Disk | Shared] | None = None,
+    host: Host | None = None,
 ) -> dict[str, Any]:
     """What ``iki-worker host`` reads: the run's container, its volumes, and how to stop
     it."""
+    host = host or AWS
     have = template.capacity
     env = worker_settings(
         template,
@@ -354,8 +385,9 @@ def host_config(
         "image": image,
         "once": once,
         "spot": spot,
+        **({"cloud": host.cloud} if host.cloud else {}),
         "env": env,
-        "worker": HOST_WORKER,
+        "worker": host.worker,
         "worker_path": f"{BIN}/iki-worker",
         "token_file": TOKEN,
         "scratch": HOST_SCRATCH,
@@ -366,7 +398,7 @@ def host_config(
         "gpus": have.gpu_count,
         "stop_timeout": STOP,
         "spot_stop_timeout": SPOT_STOP,
-        "volumes": _host_volumes(data or []),
+        "volumes": _host_volumes(data or [], host.devices),
         **({"succeeded_file": f"{HOST_SCRATCH}/{SUCCEEDED}"} if publishing else {}),
     }
 
@@ -383,19 +415,16 @@ fail() {{
     shutdown -h now
     exit 1
 }}
-mkdir -p /etc/iki {host}/bin {scratch}
+{prepare}mkdir -p /etc/iki {host}/bin {scratch}
 cat > {config} <<'IKI_HOST_JSON'
 {config_json}
 IKI_HOST_JSON
 cat > {token_file} <<'IKI_HOST_TOKEN'
 {token}
 IKI_HOST_TOKEN
-# AWS's ECS-optimized images start the ECS agent; Iki's machines don't use it.
-systemctl disable --now ecs >/dev/null 2>&1 || true
-command -v docker >/dev/null 2>&1 || fail unsupported "the machine image has no Docker"
+{after}command -v docker >/dev/null 2>&1 || fail unsupported "the machine image has no Docker"
 systemctl start docker >/dev/null 2>&1 || true
-# Only the machine reaches its metadata: IMDSv2 with one hop does that already.
-iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP >/dev/null 2>&1 || true
+{metadata}iptables -I DOCKER-USER -d 169.254.169.254/32 -j DROP >/dev/null 2>&1 || true
 {logins}n=0
 until docker pull {worker_image}; do
     n=$((n + 1))
@@ -415,7 +444,7 @@ After=docker.service network-online.target
 [Service]
 ExecStart={host}/bin/iki-worker host {config}
 TimeoutStopSec={stop_within}
-KillMode=mixed
+{unit}KillMode=mixed
 Restart=no
 StandardOutput=journal+console
 StandardError=journal+console
@@ -425,7 +454,7 @@ systemctl start --no-block iki-host.service
 """
 
 
-def _logins(*images: str) -> str:
+def _ecr_logins(*images: str) -> str:
     """Signs Docker in to each ECR registry the images are in, with the machine's role (the
     instance profile needs only to read them)."""
     done: set[str] = set()
@@ -454,6 +483,7 @@ def user_data(
     spot: bool,
     token: str,
     data: list[Disk | Shared] | None = None,
+    host: Host | None = None,
 ) -> str:
     config = host_config(
         name=name,
@@ -464,11 +494,12 @@ def user_data(
         once=once,
         spot=spot,
         data=data,
+        host=host,
     )
-    return _script(name, template, environment, config, token, machines, image)
+    return script(name, template, environment, config, token, machines, image, host=host)
 
 
-def _script(
+def script(
     name: str,
     template: Template,
     environment: str,
@@ -476,22 +507,43 @@ def _script(
     token: str,
     machines: VmMachines,
     *images: str,
+    host: Host | None = None,
 ) -> str:
+    """The boot script of a machine whose host reads `config`."""
+    host = host or AWS
     return _SCRIPT.format(
         name=name,
         environment=environment,
         template=template.name,
-        host=HOST,
+        prepare=host.prepare,
+        after=_AWS_AFTER if host is AWS else "",
+        metadata=_AWS_METADATA if host is AWS else _OTHER_METADATA,
+        host=host.root,
         scratch=HOST_SCRATCH,
         config=CONFIG,
         config_json=json.dumps(config, sort_keys=True),
         token_file=TOKEN,
         token=token,
-        logins=_logins(machines.worker_image, *images),
+        logins=host.logins(machines.worker_image, *images),
         worker_image=shlex.quote(machines.worker_image),
         uid=UID,
         stop_within=STOP + 30,
+        unit=host.unit,
     )
+
+
+_AWS_AFTER = """\
+# AWS's ECS-optimized images start the ECS agent; Iki's machines don't use it.
+systemctl disable --now ecs >/dev/null 2>&1 || true
+"""
+_AWS_METADATA = """\
+# Only the machine reaches its metadata: IMDSv2 with one hop does that already.
+"""
+_OTHER_METADATA = """\
+# Only the machine reaches its metadata, never a run's container.
+"""
+#: EC2's machines.
+AWS = Host(root=HOST, prepare="", logins=_ecr_logins)
 
 
 def _tags(machines: VmMachines, template: Template, environment: str, **ours: str) -> list[Any]:
@@ -609,13 +661,13 @@ def _machine(template: Template, subnet: str, size: int | None) -> dict[str, Any
     }
 
 
-def cleanup_config(name: str, versions: list[Shared]) -> dict[str, Any]:
+def cleanup_config(name: str, versions: list[Shared], host: Host | None = None) -> dict[str, Any]:
     """What ``iki-worker host`` reads on a cleanup machine: the versions to remove, each
     from the file system it mounts."""
     return {
         "name": name,
         "user": f"{UID}:{UID}",
-        "worker": HOST_WORKER,
+        "worker": (host or AWS).worker,
         "remove": [
             {
                 "name": each.name,
@@ -656,7 +708,7 @@ def cleanup_request(
         "InstanceType": template.aws.get("cleanup_instance_type") or CLEANUP_INSTANCE_TYPE,
         "ClientToken": f"cleanup-{build_id}-{attempt}",
         # No token: it registers with nothing, and only says on its console how it went.
-        "UserData": _script(name, template, environment, config, "", machines),
+        "UserData": script(name, template, environment, config, "", machines),
         "TagSpecifications": [
             {"ResourceType": "instance", "Tags": tags},
             {"ResourceType": "volume", "Tags": tags},
