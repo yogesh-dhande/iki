@@ -157,7 +157,7 @@ def _waiting(approval: RunApproval) -> list[ActionRun]:
         )
     )
     return list(
-        ActionRun.objects.select_for_update()
+        ActionRun.objects.select_for_update(of=("self",))
         .select_related("project")
         .filter(approval=approval, status=RunStatus.AWAITING_APPROVAL)
         .order_by("id")

@@ -698,9 +698,11 @@ def complete(
         job = held(worker, job_id, token)
         costs.released(job)
         members = list(Job.objects.select_for_update().filter(packed_into=job).order_by("run_id"))
+        # Only the runs: the projects, teams and launchers they're read with are shared by
+        # every run of theirs, and locking those would end them one at a time.
         runs = {
             r.pk: r
-            for r in ActionRun.objects.select_for_update()
+            for r in ActionRun.objects.select_for_update(of=("self",))
             .select_related("project__team", "requested_by")
             .filter(pk__in=[job.run_id, *(m.run_id for m in members)])
         }
@@ -925,7 +927,7 @@ def recover_expired() -> int:
             )
             ended += 1
         overdue = (
-            Job.objects.select_for_update(skip_locked=True)
+            Job.objects.select_for_update(skip_locked=True, of=("self",))
             .filter(state__in=HELD, started_at__lt=now - TIMEOUT_GRACE, packed_into__isnull=True)
             .select_related("run")[:500]
         )

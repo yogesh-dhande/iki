@@ -63,7 +63,11 @@ def release(by: User, hold: LegalHold) -> LegalHold:
     """Releases the hold. The project's data can be deleted again once no other hold is on."""
     permissions.require(by, Action.ORG_MANAGE)
     with transaction.atomic():
-        hold = LegalHold.objects.select_for_update().select_related("project").get(pk=hold.pk)
+        hold = (
+            LegalHold.objects.select_for_update(of=("self",))
+            .select_related("project")
+            .get(pk=hold.pk)
+        )
         if hold.released_at is not None:
             return hold
         hold.released_at = timezone.now()

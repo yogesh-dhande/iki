@@ -638,7 +638,7 @@ def _finish(imported: RunImport) -> bool:
 
     job = Job.objects.select_for_update().get(pk=imported.job_id)
     run = (
-        ActionRun.objects.select_for_update()
+        ActionRun.objects.select_for_update(of=("self",))
         .select_related("project__team", "requested_by")
         .get(pk=imported.run_id)
     )

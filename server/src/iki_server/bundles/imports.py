@@ -116,7 +116,12 @@ def state_of(made: BundleImport) -> tuple[str, str]:
 def discard(by: User, made: BundleImport) -> BundleImport:
     """Drops an import that hasn't been applied, and deletes its archive."""
     with transaction.atomic():
-        locked = BundleImport.objects.select_for_update().select_related("upload").get(pk=made.pk)
+        # Its upload too: whether the archive is deleted now depends on its state.
+        locked = (
+            BundleImport.objects.select_for_update(of=("self", "upload"))
+            .select_related("upload")
+            .get(pk=made.pk)
+        )
         if locked.state in (ImportState.APPLYING, ImportState.APPLIED):
             raise Refused("It was applied: what it imported stays, as the record of it.")
         if locked.state == ImportState.DISCARDED:

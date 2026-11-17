@@ -59,12 +59,26 @@ workflow, or alone on demand. It works like ADR 0103's grid test:
 - One run is launched through Iki, then copied 1.1 million times, as a
   restore loads a database: 100,000 queued across 100 projects, behind
   1,000,000 finished.
-- 32 workers, each in its own thread, lease and complete 5,000 jobs over
-  `/worker/v1`, against the real server with four processes.
-- Each lease and completion must answer within 100 ms at the median and
-  1 s at the 99th percentile.
-- No job may be leased twice, and no project may get more than a round of
-  workers ahead of another.
+- Workers, each in its own thread, lease and complete jobs over
+  `/worker/v1` as fast as each can, against the real server with four
+  processes. No job may be leased twice, and no project may get more than
+  a round of workers ahead of another.
+- First, four workers (one per server process) do 1,000 jobs. Each lease
+  and completion must answer within 100 ms at the median and 500 ms at the
+  99th percentile. This is the cost of a lease, and it must not grow with
+  the queue.
+- Then 32 workers do 5,000 jobs. That saturates the server: each request
+  waits behind the others in flight (Little's law), so how long it waits
+  says how big the machine is, not how the queue scales. This phase holds
+  the rate to at least 40 jobs a second on CI's runner (4 vCPUs, with the
+  database and the workers on it too), and the 99th percentile to 2 s.
+
+It also found completions locking more than they meant to.
+`select_for_update()` with `select_related()` locks every row in the join:
+each completion locked its run's project, team and launcher too. So a
+person's runs completed one at a time: 460 ms each, with 32 workers.
+Completing, and five other places, now name the rows they lock, and a test
+refuses any lock with related rows that doesn't.
 
 ## Consequences
 
