@@ -20,6 +20,9 @@ public_host = "iki.example.com"
 # certificate you upload:
 # internal             = true
 # internal_certificate = "iki-production-internal"
+# A private zone names public_host inside the VPC, for backend workers and the VM tier's
+# machines; turn it off if your own DNS already does:
+# internal_dns = false
 # Or from the internet, but only your company's ranges:
 # ingress_cidrs = ["203.0.113.0/24"]
 

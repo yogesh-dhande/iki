@@ -277,6 +277,12 @@ variable "internal_certificate" {
   }
 }
 
+variable "internal_dns" {
+  description = "With internal: a private Cloud DNS zone for public_host alone, in the VPC, at the internal load balancer's address, so the cluster's workers and the VM tier's machines reach publicUrl. Turn off if your own DNS already resolves public_host inside the VPC."
+  type        = bool
+  default     = true
+}
+
 variable "ingress_cidrs" {
   description = "Networks that may reach the load balancer, such as your company's egress ranges, enforced by a Cloud Armor policy. Everyone, by default: Iki signs people in itself."
   type        = list(string)

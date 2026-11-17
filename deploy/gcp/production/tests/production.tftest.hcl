@@ -146,6 +146,37 @@ run "an_internal_load_balancer_sits_in_the_vpc" {
     condition     = contains([for r in yamldecode(output.helm_values).networkPolicy.ingressFrom : r.ipBlock.cidr], module.network.proxy_cidr)
     error_message = "And web pods should admit it from the proxy-only subnet."
   }
+  assert {
+    condition     = yamldecode(output.helm_values).networkPolicy.egress.server == { ports = [443], to = [{ ipBlock = { cidr = "${google_compute_address.web[0].address}/32" } }] }
+    error_message = "Backend workers should reach the server through the internal load balancer's private address, and only it."
+  }
+  assert {
+    condition     = google_dns_managed_zone.web[0].visibility == "private" && google_dns_managed_zone.web[0].dns_name == "iki.example.com." && one(one(google_dns_managed_zone.web[0].private_visibility_config).networks).network_url == module.network.network_id
+    error_message = "public_host should resolve inside the VPC alone, from a private zone holding that one name."
+  }
+  assert {
+    condition     = google_dns_record_set.web[0].type == "A" && length(google_dns_record_set.web[0].rrdatas) == 1 && google_dns_record_set.web[0].rrdatas[0] == google_compute_address.web[0].address
+    error_message = "public_host should resolve to the internal load balancer's address."
+  }
+}
+
+run "an_internal_load_balancer_named_by_your_own_dns" {
+  variables {
+    internal             = true
+    internal_certificate = "iki-internal"
+    internal_dns         = false
+  }
+  assert {
+    condition     = length(google_dns_managed_zone.web) == 0 && length(google_dns_record_set.web) == 0
+    error_message = "With internal_dns off, no zone should be made: the company's DNS names it."
+  }
+}
+
+run "an_external_load_balancer_leaves_workers_the_charts_default" {
+  assert {
+    condition     = !contains(keys(yamldecode(output.helm_values).networkPolicy.egress), "server")
+    error_message = "With a public load balancer, the chart's default (public addresses on 443) already reaches it."
+  }
 }
 
 run "refuses_an_internal_load_balancer_without_a_certificate" {

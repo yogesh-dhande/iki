@@ -64,7 +64,11 @@ output "helm_values" {
     networkPolicy = {
       # The load balancer's proxies and health checkers reach web pods' addresses.
       ingressFrom = [for c in(var.internal ? concat([module.network.proxy_cidr], local.google_front_ends) : local.google_front_ends) : { ipBlock = { cidr = c } }]
-      egress = {
+      egress = merge(var.internal ? {
+        # Backend workers reach the server at publicUrl, which an internal load balancer
+        # serves from a private address: the chart's default allows public ones only.
+        server = { ports = [443], to = [{ ipBlock = { cidr = "${google_compute_address.web[0].address}/32" } }] }
+        } : {}, {
         database = { to = [{ ipBlock = { cidr = module.network.managed_services_cidr } }] }
         # Cloud Storage and IAM (signing URLs), at private.googleapis.com, where the VPC's
         # DNS sends them.
@@ -77,7 +81,7 @@ output "helm_values" {
           ports = [80, 988]
           to    = [{ ipBlock = { cidr = "169.254.169.254/32" } }, { ipBlock = { cidr = "169.254.169.252/32" } }]
         }
-      }
+      })
     }
   })
 }

@@ -91,6 +91,35 @@ resource "google_compute_address" "web" {
   labels       = merge(var.labels, { iki-deployment = var.name })
 }
 
+# public_host's name inside the VPC, at the internal address: what backend workers, run
+# pods and the VM tier's machines send to (publicUrl). Private to this VPC, and only this
+# one name: everything else resolves as before.
+resource "google_dns_managed_zone" "web" {
+  count       = var.internal && var.internal_dns ? 1 : 0
+  project     = var.project_id
+  name        = "${var.name}-web"
+  dns_name    = "${var.public_host}."
+  description = "${var.name}: ${var.public_host} inside the VPC, at the internal load balancer"
+  visibility  = "private"
+  labels      = merge(var.labels, { iki-deployment = var.name })
+
+  private_visibility_config {
+    networks {
+      network_url = module.network.network_id
+    }
+  }
+}
+
+resource "google_dns_record_set" "web" {
+  count        = var.internal && var.internal_dns ? 1 : 0
+  project      = var.project_id
+  managed_zone = google_dns_managed_zone.web[0].name
+  name         = google_dns_managed_zone.web[0].dns_name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = [google_compute_address.web[0].address]
+}
+
 resource "google_compute_region_ssl_policy" "web" {
   count           = var.internal ? 1 : 0
   project         = var.project_id

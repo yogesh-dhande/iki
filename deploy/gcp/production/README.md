@@ -102,8 +102,11 @@ The gateway output is Iki's load balancer: a Gateway at the address
 OpenTofu reserved, an HTTPRoute to web pods, and GKE's policies for its
 TLS policy (1.2 or later, modern ciphers), its health check and Cloud
 Armor. Point your DNS name at `out load_balancer_address`; Google issues
-the certificate once it resolves there, which takes up to an hour. Then
-open the one-time setup link
+the certificate once it resolves there, which takes up to an hour. With
+`internal`, the load balancer serves the certificate you uploaded, and a
+private zone already names it inside the VPC (`internal_dns`), so backend
+workers and the VM tier's machines reach it; point your own network's DNS
+at the address too. Then open the one-time setup link
 `kubectl -n iki exec deploy/iki-web -- iki-server setup_link` prints.
 
 OpenTofu set the bucket's CORS and lifecycle rules, which the server's
