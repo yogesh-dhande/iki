@@ -40,8 +40,17 @@ function setUnread(data: Record<string, unknown>): void {
   }
 }
 
-function refreshInbox(): Promise<void> {
-  return queryClient.invalidateQueries({ queryKey: [...NOTIFICATIONS, "list"] });
+/**
+ * Fetches these queries again. A load still in flight was sent before what the
+ * event announces, so it's cancelled, not waited on: otherwise TanStack Query
+ * hands back that load when the query has no data yet (an inbox still opening),
+ * and the new notification is missing until the next event.
+ */
+export async function refresh(
+  queryKey: readonly unknown[] = [...NOTIFICATIONS, "list"],
+): Promise<void> {
+  await queryClient.cancelQueries({ queryKey });
+  await queryClient.invalidateQueries({ queryKey });
 }
 
 /** Keeps a live-update stream open while the app is mounted. */
@@ -64,20 +73,20 @@ export function useLiveUpdates(enabled: boolean): void {
       source = stream;
       stream.addEventListener("ready", (event: MessageEvent<string>) => {
         setUnread(parse(event));
-        if (readyBefore) void refreshInbox();
+        if (readyBefore) void refresh();
         readyBefore = true;
       });
       stream.addEventListener("notification", (event: MessageEvent<string>) => {
         setUnread(parse(event));
-        void refreshInbox();
+        void refresh();
       });
       stream.addEventListener("notifications_read", (event: MessageEvent<string>) => {
         setUnread(parse(event));
-        void refreshInbox();
+        void refresh();
       });
       stream.addEventListener("resync", (event: MessageEvent<string>) => {
         setUnread(parse(event));
-        void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS });
+        void refresh(NOTIFICATIONS);
       });
       stream.addEventListener("signed_out", () => {
         close();
