@@ -463,10 +463,15 @@ def inventory(gcp: Gcp, rings: list[str]) -> Inventory:
     )
 
 
+#: Cloud KMS's names for Cloud Storage's predefined dual-regions (deploy/gcp/production).
+PREDEFINED_DUAL_REGIONS = ("asia1", "eur4", "eur5", "eur7", "eur8", "nam4")
+
+
 def key_rings(gcp: Gcp, s: Settings) -> list[str]:
-    """The deployment's key rings, where it makes them."""
+    """The deployment's key rings, where it makes them: the files key is in a predefined
+    dual-region (nam4) when its two regions make one."""
     found = []
-    for location in sorted({s.region, s.dr_region, s.multi_region}):
+    for location in sorted({s.region, s.dr_region, s.multi_region, *PREDEFINED_DUAL_REGIONS}):
         listed = gcp.run(
             "gcloud",
             "kms",
