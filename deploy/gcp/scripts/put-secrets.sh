@@ -61,10 +61,14 @@ secret_key() { random_b64url 64 | tr -d '='; }
 fernet_key() { random_b64url 32; }
 # The Ed25519 seed bundles are signed with. Its public key: iki-server bundle_key --public.
 signing_seed() { random_b64url 32 | tr -d '='; }
+# A database password: 256 random bits in hex, after "Ik1-" so it has the upper and
+# lower case letter, digit and symbol Cloud SQL's password policy asks for (the database
+# module's COMPLEXITY_DEFAULT). Every character is safe unescaped in a URI.
+db_password() { printf 'Ik1-%s' "$(openssl rand -hex 32)"; }
 # Iki's two database roles (ADR 0025): the schema's owner and the app's. Create them with
 # these passwords before the first install: create-database-roles.sh. The chart adds
 # sslmode=verify-full itself.
-role_uri() { printf 'postgres://%s:%s@%s:5432/iki' "$1" "$(openssl rand -hex 32)" "$host"; }
+role_uri() { printf 'postgres://%s:%s@%s:5432/iki' "$1" "$(db_password)" "$host"; }
 
 fill secret-key secret_key
 fill encryption-keys fernet_key
@@ -80,7 +84,7 @@ fill run-secrets printf '{}'
 if has_value "$deployment-database-admin"; then
   echo "$deployment-database-admin already has a value: left as it is."
 else
-  password=$(openssl rand -hex 32)
+  password=$(db_password)
   jq -n --arg p "$password" '{name: "postgres", password: $p}' >"$work/user.json"
   authorize
   curl -fsS -X PUT -H @"$work/auth" -H 'Content-Type: application/json' --data @"$work/user.json" \

@@ -137,3 +137,17 @@ run "refuses_a_replica_without_its_key" {
   }
   expect_failures = [var.dr_kms_key]
 }
+
+run "a_password_policy_cloud_sql_accepts" {
+  assert {
+    condition     = one(one(google_sql_database_instance.this.settings).password_validation_policy).min_length <= 30 && one(one(google_sql_database_instance.this.settings).password_validation_policy).complexity == "COMPLEXITY_DEFAULT"
+    error_message = "Cloud SQL refuses a minimum length above 30; keep the complexity rule put-secrets.sh's passwords meet."
+  }
+}
+
+run "a_backup_older_than_the_oldest_minute_it_recovers_to" {
+  assert {
+    condition     = one(one(one(google_sql_database_instance.this.settings).backup_configuration).backup_retention_settings).retained_backups > one(one(google_sql_database_instance.this.settings).backup_configuration).transaction_log_retention_days
+    error_message = "Cloud SQL requires more daily backups kept than days of transaction logs."
+  }
+}

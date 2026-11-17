@@ -124,18 +124,22 @@ keep_key_rings() { # <root> <address pattern>
   return 0
 }
 
-if [[ -n $(tofu -chdir="$root" state list 2>/dev/null) ]]; then
+state=$(tofu -chdir="$root" state list 2>/dev/null || true)
+if [[ -n $state ]]; then
   log "Deletion protection off: the cluster, the database and the secrets"
-  tofu -chdir="$root" apply -input=false -auto-approve -var deletion_protection=false \
-    -target=module.cluster.google_container_cluster.this \
-    -target=module.database.google_sql_database_instance.this \
-    -target=module.database.google_sql_database_instance.dr \
-    -target=module.secrets.google_secret_manager_secret.this
+  # Only those that exist: targeting one a failed apply never made would make it now.
+  targets=()
+  while read -r address; do
+    targets+=("-target=$address")
+  done < <(grep -E '^module\.(cluster\.google_container_cluster\.this|database\.google_sql_database_instance\.(this|dr)|secrets\.google_secret_manager_secret\.this)(\[|$)' <<<"$state" || true)
+  if [[ ${#targets[@]} -gt 0 ]]; then
+    tofu -chdir="$root" apply -input=false -auto-approve -var deletion_protection=false "${targets[@]}"
+  fi
 
   log "The files bucket's objects"
   bucket=$(tofu -chdir="$root" state show -no-color module.storage.google_storage_bucket.files 2>/dev/null |
-    sed -nE 's/^ +name += "(.*)"$/\1/p' | head -1)
-  [[ -n $bucket ]] && empty_bucket "$bucket"
+    sed -nE 's/^ +name += "(.*)"$/\1/p' | head -1 || true)
+  if [[ -n $bucket ]]; then empty_bucket "$bucket"; fi
 
   # Keys and key rings can't be deleted: OpenTofu forgets them (their versions are
   # destroyed below), and destroys the rest.

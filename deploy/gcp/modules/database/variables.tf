@@ -74,7 +74,7 @@ variable "max_disk_size_gib" {
 }
 
 variable "backup_retention_days" {
-  description = "How far back point-in-time recovery reaches, and how many daily backups are kept. 35 is the most Enterprise Plus allows; Enterprise allows 7."
+  description = "How far back point-in-time recovery reaches, in days; one more daily backup than that is kept. 35 is the most Enterprise Plus allows; Enterprise allows 7."
   type        = number
   default     = 35
 

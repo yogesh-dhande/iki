@@ -83,8 +83,10 @@ resource "google_sql_database_instance" "this" {
       transaction_log_retention_days = var.backup_retention_days
       # Daily backups are stored in the DR region, so they outlive this one.
       location = var.backup_location
+      # One more daily backup than days of logs, as Cloud SQL requires: recovering to the
+      # oldest minute starts from the backup before it.
       backup_retention_settings {
-        retained_backups = var.backup_retention_days
+        retained_backups = var.backup_retention_days + 1
         retention_unit   = "COUNT"
       }
     }
@@ -104,9 +106,11 @@ resource "google_sql_database_instance" "this" {
       record_client_address   = true
     }
 
+    # Cloud SQL allows a minimum length of at most 30. COMPLEXITY_DEFAULT asks for upper
+    # and lower case, a digit and a symbol: put-secrets.sh's passwords have each.
     password_validation_policy {
       enable_password_policy      = true
-      min_length                  = 32
+      min_length                  = 30
       complexity                  = "COMPLEXITY_DEFAULT"
       disallow_username_substring = true
     }

@@ -25,8 +25,9 @@ namespace=iki
 pod=iki-create-database-roles
 
 secret() { gcloud secrets versions access latest --secret "$1" --project "$project"; }
-# postgres://user:password@host:5432/iki: put-secrets.sh's passwords are hex, so this is safe.
-password_of() { sed -E 's#^postgres://[^:]+:([0-9a-f]+)@.*#\1#'; }
+# postgres://user:password@host:5432/iki: put-secrets.sh's passwords are "Ik1-" and hex
+# (earlier ones hex alone), nothing a URI escapes, so this is safe.
+password_of() { sed -E 's#^postgres://[^:]+:((Ik1-)?[0-9a-f]+)@.*#\1#'; }
 host_of() { sed -E 's#^postgres://[^@]+@([^:/]+).*#\1#'; }
 
 owner_uri=$(secret "$deployment-database-migrator")

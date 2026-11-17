@@ -63,3 +63,10 @@ run "refuses_an_unknown_optional_secret" {
   }
   expect_failures = [var.optional_secrets]
 }
+
+run "annotations_secret_manager_accepts" {
+  assert {
+    condition     = alltrue([for s in google_secret_manager_secret.this : alltrue([for k in keys(s.annotations) : can(regex("^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?$", k))])])
+    error_message = "Secret Manager's annotation keys are alphanumerics with dashes, underscores and dots between: no \"/\"."
+  }
+}

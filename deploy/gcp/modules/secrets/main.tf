@@ -28,8 +28,9 @@ resource "google_secret_manager_secret" "this" {
   project   = var.project_id
   secret_id = "${var.name}-${each.key}"
   labels    = merge(local.labels, { secret = each.key })
+  # Secret Manager's annotation keys allow no "/": not Kubernetes' iki.ikisci.org/ form.
   annotations = {
-    "iki.ikisci.org/holds" = each.value
+    "iki-holds" = each.value
   }
 
   # Kept in both regions, each copy under its own region's key: losing one loses no
