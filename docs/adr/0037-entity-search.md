@@ -28,7 +28,7 @@ tree of conditions:
 {
   "all": [
     { "field": "organism", "op": "eq", "value": "Homo sapiens" },
-    { "field": "molecular_weight", "op": "gte", "value": { "value": 50, "unit": "kDa" } },
+    { "field": "molecular_weight", "op": "gte", "value": { "value": 50, "unit": "ku" } },
     { "not": { "field": "summary", "op": "matches", "value": "fragment" } }
   ]
 }
@@ -44,8 +44,8 @@ The web app can offer a text syntax over this later.)
 them.** Strings: `eq`, `ne`, `in`, `contains`, `starts_with`. Text:
 `contains` and `matches` (its words, as people type them into a search
 engine: `"active site" -fragment`). Numbers, quantities, dates and times:
-comparisons. Quantities take any unit of their kind, converted to the
-field's own; equality allows for the last digits of unit conversion (86 °F
+comparisons. Quantities take any unit of their kind, by its UCUM code
+(`ku` is a kilodalton, shown as kDa), converted to the field's own; equality allows for the last digits of unit conversion (86 °F
 is 30.000000000000004 °C). References take IDs or HRIDs, of entities the
 caller can read; naming one they can't read reveals nothing. Lists take
 `has`; every field takes `is_set`. `ne` and `not` match entities without a

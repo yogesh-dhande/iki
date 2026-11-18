@@ -880,7 +880,8 @@ export interface paths {
          *     - text: ``contains``, ``matches`` (its words: ``"kinase -fragment"``, ``""active site""``)
          *     - enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)
          *     - int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,
-         *       ``gte`` (quantities in the field's unit, or ``{"value": 50, "unit": "kDa"}``)
+         *       ``gte`` (quantities in the field's unit, or in another by its UCUM code, as
+         *       ``{"value": 50, "unit": "ku"}`` for 50 kDa)
          *     - bool: ``eq``; file: ``eq``, ``ne``; list: ``has``
          *
          *     ``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,

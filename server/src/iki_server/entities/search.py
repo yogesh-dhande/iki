@@ -25,7 +25,7 @@ Conditions are JSON, so the same search can be sent, saved and shared::
     {
         "all": [
             {"field": "organism", "op": "eq", "value": "Homo sapiens"},
-            {"field": "molecular_weight", "op": "gte", "value": {"value": 50, "unit": "kDa"}},
+            {"field": "molecular_weight", "op": "gte", "value": {"value": 50, "unit": "ku"}},
             {"not": {"field": "name", "op": "contains", "value": "fragment"}},
         ]
     }
