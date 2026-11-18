@@ -88,7 +88,7 @@ IKI_AWS_ROLE_ARN=<role> IKI_AWS_TOKEN_COMMAND=<command> make check-aws-live
 It acts as the role, assumed with a web identity token the command prints
 (no AWS keys, and none of your AWS configuration). It follows the
 production runbook in the role's account, small (two `m7i-flex.large`
-system nodes, a runs pool from none to one, a Multi-AZ `db.t4g.micro`, one
+system nodes, a runs pool from none to one, a Multi-AZ `db.t4g.small`, one
 NAT gateway), served only by an internal ALB named in the VPC's private
 zone; checks Iki's readiness, the setup link, a project and entity, a file
 through presigned URLs, a backend worker's run through the ALB, the bucket,

@@ -187,7 +187,7 @@ run "the_load_balancer_refuses_deletion_by_default" {
 
 run "teardown_lets_the_load_balancer_go" {
   variables {
-    database                     = { instance_class = "db.t4g.micro", allocated_storage_gib = 20, max_allocated_storage_gib = 40, backup_retention_days = 7 }
+    database                     = { instance_class = "db.t4g.small", allocated_storage_gib = 20, max_allocated_storage_gib = 40, backup_retention_days = 7 }
     single_nat_gateway           = true
     deletion_protection          = false
     secrets_recovery_window_days = 7

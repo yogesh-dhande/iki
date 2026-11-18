@@ -16,7 +16,7 @@ keys pending deletion, and service-linked roles AWS made for its services). A ru
 passes whole, of a clean tree, is recorded in deploy/live-runs.json
 (deploy/live/live_runs.py): commit it.
 
-It costs: EKS's fee and two or three small nodes, a Multi-AZ db.t4g.micro, a NAT gateway,
+It costs: EKS's fee and two or three small nodes, a Multi-AZ db.t4g.small, a NAT gateway,
 nine interface endpoints in two zones, an internal ALB, a CodeBuild build and a dozen KMS
 keys for an hour: a few US dollars for its two hours or less (``make aws-live-cost`` after,
 ``aws_cost.py --estimate`` before). It never runs on CI (conftest.py), and never longer
@@ -36,7 +36,7 @@ Other settings:
 - IKI_AWS_REGION, IKI_AWS_DR_REGION, IKI_AWS_ZONES (comma separated): us-east-1,
   us-west-2, and the region's a and b zones by default.
 - IKI_AWS_SYSTEM_TYPE, IKI_AWS_RUNS_TYPE, IKI_AWS_DATABASE_CLASS: m7i-flex.large,
-  c7i-flex.large and db.t4g.micro, which an account on AWS's free plan may use.
+  c7i-flex.large and db.t4g.small (the database module refuses anything smaller).
 - IKI_AWS_CAP_HOURS: how long a run may go before tearing down starts, 2 by default.
 - IKI_AWS_WORKDIR: where it keeps OpenTofu's state, the kubeconfig and the certificate,
   ``build/aws-live/<name>`` by default. If a run is killed before tearing down, run

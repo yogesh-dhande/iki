@@ -45,6 +45,13 @@ variable "instance_class" {
     condition     = can(regex("^db\\.[a-z0-9]+\\.[a-z0-9]+$", var.instance_class))
     error_message = "Give an RDS instance class, such as db.r7g.large."
   }
+
+  # A micro's 1 GiB isn't enough: with Multi-AZ, Performance Insights and Iki's pools it
+  # swaps, and new connections time out (live run iki-test-11180614's task runner).
+  validation {
+    condition     = !can(regex("\\.(nano|micro)$", var.instance_class))
+    error_message = "Iki's database needs 2 GiB of memory or more: a small class (db.t4g.small) at least, never a nano or micro."
+  }
 }
 
 variable "allocated_storage_gib" {

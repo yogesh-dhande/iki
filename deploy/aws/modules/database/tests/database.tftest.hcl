@@ -138,6 +138,14 @@ run "refuses_too_short_a_recovery_window" {
   expect_failures = [var.backup_retention_days]
 }
 
+run "refuses_a_class_too_small_for_iki" {
+  command = plan
+  variables {
+    instance_class = "db.t4g.micro"
+  }
+  expect_failures = [var.instance_class]
+}
+
 run "refuses_a_single_zone" {
   command = plan
   variables {
@@ -165,13 +173,13 @@ run "teardown_turns_deletion_protection_off" {
 
 run "a_small_database_for_tests" {
   variables {
-    instance_class            = "db.t4g.micro"
+    instance_class            = "db.t4g.small"
     allocated_storage_gib     = 20
     max_allocated_storage_gib = 40
     backup_retention_days     = 7
   }
   assert {
-    condition     = aws_db_instance.this.instance_class == "db.t4g.micro" && aws_db_instance.this.allocated_storage == 20 && aws_db_instance.this.backup_retention_period == 7
+    condition     = aws_db_instance.this.instance_class == "db.t4g.small" && aws_db_instance.this.allocated_storage == 20 && aws_db_instance.this.backup_retention_period == 7
     error_message = "The size given should be the size made."
   }
   assert {

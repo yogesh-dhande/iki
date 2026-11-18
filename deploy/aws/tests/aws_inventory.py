@@ -79,7 +79,7 @@ class Settings:
             zones=tuple(z.strip() for z in zones.split(",") if z.strip()),
             system_type=env.get("IKI_AWS_SYSTEM_TYPE", "m7i-flex.large"),
             runs_type=env.get("IKI_AWS_RUNS_TYPE", "c7i-flex.large"),
-            database_class=env.get("IKI_AWS_DATABASE_CLASS", "db.t4g.micro"),
+            database_class=env.get("IKI_AWS_DATABASE_CLASS", "db.t4g.small"),
             cap_hours=float(env.get("IKI_AWS_CAP_HOURS", "2")),
             workdir=Path(env.get("IKI_AWS_WORKDIR", REPO / "build" / "aws-live" / name)).resolve(),
         )
