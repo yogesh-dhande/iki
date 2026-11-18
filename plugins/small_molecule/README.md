@@ -6,16 +6,22 @@ salt form, with RDKit's standardisation and descriptors.
 
 - **`iki/small_molecule.Compound`** (`CPD-000001`): a compound, by its
   standardised structure.
-  - Its identity is its standard InChIKey, so registering the same compound
-    again, drawn any way, reuses it.
-  - It keeps its canonical SMILES (required and fixed, like its InChIKey), its
-    standard InChI, its name, synonyms and description, and its PubChem CID,
-    ChEMBL ID (each unique in a project, and linked to its record there) and
-    CAS number.
-  - Its formula, molecular weight, exact mass, charge, heavy atoms, Crippen
-    logP, TPSA, hydrogen-bond donors and acceptors, rotatable bonds, rings,
-    aromatic rings, fraction Csp3, stereocentres (and how many are undefined),
-    QED and Lipinski violations are computed by the plugin's actions.
+  - Its identity is its standard InChIKey: each compound is registered once
+    in a registry (ADR 0115), as one entry with one ID, and registering it
+    again, drawn any way, in any project, finds that entry. A project that
+    hadn't got it gets its own record of it; one that had finds its record.
+  - The entry keeps what follows from the structure: its canonical SMILES
+    (required and fixed, like its InChIKey) and standard InChI, and its
+    formula, molecular weight, exact mass, charge, heavy atoms, Crippen logP,
+    TPSA, hydrogen-bond donors and acceptors, rotatable bonds, rings, aromatic
+    rings, fraction Csp3, stereocentres (and how many are undefined), QED and
+    Lipinski violations, which the plugin's actions compute once, when it's
+    registered. Every project with a record of it sees them.
+  - Its registry facts are the entry's too: its PubChem CID, ChEMBL ID (each
+    unique in the registry, and linked to its record there), CAS number, INN
+    and stereochemistry. Whoever registers it may set one while it's empty;
+    after that only the registry's registrars change it, with a reason.
+  - Each project's record keeps its own name, synonyms and description.
 
 - **`iki/small_molecule.CompoundBatch`** (`LOT-000001`): a batch (a lot) of a
   compound, the material in the vial.
@@ -59,8 +65,9 @@ given, so it's recorded as made with them.
 
 - **`register_compounds`**: registers each line's SMILES (up to 5,000; a name
   may follow, after a space or a tab) as a compound, standardised and
-  identified. A compound already in Iki is reused, and so is a line that's the
-  same compound as an earlier one. With **the parent**, salts and solvents are
+  identified. A compound already registered is found, and so is a line
+  that's the same compound as an earlier one: the project gets its record of
+  it, or keeps the one it has. With **the parent**, salts and solvents are
   taken off; with **batches**, each line is also a batch of its compound, with
   what was taken off and its formula weight. A line that can't be registered
   fails the run, which names each such line and says why, so nothing is half
@@ -119,8 +126,10 @@ deployment's egress proxy: `pubchem.ncbi.nlm.nih.gov` and `www.ebi.ac.uk`.
 Each compound records the record it came from as its origin (ADR 0052): the
 source, its CID or ChEMBL ID, its page, when it was fetched, the SHA-256 of
 what the service sent, and for ChEMBL the release (`ChEMBL_37`). A compound
-Iki has already is reused as it is, its origin noting the record found: to give
-it its CID or ChEMBL ID, edit it. With **the parent**, a fetched salt is
+registered already is found, its origin noting the record found, and it takes
+the record's CID or ChEMBL ID and CAS number if its entry hasn't got them; one
+it has with another value is the registrars' to change, so the run fails,
+saying so. With **the parent**, a fetched salt is
 registered as its parent, which isn't the record fetched, so it doesn't take
 the record's IDs or CAS number, and the run says so. Neither fetch lists
 software (ADR 0106): what it registers is the service's record, which RDKit
@@ -305,7 +314,7 @@ PyPI calls 2026.9.2) and the InChI library's (`rdkit.Chem.inchi.GetInchiVersion(
 migrations match its manifests, and that it migrates forwards and back. The
 dev cluster's end-to-end check (`deploy/dev/sso.py`) registers aspirin and its
 sodium salt, checks its InChIKey, batches and descriptors, and that aspirin
-drawn another way is reused, and fetches caffeine from PubChem through the
+drawn another way is the same record, and fetches caffeine from PubChem through the
 egress proxy, checking that it reached PubChem alone, and finds aspirin's
 carboxylic acid with a substructure search, saved as a collection of it.
 

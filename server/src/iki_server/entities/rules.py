@@ -21,7 +21,7 @@ from typing import Any
 
 from iki_server.accounts.models import User
 from iki_server.entities import access, app_specs, registry, search
-from iki_server.entities.models import Revision
+from iki_server.entities.models import Entity, Revision
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -34,10 +34,11 @@ Errors = dict[str, list[str]]
 class Rule:
     #: The fields it reads. On an edit it sees their new values, or their current ones.
     fields: tuple[str, ...]
-    check: Callable[[User, Mapping[str, Any]], Errors]
+    #: The person saving it, the values it reads, and the project it's in.
+    check: Callable[[User, Mapping[str, Any], Project], Errors]
 
 
-def _collection(user: User, values: Mapping[str, Any]) -> Errors:
+def _collection(user: User, values: Mapping[str, Any], project: Project) -> Errors:
     data = values.get("search")
     if data is None:
         return {}
@@ -76,9 +77,16 @@ TARGET_STATE = {
 }
 
 
-def _view(user: User, values: Mapping[str, Any]) -> Errors:
+def _view(user: User, values: Mapping[str, Any], project: Project) -> Errors:
     targets: list[Any] = list(values.get("targets") or [])
     found = {e.pk: e for e in access.visible(user).filter(pk__in=targets)}
+    # A target of a type with an identity is its registry entry (ADR 0115): the view pins
+    # the view's project's record of it, which the references' check says it has.
+    for record in Entity.objects.filter(
+        entry_id__in=[t for t in targets if t not in found], owner_project=project
+    ):
+        assert record.entry_id is not None  # noqa: S101 - filtered so
+        found[record.entry_id] = record
     if not targets or any(t not in found for t in targets):
         return {}  # The references' own check says so, naming nothing they can't read.
     shown = [found[t] for t in targets]
@@ -95,9 +103,9 @@ def _view(user: User, values: Mapping[str, Any]) -> Errors:
         return errors
     if revisions is not None:
         had = set(
-            Revision.objects.filter(entity_id__in=targets, number__in=set(revisions)).values_list(
-                "entity_id", "number"
-            )
+            Revision.objects.filter(
+                entity_id__in=[e.pk for e in shown], number__in=set(revisions)
+            ).values_list("entity_id", "number")
         )
         missing = [
             f"{e.hrid} has no revision {n}."
@@ -173,7 +181,7 @@ def _view_state(shown: list[Any], viewers: list[str], state: Mapping[str, Any]) 
     return problems
 
 
-def _app(user: User, values: Mapping[str, Any]) -> Errors:
+def _app(user: User, values: Mapping[str, Any], project: Project) -> Errors:
     spec = values.get("spec")
     if not isinstance(spec, Mapping):
         return {}  # The field's schema says so.
@@ -197,6 +205,7 @@ def rules_for(entity_type: EntityType) -> list[Rule]:
 def check(
     user: User,
     entity_type: EntityType,
+    project: Project,
     values: Callable[[str], Any],
     changed: Collection[str] | None = None,
 ) -> Errors:
@@ -209,6 +218,7 @@ def check(
     for rule in rules_for(entity_type):
         if changed is not None and not set(rule.fields) & set(changed):
             continue
-        for name, messages in rule.check(user, {f: values(f) for f in rule.fields}).items():
+        given = {f: values(f) for f in rule.fields}
+        for name, messages in rule.check(user, given, project).items():
             errors.setdefault(name, []).extend(messages)
     return errors

@@ -23,11 +23,13 @@ from iki_server.accounts import service_accounts as service_account_services
 from iki_server.accounts.models import IdentityProvider, Kind, User
 from iki_server.oauth import services as oauth_services
 from iki_server.oauth.forms import CredentialForm
-from iki_server.org import holds, permissions, services
+from iki_server.org import holds, permissions, registries, services
 from iki_server.org.forms import (
     AddTeamMemberForm,
+    AppointRegistrarForm,
     LegalHoldForm,
     OrgRolesForm,
+    RegistryForm,
     ServiceAccountForm,
     ServiceAccountRolesForm,
     TeamForm,
@@ -38,6 +40,8 @@ from iki_server.org.models import (
     OrgRoleAssignment,
     ProjectMembership,
     ProjectRole,
+    Registrar,
+    Registry,
     Team,
     TeamMembership,
 )
@@ -426,5 +430,118 @@ def legal_holds(request: HttpRequest) -> HttpResponse:
             "released": [h for h in every if h.released_at is not None][:50],
             "form": form,
             "manage": manage,
+        },
+    )
+
+
+# --- Registries (ADR 0115) -------------------------------------------------------
+
+
+@page("GET", "POST")
+@refusals
+def registry_list(request: HttpRequest) -> HttpResponse:
+    """Org Admins add registries, each an identity boundary of its own, and say which teams'
+    projects may be in each."""
+    me = _user(request)
+    permissions.require(me, Action.REGISTRIES_MANAGE)
+    Registry.default()
+    form = RegistryForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        try:
+            made = registries.create_registry(
+                form.cleaned_data["name"],
+                form.cleaned_data["description"],
+                all_teams=form.cleaned_data["all_teams"],
+                teams=form.cleaned_data["teams"],
+                by=me,
+            )
+        except services.Refused as refusal:
+            form.add_error(refusal.field or None, str(refusal))
+        else:
+            messages.success(request, f"Added {made.name}. Appoint its registrars next.")
+            return redirect("org:registry", registry_id=made.pk)
+    found = (
+        Registry.objects.annotate(
+            project_count=Count("projects", distinct=True),
+            registrar_count=Count("registrars", distinct=True),
+        )
+        .prefetch_related(Prefetch("teams", queryset=Team.objects.order_by("name")))
+        .order_by("-is_default", "name")
+    )
+    return render(request, "org/registry_list.html", {"registries": found, "form": form})
+
+
+@page("GET", "POST")
+@refusals
+def registry_detail(request: HttpRequest, registry_id: str) -> HttpResponse:
+    me = _user(request)
+    permissions.require(me, Action.REGISTRIES_MANAGE)
+    found = get_object_or_404(Registry, pk=registry_id)
+    action = request.POST.get("action")
+    form = RegistryForm(
+        request.POST if action == "save" else None,
+        initial={
+            "name": found.name,
+            "description": found.description,
+            "all_teams": found.all_teams,
+            "teams": list(found.teams.all()),
+        },
+    )
+    appoint = AppointRegistrarForm(request.POST if action == "appoint" else None)
+    if request.method == "POST":
+        if action == "save" and form.is_valid():
+            try:
+                registries.update_registry(
+                    found,
+                    by=me,
+                    name=form.cleaned_data["name"],
+                    description=form.cleaned_data["description"],
+                    all_teams=form.cleaned_data["all_teams"],
+                    teams=form.cleaned_data["teams"],
+                )
+            except services.Refused as refusal:
+                form.add_error(refusal.field or None, str(refusal))
+            else:
+                messages.success(request, "Saved.")
+                return redirect(request.path)
+        elif action == "appoint" and appoint.is_valid():
+            person = appoint.cleaned_data["person"]
+            try:
+                made = registries.appoint(found, person, by=me)
+            except services.Refused as refusal:
+                appoint.add_error("person", str(refusal))
+            else:
+                if made:
+                    messages.success(
+                        request, f"{person.get_full_name()} is a registrar of {found.name}."
+                    )
+                else:
+                    messages.info(
+                        request, f"{person.get_full_name()} is one of its registrars already."
+                    )
+                return redirect(request.path)
+        elif action == "dismiss":
+            person = get_object_or_404(User, pk=request.POST.get("user"))
+            if registries.dismiss(found, person, by=me):
+                messages.success(
+                    request, f"{person.get_full_name()} is no longer a registrar of {found.name}."
+                )
+            return redirect(request.path)
+    registrars = (
+        Registrar.objects.filter(registry=found)
+        .select_related("user", "appointed_by")
+        .order_by("user__name", "user__email")
+    )
+    projects = found.projects.select_related("team").order_by("team__name", "name")
+    return render(
+        request,
+        "org/registry_detail.html",
+        {
+            "registry": found,
+            "form": form,
+            "appoint": appoint,
+            "registrars": registrars,
+            "projects": projects,
+            "is_registrar": any(r.user_id == me.pk for r in registrars),
         },
     )

@@ -103,6 +103,18 @@ class _Rules:
             target = self.s.reference(trigger.type, source, ("type",))
             if target is not None:
                 self.watched(trigger, source)
+            if (
+                target is not None
+                and trigger.on == "entity.registered"
+                and not any(t.identity for t in [target, *self.s.ancestors(target)])
+            ):
+                self.add(
+                    "trigger-registered-without-identity",
+                    f"`{trigger.type}` has no identity, so its entities are never registered.",
+                    source,
+                    ("on",),
+                    hint="Use `on: entity.created`, which fires for each new entity.",
+                )
         action = self.plugin.actions.get(trigger.run)
         if action is None:
             self.add(

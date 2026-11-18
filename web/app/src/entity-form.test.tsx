@@ -17,7 +17,7 @@ import {
   renderApp,
   STRUCTURE,
 } from "./entity-fixtures";
-import { answer, calls, page, problem, respond, signedIn } from "./test-server";
+import { answer, calls, MAIN_REGISTRY, page, problem, respond, signedIn } from "./test-server";
 import { timing } from "./uploads";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000a001";
@@ -31,7 +31,6 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
   description: null,
   hrid_prefix: "SMP",
   identity: [],
-  on_duplicate: null,
   values_schema: {
     properties: {
       name: { type: "string", minLength: 1, maxLength: 50, title: "Name" },
@@ -102,7 +101,10 @@ describe("creating an entity", () => {
           : [],
       ),
     );
-    answer("POST /api/v1/entities", respond(201, { ...sample(), reused: false, linked: false }));
+    answer(
+      "POST /api/v1/entities",
+      respond(201, { ...sample(), reused: false, registered: false }),
+    );
     answer("GET /api/v1/entities/SMP-000001", sample());
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
     answer("GET /api/v1/entities/SMP-000001/projects", []);
@@ -143,7 +145,6 @@ describe("creating an entity", () => {
         aliases: ["PA"],
       },
       reason: "Intake",
-      allow_duplicate: false,
     });
     const searched = calls("GET", "/api/v1/entities").map((c) => c.query.get("type"));
     expect(new Set(searched)).toEqual(new Set(["iki/protein.Protein"]));
@@ -188,54 +189,94 @@ describe("creating an entity", () => {
     expect(code).toHaveFocus();
   });
 
-  it("names the entity it would duplicate, and creates one only when asked", async () => {
-    onLab();
-    answer("GET /api/v1/entities", page([]));
-    answer("POST /api/v1/entities", (call: { body: { allow_duplicate: boolean } }) =>
-      call.body.allow_duplicate
-        ? respond(201, { ...sample({ hrid: "SMP-000003" }), reused: false, linked: false })
-        : problem(409, "duplicate", "A sample with the same identity exists.", [
-            { pointer: "#/values", detail: "The same as SMP-000002.", entity: "e2" } as never,
-          ]),
-    );
-    answer("GET /api/v1/entities/SMP-000003", sample({ hrid: "SMP-000003" }));
-    answer("GET /api/v1/entities/SMP-000003/provenance", {});
-    answer("GET /api/v1/entities/SMP-000003/projects", []);
-    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "B");
-    await user.type(screen.getByRole("textbox", { name: "Code" }), "P-2");
-    await user.click(screen.getByRole("button", { name: "Create sample" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
-      "This is the same as SMP-000002. Use it, or create a duplicate anyway.",
-    );
-    expect(within(alert).getByRole("link", { name: "SMP-000002" })).toHaveAttribute(
-      "href",
-      "/entities/SMP-000002/",
-    );
-    await user.click(within(alert).getByRole("button", { name: "Create a duplicate" }));
-    await screen.findByText("Created SMP-000003.");
-    expect(
-      calls("POST").map((c) => (c.body as { allow_duplicate: boolean }).allow_duplicate),
-    ).toEqual([false, true]);
-  });
+  describe("of a type with an identity (ADR 0115)", () => {
+    const ENTRY = {
+      id: "00000000-0000-7000-8000-00000000e0e1",
+      hrid: "PRT-000001",
+      registry: MAIN_REGISTRY,
+      revision: 1,
+      superseded: null,
+    };
+    const record = (overrides: Partial<Schemas["EntityOut"]> = {}) =>
+      entity({ entry: ENTRY, ...overrides });
 
-  it("opens the existing entity when its type reuses duplicates", async () => {
-    onLab();
-    answer("GET /api/v1/entities", page([]));
-    answer("POST /api/v1/entities", { ...sample(), reused: true, linked: true });
-    answer("GET /api/v1/entities/SMP-000001", sample());
-    answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
-    const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "Plasma A");
-    await user.type(screen.getByRole("textbox", { name: "Code" }), "P-1");
-    await user.click(screen.getByRole("button", { name: "Create sample" }));
-    expect(
-      await screen.findByText(
-        "Plasma A was already in Iki, so it’s been added to Kinase Atlas instead of making a copy.",
-      ),
-    ).toBeInTheDocument();
+    function onProtein(made: Record<string, unknown>, status = 201): void {
+      onLab();
+      answer("POST /api/v1/entities", respond(status, made));
+      answer("GET /api/v1/entities/PRT-000001", record());
+      answer(`GET /api/v1/entities/${PROTEIN_ID}/provenance`, {});
+      answer(`GET /api/v1/entities/${PROTEIN_ID}/projects`, []);
+      answer(`GET /api/v1/entries/${ENTRY.id}/revisions`, page([]));
+    }
+
+    async function create() {
+      const rendered = await renderApp(
+        "/projects/kinase-atlas/entities/new/?type=iki/protein.Protein",
+      );
+      const sequence = screen.getByRole("textbox", { name: /^Sequence/ });
+      expect(sequence).toHaveAccessibleDescription(
+        "It can be set once, and can’t change after. If this protein is registered in Main " +
+          "already, Kinase Atlas gets its own record of it, with the same ID.",
+      );
+      expect(
+        screen.getByText(/Registered in the Main registry, with one ID wherever it’s used\./),
+      ).toBeInTheDocument();
+      await rendered.user.type(sequence, "MLEICLKLVG");
+      await rendered.user.click(screen.getByRole("button", { name: "Create protein" }));
+      await screen.findByRole("heading", { level: 1, name: /^ABL1 kinase/ });
+      return rendered;
+    }
+
+    it("registers a new entry, and lands on the project's record of it", async () => {
+      onProtein({ ...record(), reused: false, registered: true });
+      const { router } = await create();
+      expect(router.state.location.pathname).toBe("/entities/PRT-000001/");
+      expect(router.state.location.search).toEqual({ project: "kinase-atlas" });
+      expect(
+        screen.getByText(
+          "Registered PRT-000001, a new entry in the Main registry. This is Kinase Atlas’s record of it.",
+        ),
+      ).toBeInTheDocument();
+      expect(calls("POST", "/api/v1/entities")[0]?.body).toEqual({
+        type: "iki/protein.Protein",
+        project: KINASE.id,
+        values: { sequence: "MLEICLKLVG" },
+        reason: "",
+      });
+      // The page read that project's record of it.
+      expect(calls("GET", "/api/v1/entities/PRT-000001")[0]?.query.get("project")).toBe(KINASE.id);
+    });
+
+    it("says when the identity was registered already, and the project has its own record now", async () => {
+      onProtein({ ...record(), reused: false, registered: false });
+      await create();
+      const said = screen.getByText(
+        "PRT-000001 was registered already, so Kinase Atlas now has its own record of it.",
+      );
+      // Nothing about who else has it.
+      expect(said.textContent).not.toMatch(/project(s)? (that|which)|also in/i);
+    });
+
+    it("opens the record the project had, as it is, and says when it's archived", async () => {
+      onProtein({ ...record({ archived: true }), reused: true, registered: false }, 200);
+      await create();
+      expect(
+        screen.getByText(
+          "Kinase Atlas has PRT-000001 already, so it’s opened as it is. It’s archived: restore it to change it.",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it("asks nothing more of a type without an identity", async () => {
+      onLab();
+      const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
+      expect(screen.getByText(/In Kinase Atlas: its members can read it/)).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Name" })).not.toHaveAccessibleDescription(
+        /registered/,
+      );
+      await user.click(screen.getByRole("button", { name: "Create sample" }));
+      expect(calls("POST")).toEqual([]);
+    });
   });
 
   it("asks for a type first when none is given", async () => {
@@ -445,7 +486,7 @@ describe("file fields", () => {
       respond(201, {
         ...entity({ hrid: "PST-000001", type: "iki/protein.ProteinStructure", values: {} }),
         reused: false,
-        linked: false,
+        registered: false,
       }),
     );
     answer(

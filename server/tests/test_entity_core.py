@@ -1,6 +1,5 @@
 """Entities: creating, editing, revisions and history, provenance, duplicates, archiving."""
 
-import dataclasses
 import datetime as dt
 from typing import Any
 
@@ -11,7 +10,7 @@ from django.db.utils import DatabaseError
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.models import AuditEvent, Via
-from iki_server.entities import access, services, values
+from iki_server.entities import access, services
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 from iki_server.org.services import Refused
@@ -57,8 +56,11 @@ def test_creating_makes_revision_one_with_history(lab: dict[str, Any]) -> None:
     revision = saved.revision
     assert revision is not None
     assert (revision.number, revision.kind, revision.via) == (1, "created", "api")
-    # Defaults count as set: topology defaults to linear.
-    assert revision.changed_fields == ["bases", "name", "topology"]
+    # Defaults count as set: topology defaults to linear. Its bases are its registry
+    # entry's (ADR 0115), set by the entry's first revision.
+    assert revision.changed_fields == ["name", "topology"]
+    assert saved.entry_revision is not None
+    assert saved.entry_revision.changed_fields == ["bases"]
     assert revision.user == lab["alice"]
     assert services.current_values(entity) == {
         "name": "pUC19",
@@ -158,7 +160,8 @@ def test_quantities_convert_into_their_unit(lab: dict[str, Any]) -> None:
     )
     values = services.current_values(saved.entity)
     assert values["temperature_optimum"] == pytest.approx(37.0)
-    assert values["encoded_by"] == sequence.pk
+    # A reference holds the registry entry (ADR 0115).
+    assert values["encoded_by"] == sequence.entry_id  # type: ignore[attr-defined]
     assert values["uniprot_ids"] == ["P69905"]
     with pytest.raises(services.Invalid) as raised:
         services.create(
@@ -172,19 +175,35 @@ def test_quantities_convert_into_their_unit(lab: dict[str, Any]) -> None:
 
 def test_references_only_reach_what_the_caller_can_read(lab: dict[str, Any]) -> None:
     hidden = services.create(lab["bob"], "acme/dna.DNASequence", lab["second"], {"bases": "TTTT"})
-    # Alice is a Viewer in the second project: she can refer to it.
-    services.create(
+    # Alice is a Viewer in the second project: she reads its record, but a reference
+    # holds the registry entry (ADR 0115), which her project must have first.
+    with pytest.raises(services.Invalid) as raised:
+        services.create(
+            lab["alice"],
+            "acme/protein.Protein",
+            lab["first"],
+            {"sequence": "MKV", "encoded_by": str(hidden.entity.pk)},
+        )
+    assert raised.value.errors == {
+        "encoded_by": [
+            f"refers to {hidden.entity.hrid}, which isn't in Antibodies: add it to the "  # type: ignore[attr-defined]
+            "project first, by registering it there."
+        ]
+    }
+    services.create(lab["alice"], "acme/dna.DNASequence", lab["first"], {"bases": "TTTT"})
+    made = services.create(
         lab["alice"],
         "acme/protein.Protein",
         lab["first"],
         {"sequence": "MKV", "encoded_by": str(hidden.entity.pk)},
     )
+    assert services.current_values(made.entity)["encoded_by"] == hidden.entity.entry_id  # type: ignore[attr-defined]
     with pytest.raises(services.Invalid) as raised:
         services.create(
             lab["carol"],
             "acme/protein.Protein",
             lab["first"],
-            {"sequence": "MKV", "encoded_by": str(hidden.entity.pk)},
+            {"sequence": "MKVA", "encoded_by": str(hidden.entity.pk)},
         )
     assert raised.value.errors == {"encoded_by": ["refers to no entity you can read."]}
     protein = services.create(
@@ -195,71 +214,39 @@ def test_references_only_reach_what_the_caller_can_read(lab: dict[str, Any]) -> 
             lab["alice"],
             "acme/protein.Protein",
             lab["first"],
-            {"sequence": "MKV", "encoded_by": str(protein.entity.pk)},
+            {"sequence": "MKVL", "encoded_by": str(protein.entity.pk)},
         )
     assert raised.value.errors == {
         "encoded_by": ["must refer to a acme/dna.DNASequence, not a acme/protein.Protein."]
     }
 
 
-def test_a_duplicate_is_reused_and_linked(lab: dict[str, Any]) -> None:
+def test_registering_again_gives_each_project_its_own_record(lab: dict[str, Any]) -> None:
     first = dna(lab, "ACGTACGT")
+    assert first.registered and not first.reused
     again = services.create(
         lab["bob"], "acme/dna.DNASequence", lab["second"], {"bases": "ACGTACGT"}
     )
-    # Bob can't read the first project's entity, so he gets his own.
-    assert not again.reused
+    # The same registry entry, and its ID; a record of the second project's own.
+    assert not again.reused and not again.registered
     assert again.entity.pk != first.entity.pk
-    # Alice can read both: hers is reused, and linked into the second project.
-    ProjectMembership.objects.filter(user=lab["alice"], project=lab["second"]).update(
-        role=ProjectRole.EDITOR
-    )
-    reused = services.create(
-        lab["alice"], "acme/dna.DNASequence", lab["second"], {"bases": "ACGTACGT"}
-    )
-    assert reused.reused and reused.linked
-    assert reused.entity.pk == first.entity.pk
+    mine, theirs = Entity.objects.get(pk=first.entity.pk), Entity.objects.get(pk=again.entity.pk)
+    assert theirs.entry_id == mine.entry_id is not None
+    assert theirs.hrid == mine.hrid
+    # Bob can't read the first project's record, nor change it.
+    assert not access.can_read(lab["bob"], Entity.objects.get(pk=first.entity.pk))
+    # Registering it again where it has a record is that record, as it is.
+    reused = dna(lab, "ACGTACGT")
+    assert reused.reused and reused.entity.pk == first.entity.pk
     assert reused.revision is None
-    assert ProjectLink.objects.filter(entity_id=first.entity.pk).count() == 2
-    # Bob now sees it too, through the second project.
-    assert access.can_read(lab["bob"], Entity.objects.get(pk=first.entity.pk))
-    assert not access.can_edit(lab["bob"], Entity.objects.get(pk=first.entity.pk))
 
 
-@pytest.fixture
-def policy(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Gives DNASequence another ``on_duplicate`` policy."""
-
-    def use(name: str) -> None:
-        form = values.shape("acme/dna.DNASequence")
-        changed = values.Shape(dataclasses.replace(form.entity_type, on_duplicate=name), form.parts)
-        monkeypatch.setattr(services, "shape", lambda _: changed)
-
-    return use
-
-
-def test_warn_refuses_a_duplicate_unless_told_to_go_ahead(lab: dict[str, Any], policy: Any) -> None:
-    policy("warn")
-    first = dna(lab, "GGCC")
-    with pytest.raises(services.Duplicate) as raised:
-        dna(lab, "GGCC")
-    assert [e.pk for e in raised.value.existing] == [first.entity.pk]
-    second = services.create(
-        lab["alice"], "acme/dna.DNASequence", lab["first"], {"bases": "GGCC"}, allow_duplicate=True
-    )
-    assert not second.reused
-    assert second.entity.pk != first.entity.pk
-
-
-def test_allow_always_creates_another(lab: dict[str, Any], policy: Any) -> None:
-    policy("allow")
-    assert dna(lab, "GGCC").entity.pk != dna(lab, "GGCC").entity.pk
-
-
-def test_an_archived_entity_isnt_reused(lab: dict[str, Any]) -> None:
+def test_an_archived_record_comes_back_archived(lab: dict[str, Any]) -> None:
     first = dna(lab, "GGCC")
     services.set_archived(lab["alice"], Entity.objects.get(pk=first.entity.pk), True)
-    assert not dna(lab, "GGCC").reused
+    again = dna(lab, "GGCC")
+    assert again.reused and again.entity.pk == first.entity.pk
+    assert Entity.objects.get(pk=again.entity.pk).archived_at is not None
 
 
 def test_archived_entities_cant_change_until_restored(lab: dict[str, Any]) -> None:
@@ -269,8 +256,8 @@ def test_archived_entities_cant_change_until_restored(lab: dict[str, Any]) -> No
     assert (archived.revision.kind, archived.revision.reason) == ("archived", "Contaminated")
     with pytest.raises(Refused):
         services.update(lab["alice"], entity, {"name": "x"}, expected_revision=2)
-    # An archived entity isn't reused for a new duplicate.
-    assert not dna(lab).reused
+    # Registering it again is the same record, still archived.
+    assert dna(lab).reused
     restored = services.set_archived(lab["alice"], entity, False)
     assert restored.revision is not None
     assert restored.revision.number == 3
@@ -353,4 +340,4 @@ def test_values_of_many_entities_match_each_ones_values(lab: dict[str, Any]) -> 
     assert set(many) == {e.pk for e in entities}
     for entity in entities:
         assert many[entity.pk] == services.current_values(services._specific(entity))
-    assert many[protein.entity.pk]["encoded_by"] == first.entity.pk
+    assert many[protein.entity.pk]["encoded_by"] == first.entity.entry_id  # type: ignore[attr-defined]

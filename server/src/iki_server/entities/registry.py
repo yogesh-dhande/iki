@@ -79,20 +79,27 @@ def viewers(entity_type: EntityType) -> tuple[Viewer, ...]:
     return next((t.viewers for t in [entity_type, *ancestors(entity_type)] if t.viewers), ())
 
 
-def duplicate_policy(entity_type: EntityType) -> str | None:
-    """What creating a duplicate does: ``reuse``, ``warn`` or ``allow`` (None without an identity).
-
-    A type's own ``on_duplicate`` wins, then its nearest parent's; ``reuse`` is the default."""
-    if identity_owner(entity_type) is None:
-        return None
-    chain = [entity_type, *ancestors(entity_type)]
-    return next((t.on_duplicate for t in chain if t.on_duplicate), "reuse")
+def has_entries(qualified: str) -> bool:
+    """Whether a type's entities are registry entries with records (ADR 0115): it has an
+    identity, its own or a parent's."""
+    found = types().get(qualified)
+    return found is not None and identity_owner(found) is not None
 
 
 def model(qualified: str) -> type[models.Model]:
-    """The Django model of a type, by its qualified name (``iki/protein.Protein``)."""
+    """The Django model of a type's records, by its qualified name (``iki/protein.Protein``)."""
     plugin, name = qualified.split(".")
     return apps.get_model(naming.app_label(plugin), name)
+
+
+def entry_model(qualified: str) -> type[models.Model] | None:
+    """The Django model of a type's registry entries (ADR 0115): its identity's type's, which
+    its subtypes share. None for a type without an identity."""
+    found = types().get(qualified)
+    owner = identity_owner(found) if found is not None else None
+    if owner is None:
+        return None
+    return apps.get_model(naming.app_label(owner.plugin), naming.entry_model(owner.name))
 
 
 def app(plugin: str) -> Any:  # noqa: ANN401 - Django's AppConfig

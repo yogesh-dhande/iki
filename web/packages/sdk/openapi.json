@@ -2054,6 +2054,17 @@
               }
             ]
           },
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's."
+          },
           "files": {
             "additionalProperties": {
               "$ref": "#/components/schemas/FileRef"
@@ -2070,11 +2081,6 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
-          },
-          "linked": {
-            "description": "The existing entity was added to the project.",
-            "title": "Linked",
-            "type": "boolean"
           },
           "owner_project": {
             "anyOf": [
@@ -2095,8 +2101,13 @@
             "title": "Refs",
             "type": "object"
           },
+          "registered": {
+            "description": "A new registry entry was made for it. False when the identity was registered already, by any project: then the project gets a record of that entry.",
+            "title": "Registered",
+            "type": "boolean"
+          },
           "reused": {
-            "description": "An entity with the same identity existed, and is returned instead.",
+            "description": "The project had a record of this identity already: it's returned as it is, unchanged.",
             "title": "Reused",
             "type": "boolean"
           },
@@ -2143,7 +2154,7 @@
           "files",
           "can",
           "reused",
-          "linked"
+          "registered"
         ],
         "title": "CreatedOut",
         "type": "object"
@@ -2934,12 +2945,6 @@
       },
       "EntityIn": {
         "properties": {
-          "allow_duplicate": {
-            "default": false,
-            "description": "Create it even if its type warns about a duplicate.",
-            "title": "Allow Duplicate",
-            "type": "boolean"
-          },
           "project": {
             "description": "The project it belongs to. It needs you as an Editor.",
             "format": "uuid",
@@ -3006,6 +3011,17 @@
                 "type": "null"
               }
             ]
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's."
           },
           "files": {
             "additionalProperties": {
@@ -3214,7 +3230,7 @@
             "title": "Hrid Prefix"
           },
           "identity": {
-            "description": "The fields that tell two entities apart.",
+            "description": "The fields that tell two entities apart. With one, its entities are projects' records of registry entries (ADR 0115): one entry per identity in a registry, one record of it per project.",
             "items": {
               "type": "string"
             },
@@ -3233,23 +3249,6 @@
             "description": "Qualified: plugin.Type.",
             "title": "Name",
             "type": "string"
-          },
-          "on_duplicate": {
-            "anyOf": [
-              {
-                "enum": [
-                  "reuse",
-                  "warn",
-                  "allow"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "What creating an entity with the same identity as another does.",
-            "title": "On Duplicate"
           },
           "plugin": {
             "title": "Plugin",
@@ -3308,12 +3307,274 @@
           "subtypes",
           "hrid_prefix",
           "identity",
-          "on_duplicate",
           "fields",
           "values_schema",
           "viewers"
         ],
         "title": "EntityTypeOut",
+        "type": "object"
+      },
+      "EntryCan": {
+        "properties": {
+          "curate": {
+            "description": "Change its facts and supersede it: its registrars.",
+            "title": "Curate",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "curate"
+        ],
+        "title": "EntryCan",
+        "type": "object"
+      },
+      "EntryOut": {
+        "properties": {
+          "add_to": {
+            "description": "The projects you could add a record of it to (POST /entries/{ref}/records): those you edit in its registry that haven't one, where a project you read it in may share with them (ADR 0067).",
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Add To",
+            "type": "array"
+          },
+          "can": {
+            "$ref": "#/components/schemas/EntryCan"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileRef"
+            },
+            "title": "Files",
+            "type": "object"
+          },
+          "holders": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For its registrars: how many projects have a record of it. Never which.",
+            "title": "Holders"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "records": {
+            "description": "The records of it in projects you can read: yours, and those shared with them.",
+            "items": {
+              "$ref": "#/components/schemas/EntryRecordOut"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "refs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "title": "Refs",
+            "type": "object"
+          },
+          "registry": {
+            "$ref": "#/components/schemas/RegistryRef"
+          },
+          "revision": {
+            "description": "Its latest revision. Send it back as If-Match.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntrySupersededOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Its identity, derived values and facts: every holding project's.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type",
+          "registry",
+          "revision",
+          "created_at",
+          "values",
+          "refs",
+          "files",
+          "superseded",
+          "records",
+          "holders",
+          "add_to",
+          "can"
+        ],
+        "title": "EntryOut",
+        "type": "object"
+      },
+      "EntryPatch": {
+        "properties": {
+          "reason": {
+            "description": "Why: every holder is told.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Only the facts to change; null clears one.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "values",
+          "reason"
+        ],
+        "title": "EntryPatch",
+        "type": "object"
+      },
+      "EntryRecordIn": {
+        "properties": {
+          "project": {
+            "description": "The project to add it to. It needs you as an Editor.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "The record's own values, as creating it takes.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "title": "EntryRecordIn",
+        "type": "object"
+      },
+      "EntryRecordOut": {
+        "properties": {
+          "id": {
+            "description": "Your record of it: GET /entities/{id}.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          }
+        },
+        "required": [
+          "id",
+          "project"
+        ],
+        "title": "EntryRecordOut",
+        "type": "object"
+      },
+      "EntryRefOut": {
+        "description": "A record's registry entry (ADR 0115): its identity, ID and registry values.",
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "registry": {
+            "$ref": "#/components/schemas/RegistryRef"
+          },
+          "revision": {
+            "description": "The entry's latest revision.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SupersededOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A registrar replaced it with another entry: move the record there."
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "registry",
+          "revision",
+          "superseded"
+        ],
+        "title": "EntryRefOut",
+        "type": "object"
+      },
+      "EntrySupersededOut": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/RefOut"
+          },
+          "by_id": {
+            "format": "uuid",
+            "title": "By Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "by_id",
+          "at",
+          "reason"
+        ],
+        "title": "EntrySupersededOut",
         "type": "object"
       },
       "EnvironmentVolumesOut": {
@@ -3773,6 +4034,23 @@
             "description": "The plugin that defines the field.",
             "title": "Plugin",
             "type": "string"
+          },
+          "registry": {
+            "anyOf": [
+              {
+                "enum": [
+                  "identity",
+                  "derived",
+                  "fact"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.",
+            "title": "Registry"
           },
           "required": {
             "title": "Required",
@@ -6128,6 +6406,157 @@
         "title": "MetricOut",
         "type": "object"
       },
+      "MoveIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why, for the record.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "MoveIn",
+        "type": "object"
+      },
+      "MovedOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "can": {
+            "$ref": "#/components/schemas/EntityCan"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's."
+          },
+          "files": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FileRef"
+            },
+            "description": "The files its values refer to that you can read, by ID.",
+            "title": "Files",
+            "type": "object"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project that owns it, and decides its changes. Null if you can't see it."
+          },
+          "refs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "description": "The entities its values refer to that you can read, by ID.",
+            "title": "Refs",
+            "type": "object"
+          },
+          "repointed": {
+            "description": "The project's records whose references to the superseded entry now name its replacement.",
+            "items": {
+              "$ref": "#/components/schemas/RefOut"
+            },
+            "title": "Repointed",
+            "type": "array"
+          },
+          "revision": {
+            "description": "Its latest revision. Send it back as If-Match to change it.",
+            "title": "Revision",
+            "type": "integer"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "values": {
+            "additionalProperties": true,
+            "description": "Its fields' values, as its type's schema says.",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "type",
+          "revision",
+          "owner_project",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "archived",
+          "archived_at",
+          "values",
+          "refs",
+          "files",
+          "can",
+          "repointed"
+        ],
+        "title": "MovedOut",
+        "type": "object"
+      },
       "NotificationActor": {
         "properties": {
           "id": {
@@ -7036,6 +7465,64 @@
         "title": "Page[RegistrationOut]",
         "type": "object"
       },
+      "Page_RegistryEntryOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegistryEntryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RegistryEntryOut]",
+        "type": "object"
+      },
+      "Page_RegistryOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegistryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RegistryOut]",
+        "type": "object"
+      },
       "Page_RevisionOut_": {
         "properties": {
           "items": {
@@ -7591,6 +8078,23 @@
             "title": "Plugin",
             "type": "string"
           },
+          "registry": {
+            "anyOf": [
+              {
+                "enum": [
+                  "identity",
+                  "derived",
+                  "fact"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.",
+            "title": "Registry"
+          },
           "required": {
             "title": "Required",
             "type": "boolean"
@@ -7808,6 +8312,11 @@
       },
       "ProjectCan": {
         "properties": {
+          "change_registry": {
+            "description": "Move it to another registry: an Org Admin, while it has no entities (ADR 0115).",
+            "title": "Change Registry",
+            "type": "boolean"
+          },
           "edit": {
             "description": "Add entities and files, and change its entities.",
             "title": "Edit",
@@ -7866,6 +8375,7 @@
           "manage_webhooks",
           "export",
           "import_bundles",
+          "change_registry",
           "run"
         ],
         "title": "ProjectCan",
@@ -8013,6 +8523,19 @@
             "title": "Name",
             "type": "string"
           },
+          "registry": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its registry (ADR 0115), one its team may use: the default one if not given. It's fixed once the project has entities.",
+            "title": "Registry"
+          },
           "team": {
             "format": "uuid",
             "title": "Team",
@@ -8143,6 +8666,10 @@
             "title": "Name",
             "type": "string"
           },
+          "registry": {
+            "$ref": "#/components/schemas/RegistryRef",
+            "description": "Its registry (ADR 0115): what it registers is one entry, with one ID, with the same identity in every other project there."
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -8159,6 +8686,7 @@
           "team",
           "archived",
           "allow_sharing",
+          "registry",
           "created_at",
           "my_role",
           "can"
@@ -8256,6 +8784,19 @@
               }
             ],
             "title": "Name"
+          },
+          "registry": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Move it to another registry its team may use: Org Admins, while it has no entities (ADR 0115).",
+            "title": "Registry"
           }
         },
         "title": "ProjectPatch",
@@ -9039,6 +9580,35 @@
         "title": "RefOut",
         "type": "object"
       },
+      "RegistrarOut": {
+        "properties": {
+          "appointed_at": {
+            "format": "date-time",
+            "title": "Appointed At",
+            "type": "string"
+          },
+          "appointed_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "required": [
+          "user",
+          "appointed_by",
+          "appointed_at"
+        ],
+        "title": "RegistrarOut",
+        "type": "object"
+      },
       "RegistrationIn": {
         "properties": {
           "media_type": {
@@ -9162,6 +9732,352 @@
         "title": "RegistrationOut",
         "type": "object"
       },
+      "RegistryCan": {
+        "properties": {
+          "curate": {
+            "description": "You're one of its registrars: see its entries, change their facts, supersede them.",
+            "title": "Curate",
+            "type": "boolean"
+          },
+          "manage": {
+            "description": "Rename it, choose its teams, appoint its registrars.",
+            "title": "Manage",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "manage",
+          "curate"
+        ],
+        "title": "RegistryCan",
+        "type": "object"
+      },
+      "RegistryEntryFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An HRID, or the start of one.",
+            "title": "Q"
+          },
+          "superseded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only this type's entries (and its subtypes').",
+            "title": "Type"
+          }
+        },
+        "title": "RegistryEntryFilters",
+        "type": "object"
+      },
+      "RegistryEntryOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "holders": {
+            "description": "How many projects have a record of it. Never which.",
+            "title": "Holders",
+            "type": "integer"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "superseded": {
+            "title": "Superseded",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "type",
+          "revision",
+          "created_at",
+          "holders",
+          "superseded"
+        ],
+        "title": "RegistryEntryOut",
+        "type": "object"
+      },
+      "RegistryFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only those this team's new projects may be in, to choose one.",
+            "title": "Team"
+          }
+        },
+        "title": "RegistryFilters",
+        "type": "object"
+      },
+      "RegistryIn": {
+        "properties": {
+          "all_teams": {
+            "default": false,
+            "description": "Every team's projects may be in it.",
+            "title": "All Teams",
+            "type": "boolean"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "teams": {
+            "description": "Otherwise, the teams whose projects may be.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RegistryIn",
+        "type": "object"
+      },
+      "RegistryOut": {
+        "properties": {
+          "all_teams": {
+            "description": "Every team's projects may be in it.",
+            "title": "All Teams",
+            "type": "boolean"
+          },
+          "can": {
+            "$ref": "#/components/schemas/RegistryCan"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "New projects are in it unless they're given another.",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "teams": {
+            "description": "Without all_teams, the teams whose projects may be in it. Listed to Org Admins only.",
+            "items": {
+              "$ref": "#/components/schemas/TeamRef"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "description",
+          "default",
+          "all_teams",
+          "teams",
+          "created_at",
+          "can"
+        ],
+        "title": "RegistryOut",
+        "type": "object"
+      },
+      "RegistryPatch": {
+        "properties": {
+          "all_teams": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Teams"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "teams": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A team taken off keeps its projects in the registry: it can't put new ones there.",
+            "title": "Teams"
+          }
+        },
+        "title": "RegistryPatch",
+        "type": "object"
+      },
+      "RegistryRef": {
+        "description": "A registry (ADR 0115): an identity boundary. Within it, each identity is one entry\nwith one ID, which each project holding it keeps its own record of.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug"
+        ],
+        "title": "RegistryRef",
+        "type": "object"
+      },
       "ReproduceIn": {
         "properties": {
           "reason": {
@@ -9255,9 +10171,22 @@
             "type": "string"
           },
           "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "entry": {
+            "default": false,
+            "description": "It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.",
+            "title": "Entry",
+            "type": "boolean"
           },
           "files": {
             "additionalProperties": {
@@ -9272,7 +10201,10 @@
               "created",
               "edited",
               "archived",
-              "restored"
+              "restored",
+              "curated",
+              "superseded",
+              "moved"
             ],
             "title": "Kind",
             "type": "string"
@@ -9371,16 +10303,32 @@
             "type": "string"
           },
           "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "entry": {
+            "default": false,
+            "description": "It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.",
+            "title": "Entry",
+            "type": "boolean"
           },
           "kind": {
             "enum": [
               "created",
               "edited",
               "archived",
-              "restored"
+              "restored",
+              "curated",
+              "superseded",
+              "moved"
             ],
             "title": "Kind",
             "type": "string"
@@ -12252,6 +13200,58 @@
           "unread"
         ],
         "title": "SummaryOut",
+        "type": "object"
+      },
+      "SupersedeIn": {
+        "properties": {
+          "reason": {
+            "description": "Why: its holders are told it.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "replacement": {
+            "description": "The entry that replaces it, by ID or HRID.",
+            "title": "Replacement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "replacement",
+          "reason"
+        ],
+        "title": "SupersedeIn",
+        "type": "object"
+      },
+      "SupersededOut": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/RefOut",
+            "description": "The entry that replaced it."
+          },
+          "by_id": {
+            "format": "uuid",
+            "title": "By Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "by_id",
+          "at",
+          "reason"
+        ],
+        "title": "SupersededOut",
         "type": "object"
       },
       "TeamFilters": {
@@ -17153,7 +18153,7 @@
         ]
       },
       "post": {
-        "description": "If its type reuses duplicates and you can read one with the same identity, that one\nis returned (200, ``reused``) and added to the project, instead of a copy. If its type\nwarns about duplicates, the request is refused (409, ``duplicate``) unless\n``allow_duplicate`` is set.",
+        "description": "For a type with an identity, this registers it in the project's registry (ADR\n0115): a new registry entry (201, ``registered``), or the one there is, whoever\nregistered it (201), of which the project gets its own record. If the project has a\nrecord of it already, that's returned as it is (200, ``reused``). Values of the entry's\nthat it has already are kept; a fact given with another value is refused.",
         "operationId": "iki_server_api_entities_create_entity",
         "parameters": [],
         "requestBody": {
@@ -17333,7 +18333,7 @@
     },
     "/api/v1/entities/{ref}": {
       "get": {
-        "description": "Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed.",
+        "description": "Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed.\n\nA registry entry's HRID or ID names a project's record of it (ADR 0115): give\n``project`` to say whose, when you read more than one.",
         "operationId": "iki_server_api_entities_get_entity",
         "parameters": [
           {
@@ -17343,6 +18343,23 @@
             "schema": {
               "title": "Ref",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
             }
           },
           {
@@ -17701,6 +18718,57 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/move": {
+      "post": {
+        "description": "An Editor of its project. It keeps its data, history and runs; the project's own\nrecords that refer to the superseded entry are changed to refer to the new one, each a\nrevision with the reason. Refused if the project has a record of the new one already.",
+        "operationId": "iki_server_api_registries_move_entity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovedOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Move a record to the entry that superseded its own",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/origins": {
       "get": {
         "description": "The records runs imported it from, newest first: a public database's, or one in a\nfile. An entity found again by a later import lists each.",
@@ -17941,7 +19009,7 @@
     },
     "/api/v1/entities/{ref}/revisions": {
       "get": {
-        "description": "Newest first: who changed what, how, when and why.",
+        "description": "Newest first: who changed what, how, when and why. ``project`` says whose record of a\nregistry entry, as for reading it.",
         "operationId": "iki_server_api_entities_list_revisions",
         "parameters": [
           {
@@ -17984,6 +19052,23 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
           }
         ],
         "responses": {
@@ -18014,6 +19099,7 @@
     },
     "/api/v1/entities/{ref}/revisions/{number}": {
       "get": {
+        "description": "``project`` says whose record of a registry entry, as for reading it: a view pins\nits own project's record (ADR 0115).",
         "operationId": "iki_server_api_entities_get_revision",
         "parameters": [
           {
@@ -18032,6 +19118,23 @@
             "schema": {
               "title": "Number",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
             }
           }
         ],
@@ -18133,6 +19236,347 @@
         "summary": "An entity type",
         "tags": [
           "entities"
+        ]
+      }
+    },
+    "/api/v1/entries/{ref}": {
+      "get": {
+        "description": "For whoever reads a record of it, and its registry's registrars.",
+        "operationId": "iki_server_api_registries_get_entry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A registry entry, by ID or HRID",
+        "tags": [
+          "registries"
+        ]
+      },
+      "patch": {
+        "description": "Its registry's registrars, with a reason. Audited, and told to every holding project:\nwho, when and why. Its identity and derived values never change: supersede it instead.",
+        "operationId": "iki_server_api_registries_patch_entry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change a registry entry's facts",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/entries/{ref}/records": {
+      "post": {
+        "description": "As registering its identity in the project: the project gets its own record of the\nentry (201), or keeps the one it has (200, ``reused``). You must read the entry through\na project that allows sharing, in the same registry.",
+        "operationId": "iki_server_api_registries_add_entry_record",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntryRecordIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Add a record of a registry entry to a project",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/entries/{ref}/revisions": {
+      "get": {
+        "description": "Newest first. Its registrars see each in full, without the project it came through.\nA holder sees who and when for its own projects' and registrars' changes; for others,\nonly what was set.",
+        "operationId": "iki_server_api_registries_list_entry_revisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RevisionOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A registry entry's revisions",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/entries/{ref}/revisions/{number}": {
+      "get": {
+        "description": "Its values then and what the revision changed, which every holder sees, as reviewing\na curated fact needs; who made it, how and when as its list of revisions tells them.",
+        "operationId": "iki_server_api_registries_get_entry_revision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "title": "Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionDetailOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A registry entry as it was at a revision",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/entries/{ref}/supersede": {
+      "post": {
+        "description": "Its registry's registrars replace a mistaken entry with another of its type in the\nregistry, for good. Each holding project's Admins, and whoever added its record, are\ntold, to move their records to the replacement.",
+        "operationId": "iki_server_api_registries_supersede_entry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupersedeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Supersede a registry entry",
+        "tags": [
+          "registries"
         ]
       }
     },
@@ -20802,6 +22246,495 @@
         "summary": "One of your registrations",
         "tags": [
           "files"
+        ]
+      }
+    },
+    "/api/v1/registries": {
+      "get": {
+        "description": "The default one first, then by name.",
+        "operationId": "iki_server_api_registries_list_registries",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only those this team's new projects may be in, to choose one.",
+            "in": "query",
+            "name": "team",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only those this team's new projects may be in, to choose one.",
+              "title": "Team"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RegistryOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Registries",
+        "tags": [
+          "registries"
+        ]
+      },
+      "post": {
+        "description": "Org Admins. A separate registry isolates its projects' identities from every other's:\nfor a CRO's client, or a partner program.",
+        "operationId": "iki_server_api_registries_create_registry",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Add a registry",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/registries/{registry_id}": {
+      "get": {
+        "operationId": "iki_server_api_registries_get_registry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A registry",
+        "tags": [
+          "registries"
+        ]
+      },
+      "patch": {
+        "operationId": "iki_server_api_registries_patch_registry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Change a registry",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/registries/{registry_id}/entries": {
+      "get": {
+        "description": "Its registrars see each entry, and how many projects hold it: never which, nor\nwhat's in their records.",
+        "operationId": "iki_server_api_registries_list_registry_entries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only this type's entries (and its subtypes').",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this type's entries (and its subtypes').",
+              "title": "Type"
+            }
+          },
+          {
+            "description": "An HRID, or the start of one.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An HRID, or the start of one.",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "superseded",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Superseded"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RegistryEntryOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Every entry in a registry, for its registrars",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/registries/{registry_id}/registrars": {
+      "get": {
+        "description": "Who curates its entries' facts and supersedes them.",
+        "operationId": "iki_server_api_registries_list_registrars",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RegistrarOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A registry's registrars",
+        "tags": [
+          "registries"
+        ]
+      }
+    },
+    "/api/v1/registries/{registry_id}/registrars/{user_id}": {
+      "delete": {
+        "operationId": "iki_server_api_registries_dismiss_registrar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Stop someone being a registrar",
+        "tags": [
+          "registries"
+        ]
+      },
+      "put": {
+        "description": "Org Admins appoint them, a registry at a time. Being an Org Admin doesn't make\nsomeone one.",
+        "operationId": "iki_server_api_registries_appoint_registrar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrarOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrarOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Make someone a registrar",
+        "tags": [
+          "registries"
         ]
       }
     },

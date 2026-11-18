@@ -36,12 +36,11 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
         db_column='entity_id',
         related_name='+',
     )
-    sequence = models.TextField()
     molecular_weight = QuantityField(unit='u', null=True, db_index=True)
     lims_id = models.CharField(max_length=64, null=True, db_index=True)
     source = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
     encoded_by = models.ForeignKey(
-        'acme__dna.DNASequence',
+        'acme__dna.DNASequence_Entry',
         models.PROTECT,
         related_name='+',
         null=True,
@@ -54,20 +53,6 @@ class Protein(iki_plugin_acme__dna.models.Sequence):
     class Meta:
         db_table = 'acme__protein_protein'
         constraints = [
-            models.CheckConstraint(
-                condition=GreaterThanOrEqual(Length('sequence'), 1),
-                name='acme__protein_protein__sequence__not_empty',
-            ),
-            models.CheckConstraint(
-                condition=~Q(sequence__regex='[\\r\\n]'),
-                name='acme__protein_protein__sequence__one_line',
-            ),
-            models.CheckConstraint(
-                condition=Q(
-                    sequence__regex='^[ACDEFGHIKLMNPQRSTVWYBZXUOJacdefghiklmnpqrstvwybzxuoj*]*$',
-                ),
-                name='acme__protein_protein__sequence__format',
-            ),
             models.CheckConstraint(
                 condition=Q(molecular_weight__gt=float('-inf'), molecular_weight__lt=float('inf')),
                 name='acme__protein_protein__molecular_weight__finite',
@@ -130,7 +115,6 @@ class Protein_History(models.Model):
     pk = models.CompositePrimaryKey('entity_id', 'revision')
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
-    sequence = models.TextField(null=True)
     molecular_weight = QuantityField(unit='u', null=True)
     lims_id = models.TextField(null=True)
     source = models.UUIDField(db_column='source_id', null=True)
@@ -142,6 +126,122 @@ class Protein_History(models.Model):
 
     class Meta:
         db_table = 'acme__protein_protein__history'
+
+
+class Protein_Entry(Entity):
+    """Registry entries of Protein (acme/protein.Protein), ADR 0115."""
+
+    IKI_TYPE = 'acme/protein.Protein'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    sequence = models.TextField()
+    residues = models.BigIntegerField(null=True)
+    ec_number = models.CharField(max_length=20, null=True)
+    chembl_target = models.CharField(max_length=20, null=True, db_index=True)
+    hazard = models.TextField(null=True)
+    synonyms = ArrayField(models.CharField(max_length=40), null=True)
+
+    class Meta:
+        db_table = 'acme__protein_protein__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('sequence'), 1),
+                name='acme__protein_protein__entry__sequence__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(sequence__regex='[\\r\\n]'),
+                name='acme__protein_protein__entry__sequence__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    sequence__regex='^[ACDEFGHIKLMNPQRSTVWYBZXUOJacdefghiklmnpqrstvwybzxuoj*]*$',
+                ),
+                name='acme__protein_protein__entry__sequence__format',
+            ),
+            models.CheckConstraint(
+                condition=Q(residues__gte=0),
+                name='acme__protein_protein__entry__residues__min',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('ec_number'), 1),
+                name='acme__protein_protein__entry__ec_number__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(ec_number__regex='[\\r\\n]'),
+                name='acme__protein_protein__entry__ec_number__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(ec_number__regex='^(?:^[1-7]\\.[0-9-]+\\.[0-9-]+\\.[0-9n-]+$)$'),
+                name='acme__protein_protein__entry__ec_number__pattern',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('chembl_target'), 1),
+                name='acme__protein_protein__entry__chembl_target__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(chembl_target__regex='[\\r\\n]'),
+                name='acme__protein_protein__entry__chembl_target__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(chembl_target__regex='^(?:^CHEMBL[1-9][0-9]*$)$'),
+                name='acme__protein_protein__entry__chembl_target__pattern',
+            ),
+            models.CheckConstraint(
+                condition=Q(hazard__in=['none', 'bsl1', 'bsl2', 'bsl3']),
+                name='acme__protein_protein__entry__hazard__values',
+            ),
+            models.CheckConstraint(
+                condition=checks.IsPlainList('synonyms'),
+                name='acme__protein_protein__entry__synonyms__plain_list',
+            ),
+            models.CheckConstraint(
+                condition=checks.AllLengthsBetween('synonyms', 1, None),
+                name='acme__protein_protein__entry__synonyms__item_length',
+            ),
+            models.CheckConstraint(
+                condition=checks.NoneMatch('synonyms', '[\\r\\n]'),
+                name='acme__protein_protein__entry__synonyms__item_one_line',
+            ),
+            models.CheckConstraint(
+                condition=checks.AllMatch('synonyms', '^(?:^[A-Za-z0-9-]+$)$'),
+                name='acme__protein_protein__entry__synonyms__item_pattern',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['chembl_target'],
+                opclasses=['gin_trgm_ops'],
+                name='chembl_tar_trgm_5644589f258ec0',
+            ),
+        ]
+
+
+class Protein_Entry_History(models.Model):
+    """The history of acme__protein_protein__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Protein_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    sequence = models.TextField(null=True)
+    residues = models.BigIntegerField(null=True)
+    ec_number = models.TextField(null=True)
+    chembl_target = models.TextField(null=True)
+    hazard = models.TextField(null=True)
+    synonyms = ArrayField(models.TextField(), null=True)
+
+    class Meta:
+        db_table = 'acme__protein_protein__entry__history'
 
 
 class ProteinStructure(Entity):
@@ -210,7 +310,7 @@ class ProteinStructure_chains(models.Model):
         related_name='+',
     )
     position = models.PositiveIntegerField()
-    item = models.ForeignKey('Protein', models.PROTECT, related_name='+')
+    item = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+')
 
     class Meta:
         db_table = 'acme__protein_proteinstructure__chains'

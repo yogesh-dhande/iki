@@ -8,10 +8,10 @@ extends: iki/core.Sequence
 schema_version: 2
 description: >-
   A protein, by its amino acid sequence. Two with the same sequence are the same
-  protein, so registering one again reuses it.
+  protein, so registering one again finds its
+  registry entry.
 hrid: { prefix: PRT }
 identity: [sequence]
-on_duplicate: reuse
 fields:
   sequence:
     type: string
@@ -22,9 +22,10 @@ fields:
       Its residues, N- to C-terminus, in one-letter codes: the 20 standard amino
       acids, U (selenocysteine), O (pyrrolysine), and B, Z, J or X where a residue
       is ambiguous or unknown.
-  length: { type: quantity, unit: "{aa}", computed: true, indexed: true }
+  length: { registry: derived, type: quantity, unit: "{aa}", computed: true, indexed: true }
   molecular_weight:
     type: quantity
+    registry: derived
     unit: u
     display_unit: ku
     computed: true
@@ -33,6 +34,7 @@ fields:
     description: Its average mass, from the average isotopic masses of its residues and water.
   isoelectric_point:
     type: float
+    registry: derived
     computed: true
     indexed: true
     min: 0
@@ -40,6 +42,7 @@ fields:
     description: The pH at which it carries no net charge, from Bjellqvist's pK values.
   extinction_coefficient_oxidized:
     type: quantity
+    registry: derived
     unit: L/(mol.cm)
     computed: true
     min: 0
@@ -48,6 +51,7 @@ fields:
       cystine (Pace et al., 1995).
   extinction_coefficient_reduced:
     type: quantity
+    registry: derived
     unit: L/(mol.cm)
     computed: true
     min: 0
@@ -56,6 +60,7 @@ fields:
       et al., 1995).
   gravy:
     type: float
+    registry: derived
     label: GRAVY
     computed: true
     description: >-
@@ -63,6 +68,7 @@ fields:
       values. Above zero, it's hydrophobic on the whole.
   hydropathy:
     type: json
+    registry: derived
     computed: true
     description: >-
       Its hydropathy along its sequence, as ExPASy's ProtScale draws it: for
@@ -75,12 +81,14 @@ fields:
       items: { type: [number, "null"], minimum: -4.5, maximum: 4.5 }
   instability_index:
     type: float
+    registry: derived
     computed: true
     description: >-
       Guruprasad's estimate of its stability in a test tube: above 40, it's
       probably unstable.
   uniprot_accession:
     type: string
+    registry: fact
     label: UniProt accession
     max_length: 20
     indexed: true

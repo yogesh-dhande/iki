@@ -68,11 +68,12 @@ def test_a_view_pins_an_entity_at_a_revision_in_a_viewer(world: World) -> None:
     saved = made.json()
     assert saved["hrid"].startswith("VIEW-") and saved["title"] == "ABL1, start to finish"
     read = api_as(world, "viewer").get(f"/entities/{saved['hrid']}").json()
-    assert read["values"]["targets"] == [abl["id"]]
+    # It holds the registry entry (ADR 0115), and pins the project's record of it.
+    assert read["values"]["targets"] == [abl["entry"]["id"]]
     assert read["values"]["target_revisions"] == [1]
     assert read["values"]["viewers"] == ["sequence"]
     assert read["values"]["state"] == {"version": 1, "feature": feature}
-    assert read["refs"][abl["id"]]["hrid"] == abl["hrid"]
+    assert read["refs"][abl["entry"]["id"]]["hrid"] == abl["hrid"]
 
 
 def test_it_shows_a_revision_its_entity_has(world: World) -> None:
@@ -257,21 +258,31 @@ def test_only_someone_who_can_read_every_entity_it_shows_reads_a_view(world: Wor
     ProjectMembership.objects.create(
         project=elsewhere, user=world.users["editor"], role=ProjectRole.EDITOR
     )
-    antigen = create(
-        editor, elsewhere, {"sequence": "MKTAYIAKQR", "name": "HER2"}, "acme/protein.Protein"
-    ).json()
+    # Another project's structure: a type without an identity, which a reference may name
+    # where the editor reads it (one with an identity names an entry the project has).
+    file = add_file(elsewhere, name="her2.pdb", digit="9")
+    antigen = {
+        "id": str(
+            services.create(
+                world.users["editor"],
+                "acme/protein.ProteinStructure",
+                elsewhere,
+                {"structure": file.pk},
+            ).entity.pk
+        )
+    }
     both = {
         "name": "ABL1 with HER2",
         "targets": [abl["id"], antigen["id"]],
         "target_revisions": [1, 1],
-        "viewers": ["sequence", "sequence"],
+        "viewers": ["sequence", "structure"],
         "state": {"version": 2, "targets": [{}, {"label": "antigen"}]},
     }
     made = create(editor, world.project, both, "iki/core.View")
     assert made.status_code == 201, made.content
     hrid = made.json()["hrid"]
     assert editor.get(f"/entities/{hrid}").status_code == 200
-    # The viewer reads ABL1 and the view's project, but not HER2's.
+    # The viewer reads ABL1 and the view's project, but not HER2's structure.
     assert viewer.get(f"/entities/{abl['hrid']}").status_code == 200
     assert problem(viewer.get(f"/entities/{hrid}"), 404, "not_found")
     assert viewer.get(f"/entities/{made.json()['id']}/revisions").status_code == 404

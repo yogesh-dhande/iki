@@ -37,7 +37,6 @@ const ALIGNMENT_TYPE: Schemas["EntityTypeOut"] = {
   label_plural: "Alignments",
   hrid_prefix: "ALN",
   identity: [],
-  on_duplicate: null,
   fields: [
     field({ name: "name", label: "Name", type: "string", required: true }),
     field({ name: "reference", label: "Reference", type: "ref", to: "iki/core.Sequence" }),

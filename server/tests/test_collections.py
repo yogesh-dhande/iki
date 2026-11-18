@@ -64,22 +64,21 @@ def test_a_static_collection_shows_only_members_you_can_read(world: World, secre
     admin = api_as(world, "admin")
     abl = protein(admin, world.project, "abl1")
     src = protein(admin, world.project, "src")
-    hidden = protein(admin, secret, "hidden")
+    # The Secret project's own collection: a type without an identity, which a reference
+    # may name where its maker reads it (a protein is a registry entry the project has).
+    hidden = create(admin, secret, {"name": "hidden"}, "iki/core.Collection").json()
     protein(admin, world.project, "not-a-member")
     made = collection(admin, world, members=[src["id"], abl["id"], hidden["id"]])
     assert made.status_code == 201, made.content
     made = made.json()
+    assert sorted(members(admin, made["hrid"])) == ["abl1", "hidden", "src"]
     assert members(admin, made["hrid"], type="acme/protein.Protein", sort={"field": "name"}) == [
         "abl1",
-        "hidden",
         "src",
     ]
     # The viewer reads the collection, but not the Secret project's entity in it.
     viewer = api_as(world, "viewer")
-    assert members(viewer, made["id"], type="acme/protein.Protein", sort={"field": "name"}) == [
-        "abl1",
-        "src",
-    ]
+    assert sorted(members(viewer, made["id"])) == ["abl1", "src"]
     # Filters, sorting and paging work on members like on any search.
     assert members(viewer, made["hrid"], q="src") == ["src"]
     # Without access to the collection, its members aren't anyone's business.

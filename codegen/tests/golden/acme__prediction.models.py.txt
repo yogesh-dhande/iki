@@ -21,6 +21,97 @@ from iki_server.entities.models import Entity
 from iki_server.files.models import File
 
 
+class Ext_acme_protein_Protein(models.Model):
+    """The fields the acme/prediction plugin adds to Protein (acme/protein.Protein)."""
+
+    IKI_EXTENDS = 'acme/protein.Protein'
+
+    entity = models.OneToOneField(
+        'acme__protein.Protein',
+        models.PROTECT,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='acme_prediction_Ext',
+    )
+    predicted_by = models.CharField(max_length=64, null=True)
+
+    class Meta:
+        db_table = 'acme__prediction__acme__protein_protein'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('predicted_by'), 1),
+                name='acme__prediction__acme__protein_protein__predicted___9b95388572',
+            ),
+            models.CheckConstraint(
+                condition=~Q(predicted_by__regex='[\\r\\n]'),
+                name='acme__prediction__acme__protein_protein__predicted_by__one_line',
+            ),
+        ]
+
+
+class Ext_acme_protein_Protein_History(models.Model):
+    """The history of acme__prediction__acme__protein_protein: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Ext_acme_protein_Protein'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    predicted_by = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__prediction__acme__protein_protein__history'
+
+
+class Ext_acme_protein_Protein_Entry(models.Model):
+    """The registry fields the acme/prediction plugin adds to Protein's entries (acme/protein.Protein, ADR 0115)."""
+
+    IKI_EXTENDS = 'acme/protein.Protein'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        'acme__protein.Protein_Entry',
+        models.PROTECT,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='acme_prediction_Entry',
+    )
+    disorder = models.FloatField(null=True)
+
+    class Meta:
+        db_table = 'acme__prediction__acme__protein_protein__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(disorder__gt=float('-inf'), disorder__lt=float('inf')),
+                name='acme__prediction__acme__protein_protein__entry__dis__1e659df1cd',
+            ),
+            models.CheckConstraint(
+                condition=Q(disorder__gte=0),
+                name='acme__prediction__acme__protein_protein__entry__disorder__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(disorder__lte=1),
+                name='acme__prediction__acme__protein_protein__entry__disorder__max',
+            ),
+        ]
+
+
+class Ext_acme_protein_Protein_Entry_History(models.Model):
+    """The history of acme__prediction__acme__protein_protein__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Ext_acme_protein_Protein_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    disorder = models.FloatField(null=True)
+
+    class Meta:
+        db_table = 'acme__prediction__acme__protein_protein__entry__history'
+
+
 class Ext_acme_protein_ProteinStructure(models.Model):
     """The fields the acme/prediction plugin adds to Protein Structure (acme/protein.ProteinStructure)."""
 

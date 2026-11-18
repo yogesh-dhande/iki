@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         CreatedOut,
         EntityOut,
         EntityTypeOut,
+        EntryOut,
         LineageGraphOut,
         MeOut,
         OriginOut,
@@ -122,7 +123,7 @@ class Client:
     """Iki, as you: ``iki.Client()`` uses your sign-in (see ``iki.login``), or
     ``IKI_URL`` and ``IKI_TOKEN``.
 
-    Its parts follow the API: ``entities``, ``types``, ``projects``, ``actions``,
+    Its parts follow the API: ``entities``, ``entries``, ``types``, ``projects``, ``actions``,
     ``runs`` and ``files``. For anything else, ``request`` calls the API directly.
 
     An AI agent using it may say what model it is, ``agent_model="claude-opus-5-5"``
@@ -167,6 +168,7 @@ class Client:
             },
         )
         self.entities = Entities(self)
+        self.entries = Entries(self)
         self.types = Types(self)
         self.projects = Projects(self)
         self.actions = Actions(self)
@@ -401,9 +403,16 @@ class Entities(_Part):
             params["project"] = client._project_id(project)
         return cast("list[EntityOut]", client.request("GET", "/entities/lookup", params=params))
 
-    def get(self, ref: str) -> EntityOut:
-        """An entity, by its ID or HRID (``PRT-000123``)."""
-        return cast("EntityOut", self._client.request("GET", _path("/entities/{ref}", ref=ref)))
+    def get(self, ref: str, *, project: str | Mapping[str, Any] | None = None) -> EntityOut:
+        """An entity, by its ID or HRID (``PRT-000123``). A registry ID such as
+        ``CPD-000123`` names a project's record of that entry: when several of your
+        projects have one, say whose with `project` (otherwise ``iki.Conflict`` lists
+        them)."""
+        params = {"project": self._client._project_id(project)} if project is not None else None
+        return cast(
+            "EntityOut",
+            self._client.request("GET", _path("/entities/{ref}", ref=ref), params=params),
+        )
 
     def create(
         self,
@@ -412,19 +421,29 @@ class Entities(_Part):
         *,
         project: str | Mapping[str, Any],
         reason: str = "",
-        allow_duplicate: bool = False,
     ) -> CreatedOut:
-        """A new entity in `project` (its ID or slug). If its type reuses duplicates
-        and one with the same identity exists, you get that one back, with
-        ``reused`` true, and it's added to the project."""
+        """A new entity in `project` (its ID or slug). For a type with an identity, it
+        registers it: a new identity gets a registry ID (``registered`` true); one
+        registered already gets the project a record of that entry; one the project has
+        a record of already comes back as it is (``reused`` true)."""
         body = {
             "type": type,
             "project": self._client._project_id(project),
             "values": dict(values),
             "reason": reason,
-            "allow_duplicate": allow_duplicate,
         }
         return cast("CreatedOut", self._client.request("POST", "/entities", json=body))
+
+    def move(self, ref: str, *, reason: str = "") -> EntityOut:
+        """Moves a record of a superseded registry entry to the entry that replaced it,
+        with its data, history and runs; the project's records that refer to the old
+        entry then refer to the new one."""
+        return cast(
+            "EntityOut",
+            self._client.request(
+                "POST", _path("/entities/{ref}/move", ref=ref), json={"reason": reason}
+            ),
+        )
 
     def update(
         self, ref: str, values: Mapping[str, Any], *, revision: int, reason: str
@@ -482,6 +501,70 @@ class Entities(_Part):
                 "GET",
                 _path("/entities/{ref}/lineage/graph", ref=ref),
                 params={"up": up, "down": down},
+            ),
+        )
+
+
+class Entries(_Part):
+    """Registry entries (ADR 0115): each identity, registered once, with its registry ID
+    (``CPD-000123``), identity, derived values and facts. You read one you have a record
+    of; its registry's registrars read and curate them all."""
+
+    def get(self, ref: str) -> EntryOut:
+        """An entry, by its ID or HRID, with the records of it in projects you can read."""
+        return cast("EntryOut", self._client.request("GET", _path("/entries/{ref}", ref=ref)))
+
+    def history(self, ref: str) -> Results[RevisionOut]:
+        """Its revisions, newest first. For changes through projects you can't read,
+        only what was set: not who or when."""
+        client = self._client
+        path = _path("/entries/{ref}/revisions", ref=ref)
+        return Results(lambda c: client.request("GET", path, params={"cursor": c}))
+
+    def add_to(
+        self,
+        ref: str,
+        project: str | Mapping[str, Any],
+        values: Mapping[str, Any] | None = None,
+        *,
+        reason: str = "",
+    ) -> CreatedOut:
+        """Gives `project` a record of the entry, with its own `values`, as registering
+        the same identity there would."""
+        body = {
+            "project": self._client._project_id(project),
+            "values": dict(values or {}),
+            "reason": reason,
+        }
+        return cast(
+            "CreatedOut",
+            self._client.request("POST", _path("/entries/{ref}/records", ref=ref), json=body),
+        )
+
+    def curate(
+        self, ref: str, values: Mapping[str, Any], *, revision: int, reason: str
+    ) -> EntryOut:
+        """For its registry's registrars: changes its facts, with a reason, as one
+        revision. `revision` is the one you read."""
+        return cast(
+            "EntryOut",
+            self._client.request(
+                "PATCH",
+                _path("/entries/{ref}", ref=ref),
+                json={"values": dict(values), "reason": reason},
+                headers={"If-Match": f'"{revision}"'},
+            ),
+        )
+
+    def supersede(self, ref: str, *, replacement: str, reason: str) -> EntryOut:
+        """For its registry's registrars: replaces a mistaken entry with `replacement`, for
+        good. Its holding projects are told, to move their records."""
+        return cast(
+            "EntryOut",
+            self._client.request(
+                "POST",
+                _path("/entries/{ref}/supersede", ref=ref),
+                json={"replacement": replacement, "reason": reason},
             ),
         )
 

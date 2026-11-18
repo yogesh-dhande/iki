@@ -9,6 +9,7 @@ extends_type: iki/protein.ProteinStructure
 fields:
   predicted_error:
     type: quantity
+    registry: derived
     unit: Ao
     min: 0
     computed: true
@@ -20,6 +21,7 @@ fields:
       its B-factor in the file.
   cdr_h3_predicted_error:
     type: quantity
+    registry: derived
     label: CDR-H3 predicted error
     unit: Ao
     min: 0

@@ -112,7 +112,9 @@ def test_a_value_written_at_the_same_moment_is_refused_too(
     monkeypatch.setattr(unique, "taken", lambda *a, **k: {})
     body = problem(protein(api, world.project, "MKVL", lims_id="LIMS-1"), 422, "validation_failed")
     assert body["errors"][0]["pointer"] == "#/values/unique"
-    assert Entity.objects.filter(type="acme/protein.Protein").count() == 1
+    assert (
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count() == 1
+    )
 
 
 def test_extension_fields_can_be_unique(world: World) -> None:

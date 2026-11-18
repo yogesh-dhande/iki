@@ -8,7 +8,7 @@ from django.db.models import Count, QuerySet
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Status
 
-from iki_server.api.common import caller, person, project, team
+from iki_server.api.common import caller, person, project, require, team
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import (
@@ -22,12 +22,13 @@ from iki_server.api.schemas import (
     TeamRef,
     parse_role,
 )
-from iki_server.org import permissions, services
+from iki_server.org import permissions, registries, services
 from iki_server.org.models import (
     PROJECT_ROLE_DESCRIPTIONS,
     Project,
     ProjectMembership,
     ProjectRole,
+    Registry,
     Team,
 )
 from iki_server.org.permissions import Action
@@ -84,7 +85,19 @@ def create_project(request: HttpRequest, payload: ProjectIn) -> Status[Project]:
     """Any member of the team can create a project in it, and becomes its Admin."""
     me = caller(request)
     owner = team(me, payload.team, Action.PROJECT_CREATE)
-    created = services.create_project(owner, payload.name.strip(), payload.description, by=me)
+    chosen = None
+    if payload.registry is not None:
+        chosen = registries.for_team(owner).filter(pk=payload.registry).first()
+        if chosen is None:
+            raise Problem(
+                422,
+                f"That isn’t a registry {owner.name}’s projects may be in.",
+                code="validation_failed",
+                errors=[{"pointer": "#/registry", "detail": "isn't one the team may use."}],
+            )
+    created = services.create_project(
+        owner, payload.name.strip(), payload.description, by=me, registry=chosen
+    )
     return Status(201, _reload(me, created))
 
 
@@ -103,9 +116,24 @@ def patch_project(request: HttpRequest, project_id: UUID, payload: ProjectPatch)
     in the same request if you like. Whether its entities may be shared can change either
     way, since restricting it only protects them."""
     me = caller(request)
-    found = project(me, project_id, Action.PROJECT_MANAGE)
+    if payload.registry is not None and payload.model_fields_set == {"registry"}:
+        # Org Admins choose registries, with or without a role in the project.
+        found = project(me, project_id)
+    else:
+        found = project(me, project_id, Action.PROJECT_MANAGE)
     edits = payload.name is not None or payload.description is not None
     with transaction.atomic():
+        if payload.registry is not None and payload.registry != found.registry_id:
+            require(me, Action.REGISTRIES_MANAGE)
+            chosen = Registry.objects.filter(pk=payload.registry).first()
+            if chosen is None:
+                raise Problem(
+                    422,
+                    "There’s no such registry.",
+                    code="validation_failed",
+                    errors=[{"pointer": "#/registry", "detail": "isn't a registry."}],
+                )
+            registries.set_project_registry(found, chosen, by=me)
         if payload.archived is False and found.is_archived:
             services.set_project_archived(found, False, by=me)
         if edits:

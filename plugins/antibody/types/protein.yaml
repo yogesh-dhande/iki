@@ -9,6 +9,7 @@ extends_type: iki/protein.Protein
 fields:
   chain_type:
     type: enum
+    registry: derived
     values: [heavy, kappa, lambda, heavy_and_light]
     computed: true
     indexed: true
@@ -17,6 +18,7 @@ fields:
       light chain's, or both a heavy and a light one (an scFv).
   species:
     type: enum
+    registry: derived
     label: Closest species
     values: [human, mouse, rat, rabbit, rhesus, pig, cow, alpaca]
     computed: true
@@ -27,17 +29,35 @@ fields:
       nanobody's alpaca.
   numbering_scheme:
     type: enum
+    registry: derived
     values: [imgt, kabat, chothia]
     computed: true
     description: The scheme its domains were numbered in, which says where its CDRs are.
-  cdr_h1: { type: string, label: CDR-H1, max_length: 64, computed: true }
-  cdr_h2: { type: string, label: CDR-H2, max_length: 64, computed: true }
-  cdr_h3: { type: string, label: CDR-H3, max_length: 64, computed: true, indexed: true }
-  cdr_l1: { type: string, label: CDR-L1, max_length: 64, computed: true }
-  cdr_l2: { type: string, label: CDR-L2, max_length: 64, computed: true }
-  cdr_l3: { type: string, label: CDR-L3, max_length: 64, computed: true, indexed: true }
+  cdr_h1: { registry: derived, type: string, label: CDR-H1, max_length: 64, computed: true }
+  cdr_h2: { registry: derived, type: string, label: CDR-H2, max_length: 64, computed: true }
+  cdr_h3:
+    {
+      registry: derived,
+      type: string,
+      label: CDR-H3,
+      max_length: 64,
+      computed: true,
+      indexed: true,
+    }
+  cdr_l1: { registry: derived, type: string, label: CDR-L1, max_length: 64, computed: true }
+  cdr_l2: { registry: derived, type: string, label: CDR-L2, max_length: 64, computed: true }
+  cdr_l3:
+    {
+      registry: derived,
+      type: string,
+      label: CDR-L3,
+      max_length: 64,
+      computed: true,
+      indexed: true,
+    }
   heavy_v_gene:
     type: string
+    registry: derived
     label: Heavy V gene
     max_length: 64
     computed: true
@@ -45,6 +65,7 @@ fields:
     description: The human germline V gene its heavy domain is closest to, such as IGHV3-66*01.
   heavy_germline_identity:
     type: quantity
+    registry: derived
     label: Heavy human germline identity
     unit: "%"
     min: 0
@@ -54,9 +75,11 @@ fields:
     description: >-
       How much of its heavy domain's V region is the same as that gene's: its
       humanness. A human antibody is usually above 90%, a humanized one above 80%.
-  heavy_j_gene: { type: string, label: Heavy J gene, max_length: 64, computed: true }
+  heavy_j_gene:
+    { registry: derived, type: string, label: Heavy J gene, max_length: 64, computed: true }
   light_v_gene:
     type: string
+    registry: derived
     label: Light V gene
     max_length: 64
     computed: true
@@ -64,6 +87,7 @@ fields:
     description: The human germline V gene its light domain is closest to, such as IGKV1-39*01.
   light_germline_identity:
     type: quantity
+    registry: derived
     label: Light human germline identity
     unit: "%"
     min: 0
@@ -71,9 +95,11 @@ fields:
     computed: true
     indexed: true
     description: How much of its light domain's V region is the same as that gene's.
-  light_j_gene: { type: string, label: Light J gene, max_length: 64, computed: true }
+  light_j_gene:
+    { registry: derived, type: string, label: Light J gene, max_length: 64, computed: true }
   variable_domains:
     type: json
+    registry: derived
     computed: true
     description: >-
       Each variable domain numbering found, in order along the chain: its chain
@@ -116,6 +142,7 @@ fields:
           human: { $ref: "#/$defs/germlines" }
   liabilities:
     type: json
+    registry: derived
     label: Sequence liabilities
     computed: true
     description: >-
@@ -150,6 +177,7 @@ fields:
           severity: { enum: [high, medium, low] }
   liability_counts:
     type: json
+    registry: derived
     label: Sequence liabilities by kind
     computed: true
     description: >-
@@ -169,6 +197,7 @@ fields:
           - pyroglutamate
   liability_count:
     type: int
+    registry: derived
     label: Sequence liabilities found
     min: 0
     computed: true

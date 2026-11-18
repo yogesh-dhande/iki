@@ -9,7 +9,8 @@ Every authorization decision goes through :mod:`iki_server.org.permissions`.
 Nothing else reads these tables to decide what someone may do.
 """
 
-from typing import ClassVar
+from typing import Any, ClassVar
+from uuid import UUID
 
 from django.conf import settings
 from django.db import models
@@ -138,6 +139,116 @@ class TeamMembership(models.Model):
         return f"{self.user} in {self.team}"
 
 
+class Registry(models.Model):
+    """An identity boundary (ADR 0115): within it, an identity (a sequence, a structure) is
+    one registry entry with one ID, and every project is in exactly one. The default one
+    is every team's; Org Admins add more, for a CRO's clients or a partner program, each
+    used by the teams they name."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    name = models.CharField(max_length=100, unique=True, db_collation=CASE_INSENSITIVE)
+    #: Set once at creation, so links keep working after a rename.
+    slug = models.SlugField(max_length=SLUG_MAX_LENGTH, unique=True, editable=False)
+    description = models.TextField(max_length=2000, blank=True)
+    #: The one new projects are in unless they're given another. Every team may use it.
+    is_default = models.BooleanField(default=False)
+    #: Every team's projects may use it; otherwise only those of ``teams``.
+    all_teams = models.BooleanField(
+        default=False, db_comment="Whether every team's projects may use it (ADR 0115)."
+    )
+    teams = models.ManyToManyField(
+        Team, blank=True, related_name="registries", db_table="iki_registry_team"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "iki_registry"
+        db_table_comment = "Identity boundaries: one entry per identity in each (ADR 0115)."
+        ordering = ("-is_default", "name")
+        verbose_name_plural = "registries"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(
+                fields=["is_default"], condition=Q(is_default=True), name="iki_registry_one_default"
+            ),
+            models.CheckConstraint(
+                condition=Q(is_default=False) | Q(all_teams=True),
+                name="iki_registry_default_is_everyones",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if not self.slug:
+            self.slug = unique_slug(self.name, Registry, "registry")
+        super().save(*args, **kwargs)  # type: ignore[arg-type]
+
+    @classmethod
+    def default(cls) -> "Registry":
+        """The default registry, made the first time it's needed."""
+        found = cls.objects.filter(is_default=True).first()
+        if found is not None:
+            return found
+        registry, _ = cls.objects.get_or_create(
+            is_default=True,
+            defaults={
+                "name": DEFAULT_REGISTRY_NAME,
+                "all_teams": True,
+                "description": DEFAULT_REGISTRY_DESCRIPTION,
+            },
+        )
+        return registry
+
+
+#: What the default registry is called until an Org Admin renames it.
+DEFAULT_REGISTRY_NAME = "Main"
+DEFAULT_REGISTRY_DESCRIPTION = (
+    "The organization's registry. Projects are in it unless an Org Admin gives them another."
+)
+
+
+def default_registry() -> Any:  # noqa: ANN401 - a UUID, as Django's field defaults are
+    """New projects' registry, unless they're given another."""
+    return Registry.default().pk
+
+
+class Registrar(models.Model):
+    """Someone who curates a registry (ADR 0115): changes its entries' facts once they're
+    set, and supersedes mistaken entries. Org Admins appoint them, a registry at a time."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    registry = models.ForeignKey(Registry, on_delete=models.CASCADE, related_name="registrars")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="registrar_of"
+    )
+    appointed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    appointed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "iki_registrar"
+        db_table_comment = "Who curates each registry's facts and supersessions (ADR 0115)."
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["registry", "user"], name="iki_registrar_once"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} curates {self.registry}"
+
+
+def registry_of(project: "Project") -> UUID:
+    """A project's registry's ID: always set, though django-stubs, for its default, can't
+    tell."""
+    found = project.registry_id
+    assert found is not None  # noqa: S101 - the column is NOT NULL
+    return found
+
+
 class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey(Team, on_delete=models.PROTECT, related_name="projects")
@@ -156,6 +267,11 @@ class Project(models.Model):
     allow_sharing = models.BooleanField(
         default=True,
         db_comment="Whether its entities may be shared with other projects (ADR 0067).",
+    )
+    #: Its identity boundary (ADR 0115): what it registers is one entry with every other
+    #: project's in the registry. Fixed once it has entities.
+    registry = models.ForeignKey(
+        Registry, on_delete=models.PROTECT, related_name="projects", default=default_registry
     )
 
     class Meta:

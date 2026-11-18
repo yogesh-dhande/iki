@@ -5,6 +5,7 @@
   <a href="{% url 'notifications:org_email' %}"{% if name == "org_email" %} aria-current="page"{% endif %}>Email</a>
   <a href="{% url 'webhook_settings' %}">Webhooks</a>
   <a href="{% url 'org:plugins' %}"{% if name == "plugins" or name == "plugin" %} aria-current="page"{% endif %}>Plugins</a>
+  <a href="{% url 'org:registries' %}"{% if name == "registries" or name == "registry" %} aria-current="page"{% endif %}>Registries</a>
   <a href="{% url 'org:legal_holds' %}"{% if name == "legal_holds" %} aria-current="page"{% endif %}>Legal holds</a>
 </nav>
 {% endwith %}

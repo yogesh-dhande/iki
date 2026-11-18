@@ -21,6 +21,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 import pytest
 from org_world import World
@@ -231,7 +232,8 @@ def test_a_components_code_gets_nothing_out(
     assert not [f for f in page.frames if f.url.startswith("about:")], browser_name
     # The frame is still the component's: none of that took it, or the page, elsewhere.
     assert "/plugin-components/acme/protein.residues/" in frame.url
-    assert page.url.endswith("/") and "/entities/" in page.url
+    where = urlparse(page.url)
+    assert where.path.endswith("/") and where.path.startswith("/entities/")
 
 
 def test_a_component_that_takes_its_frame_elsewhere_reaches_nothing(

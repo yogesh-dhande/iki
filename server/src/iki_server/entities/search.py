@@ -45,7 +45,7 @@ from typing import Any, cast
 from django.contrib.postgres.search import SearchQuery, SearchVector, SearchVectorExact
 from django.core import signing
 from django.db import OperationalError, connection, transaction
-from django.db.models import Exists, F, Model, OuterRef, Q, QuerySet
+from django.db.models import Exists, F, Model, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Lower
 
 from iki_server.entities import access, registry
@@ -126,6 +126,9 @@ class Column:
     field: Field | None = None
     #: For lists of references or files: the table of their items.
     items: type[Model] | None = None
+    #: For a registry entry's field (ADR 0115): the table of the type's entries, which
+    #: ``path`` starts from. A record matches by its entry.
+    entry: type[Model] | None = None
 
 
 _BUILT_IN = {
@@ -188,7 +191,9 @@ def _in_collection(user: Any, reference: str) -> Q:  # noqa: ANN401 - User
     data = collection.search  # type: ignore[attr-defined]
     if data is None:
         items = shape("iki/core.Collection").part_of("members").list_model("members")
-        return Q(pk__in=items._default_manager.filter(entity_id=collection.pk).values("item_id"))
+        members = items._default_manager.filter(entity_id=collection.pk).values("item_id")
+        # A member of a type with an identity is its registry entry: its records match.
+        return Q(pk__in=members) | Q(entry_id__in=members)
     try:
         inner = queryset(user, stored(data))
     except SearchError as error:
@@ -211,6 +216,7 @@ class _Compiler:
         self.templated = templated
         self.errors: list[tuple[str, str]] = []
         self.count = 0
+        self._named: Column | None = None
 
     def fail(self, pointer: str, detail: str) -> Q:
         self.errors.append((pointer, detail))
@@ -253,6 +259,15 @@ class _Compiler:
         return self.leaf(node, pointer)
 
     def leaf(self, node: Mapping[str, Any], pointer: str) -> Q:
+        condition = self._condition(node, pointer)
+        col = self._named
+        if col is None or col.entry is None or not condition:
+            return condition
+        # A registry entry's field (ADR 0115): the records whose entry matches.
+        return Q(entry_id__in=col.entry._default_manager.filter(condition).values("pk"))
+
+    def _condition(self, node: Mapping[str, Any], pointer: str) -> Q:
+        self._named = None
         self.count += 1
         if self.count == MAX_CONDITIONS + 1:
             return self.fail(pointer, f"is one condition too many: at most {MAX_CONDITIONS}.")
@@ -268,6 +283,7 @@ class _Compiler:
         col = self.column(node["field"], f"{pointer}/field")
         if col is None:
             return Q()
+        self._named = col
         op = node.get("op")
         allowed = ("is_set", *OPERATORS[col.kind])
         if op not in allowed:
@@ -484,8 +500,14 @@ def _ref(c: _Compiler, _: Column, value: Any) -> uuid.UUID:  # noqa: ANN401 - JS
         lookup = Q(pk=uuid.UUID(value))
     except ValueError:
         lookup = Q(hrid=value)
+    # A reference to a record of a registry entry holds the entry (ADR 0115).
+    record = access.visible(c.user).filter(lookup).values_list("pk", "entry_id").first()
+    if record is not None:
+        own: uuid.UUID = record[0]
+        entry: uuid.UUID | None = record[1]
+        return entry or own
     found: uuid.UUID | None = (
-        access.visible(c.user).filter(lookup).values_list("pk", flat=True).first()
+        access.visible_entries(c.user).filter(lookup).values_list("pk", flat=True).first()
     )
     if found is None:
         raise ValueError("refers to no entity you can read.")
@@ -529,12 +551,18 @@ def column(form: Shape | None, name: str) -> Column | None:
     if f is None:
         return None
     part = form.part_of(name)
-    prefix = f"{naming.extension_related_name(part.plugin)}__" if part.extension else ""
+    entry = None
+    if part.entry:
+        # From the type's entries' table: an extension's entry fields are beside it.
+        entry = next(p.model for p in form.parts if p.entry and not p.extension)
+        prefix = f"{naming.entry_related_name(part.plugin)}__" if part.extension else ""
+    else:
+        prefix = f"{naming.extension_related_name(part.plugin)}__" if part.extension else ""
     if is_list_table(f):
-        return Column(name, f.type, prefix + name, f, items=part.list_model(name))
+        return Column(name, f.type, prefix + name, f, items=part.list_model(name), entry=entry)
     if f.type in ("ref", "file"):
-        return Column(name, f.type, f"{prefix}{name}_id", f)
-    return Column(name, f.type, prefix + name, f)
+        return Column(name, f.type, f"{prefix}{name}_id", f, entry=entry)
+    return Column(name, f.type, prefix + name, f, entry=entry)
 
 
 def form_of(type_name: str | None) -> Shape | None:
@@ -626,12 +654,20 @@ def matching(q: str, type_names: set[str]) -> Q:
         # Titles name the type's own fields; an extension's are in other tables.
         form = shape(name)
         fields = [f for f in title_text_fields(name) if not form.part_of(f).extension]
-        if not fields:
-            continue
-        text = Q()
-        for f in fields:
-            text |= Q(**{f"{f}__containing": q})
-        parts.append(form.model._default_manager.filter(text).values("pk"))
+        own = [f for f in fields if not form.part_of(f).entry]
+        if own:
+            text = Q()
+            for f in own:
+                text |= Q(**{f"{f}__containing": q})
+            parts.append(form.model._default_manager.filter(text).values("pk"))
+        held = [f for f in fields if form.part_of(f).entry]
+        if held:
+            # A registry entry's (ADR 0115): its records, by their entry.
+            text = Q()
+            for f in held:
+                text |= Q(**{f"{f}__containing": q})
+            entries = form.part_of(held[0]).model._default_manager.filter(text).values("pk")
+            parts.append(Entity.objects.filter(entry_id__in=entries).values("pk"))
     return Q(pk__in=parts[0].union(*parts[1:]) if len(parts) > 1 else parts[0])
 
 
@@ -661,7 +697,12 @@ def page(
         last = got[-1] if got and more else None
         return got, _encode(key, None, last.pk) if last is not None else None
     assert col is not None  # noqa: S101 - not by ID
-    expression = F(col.path)
+    expression: Any = F(col.path)
+    if col.entry is not None:
+        # A registry entry's field: each record sorts by its entry's.
+        expression = Subquery(
+            col.entry._default_manager.filter(pk=OuterRef("entry_id")).values(col.path)[:1]
+        )
     if col.field is None and search.type is not None and not search.exact_type:
         # Every entity's own columns (when it changed) are indexed after its type. The type's
         # table holds only it and its subtypes, but saying so lets that index serve.
@@ -675,12 +716,12 @@ def page(
         # Those with a value first, in an order its index reads: descending, that's with
         # blanks first, which there are none of here (blanks last, no index would serve),
         # and ties newest first, as an index on the value and the ID reads backwards.
-        valued = ordered.filter(**{f"{col.path}__isnull": False})
+        valued = ordered.filter(sort_value__isnull=False)
         if after is not None:
             near, past, tie = ("lte", "lt", "lt") if search.descending else ("gte", "gt", "gt")
             valued = valued.filter(
-                Q(**{f"{col.path}__{near}": value}),
-                Q(**{f"{col.path}__{past}": value}) | Q(**{f"pk__{tie}": pk}),
+                Q(**{f"sort_value__{near}": value}),
+                Q(**{f"sort_value__{past}": value}) | Q(**{f"pk__{tie}": pk}),
             )
         order = (
             expression.desc(nulls_first=True)
@@ -693,7 +734,7 @@ def page(
         rows = list(valued[: limit + 1])
     if len(rows) <= limit:
         # Then those without one, oldest first.
-        blanks = ordered.filter(**{f"{col.path}__isnull": True}).order_by("pk")
+        blanks = ordered.filter(sort_value__isnull=True).order_by("pk")
         if in_blanks:
             blanks = blanks.filter(pk__gt=pk)
         rows += list(blanks[: limit + 1 - len(rows)])
@@ -706,6 +747,9 @@ def page(
 
 
 def _indexed(col: Column) -> bool:
+    if col.entry is not None:
+        # Indexed in its entries' table, which can't order the records.
+        return False
     if col.field is None:
         return col.name in _INDEXED_BUILT_IN
     return col.field.indexed

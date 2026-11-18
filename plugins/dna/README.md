@@ -4,14 +4,20 @@ Iki's DNA plugin: DNA sequences and primers, and sequencing reads aligned to
 them.
 
 - **`iki/dna.DNASequence`** (`DNA-000001`): a plasmid, gene, construct or genome.
-  - Its identity is its bases and topology (linear or circular), so
-    registering the same sequence again reuses it.
+  - Its identity is its bases and topology (linear or circular): each
+    sequence is registered once in a registry (ADR 0115), with one ID, and
+    registering it again, in any project, finds that entry. A project that
+    hadn't got it gets its own record of it; one that had finds its record.
+    Its length and GC content are the entry's, and so is its accession, a
+    registry fact only its registrars change once it's set.
   - Its features are kept as GenBank lists them: type, location, strand and
     qualifiers.
-  - Its length and GC content are computed by the plugin's actions.
+  - Its length and GC content are computed by the plugin's actions, once,
+    when it's registered.
 - **`iki/dna.Primer`** (`PRM-000001`): an oligonucleotide, up to 200 bases,
-  optionally bound to the sequence it targets. Its identity is its bases. Its
-  length, GC content and melting temperature are computed.
+  optionally bound to the sequence it targets. Its identity is its bases,
+  registered as a sequence's is. Its length, GC content and melting
+  temperature are computed when it's registered, and are its entry's.
 
 Both extend `iki/core.Sequence`, so a search for sequences finds them alongside
 proteins and other plugins' sequences.
@@ -40,8 +46,8 @@ makes is recorded as made with it
 - **`primer_properties`**: a primer's length, GC content and melting
   temperature, for many at once.
 - **`import_sequences`**: registers each record of a FASTA or GenBank file
-  (up to 10,000, and 1 GiB) as a DNA sequence. A sequence already in Iki is
-  reused. Each records the file and record it came from, with the record's
+  (up to 10,000, and 1 GiB) as a DNA sequence. A sequence already registered
+  is found, and the project gets its record of it, or keeps the one it has. Each records the file and record it came from, with the record's
   SHA-256.
 - **`fetch_sequences`**: fetches nucleotide records from NCBI by accession
   (up to 500, such as `NM_000546.6`, or `L09137` for the latest version), in

@@ -2,7 +2,9 @@
 
 A type's fields are its own, its parents' (multi-table inheritance, so one
 model instance holds them all) and those other plugins add (extension
-tables, one row per entity once it has a value there). Values arrive as JSON
+tables, one row per entity once it has a value there). A type with an
+identity keeps its identity, derived and fact fields in its registry entries'
+tables (ADR 0115), which a record reads through the entry it names. Values arrive as JSON
 and are checked against the field's rules before they reach the database,
 whose CHECK constraints hold them to the same rules again.
 """
@@ -26,7 +28,7 @@ from iki_server.core.sizes import human_size
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
 from iki_spec import naming, units
-from iki_spec.model import EntityType, Field
+from iki_spec.model import EntityType, Field, split_entry
 from iki_spec.validate import value_problems
 
 
@@ -50,7 +52,10 @@ class Part:
     extension: bool
     #: The table by what it holds: the type's qualified name, such as ``iki/dna.Sequence``, or
     #: for an extension, its plugin and the type it extends, ``acme/lims:iki/dna.DNASequence``.
+    #: A registry entry's table adds ``#entry``.
     name: str = ""
+    #: It holds registry entries' fields (ADR 0115), keyed by the entry, not the record.
+    entry: bool = False
 
     def list_model(self, name: str) -> type[models.Model]:
         return apps.get_model(
@@ -65,12 +70,26 @@ class Shape:
 
     @property
     def model(self) -> type[Entity]:
-        """The type's generated model: a subclass of :class:`Entity`, through its parents'."""
+        """The type's generated model of records: a subclass of :class:`Entity`, through its
+        parents'."""
         return cast("type[Entity]", registry.model(self.entity_type.qualified_name))
+
+    @property
+    def entry_model(self) -> type[Entity] | None:
+        """The model of its registry entries, for a type with an identity (ADR 0115)."""
+        return cast("type[Entity] | None", registry.entry_model(self.entity_type.qualified_name))
+
+    @property
+    def has_entries(self) -> bool:
+        return any(p.entry for p in self.parts)
 
     def fields(self) -> dict[str, Field]:
         """The fields entities of this type have now, parents' first."""
         return {n: f for part in self.parts for n, f in part.fields.items() if not f.removed}
+
+    def entry_fields(self) -> dict[str, Field]:
+        """Those of :meth:`fields` its registry entries hold."""
+        return {n: f for p in self.parts if p.entry for n, f in p.fields.items() if not f.removed}
 
     def part_of(self, name: str) -> Part:
         return next(p for p in self.parts if name in p.fields)
@@ -80,36 +99,67 @@ class Shape:
 def shape(qualified: str) -> Shape:
     entity_type = registry.types()[qualified]
     chain = [*reversed(registry.ancestors(entity_type)), entity_type]
-    parts = [
-        Part(
-            plugin=t.plugin,
-            model=registry.model(t.qualified_name),
-            history=apps.get_model(naming.app_label(t.plugin), naming.history_model(t.name)),
-            fields=t.fields,
-            extension=False,
-            name=t.qualified_name,
+    parts = []
+    entries = []
+    for t in chain:
+        record, entry = split_entry(t.fields, t.identity)
+        label = naming.app_label(t.plugin)
+        parts.append(
+            Part(
+                plugin=t.plugin,
+                model=registry.model(t.qualified_name),
+                history=apps.get_model(label, naming.history_model(t.name)),
+                fields=record,
+                extension=False,
+                name=t.qualified_name,
+            )
         )
-        for t in chain
-    ]
+        if t.identity:
+            model = apps.get_model(label, naming.entry_model(t.name))
+            entries.append(
+                Part(
+                    plugin=t.plugin,
+                    model=model,
+                    history=apps.get_model(label, naming.history_model(model.__name__)),
+                    fields=entry,
+                    extension=False,
+                    name=f"{t.qualified_name}#entry",
+                    entry=True,
+                )
+            )
     names = {t.qualified_name for t in chain}
     for e in registry.extensions():
-        if e.extends_type in names:
-            model = apps.get_model(
-                naming.app_label(e.plugin), naming.extension_model(e.extends_type)
-            )
+        if e.extends_type not in names:
+            continue
+        label = naming.app_label(e.plugin)
+        record, entry = split_entry(e.fields)
+        name = naming.extension_model(e.extends_type)
+        if record:
+            model = apps.get_model(label, name)
             parts.append(
                 Part(
                     plugin=e.plugin,
                     model=model,
-                    history=apps.get_model(
-                        naming.app_label(e.plugin), naming.history_model(model.__name__)
-                    ),
-                    fields=e.fields,
+                    history=apps.get_model(label, naming.history_model(model.__name__)),
+                    fields=record,
                     extension=True,
                     name=f"{e.plugin}:{e.extends_type}",
                 )
             )
-    return Shape(entity_type, tuple(parts))
+        if entry:
+            model = apps.get_model(label, naming.entry_model(name))
+            entries.append(
+                Part(
+                    plugin=e.plugin,
+                    model=model,
+                    history=apps.get_model(label, naming.history_model(model.__name__)),
+                    fields=entry,
+                    extension=True,
+                    name=f"{e.plugin}:{e.extends_type}#entry",
+                    entry=True,
+                )
+            )
+    return Shape(entity_type, tuple(parts + entries))
 
 
 def is_list_table(f: Field) -> bool:
@@ -133,8 +183,22 @@ def subtypes(qualified: str) -> set[str]:
 # --- JSON → database ----------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class Target:
+    """What a reference names, as it's stored: a registry entry for a type with an identity
+    (ADR 0115), else the entity itself."""
+
+    id: uuid.UUID
+    type: str
+
+
 class Refs:
-    """Finds what values refer to, so a reference never reveals what the caller can't read."""
+    """Finds what values refer to, so a reference never reveals what the caller can't read.
+
+    A reference to an entity with an identity holds its registry entry (ADR 0115), named
+    by the entry's ID or by a record of it, and only one the project holds: it has a
+    record of it, its own or one shared with it. ``project`` names it when one isn't.
+    """
 
     def __init__(
         self,
@@ -143,6 +207,9 @@ class Refs:
         *,
         held: Any = None,  # noqa: ANN401
         held_files: Any = None,  # noqa: ANN401
+        entries: Any = None,  # noqa: ANN401
+        readable_entries: Any = None,  # noqa: ANN401
+        project: str = "the project",
     ) -> None:
         self.readable = readable
         self.files = files
@@ -150,16 +217,66 @@ class Refs:
         #: doesn't allow sharing (ADR 0067): a reference to one says so.
         self.held = held
         self.held_files = held_files
-        #: Types already looked up; None for an entity the caller can't read.
-        self._types: dict[uuid.UUID, str | None] = {}
+        #: The registry entries the project holds, and those the caller can read.
+        self.entries = entries
+        self.readable_entries = readable_entries
+        self.project = project
+        #: Already looked up: what to store, why it can't be referred to, or None for
+        #: nothing the caller can read.
+        self._found: dict[uuid.UUID, Target | str | None] = {}
+
+    def look_up(self, ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, Target | str | None]:
+        wanted = set(ids)
+        unknown = [i for i in wanted if i not in self._found]
+        if unknown:
+            self._look_up(unknown)
+        return {i: self._found[i] for i in wanted}
+
+    def _look_up(self, unknown: list[uuid.UUID]) -> None:
+        records = {
+            pk: (type_name, entry, hrid)
+            for pk, type_name, entry, hrid in self.readable.filter(pk__in=unknown).values_list(
+                "pk", "type", "entry_id", "hrid"
+            )
+        }
+        entry_ids = (set(unknown) - records.keys()) | {
+            entry for _, entry, _ in records.values() if entry is not None
+        }
+        held: dict[uuid.UUID, str] = {}
+        known: dict[uuid.UUID, str] = {}
+        if entry_ids and self.entries is not None:
+            held = dict(self.entries.filter(pk__in=entry_ids).values_list("pk", "type"))
+        if entry_ids - held.keys() and self.readable_entries is not None:
+            known = dict(
+                self.readable_entries.filter(pk__in=entry_ids - held.keys()).values_list(
+                    "pk", "hrid"
+                )
+            )
+        for i in unknown:
+            found: Target | str | None = None
+            if i in records:
+                type_name, entry, hrid = records[i]
+                if entry is None:
+                    found = Target(i, type_name)
+                elif entry in held:
+                    found = Target(entry, type_name)
+                else:
+                    found = self._not_held(hrid)
+            elif i in held:
+                found = Target(i, held[i])
+            elif i in known:
+                found = self._not_held(known[i])
+            self._found[i] = found
+
+    def _not_held(self, hrid: str) -> str:
+        return (
+            f"refers to {hrid}, which isn't in {self.project}: add it to the project first, "
+            "by registering it there."
+        )
 
     def types(self, ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
-        wanted = set(ids)
-        unknown = [i for i in wanted if i not in self._types]
-        if unknown:
-            found = dict(self.readable.filter(pk__in=unknown).values_list("pk", "type"))
-            self._types.update({i: found.get(i) for i in unknown})
-        return {i: t for i in wanted if (t := self._types[i]) is not None}
+        """The types of those of ``ids`` the values may refer to."""
+        return {i: t.type for i, t in self.look_up(ids).items() if isinstance(t, Target)}
 
     def file(self, file_id: uuid.UUID) -> tuple[str, int] | None:
         """A readable file's media type and size."""
@@ -294,7 +411,9 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
     except ValueError:
         raise ValueError("must be an entity's ID.") from None
     assert f.to is not None  # noqa: S101 - refs always name a type
-    found = refs.types([target]).get(target)
+    found = refs.look_up([target])[target]
+    if isinstance(found, str):
+        raise ValueError(found)
     if found is None:
         holder = refs.holder(target)
         if holder is not None:
@@ -303,9 +422,9 @@ def _ref(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
                 "with other projects."
             )
         raise ValueError("refers to no entity you can read.")
-    if found not in subtypes(f.to):
-        raise ValueError(f"must refer to a {f.to}, not a {found}.")
-    return target
+    if found.type not in subtypes(f.to):
+        raise ValueError(f"must refer to a {f.to}, not a {found.type}.")
+    return found.id
 
 
 def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON

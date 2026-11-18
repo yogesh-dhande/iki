@@ -4,6 +4,12 @@
   its values.
 - ``/entities`` lists, creates, reads and changes entities. An entity is
   addressed by its ID or its HRID (``DNA-000042``).
+- An entity of a type with an identity is a project's **record** of a registry
+  entry (ADR 0115), with the entry's HRID: each project holding it has one. An
+  HRID names the one you can read, or with ``?project=``, that project's;
+  when you read several, it answers 409 (``choose_project``), listing them.
+  Creating one registers its identity: ``registered`` says whether the entry is
+  new, and ``reused`` that the project had a record of it already.
 - Every read carries an ``ETag``, the entity's revision. A change must send
   it back as ``If-Match``. If someone else changed the entity since, the
   change is refused (412) rather than overwriting theirs. A change without
@@ -19,7 +25,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict
@@ -28,12 +34,19 @@ from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import AgentOut, Page, PersonRef, ProjectRef, UserOut, agent_out
+from iki_server.api.schemas import (
+    AgentOut,
+    Page,
+    PersonRef,
+    ProjectRef,
+    RegistryRef,
+    UserOut,
+    agent_out,
+)
 from iki_server.entities import access, registry, schema, search, services, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.org import permissions
-from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.runs.models import EntityMaking, ExternalOrigin, Lineage, MadeBy, RunEffect
 from iki_server.runs.services import visible_runs
@@ -43,7 +56,7 @@ from iki_spec.model import Field as SpecField
 
 router = Router(tags=["entities"])
 
-DuplicatePolicy = Literal["reuse", "warn", "allow"]
+RegistryMark = Literal["identity", "derived", "fact"]
 
 
 # --- Schemas -------------------------------------------------------------------------------------
@@ -88,6 +101,12 @@ class FieldOut(Schema):
     to: str | None = Field(description="References: the type they refer to.")
     values: list[str] = Field(description="Enums: the allowed values.")
     items: str | None = Field(description="Lists: the type of each item.")
+    registry: RegistryMark | None = Field(
+        None,
+        description="Its registry entry's (ADR 0115), every holding project's: part of its "
+        "identity, derived from it, or a fact its registrars curate. A fact is set while it's "
+        "empty; after that only a registrar changes it. Null: each project's own.",
+    )
 
 
 class TrackOut(Schema):
@@ -160,9 +179,10 @@ class EntityTypeOut(Schema):
     )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
     hrid_prefix: str | None
-    identity: list[str] = Field(description="The fields that tell two entities apart.")
-    on_duplicate: DuplicatePolicy | None = Field(
-        description="What creating an entity with the same identity as another does."
+    identity: list[str] = Field(
+        description="The fields that tell two entities apart. With one, its entities are "
+        "projects' records of registry entries (ADR 0115): one entry per identity in a "
+        "registry, one record of it per project."
     )
     fields: list[FieldOut]
     values_schema: dict[str, Any] = Field(
@@ -202,6 +222,25 @@ class FileRef(Schema):
     size: int = Field(description="Bytes.")
 
 
+class SupersededOut(Schema):
+    by: RefOut = Field(description="The entry that replaced it.")
+    by_id: UUID
+    at: datetime
+    reason: str
+
+
+class EntryRefOut(Schema):
+    """A record's registry entry (ADR 0115): its identity, ID and registry values."""
+
+    id: UUID
+    hrid: str
+    registry: RegistryRef
+    revision: int = Field(description="The entry's latest revision.")
+    superseded: SupersededOut | None = Field(
+        description="A registrar replaced it with another entry: move the record there."
+    )
+
+
 class EntityOut(Schema):
     id: UUID
     hrid: str
@@ -223,14 +262,23 @@ class EntityOut(Schema):
     files: dict[str, FileRef] = Field(
         description="The files its values refer to that you can read, by ID."
     )
+    entry: EntryRefOut | None = Field(
+        None,
+        description="For a record of a type with an identity, its registry entry (ADR 0115): "
+        "the values marked `registry` are the entry's.",
+    )
     can: EntityCan
 
 
 class CreatedOut(EntityOut):
     reused: bool = Field(
-        description="An entity with the same identity existed, and is returned instead."
+        description="The project had a record of this identity already: it's returned as it "
+        "is, unchanged."
     )
-    linked: bool = Field(description="The existing entity was added to the project.")
+    registered: bool = Field(
+        description="A new registry entry was made for it. False when the identity was "
+        "registered already, by any project: then the project gets a record of that entry."
+    )
 
 
 class EntityIn(Schema):
@@ -238,9 +286,6 @@ class EntityIn(Schema):
     project: UUID = Field(description="The project it belongs to. It needs you as an Editor.")
     values: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field("", max_length=2000, description="Why, for the record.")
-    allow_duplicate: bool = Field(
-        False, description="Create it even if its type warns about a duplicate."
-    )
 
 
 class EntityPatch(Schema):
@@ -259,7 +304,13 @@ class RunRefOut(Schema):
 
 class RevisionOut(Schema):
     number: int
-    kind: Literal["created", "edited", "archived", "restored"]
+    kind: Literal["created", "edited", "archived", "restored", "curated", "superseded", "moved"]
+    entry: bool = Field(
+        False,
+        description="It's a revision of the record's registry entry (ADR 0115), not of the "
+        "record. Who made it, how and when are told only to the project it was made through, "
+        "and for a registrar's change, to every holder: for others they're empty.",
+    )
     changed_fields: list[str]
     user: UserOut | None = Field(description="Who, or for a run, who launched it.")
     via: str = Field(description="How: web, api, mcp, run, …")
@@ -274,7 +325,7 @@ class RevisionOut(Schema):
         description="The run that made it, when `via` is `run` and you can read the run's project.",
     )
     reason: str
-    created_at: datetime
+    created_at: datetime | None
 
 
 class ChangeOut(Schema):
@@ -444,11 +495,15 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
     form = shape(entity_type.qualified_name)
     owner = registry.identity_owner(entity_type)
     fields = []
+    identity = set(owner.identity) if owner is not None else set()
     for part in form.parts:
         for name, f in part.fields.items():
             if f.removed:
                 continue
-            fields.append(field_out(name, f, part.plugin))
+            out = field_out(name, f, part.plugin)
+            if part.entry:
+                out["registry"] = "identity" if name in identity else f.registry
+            fields.append(out)
     name = entity_type.qualified_name
     return {
         "name": name,
@@ -462,7 +517,6 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
         "identity": list(owner.identity) if owner is not None else [],
-        "on_duplicate": registry.duplicate_policy(entity_type),
         "fields": fields,
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
@@ -517,17 +571,57 @@ def get_type(request: HttpRequest, name: str) -> dict[str, Any]:
 # --- Reading -------------------------------------------------------------------------------------
 
 
-def _find(user: User, ref: str) -> Entity:
-    """The entity, by ID or HRID, if the user can read it. Otherwise 404."""
+def _find(user: User, ref: str, project_id: UUID | None = None) -> Entity:
+    """The entity, by ID or HRID, if the user can read it. Otherwise 404.
+
+    A registry entry's ID or HRID (ADR 0115) names a project's record of it: the one the
+    user can read, or ``project_id``'s. When they can read several, it answers 409."""
     readable = access.visible(user).select_related("created_by")
     try:
-        found = readable.filter(pk=UUID(ref)).first()
+        key = UUID(ref)
     except ValueError:
-        found = readable.filter(hrid=ref.upper()).first()
-    if found is None:
+        key = None
+    if key is not None:
+        found = readable.filter(pk=key).first()
+        if found is not None:
+            return found
+        candidates = readable.filter(entry_id=key)
+    else:
+        candidates = readable.filter(hrid=ref.upper())
+    if project_id is not None:
+        candidates = candidates.filter(links__project_id=project_id)
+    records = list(candidates.select_related("owner_project").order_by("created_at", "pk")[:21])
+    if project_id is not None:
+        own = [r for r in records if r.owner_project_id == project_id]
+        records = own or records
+    if len(records) == 1:
+        return records[0]
+    if not records:
         _gone(user, ref)
         raise Problem(404, "No such entity, or you can’t read it.")
-    return found
+    raise _choose_project(user, ref, records)
+
+
+def _choose_project(user: User, ref: str, records: list[Entity]) -> Problem:
+    """Several of the user's projects have a record of the entry: which is meant."""
+    readable = {p.pk: p for p in access.readable_projects(user)}
+    choices = []
+    for record in records:
+        owner = readable.get(record.owner_project_id) if record.owner_project_id else None
+        if owner is not None:
+            choices.append(
+                {
+                    "entity": str(record.pk),
+                    "project": {"id": str(owner.pk), "name": owner.name, "slug": owner.slug},
+                }
+            )
+    return Problem(
+        409,
+        f"{records[0].hrid} is in several projects you can read: say which, with ?project=, "
+        "or name the record by its ID.",
+        code="choose_project",
+        extensions={"records": choices},
+    )
 
 
 def _gone(user: User, ref: str) -> None:
@@ -571,6 +665,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     editable = {p.pk for p in projects.values() if permissions.can(user, Action.PROJECT_EDIT, p)}
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
+    entries = _entries_of(user, entities)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -583,7 +678,9 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "title": _title(entity, shown),
                 "type": entity.type,
                 "revision": entity.revision,
-                "owner_project": projects.get(entity.owner_project_id),
+                "owner_project": projects.get(entity.owner_project_id)
+                if entity.owner_project_id is not None
+                else None,
                 "created_by": entity.created_by,
                 "created_at": entity.created_at,
                 "updated_at": entity.updated_at,
@@ -592,9 +689,49 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "values": shown,
                 "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
+                "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
                 "can": {"edit": entity.owner_project_id in editable and entity.type not in frozen},
             }
         )
+    return out
+
+
+def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]:
+    """The registry entries these records are of (ADR 0115), as ``EntryRefOut``."""
+    ids = {e.entry_id for e in entities if e.entry_id is not None}
+    if not ids:
+        return {}
+    rows = list(Entity.objects.filter(pk__in=ids).select_related("registry"))
+    replacements = {r.superseded_by_id for r in rows if r.superseded_by_id is not None}
+    refs, _ = _lookup(user, {"ref": replacements, "file": set()}) if replacements else ({}, {})
+    out = {}
+    for row in rows:
+        superseded = None
+        if row.superseded_by_id is not None:
+            from iki_server.entities.entries import supersession
+
+            found = supersession(row)
+            assert found is not None  # noqa: S101 - it was superseded
+            superseded = {
+                "by": refs.get(row.superseded_by_id)
+                or {
+                    "hrid": found.replacement.hrid,
+                    "title": found.replacement.hrid,
+                    "type": found.replacement.type,
+                    "archived": False,
+                    "purged": found.replacement.purged_at is not None,
+                },
+                "by_id": row.superseded_by_id,
+                "at": found.at,
+                "reason": found.reason,
+            }
+        out[row.pk] = {
+            "id": row.pk,
+            "hrid": row.hrid,
+            "registry": row.registry,
+            "revision": row.revision,
+            "superseded": superseded,
+        }
     return out
 
 
@@ -625,17 +762,33 @@ def _lookup(
 ) -> tuple[dict[Any, dict[str, Any]], dict[Any, dict[str, Any]]]:
     """The entities and files with these IDs that the user can read, as ``refs`` and ``files``."""
     found = list(access.visible(user).filter(pk__in=wanted["ref"])) if wanted["ref"] else []
-    titled = [e for e in found if _template(e.type) is not None]
+    # A reference to an identity names its registry entry (ADR 0115): it's titled by a
+    # record of it the user can read, the oldest.
+    entries = (
+        list(access.visible_entries(user).filter(pk__in=wanted["ref"] - {e.pk for e in found}))
+        if wanted["ref"]
+        else []
+    )
+    record_of: dict[Any, Entity] = {}
+    if entries:
+        for record in (
+            access.visible(user)
+            .filter(entry__in=[e.pk for e in entries])
+            .order_by("-created_at", "-pk")
+        ):
+            record_of[record.entry_id] = record
+    titled = [e for e in [*found, *record_of.values()] if _template(e.type) is not None]
     titled_values = services.current_values_of(titled) if titled else {}
     refs = {}
-    for e in found:
+    for e in [*found, *entries]:
+        shown_by = record_of.get(e.pk, e)
         fields = shape(e.type).fields()
-        shown = {n: to_json(fields[n], v) for n, v in titled_values.get(e.pk, {}).items()}
+        shown = {n: to_json(fields[n], v) for n, v in titled_values.get(shown_by.pk, {}).items()}
         refs[e.pk] = {
             "hrid": e.hrid,
-            "title": _title(e, shown),
+            "title": _title(shown_by, shown),
             "type": e.type,
-            "archived": e.archived_at is not None,
+            "archived": shown_by.archived_at is not None and shown_by is not e,
             "purged": False,
         }
     for pk, hrids in _formerly(set(refs)).items():
@@ -670,17 +823,16 @@ def _formerly(ids: set[Any]) -> dict[Any, list[str]]:
         return {}
     from iki_server.bundles.models import ImportEntity, ImportState
 
-    out: dict[Any, list[str]] = {}
-    rows = (
-        ImportEntity.objects.filter(entity_id__in=ids, bundle_import__state=ImportState.APPLIED)
-        .exclude(hrid=F("hrid_here"))
-        .order_by("entity_id", "hrid")
-        .values_list("entity_id", "hrid")
-        .distinct()
+    out: dict[Any, set[str]] = {}
+    applied = ImportEntity.objects.filter(bundle_import__state=ImportState.APPLIED).exclude(
+        hrid=F("hrid_here")
     )
-    for pk, hrid in rows:
-        out.setdefault(pk, []).append(hrid)
-    return out
+    for pk, hrid in applied.filter(entity_id__in=ids).values_list("entity_id", "hrid"):
+        out.setdefault(pk, set()).add(hrid)
+    # A registry entry (ADR 0115) had the HRID its imported records had.
+    for entry, hrid in applied.filter(entry_id__in=ids).values_list("entry_id", "hrid"):
+        out.setdefault(entry, set()).add(hrid)
+    return {pk: sorted(hrids) for pk, hrids in out.items()}
 
 
 def _template(type_name: str) -> str | None:
@@ -830,7 +982,10 @@ def lookup_entities(request: HttpRequest, params: Query[LookupParams]) -> list[d
     if project_id is not None:
         project(me, project_id)
     rows = unique.holders(unique.key(form.part_of(field).model, field), params.value)
-    entities = access.visible(me).filter(pk__in=rows, type__in=subtypes(type_name))
+    # A unique registry fact is its entries' (ADR 0115): their records are what's found.
+    entities = access.visible(me).filter(
+        Q(pk__in=rows) | Q(entry__in=rows), type__in=subtypes(type_name)
+    )
     if project_id is not None:
         entities = entities.filter(links__project_id=project_id)
     picked = list(entities.select_related("created_by").order_by("created_at", "pk")[:LOOKUP_LIMIT])
@@ -846,11 +1001,15 @@ def get_entity(
     request: HttpRequest,
     ref: str,
     response: HttpResponse,
+    project: UUID | None = None,
     if_none_match: HeaderEx[str | None, P(alias="If-None-Match")] = None,
 ) -> Any:  # noqa: ANN401 - the entity, or 304
-    """Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed."""
+    """Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed.
+
+    A registry entry's HRID or ID names a project's record of it (ADR 0115): give
+    ``project`` to say whose, when you read more than one."""
     me = caller(request)
-    entity = _find(me, ref)
+    entity = _find(me, ref, project)
     if if_none_match is not None and _etag(entity) in _etags(if_none_match):
         unchanged = HttpResponse(status=304)  # no body, as RFC 9110 says
         unchanged["ETag"] = _etag(entity)
@@ -884,35 +1043,23 @@ def _invalid(error: Invalid) -> Problem:
     summary="Create an entity",
 )
 def create_entity(request: HttpRequest, payload: EntityIn, response: HttpResponse) -> Any:  # noqa: ANN401
-    """If its type reuses duplicates and you can read one with the same identity, that one
-    is returned (200, ``reused``) and added to the project, instead of a copy. If its type
-    warns about duplicates, the request is refused (409, ``duplicate``) unless
-    ``allow_duplicate`` is set."""
+    """For a type with an identity, this registers it in the project's registry (ADR
+    0115): a new registry entry (201, ``registered``), or the one there is, whoever
+    registered it (201), of which the project gets its own record. If the project has a
+    record of it already, that's returned as it is (200, ``reused``). Values of the entry's
+    that it has already are kept; a fact given with another value is refused."""
     me = caller(request)
     target = project(me, payload.project, Action.PROJECT_EDIT)
     try:
-        saved = services.create(
-            me,
-            payload.type,
-            target,
-            payload.values,
-            reason=payload.reason,
-            allow_duplicate=payload.allow_duplicate,
-        )
+        saved = services.create(me, payload.type, target, payload.values, reason=payload.reason)
     except Invalid as error:
         raise _invalid(error) from None
-    except services.Duplicate as error:
-        raise Problem(
-            409,
-            str(error),
-            code="duplicate",
-            errors=[
-                {"pointer": "#/values", "detail": f"The same as {e.hrid}.", "entity": str(e.pk)}
-                for e in error.existing
-            ],
-        ) from None
+    return _created(me, saved, response)
+
+
+def _created(me: User, saved: services.Saved, response: HttpResponse) -> Any:  # noqa: ANN401
     entity = Entity.objects.select_related("created_by").get(pk=saved.entity.pk)
-    out = {**_one(me, entity, response), "reused": saved.reused, "linked": saved.linked}
+    out = {**_one(me, entity, response), "reused": saved.reused, "registered": saved.registered}
     response["Location"] = f"/api/v1/entities/{entity.pk}"
     return Status(200 if saved.reused else 201, out)
 
@@ -947,7 +1094,7 @@ def patch_entity(
     To restore an archived entity and change it, send both: it's restored first."""
     me = caller(request)
     entity = _find(me, ref)
-    owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
+    owner = services.owner_of(entity)
     require(me, Action.PROJECT_EDIT, owner)
     expected = _expected(if_match)
     try:
@@ -991,10 +1138,13 @@ def _current(entity: Entity) -> int:
 @router.get(
     "/entities/{ref}/revisions", response=Page[RevisionOut], summary="An entity's revisions"
 )
-def list_revisions(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
-    """Newest first: who changed what, how, when and why."""
+def list_revisions(
+    request: HttpRequest, ref: str, params: Query[PageParams], project: UUID | None = None
+) -> dict[str, Any]:
+    """Newest first: who changed what, how, when and why. ``project`` says whose record of a
+    registry entry, as for reading it."""
     me = caller(request)
-    entity = _find(me, ref)
+    entity = _find(me, ref, project)
     revisions = Revision.objects.filter(entity=entity).select_related("user", "agent")
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, entity, result["items"])
@@ -1007,9 +1157,13 @@ def list_revisions(request: HttpRequest, ref: str, params: Query[PageParams]) ->
     response=RevisionDetailOut,
     summary="An entity as it was at a revision",
 )
-def get_revision(request: HttpRequest, ref: str, number: int) -> dict[str, Any]:
+def get_revision(
+    request: HttpRequest, ref: str, number: int, project: UUID | None = None
+) -> dict[str, Any]:
+    """``project`` says whose record of a registry entry, as for reading it: a view pins
+    its own project's record (ADR 0115)."""
     me = caller(request)
-    entity = _find(me, ref)
+    entity = _find(me, ref, project)
     revision = (
         Revision.objects.filter(entity=entity, number=number)
         .select_related("user", "agent")
@@ -1054,18 +1208,48 @@ def _runs_of(me: User, entity: Entity, revisions: list[Revision]) -> dict[int, d
     }
 
 
-def _revision(revision: Revision, runs: dict[int, dict[str, Any]]) -> dict[str, Any]:
+def _revision(
+    revision: Revision,
+    runs: dict[int, dict[str, Any]],
+    *,
+    entity: Entity | None = None,
+    projects: set[Any] | None = None,
+) -> dict[str, Any]:
+    """A revision as ``RevisionOut``. One of ``entity``'s registry entry's, for a reader of
+    ``projects``, says who made it and when only if :func:`services.discloses` it."""
+    of_entry = entity is not None and revision.entity_id != entity.pk
+    if of_entry and not services.discloses(revision, projects or set()):
+        return undisclosed(revision)
     return {
         "number": revision.number,
         "kind": revision.kind,
+        "entry": of_entry,
         "changed_fields": revision.changed_fields,
         "user": revision.user,
         "via": revision.via,
         "client": revision.client,
         "agent": agent_out(revision.agent, revision.client),
-        "run": runs.get(revision.number),
+        "run": None if of_entry else runs.get(revision.number),
         "reason": revision.reason,
         "created_at": revision.created_at,
+    }
+
+
+def undisclosed(revision: Revision) -> dict[str, Any]:
+    """A registry entry's revision as told to a reader it isn't disclosed to: what it set,
+    not who, how or when (ADR 0115)."""
+    return {
+        "number": revision.number,
+        "kind": revision.kind,
+        "entry": True,
+        "changed_fields": revision.changed_fields,
+        "user": None,
+        "via": "",
+        "client": "",
+        "agent": None,
+        "run": None,
+        "reason": "",
+        "created_at": None,
     }
 
 
@@ -1080,8 +1264,12 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     entity = _find(me, ref)
     fields = shape(entity.type).fields()
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
-    made = _runs_of(me, entity, list(found.values()))
-    return {name: _revision(revision, made) for name, revision in found.items()}
+    made = _runs_of(me, entity, [r for r in found.values() if r.entity_id == entity.pk])
+    readable = set(access.readable_projects(me).values_list("pk", flat=True))
+    return {
+        name: _revision(revision, made, entity=entity, projects=readable)
+        for name, revision in found.items()
+    }
 
 
 class OriginFileOut(Schema):
@@ -1574,7 +1762,7 @@ def unlink_entity(request: HttpRequest, ref: str, project_id: UUID) -> Status[No
     me = caller(request)
     entity = _find(me, ref)
     target = project(me, project_id)
-    owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
+    owner = services.owner_of(entity)
     if not (
         permissions.can(me, Action.PROJECT_EDIT, target)
         or permissions.can(me, Action.PROJECT_EDIT, owner)

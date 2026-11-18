@@ -35,6 +35,8 @@ class Pin:
     index: int
     entity: Entity
     revision: int
+    #: For a record of a registry entry (ADR 0115): the entry's revision, pinned with it.
+    entry_revision: int | None = None
 
 
 class Unreadable(Exception):  # noqa: N818 - raised for its message, as Refused is
@@ -76,16 +78,38 @@ def resolve(
         return []
     targets = {w[4] for w in wanted}
     readable = access.visible(user) if user is not None else Entity.objects.all()
-    found = {e.pk: e for e in readable.filter(pk__in=targets, purged_at__isnull=True)}
+    readable = readable.filter(purged_at__isnull=True)
+    found = {e.pk: e for e in readable.filter(pk__in=targets)}
+    # A reference to a registry entry (ADR 0115) reads a record of it: the one in the
+    # project of the entity that refers to it, or else one the user can read, which the
+    # launch then asks to add to the run's project as it would any input from another.
+    records: dict[UUID, list[Entity]] = defaultdict(list)
+    for record in readable.filter(entry_id__in=targets - found.keys()).order_by("created_at"):
+        assert record.entry_id is not None  # noqa: S101 - filtered so
+        records[record.entry_id].append(record)
+    entries = dict(Entity.objects.filter(pk__in=list(records)).values_list("pk", "revision"))
     errors: dict[str, list[str]] = defaultdict(list)
     pins = []
     for name, position, reference, index, pk, owner in wanted:
         target = found.get(pk)
+        if target is None and records.get(pk):
+            held = [r for r in records[pk] if r.owner_project_id == owner.owner_project_id]
+            target = (held or records[pk])[0]
         if target is None:
             label = reference.replace("_", " ")
             errors[name].append(f"{owner.hrid}'s {label} isn't an entity you can read.")
         else:
-            pins.append(Pin(name, position, reference, index, target, target.revision))
+            pins.append(
+                Pin(
+                    name,
+                    position,
+                    reference,
+                    index,
+                    target,
+                    target.revision,
+                    entries.get(target.entry_id) if target.entry_id is not None else None,
+                )
+            )
     if errors:
         raise Unreadable(dict(errors))
     return pins
@@ -104,7 +128,9 @@ def of_each(pins: Sequence[Pin], each: str, position: int) -> list[Pin]:
     """A batch's pins for the run of its `each` entity at `position`: that entity's, as the
     run's only one, and the other inputs', which every run of it shares."""
     return [
-        Pin(p.input, 0, p.field, p.index, p.entity, p.revision) if p.input == each else p
+        Pin(p.input, 0, p.field, p.index, p.entity, p.revision, p.entry_revision)
+        if p.input == each
+        else p
         for p in pins
         if p.input != each or p.position == position
     ]
@@ -120,6 +146,7 @@ def record(run: ActionRun, pins: Iterable[Pin]) -> None:
             index=p.index,
             entity=p.entity,
             revision=p.revision,
+            entry_revision=p.entry_revision,
         )
         for p in pins
     )
@@ -136,6 +163,7 @@ def copy(run: ActionRun, original: ActionRun) -> None:
             index=i.index,
             entity_id=i.entity_id,
             revision=i.revision,
+            entry_revision=i.entry_revision,
         )
         for i in RunInclusion.objects.filter(run=original).order_by("id")
     )
@@ -154,6 +182,7 @@ def keyed(pins: Iterable[Pin]) -> list[list[Any]]:
             p.revision,
             p.entity.type,
             types[p.entity.type].schema_version,
+            *([] if p.entry_revision is None else [p.entry_revision]),
         ]
         for p in pins
     )
@@ -177,7 +206,7 @@ def documents(
     types = registry.types()
     for row in rows:
         entity = row.entity
-        values = values_at(entity, row.revision)
+        values = values_at(entity, row.revision, row.entry_revision)
         fields = shape(entity.type).fields()
         for name, value in values.items():
             if name in fields:

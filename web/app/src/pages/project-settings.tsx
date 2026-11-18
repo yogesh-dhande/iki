@@ -1,12 +1,13 @@
 import { unwrap } from "@ikisci/sdk";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
-import { iki, problemOf, useApiMutation, type Project } from "../api";
+import { iki, meQuery, problemOf, useApiMutation, type Project } from "../api";
 import { APP_TYPE, dashboardChoicesQuery, dashboardQuery } from "../apps";
 import { required, useForm } from "../forms";
 import { usePageTitle } from "../layout";
+import { registriesQuery, REGISTRY_SETTINGS } from "../registries";
 import {
   Button,
   CheckboxField,
@@ -28,6 +29,7 @@ function usePatchProject(project: Project) {
       description?: string;
       archived?: boolean;
       allow_sharing?: boolean;
+      registry?: string;
     }) =>
       unwrap(
         await iki.PATCH("/api/v1/projects/{project_id}", {
@@ -44,14 +46,21 @@ export function ProjectSettings() {
   usePageTitle(`Settings · ${project.name}`);
   if (!project.can.manage) {
     return (
-      <section className="card">
-        <p>Only the project’s Admins can change its settings.</p>
-      </section>
+      <div className="columns">
+        <section className="card">
+          <p>
+            Only the project’s Admins can change its {project.can.change_registry ? "other " : ""}
+            settings.
+          </p>
+        </section>
+        {project.can.change_registry ? <RegistrySetting project={project} /> : null}
+      </div>
     );
   }
   return (
     <div className="columns">
       <Details project={project} />
+      <RegistrySetting project={project} />
       <Dashboard project={project} />
       <Sharing project={project} />
       {project.can.export ? <Exports project={project} /> : null}
@@ -305,6 +314,107 @@ function Sharing({ project }: { project: Project }) {
           them in runs there. Those projects’ members will then be able to read them.
         </p>
       </ConfirmDialog>
+    </section>
+  );
+}
+
+/**
+ * The project's registry (ADR 0115): where what it registers gets its IDs. Org Admins
+ * choose it while the project has no entities; after that it's fixed.
+ */
+function RegistrySetting({ project }: { project: Project }) {
+  const me = useSuspenseQuery(meQuery).data;
+  const { say } = useMessages();
+  const can = project.can.change_registry;
+  const choices = useQuery({ ...registriesQuery(project.team.id), enabled: can });
+  const [picked, setPicked] = useState<string>();
+  const save = usePatchProject(project);
+  const value = picked ?? project.registry.id;
+  const manage = me.can.manage_org ? (
+    <p>
+      <a href={REGISTRY_SETTINGS}>Manage registries</a>
+    </p>
+  ) : null;
+  const about = (
+    <p>
+      {project.name} is in the <strong>{project.registry.name}</strong> registry. What it registers,
+      such as a compound or a sequence, has one ID there, shared with the registry’s other projects;
+      each keeps its own record of it.
+    </p>
+  );
+  if (!can) {
+    return (
+      <section className="card">
+        <h2 className="section-title">Registry</h2>
+        {about}
+        <p className="muted">
+          {me.can.manage_org
+            ? "It’s fixed now: a project’s registry can’t change once it has entities."
+            : "Org Admins choose a project’s registry, until it has entities. After that, it’s fixed."}
+        </p>
+        {manage}
+      </section>
+    );
+  }
+  let body: React.ReactNode;
+  if (choices.isError) {
+    body = <ProblemAlert problem={problemOf(choices.error)} />;
+  } else if (!choices.data) {
+    body = <Loading label="Finding the registries it may use…" />;
+  } else if (choices.data.length < 2) {
+    body = (
+      <p className="muted">
+        {project.team.name}’s projects may use no other registry. Org Admins choose which teams use
+        each.
+      </p>
+    );
+  } else {
+    body = (
+      <>
+        <ProblemAlert problem={save.error ? problemOf(save.error) : undefined} />
+        <form
+          onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
+            event.preventDefault();
+            save.mutate(
+              { registry: value },
+              {
+                onSuccess: (changed) => {
+                  setPicked(undefined);
+                  say(`${changed.name} is in the ${changed.registry.name} registry now.`);
+                },
+              },
+            );
+          }}
+        >
+          <SelectField
+            label="Registry"
+            value={value}
+            onChange={setPicked}
+            options={choices.data.map((r) => ({
+              value: r.id,
+              label: r.default ? `${r.name} (the default)` : r.name,
+            }))}
+            help="It can change only while the project has no entities: after its first, it’s fixed."
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            busy={save.isPending}
+            busyText="Saving…"
+            disabled={value === project.registry.id}
+          >
+            Save
+          </Button>
+        </form>
+      </>
+    );
+  }
+  return (
+    <section className="card">
+      <h2 className="section-title">Registry</h2>
+      {about}
+      {body}
+      {manage}
     </section>
   );
 }

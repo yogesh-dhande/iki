@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import pytest
 import requests
@@ -452,7 +453,10 @@ def test_new_entities_can_refer_to_ones_made_with_them(world: World, s3: Any) ->
     made = api_as(world, "runner").get(
         f"/entities/{kinds['acme/protein.ProteinStructure']['entity']}"
     )
-    assert made.json()["values"]["chains"] == [heavy, parent, parent]
+    # References hold the registry entries (ADR 0115) of the records the run made or found.
+    entries = dict(Entity.objects.filter(pk__in=[heavy, parent]).values_list("pk", "entry_id"))
+    as_entries = [str(entries[UUID(i)]) for i in (heavy, parent, parent)]
+    assert made.json()["values"]["chains"] == as_entries
     assert [e["kind"] for e in effects if e["entity"] == parent] == ["reused"]
 
 

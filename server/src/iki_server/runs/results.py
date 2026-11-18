@@ -34,6 +34,7 @@ from iki_server.entities.identity import hash_of
 from iki_server.entities.models import Entity, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.org import permissions
+from iki_server.org.models import registry_of
 from iki_server.org.services import Refused
 from iki_server.runs import input_files, makings
 from iki_server.runs.models import (
@@ -623,10 +624,10 @@ def matching(
 
 
 def same_entity(run: ActionRun, type_name: str, values: Mapping[str, Any]) -> Entity | None:
-    """The entity of the run's project a create would reuse as a duplicate, locked, for a
-    type that reuses them: a record with no match yet claims it (ADR 0082)."""
+    """The run's project's record of the registry entry a create would register again
+    (ADR 0115), locked: a record with no match yet claims it (ADR 0082)."""
     entity_type = registry.types().get(type_name)
-    if entity_type is None or registry.duplicate_policy(entity_type) != "reuse":
+    if entity_type is None or registry.identity_owner(entity_type) is None:
         return None
     try:
         digest = hash_of(values, entity_type)
@@ -634,9 +635,12 @@ def same_entity(run: ActionRun, type_name: str, values: Mapping[str, Any]) -> En
         return None
     if digest is None:
         return None
+    entries = Entity.objects.filter(
+        registry_id=registry_of(run.project), identity_hash=digest
+    ).values("pk")
     return (
         Entity.objects.select_for_update()
-        .filter(owner_project=run.project, identity_hash=digest, archived_at__isnull=True)
+        .filter(owner_project=run.project, entry__in=entries, archived_at__isnull=True)
         .order_by("created_at", "pk")
         .first()
     )
@@ -716,9 +720,6 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
                     create.type,
                     run.project,
                     values,
-                    # A run can't answer "this looks like a duplicate": types that only warn
-                    # get a new entity, as they would if the person went ahead.
-                    allow_duplicate=True,
                     by_run=True,
                 )
             except Invalid as error:
@@ -728,7 +729,7 @@ def _write_creates(check: Check, creates: list[_Create]) -> None:
         if create.key is not None:
             made[create.key] = entity_id
         if RunEffect.objects.filter(run=run, entity_id=entity_id).exists():
-            # The same entity, made twice: its type reuses duplicates.
+            # The same record, made twice: the same identity, registered again.
             continue
         revision = saved.revision.number if saved.revision is not None else None
         RunEffect.objects.create(

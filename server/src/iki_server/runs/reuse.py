@@ -22,6 +22,7 @@ from django.utils import timezone
 
 from iki_server.audit import log as audit
 from iki_server.entities import access, registry
+from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.files.models import File
 from iki_server.runs import included, live
@@ -102,7 +103,17 @@ def key(
         "params": {name: counted(name, value) for name, value in sorted(params.items())},
         "settings": dict(settings),
         "inputs": {
-            name: [[str(e.pk), e.revision, e.type, types[e.type].schema_version] for e in chosen]
+            name: [
+                [
+                    str(e.pk),
+                    e.revision,
+                    e.type,
+                    types[e.type].schema_version,
+                    # A registry entry's values are the record's too (ADR 0115).
+                    *([] if (at := entity_services.entry_revision(e)) is None else [at]),
+                ]
+                for e in chosen
+            ]
             for name, chosen in sorted(entities.items())
         },
     }
@@ -194,7 +205,14 @@ def reuse(
         finished_at=now,
     )
     RunInput.objects.bulk_create(
-        RunInput(run=run, name=name, position=index, entity=entity, revision=entity.revision)
+        RunInput(
+            run=run,
+            name=name,
+            position=index,
+            entity=entity,
+            revision=entity.revision,
+            entry_revision=entity_services.entry_revision(entity),
+        )
         for name, chosen in entities.items()
         for index, entity in enumerate(chosen)
     )

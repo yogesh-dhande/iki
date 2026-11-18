@@ -8,7 +8,7 @@ import { Link, useSearch } from "@tanstack/react-router";
 import { useId, useMemo, useState } from "react";
 
 import { problemOf } from "../api";
-import type { EntityType } from "../entities";
+import { apiRef, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import {
   connected,
@@ -40,7 +40,7 @@ export function EntityLineage() {
   const search = useSearch({ from: "/entities/$ref/lineage" });
   const up = search.up ?? GENERATIONS;
   const down = search.down ?? GENERATIONS;
-  const graph = useQuery(lineageQuery(entity.hrid, up, down));
+  const graph = useQuery(lineageQuery(apiRef(entity), up, down));
   const actions = useQuery(actionsQuery).data;
   const names: Names = {
     root: entity.id,

@@ -26,7 +26,6 @@ from iki_server.api.problems import Problem
 from iki_server.entities import collections, services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
-from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 
 router = Router(tags=["collections"])
@@ -110,7 +109,7 @@ def create_collection(request: HttpRequest, payload: CollectionIn, response: Htt
         raise _too_many(error) from None
     entity = Entity.objects.select_related("created_by").get(pk=saved.entity.pk)
     response["Location"] = f"/api/v1/entities/{entity.pk}"
-    return Status(201, {**_one(me, entity, response), "reused": False, "linked": False})
+    return Status(201, {**_one(me, entity, response), "reused": False, "registered": False})
 
 
 @router.post("/collections/{ref}/freeze", response=EntityOut, summary="Freeze a dynamic collection")
@@ -125,7 +124,7 @@ def freeze_collection(
     revision: a fixed list a run or a paper can cite. Send its ETag as If-Match."""
     me = caller(request)
     entity = _find(me, ref)
-    owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
+    owner = services.owner_of(entity)
     require(me, Action.PROJECT_EDIT, owner)
     expected = _expected(if_match)
     try:

@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 
 import { meQuery, projectsQuery } from "../api";
 import { usePageTitle } from "../layout";
+import { registriesQuery } from "../registries";
 import { buttonClass, Loading, PageHeader } from "../ui";
 import { ProjectRows, sortProjects } from "./project-rows";
 
@@ -10,6 +11,8 @@ export function Home() {
   usePageTitle("Home");
   const me = useSuspenseQuery(meQuery).data;
   const projects = useQuery(projectsQuery);
+  // Registrars curate registries' entries (ADR 0115): theirs are a link away.
+  const curated = (useQuery(registriesQuery()).data ?? []).filter((r) => r.can.curate);
   const fullName = me.name.trim();
   const firstName = fullName === "" ? me.email : (fullName.split(/\s+/)[0] ?? fullName);
   const mine = sortProjects((projects.data ?? []).filter((p) => p.my_role && !p.archived));
@@ -69,6 +72,27 @@ export function Home() {
           )}
         </section>
       )}
+      {curated.length ? (
+        <section aria-labelledby="curated-title">
+          <h2 id="curated-title">Registries you curate</h2>
+          <ul className="rows">
+            {curated.map((r) => (
+              <li className="row" key={r.id}>
+                <div className="row-main">
+                  <Link
+                    className="row-title"
+                    to="/registries/$registryId/entries/"
+                    params={{ registryId: r.id }}
+                  >
+                    {r.name}
+                  </Link>
+                  {r.description ? <span className="row-meta">{r.description}</span> : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {others > 0 ? (
         <p className="muted">
           As an Org Admin you can also see {others} project{others === 1 ? "" : "s"} you’re not a

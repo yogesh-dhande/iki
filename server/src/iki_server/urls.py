@@ -62,6 +62,9 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/viewers/<str:viewer>/", web.app, name="entity_viewer"),
     path("entities/<str:ref>/components/<qualified:name>/", web.app, name="entity_component"),
     path("entities/<str:ref>/apps/<str:app>/", web.app, name="entity_app"),
+    # Registry entries (ADR 0115): a registry's, for its registrars, and one entry.
+    path("registries/<uuid:registry_id>/entries/", web.app, name="registry_entries"),
+    path("entries/<str:ref>/", web.app, name="entry"),
     # Plugins' components, for the web app's sandboxed frames (ADR 0084).
     # The frames Iki's own viewers run in (ADR 0085).
     path("viewers/structure/", viewers.structure_frame, name="structure_frame"),

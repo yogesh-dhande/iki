@@ -140,7 +140,8 @@ describe("saving a view", () => {
       items: [entity({ hrid: "PRT-000001" })],
       next_cursor: null,
     });
-    answer("GET /api/v1/entities/PRT-000001", entity({ hrid: "PRT-000001", revision: 4 }));
+    // Read by its ID: another project's record of a registry entry has its HRID too.
+    answer(`GET /api/v1/entities/${PROTEIN_ID}`, entity({ hrid: "PRT-000001", revision: 4 }));
     answer("POST /api/v1/entities", { id: "v1", hrid: "VIEW-000001", revision: 1 });
     answer(
       "GET /api/v1/entities/VIEW-000001",
@@ -258,7 +259,8 @@ describe("a saved view's page", () => {
       }),
     );
     // Revision 2 had only tet; now there's bla too.
-    answer("GET /api/v1/entities/DNA-000001/revisions/2", {
+    // By its ID, as the view holds it: a registry entry's names the view's project's record.
+    answer(`GET /api/v1/entities/${PLASMID_ID}/revisions/2`, {
       number: 2,
       kind: "edited",
       values: { name: "pTest", bases: "ACGT".repeat(40), features: [TET] },
@@ -266,7 +268,7 @@ describe("a saved view's page", () => {
       refs: {},
       files: {},
     });
-    answer("GET /api/v1/entities/DNA-000001", plasmid(5, [TET, BLA]));
+    answer(`GET /api/v1/entities/${PLASMID_ID}`, plasmid(5, [TET, BLA]));
     answer(`PATCH /api/v1/entities/${VIEW_ID}`, entity({ hrid: "VIEW-000001", revision: 2 }));
   }
 
@@ -340,7 +342,7 @@ describe("a saved view's page", () => {
         refs: { [PLASMID_ID]: PLASMID_REF, [PROTEIN_ID]: PROTEIN_REF },
       }),
     );
-    answer("GET /api/v1/entities/DNA-000001/revisions/2", {
+    answer(`GET /api/v1/entities/${PLASMID_ID}/revisions/2`, {
       number: 2,
       kind: "edited",
       values: { name: "pTest", bases: "ACGT".repeat(40), features: [TET] },
@@ -348,8 +350,8 @@ describe("a saved view's page", () => {
       refs: {},
       files: {},
     });
-    answer("GET /api/v1/entities/DNA-000001", plasmid(5, [TET, BLA]));
-    answer("GET /api/v1/entities/PRT-000001/revisions/2", {
+    answer(`GET /api/v1/entities/${PLASMID_ID}`, plasmid(5, [TET, BLA]));
+    answer(`GET /api/v1/entities/${PROTEIN_ID}/revisions/2`, {
       number: 2,
       kind: "edited",
       values: { name: "ABL1 kinase", sequence: "MLEICLKLVG" },
@@ -357,7 +359,7 @@ describe("a saved view's page", () => {
       refs: {},
       files: {},
     });
-    answer("GET /api/v1/entities/PRT-000001", entity({ hrid: "PRT-000001", revision: 2 }));
+    answer(`GET /api/v1/entities/${PROTEIN_ID}`, entity({ hrid: "PRT-000001", revision: 2 }));
     answer(`PATCH /api/v1/entities/${VIEW_ID}`, entity({ hrid: "VIEW-000001", revision: 4 }));
     const { user } = await renderApp("/entities/VIEW-000001/");
     const shows = await screen.findByRole("list", { name: "What it shows" });

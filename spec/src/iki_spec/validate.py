@@ -50,6 +50,7 @@ from iki_spec.model import (
     Workflow,
     matches_format,
     qualify,
+    split_entry,
 )
 from iki_spec.problems import Path, Problem, Severity
 from iki_spec.yamlsource import Document, parse_documents, read_documents
@@ -656,7 +657,6 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         hrid_prefix=hrid.get("prefix"),
         hrid_digits=hrid.get("digits", 6),
         identity=tuple(body.get("identity", ())),
-        on_duplicate=body.get("on_duplicate"),
         fields=_fields(body.get("fields", {}), plugin),
         display_title=(body.get("display") or {}).get("title"),
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
@@ -1075,6 +1075,8 @@ class _Semantics:
     def identity(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
     ) -> None:
+        if entity_type.identity:
+            self.identity_owner(entity_type, source)
         for index, name in enumerate(entity_type.identity):
             path: Path = ("identity", index)
             if name not in every:
@@ -1086,7 +1088,18 @@ class _Semantics:
                     hint=schemas._did_you_mean(name, list(every)),
                 )
                 continue
-            f, _ = every[name]
+            f, owner = every[name]
+            if owner is not entity_type:
+                self.add(
+                    "identity-inherited",
+                    f"`{name}` is a field of `{owner.qualified_name}`, which this type extends: "
+                    "an identity names the type's own fields.",
+                    source,
+                    path,
+                    hint="An identity's fields are its registry entry's (ADR 0115), so they're "
+                    "declared with it.",
+                )
+                continue
             if f.removed:
                 self.add(
                     "identity-removed",
@@ -1113,6 +1126,15 @@ class _Semantics:
                     path,
                     hint="An identity that could change can't tell entities apart.",
                 )
+            if f.registry is not None:
+                self.add(
+                    "registry-on-identity",
+                    f"`{name}` is part of the identity, which is its registry entry's already.",
+                    source,
+                    ("fields", name, "registry"),
+                    key=True,
+                    hint="Leave `registry` off identity fields.",
+                )
         named = [every[name][0] for name in entity_type.identity if name in every]
         if named and not any(f.required for f in named):
             self.add(
@@ -1124,14 +1146,117 @@ class _Semantics:
                 "fields can be part of one beside a required field (an antibody's heavy "
                 "and light chains).",
             )
-        if entity_type.on_duplicate and not entity_type.identity:
-            inherited = next((a for a in self.ancestors(entity_type) if a.identity), None)
-            if inherited is None:
+        entry = set(entity_type.identity)
+        for name, f in entity_type.fields.items():
+            if f.registry is not None and not entity_type.identity:
+                inherited = next((a for a in self.ancestors(entity_type) if a.identity), None)
                 self.add(
-                    "on-duplicate-without-identity",
-                    "`on_duplicate` needs an `identity` to say what a duplicate is.",
+                    "registry-without-identity",
+                    f"`{name}` is marked `registry: {f.registry}`, but `{entity_type.name}` "
+                    + (
+                        f"gets its identity from `{inherited.qualified_name}`."
+                        if inherited is not None
+                        else "has no identity, so it has no registry entries."
+                    ),
                     source,
-                    ("on_duplicate",),
+                    ("fields", name, "registry"),
+                    key=True,
+                    hint="Registry fields belong to the type that declares the identity, or an "
+                    "extension of it (ADR 0115)."
+                    if inherited is not None
+                    else "Give the type an `identity`, or leave `registry` off.",
+                )
+                continue
+            if name in entry or f.registry is not None:
+                self.registry_field(f, source, ("fields", name), identity=name in entry)
+
+    def identity_owner(self, entity_type: EntityType, source: Document) -> None:
+        """A type that declares an identity can't be under another identity, or under a
+        concrete type, whose entities are records with no entry (ADR 0115)."""
+        ancestors = self.ancestors(entity_type)
+        above = next((a for a in ancestors if a.identity), None)
+        if above is not None:
+            self.add(
+                "identity-redeclared",
+                f"`{entity_type.name}` extends `{above.qualified_name}`, which has an identity "
+                "already.",
+                source,
+                ("identity",),
+                key=True,
+                hint="A subtype's entities are told apart by its parent's identity. Leave "
+                "`identity` off, or extend an abstract type instead.",
+            )
+            return
+        concrete = next((a for a in ancestors if not a.abstract), None)
+        if concrete is not None:
+            self.add(
+                "identity-under-concrete",
+                f"`{entity_type.name}` has an identity, but extends `{concrete.qualified_name}`, "
+                "a concrete type without one.",
+                source,
+                ("identity",),
+                key=True,
+                hint="References to that type hold its entities themselves, which an "
+                "identity's entities aren't: they're registry entries. Extend an abstract type.",
+            )
+
+    def registry_field(
+        self, f: Field, source: Document, path: Path, *, identity: bool = False
+    ) -> None:
+        """What a field of a registry entry (an identity, derived or fact field) must be."""
+        targets = [f.to] if f.type == "ref" else []
+        if f.type == "list" and f.items is not None and f.items.type == "ref":
+            targets = [f.items.to]
+        for target in targets:
+            found = self.types.get(target or "")
+            if found is None:
+                continue  # reported as an unknown reference
+            if not any(t.identity for t in [found, *self.ancestors(found)]):
+                self.add(
+                    "registry-refers-to-record",
+                    f"`{f.name}` is its registry entry's, but refers to `{found.qualified_name}`, "
+                    "whose entities are each project's own records.",
+                    source,
+                    path,
+                    key=True,
+                    hint="An entry is every holding project's, so it can refer only to other "
+                    "entries: types with an identity. Make the field the record's.",
+                )
+        if identity or f.registry != "fact":
+            return
+        item = f.items if f.type == "list" and f.items is not None else f
+        if item.type in ("text", "json", "file"):
+            self.add(
+                "registry-fact-free-text",
+                f"`{f.name}` is a {f.type} field, which can't be a registry fact.",
+                source,
+                (*path, "registry"),
+                key=True,
+                hint="Facts are curated values, such as codes, classes and numbers, never free "
+                "text. Make it an enum, a patterned string, or the record's.",
+            )
+        elif item.type == "string" and not (item.pattern or item.format):
+            self.add(
+                "registry-fact-free-text",
+                f"`{f.name}` is a string with no `pattern` or `format`, which can't be a "
+                "registry fact.",
+                source,
+                (*path, "registry"),
+                key=True,
+                hint="Facts are codes and names with rules, never free text: give it a "
+                "`pattern` (a CAS number's is `^[1-9][0-9]{1,6}-[0-9]{2}-[0-9]$`).",
+            )
+        for flag, why in (
+            ("required", "a fact is set when it's known, not when an entry is registered"),
+            ("computed", "a fact is curated, not computed; derived values are `registry: derived`"),
+            ("immutable", "registrars correct facts"),
+        ):
+            if getattr(f, flag):
+                self.add(
+                    f"registry-fact-{flag}",
+                    f"Registry facts can't be {flag}: {why}.",
+                    source,
+                    (*path, flag),
                     key=True,
                 )
 
@@ -1249,7 +1374,18 @@ class _Semantics:
 
         for qualified, t in self.plugin.types.items():
             source = self.loaded.type_sources[qualified]
-            add(t.table, t.name, f"`{t.name}`", source, ("name",), "type", t.fields)
+            record, entry = split_entry(t.fields, t.identity)
+            add(t.table, t.name, f"`{t.name}`", source, ("name",), "type", record)
+            if t.identity:
+                add(
+                    naming.entry_table(t.table),
+                    naming.entry_model(t.name),
+                    f"the registry entries of `{t.name}`",
+                    source,
+                    ("name",),
+                    "type",
+                    entry,
+                )
         targets: set[str] = set()
         for extension, source in zip(
             self.plugin.extensions, self.loaded.extension_sources, strict=True
@@ -1257,6 +1393,7 @@ class _Semantics:
             if extension.extends_type in targets:
                 continue  # reported as a duplicate extension
             targets.add(extension.extends_type)
+            record, entry = split_entry(extension.fields)
             add(
                 extension.table,
                 naming.extension_model(extension.extends_type),
@@ -1264,8 +1401,18 @@ class _Semantics:
                 source,
                 ("extends_type",),
                 "plugin",
-                extension.fields,
+                record,
             )
+            if entry:
+                add(
+                    naming.entry_table(extension.table),
+                    naming.entry_model(naming.extension_model(extension.extends_type)),
+                    f"the extension of `{extension.extends_type}`'s registry entries",
+                    source,
+                    ("extends_type",),
+                    "plugin",
+                    entry,
+                )
         for table, model, what, source, path, shorten in generated:
             key = path[0] == "fields"
             clash = tables.get(table) or models.get(model.lower())
@@ -1372,6 +1519,20 @@ class _Semantics:
                     key=True,
                 )
             self.field(f, source, field_path, siblings=names)
+            if f.registry is None:
+                continue
+            if not any(t.identity for t in [target, *self.ancestors(target)]):
+                self.add(
+                    "registry-without-identity",
+                    f"`{name}` is marked `registry: {f.registry}`, but `{extension.extends_type}` "
+                    "has no identity, so it has no registry entries.",
+                    source,
+                    (*field_path, "registry"),
+                    key=True,
+                    hint="Leave `registry` off.",
+                )
+            else:
+                self.registry_field(f, source, field_path)
 
     # Fields -------------------------------------------------------------------------------------
 

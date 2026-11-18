@@ -8,10 +8,10 @@ schema_version: 2
 description: >-
   A three-dimensional structure of one or more proteins: an experimental one,
   from the PDB or a lab's own, or a prediction. Two with the same file are the
-  same structure, so importing one again reuses it.
+  same structure, so importing one again finds its
+  registry entry.
 hrid: { prefix: PST }
 identity: [structure]
-on_duplicate: reuse
 fields:
   structure:
     type: file
@@ -24,6 +24,7 @@ fields:
   description: { type: text, max_length: 10000, description: Such as the PDB entry's title. }
   pdb_id:
     type: string
+    registry: fact
     label: PDB ID
     max_length: 12
     indexed: true
@@ -31,31 +32,37 @@ fields:
     description: Its PDB entry, such as 4HHB.
   method:
     type: enum
+    registry: derived
     values: [xray, nmr, cryo_em, electron_crystallography, neutron, predicted, other]
     indexed: true
     description: How it was determined.
   resolution:
     type: quantity
+    registry: derived
     unit: Ao
     min: 0
     indexed: true
     description: For diffraction and cryo-EM, the highest resolution its data reached.
   chains:
     type: list
+    registry: derived
     items: { type: ref, to: Protein }
     max_items: 10000
     description: The protein each of its chains is, in the order of chain_ids.
   chain_ids:
     type: list
+    registry: derived
     label: Chain IDs
     items: { type: string, max_length: 4 }
     max_items: 10000
     description: The chains' IDs in the file, as their authors gave them (A, B, ...).
   released:
     type: date
+    registry: fact
     description: When its PDB entry was first released.
   secondary_structure:
     type: list
+    registry: derived
     items: { type: string, pattern: "^[HGIPEBTS?-]*$" }
     max_items: 10000
     computed: true
@@ -67,6 +74,7 @@ fields:
       a residue the structure doesn't have coordinates for.
   helix_fraction:
     type: quantity
+    registry: derived
     unit: "%"
     min: 0
     max: 100
@@ -75,6 +83,7 @@ fields:
     description: The share of its proteins' modelled residues in helices (H, G or I).
   strand_fraction:
     type: quantity
+    registry: derived
     unit: "%"
     min: 0
     max: 100
@@ -83,6 +92,7 @@ fields:
     description: The share of its proteins' modelled residues in strands or bridges (E or B).
   accessible_surface_area:
     type: quantity
+    registry: derived
     label: Solvent-accessible surface area
     unit: Ao2
     display_unit: nm2
@@ -93,6 +103,7 @@ fields:
       residues, as DSSP computes it for the first model.
   dssp:
     type: file
+    registry: derived
     label: DSSP annotations
     media_types: [chemical/x-mmcif]
     max_size: 4GiB

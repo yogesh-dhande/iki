@@ -8,10 +8,10 @@ extends: iki/core.Sequence
 schema_version: 1
 description: >-
   A DNA sequence: a plasmid, a gene, a construct, a genome. Two with the same
-  bases and topology are the same sequence, so registering one again reuses it.
+  bases and topology are the same sequence, so registering one again finds its
+  registry entry.
 hrid: { prefix: DNA }
 identity: [bases, topology]
-on_duplicate: reuse
 fields:
   bases:
     type: string
@@ -29,9 +29,10 @@ fields:
     type: enum
     values: [double, single]
     default: double
-  length: { type: quantity, unit: "{bp}", computed: true, indexed: true }
+  length: { registry: derived, type: quantity, unit: "{bp}", computed: true, indexed: true }
   gc_content:
     type: quantity
+    registry: derived
     unit: "%"
     computed: true
     indexed: true
@@ -40,6 +41,7 @@ fields:
     description: The share of G and C among its bases.
   accession:
     type: string
+    registry: fact
     max_length: 64
     indexed: true
     pattern: "^[A-Za-z0-9_.]+$"

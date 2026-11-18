@@ -8,7 +8,7 @@ from django.http import HttpRequest
 from iki_server.accounts.models import User
 from iki_server.api.problems import Problem
 from iki_server.org import permissions
-from iki_server.org.models import Project, Team
+from iki_server.org.models import Project, Registry, Team
 from iki_server.org.permissions import Action
 
 
@@ -31,7 +31,7 @@ def require_scope(user: User, scope: str) -> None:
         )
 
 
-def require(user: User, action: Action, target: Team | Project | None = None) -> None:
+def require(user: User, action: Action, target: Team | Project | Registry | None = None) -> None:
     if permissions.can(user, action, target):
         return
     limits = permissions.token_limits(user)
@@ -49,7 +49,7 @@ def require(user: User, action: Action, target: Team | Project | None = None) ->
 def project(user: User, project_id: UUID, action: Action = Action.PROJECT_SEE) -> Project:
     """The project, if the caller can see it (else 404) and take the action (else 403)."""
     found = (
-        permissions.with_project_roles(user, Project.objects.select_related("team"))
+        permissions.with_project_roles(user, Project.objects.select_related("team", "registry"))
         .filter(pk=project_id)
         .first()
     )

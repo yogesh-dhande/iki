@@ -64,55 +64,72 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         out,
         database,
         """
-        from iki_plugin_iki__dna.models import DNASequence, Primer
-        from iki_plugin_acme__example.models import Ext_iki_dna_DNASequence, Sample
-        from iki_plugin_iki__protein.models import Protein
-        from iki_plugin_iki__antibody.models import Antibody
-        from iki_plugin_iki__small_molecule.models import Compound, CompoundBatch
-
-        puc = DNASequence.objects.create(
-            owner_project=project, bases="ACGT", topology="circular", name="pUC19",
-            features=[{"type": "rep_origin", "start": 1, "end": 4, "strand": "forward"}],
-        )
-        primer = Primer.objects.create(owner_project=project, bases="ACG", target=puc)
-        Ext_iki_dna_DNASequence.objects.create(entity_id=puc.pk, construct_id="PUC-19")
-        sample = Sample.objects.create(owner_project=project, name="S1", kind="dna", construct=puc)
-        bla = Protein.objects.create(
-            owner_project=project, sequence="MSIQHFRVAL", name="bla (+1)", encoded_by=puc,
-            uniprot_accession="P62593",
-        )
-        vhh = Antibody.objects.create(
-            owner_project=project, heavy_chain=bla, format="vhh", name="anti-bla",
-        )
-        light = Protein.objects.create(owner_project=project, sequence="DIQMTQSP")
-        aspirin = Compound.objects.create(
-            owner_project=project, smiles="CC(=O)Oc1ccccc1C(=O)O",
-            inchikey="BSYNRYMUTXBXSQ-UHFFFAOYSA-N", name="aspirin", pubchem_cid="2244",
-        )
-        lot = CompoundBatch.objects.create(
-            owner_project=project, compound=aspirin, salt="sodium", salt_equivalents=1.0,
-        )
-        fab = Antibody.objects.create(
-            owner_project=project, heavy_chain=bla, light_chain=light, format="fab",
-        )
-        # Giving the VHH a light chain would make it another antibody: it's refused.
+        from iki_plugin_acme__example.models import Ext_iki_dna_DNASequence
         from iki_server.accounts.models import User
         from iki_server.entities import services
+        from iki_server.entities.models import Entity
+
+        from iki_server.org.models import ProjectMembership, ProjectRole
+
+        alice = User.objects.create_user("alice@example.com")
+        ProjectMembership.objects.create(project=project, user=alice, role=ProjectRole.EDITOR)
+
+        def make(type_name, **values):
+            return services.create(alice, type_name, project, values).entity
+
+        # Each type with an identity is registered (ADR 0115): an entry, and the project's
+        # record of it. References hold the entry.
+        puc = make(
+            "iki/dna.DNASequence", bases="ACGT", topology="circular", name="pUC19",
+            construct_id="PUC-19",
+            features=[{"type": "rep_origin", "start": 1, "end": 4, "strand": "forward"}],
+        )
+        primer = make("iki/dna.Primer", bases="ACG", target=str(puc.pk))
+        assert Ext_iki_dna_DNASequence.objects.get(entity_id=puc.pk).construct_id == "PUC-19"
+        sample = make("acme/example.Sample", name="S1", kind="dna", construct=str(puc.pk))
+        bla = make(
+            "iki/protein.Protein", sequence="MSIQHFRVAL", name="bla (+1)",
+            encoded_by=str(puc.pk), uniprot_accession="P62593",
+        )
+        vhh = make("iki/antibody.Antibody", heavy_chain=str(bla.pk), format="vhh", name="anti-bla")
+        light = make("iki/protein.Protein", sequence="DIQMTQSP")
+        aspirin = make(
+            "iki/small_molecule.Compound", smiles="CC(=O)Oc1ccccc1C(=O)O",
+            inchikey="BSYNRYMUTXBXSQ-UHFFFAOYSA-N", name="aspirin", pubchem_cid="2244",
+        )
+        lot = make(
+            "iki/small_molecule.CompoundBatch", compound=str(aspirin.pk), salt="sodium",
+            salt_equivalents=1.0,
+        )
+        fab = make(
+            "iki/antibody.Antibody", heavy_chain=str(bla.pk), light_chain=str(light.pk),
+            format="fab",
+        )
+        entries = {e.pk: e for e in Entity.objects.filter(registry__isnull=False)}
+        # Giving the VHH a light chain would make it another antibody: it's refused.
         try:
             services.update(
-                User.objects.create_user("alice@example.com"), vhh,
-                {"light_chain": str(light.pk)}, expected_revision=vhh.revision,
+                alice, vhh, {"light_chain": str(light.pk)}, expected_revision=vhh.revision,
             )
             refused = None
         except services.Invalid as invalid:
             refused = invalid.errors
+        vhh.refresh_from_db()
+        fab.refresh_from_db()
+        aspirin.refresh_from_db()
+        bla.refresh_from_db()
+        light.refresh_from_db()
         result = {"types": [puc.type, primer.type, sample.type, bla.type, vhh.type,
                             aspirin.type, lot.type],
                   "hrids": [puc.hrid, primer.hrid, sample.hrid, bla.hrid, vhh.hrid,
                             aspirin.hrid, lot.hrid],
-                  "aspirin": aspirin.identity_hash,
-                  "heavy": str(bla.pk), "light": str(light.pk),
-                  "identities": [vhh.identity_hash, fab.identity_hash], "refused": refused}
+                  "aspirin": entries[aspirin.entry_id].identity_hash,
+                  "record": aspirin.identity_hash,
+                  "heavy": str(bla.entry_id), "light": str(light.entry_id),
+                  "identities": [
+                      entries[vhh.entry_id].identity_hash, entries[fab.entry_id].identity_hash
+                  ],
+                  "refused": refused}
         """,
     )
     assert result["types"] == [
@@ -133,7 +150,8 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         "CPD",
         "LOT",
     ]
-    # A compound is its standard InChIKey.
+    # A compound is its standard InChIKey, its entry's.
+    assert result["record"] is None
     assert result["aspirin"] == identity_hash(
         "iki/small_molecule.Compound", {"inchikey": ("string", "BSYNRYMUTXBXSQ-UHFFFAOYSA-N")}
     )

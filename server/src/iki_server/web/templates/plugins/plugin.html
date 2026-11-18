@@ -23,7 +23,7 @@
 <section class="card" aria-labelledby="report-title">
   <h2 class="section-title" id="report-title">{% if purged %}What the purge deleted{% elif scheduled %}What the purge deletes{% else %}What a purge would delete{% endif %}</h2>
   {% if report.entities %}
-  <p>{{ report.entities }} entit{{ report.entities|pluralize:"y,ies" }}, with their values and history:</p>
+  <p>{{ report.entities }} entit{{ report.entities|pluralize:"y,ies" }}, with their values and history{% if report.entries %}, and the {{ report.entries }} registry entr{{ report.entries|pluralize:"y,ies" }} they’re records of, which every project's records of them share{% endif %}:</p>
   <ul>{% for t in report.types %}<li>{{ t.count }} {{ t.label }} (<code>{{ t.type }}</code>)</li>{% endfor %}</ul>
   {% if report.projects %}
   <p>In {{ report.projects|length }} project{{ report.projects|length|pluralize }}: {% for p in report.projects %}{{ p.team }} / {{ p.name }}{% if p.held %} (on legal hold){% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>

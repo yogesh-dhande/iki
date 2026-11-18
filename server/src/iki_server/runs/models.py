@@ -719,6 +719,8 @@ class RunInput(models.Model):
     position = models.PositiveIntegerField()
     entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
     revision = models.PositiveIntegerField()
+    #: For a record of a registry entry (ADR 0115): the entry's revision it read.
+    entry_revision = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "iki_run_input"
@@ -754,6 +756,8 @@ class RunInclusion(models.Model):
     index = models.PositiveIntegerField()
     entity = models.ForeignKey(Entity, on_delete=models.PROTECT, related_name="+")
     revision = models.PositiveIntegerField()
+    #: For a record of a registry entry (ADR 0115): the entry's revision it read.
+    entry_revision = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "iki_run_inclusion"
@@ -1661,8 +1665,8 @@ class RunImport(models.Model):
     reused = models.BigIntegerField(default=0)
     #: Entities the run's output updated (its inputs), written with the creates.
     updated = models.BigIntegerField(default=0)
-    #: Reused entities that weren't in the run's project yet.
-    linked = models.BigIntegerField(default=0)
+    #: Registry entries its creates registered (ADR 0115): identities new to the registry.
+    registered = models.BigIntegerField(default=0)
     #: The installed plugins it was checked against: if they change before it's written,
     #: it's checked again, from the start.
     schema = models.CharField(max_length=64, default="")

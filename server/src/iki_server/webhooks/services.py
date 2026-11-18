@@ -296,6 +296,22 @@ def emit(event: str, data: dict[str, Any], *, project: Project | None) -> list[D
     return [_queue(webhook, event, payload) for webhook in targets]
 
 
+def emit_to(event: str, data: dict[str, Any], *, projects: list[Project]) -> list[Delivery]:
+    """Sends the event to the webhooks of each of ``projects``, and to the organization's
+    once: a change to what several projects hold, such as a registry entry (ADR 0115)."""
+    kind = events.EVENTS[event]
+    wanted = Q()
+    if kind.project and projects and project_webhooks_allowed():
+        wanted |= Q(project__in=projects)
+    if kind.org:
+        wanted |= Q(project__isnull=True)
+    if not wanted:
+        return []
+    targets = Webhook.objects.filter(wanted, active=True, events__contains=[event])
+    payload = _payload(event, data)
+    return [_queue(webhook, event, payload) for webhook in targets]
+
+
 def ping(webhook: Webhook, *, by: User) -> Delivery:
     data = {
         "webhook": {"id": str(webhook.pk), "events": webhook.events},

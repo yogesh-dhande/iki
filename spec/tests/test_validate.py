@@ -113,8 +113,9 @@ def test_builds_the_model_codegen_reads() -> None:
 
     prediction = load_plugin(PREDICTION, dependencies=[PROTEIN, DNA]).plugin
     assert prediction is not None
-    (extension,) = prediction.extensions
+    extension, of_protein = sorted(prediction.extensions, key=lambda e: e.table, reverse=True)
     assert extension.extends_type == "acme/protein.ProteinStructure"
+    assert of_protein.fields["disorder"].registry == "derived"
     assert extension.table == "acme__prediction__acme__protein_proteinstructure"
     assert prediction.settings["allowed_presets"].default == ["monomer"]
 
@@ -580,21 +581,130 @@ def test_an_identity_can_have_optional_fields_beside_a_required_one(tmp_path: Pa
     )
 
 
-def test_on_duplicate_needs_an_identity(tmp_path: Path) -> None:
+def test_on_duplicate_is_gone(tmp_path: Path) -> None:
+    # One record per identity per project (ADR 0115): there's nothing left to choose.
     result = make(tmp_path, TYPE + "on_duplicate: warn\n")
-    assert codes(result) == ["on-duplicate-without-identity"]
+    assert codes(result) == ["schema"]
+    assert result.problems[0].message == "`on_duplicate` isn't allowed here."
 
 
-def test_identity_and_on_duplicate_can_be_inherited(tmp_path: Path) -> None:
+def test_an_identity_can_be_inherited(tmp_path: Path) -> None:
     parent = (
         TYPE.replace("hrid: { prefix: ASY }\n", "abstract: true\n")
         + "identity: [code]\nfields:\n  code: { type: string, required: true, immutable: true }\n"
     )
+    child = TYPE.replace("Assay", "Elisa").replace("ASY", "ELI") + "extends: Assay\n"
+    assert make(tmp_path, parent + "---\n" + child).problems == []
+
+
+IDENTIFIED = (
+    TYPE + "identity: [code]\nfields:\n  code: { type: string, required: true, immutable: true }\n"
+)
+
+
+def test_an_identity_names_the_types_own_fields(tmp_path: Path) -> None:
+    parent = (
+        TYPE.replace("hrid: { prefix: ASY }\n", "abstract: true\n")
+        + "fields:\n  code: { type: string, required: true, immutable: true }\n"
+    )
+    child = (
+        TYPE.replace("Assay", "Elisa").replace("ASY", "ELI") + "extends: Assay\nidentity: [code]\n"
+    )
+    result = make(tmp_path, parent + "---\n" + child)
+    assert codes(result) == ["identity-inherited"]
+    assert result.problems[0].message == (
+        "`code` is a field of `acme/lab.Assay`, which this type extends: an identity names the "
+        "type's own fields."
+    )
+
+
+def test_an_identity_isnt_declared_twice_or_under_a_concrete_type(tmp_path: Path) -> None:
     child = (
         TYPE.replace("Assay", "Elisa").replace("ASY", "ELI")
-        + "extends: Assay\non_duplicate: warn\n"
+        + "extends: Assay\nidentity: [plate]\n"
+        + "fields:\n  plate: { type: string, required: true, immutable: true }\n"
     )
-    assert make(tmp_path, parent + "---\n" + child).problems == []
+    assert codes(make(tmp_path, IDENTIFIED + "---\n" + child)) == ["identity-redeclared"]
+    concrete = TYPE + "fields:\n  note: { type: string }\n"
+    result = make(tmp_path, concrete + "---\n" + child)
+    assert codes(result) == ["identity-under-concrete"]
+
+
+def test_registry_fields(tmp_path: Path) -> None:
+    good = (
+        IDENTIFIED
+        + "  weight: { type: float, registry: derived, computed: true }\n"
+        + "  canonical: { type: string, registry: derived, immutable: true }\n"
+        + "  cas: { type: string, registry: fact, pattern: '^[0-9-]+$', indexed: true, "
+        "max_length: 12, unique: true }\n"
+        + "  hazard: { type: enum, registry: fact, values: [none, toxic] }\n"
+        + "  notes: { type: text }\n"
+    )
+    result = make(tmp_path, good)
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.types["acme/lab.Assay"].fields
+    assert {n: f.registry for n, f in found.items()} == {
+        "code": None,
+        "weight": "derived",
+        "canonical": "derived",
+        "cas": "fact",
+        "hazard": "fact",
+        "notes": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("spec", "code"),
+    [
+        ("{ type: text, registry: fact }", "registry-fact-free-text"),
+        ("{ type: json, registry: fact }", "registry-fact-free-text"),
+        ("{ type: string, registry: fact }", "registry-fact-free-text"),
+        ("{ type: enum, values: [a], registry: fact, required: true }", "registry-fact-required"),
+        ("{ type: int, registry: fact, computed: true }", "registry-fact-computed"),
+        ("{ type: int, registry: fact, immutable: true }", "registry-fact-immutable"),
+    ],
+)
+def test_registry_facts_are_curated_values(tmp_path: Path, spec: str, code: str) -> None:
+    assert codes(make(tmp_path, IDENTIFIED + f"  x: {spec}\n")) == [code]
+
+
+def test_registry_fields_need_an_identity(tmp_path: Path) -> None:
+    result = make(tmp_path, fields("weight: { type: float, registry: derived }\n"))
+    message = only(result, "registry-without-identity")
+    assert message == (
+        "`weight` is marked `registry: derived`, but `Assay` has no identity, so it has no "
+        "registry entries."
+    )
+    on_identity = IDENTIFIED.replace("immutable: true }", "immutable: true, registry: derived }")
+    assert codes(make(tmp_path, on_identity)) == ["registry-on-identity"]
+
+
+def test_an_entry_refers_only_to_entries(tmp_path: Path) -> None:
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    result = make(
+        tmp_path,
+        IDENTIFIED + "  batch: { type: ref, to: Batch, registry: derived }\n---\n" + batch,
+    )
+    assert codes(result) == ["registry-refers-to-record"]
+    result = make(tmp_path, IDENTIFIED + "  same: { type: ref, to: Assay, registry: fact }\n")
+    assert codes(result) == []
+    result = make(
+        tmp_path,
+        TYPE + "identity: [batch]\nfields:\n  batch: { type: ref, to: Batch, required: true, "
+        "immutable: true }\n---\n" + batch,
+    )
+    assert codes(result) == ["registry-refers-to-record"]
+
+
+def test_an_extension_can_add_registry_fields_to_an_identity(tmp_path: Path) -> None:
+    result = make(
+        tmp_path,
+        extension("gc: { type: float, registry: derived, computed: true }\n"),
+        DNA_PIN,
+        with_=(DNA,),
+    )
+    assert result.problems == []
 
 
 @pytest.mark.parametrize(

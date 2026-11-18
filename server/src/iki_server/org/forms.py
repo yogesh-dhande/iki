@@ -7,6 +7,7 @@ from iki_server.org.models import (
     ORG_ROLE_DESCRIPTIONS,
     OrgRole,
     Project,
+    Team,
 )
 
 
@@ -102,6 +103,48 @@ else:
 class _ProjectChoice(_ModelChoice):
     def label_from_instance(self, obj: Project) -> str:
         return f"{obj.team.name} / {obj.name}"
+
+
+class RegistryForm(forms.Form):
+    """A registry (ADR 0115): its name, and which teams' projects may be in it."""
+
+    name = forms.CharField(
+        label="Name",
+        max_length=100,
+        strip=True,
+        help_text="Such as a client's or a partner program's name.",
+    )
+    description = forms.CharField(
+        label="Description",
+        max_length=1000,
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Whose identities it keeps apart, and why.",
+    )
+    all_teams = forms.BooleanField(
+        label="Every team's projects may be in it",
+        required=False,
+    )
+    teams = forms.ModelMultipleChoiceField(
+        label="Teams",
+        queryset=Team.objects.filter(archived_at__isnull=True).order_by("name"),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="The teams whose new projects may be in it, if not every team's.",
+    )
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        if not cleaned.get("all_teams") and not cleaned.get("teams"):
+            self.add_error("teams", "Choose the teams that use it, or let every team use it.")
+        return cleaned
+
+
+class AppointRegistrarForm(forms.Form):
+    person = PersonField(
+        help_text="They curate its entries' facts and supersede mistaken entries. People can "
+        "be appointed once they've signed in to Iki for the first time."
+    )
 
 
 class LegalHoldForm(forms.Form):

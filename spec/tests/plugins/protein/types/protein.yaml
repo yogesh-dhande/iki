@@ -6,7 +6,6 @@ extends: acme/dna.Sequence
 schema_version: 3
 hrid: { prefix: PRT, digits: 6 }
 identity: [sequence]
-on_duplicate: reuse
 fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
   molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }
@@ -21,6 +20,25 @@ fields:
   temperature_optimum: { type: quantity, unit: Cel }
   uniprot_ids: { type: list, items: { type: string, pattern: "^[A-Z0-9]{6,10}$" } }
   summary: { type: text }
+  # Registry fields (ADR 0115): its entry's, which every project holding it sees.
+  residues: { type: int, registry: derived, computed: true, min: 0 }
+  ec_number:
+    type: string
+    registry: fact
+    max_length: 20
+    pattern: "^[1-7]\\.[0-9-]+\\.[0-9-]+\\.[0-9n-]+$"
+  chembl_target:
+    type: string
+    registry: fact
+    max_length: 20
+    pattern: "^CHEMBL[1-9][0-9]*$"
+    indexed: true
+    unique: true
+  hazard: { type: enum, registry: fact, values: [none, bsl1, bsl2, bsl3] }
+  synonyms:
+    type: list
+    registry: fact
+    items: { type: string, max_length: 40, pattern: "^[A-Za-z0-9-]+$" }
   hydropathy:
     type: json
     computed: true

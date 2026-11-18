@@ -13,6 +13,15 @@ For each entity type:
 
 Extensions get the same, keyed by the extended type's ``entity_id``.
 
+A type with an identity has registry entries (ADR 0115): its identity fields, and
+those marked ``registry: derived`` or ``registry: fact``, are in a table of its
+entries (``<table>__entry``), whose rows are entities with a registry and no
+project. The type's own table, of each project's records, has its other fields.
+An extension's registry fields go in an entry table of its own beside its table.
+A reference to a type with an identity holds an entry, so it's a foreign key to
+the entries' table; one to an abstract type (``iki/core.Sequence``), which could
+be either, is one to ``iki_entity``.
+
 Descriptions and units become table and column comments when the server
 syncs its plugins at deploy time, not here: they are documentation, so
 changing them needs no migration.
@@ -29,7 +38,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from iki_spec import naming
-from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin
+from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
 
 __all__ = ["render_models"]
 
@@ -60,6 +69,7 @@ from iki_server.files.models import File
 
 def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
     """``types`` holds every type the plugin can name, its dependencies' included."""
+    every = {**types, **plugin.types}
     out = [HEADER.format(plugin=plugin.name)]
     imports = sorted(
         {
@@ -71,9 +81,11 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
     if imports:
         out.append("\n" + "".join(f"import {naming.package(name)}.models\n" for name in imports))
     for entity_type in _in_order(plugin):
-        out.extend(_type(entity_type, plugin, {**types, **plugin.types}))
+        out.extend(_type(entity_type, plugin, every))
+        if entity_type.identity:
+            out.extend(_entry(entity_type, plugin, every))
     for extension in sorted(plugin.extensions, key=lambda e: e.extends_type):
-        out.extend(_extension(extension, types))
+        out.extend(_extension(extension, every))
     return "".join(out).rstrip() + "\n"
 
 
@@ -173,7 +185,35 @@ def _type(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> lis
             ),
         )
     )
-    return _with_fields(model, t.qualified_name, t.fields, plugin.name)
+    record, _ = split_entry(t.fields, t.identity)
+    return _with_fields(model, t.qualified_name, record, plugin.name, types)
+
+
+def _entry(t: EntityType, plugin: Plugin, types: Mapping[str, EntityType]) -> list[str]:
+    """The table of a type's registry entries: its identity, derived and fact fields."""
+    model = _Model(
+        name=naming.entry_model(t.name),
+        base="Entity",
+        doc=f"Registry entries of {t.label} ({t.qualified_name}), ADR 0115.",
+        table=naming.entry_table(t.table),
+        attributes=[f"IKI_TYPE = {t.qualified_name!r}", "IKI_ENTRY = True"],
+    )
+    model.fields.append(
+        (
+            "entity",
+            _call(
+                "models.OneToOneField",
+                _raw("Entity"),
+                _raw("models.PROTECT"),
+                parent_link=True,
+                primary_key=True,
+                db_column="entity_id",
+                related_name="+",
+            ),
+        )
+    )
+    _, entry = split_entry(t.fields, t.identity)
+    return _with_fields(model, t.qualified_name, entry, plugin.name, types)
 
 
 def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
@@ -200,19 +240,69 @@ def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
             ),
         )
     )
-    return _with_fields(model, e.extends_type, e.fields, e.plugin)
+    record, entry = split_entry(e.fields)
+    owner = identity_owner(e.extends_type, types)
+    # Registry fields alone need no table of the records'.
+    out = (
+        _with_fields(model, e.extends_type, record, e.plugin, types) if record or not entry else []
+    )
+    if entry and owner is not None:
+        entries = _Model(
+            name=naming.entry_model(model.name),
+            base="models.Model",
+            doc=f"The registry fields the {e.plugin} plugin adds to {label}'s entries "
+            f"({e.extends_type}, ADR 0115).{description}",
+            table=naming.entry_table(e.table),
+            attributes=[f"IKI_EXTENDS = {e.extends_type!r}", "IKI_ENTRY = True"],
+        )
+        entries.fields.append(
+            (
+                "entity",
+                _call(
+                    "models.OneToOneField",
+                    _entry_label(owner.qualified_name),
+                    _raw("models.PROTECT"),
+                    primary_key=True,
+                    db_column="entity_id",
+                    related_name=naming.entry_related_name(e.plugin),
+                ),
+            )
+        )
+        out += _with_fields(entries, e.extends_type, entry, e.plugin, types)
+    return out
 
 
-def _with_fields(model: _Model, owner: str, fields: dict[str, Field], plugin: str) -> list[str]:
+def identity_owner(qualified: str, types: Mapping[str, EntityType]) -> EntityType | None:
+    """The type whose identity ``qualified``'s entities have: its own or a parent's."""
+    current = types.get(qualified)
+    while current is not None:
+        if current.identity:
+            return current
+        current = types.get(current.extends) if current.extends else None
+    return None
+
+
+def _entry_label(qualified: str) -> str:
+    """The model of a type's registry entries, as ``app_label.Model``."""
+    return naming.entry_model(naming.model_label(qualified))
+
+
+def _with_fields(
+    model: _Model,
+    owner: str,
+    fields: dict[str, Field],
+    plugin: str,
+    types: Mapping[str, EntityType],
+) -> list[str]:
     """The model with its current fields, then its history model and list models."""
     lists: list[_Model] = []
     for f in fields.values():
         if f.removed:
             continue
         if _is_list_table(f):
-            lists.append(_list_model(model, owner, f, plugin))
+            lists.append(_list_model(model, owner, f, plugin, types))
             continue
-        model.fields.append((f.name, _column(f, plugin)))
+        model.fields.append((f.name, _column(f, plugin, types)))
         model.constraints.extend(_checks(model.table, f))
         model.indexes.extend(_indexes(model.table, f))
     history = _Model(
@@ -231,7 +321,9 @@ def _with_fields(model: _Model, owner: str, fields: dict[str, Field], plugin: st
     return [m.render() for m in (model, history, *lists)]
 
 
-def _list_model(owner: _Model, owner_type: str, f: Field, plugin: str) -> _Model:
+def _list_model(
+    owner: _Model, owner_type: str, f: Field, plugin: str, types: Mapping[str, EntityType]
+) -> _Model:
     assert f.items is not None  # noqa: S101 - lists have items
     table = naming.list_table(owner.table, f.name)
     model = _Model(
@@ -253,7 +345,7 @@ def _list_model(owner: _Model, owner_type: str, f: Field, plugin: str) -> _Model
                 ),
             ),
             ("position", _call("models.PositiveIntegerField")),
-            ("item", _column(f.items, plugin, required=True)),
+            ("item", _column(f.items, plugin, types, required=True)),
         ],
     )
     if f.max_items is not None:
@@ -276,6 +368,7 @@ def _is_list_table(f: Field) -> bool:
 def _column(
     f: Field,
     plugin: str,
+    types: Mapping[str, EntityType],
     *,
     required: bool | None = None,
     item: bool = False,
@@ -316,15 +409,29 @@ def _column(
         )
     if kind == "ref":
         assert f.to is not None  # noqa: S101 - refs have a target
-        target = _raw("Entity") if f.to == naming.ENTITY else _model_ref(f.to, plugin)
+        target = _ref_target(f.to, plugin, types)
         return _call(
             "models.ForeignKey", target, _raw("models.PROTECT"), related_name="+", **options
         )
     if kind == "list":
         assert f.items is not None  # noqa: S101 - lists have items
-        base = _column(f.items, plugin, item=True)
+        base = _column(f.items, plugin, types, item=True)
         return _call("ArrayField", _raw(base), **options)
     raise AssertionError(kind)  # pragma: no cover
+
+
+def _ref_target(to: str, plugin: str, types: Mapping[str, EntityType]) -> str:
+    """What a reference to ``to`` is a foreign key to: the entries of a type with an
+    identity, ``iki_entity`` for an abstract type (whose subtypes may have entries or
+    records) or ``iki/core.Entity``, else the type's own table of records."""
+    target = types.get(to)
+    if to == naming.ENTITY or target is None or target.abstract:
+        return _raw("Entity")
+    owner = identity_owner(to, types)
+    if owner is not None:
+        name = naming.entry_model(owner.name)
+        return name if owner.plugin == plugin else _entry_label(owner.qualified_name)
+    return _model_ref(to, plugin)
 
 
 def _indexes(table: str, f: Field) -> list[str]:

@@ -31,6 +31,7 @@ from iki_server.org.models import (
     Project,
     ProjectMembership,
     ProjectRole,
+    Registry,
     Team,
     TeamMembership,
 )
@@ -264,12 +265,19 @@ def _changes(before: dict[str, str], obj: Project | Team) -> dict[str, Any]:
     }
 
 
-def create_project(team: Team, name: str, description: str, *, by: User) -> Project:
-    """Creates a project in the team. Its creator becomes its first Admin."""
+def create_project(
+    team: Team, name: str, description: str, *, by: User, registry: Registry | None = None
+) -> Project:
+    """Creates a project in the team. Its creator becomes its first Admin. It's in the
+    default registry unless it's given another its team may use (ADR 0115)."""
+    from iki_server.org import registries
+
+    chosen = registry or Registry.default()
+    registries.check_for_team(chosen, team)
     try:
         with transaction.atomic():
             project = Project.objects.create(
-                team=team, name=name, description=description, created_by=by
+                team=team, name=name, description=description, created_by=by, registry=chosen
             )
             ProjectMembership.objects.create(
                 project=project, user=by, role=ProjectRole.ADMIN, added_by=by

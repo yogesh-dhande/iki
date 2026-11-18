@@ -13,6 +13,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   entitiesQuery,
   inSentence,
+  recordSearch,
   typeLabel,
   typesQuery,
   valueText,
@@ -89,7 +90,8 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
     label: "ID",
     sort: HRID.name,
     cell: (e) => (
-      <Link to="/entities/$ref/" params={{ ref: e.hrid }}>
+      // A registry entry's record opens as its project's: other projects have its HRID too.
+      <Link to="/entities/$ref/" params={{ ref: e.hrid }} search={recordSearch(e)}>
         {e.hrid}
       </Link>
     ),

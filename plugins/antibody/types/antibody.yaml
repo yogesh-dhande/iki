@@ -8,10 +8,10 @@ schema_version: 1
 description: >-
   An antibody, by the proteins that are its chains: a heavy chain and a light
   chain, or for a single-domain antibody (a VHH) or an scFv, one chain. Two with
-  the same chains are the same antibody, so assembling one again reuses it.
+  the same chains are the same antibody, so assembling one again finds its
+  registry entry.
 hrid: { prefix: ABY }
 identity: [heavy_chain, light_chain]
-on_duplicate: reuse
 fields:
   heavy_chain:
     type: ref
@@ -30,6 +30,7 @@ fields:
   description: { type: text, max_length: 10000 }
   format:
     type: enum
+    registry: derived
     values: [igg, fab, scfv, vhh, other]
     default: igg
     required: true
@@ -39,6 +40,7 @@ fields:
       on one chain, vhh a single domain (a camelid's, or a nanobody).
   isotype:
     type: enum
+    registry: derived
     values: [igg1, igg2, igg3, igg4, iga1, iga2, igm, ige, igd]
     indexed: true
     description: Its heavy chain's constant region, for a whole antibody or a Fab.

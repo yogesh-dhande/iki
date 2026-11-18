@@ -52,8 +52,8 @@ def test_problems_show_where_and_how_to_fix_them(
     assert code == 1
     out = capsys.readouterr().out
     assert out.splitlines() == [
-        "protein/types/protein.yaml:12:45: error: `Da` isn't a UCUM unit. [unknown-unit]",
-        " 12 |   molecular_weight: { type: quantity, unit: Da, display_unit: ku, computed: true,"
+        "protein/types/protein.yaml:11:45: error: `Da` isn't a UCUM unit. [unknown-unit]",
+        " 11 |   molecular_weight: { type: quantity, unit: Da, display_unit: ku, computed: true,"
         " indexed: true }",
         "    |                                             ^",
         "  hint: `u` is the unified atomic mass unit (the dalton); `g/mol` is molar mass.",
@@ -122,7 +122,7 @@ def test_json_output(broken: Path, capsys: pytest.CaptureFixture[str]) -> None:
             "message": "`Da` isn't a UCUM unit.",
             "hint": "`u` is the unified atomic mass unit (the dalton); `g/mol` is molar mass.",
             "file": "types/protein.yaml",
-            "line": 12,
+            "line": 11,
             "column": 45,
             "path": ["fields", "molecular_weight", "unit"],
         }
@@ -150,7 +150,7 @@ def test_github_annotations(
     main(["plugin", "validate", "protein", "--with", str(PLUGINS / "dna"), "--format", "github"])
     lines = capsys.readouterr().out.splitlines()
     assert lines == [
-        "::error file=protein/types/protein.yaml,line=12,col=45,title=unknown-unit::"
+        "::error file=protein/types/protein.yaml,line=11,col=45,title=unknown-unit::"
         "`Da` isn't a UCUM unit.%0A`u` is the unified atomic mass unit (the dalton); "
         "`g/mol` is molar mass.",
         "1 error in protein.",

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ registry.name }}{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="eyebrow"><a href="{% url 'org:registries' %}">Registries</a></p>
+    <h1>{{ registry.name }}{% if registry.is_default %} <span class="badge badge-muted">Default</span>{% endif %}</h1>
+  </div>
+  {% if is_registrar %}<div class="actions"><a class="button" href="/registries/{{ registry.pk }}/entries/">Its entries</a></div>{% endif %}
+</div>
+{% if registry.is_default %}<p class="muted">New projects are in it unless they're given another, so every team may use it.</p>{% endif %}
+<div class="columns">
+  <section aria-labelledby="registrars-title">
+    <h2 class="section-title" id="registrars-title">Registrars</h2>
+    <p class="muted">Registrars curate this registry's facts (an INN, a CAS number, a hazard class), each change with a reason, and supersede mistaken entries. They see every entry in it, and how many projects have each, but no project's data, nor which projects. Being an Org Admin doesn't make you one.</p>
+    <ul class="rows" aria-label="Registrars">
+      {% for registrar in registrars %}
+      <li class="row">
+        <div class="row-main">
+          <span class="row-title">{{ registrar.user.get_full_name }}{% if registrar.user == user %} <span class="muted">(you)</span>{% endif %}</span>
+          <span class="row-meta">{{ registrar.user.email }}{% if not registrar.user.is_active %} · deactivated{% endif %} · appointed {{ registrar.appointed_at|date:"Y-m-d" }}{% if registrar.appointed_by %} by {{ registrar.appointed_by.get_full_name }}{% endif %}</span>
+        </div>
+        <form class="row-actions" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="dismiss">
+          <input type="hidden" name="user" value="{{ registrar.user.pk }}">
+          <button class="button button-quiet button-danger" type="submit" aria-label="Remove {{ registrar.user.get_full_name }} as a registrar">Remove</button>
+        </form>
+      </li>
+      {% empty %}
+      <li class="row"><span class="muted">No registrars yet: nobody can change its facts once they're set, or supersede its entries.</span></li>
+      {% endfor %}
+    </ul>
+    <h2 class="section-title">Appoint a registrar</h2>
+    {% include "web/_errors.html" with form=appoint %}
+    <form method="post" data-busy-form novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="appoint">
+      {% include "web/_field.html" with field=appoint.person %}
+      <button class="button button-primary" type="submit" data-busy-text="Appointing…">Appoint</button>
+    </form>
+    <h2 class="section-title">Projects in it</h2>
+    <ul class="rows" aria-label="Projects in it">
+      {% for project in projects %}
+      <li class="row"><div class="row-main"><span class="row-title">{{ project.name }}</span><span class="row-meta">{{ project.team.name }}</span></div></li>
+      {% empty %}
+      <li class="row"><span class="muted">No projects yet.</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="card" aria-labelledby="settings-title">
+    <h2 class="section-title" id="settings-title">Settings</h2>
+    {% include "web/_errors.html" %}
+    <form method="post" data-busy-form novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="save">
+      {% include "web/_field.html" with field=form.name %}
+      {% include "web/_field.html" with field=form.description %}
+      {% include "web/_field.html" with field=form.all_teams %}
+      {% include "web/_field.html" with field=form.teams %}
+      <p class="muted">A team taken off keeps its projects here: it can't put new ones in it.</p>
+      <button class="button button-primary" type="submit" data-busy-text="Saving…">Save</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

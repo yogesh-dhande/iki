@@ -18,10 +18,12 @@ imports the file in two phases:
    origins and lineage. So an import is all or nothing, as ``creates`` is: nobody sees
    half of it, and a failed or cancelled one leaves nothing behind.
 
-Duplicates are found as :func:`entities.create` finds them for runs: for types that
-reuse duplicates, an entity the launcher can read with the same identity is reused (and
-linked into the run's project), and so is an earlier line's. While it writes, an import
-holds its types' identity locks, so a create elsewhere can't slip a duplicate in.
+Identities are registered as :func:`entities.create` registers them (ADR 0115): a line
+whose identity is new in the project's registry registers it (an earlier line's, if
+two have it), and one already registered gets a record of the entry, or is the
+project's record it has already, reused. While it writes, an import holds its types'
+identity locks in the registry, so a create elsewhere can't register one at the same
+time.
 
 Two things differ from ``creates``, at this scale. Webhooks get one ``entity.imported``
 event for the run, not ``entity.created`` for each entity. And lines can't attach files.
@@ -49,13 +51,13 @@ from django.utils import timezone
 from iki_server.audit import log as audit
 from iki_server.entities import access, registry, unique
 from iki_server.entities import services as entities
-from iki_server.entities.access import readable_projects
 from iki_server.entities.hrids import sequence_name
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import Entity
-from iki_server.entities.values import Invalid, Part, Refs, is_list_table, shape
+from iki_server.entities.values import Invalid, Part, Refs, is_list_table, shape, to_db
 from iki_server.files import storage
 from iki_server.files.models import File
+from iki_server.org.models import registry_of
 from iki_server.runs import live, makings, results
 from iki_server.runs.models import (
     ActionRun,
@@ -469,7 +471,14 @@ def _stage_rows(
 ) -> list[tuple[Any, ...]]:
     user = run.requested_by
     # Like a create in the run's project: references to what it may use (ADR 0067).
-    refs = Refs(access.shareable_into(user, run.project), None, held=access.visible(user))
+    refs = Refs(
+        access.shareable_into(user, run.project),
+        None,
+        held=access.visible(user),
+        entries=access.held_entries(run.project),
+        readable_entries=access.visible_entries(user),
+        project=run.project.name,
+    )
     _look_up_refs(refs, parsed)
     rows: list[tuple[Any, ...]] = []
     for line in parsed:
@@ -481,7 +490,9 @@ def _stage_rows(
             errors.extend(check.errors)
             continue
         try:
-            form, given = entities.prepare(user, create.type, create.values, refs, by_run=True)
+            form, given = entities.prepare(
+                user, create.type, run.project, create.values, refs, by_run=True
+            )
         except Invalid as error:
             check.errors = []
             results.invalid(check, create.pointer, error)
@@ -679,8 +690,8 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
             results.write(done)
             unchanged = _update_matches(imported, done.check)
             imported.updated = RunEffect.objects.filter(run=run).count() - unchanged
-            created, reused, linked = _insert(imported, run)
-            counts = (created, reused + unchanged, linked)
+            created, reused, registered = _insert(imported, run)
+            counts = (created, reused + unchanged, registered)
     except (IntegrityError, DatabaseError) as error:
         if not isinstance(error, IntegrityError) and "violates" not in str(error):
             raise
@@ -692,14 +703,14 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
         raise results.InvalidOutput(
             [{"pointer": results.pointer("creates_file"), "detail": detail}]
         ) from error
-    imported.created, imported.reused, imported.linked = counts
+    imported.created, imported.reused, imported.registered = counts
     data = {
         "run": {"id": str(run.pk), "hrid": run.hrid, "action": run.action},
         "project": events.project_data(run.project),
         "created": imported.created,
         "updated": imported.updated,
         "reused": imported.reused,
-        "linked": imported.linked,
+        "registered": imported.registered,
         "actor": events.actor_data(run.requested_by),
         "agent": audit.agent_data(run.agent),
     }
@@ -737,9 +748,27 @@ def _update_matches_of(
         "part": part.model._meta.db_table,
         "field": field,
         "project": run.project_id,
+        "registry": registry_of(run.project),
         "key": unique.key(part.model, field),
     }
     value = "s.parts->%(part)s->>%(field)s"
+    # The record a line's value matches: the project's own, or, for a registry fact, the
+    # project's record of the entry that has it (ADR 0115).
+    if part.entry:
+        match = (
+            "iki_unique_value u JOIN iki_entity m ON m.entry_id = u.entity_id"
+            " AND m.owner_project_id = %(project)s WHERE u.registry_id = %(registry)s"
+            f" AND u.key = %(key)s AND u.value = {value}",
+            "m.id",
+            True,
+        )
+    else:
+        match = (
+            "iki_unique_value u WHERE u.project_id = %(project)s AND u.key = %(key)s"
+            f" AND u.value = {value}",
+            "u.entity_id",
+            False,
+        )
     with connection.cursor() as cursor:
         # A record twice in one file: which would win is anyone's guess.
         cursor.execute(
@@ -757,13 +786,13 @@ def _update_matches_of(
         if check.errors:
             return 0
         cursor.execute(
-            f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with, u.entity_id FROM {table} s"  # noqa: S608 - ours; values are parameters
-            " JOIN iki_unique_value u ON u.project_id = %(project)s AND u.key = %(key)s"
-            f" AND u.value = {value} WHERE s.type = %(type)s ORDER BY s.line",
+            f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with, mm.id FROM {table} s"  # noqa: S608 - ours; values are parameters
+            f" JOIN LATERAL (SELECT {match[1]} AS id FROM {match[0]}) mm ON true"
+            " WHERE s.type = %(type)s ORDER BY s.line",
             params,
         )
         matched = cursor.fetchall()
-        matched += _claims(cursor, check, table, type_name, field, params)
+        matched += _claims(cursor, check, table, type_name, field, params, match)
         matched.sort(key=lambda row: row[0])
         if check.errors:
             return 0
@@ -826,20 +855,22 @@ def _claims(
     type_name: str,
     field: str,
     params: dict[str, Any],
+    match: tuple[str, str, bool],
 ) -> list[tuple[Any, ...]]:
-    """The staged lines with no match whose type reuses duplicates, each with the run's
-    project's own duplicate it claims, as the matched rows are (ADR 0082). Notes those
-    whose duplicate is another record's already, or another line's in the file."""
+    """The staged lines with no match whose type has an identity, each with the run's
+    project's own record of its registry entry, which it claims as the matched rows are
+    (ADR 0082, 0115). Notes those whose record has another value already, or that
+    another line in the file has the same identity."""
     entity_type = registry.types()[type_name]
     owner = registry.identity_owner(entity_type)
-    if owner is None or registry.duplicate_policy(entity_type) != "reuse":
+    if owner is None:
         return []
+    matched_from, _, on_entry = match
     same = " and ".join(owner.identity)
     value = "s.parts->%(part)s->>%(field)s"
     unmatched = (
         f" s.type = %(type)s AND {value} IS NOT NULL AND s.identity_hash IS NOT NULL"  # noqa: S608 - ours; values are parameters
-        " AND NOT EXISTS (SELECT 1 FROM iki_unique_value m WHERE m.project_id = %(project)s"
-        f" AND m.key = %(key)s AND m.value = {value})"
+        f" AND NOT EXISTS (SELECT 1 FROM {matched_from})"
     )
     # Two records of one entity in a file: it can only be one of them.
     cursor.execute(
@@ -855,13 +886,16 @@ def _claims(
                 f"It has the same {same} as line {lines[0]}: they'd be one entity, which "
                 "can't be two records.",
             )
+    holder = "x.id" if on_entry else "e.id"
     cursor.execute(
-        f"SELECT DISTINCT ON (s.line) s.line, s.parts, s.origin, s.parents, s.made_with,"  # noqa: S608 - ours; values are parameters
+        f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with,"  # noqa: S608 - ours; values are parameters
         f" e.id, e.hrid, u.value FROM {table} s"
-        " JOIN iki_entity e ON e.owner_project_id = %(project)s"
-        "  AND e.identity_hash = s.identity_hash AND e.archived_at IS NULL"
-        " LEFT JOIN iki_unique_value u ON u.entity_id = e.id AND u.key = %(key)s"
-        f" WHERE {unmatched} ORDER BY s.line, e.created_at, e.id",
+        " JOIN iki_entity x ON x.registry_id = %(registry)s"
+        "  AND x.identity_hash = s.identity_hash"
+        " JOIN iki_entity e ON e.entry_id = x.id AND e.owner_project_id = %(project)s"
+        "  AND e.archived_at IS NULL"
+        f" LEFT JOIN iki_unique_value u ON u.entity_id = {holder} AND u.key = %(key)s"
+        f" WHERE {unmatched} ORDER BY s.line",
         params,
     )
     claims = []
@@ -882,10 +916,17 @@ def _first_line(error: Exception) -> str:
 
 
 def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
-    """Writes the staged creates. Returns how many it created, reused and linked."""
+    """Writes the staged creates. Returns how many records it created and reused, and how
+    many registry entries it registered (ADR 0115)."""
     table = _lines(imported)
     user = run.requested_by
-    params: dict[str, Any] = {"run": run.pk, "user": user.pk, "project": run.project_id}
+    project = run.project
+    params: dict[str, Any] = {
+        "run": run.pk,
+        "user": user.pk,
+        "project": project.pk,
+        "registry": registry_of(project),
+    }
     with connection.cursor() as cursor:
         # Foreign keys are checked after each statement, not all at commit: millions of
         # rows' checks would queue in memory until then.
@@ -894,58 +935,61 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         cursor.execute("SET LOCAL gin_pending_list_limit = '64MB'")
         cursor.execute(f"SELECT DISTINCT type FROM {table} s")  # noqa: S608 - our own values
         types = sorted(t for (t,) in cursor.fetchall())
-        reuse = [
-            t
-            for t in types
-            if (registry.duplicate_policy(registry.types()[t]) or "allow") == "reuse"
-        ]
-        locked = sorted(
+        identified = [t for t in types if shape(t).has_entries]
+        owners = sorted(
             {
                 o.qualified_name
-                for t in reuse
+                for t in identified
                 if (o := registry.identity_owner(registry.types()[t])) is not None
             }
         )
-        for owner in locked:
-            entities.identity_lock(registry.types()[owner], shared=False)
-        params["reuse"] = reuse
-        params["projects"] = list(readable_projects(user).values_list("pk", flat=True))
-        # Each line's entity: a new one, an earlier line's, or one that exists already.
+        for owner in owners:
+            entities.identity_lock(registry.types()[owner], registry_of(project), shared=False)
+        params["identified"] = identified
+        # Each line's record: a new one, an earlier line's of the same identity, or the
+        # project's own of the entry there is; and for an identity, its entry: a new one
+        # (the first line with it makes it), or the registry's.
         cursor.execute("DROP TABLE IF EXISTS iki_import_resolved")
         cursor.execute(
             "CREATE TEMP TABLE iki_import_resolved ON COMMIT DROP AS "  # noqa: S608 - ours; values are parameters
             "WITH firsts AS ("
-            f" SELECT DISTINCT ON (identity_hash) identity_hash, entity_id FROM {table}"
-            " WHERE identity_hash IS NOT NULL AND type = ANY(%(reuse)s)"
+            f" SELECT DISTINCT ON (identity_hash) identity_hash, line, entity_id FROM {table}"
+            " WHERE identity_hash IS NOT NULL AND type = ANY(%(identified)s)"
             " ORDER BY identity_hash, line"
-            "), existing AS ("
-            " SELECT DISTINCT ON (e.identity_hash) e.identity_hash, e.id FROM iki_entity e"
-            " WHERE e.identity_hash IN (SELECT identity_hash FROM firsts)"
-            " AND e.archived_at IS NULL"
-            " AND EXISTS (SELECT 1 FROM iki_entity_project l"
-            "  WHERE l.entity_id = e.id AND l.project_id = ANY(%(projects)s))"
-            # One the run's project may use: its project allows sharing, or it's already
-            # here (ADR 0067). Otherwise the line makes its own, as if it weren't there.
-            " AND (EXISTS (SELECT 1 FROM iki_project p WHERE p.id = e.owner_project_id"
-            "  AND (p.allow_sharing OR p.id = %(project)s))"
-            "  OR EXISTS (SELECT 1 FROM iki_entity_project h"
-            "  WHERE h.entity_id = e.id AND h.project_id = %(project)s))"
-            " ORDER BY e.identity_hash, e.created_at, e.id"
+            "), registered AS ("
+            " SELECT e.identity_hash, e.id, e.type, e.hrid, e.superseded_by_id FROM iki_entity e"
+            " WHERE e.registry_id = %(registry)s"
+            " AND e.identity_hash IN (SELECT identity_hash FROM firsts)"
+            "), entries AS ("
+            " SELECT f.identity_hash, f.line,"
+            "  COALESCE(x.id, uuidv7()) AS entry_id, x.id IS NULL AS new_entry,"
+            "  x.type AS entry_type, x.hrid AS entry_hrid, x.superseded_by_id"
+            " FROM firsts f LEFT JOIN registered x USING (identity_hash)"
+            "), held AS ("
+            " SELECT DISTINCT ON (r.entry_id) r.entry_id, r.id FROM iki_entity r"
+            " WHERE r.owner_project_id = %(project)s"
+            " AND r.entry_id IN (SELECT entry_id FROM entries WHERE NOT new_entry)"
+            " ORDER BY r.entry_id, r.created_at, r.id"
             "), lines AS ("
-            " SELECT s.line, s.entity_id,"
-            "  COALESCE(x.id, f.entity_id, s.entity_id) AS target,"
-            "  x.id IS NOT NULL AS reused"
+            " SELECT s.line, s.entity_id, s.type, n.entry_id, n.entry_type, n.entry_hrid,"
+            "  n.superseded_by_id, n.new_entry AND n.line = s.line AS makes_entry,"
+            "  NOT n.new_entry AND n.line = s.line AS fills_entry,"
+            "  COALESCE(h.id, f.entity_id, s.entity_id) AS target,"
+            "  h.id IS NOT NULL AS reused"
             f" FROM {table} s"
-            " LEFT JOIN firsts f ON f.identity_hash = s.identity_hash AND s.type = ANY(%(reuse)s)"
-            " LEFT JOIN existing x ON x.identity_hash = s.identity_hash"
-            "  AND s.type = ANY(%(reuse)s)"
-            ") SELECT line, entity_id, target, reused,"
+            " LEFT JOIN firsts f ON f.identity_hash = s.identity_hash"
+            "  AND s.type = ANY(%(identified)s)"
+            " LEFT JOIN entries n ON n.identity_hash = f.identity_hash"
+            " LEFT JOIN held h ON h.entry_id = n.entry_id"
+            ") SELECT line, entity_id, type, entry_id, entry_type, entry_hrid, superseded_by_id,"
+            " makes_entry, fills_entry, target, reused,"
             " target = entity_id AND NOT reused AS new,"
             " row_number() OVER (PARTITION BY target ORDER BY line) = 1 AS first"
             " FROM lines",
             params,
         )
         cursor.execute("CREATE UNIQUE INDEX ON iki_import_resolved (line)")
+        _refuse_unregistrable(cursor)
         # An entity the run already changed (one of its inputs, updated) keeps that effect.
         cursor.execute(
             "UPDATE iki_import_resolved r SET first = false WHERE first AND EXISTS ("
@@ -953,50 +997,61 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             params,
         )
         cursor.execute("ANALYZE iki_import_resolved")
+        registered = 0
+        for type_name in identified:
+            registered += _insert_entries(cursor, table, type_name, params)
         new = f"FROM {table} s JOIN iki_import_resolved r USING (line) WHERE r.new"
         for type_name in types:
             entity_type = registry.types()[type_name]
             prefix, digits = entity_type.hrid_prefix, entity_type.hrid_digits
+            if type_name in identified:
+                # A record of an entry has the entry's HRID.
+                cursor.execute(
+                    "INSERT INTO iki_entity (id, type, hrid, owner_project_id, entry_id,"  # noqa: S608 - ours; values are parameters
+                    " created_by_id, created_at, revision, updated_at)"
+                    " SELECT s.entity_id, s.type, e.hrid, %(project)s, r.entry_id, %(user)s,"
+                    f"  now(), 1, now() FROM {table} s JOIN iki_import_resolved r USING (line)"
+                    " JOIN iki_entity e ON e.id = r.entry_id"
+                    " WHERE r.new AND s.type = %(type)s ORDER BY s.line",
+                    {**params, "type": type_name},
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO iki_entity (id, type, hrid, owner_project_id, created_by_id,"  # noqa: S608 - ours; values are parameters
+                    " created_at, revision, updated_at)"
+                    " SELECT entity_id, type, %(prefix)s || '-' ||"
+                    "  CASE WHEN length(n) >= %(digits)s THEN n ELSE lpad(n, %(digits)s, '0') END,"
+                    "  %(project)s, %(user)s, now(), 1, now()"
+                    " FROM (SELECT o.*, nextval(%(sequence)s::regclass)::text AS n FROM ("
+                    f"  SELECT s.entity_id, s.type {new} AND s.type = %(type)s"
+                    "  ORDER BY s.line) o) q",
+                    {
+                        **params,
+                        "prefix": prefix,
+                        "digits": digits,
+                        "sequence": sequence_name(prefix or ""),
+                        "type": type_name,
+                    },
+                )
+            form = shape(type_name)
+            for part in form.parts:
+                if not part.entry:
+                    _insert_part(cursor, table, part, type_name)
+            own = sorted(n for p in form.parts if not p.entry for n in p.fields)
             cursor.execute(
-                "INSERT INTO iki_entity (id, type, hrid, owner_project_id, created_by_id,"  # noqa: S608 - ours; values are parameters
-                " created_at, identity_hash, revision, updated_at)"
-                " SELECT entity_id, type, %(prefix)s || '-' ||"
-                "  CASE WHEN length(n) >= %(digits)s THEN n ELSE lpad(n, %(digits)s, '0') END,"
-                "  %(project)s, %(user)s, now(), identity_hash, 1, now()"
-                " FROM (SELECT o.*, nextval(%(sequence)s::regclass)::text AS n FROM ("
-                f"  SELECT s.entity_id, s.type, s.identity_hash {new} AND s.type = %(type)s"
-                "  ORDER BY s.line) o) q",
-                {
-                    **params,
-                    "prefix": prefix,
-                    "digits": digits,
-                    "sequence": sequence_name(prefix or ""),
-                    "type": type_name,
-                },
+                "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"  # noqa: S608 - ours; values are parameters
+                " via, client, reason, created_at)"
+                " SELECT uuidv7(), s.entity_id, 1, 'created',"
+                "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(own)s) ORDER BY c),"
+                f"  %(user)s, 'run', '', '', now() {new} AND s.type = %(type)s ORDER BY s.line",
+                {**params, "own": own, "type": type_name},
             )
-            for part in shape(type_name).parts:
-                _insert_part(cursor, table, part, type_name)
-        cursor.execute(
-            "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"
-            " via, client, reason, created_at)"
-            " SELECT uuidv7(), s.entity_id, 1, 'created', s.changed, %(user)s, 'run', '', '',"
-            f" now() {new} ORDER BY s.line",
-            params,
-        )
         cursor.execute(
             "INSERT INTO iki_entity_project (id, entity_id, project_id, linked_by_id, linked_at)"
             f" SELECT uuidv7(), s.entity_id, %(project)s, %(user)s, now() {new}",
             params,
         )
         created = cursor.rowcount
-        cursor.execute(
-            "INSERT INTO iki_entity_project (id, entity_id, project_id, linked_by_id, linked_at)"
-            " SELECT uuidv7(), target, %(project)s, %(user)s, now()"
-            " FROM iki_import_resolved WHERE reused AND first"
-            " ON CONFLICT (entity_id, project_id) DO NOTHING",
-            params,
-        )
-        linked = cursor.rowcount
         cursor.execute(
             "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision)"
             " SELECT %(run)s, target, CASE WHEN reused THEN 'reused' ELSE 'created' END,"
@@ -1050,13 +1105,165 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " WHERE r.first AND s.parents IS NOT NULL",
             params,
         )
-    return created, reused, linked
+        fills = _entry_fills(cursor, table, identified)
+    _fill_entries(run, fills)
+    return created, reused, registered
 
 
-def _insert_part(cursor: Any, table: str, part: Part, type_name: str) -> None:  # noqa: ANN401 - a cursor
+def _refuse_unregistrable(cursor: Any) -> None:  # noqa: ANN401 - a cursor
+    """Lines whose identity is registered as another type, or was superseded (ADR 0115):
+    as a create of them would be, they're refused, naming the entry."""
+    cursor.execute(
+        "SELECT r.line, r.entry_hrid, r.entry_type, s.hrid FROM iki_import_resolved r"
+        " LEFT JOIN iki_entity s ON s.id = r.superseded_by_id"
+        " WHERE r.entry_type IS NOT NULL"
+        " AND (r.entry_type <> r.type OR r.superseded_by_id IS NOT NULL)"
+        " ORDER BY r.line LIMIT 100"
+    )
+    errors = []
+    for line, hrid, entry_type, replacement in cursor.fetchall():
+        detail = (
+            f"{hrid} was superseded by {replacement}: register that instead."
+            if replacement is not None
+            else f"This is registered already, as a {entry_type} ({hrid}): register it as one."
+        )
+        errors.append({"pointer": results.pointer("creates_file", line, "type"), "detail": detail})
+    if errors:
+        raise results.InvalidOutput(errors)
+
+
+def _insert_entries(cursor: Any, table: str, type_name: str, params: dict[str, Any]) -> int:  # noqa: ANN401 - a cursor
+    """The new registry entries of one type: each identity's first line makes it, with its
+    identity, derived and fact values. Returns how many."""
+    entity_type = registry.types()[type_name]
+    prefix, digits = entity_type.hrid_prefix, entity_type.hrid_digits
+    making = f"FROM {table} s JOIN iki_import_resolved r USING (line) WHERE r.makes_entry"
+    cursor.execute(
+        "INSERT INTO iki_entity (id, type, hrid, registry_id, created_by_id,"  # noqa: S608 - ours; values are parameters
+        " created_at, identity_hash, revision, updated_at)"
+        " SELECT entry_id, type, %(prefix)s || '-' ||"
+        "  CASE WHEN length(n) >= %(digits)s THEN n ELSE lpad(n, %(digits)s, '0') END,"
+        "  %(registry)s, %(user)s, now(), identity_hash, 1, now()"
+        " FROM (SELECT o.*, nextval(%(sequence)s::regclass)::text AS n FROM ("
+        f"  SELECT r.entry_id, s.type, s.identity_hash {making} AND s.type = %(type)s"
+        "  ORDER BY s.line) o) q",
+        {
+            **params,
+            "prefix": prefix,
+            "digits": digits,
+            "sequence": sequence_name(prefix or ""),
+            "type": type_name,
+        },
+    )
+    count = cursor.rowcount
+    if not count:
+        return 0
+    form = shape(type_name)
+    for part in form.parts:
+        if part.entry:
+            _insert_part(cursor, table, part, type_name, entry=True)
+    names = sorted(n for p in form.parts if p.entry for n in p.fields)
+    cursor.execute(
+        "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"  # noqa: S608 - ours; values are parameters
+        " via, client, reason, project_id, created_at)"
+        " SELECT uuidv7(), r.entry_id, 1, 'created',"
+        "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(names)s) ORDER BY c),"
+        f"  %(user)s, 'run', '', '', %(project)s, now() {making} AND s.type = %(type)s"
+        " ORDER BY s.line",
+        {**params, "names": names, "type": type_name},
+    )
+    return int(count)
+
+
+def _entry_fills(cursor: Any, table: str, identified: list[str]) -> list[tuple[Any, ...]]:  # noqa: ANN401 - a cursor
+    """The lines of identities registered already that carry entry values: each is checked
+    and written as a holder's create would (:func:`entities.fill_entry`), one by one, as
+    they're few. Values the entry has already, the same, are no change."""
+    if not identified:
+        return []
+    cursor.execute(
+        f"SELECT s.line, s.type, s.parts, r.entry_id FROM {table} s"  # noqa: S608 - ours; values are parameters
+        " JOIN iki_import_resolved r USING (line) WHERE r.fills_entry"
+        " ORDER BY s.line"
+    )
+    out = []
+    for line, type_name, parts_text, entry_id in cursor.fetchall():
+        parts = json.loads(parts_text) if isinstance(parts_text, str) else parts_text
+        form = shape(type_name)
+        tables = {p.model._meta.db_table: p for p in form.parts if p.entry}
+        values = {
+            n: v for name, fields in parts.items() if name in tables for n, v in fields.items()
+        }
+        if any(v is not None for n, v in values.items() if n not in _identity(type_name)):
+            out.append((line, type_name, values, entry_id))
+    return out
+
+
+def _identity(type_name: str) -> frozenset[str]:
+    owner = registry.identity_owner(registry.types()[type_name])
+    return frozenset(owner.identity) if owner is not None else frozenset()
+
+
+def _fill_entries(run: ActionRun, fills: list[tuple[Any, ...]]) -> None:
+    """Sets the entry values the lines of registered identities have that their entries
+    lack; a fact the entry has another value for is refused (ADR 0115)."""
+    if not fills:
+        return
+    user = run.requested_by
+    refs = access.refs_for(user, run.project)
+    errors: list[dict[str, str]] = []
+    with entities.quietly():
+        for line, type_name, values, entry_id in fills:
+            form = shape(type_name)
+            fields = form.fields()
+            given = {}
+            for name, value in values.items():
+                if name in _identity(type_name):
+                    continue
+                try:
+                    given[name] = to_db(fields[name], value, refs)
+                except ValueError as error:
+                    errors.append(
+                        {
+                            "pointer": results.pointer("creates_file", line, "values", name),
+                            "detail": f"It {error}",
+                        }
+                    )
+            try:
+                entities.fill_entry(
+                    user,
+                    form,
+                    Entity.objects.get(pk=entry_id),
+                    given,
+                    project=run.project,
+                    by_run=True,
+                )
+            except Invalid as error:
+                for name, messages in error.errors.items():
+                    errors.append(
+                        {
+                            "pointer": results.pointer("creates_file", line, "values", name),
+                            "detail": f"It {' '.join(messages)}",
+                        }
+                    )
+            if len(errors) >= MAX_ERRORS:
+                break
+    if errors:
+        raise results.InvalidOutput(errors)
+
+
+def _insert_part(
+    cursor: Any,  # noqa: ANN401 - a cursor
+    table: str,
+    part: Part,
+    type_name: str,
+    *,
+    entry: bool = False,
+) -> None:
     """One table's rows and their history, and its list fields' items, for the new
-    entities of one type."""
-    new = f"FROM {table} s JOIN iki_import_resolved r USING (line) WHERE r.new"
+    entities of one type: its new records, or with ``entry``, its new registry entries."""
+    key_column, condition = ("r.entry_id", "r.makes_entry") if entry else ("s.entity_id", "r.new")
+    new = f"FROM {table} s JOIN iki_import_resolved r USING (line) WHERE {condition}"
     key = part.model._meta.db_table
     meta = part.model._meta
     columns = [(f.name, _column(f)) for f in meta.local_concrete_fields if not f.primary_key]
@@ -1070,8 +1277,8 @@ def _insert_part(cursor: Any, table: str, part: Part, type_name: str) -> None:  
     where = f"{new} AND s.type = %s AND s.parts ? {_literal(key)}"
     cursor.execute(
         f"INSERT INTO {_q(key)} ({_q(_column(meta.pk))}{', ' if names else ''}{names})"  # noqa: S608
-        f" SELECT entity_id{', ' if selected else ''}{selected} FROM ("
-        f" SELECT s.entity_id, jsonb_populate_record(NULL::{_q(key)},"
+        f" SELECT owner{', ' if selected else ''}{selected} FROM ("
+        f" SELECT {key_column} AS owner, jsonb_populate_record(NULL::{_q(key)},"
         f"  s.parts->{_literal(key)}{renames}) AS p {where}) q",
         [type_name],
     )
@@ -1083,8 +1290,8 @@ def _insert_part(cursor: Any, table: str, part: Part, type_name: str) -> None:  
     names = ", ".join(_q(c) for c in kept)
     cursor.execute(
         f"INSERT INTO {_q(history.db_table)} (entity_id, revision{', ' if names else ''}{names})"  # noqa: S608
-        f" SELECT entity_id, 1{', ' if selected else ''}{selected} FROM ("
-        f" SELECT s.entity_id, jsonb_populate_record(NULL::{_q(history.db_table)},"
+        f" SELECT owner, 1{', ' if selected else ''}{selected} FROM ("
+        f" SELECT {key_column} AS owner, jsonb_populate_record(NULL::{_q(history.db_table)},"
         f"  s.parts->{_literal(key)}) AS p {where}) q",
         [type_name],
     )
@@ -1095,11 +1302,11 @@ def _insert_part(cursor: Any, table: str, part: Part, type_name: str) -> None:  
         item = _column(items.get_field("item"))
         cursor.execute(
             f"INSERT INTO {_q(items.db_table)} (entity_id, position, {_q(item)})"  # noqa: S608
-            " SELECT s.entity_id, e.position - 1, e.item::uuid"
+            f" SELECT {key_column}, e.position - 1, e.item::uuid"
             f" FROM {table} s JOIN iki_import_resolved r USING (line)"
             f" CROSS JOIN LATERAL jsonb_array_elements_text(s.parts->{_literal(key)}->"
             f"{_literal(name)}) WITH ORDINALITY AS e(item, position)"
-            " WHERE r.new AND s.type = %s",
+            f" WHERE {condition} AND s.type = %s",
             [type_name],
         )
 

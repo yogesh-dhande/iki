@@ -82,7 +82,8 @@ export function ProjectTabs() {
             Webhooks
           </Link>
         ) : null}
-        {project.can.manage ? (
+        {/* Org Admins choose a new project's registry, without a role in it (ADR 0115). */}
+        {project.can.manage || project.can.change_registry ? (
           <Link to="/projects/$slug/settings/" params={{ slug: project.slug }} activeProps={tab}>
             Settings
           </Link>

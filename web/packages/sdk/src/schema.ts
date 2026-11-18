@@ -775,10 +775,11 @@ export interface paths {
         put?: never;
         /**
          * Create an entity
-         * @description If its type reuses duplicates and you can read one with the same identity, that one
-         *     is returned (200, ``reused``) and added to the project, instead of a copy. If its type
-         *     warns about duplicates, the request is refused (409, ``duplicate``) unless
-         *     ``allow_duplicate`` is set.
+         * @description For a type with an identity, this registers it in the project's registry (ADR
+         *     0115): a new registry entry (201, ``registered``), or the one there is, whoever
+         *     registered it (201), of which the project gets its own record. If the project has a
+         *     record of it already, that's returned as it is (200, ``reused``). Values of the entry's
+         *     that it has already are kept; a fact given with another value is refused.
          */
         post: operations["iki_server_api_entities_create_entity"];
         delete?: never;
@@ -859,6 +860,9 @@ export interface paths {
         /**
          * An entity, by ID or HRID
          * @description Send ``If-None-Match`` with the ETag you have to get 304 if it hasn't changed.
+         *
+         *     A registry entry's HRID or ID names a project's record of it (ADR 0115): give
+         *     ``project`` to say whose, when you read more than one.
          */
         get: operations["iki_server_api_entities_get_entity"];
         put?: never;
@@ -981,6 +985,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a record to the entry that superseded its own
+         * @description An Editor of its project. It keeps its data, history and runs; the project's own
+         *     records that refer to the superseded entry are changed to refer to the new one, each a
+         *     revision with the reason. Refused if the project has a record of the new one already.
+         */
+        post: operations["iki_server_api_registries_move_entity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/origins": {
         parameters: {
             query?: never;
@@ -1077,7 +1103,8 @@ export interface paths {
         };
         /**
          * An entity's revisions
-         * @description Newest first: who changed what, how, when and why.
+         * @description Newest first: who changed what, how, when and why. ``project`` says whose record of a
+         *     registry entry, as for reading it.
          */
         get: operations["iki_server_api_entities_list_revisions"];
         put?: never;
@@ -1095,7 +1122,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** An entity as it was at a revision */
+        /**
+         * An entity as it was at a revision
+         * @description ``project`` says whose record of a registry entry, as for reading it: a view pins
+         *     its own project's record (ADR 0115).
+         */
         get: operations["iki_server_api_entities_get_revision"];
         put?: never;
         post?: never;
@@ -1136,6 +1167,118 @@ export interface paths {
         get: operations["iki_server_api_entities_get_type"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entries/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A registry entry, by ID or HRID
+         * @description For whoever reads a record of it, and its registry's registrars.
+         */
+        get: operations["iki_server_api_registries_get_entry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a registry entry's facts
+         * @description Its registry's registrars, with a reason. Audited, and told to every holding project:
+         *     who, when and why. Its identity and derived values never change: supersede it instead.
+         */
+        patch: operations["iki_server_api_registries_patch_entry"];
+        trace?: never;
+    };
+    "/api/v1/entries/{ref}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a record of a registry entry to a project
+         * @description As registering its identity in the project: the project gets its own record of the
+         *     entry (201), or keeps the one it has (200, ``reused``). You must read the entry through
+         *     a project that allows sharing, in the same registry.
+         */
+        post: operations["iki_server_api_registries_add_entry_record"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entries/{ref}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A registry entry's revisions
+         * @description Newest first. Its registrars see each in full, without the project it came through.
+         *     A holder sees who and when for its own projects' and registrars' changes; for others,
+         *     only what was set.
+         */
+        get: operations["iki_server_api_registries_list_entry_revisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entries/{ref}/revisions/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A registry entry as it was at a revision
+         * @description Its values then and what the revision changed, which every holder sees, as reviewing
+         *     a curated fact needs; who made it, how and when as its list of revisions tells them.
+         */
+        get: operations["iki_server_api_registries_get_entry_revision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entries/{ref}/supersede": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Supersede a registry entry
+         * @description Its registry's registrars replace a mistaken entry with another of its type in the
+         *     registry, for good. Each holding project's Admins, and whoever added its record, are
+         *     told, to move their records to the replacement.
+         */
+        post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1920,6 +2063,112 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Registries
+         * @description The default one first, then by name.
+         */
+        get: operations["iki_server_api_registries_list_registries"];
+        put?: never;
+        /**
+         * Add a registry
+         * @description Org Admins. A separate registry isolates its projects' identities from every other's:
+         *     for a CRO's client, or a partner program.
+         */
+        post: operations["iki_server_api_registries_create_registry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registries/{registry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A registry */
+        get: operations["iki_server_api_registries_get_registry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change a registry */
+        patch: operations["iki_server_api_registries_patch_registry"];
+        trace?: never;
+    };
+    "/api/v1/registries/{registry_id}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every entry in a registry, for its registrars
+         * @description Its registrars see each entry, and how many projects hold it: never which, nor
+         *     what's in their records.
+         */
+        get: operations["iki_server_api_registries_list_registry_entries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registries/{registry_id}/registrars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A registry's registrars
+         * @description Who curates its entries' facts and supersedes them.
+         */
+        get: operations["iki_server_api_registries_list_registrars"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registries/{registry_id}/registrars/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Make someone a registrar
+         * @description Org Admins appoint them, a registry at a time. Being an Org Admin doesn't make
+         *     someone one.
+         */
+        put: operations["iki_server_api_registries_appoint_registrar"];
+        post?: never;
+        /** Stop someone being a registrar */
+        delete: operations["iki_server_api_registries_dismiss_registrar"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3962,6 +4211,8 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
+            entry?: components["schemas"]["EntryRefOut"] | null;
             /**
              * Files
              * @description The files its values refer to that you can read, by ID.
@@ -3976,11 +4227,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /**
-             * Linked
-             * @description The existing entity was added to the project.
-             */
-            linked: boolean;
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -3991,8 +4237,13 @@ export interface components {
                 [key: string]: components["schemas"]["RefOut"];
             };
             /**
+             * Registered
+             * @description A new registry entry was made for it. False when the identity was registered already, by any project: then the project gets a record of that entry.
+             */
+            registered: boolean;
+            /**
              * Reused
-             * @description An entity with the same identity existed, and is returned instead.
+             * @description The project had a record of this identity already: it's returned as it is, unchanged.
              */
             reused: boolean;
             /**
@@ -4373,12 +4624,6 @@ export interface components {
         /** EntityIn */
         EntityIn: {
             /**
-             * Allow Duplicate
-             * @description Create it even if its type warns about a duplicate.
-             * @default false
-             */
-            allow_duplicate: boolean;
-            /**
              * Project
              * Format: uuid
              * @description The project it belongs to. It needs you as an Editor.
@@ -4413,6 +4658,8 @@ export interface components {
              */
             created_at: string;
             created_by: components["schemas"]["UserOut"] | null;
+            /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
+            entry?: components["schemas"]["EntryRefOut"] | null;
             /**
              * Files
              * @description The files its values refer to that you can read, by ID.
@@ -4516,7 +4763,7 @@ export interface components {
             hrid_prefix: string | null;
             /**
              * Identity
-             * @description The fields that tell two entities apart.
+             * @description The fields that tell two entities apart. With one, its entities are projects' records of registry entries (ADR 0115): one entry per identity in a registry, one record of it per project.
              */
             identity: string[];
             /** Label */
@@ -4528,11 +4775,6 @@ export interface components {
              * @description Qualified: plugin.Type.
              */
             name: string;
-            /**
-             * On Duplicate
-             * @description What creating an entity with the same identity as another does.
-             */
-            on_duplicate: ("reuse" | "warn" | "allow") | null;
             /** Plugin */
             plugin: string;
             /**
@@ -4552,6 +4794,152 @@ export interface components {
              * @description Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.
              */
             viewers: (components["schemas"]["SequenceViewerOut"] | components["schemas"]["StructureViewerOut"] | components["schemas"]["AlignmentViewerOut"])[];
+        };
+        /** EntryCan */
+        EntryCan: {
+            /**
+             * Curate
+             * @description Change its facts and supersede it: its registrars.
+             */
+            curate: boolean;
+        };
+        /** EntryOut */
+        EntryOut: {
+            /**
+             * Add To
+             * @description The projects you could add a record of it to (POST /entries/{ref}/records): those you edit in its registry that haven't one, where a project you read it in may share with them (ADR 0067).
+             */
+            add_to: components["schemas"]["ProjectRef"][];
+            can: components["schemas"]["EntryCan"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Files */
+            files: {
+                [key: string]: components["schemas"]["FileRef"];
+            };
+            /**
+             * Holders
+             * @description For its registrars: how many projects have a record of it. Never which.
+             */
+            holders: number | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Records
+             * @description The records of it in projects you can read: yours, and those shared with them.
+             */
+            records: components["schemas"]["EntryRecordOut"][];
+            /** Refs */
+            refs: {
+                [key: string]: components["schemas"]["RefOut"];
+            };
+            registry: components["schemas"]["RegistryRef"];
+            /**
+             * Revision
+             * @description Its latest revision. Send it back as If-Match.
+             */
+            revision: number;
+            superseded: components["schemas"]["EntrySupersededOut"] | null;
+            /** Type */
+            type: string;
+            /**
+             * Values
+             * @description Its identity, derived values and facts: every holding project's.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** EntryPatch */
+        EntryPatch: {
+            /**
+             * Reason
+             * @description Why: every holder is told.
+             */
+            reason: string;
+            /**
+             * Values
+             * @description Only the facts to change; null clears one.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** EntryRecordIn */
+        EntryRecordIn: {
+            /**
+             * Project
+             * Format: uuid
+             * @description The project to add it to. It needs you as an Editor.
+             */
+            project: string;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * Values
+             * @description The record's own values, as creating it takes.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** EntryRecordOut */
+        EntryRecordOut: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Your record of it: GET /entities/{id}.
+             */
+            id: string;
+            project: components["schemas"]["ProjectRef"];
+        };
+        /**
+         * EntryRefOut
+         * @description A record's registry entry (ADR 0115): its identity, ID and registry values.
+         */
+        EntryRefOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            registry: components["schemas"]["RegistryRef"];
+            /**
+             * Revision
+             * @description The entry's latest revision.
+             */
+            revision: number;
+            /** @description A registrar replaced it with another entry: move the record there. */
+            superseded: components["schemas"]["SupersededOut"] | null;
+        };
+        /** EntrySupersededOut */
+        EntrySupersededOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            by: components["schemas"]["RefOut"];
+            /**
+             * By Id
+             * Format: uuid
+             */
+            by_id: string;
+            /** Reason */
+            reason: string;
         };
         /** EnvironmentVolumesOut */
         EnvironmentVolumesOut: {
@@ -4773,6 +5161,11 @@ export interface components {
              * @description The plugin that defines the field.
              */
             plugin: string;
+            /**
+             * Registry
+             * @description Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
+             */
+            registry?: ("identity" | "derived" | "fact") | null;
             /** Required */
             required: boolean;
             /**
@@ -5909,6 +6302,83 @@ export interface components {
              */
             name: string;
         };
+        /** MoveIn */
+        MoveIn: {
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+        };
+        /** MovedOut */
+        MovedOut: {
+            /** Archived */
+            archived: boolean;
+            /** Archived At */
+            archived_at: string | null;
+            can: components["schemas"]["EntityCan"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            created_by: components["schemas"]["UserOut"] | null;
+            /** @description For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's. */
+            entry?: components["schemas"]["EntryRefOut"] | null;
+            /**
+             * Files
+             * @description The files its values refer to that you can read, by ID.
+             */
+            files: {
+                [key: string]: components["schemas"]["FileRef"];
+            };
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** @description The project that owns it, and decides its changes. Null if you can't see it. */
+            owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Refs
+             * @description The entities its values refer to that you can read, by ID.
+             */
+            refs: {
+                [key: string]: components["schemas"]["RefOut"];
+            };
+            /**
+             * Repointed
+             * @description The project's records whose references to the superseded entry now name its replacement.
+             */
+            repointed: components["schemas"]["RefOut"][];
+            /**
+             * Revision
+             * @description Its latest revision. Send it back as If-Match to change it.
+             */
+            revision: number;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Values
+             * @description Its fields' values, as its type's schema says.
+             */
+            values: {
+                [key: string]: unknown;
+            };
+        };
         /** NotificationActor */
         NotificationActor: {
             /**
@@ -6264,6 +6734,26 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[RegistryEntryOut] */
+        Page_RegistryEntryOut_: {
+            /** Items */
+            items: components["schemas"]["RegistryEntryOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[RegistryOut] */
+        Page_RegistryOut_: {
+            /** Items */
+            items: components["schemas"]["RegistryOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[RevisionOut] */
         Page_RevisionOut_: {
             /** Items */
@@ -6466,6 +6956,11 @@ export interface components {
              * @description The plugin that defines the field.
              */
             plugin: string;
+            /**
+             * Registry
+             * @description Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
+             */
+            registry?: ("identity" | "derived" | "fact") | null;
             /** Required */
             required: boolean;
             /**
@@ -6560,6 +7055,11 @@ export interface components {
         };
         /** ProjectCan */
         ProjectCan: {
+            /**
+             * Change Registry
+             * @description Move it to another registry: an Org Admin, while it has no entities (ADR 0115).
+             */
+            change_registry: boolean;
             /**
              * Edit
              * @description Add entities and files, and change its entities.
@@ -6666,6 +7166,11 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Registry
+             * @description Its registry (ADR 0115), one its team may use: the default one if not given. It's fixed once the project has entities.
+             */
+            registry?: string | null;
+            /**
              * Team
              * Format: uuid
              */
@@ -6726,6 +7231,8 @@ export interface components {
             my_role: ("viewer" | "editor" | "runner" | "admin") | null;
             /** Name */
             name: string;
+            /** @description Its registry (ADR 0115): what it registers is one entry, with one ID, with the same identity in every other project there. */
+            registry: components["schemas"]["RegistryRef"];
             /** Slug */
             slug: string;
             team: components["schemas"]["TeamRef"];
@@ -6762,6 +7269,11 @@ export interface components {
             description?: string | null;
             /** Name */
             name?: string | null;
+            /**
+             * Registry
+             * @description Move it to another registry its team may use: Org Admins, while it has no entities (ADR 0115).
+             */
+            registry?: string | null;
         };
         /** ProjectRef */
         ProjectRef: {
@@ -7079,6 +7591,16 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** RegistrarOut */
+        RegistrarOut: {
+            /**
+             * Appointed At
+             * Format: date-time
+             */
+            appointed_at: string;
+            appointed_by: components["schemas"]["UserOut"] | null;
+            user: components["schemas"]["UserOut"];
+        };
         /** RegistrationIn */
         RegistrationIn: {
             /**
@@ -7154,6 +7676,176 @@ export interface components {
              */
             version: string;
         };
+        /** RegistryCan */
+        RegistryCan: {
+            /**
+             * Curate
+             * @description You're one of its registrars: see its entries, change their facts, supersede them.
+             */
+            curate: boolean;
+            /**
+             * Manage
+             * @description Rename it, choose its teams, appoint its registrars.
+             */
+            manage: boolean;
+        };
+        /** RegistryEntryFilters */
+        RegistryEntryFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Q
+             * @description An HRID, or the start of one.
+             */
+            q?: string | null;
+            /** Superseded */
+            superseded?: boolean | null;
+            /**
+             * Type
+             * @description Only this type's entries (and its subtypes').
+             */
+            type?: string | null;
+        };
+        /** RegistryEntryOut */
+        RegistryEntryOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Holders
+             * @description How many projects have a record of it. Never which.
+             */
+            holders: number;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Revision */
+            revision: number;
+            /** Superseded */
+            superseded: boolean;
+            /** Type */
+            type: string;
+        };
+        /** RegistryFilters */
+        RegistryFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Team
+             * @description Only those this team's new projects may be in, to choose one.
+             */
+            team?: string | null;
+        };
+        /** RegistryIn */
+        RegistryIn: {
+            /**
+             * All Teams
+             * @description Every team's projects may be in it.
+             * @default false
+             */
+            all_teams: boolean;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Name */
+            name: string;
+            /**
+             * Teams
+             * @description Otherwise, the teams whose projects may be.
+             */
+            teams?: string[];
+        };
+        /** RegistryOut */
+        RegistryOut: {
+            /**
+             * All Teams
+             * @description Every team's projects may be in it.
+             */
+            all_teams: boolean;
+            can: components["schemas"]["RegistryCan"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Default
+             * @description New projects are in it unless they're given another.
+             */
+            default: boolean;
+            /** Description */
+            description: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Teams
+             * @description Without all_teams, the teams whose projects may be in it. Listed to Org Admins only.
+             */
+            teams: components["schemas"]["TeamRef"][];
+        };
+        /** RegistryPatch */
+        RegistryPatch: {
+            /** All Teams */
+            all_teams?: boolean | null;
+            /** Description */
+            description?: string | null;
+            /** Name */
+            name?: string | null;
+            /**
+             * Teams
+             * @description A team taken off keeps its projects in the registry: it can't put new ones there.
+             */
+            teams?: string[] | null;
+        };
+        /**
+         * RegistryRef
+         * @description A registry (ADR 0115): an identity boundary. Within it, each identity is one entry
+         *     with one ID, which each project holding it keeps its own record of.
+         */
+        RegistryRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
         /** ReproduceIn */
         ReproduceIn: {
             /**
@@ -7209,11 +7901,14 @@ export interface components {
              * @description The OAuth app it came through, such as an AI agent's MCP client, if any.
              */
             client: string;
+            /** Created At */
+            created_at: string | null;
             /**
-             * Created At
-             * Format: date-time
+             * Entry
+             * @description It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.
+             * @default false
              */
-            created_at: string;
+            entry: boolean;
             /**
              * Files
              * @description The files its values and changes refer to that you can read, by ID.
@@ -7225,7 +7920,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored";
+            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved";
             /** Number */
             number: number;
             /** Reason */
@@ -7265,16 +7960,19 @@ export interface components {
              * @description The OAuth app it came through, such as an AI agent's MCP client, if any.
              */
             client: string;
+            /** Created At */
+            created_at: string | null;
             /**
-             * Created At
-             * Format: date-time
+             * Entry
+             * @description It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.
+             * @default false
              */
-            created_at: string;
+            entry: boolean;
             /**
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored";
+            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved";
             /** Number */
             number: number;
             /** Reason */
@@ -8599,6 +9297,36 @@ export interface components {
         SummaryOut: {
             /** Unread */
             unread: number;
+        };
+        /** SupersedeIn */
+        SupersedeIn: {
+            /**
+             * Reason
+             * @description Why: its holders are told it.
+             */
+            reason: string;
+            /**
+             * Replacement
+             * @description The entry that replaces it, by ID or HRID.
+             */
+            replacement: string;
+        };
+        /** SupersededOut */
+        SupersededOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** @description The entry that replaced it. */
+            by: components["schemas"]["RefOut"];
+            /**
+             * By Id
+             * Format: uuid
+             */
+            by_id: string;
+            /** Reason */
+            reason: string;
         };
         /** TeamFilters */
         TeamFilters: {
@@ -10873,7 +11601,9 @@ export interface operations {
     };
     iki_server_api_entities_get_entity: {
         parameters: {
-            query?: never;
+            query?: {
+                project?: string | null;
+            };
             header?: {
                 "If-None-Match"?: string | null;
             };
@@ -11045,6 +11775,32 @@ export interface operations {
             };
         };
     };
+    iki_server_api_registries_move_entity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovedOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_get_origins: {
         parameters: {
             query?: never;
@@ -11173,6 +11929,7 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                project?: string | null;
             };
             header?: never;
             path: {
@@ -11195,7 +11952,9 @@ export interface operations {
     };
     iki_server_api_entities_get_revision: {
         parameters: {
-            query?: never;
+            query?: {
+                project?: string | null;
+            };
             header?: never;
             path: {
                 ref: string;
@@ -11254,6 +12013,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntityTypeOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_get_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_patch_entry: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntryPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_add_entry_record: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntryRecordIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_list_entry_revisions: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RevisionOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_get_entry_revision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionDetailOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_supersede_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupersedeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryOut"];
                 };
             };
         };
@@ -12442,6 +13362,212 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RegistrationOut"];
                 };
+            };
+        };
+    };
+    iki_server_api_registries_list_registries: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only those this team's new projects may be in, to choose one. */
+                team?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RegistryOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_create_registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistryIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_get_registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_patch_registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistryPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistryOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_list_registry_entries: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                /** @description Only this type's entries (and its subtypes'). */
+                type?: string | null;
+                /** @description An HRID, or the start of one. */
+                q?: string | null;
+                superseded?: boolean | null;
+            };
+            header?: never;
+            path: {
+                registry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RegistryEntryOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_list_registrars: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_appoint_registrar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarOut"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrarOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_registries_dismiss_registrar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registry_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

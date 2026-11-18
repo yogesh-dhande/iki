@@ -33,7 +33,6 @@ export function AppDraft() {
             type: APP_TYPE,
             project: project.id,
             values: { name: draft.data?.name, spec: draft.data?.spec },
-            allow_duplicate: false,
             reason: draft.data?.agent ? `Saved from a draft ${draft.data.agent} made.` : "",
           },
         }),

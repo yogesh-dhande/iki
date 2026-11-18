@@ -377,6 +377,7 @@ describe("a project", () => {
         manage_webhooks: false,
         export: false,
         import_bundles: false,
+        change_registry: false,
         run: [],
       },
     });
@@ -443,6 +444,7 @@ describe("members", () => {
         manage_webhooks: false,
         export: false,
         import_bundles: false,
+        change_registry: false,
         run: [],
       },
     });
@@ -672,6 +674,7 @@ describe("settings", () => {
         manage_webhooks: false,
         export: false,
         import_bundles: false,
+        change_registry: false,
         run: [],
       },
     });
@@ -1119,6 +1122,7 @@ describe("webhooks", () => {
         manage_webhooks: false,
         export: false,
         import_bundles: false,
+        change_registry: false,
         run: [],
       },
     });

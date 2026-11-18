@@ -10,11 +10,25 @@ import { typeQuery, typesQuery, type EntityType, type FieldDef } from "../entiti
 import { usePageTitle } from "../layout";
 import { Badge, PageHeader } from "../ui";
 
-const DUPLICATES: Record<string, string> = {
-  reuse: "Creating one that’s already there links the existing one instead.",
-  warn: "Creating one that’s already there asks first.",
-  allow: "Duplicates are allowed.",
+/** Where a field of a type with an identity is kept (ADR 0115). */
+const KEPT: Record<"identity" | "derived" | "fact" | "record", { badge: string; help: string }> = {
+  identity: { badge: "Identity", help: "Part of what it is, in its registry entry." },
+  derived: {
+    badge: "Registry: derived",
+    help: "Worked out from its identity when it’s registered, in its registry entry.",
+  },
+  fact: {
+    badge: "Registry: fact",
+    help: "In its registry entry, the same for every project. Once set, only the registry’s registrars change it.",
+  },
+  record: { badge: "Project record", help: "Each project’s own." },
 };
+
+function keptAs(type: EntityType, field: FieldDef): keyof typeof KEPT | null {
+  if (!type.identity.length) return null;
+  if (field.registry) return field.registry;
+  return type.identity.includes(field.name) ? "identity" : "record";
+}
 
 function TypeLink({ name, types }: { name: string; types: EntityType[] }) {
   const found = types.find((t) => t.name === name);
@@ -174,8 +188,10 @@ export function TypeDetail() {
             <>
               <dt>Identity</dt>
               <dd>
-                Two are the same when their {identity.map((f) => f.label).join(" and ")} match.{" "}
-                {type.on_duplicate ? DUPLICATES[type.on_duplicate] : null}
+                Two are the same when their {identity.map((f) => f.label).join(" and ")} match. Each
+                is registered once in a registry, with one ID, and each project that has it keeps
+                its own record of it. Creating one that’s registered already gives the project its
+                own record, with the same ID.
               </dd>
             </>
           ) : null}
@@ -197,38 +213,47 @@ export function TypeDetail() {
                 <th scope="col">Field</th>
                 <th scope="col">Holds</th>
                 <th scope="col">Rules</th>
+                {type.identity.length ? <th scope="col">Kept in</th> : null}
               </tr>
             </thead>
             <tbody>
-              {type.fields.map((f) => (
-                <tr key={f.name}>
-                  <th scope="row">
-                    {f.label}
-                    <span className="cell-meta">
-                      <code>{f.name}</code>
-                      {f.plugin !== type.plugin ? ` · from ${f.plugin}` : ""}
-                    </span>
-                    {f.description ? <span className="cell-meta">{f.description}</span> : null}
-                  </th>
-                  <td>
-                    {fieldKind(f, types)}
-                    {f.display_unit && f.display_unit !== f.unit ? (
+              {type.fields.map((f) => {
+                const kept = keptAs(type, f);
+                return (
+                  <tr key={f.name}>
+                    <th scope="row">
+                      {f.label}
                       <span className="cell-meta">
-                        Shown in {f.display_unit_symbol ?? f.display_unit}
+                        <code>{f.name}</code>
+                        {f.plugin !== type.plugin ? ` · from ${f.plugin}` : ""}
                       </span>
+                      {f.description ? <span className="cell-meta">{f.description}</span> : null}
+                    </th>
+                    <td>
+                      {fieldKind(f, types)}
+                      {f.display_unit && f.display_unit !== f.unit ? (
+                        <span className="cell-meta">
+                          Shown in {f.display_unit_symbol ?? f.display_unit}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      <span className="tags">
+                        {f.required ? <Badge>Required</Badge> : null}
+                        {f.immutable ? <Badge muted>Set once</Badge> : null}
+                        {f.computed ? <Badge muted>Computed</Badge> : null}
+                        {f.unique ? <Badge muted>Unique</Badge> : null}
+                      </span>
+                    </td>
+                    {kept ? (
+                      <td>
+                        <Badge muted={kept === "record"}>{KEPT[kept].badge}</Badge>
+                        <span className="cell-meta">{KEPT[kept].help}</span>
+                      </td>
                     ) : null}
-                  </td>
-                  <td>
-                    <span className="tags">
-                      {f.required ? <Badge>Required</Badge> : null}
-                      {f.immutable ? <Badge muted>Set once</Badge> : null}
-                      {f.computed ? <Badge muted>Computed</Badge> : null}
-                      {f.unique ? <Badge muted>Unique</Badge> : null}
-                      {type.identity.includes(f.name) ? <Badge muted>Identity</Badge> : null}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -8,7 +8,6 @@ from api_client import Api, problem
 from org_world import World, build_world
 from test_oauth import bearer, signed_in_token
 
-from iki_server.entities import registry
 from iki_server.entities.models import Entity
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.webhooks import services as webhooks
@@ -64,7 +63,7 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert "iki/core.Entity" not in names
     dna = api.get("/entity-types/acme/dna.DNASequence").json()
     assert dna["extends"] == "acme/dna.Sequence"
-    assert dna["identity"] == ["bases"] and dna["on_duplicate"] == "reuse"
+    assert dna["identity"] == ["bases"]
     assert dna["hrid_prefix"] == "DNA"
     fields = {f["name"]: f for f in dna["fields"]}
     # Inherited from iki/core.Sequence, by way of acme/dna.Sequence.
@@ -136,42 +135,27 @@ def test_invalid_values_point_at_their_field(world: World) -> None:
     ]
 
 
-def test_a_readable_duplicate_is_returned_and_linked(world: World, other: Project) -> None:
+def test_registering_again_gives_each_project_its_record(world: World, other: Project) -> None:
     api = api_as(world)
     first = create(api, world.project, {"bases": "GATTACA"}).json()
+    assert first["registered"] and first["entry"]["hrid"] == first["hrid"]
+    fields = {f["name"]: f for f in api.get("/entity-types/acme/dna.DNASequence").json()["fields"]}
+    assert fields["bases"]["registry"] == "identity" and fields["length"]["registry"] == "derived"
+    assert fields["name"]["registry"] is None
+    # Another project gets its own record of the same entry, with its ID.
     again = create(api, other, {"bases": "GATTACA"})
-    assert again.status_code == 200
-    assert again.json()["id"] == first["id"]
-    assert again.json()["reused"] and again.json()["linked"]
+    assert again.status_code == 201
+    theirs = again.json()
+    assert theirs["id"] != first["id"] and theirs["hrid"] == first["hrid"]
+    assert theirs["entry"]["id"] == first["entry"]["id"]
+    assert not theirs["reused"] and not theirs["registered"]
+    # The same project gets the record it has, as it is.
+    same = create(api_as(world, "outsider"), other, {"bases": "GATTACA", "name": "x"})
+    assert same.status_code == 200 and same.json()["reused"]
+    assert same.json()["id"] == theirs["id"] and same.json()["values"].get("name") is None
+    # Each record is in its own project alone.
     projects = api.get(f"/entities/{first['id']}/projects").json()
-    assert [(p["project"]["name"], p["owner"]) for p in projects] == [
-        ("Kinase Atlas", True),
-        ("Enzymes", False),
-    ]
-    # It's in Enzymes now, so the outsider reads it too, and gets the same one.
-    theirs = create(api_as(world, "outsider"), other, {"bases": "GATTACA"})
-    assert theirs.status_code == 200 and theirs.json()["id"] == first["id"]
-    assert not theirs.json()["linked"]
-    # Someone who can't read it gets their own.
-    elsewhere = Project.objects.create(team=world.team, name="Elsewhere")
-    ProjectMembership.objects.create(
-        project=elsewhere, user=world.users["team_member"], role=ProjectRole.EDITOR
-    )
-    own = create(api_as(world, "team_member"), elsewhere, {"bases": "GATTACA"})
-    assert own.status_code == 201 and own.json()["id"] != first["id"]
-
-
-def test_a_warned_duplicate_is_refused_unless_allowed(
-    world: World, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(registry, "duplicate_policy", lambda _: "warn")
-    api = api_as(world)
-    first = create(api, world.project, {"bases": "GGCC"}).json()
-    body = problem(create(api, world.project, {"bases": "GGCC"}), 409, "duplicate")
-    assert body["errors"][0]["entity"] == first["id"]
-    assert first["hrid"] in body["detail"]
-    allowed = create(api, world.project, {"bases": "GGCC"}, allow_duplicate=True)
-    assert allowed.status_code == 201 and allowed.json()["id"] != first["id"]
+    assert [(p["project"]["name"], p["owner"]) for p in projects] == [("Kinase Atlas", True)]
 
 
 def test_quantities_can_come_in_any_convertible_unit(world: World) -> None:
@@ -405,6 +389,7 @@ def test_changes_reach_webhooks_without_their_values(world: World, other: Projec
         "type": "acme/dna.DNASequence",
         "revision": 2,
         "owner_project": {"id": str(world.project.pk)},
+        "entry": {"id": made["entry"]["id"]},
         "archived": False,
     }
     assert data["revision"] == {
@@ -476,13 +461,23 @@ def test_entities_name_what_their_values_refer_to(world: World, other: Project) 
     pdb = File.objects.create(
         blob=blob, name="1abc.pdb", media_type="chemical/x-pdb", project=world.project
     )
+    # A reference holds a registry entry (ADR 0115) the project has: another project's
+    # record, which the editor reads there, isn't one.
     values = {"structure": str(pdb.pk), "chains": [protein["id"], hidden["id"]]}
+    refused = problem(
+        create(api, world.project, values, "acme/protein.ProteinStructure"),
+        422,
+        "validation_failed",
+    )
+    assert "isn't in Kinase Atlas" in refused["errors"][0]["detail"]
+    values = {"structure": str(pdb.pk), "chains": [protein["id"]]}
     made = create(api, world.project, values, "acme/protein.ProteinStructure")
     assert made.status_code == 201, made.content
-    # The viewer can read this project, but not the other one.
+    assert made.json()["values"]["chains"] == [protein["entry"]["id"]]
+    # Named by the entry, as the project's record of it is.
     seen = api_as(world, "viewer").get(f"/entities/{made.json()['id']}").json()
     assert seen["refs"] == {
-        protein["id"]: {
+        protein["entry"]["id"]: {
             "hrid": protein["hrid"],
             "title": protein["hrid"],
             "type": "acme/protein.Protein",
@@ -509,7 +504,7 @@ def test_entities_have_their_types_display_title(world: World) -> None:
     # References carry their target's title too.
     values = {"sequence": "MKY", "source": named.json()["id"]}
     variant = create(api, world.project, values, "acme/protein.Protein").json()
-    assert variant["refs"][named.json()["id"]]["title"] == "Lysozyme"
+    assert variant["refs"][named.json()["entry"]["id"]]["title"] == "Lysozyme"
 
 
 def test_q_finds_entities_by_hrid_or_the_text_in_their_title(world: World) -> None:
@@ -571,4 +566,4 @@ def test_revisions_name_what_their_changes_referred_to(world: World) -> None:
     changed = api.get(f"/entities/{made['id']}/revisions/2").json()
     # The entity it no longer refers to is named too, so its history reads.
     assert {r["hrid"] for r in changed["refs"].values()} == {first.json()["hrid"], second["hrid"]}
-    assert changed["refs"][first.json()["id"]]["title"] == "Lysozyme"
+    assert changed["refs"][first.json()["entry"]["id"]]["title"] == "Lysozyme"

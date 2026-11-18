@@ -6,8 +6,10 @@ the PDB, AlphaFold DB or a lab's own files, with their secondary structure, and 
 of proteins, two or many.
 
 - **`iki/protein.Protein`** (`PRT-000001`): a protein, by its amino acid sequence.
-  - Its identity is its sequence, so registering the same protein again
-    reuses it.
+  - Its identity is its sequence: each protein is registered once in a
+    registry (ADR 0115), with one ID, and registering it again, in any
+    project, finds that entry. A project that hadn't got it gets its own
+    record of it; one that had finds its record.
   - It keeps its UniProt accession and gene where it has them, and the DNA
     sequence it was translated from (`encoded_by`).
   - Its length, molecular weight, isoelectric point, extinction coefficients,
@@ -16,7 +18,9 @@ of proteins, two or many.
 
 - **`iki/protein.ProteinStructure`** (`PST-000001`): a three-dimensional
   structure, experimental or predicted, in mmCIF or PDB format.
-  - Its identity is its file, so importing the same file again reuses it.
+  - Its identity is its file, registered as a protein's is. Its method,
+    resolution and chains are its entry's, and so is its PDB ID, a registry
+    fact only its registrars change once it's set.
   - It keeps its PDB ID, title, method, resolution and first release, and the
     protein each of its chains is (`chains`, in the order of `chain_ids`).
   - DSSP gives each chain's secondary structure, residue by residue, the
@@ -52,7 +56,8 @@ they list none.
   genetic code chosen, stopping at the first stop codon or keeping each as
   `*`, and registers the protein, linked to the DNA. Many at once.
 - **`import_proteins`**: registers each record of a FASTA file (up to 10
-  million, and 1 GiB) as a protein. A protein already in Iki is reused. Each
+  million, and 1 GiB) as a protein. A protein already registered is found,
+  and the project gets its record of it, or keeps the one it has. Each
   records the file and record it came from, with the record's SHA-256.
 - **`fetch_proteins`**: fetches UniProtKB entries by accession (up to 1,000,
   such as `P69905`, or `P69905-2` for an isoform) and registers each as a
@@ -177,7 +182,7 @@ Each protein (an mmCIF entity of type `polypeptide(L)`) takes its full
 sequence (SEQRES, or the residues it has where a file gives none, as
 predictions often do), and its name, organism, gene and UniProt accession
 where the file gives them. Chains of the same protein refer to the same
-`Protein`, which is reused if Iki already has its sequence. Other polymers
+`Protein`, the registry's entry for its sequence if it has one already. Other polymers
 (DNA, RNA, D-peptides) and ligands are left out, and the run says so. A file
 with no protein chains, or that isn't mmCIF or PDB, fails the run, which says
 why. An entry the PDB doesn't have, or has made obsolete, fails the fetch.

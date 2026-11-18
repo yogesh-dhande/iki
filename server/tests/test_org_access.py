@@ -12,6 +12,8 @@ from django.urls import get_resolver
 from django.utils import timezone
 from org_world import PRINCIPALS, World, build_world, post
 
+from iki_server.org.models import Registry
+
 pytestmark = pytest.mark.django_db
 
 LOGIN = "login"  # expected: redirect to the sign-in page
@@ -232,6 +234,28 @@ CASES: list[Case] = [
         lambda w: (
             "/settings/legal-holds/",
             {"action": "place", "project": str(w.project.pk), "matter": "Case 24-117"},
+        ),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
+    ("registries", "GET", lambda w: ("/settings/registries/", {}), row(FORBIDDEN, org_admin=OK)),
+    (
+        "registries",
+        "POST",
+        lambda w: ("/settings/registries/", {"name": "Client A", "all_teams": "on"}),
+        row(FORBIDDEN, org_admin=DONE),
+    ),
+    (
+        "registry",
+        "GET",
+        lambda w: (f"/settings/registries/{Registry.default().pk}/", {}),
+        row(FORBIDDEN, org_admin=OK),
+    ),
+    (
+        "registry",
+        "POST",
+        lambda w: (
+            f"/settings/registries/{Registry.default().pk}/",
+            {"action": "appoint", "person": w.users["viewer"].email},
         ),
         row(FORBIDDEN, org_admin=DONE),
     ),

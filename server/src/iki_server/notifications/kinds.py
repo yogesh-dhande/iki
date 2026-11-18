@@ -108,6 +108,15 @@ WORKFLOW_APPROVAL_REQUESTED = register(
         group="Runs",
     )
 )
+ENTRY_SUPERSEDED = register(
+    Kind(
+        "registry.entry_superseded",
+        "A registry entry was superseded",
+        "A registrar supersedes a registry entry with another, and a project you're an Admin "
+        "of, or whose record of it you added, has a record of it to move.",
+        group="Registries",
+    )
+)
 TRIGGER_TURNED_OFF = register(
     Kind(
         "trigger.turned_off",

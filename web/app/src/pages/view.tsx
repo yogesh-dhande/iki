@@ -12,7 +12,15 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { iki, problemOf, useApiMutation } from "../api";
-import { ENTITIES, entityQuery, revisionQuery, type Entity, type EntityType } from "../entities";
+import {
+  ENTITIES,
+  recordQuery,
+  recordSearch,
+  revisionQuery,
+  type Entity,
+  type EntityPageSearch,
+  type EntityType,
+} from "../entities";
 import { Button, Loading, ProblemAlert, useMessages } from "../ui";
 import {
   readViewState,
@@ -40,6 +48,8 @@ interface Shown {
   source: Source | undefined;
   /** Why it isn't shown, if it isn't. */
   problem: string | null;
+  /** Its link's `?project=`: the view's project's record of a registry entry (ADR 0115). */
+  search: EntityPageSearch;
 }
 
 /** What the page shows: a viewer for one entity, or Mol*'s scene for its structures. */
@@ -80,13 +90,15 @@ export function SavedViewPanel({ view, types }: { view: Entity; types: EntityTyp
   };
   const pinned = useQueries({
     queries: targets.map((t) => ({
-      ...revisionQuery(view.refs[t.id]?.hrid ?? t.id, t.revision),
+      // A target of a type with an identity is its registry entry: the view pins its
+      // own project's record of it (ADR 0115).
+      ...revisionQuery(t.id, t.revision, view.owner_project?.id),
       enabled: readable(t),
     })),
   });
   const current = useQueries({
     queries: targets.map((t) => ({
-      ...entityQuery(view.refs[t.id]?.hrid ?? t.id),
+      ...recordQuery(t.id, view.owner_project?.id),
       enabled: readable(t),
     })),
   });
@@ -123,6 +135,7 @@ export function SavedViewPanel({ view, types }: { view: Entity; types: EntityTyp
       viewer,
       source,
       problem,
+      search: now ? recordSearch(now) : {},
     };
   });
 
@@ -194,7 +207,7 @@ export function SavedViewPanel({ view, types }: { view: Entity; types: EntityTyp
         {one ? (
           <>
             {one.viewer?.label ?? "View"} of{" "}
-            <Link to="/entities/$ref/" params={{ ref: one.hrid }}>
+            <Link to="/entities/$ref/" params={{ ref: one.hrid }} search={one.search}>
               {one.title}
             </Link>
           </>
@@ -209,7 +222,7 @@ export function SavedViewPanel({ view, types }: { view: Entity; types: EntityTyp
           <ol className="view-shows" aria-label="What it shows">
             {shown.map((s) => (
               <li key={`${s.target.id} ${s.target.viewer}`}>
-                <Link to="/entities/$ref/" params={{ ref: s.hrid }}>
+                <Link to="/entities/$ref/" params={{ ref: s.hrid }} search={s.search}>
                   {s.label ?? s.title}
                 </Link>{" "}
                 <span className="muted">

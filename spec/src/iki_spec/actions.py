@@ -613,6 +613,17 @@ class _Rules:
                 path,
                 hint=f"Mark `{name}` `unique: true` (and `indexed: true`).",
             )
+        elif found.registry is not None:
+            self.add(
+                "match-on-registry-field",
+                f"`{name}` is a registry {found.registry}, unique across the registry: a "
+                "create matches on a field of each project's record, such as another system's "
+                "ID for it.",
+                source,
+                path,
+                hint="A create of an identity type finds its registry entry by its identity "
+                "already (ADR 0115).",
+            )
 
     def effects(self, action: Action, source: Document) -> None:
         for index, creates in enumerate(action.creates):

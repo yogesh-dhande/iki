@@ -24,6 +24,10 @@
       "type": "boolean",
       "description": "Only actions set this value; people can't edit it."
     },
+    "registry": {
+      "enum": ["derived", "fact"],
+      "description": "For a type with an identity, or an extension of one: the field is its registry entry's, which every project holding the entry sees, rather than each project's record's (ADR 0115). `derived`: derived from the identity alone, set once at registration (a formula, a weight, a canonical form). `fact`: a curated fact the identity doesn't determine (a CAS number, an INN, a hazard class), which anyone holding the entry may set while it's empty, and only a registrar changes after."
+    },
     "indexed": {
       "type": "boolean",
       "description": "Keep a database index on this field, for fast filtering and sorting. Indexed strings are also fast to search for text they contain."
@@ -227,6 +231,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "unique",
                 "link",
@@ -263,6 +268,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default",
@@ -294,6 +300,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default",
@@ -332,6 +339,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default",
@@ -364,6 +372,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default"
@@ -395,6 +404,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default",
@@ -426,6 +436,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default"
@@ -457,6 +468,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed"
               ]
@@ -482,6 +494,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default",
@@ -516,6 +529,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "media_types",
@@ -543,6 +557,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "to"
@@ -569,6 +584,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "default",
@@ -602,6 +618,7 @@
                 "required",
                 "immutable",
                 "computed",
+                "registry",
                 "indexed",
                 "removed",
                 "schema"

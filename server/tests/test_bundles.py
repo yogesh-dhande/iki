@@ -49,8 +49,13 @@ def lab(s3: Any) -> dict[str, Any]:
     ProjectMembership.objects.create(project=kinases, user=alice, role=ProjectRole.ADMIN)
     ProjectMembership.objects.create(project=kinases, user=bob, role=ProjectRole.EDITOR)
     ProjectMembership.objects.create(project=shared, user=alice, role=ProjectRole.EDITOR)
+    # Another project's record of a type without an identity, which a reference may name
+    # (one of a type with an identity names a registry entry the project has: ADR 0115).
     elsewhere = services.create(
-        alice, "acme/protein.Protein", shared, {"sequence": "MKV", "name": "Elsewhere"}
+        alice,
+        "acme/protein.ProteinStructure",
+        shared,
+        {"structure": str(stored(shared, PDB + b"END\n", "2xyz.pdb").pk), "method": "xray"},
     ).entity
     earlier = services.create(
         alice, "acme/protein.Protein", kinases, {"sequence": "MKA", "name": "Earlier"}
@@ -116,7 +121,15 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert m["reason"] == "Validated structures, for production"
     assert m["project"]["name"] == "Kinases"
     # The structure, and the protein its chains name now; the others only as references.
-    assert m["counts"] == {"entities": 2, "revisions": 4, "files": 1, "outside": 2, "runs": 0}
+    # And the protein's registry entry (ADR 0115), which its record is of.
+    assert m["counts"] == {
+        "entities": 2,
+        "entries": 1,
+        "revisions": 4,
+        "files": 1,
+        "outside": 2,
+        "runs": 0,
+    }
     assert made.counts == m["counts"]
     plugins = {p["name"]: p for p in m["plugins"]}
     protein = plugins["acme/protein"]["types"]["acme/protein.Protein"]
@@ -124,7 +137,8 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert protein["units"]["temperature_optimum"] == "Cel"
     assert "acme/dna.Sequence" in plugins["acme/dna"]["types"]
     assert plugins["acme/prediction"]["extensions"] == {
-        "acme/protein.ProteinStructure": {"units": {}}
+        "acme/protein.Protein": {"units": {}},
+        "acme/protein.ProteinStructure": {"units": {}},
     }
 
     entities = {e["hrid"]: e for e in bundle.lines("entities.ndjson")}
@@ -140,7 +154,7 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert people[k["created_by"]] == "bob@example.org"
     own = [h for h in k["history"] if h["table"] == "acme/protein.Protein"]
     assert [(h["revision"], h["values"]["source"]) for h in own] == [
-        (1, str(lab["earlier"].pk)),
+        (1, str(lab["earlier"].entry_id)),
         (2, str(lab["elsewhere"].pk)),
     ]
     assert any(
@@ -149,7 +163,7 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     s = entities[structure.hrid]
     values = [h["values"] for h in s["history"] if h["table"] == "acme/protein.ProteinStructure"]
     assert [v["method"] for v in values] == ["xray", "nmr"]
-    assert values[0]["chains"] == [str(kinase.pk)]
+    assert values[0]["chains"] == [str(kinase.entry_id)]
     assert values[0]["structure"] == str(lab["pdb"].pk)
 
     (pdb,) = bundle.lines("files.ndjson")
@@ -161,11 +175,11 @@ def test_a_bundle_carries_entities_with_their_history_files_and_authors(
     assert outside[str(lab["elsewhere"].pk)] == {
         "id": str(lab["elsewhere"].pk),
         "hrid": lab["elsewhere"].hrid,
-        "type": "acme/protein.Protein",
+        "type": "acme/protein.ProteinStructure",
         "why": "another-project",
     }
     # Only the kinase's first revision referred to it.
-    assert outside[str(lab["earlier"].pk)]["why"] == "history"
+    assert outside[str(lab["earlier"].entry_id)]["why"] == "history"
 
     event = AuditEvent.objects.get(action="bundle.exported")
     assert event.actor_id == lab["alice"].pk

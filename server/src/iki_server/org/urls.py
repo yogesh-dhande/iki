@@ -33,6 +33,8 @@ urlpatterns: list[URLPattern] = [
     ),
     path("teams/<slug:slug>/settings/", views.team_settings, name="team_settings"),
     path("settings/legal-holds/", views.legal_holds, name="legal_holds"),
+    path("settings/registries/", views.registry_list, name="registries"),
+    path("settings/registries/<uuid:registry_id>/", views.registry_detail, name="registry"),
     path("settings/plugins/", plugin_pages.plugins, name="plugins"),
     path("settings/plugins/<plugin:name>/", plugin_pages.plugin, name="plugin"),
     path("people/", views.people, name="people"),

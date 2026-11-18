@@ -181,7 +181,11 @@ def test_plugins_that_cant_be_installed_together(plugins: list[Plugin], tmp_path
                 protein.types["acme/protein.Protein"], plugin="acme/folding", name="Model"
             )
         },
-        extensions=tuple(replace(e, plugin="acme/folding") for e in prediction.extensions),
+        extensions=tuple(
+            replace(e, plugin="acme/folding")
+            for e in prediction.extensions
+            if e.extends_type == "acme/protein.ProteinStructure"
+        ),
     )
     problems = conflicts([*plugins, copy])
     assert problems == [

@@ -17,6 +17,10 @@ Views, the API, MCP tools and the event stream ask :func:`can` or
 - **Any member of a team can create a project in it** and becomes its Admin.
 - Archived projects are read-only, except for restoring them and managing
   members. Archived teams get no new projects.
+- **Registries** (ADR 0115): Org Admins add and change them, and appoint each
+  one's registrars. A registrar curates their registry: sees its entries
+  (never projects' records of them), changes their facts, and supersedes
+  mistaken ones. Being an Org Admin doesn't make someone a registrar.
 
 Decisions are cached on the user object, which lives for one request. Call
 :func:`forget` after changing someone's roles within the same request.
@@ -41,6 +45,8 @@ from iki_server.org.models import (
     Project,
     ProjectMembership,
     ProjectRole,
+    Registrar,
+    Registry,
     Team,
 )
 
@@ -56,6 +62,13 @@ class Action(StrEnum):
     """What runs cost across the organization, by project, team, template and action."""
     ORG_WEBHOOKS_MANAGE = "org.webhooks.manage"
     """The organization's webhooks, and turning off any project's."""
+    REGISTRIES_MANAGE = "registries.manage"
+    """Add, rename and describe registries, choose which teams use each, appoint their
+    registrars, and move a project with no entities to another registry (ADR 0115)."""
+
+    # A registry
+    REGISTRY_CURATE = "registry.curate"
+    """See every entry in the registry, change their facts, and supersede them (ADR 0115)."""
 
     # A team
     TEAM_VIEW = "team.view"
@@ -97,10 +110,12 @@ ORG_ACTIONS = frozenset(
         Action.AUDIT_READ,
         Action.COSTS_READ,
         Action.ORG_WEBHOOKS_MANAGE,
+        Action.REGISTRIES_MANAGE,
     }
 )
 TEAM_ACTIONS = frozenset({Action.TEAM_VIEW, Action.TEAM_MANAGE, Action.PROJECT_CREATE})
-PROJECT_ACTIONS = frozenset(Action) - ORG_ACTIONS - TEAM_ACTIONS
+REGISTRY_ACTIONS = frozenset({Action.REGISTRY_CURATE})
+PROJECT_ACTIONS = frozenset(Action) - ORG_ACTIONS - TEAM_ACTIONS - REGISTRY_ACTIONS
 
 #: The OAuth scope each action needs, when the request carries a token.
 ACTION_SCOPES: dict[Action, str] = {
@@ -128,6 +143,9 @@ ACTION_SCOPES: dict[Action, str] = {
     # A bundle takes a project's data out of the deployment: tokens need the admin scope.
     Action.PROJECT_EXPORT: "admin",
     Action.PROJECT_IMPORT: "admin",
+    Action.REGISTRIES_MANAGE: "admin",
+    # A registrar's changes are every holder's: tokens need the admin scope.
+    Action.REGISTRY_CURATE: "admin",
 }
 
 
@@ -142,15 +160,16 @@ class TokenLimits:
     #: service account, whose roles must allow each action too.
     alongside: Any = None
 
-    def allows(self, action: Action, target: "Team | Project | None") -> bool:
+    def allows(self, action: Action, target: "Team | Project | Registry | None") -> bool:
         if ACTION_SCOPES[action] not in self.scopes:
             return False
         if self.projects is None:
             return True
         if isinstance(target, Project):
             return target.pk in self.projects
-        # A token limited to some projects can't create new ones.
-        return action is not Action.PROJECT_CREATE
+        # A token limited to some projects can't create new ones, nor curate a registry,
+        # whose entries are every project's.
+        return action is not Action.PROJECT_CREATE and action not in REGISTRY_ACTIONS
 
 
 def limit_to(user: Any, limits: TokenLimits | None) -> None:  # noqa: ANN401
@@ -171,6 +190,7 @@ _ORG_ACTION_ROLES = {
     # Who answers for what's spent: those who run compute, audit it, and run the org.
     Action.COSTS_READ: {OrgRole.COMPUTE_ADMIN, OrgRole.AUDITOR, OrgRole.ORG_ADMIN},
     Action.ORG_WEBHOOKS_MANAGE: {OrgRole.ORG_ADMIN},
+    Action.REGISTRIES_MANAGE: {OrgRole.ORG_ADMIN},
 }
 
 #: The lowest project role each project action needs.
@@ -271,13 +291,28 @@ def is_team_member(user: Any, team: Team) -> bool:  # noqa: ANN401
     return cache[team.pk]
 
 
+def is_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
+    """Whether an active user is one of the registry's registrars (ADR 0115)."""
+    if not _active(user):
+        return False
+    cache: dict[Any, bool] = user.__dict__.setdefault("_iki_registrars", {})
+    if registry.pk not in cache:
+        cache[registry.pk] = Registrar.objects.filter(registry=registry, user=user).exists()
+    return cache[registry.pk]
+
+
 def forget(user: Any) -> None:  # noqa: ANN401
     """Drops cached decisions after the user's roles changed in this request."""
-    for attr in ("_iki_org_roles", "_iki_project_roles", "_iki_team_memberships"):
+    for attr in (
+        "_iki_org_roles",
+        "_iki_project_roles",
+        "_iki_team_memberships",
+        "_iki_registrars",
+    ):
         user.__dict__.pop(attr, None)
 
 
-def can(user: Any, action: Action, target: Team | Project | None = None) -> bool:  # noqa: ANN401
+def can(user: Any, action: Action, target: Team | Project | Registry | None = None) -> bool:  # noqa: ANN401
     """Whether the user may take the action, on the target if the action needs one."""
     limits = token_limits(user)
     if limits is not None and not limits.allows(action, target):
@@ -291,11 +326,16 @@ def can(user: Any, action: Action, target: Team | Project | None = None) -> bool
     return _roles_allow(user, action, target)
 
 
-def _roles_allow(user: Any, action: Action, target: Team | Project | None) -> bool:  # noqa: ANN401
+def _roles_allow(user: Any, action: Action, target: Team | Project | Registry | None) -> bool:  # noqa: ANN401
     if action in ORG_ACTIONS:
         if target is not None:
             raise TypeError(f"{action} takes no target")
         return bool(_ORG_ACTION_ROLES[action] & org_roles(user))
+
+    if action in REGISTRY_ACTIONS:
+        if not isinstance(target, Registry):
+            raise TypeError(f"{action} needs a Registry")
+        return is_registrar(user, target)
 
     if action in TEAM_ACTIONS:
         if not isinstance(target, Team):
@@ -320,7 +360,7 @@ def _roles_allow(user: Any, action: Action, target: Team | Project | None) -> bo
     return action in _ORG_ADMIN_PROJECT_ACTIONS and OrgRole.ORG_ADMIN in org_roles(user)
 
 
-def require(user: Any, action: Action, target: Team | Project | None = None) -> None:  # noqa: ANN401
+def require(user: Any, action: Action, target: Team | Project | Registry | None = None) -> None:  # noqa: ANN401
     """Raises ``PermissionDenied`` unless :func:`can` allows the action."""
     if not can(user, action, target):
         raise PermissionDenied(action)
@@ -341,7 +381,7 @@ def visible_projects(user: Any) -> QuerySet[Project]:  # noqa: ANN401
     """Projects the user can see (:attr:`Action.PROJECT_SEE`), each with ``my_role``."""
     if not _active(user):
         return Project.objects.none()
-    projects = with_project_roles(user, Project.objects.select_related("team"))
+    projects = with_project_roles(user, Project.objects.select_related("team", "registry"))
     limits = token_limits(user)
     if limits is not None:
         if "read" not in limits.scopes:

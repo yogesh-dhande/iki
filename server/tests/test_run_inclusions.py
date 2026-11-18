@@ -11,7 +11,7 @@ from api_client import Api, problem
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_bundle_imports import PUBLIC, applied, bundle_of, upload
-from test_run_projects import elsewhere, outside
+from test_run_projects import elsewhere
 from test_run_results import RELAX, _stored, done, output, world
 from test_run_reuse import pod as built_pod
 from test_runs import launch, protein
@@ -90,21 +90,31 @@ def test_an_input_that_includes_nothing_has_no_included(world: World) -> None:
     assert "included" not in job["inputs"]["protein"][0]
 
 
-def test_a_reference_from_another_project_is_refused_unless_added(world: World) -> None:
+def test_a_reference_reads_the_projects_own_record_of_its_entry(world: World) -> None:
     editor = api_as(world, "editor")
     theirs = protein(editor, elsewhere(world), "src")
+    # A reference holds a registry entry (ADR 0115) the project has: another project's
+    # record, which the editor reads there, isn't one.
+    values = {"structure": _stored(world, "abl.pdb"), "method": "xray", "chains": [theirs["id"]]}
+    refused = problem(
+        create(editor, world.project, values, "acme/protein.ProteinStructure"),
+        422,
+        "validation_failed",
+    )
+    assert "isn't in Kinase Atlas" in refused["errors"][0]["detail"]
+    ours = protein(editor, world.project, "src")
+    assert ours["entry"]["id"] == theirs["entry"]["id"] and ours["id"] != theirs["id"]
+    # Named by either record, it's the entry; the run reads the project's own record.
     pst = structure(world, theirs)
+    assert pst["values"]["chains"] == [theirs["entry"]["id"]]
 
-    body = outside(relax(world, pst))
+    made = relax(world, pst)
 
-    assert body["entities"] == [
-        {"id": theirs["id"], "hrid": theirs["hrid"], "type": "acme/protein.Protein"}
-    ]
-    assert not ActionRun.objects.exists()
-    made = relax(world, pst, add_to_project=True)
     assert made.status_code == 201, made.content
-    assert ProjectLink.objects.filter(entity_id=theirs["id"], project=world.project).exists()
-    assert [i["hrid"] for i in made.json()["included"]] == [theirs["hrid"]]
+    assert [i["hrid"] for i in made.json()["included"]] == [ours["hrid"]]
+    (included,) = RunInclusion.objects.all()
+    assert str(included.entity_id) == ours["id"]
+    assert not ProjectLink.objects.filter(entity_id=theirs["id"], project=world.project).exists()
 
 
 def test_a_reference_the_launcher_cant_read_is_refused(world: World) -> None:
@@ -242,15 +252,16 @@ def test_each_run_of_a_batch_reads_its_own_entitys_references(world: World) -> N
     assert read == [[(0, abl["hrid"])], [(0, src["hrid"])]]
 
 
-def test_a_workflow_checks_what_its_steps_include_when_it_starts(world: World) -> None:
+def test_a_workflow_reads_what_its_steps_include_in_its_project(world: World) -> None:
     editor = api_as(world, "editor")
-    theirs = protein(editor, elsewhere(world), "src")
-    pst = structure(world, theirs)
+    protein(editor, elsewhere(world), "src")
+    ours = protein(editor, world.project, "src")
+    pst = structure(world, ours)
 
     started = editor.post(
         "/workflows/acme/protein.relax_twice/runs",
         {"project": str(world.project.pk), "inputs": {"structure": pst["id"]}},
     )
 
-    body = outside(started)
-    assert [e["hrid"] for e in body["entities"]] == [theirs["hrid"]]
+    assert started.status_code == 201, started.content
+    assert {str(i.entity_id) for i in RunInclusion.objects.all()} <= {ours["id"]}

@@ -36,7 +36,7 @@ class Alignment(Entity):
     )
     name = models.CharField(max_length=200, db_index=True)
     description = models.TextField(null=True)
-    reference = models.ForeignKey('Sequence', models.PROTECT, related_name='+', null=True)
+    reference = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
     aligned = models.ForeignKey(File, models.PROTECT, related_name='+')
     method = models.CharField(max_length=500, null=True)
 
@@ -109,7 +109,7 @@ class Alignment_members(models.Model):
     pk = models.CompositePrimaryKey('entity', 'position')
     entity = models.ForeignKey('Alignment', models.CASCADE, db_column='entity_id', related_name='+')
     position = models.PositiveIntegerField()
-    item = models.ForeignKey('Sequence', models.PROTECT, related_name='+')
+    item = models.ForeignKey(Entity, models.PROTECT, related_name='+')
 
     class Meta:
         db_table = 'iki__core_alignment__members'

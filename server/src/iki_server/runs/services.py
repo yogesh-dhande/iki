@@ -32,6 +32,7 @@ from django.utils import timezone
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.entities import access, hrids, registry
+from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid, Refs, to_db
 from iki_server.org import permissions
@@ -142,7 +143,8 @@ def outside_project(
                 out.append(e)
             else:
                 key = "entities" if name == each else f"inputs/{name}"
-                errors.setdefault(key, []).append(not_shared(e, owners[e.owner_project_id]))
+                owner = owners[e.owner_project_id]  # type: ignore[index]
+                errors.setdefault(key, []).append(not_shared(e, owner))
     return out
 
 
@@ -459,13 +461,21 @@ def _queue(
                 position=i.position,
                 entity_id=i.entity_id,
                 revision=i.revision,
+                entry_revision=i.entry_revision,
             )
             for i in RunInput.objects.filter(run=copy_of).order_by("name", "position")
         )
         included.copy(run, copy_of)
     else:
         RunInput.objects.bulk_create(
-            RunInput(run=run, name=name, position=index, entity=entity, revision=entity.revision)
+            RunInput(
+                run=run,
+                name=name,
+                position=index,
+                entity=entity,
+                revision=entity.revision,
+                entry_revision=entity_services.entry_revision(entity),
+            )
             for name, chosen in entities.items()
             for index, entity in enumerate(chosen)
         )

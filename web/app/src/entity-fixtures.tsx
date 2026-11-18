@@ -69,17 +69,24 @@ export const PROTEIN: Schemas["EntityTypeOut"] = {
   subtypes: [],
   hrid_prefix: "PRT",
   identity: ["sequence"],
-  on_duplicate: "reuse",
   viewers: [],
   values_schema: {},
   fields: [
     field({ name: "name", label: "Name", type: "string" }),
-    field({ name: "sequence", label: "Sequence", type: "string", required: true, immutable: true }),
+    field({
+      name: "sequence",
+      label: "Sequence",
+      type: "string",
+      required: true,
+      immutable: true,
+      registry: "identity",
+    }),
     field({
       name: "molecular_weight",
       label: "Molecular weight",
       type: "quantity",
       computed: true,
+      registry: "derived",
       unit: "u",
       unit_symbol: "u",
       display_unit: "ku",
@@ -98,7 +105,6 @@ export const STRUCTURE: Schemas["EntityTypeOut"] = {
   description: null,
   hrid_prefix: "PST",
   identity: [],
-  on_duplicate: null,
   fields: [
     field({ name: "structure", label: "Structure", type: "file", required: true }),
     field({
@@ -127,7 +133,7 @@ export const COLLECTION_TYPE: Schemas["EntityTypeOut"] = {
   description: "A named set of entities, listed one by one or found by a search.",
   hrid_prefix: "COL",
   identity: [],
-  on_duplicate: null,
+
   fields: [
     field({ name: "name", label: "Name", type: "string", required: true, plugin: "iki/core" }),
     field({ name: "description", label: "Description", type: "text", plugin: "iki/core" }),
@@ -186,6 +192,7 @@ export function revision(overrides: Partial<Schemas["RevisionOut"]> = {}): Schem
   return {
     number: 1,
     kind: "created",
+    entry: false,
     changed_fields: ["name", "sequence"],
     reason: "",
     via: "web",

@@ -9,7 +9,7 @@ import { Link, useParams } from "@tanstack/react-router";
 
 import { problemOf } from "../api";
 import { entityAppsQuery } from "../apps";
-import { entityQuery } from "../entities";
+import { apiRef, entityQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { Loading, ProblemAlert } from "../ui";
 import { AppPanel } from "./app";
@@ -19,7 +19,7 @@ import { NotFound } from "./errors";
 export function EntityApp() {
   const { entity, type, types } = useEntity();
   const { app: ref } = useParams({ from: "/entities/$ref/apps/$app" });
-  const listed = useQuery(entityAppsQuery(entity.hrid));
+  const listed = useQuery(entityAppsQuery(apiRef(entity)));
   const tab = listed.data?.find((a) => a.hrid === ref.toUpperCase());
   const app = useQuery({ ...entityQuery(ref), enabled: tab !== undefined });
   usePageTitle(tab ? `${tab.name} of ${entity.title} (${entity.hrid})` : undefined);

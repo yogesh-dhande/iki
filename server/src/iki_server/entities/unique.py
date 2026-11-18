@@ -9,6 +9,10 @@ which entity has a value already, so a person is told which.
 
 Projects are kept apart: the same record may be in two projects, as two
 entities, and nothing here says what another project holds.
+
+A registry fact marked unique (a ChEMBL ID) is held once per registry instead
+(ADR 0115), as the entries hold it: two entries in a registry can't share
+one. Who holds the other is told only to someone who can read it.
 """
 
 from __future__ import annotations
@@ -23,9 +27,9 @@ from django.db import IntegrityError, models
 from psycopg import sql
 
 from iki_server.entities import registry
-from iki_server.entities.models import UNIQUE_CONSTRAINT, UniqueValue
+from iki_server.entities.models import UNIQUE_CONSTRAINT, UNIQUE_IN_REGISTRY, UniqueValue
 from iki_server.entities.values import Shape
-from iki_server.org.models import Project
+from iki_server.org.models import Project, Registry, registry_of
 from iki_spec.model import Field
 
 __all__ = [
@@ -74,25 +78,54 @@ def columns(tables: Iterable[tuple[type[models.Model], Mapping[str, Any]]]) -> l
 
 
 def taken(
-    project: Project, form: Shape, values: Mapping[str, Any], *, entity: UUID | None = None
+    project: Project,
+    form: Shape,
+    values: Mapping[str, Any],
+    *,
+    entity: UUID | None = None,
+    entry: UUID | None = None,
 ) -> dict[str, list[str]]:
     """Each of ``values`` that a unique field of ``form`` has on another entity in the
-    project: field name → what's wrong. ``entity`` is the one being changed, if any."""
+    project, or for a registry fact, on another entry in its registry: field name → what's
+    wrong. ``entity`` is the record being changed and ``entry`` the entry, if any.
+
+    Another entry's ID is named only if the project holds it: a registry doesn't tell a
+    project what others registered (ADR 0115)."""
     errors: dict[str, list[str]] = {}
     for part in form.parts:
         for name, f in part.fields.items():
             value = values.get(name)
             if not f.unique or f.removed or value is None:
                 continue
-            rows = UniqueValue.objects.filter(
-                project=project, key=key(part.model, name), value=str(value)
-            )
+            field_key = key(part.model, name)
+            if part.entry:
+                rows = UniqueValue.objects.filter(
+                    registry_id=registry_of(project), key=field_key, value=str(value)
+                )
+                if entry is not None:
+                    rows = rows.exclude(entity_id=entry)
+                found = rows.values_list("entity_id", "entity__hrid").first()
+                if found is not None:
+                    errors[name] = [_entry_clash(project, *found)]
+                continue
+            rows = UniqueValue.objects.filter(project=project, key=field_key, value=str(value))
             if entity is not None:
                 rows = rows.exclude(entity_id=entity)
-            found = rows.values_list("entity__hrid", flat=True).first()
-            if found is not None:
-                errors[name] = [f"is {found}’s already: no two entities in a project share it."]
+            found_hrid = rows.values_list("entity__hrid", flat=True).first()
+            if found_hrid is not None:
+                errors[name] = [
+                    f"is {found_hrid}’s already: no two entities in a project share it."
+                ]
     return errors
+
+
+def _entry_clash(project: Project, entry: UUID, hrid: str) -> str:
+    from iki_server.entities.models import Entity
+
+    held = Entity.objects.filter(entry_id=entry, owner_project=project).exists()
+    if held:
+        return f"is {hrid}’s already: no two entries in the registry share it."
+    return "is another entry’s in the registry already: no two entries share it."
 
 
 def link(f: Field, plugin: str) -> str | None:
@@ -111,9 +144,24 @@ def link(f: Field, plugin: str) -> str | None:
 
 
 def owned(project: Project, field_key: str, value: object) -> models.QuerySet[UniqueValue, UUID]:
-    """The ID of the entity of ``project``'s own with this value of a unique field, if any."""
-    return UniqueValue.objects.filter(project=project, key=field_key, value=str(value)).values_list(
-        "entity_id", flat=True
+    """The ID of the entity of ``project``'s own with this value of a unique field, if any.
+    For a registry fact's key, the project's record of the entry with it."""
+    from iki_server.entities.models import Entity
+
+    rows = UniqueValue.objects.filter(key=field_key, value=str(value))
+    in_registry = rows.filter(registry_id=registry_of(project)).values("entity_id")
+    records = Entity.objects.filter(owner_project=project, entry_id__in=in_registry)
+    if records.exists():
+        return records.values_list("pk", flat=True)  # type: ignore[return-value]
+    return rows.filter(project=project).values_list("entity_id", flat=True)
+
+
+def in_registry(registry: Registry, field_key: str, value: object) -> UUID | None:
+    """The entry in ``registry`` with this value of a unique fact, if any."""
+    return (
+        UniqueValue.objects.filter(registry=registry, key=field_key, value=str(value))
+        .values_list("entity_id", flat=True)
+        .first()
     )
 
 
@@ -130,15 +178,19 @@ class Clash(Exception):  # noqa: N818 - reads as "the values clash"
 
 
 def is_clash(error: IntegrityError) -> bool:
-    """Whether a database error is a unique field's value written twice in a project."""
+    """Whether a database error is a unique field's value written twice in a project, or a
+    unique fact's twice in a registry."""
     cause = error.__cause__
     diag = getattr(cause, "diag", None)
-    return getattr(diag, "constraint_name", None) == UNIQUE_CONSTRAINT
+    return getattr(diag, "constraint_name", None) in (UNIQUE_CONSTRAINT, UNIQUE_IN_REGISTRY)
 
 
 def clash_message(error: IntegrityError) -> str:
     """What a unique field's value written twice in a project was, in a sentence."""
-    detail = getattr(getattr(error.__cause__, "diag", None), "message_detail", None) or ""
+    diag = getattr(error.__cause__, "diag", None)
+    if getattr(diag, "constraint_name", None) == UNIQUE_IN_REGISTRY:
+        return "An entry in the registry has one of these unique values already, or two lines do."
+    detail = getattr(diag, "message_detail", None) or ""
     # Key (project_id, key, value)=(…, protein_protein.lims_id, LIMS-1) already exists.
     found = re.search(r"=\([^,]+, ([^,]+), (.*)\) already exists", detail)
     if found is None:
@@ -194,11 +246,12 @@ def _trigger(c: Column) -> str:
 def _clashes(cursor: Any, c: Column) -> list[str]:  # noqa: ANN401
     cursor.execute(
         sql.SQL(
-            "SELECT p.name, t.{column}::text, array_agg(e.hrid ORDER BY e.hrid) "
+            "SELECT coalesce(p.name, r.name), t.{column}::text, array_agg(e.hrid ORDER BY e.hrid) "
             "FROM {table} t JOIN iki_entity e ON e.id = t.entity_id "
-            "JOIN iki_project p ON p.id = e.owner_project_id "
-            "WHERE t.{column} IS NOT NULL GROUP BY p.name, t.{column} HAVING count(*) > 1 "
-            "ORDER BY p.name, t.{column} LIMIT 10"
+            "LEFT JOIN iki_project p ON p.id = e.owner_project_id "
+            "LEFT JOIN iki_registry r ON r.id = e.registry_id "
+            "WHERE t.{column} IS NOT NULL GROUP BY 1, t.{column} HAVING count(*) > 1 "
+            "ORDER BY 1, t.{column} LIMIT 10"
         ).format(table=sql.Identifier(c.table), column=sql.Identifier(c.column))
     )
     return [
@@ -219,8 +272,8 @@ def _fill(cursor: Any, c: Column) -> None:  # noqa: ANN401
     )
     cursor.execute(
         sql.SQL(
-            "INSERT INTO iki_unique_value (project_id, key, value, entity_id) "
-            "SELECT e.owner_project_id, %s, t.{column}::text, e.id "
+            "INSERT INTO iki_unique_value (project_id, registry_id, key, value, entity_id) "
+            "SELECT e.owner_project_id, e.registry_id, %s, t.{column}::text, e.id "
             "FROM {table} t JOIN iki_entity e ON e.id = t.entity_id "
             "WHERE t.{column} IS NOT NULL AND NOT EXISTS ("
             "SELECT 1 FROM iki_unique_value u WHERE u.entity_id = e.id AND u.key = %s)"

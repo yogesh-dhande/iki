@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: EntityTypeExtension
+extends_type: acme/protein.Protein
+fields:
+  # Its entry's (ADR 0115): what its sequence alone gives.
+  disorder: { type: float, registry: derived, computed: true, min: 0, max: 1 }
+  # Each project's own.
+  predicted_by: { type: string, max_length: 64 }

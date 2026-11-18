@@ -308,19 +308,45 @@ def build() -> MCPServer:
         return answer(await call("GET", "/entities/lookup", query=query))
 
     @server.tool(annotations=READ, title="Get an entity")
-    async def get_entity(ref: Ref) -> CallToolResult:
-        """An entity's values, and for each one who set it, how (by hand, or which run)
-        and when. If it was imported, `origins` says from where: a database's record (with
-        its version, link and when it was fetched) or a file's. `making` says how it was
-        made, one tool at a time: `by: iki` is Iki's record of the run that made it, `by:
-        source` what a record it was imported from claims, which Iki can't check."""
-        found = await call("GET", path("/entities/{ref}", ref=ref))
+    async def get_entity(
+        ref: Ref,
+        project: Annotated[
+            UUID | None,
+            Field(
+                description="Whose record, when the HRID is a registry entry's that several "
+                "of the person's projects have a record of (a 409 lists them)."
+            ),
+        ] = None,
+    ) -> CallToolResult:
+        """A project's record of an entity: its values, and for each one who set it, how (by
+        hand, or which run) and when. For a type with an identity, `entry` is its registry
+        entry, whose ID (such as CPD-000123) the record shares: its identity, derived values
+        and facts are every holding project's; the rest are this project's. If it was
+        imported, `origins` says from where: a database's record (with its version, link
+        and when it was fetched) or a file's. `making` says how it was made, one tool at a
+        time: `by: iki` is Iki's record of the run that made it, `by: source` what a record
+        it was imported from claims, which Iki can't check."""
+        found = await call(
+            "GET",
+            path("/entities/{ref}", ref=ref),
+            query={"project": str(project)} if project is not None else None,
+        )
+        # The record's own ID: an entry's HRID can name several projects' records.
+        ref = str(found["id"]) if isinstance(found, dict) and "id" in found else ref
         provenance = await call("GET", path("/entities/{ref}/provenance", ref=ref))
         origins = await call("GET", path("/entities/{ref}/origins", ref=ref))
         making = await call("GET", path("/entities/{ref}/making", ref=ref))
         return answer(
             {"entity": found, "provenance": provenance, "origins": origins, "making": making}
         )
+
+    @server.tool(annotations=READ, title="Get a registry entry")
+    async def get_registry_entry(ref: Ref) -> CallToolResult:
+        """A registry entry (ADR 0115): an identity registered once, such as CPD-000123,
+        with its identity, derived values and facts, and the records of it in projects the
+        person can read. Only someone with a record of it, or its registry's registrars,
+        reads it: its ID alone grants nothing."""
+        return answer(await call("GET", path("/entries/{ref}", ref=ref)))
 
     @server.tool(annotations=READ, title="Get an entity's history")
     async def get_entity_history(
@@ -366,22 +392,17 @@ def build() -> MCPServer:
             Field(description="Its fields' values, as describe_entity_type's values_schema says."),
         ],
         reason: Annotated[str, Field(max_length=2000, description="Why, for its history.")] = "",
-        allow_duplicate: Annotated[
-            bool,
-            Field(
-                description="Create it even if its type warns about a duplicate. Only when the "
-                "person has said they want one."
-            ),
-        ] = False,
     ) -> CallToolResult:
-        """A new entity. If its type reuses duplicates and one with the same identity
-        exists, that one comes back (`reused`) and is added to the project instead."""
+        """A new entity in the project. For a type with an identity, it registers it: a
+        new identity gets a registry ID (`registered`); one registered already gets the
+        project a record of that entry; and one the project has a record of already comes
+        back as it is (`reused`). Only the entry's existence and ID are told, never who
+        else has it."""
         body = {
             "type": type,
             "project": str(project),
             "values": values,
             "reason": reason,
-            "allow_duplicate": allow_duplicate,
         }
         return answer(await call("POST", "/entities", body=body))
 
@@ -492,7 +513,10 @@ def build() -> MCPServer:
         colour them and turn them, and save it again."""
         targets, revisions, kept = [], [], []
         for shown in shows:
-            found = await call("GET", path("/entities/{ref}", ref=shown.entity))
+            # The project's own record: the view pins its revision (ADR 0115).
+            found = await call(
+                "GET", path("/entities/{ref}", ref=shown.entity), query={"project": str(project)}
+            )
             targets.append(found["id"])
             revisions.append(shown.revision or found["revision"])
             kept.append({"label": shown.label} if shown.label else {})

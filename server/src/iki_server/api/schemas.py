@@ -153,6 +153,15 @@ class TeamRef(Schema):
     slug: str
 
 
+class RegistryRef(Schema):
+    """A registry (ADR 0115): an identity boundary. Within it, each identity is one entry
+    with one ID, which each project holding it keeps its own record of."""
+
+    id: UUID
+    name: str
+    slug: str
+
+
 class TeamOut(TeamRef):
     description: str
     archived: bool = Field(alias="is_archived")
@@ -202,6 +211,10 @@ class ProjectCan(Schema):
         description="Import bundles from other deployments into it: an Org Admin who is also "
         "its Admin (ADR 0096)."
     )
+    change_registry: bool = Field(
+        description="Move it to another registry: an Org Admin, while it has no entities "
+        "(ADR 0115)."
+    )
     run: list[Literal["self_hosted", "backend", "container", "vm"]] = Field(
         description="The tiers whose actions you may run here, and whose runs you may cancel. "
         "None while it's archived."
@@ -219,6 +232,10 @@ class ProjectOut(Schema):
         description="Whether its entities may be shared with other projects: linked into "
         "them, used in their runs, referred to by their entities, or reused as their "
         "duplicates. Off for confidential work (ADR 0067)."
+    )
+    registry: RegistryRef = Field(
+        description="Its registry (ADR 0115): what it registers is one entry, with one ID, "
+        "with the same identity in every other project there."
     )
     created_at: datetime
     my_role: ProjectRoleName | None = Field(
@@ -245,16 +262,29 @@ class ProjectOut(Schema):
             "manage_webhooks": permissions.can(user, Action.PROJECT_WEBHOOKS_MANAGE, project),
             "export": permissions.can(user, Action.PROJECT_EXPORT, project),
             "import_bundles": permissions.can(user, Action.PROJECT_IMPORT, project),
+            "change_registry": permissions.can(user, Action.REGISTRIES_MANAGE)
+            and not _has_entities(project),
             "run": []
             if project.is_archived
             else [t for t, a in TIER_PERMISSIONS.items() if permissions.can(user, a, project)],
         }
 
 
+def _has_entities(project: Project) -> bool:
+    from iki_server.entities.models import Entity
+
+    return Entity.objects.filter(owner_project=project).exists()
+
+
 class ProjectIn(Schema):
     team: UUID
     name: str = Field(min_length=1, max_length=100)
     description: str = Field("", max_length=2000)
+    registry: UUID | None = Field(
+        None,
+        description="Its registry (ADR 0115), one its team may use: the default one if not "
+        "given. It's fixed once the project has entities.",
+    )
 
 
 class ProjectPatch(Schema):
@@ -265,6 +295,11 @@ class ProjectPatch(Schema):
         None,
         description="Turning it off keeps entities already shared with other projects there, "
         "until someone takes them out. It can change while the project is archived.",
+    )
+    registry: UUID | None = Field(
+        None,
+        description="Move it to another registry its team may use: Org Admins, while it has "
+        "no entities (ADR 0115).",
     )
 
 

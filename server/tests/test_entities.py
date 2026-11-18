@@ -1,5 +1,7 @@
 """The core entity row and blobs, which every plugin type and file field builds on."""
 
+from typing import Any
+
 import pytest
 from django.db import IntegrityError, transaction
 
@@ -30,15 +32,26 @@ def test_entities_get_their_creation_time_from_the_database(project: Project) ->
         ({"type": "protein.protein"}, "iki_entity_type"),
         ({"hrid": "prt-1"}, "iki_entity_hrid"),
         ({"hrid": "PRT-01"}, "iki_entity_hrid"),
-        ({"identity_hash": "x" * 64}, "iki_entity_identity_hash"),
+        ({"identity_hash": "x" * 64, "entry": True}, "iki_entity_identity_hash"),
+        # A registry entry (ADR 0115) has its identity's hash; a project's record hasn't.
+        ({"entry": True}, "iki_entity_entry_or_record"),
+        ({"identity_hash": "a" * 64}, "iki_entity_entry_or_record"),
     ],
 )
 def test_the_database_checks_entity_rows(
-    project: Project, values: dict[str, str], constraint: str
+    project: Project, values: dict[str, Any], constraint: str
 ) -> None:
-    fields = {"type": "acme/protein.Protein", "hrid": "PRT-000001", **values}
+    from iki_server.org.models import Registry
+
+    given = dict(values)
+    where: dict[str, Any] = (
+        {"registry": Registry.default()}
+        if given.pop("entry", False)
+        else {"owner_project": project}
+    )
+    fields = {"type": "acme/protein.Protein", "hrid": "PRT-000001", **given, **where}
     with pytest.raises(IntegrityError, match=constraint), transaction.atomic():
-        Entity.objects.create(owner_project=project, **fields)
+        Entity.objects.create(**fields)
 
 
 def test_hrids_are_unique(project: Project) -> None:

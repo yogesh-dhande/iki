@@ -494,7 +494,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
     includes = {name: tuple(i.get("include") or ()) for name, i in run.spec["inputs"].items()}
     for row in rows:
         entity = row.entity
-        values = services.values_at(entity, row.revision)
+        values = services.values_at(entity, row.revision, row.entry_revision)
         fields = shape(entity.type).fields()
         for name, value in values.items():
             if name in fields:

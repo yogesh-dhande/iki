@@ -16,11 +16,19 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { meQuery, projectQuery, queryClient, rolesQuery } from "./api";
 import { Layout } from "./layout";
-import { ErrorPage, NotFound } from "./pages/errors";
+import { ChooseProject, choicesIn, EntityError, ErrorPage, NotFound } from "./pages/errors";
 import { Home } from "./pages/home";
 import { componentsQuery } from "./components";
-import { entityQuery, typesQuery, validateEntitySearch, validateNewEntitySearch } from "./entities";
+import {
+  entityQuery,
+  typesQuery,
+  validateEntityPageSearch,
+  validateEntitySearch,
+  validateNewEntitySearch,
+} from "./entities";
 import { validateLineageSearch } from "./lineage";
+import { entryQuery } from "./registries";
+
 import { validateCostsSearch } from "./costs-search";
 import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
@@ -89,6 +97,9 @@ const EntityComponent = lazyRouteComponent(
   "EntityComponent",
 );
 const EntityApp = lazyRouteComponent(() => import("./pages/entity-app"), "EntityApp");
+const registryPages = () => import("./pages/registries");
+const RegistryEntries = lazyRouteComponent(registryPages, "RegistryEntries");
+const EntryPage = lazyRouteComponent(registryPages, "EntryPage");
 const TypeList = lazyRouteComponent(typePages, "TypeList");
 const TypeDetail = lazyRouteComponent(typePages, "TypeDetail");
 const OrgWebhooks = lazyRouteComponent(webhookPages, "OrgWebhooks");
@@ -323,14 +334,35 @@ const typeRoute = createRoute({
 const entityRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "entities/$ref",
-  loader: ({ context, params }) =>
-    Promise.all([
-      context.queryClient.query(entityQuery(params.ref)),
+  // ?project=atlas: that project's record, when the HRID is a registry entry's (ADR 0115).
+  validateSearch: validateEntityPageSearch,
+  loaderDeps: ({ search }) => ({ project: search.project }),
+  loader: async ({ context, params, deps }) => {
+    const [choices] = await Promise.all([
+      // An HRID that several of the reader's projects have a record of: the page asks
+      // which, as an answer rather than an error.
+      context.queryClient.query(entityQuery(params.ref, deps.project)).then(
+        () => null,
+        (error: unknown) => {
+          const records = choicesIn(error);
+          if (records) return records;
+          throw error;
+        },
+      ),
       context.queryClient.query(typesQuery),
       // Plugins' tabs: the page shows without them if they can't be listed.
       context.queryClient.query(componentsQuery).catch(() => undefined),
-    ]),
+    ]);
+    return { choices };
+  },
+  component: EntityOrChoice,
+  errorComponent: EntityError,
 });
+
+function EntityOrChoice() {
+  const { choices } = entityRoute.useLoaderData();
+  return choices ? <ChooseProject records={choices} /> : <Outlet />;
+}
 
 const entityOverviewRoute = createRoute({
   getParentRoute: () => entityRoute,
@@ -375,6 +407,26 @@ const entityAppRoute = createRoute({
   getParentRoute: () => entityRoute,
   path: "apps/$app",
   component: EntityApp,
+});
+
+// A registry's entries, for its registrars (ADR 0115).
+const registryEntriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "registries/$registryId/entries",
+  loader: ({ context }) => context.queryClient.query(typesQuery),
+  component: RegistryEntries,
+});
+
+// A registry entry, by its ID or HRID: for those with a record of it, and its registrars.
+const entryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "entries/$ref",
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.query(entryQuery(params.ref)),
+      context.queryClient.query(typesQuery),
+    ]),
+  component: EntryPage,
 });
 
 const runRoute = createRoute({
@@ -466,8 +518,11 @@ const routeTree = rootRoute.addChildren([
     entityComponentRoute,
     entityAppRoute,
   ]),
+  registryEntriesRoute,
+  entryRoute,
   runRoute,
   batchRoute,
+
   workflowRunRoute,
   settingsRoute.addChildren([orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute])]),
 ]);

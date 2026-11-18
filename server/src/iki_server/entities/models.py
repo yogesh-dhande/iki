@@ -5,6 +5,14 @@ bookkeeping. Plugin types are generated models that extend it with
 multi-table inheritance, so a protein is an ``iki_entity`` row joined to a
 ``protein_protein`` row by ``entity_id``.
 
+A type with an identity has **registry entries** and **project records**
+(ADR 0115). An entry is an ``iki_entity`` row with a registry and no project,
+joined to its type's entry table (``iki__protein_protein__entry``): its identity
+and what's derived from it or curated about it, with its ID (``PRT-000123``).
+A record is a row in a project, joined to the type's own table: the project's
+data about the entry, which it names, with the entry's ID. A type without an
+identity has records only. References to a type with an identity hold entries.
+
 Every change to an entity is a numbered :class:`Revision`: who made it, how,
 when, why, and which fields it changed. The values at each revision are in
 the plugin tables' history tables. Both are append-only.
@@ -27,6 +35,8 @@ from iki_server.org.models import Project
 TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$"
 #: The constraint a second entity in a project with a unique field's value breaks.
 UNIQUE_CONSTRAINT = "iki_unique_value_once"
+#: The one a second entry in a registry with a unique fact's value breaks (ADR 0115).
+UNIQUE_IN_REGISTRY = "iki_unique_value_once_in_registry"
 #: ``PRT-000123``: a type's prefix and a number, zero-padded to the type's digits.
 HRID_PATTERN = r"^[A-Z0-9]{2,8}-[0-9]{3,}$"
 
@@ -38,15 +48,42 @@ class Entity(models.Model):
         max_length=112, db_comment="The entity's type, such as iki/protein.Protein."
     )
     hrid = models.CharField(
-        max_length=32, unique=True, db_comment="Human-readable ID, such as PRT-000123."
+        max_length=32,
+        db_comment="Human-readable ID, such as PRT-000123. A record of an entry has the entry's.",
     )
-    owner_project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    #: The project a record belongs to, which decides its changes. An entry has none.
+    owner_project = models.ForeignKey(
+        Project, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: A registry entry's registry (ADR 0115). Records have none: theirs is their project's.
+    registry = models.ForeignKey(
+        "iki_org.Registry",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        db_comment="For a registry entry: its registry (ADR 0115).",
+    )
+    #: A project's record of a registry entry: the entry (ADR 0115).
+    entry = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="records",
+        db_comment="For a project's record of a registry entry: the entry (ADR 0115).",
+    )
+    #: A registry entry a registrar superseded: the entry that replaced it (ADR 0115).
+    superseded_by = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    superseded_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
     )
     created_at = models.DateTimeField(db_default=Now())
     archived_at = models.DateTimeField(null=True, blank=True)
-    #: SHA-256 of the type's identity fields, for finding duplicates.
+    #: A registry entry's SHA-256 of its type's identity fields, by which it's found.
     identity_hash = models.CharField(max_length=64, null=True, blank=True)
     #: The latest revision's number. Edits name it, so two people's edits can't cross.
     revision = models.PositiveIntegerField(default=0)
@@ -66,9 +103,10 @@ class Entity(models.Model):
             models.Index(fields=["type", "updated_at", "id"], name="iki_entity_updated"),
             GinIndex(fields=["hrid"], opclasses=["gin_trgm_ops"], name="iki_entity_hrid_trgm"),
             models.Index(
-                fields=["identity_hash"],
-                name="iki_entity_identity",
-                condition=Q(identity_hash__isnull=False),
+                fields=["hrid"], name="iki_entity_record_hrid", condition=Q(entry__isnull=False)
+            ),
+            models.Index(
+                fields=["entry"], name="iki_entity_records", condition=Q(entry__isnull=False)
             ),
         ]
         constraints: ClassVar[list[models.BaseConstraint]] = [
@@ -78,24 +116,76 @@ class Entity(models.Model):
                 condition=Q(identity_hash__regex=r"^[0-9a-f]{64}$"),
                 name="iki_entity_identity_hash",
             ),
+            # An entry has a registry and an identity, and no project; a record has a
+            # project, and no registry or identity of its own.
+            models.CheckConstraint(
+                condition=(
+                    # An entry's identity is gone only once its plugin's purged.
+                    (
+                        Q(registry__isnull=False, owner_project__isnull=True, entry__isnull=True)
+                        & (Q(identity_hash__isnull=False) | Q(purged_at__isnull=False))
+                    )
+                    | Q(
+                        registry__isnull=True,
+                        owner_project__isnull=False,
+                        identity_hash__isnull=True,
+                    )
+                ),
+                name="iki_entity_entry_or_record",
+            ),
+            models.CheckConstraint(
+                condition=Q(superseded_by__isnull=True, superseded_at__isnull=True)
+                | Q(
+                    registry__isnull=False, superseded_by__isnull=False, superseded_at__isnull=False
+                ),
+                name="iki_entity_superseded",
+            ),
+            # An ID names one entry, or one record without an entry. Records of an entry
+            # share its ID.
+            models.UniqueConstraint(
+                fields=["hrid"], condition=Q(entry__isnull=True), name="iki_entity_hrid_once"
+            ),
+            # One entry per identity in a registry.
+            models.UniqueConstraint(
+                fields=["registry", "identity_hash"],
+                condition=Q(registry__isnull=False),
+                name="iki_entity_identity_once",
+            ),
+            # One record of an entry in a project.
+            models.UniqueConstraint(
+                fields=["owner_project", "entry"],
+                condition=Q(entry__isnull=False),
+                name="iki_entity_record_once",
+            ),
         ]
 
     def __str__(self) -> str:
         return self.hrid
 
+    @property
+    def is_entry(self) -> bool:
+        """Whether it's a registry entry, rather than a project's record (ADR 0115)."""
+        return self.registry_id is not None
+
     def save(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401 - Django's signature
-        """A new entity of a plugin type gets its type, HRID and identity hash here."""
-        iki_type = getattr(type(self), "IKI_TYPE", None)
+        """A new entity of a plugin type gets its type and HRID here, and a new registry
+        entry its identity hash. A record of an entry has the entry's HRID."""
+        model = type(self)
+        iki_type = getattr(model, "IKI_TYPE", None)
         if self._state.adding and iki_type is not None:
-            entity_type = registry.types()[iki_type]
-            if entity_type.abstract:
-                raise ValueError(f"{iki_type} is abstract: create one of its subtypes.")
-            if self.type and self.type != iki_type:
-                raise ValueError(f"A {iki_type} can't have the type {self.type}.")
-            self.type = iki_type
+            entering = getattr(model, "IKI_ENTRY", False)
+            if not entering or not self.type:
+                entity_type = registry.types()[iki_type]
+                if entity_type.abstract:
+                    raise ValueError(f"{iki_type} is abstract: create one of its subtypes.")
+                if self.type and self.type != iki_type:
+                    raise ValueError(f"A {iki_type} can't have the type {self.type}.")
+                self.type = iki_type
+            # An entry's table is its identity's type's, which subtypes share.
+            entity_type = registry.types()[self.type]
             if not self.hrid:
                 self.hrid = hrids.next_hrid(entity_type)
-            if self.identity_hash is None:
+            if entering and self.identity_hash is None:
                 self.identity_hash = identity.hash_for(self, entity_type)
         super().save(*args, **kwargs)
 
@@ -184,17 +274,25 @@ class ProjectDashboard(models.Model):
 
 
 class UniqueValue(models.Model):
-    """A value of a unique field (ADR 0082), held once per project.
+    """A value of a unique field (ADR 0082), held once per project, or for a registry
+    fact, once per registry (ADR 0115).
 
     Triggers on the plugin tables keep these rows, so whatever writes a value,
-    a person, a run, a bulk import or SQL, a second entity in the project with
-    the same value is refused by the database. ``iki-server sync_plugins``
-    installs the triggers and fills in values already there.
+    a person, a run, a bulk import or SQL, a second entity in the project (or
+    entry in the registry) with the same value is refused by the database.
+    ``iki-server sync_plugins`` installs the triggers and fills in values
+    already there.
     """
 
     id = models.BigAutoField(primary_key=True)
-    #: The entity's owner project: values are unique within it.
-    project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="+")
+    #: A record's owner project: values are unique within it.
+    project = models.ForeignKey(
+        Project, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: A registry entry's registry: values are unique within it.
+    registry = models.ForeignKey(
+        "iki_org.Registry", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     #: The field, as ``table.column``, such as ``lims_protein.lims_id``.
     key = models.CharField(max_length=127)
     value = models.CharField(max_length=600)
@@ -206,8 +304,22 @@ class UniqueValue(models.Model):
             "Each unique field's values, once per project. Kept by triggers on the plugin tables."
         )
         constraints: ClassVar[list[models.BaseConstraint]] = [
-            models.UniqueConstraint(fields=["project", "key", "value"], name=UNIQUE_CONSTRAINT),
+            models.UniqueConstraint(
+                fields=["project", "key", "value"],
+                condition=Q(project__isnull=False),
+                name=UNIQUE_CONSTRAINT,
+            ),
+            models.UniqueConstraint(
+                fields=["registry", "key", "value"],
+                condition=Q(registry__isnull=False),
+                name=UNIQUE_IN_REGISTRY,
+            ),
             models.UniqueConstraint(fields=["entity", "key"], name="iki_unique_value_entity"),
+            models.CheckConstraint(
+                condition=Q(project__isnull=False, registry__isnull=True)
+                | Q(project__isnull=True, registry__isnull=False),
+                name="iki_unique_value_scope",
+            ),
         ]
         indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["key", "value"], name="iki_unique_value_lookup"),
@@ -222,6 +334,12 @@ class RevisionKind(models.TextChoices):
     EDITED = "edited", "Edited"
     ARCHIVED = "archived", "Archived"
     RESTORED = "restored", "Restored"
+    #: A registrar changed a registry entry's facts (ADR 0115).
+    CURATED = "curated", "Curated"
+    #: A registry entry a registrar superseded with another (ADR 0115).
+    SUPERSEDED = "superseded", "Superseded"
+    #: A record moved from a superseded entry to the one that replaced it.
+    MOVED = "moved", "Moved"
 
 
 class Revision(models.Model):
@@ -255,6 +373,16 @@ class Revision(models.Model):
     )
     #: Why, if the person said.
     reason = models.TextField(blank=True, default="")
+    #: For a record that moved (ADR 0115): the superseded entry it held before.
+    moved_from = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: For a registry entry's revision (ADR 0115): the project it was made through, by
+    #: registering the entry or filling in its values. Only that project's members see who
+    #: made it and when. None for a registrar's.
+    project = models.ForeignKey(
+        Project, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     created_at = models.DateTimeField(db_default=Now())
 
     class Meta:

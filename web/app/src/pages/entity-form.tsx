@@ -1,16 +1,21 @@
 /**
  * Creating and editing entities, with forms built from each type's fields.
  *
- * - A new entity's form starts from its fields' defaults. If the type reuses
- *   duplicates, creating one that exists opens the existing one instead; if
- *   it warns, the form says which entity it would duplicate and asks.
+ * - A new entity's form starts from its fields' defaults. A type with an
+ *   identity registers it in the project's registry (ADR 0115): the form
+ *   lands on the project's record and says whether that made a new registry
+ *   entry, gave the project its own record of one there already, or opened
+ *   the record the project had.
+ * - An edit can't change a registry entry's values once they're set: its
+ *   identity, what's derived from it, and its facts, which only the
+ *   registry's registrars change.
  * - An edit sends only the fields that changed, with the revision it
  *   started from (If-Match). If someone else saved in between, nothing is
  *   overwritten: their values come in for the fields this person didn't
  *   touch, the form says what changed, and they save again.
  */
 
-import { ApiError, unwrap, type Problem } from "@ikisci/sdk";
+import { ApiError, unwrap } from "@ikisci/sdk";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
@@ -20,6 +25,7 @@ import {
   ENTITIES,
   entityQuery,
   inSentence,
+  recordSearch,
   typesQuery,
   type Entity,
   type EntityType,
@@ -40,6 +46,8 @@ import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
 import { Button, buttonClass, PageHeader, SelectField, TextField, useMessages } from "../ui";
 import { APP_TYPE } from "../apps";
+import { createdMessage } from "../registries";
+
 import { AppPreview } from "./app-preview";
 import { useProject } from "./project-overview";
 
@@ -151,23 +159,54 @@ function Reason({
   );
 }
 
-/** Rules people should know before typing: set once, unique, and identity. */
-function notesFor(type: EntityType, editing: boolean, drafts: Drafts): Record<string, string> {
+/** Where the form is: the project, and its registry. */
+interface Context {
+  project: string;
+  registry: string;
+}
+
+/** A registry entry's value (ADR 0115) that an edit can't change: its identity, what's
+ * derived from it, and a fact, once each is set. */
+function entryValue(field: FieldDef): boolean {
+  return field.registry !== null && field.registry !== undefined;
+}
+
+/** Rules people should know before typing: set once, unique, identity and registry. */
+function notesFor(
+  type: EntityType,
+  editing: boolean,
+  drafts: Drafts,
+  where: Context,
+): Record<string, string> {
   const notes: Record<string, string> = {};
+  const label = inSentence(type.label);
   for (const f of formFields(type)) {
     const parts: string[] = [];
-    if (f.immutable) {
+    const set = editing && !isBlank(f, drafts[f.name] ?? null);
+    if (f.registry === "fact") {
       parts.push(
-        editing && !isBlank(f, drafts[f.name] ?? null)
-          ? "Set once: it can’t change."
-          : "It can be set once, and can’t change after.",
+        set
+          ? `A registry fact: only the ${where.registry} registry’s registrars change it.`
+          : `A registry fact: every project with this ${label} has the same one. Once it’s set, only the ${where.registry} registry’s registrars change it.`,
+      );
+    } else if (f.registry === "derived") {
+      parts.push(
+        set
+          ? "Derived from its identity, in its registry entry: it can’t change."
+          : `Derived from its identity. If this ${label} is registered already, the entry’s value is kept.`,
+      );
+    } else if (f.immutable) {
+      parts.push(
+        set ? "Set once: it can’t change." : "It can be set once, and can’t change after.",
       );
     }
     if (f.unique) {
       parts.push(`No two ${type.label_plural.toLowerCase()} in a project have the same one.`);
     }
-    if (!editing && type.identity.includes(f.name) && type.on_duplicate === "reuse") {
-      parts.push(`If ${inSentence(type.label)} with the same one exists, that one is used.`);
+    if (!editing && type.identity.includes(f.name)) {
+      parts.push(
+        `If this ${label} is registered in ${where.registry} already, ${where.project} gets its own record of it, with the same ID.`,
+      );
     }
     if (parts.length) notes[f.name] = parts.join(" ");
   }
@@ -233,19 +272,6 @@ function ChooseType() {
   );
 }
 
-interface Duplicate {
-  id: string;
-  hrid: string;
-}
-
-function duplicatesOf(problem: Problem): Duplicate[] {
-  return (problem.errors ?? []).flatMap((e) => {
-    const id = (e as { entity?: string }).entity;
-    const hrid = /The same as (\S+)\./.exec(e.detail)?.[1];
-    return id && hrid ? [{ id, hrid }] : [];
-  });
-}
-
 function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] }) {
   const project = useProject();
   const navigate = useNavigate();
@@ -254,28 +280,21 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
     Object.fromEntries(formFields(type).map((f) => [f.name, initialDraft(f, type)])),
   );
   const [reason, setReason] = useState("");
-  const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
 
   const create = useApiMutation(
-    async (body: { values: Record<string, unknown>; allowDuplicate: boolean }) =>
+    async (values: Record<string, unknown>) =>
       unwrap(
         await iki.POST("/api/v1/entities", {
-          body: {
-            type: type.name,
-            project: project.id,
-            values: body.values,
-            reason: reason.trim(),
-            allow_duplicate: body.allowDuplicate,
-          },
+          body: { type: type.name, project: project.id, values, reason: reason.trim() },
         }),
       ),
     [ENTITIES],
   );
-  const duplicate = create.error instanceof ApiError && create.error.problem.code === "duplicate";
-  const form = useForm(duplicate ? null : create.error);
+  const form = useForm(create.error);
   const label = inSentence(type.label);
+  const registers = type.identity.length > 0;
 
-  function send(allowDuplicate: boolean) {
+  function send() {
     const fields = formFields(type);
     const { values, errors } = encodeAll(type, fields, drafts);
     if (!form.validate(errors)) return;
@@ -283,28 +302,17 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
     const given = Object.fromEntries(
       Object.entries(values).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length)),
     );
-    setDuplicates([]);
-    create.mutate(
-      { values: given, allowDuplicate },
-      {
-        onSuccess: (made) => {
-          void navigate({ to: "/entities/$ref/", params: { ref: made.hrid } }).then(() => {
-            if (made.reused) {
-              say(
-                made.linked
-                  ? `${made.title} was already in Iki, so it’s been added to ${project.name} instead of making a copy.`
-                  : `${made.title} was already in ${project.name}, so nothing new was made.`,
-              );
-            } else {
-              say(`Created ${made.hrid}.`);
-            }
-          });
-        },
-        onError: (error) => {
-          if (error.problem.code === "duplicate") setDuplicates(duplicatesOf(error.problem));
-        },
+    create.mutate(given, {
+      onSuccess: (made) => {
+        void navigate({
+          to: "/entities/$ref/",
+          params: { ref: made.hrid },
+          search: recordSearch(made, project.slug),
+        }).then(() => {
+          say(createdMessage(made, project));
+        });
       },
-    );
+    });
   }
 
   return (
@@ -315,45 +323,19 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
           New {label}
         </h2>
         <p>
-          In {project.name}: its members can read it, and its Editors can change it.{" "}
+          {registers
+            ? `Registered in the ${project.registry.name} registry, with one ID wherever it’s used. ${project.name}’s record of it is its own: its members can read it, and its Editors can change it.`
+            : `In ${project.name}: its members can read it, and its Editors can change it.`}{" "}
           <Link to="/types/$/" params={{ _splat: type.name }}>
             About {inSentence(type.label_plural)}
           </Link>
         </p>
-        {duplicate ? (
-          <div className="alert alert-warning" role="alert">
-            <p>
-              {duplicates.length === 1 ? "This is" : "These values are"} the same as{" "}
-              {duplicates.map((d, index) => (
-                <span key={d.id}>
-                  {index ? ", " : ""}
-                  <Link to="/entities/$ref/" params={{ ref: d.hrid }}>
-                    {d.hrid}
-                  </Link>
-                </span>
-              ))}
-              . Use {duplicates.length === 1 ? "it" : "one of them"}, or create a duplicate anyway.
-            </p>
-            <div className="actions">
-              <Button
-                busy={create.isPending}
-                busyText="Creating…"
-                onClick={() => {
-                  send(true);
-                }}
-              >
-                Create a duplicate
-              </Button>
-            </div>
-          </div>
-        ) : (
-          form.alert
-        )}
+        {form.alert}
         <form
           {...form.props}
           onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
             event.preventDefault();
-            send(false);
+            send();
           }}
         >
           <Fields
@@ -364,7 +346,10 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
               setDrafts((current) => ({ ...current, [name]: draft }));
             }}
             errors={form.errors}
-            notes={notesFor(type, false, drafts)}
+            notes={notesFor(type, false, drafts, {
+              project: project.name,
+              registry: project.registry.name,
+            })}
             locked={new Set()}
             projectId={project.id}
           />
@@ -395,7 +380,8 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
 
 export function EditEntity() {
   const { ref } = useParams({ from: "/entities/$ref/edit" });
-  const entity = useSuspenseQuery(entityQuery(ref)).data;
+  const { project } = useSearch({ from: "/entities/$ref" });
+  const entity = useSuspenseQuery(entityQuery(ref, project)).data;
   const types = useSuspenseQuery(typesQuery).data;
   const type = types.find((t) => t.name === entity.type);
   usePageTitle(`Edit ${entity.title} (${entity.hrid})`);
@@ -410,7 +396,7 @@ export function EditEntity() {
               ? "It’s archived, so it can’t change. Restore it first."
               : "Only Editors in its owner project can change it."}
         </p>
-        <Link to="/entities/$ref/" params={{ ref: entity.hrid }}>
+        <Link to="/entities/$ref/" params={{ ref: entity.hrid }} search={recordSearch(entity)}>
           Back to {entity.hrid}
         </Link>
       </section>
@@ -445,9 +431,14 @@ function EditEntityForm({
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [unchanged, setUnchanged] = useState(false);
   const fields = formFields(type);
+  // Set once, or a registry entry's value: only its registrars change a fact (ADR 0115).
   const locked = new Set(
     fields
-      .filter((f) => f.immutable && !isBlank(f, base.drafts[f.name] ?? null))
+      .filter(
+        (f) =>
+          (f.immutable || (opened.entry && entryValue(f))) &&
+          !isBlank(f, base.drafts[f.name] ?? null),
+      )
       .map((f) => f.name),
   );
   const changed = fields.filter(
@@ -503,8 +494,9 @@ function EditEntityForm({
     setConflict(null);
     save.mutate(values, {
       onSuccess: (saved) => {
-        client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-        void navigate({ to: "/entities/$ref/", params: { ref: saved.hrid } }).then(() => {
+        const search = recordSearch(saved);
+        client.setQueryData(entityQuery(saved.hrid, search.project).queryKey, saved);
+        void navigate({ to: "/entities/$ref/", params: { ref: saved.hrid }, search }).then(() => {
           say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
         });
       },
@@ -519,7 +511,7 @@ function EditEntityForm({
       <section className="card form-card">
         <PageHeader
           eyebrow={
-            <Link to="/entities/$ref/" params={{ ref: opened.hrid }}>
+            <Link to="/entities/$ref/" params={{ ref: opened.hrid }} search={recordSearch(opened)}>
               {opened.hrid}
             </Link>
           }
@@ -546,6 +538,7 @@ function EditEntityForm({
                   <Link
                     to="/entities/$ref/history/"
                     params={{ ref: base.entity.hrid }}
+                    search={recordSearch(base.entity)}
                     target="_blank"
                   >
                     their change
@@ -572,7 +565,11 @@ function EditEntityForm({
               setDrafts((current) => ({ ...current, [name]: draft }));
             }}
             errors={form.errors}
-            notes={notesFor(type, true, base.drafts)}
+            notes={notesFor(type, true, base.drafts, {
+              project: opened.owner_project?.name ?? "the project",
+              registry: opened.entry?.registry.name ?? "",
+            })}
+
             locked={locked}
             projectId={opened.owner_project?.id ?? ""}
           />
@@ -584,6 +581,7 @@ function EditEntityForm({
             <Link
               to="/entities/$ref/"
               params={{ ref: opened.hrid }}
+              search={recordSearch(opened)}
               className={buttonClass("quiet")}
             >
               Cancel

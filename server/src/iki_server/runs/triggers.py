@@ -101,25 +101,37 @@ def writing(run: ActionRun) -> Iterator[None]:
 # --- Noticing changes --------------------------------------------------------------------------
 
 
-def noticed(entity: Entity, revision: Revision) -> int:
+def noticed(entity: Entity, revision: Revision, *, registered: Revision | None = None) -> int:
     """Records the firings an entity's new revision makes in its owner project. Call in the
-    change's transaction: a firing exists exactly when its change does. Returns how many."""
+    change's transaction: a firing exists exactly when its change does. Returns how many.
+
+    ``registered``: the record's creation registered a new registry entry too (ADR 0115),
+    whose first revision this is, so ``entity.registered`` fires as well, for the fields
+    either set."""
     event = _EVENTS.get(RevisionKind(revision.kind))
     if event is None:
         return 0
+    events = [(event, revision.changed_fields)]
+    if registered is not None:
+        events.append(
+            ("entity.registered", sorted({*revision.changed_fields, *registered.changed_fields}))
+        )
     run = _writing.get()
     if run is not None and run.via == Via.TRIGGER:
         # Loop protection: a triggered run's changes never fire a trigger.
+        return 0
+    if entity.owner_project_id is None:
         return 0
     on = list(ProjectTrigger.objects.filter(project_id=entity.owner_project_id, enabled=True))
     if not on:
         return 0
     installed = triggers()
     made = [
-        TriggerFiring(trigger=row, event=event, entity_id=entity.pk, revision=revision.number)
+        TriggerFiring(trigger=row, event=name, entity_id=entity.pk, revision=revision.number)
         for row in on
+        for name, changed in events
         if (spec := installed.get(row.trigger)) is not None
-        and _fires(spec, event, entity.type, revision.changed_fields)
+        and _fires(spec, name, entity.type, changed)
     ]
     if not made:
         return 0
@@ -208,7 +220,10 @@ def _fire(firing: TriggerFiring) -> None:
                 )
             else:
                 user = row.enabled_by
-                did = "was created" if firing.event == "entity.created" else "changed"
+                did = {
+                    "entity.created": "was created",
+                    "entity.registered": "was registered",
+                }.get(firing.event, "changed")
                 run = services.launch(
                     user,
                     action,

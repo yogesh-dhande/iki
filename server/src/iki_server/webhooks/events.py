@@ -104,6 +104,19 @@ _register(
         "entity.unlinked", "Someone takes an entity out of the project.", project=True, org=True
     ),
     EventType(
+        "entry.updated",
+        "A registry entry the project has a record of gets values (ADR 0115): filled in by a "
+        "holder, or a fact changed by a registrar.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "entry.superseded",
+        "A registrar supersedes a registry entry the project has a record of with another.",
+        project=True,
+        org=True,
+    ),
+    EventType(
         "budget.threshold_reached",
         "Spending on runs passes one of a budget's warning levels for the month: the "
         "project's own budget, for a project's webhooks.",
@@ -194,6 +207,19 @@ def entity_data(entity: Any) -> dict[str, Any]:  # noqa: ANN401 - an Entity
         "revision": entity.revision,
         "owner_project": {"id": str(entity.owner_project_id)},
         "archived": entity.archived_at is not None,
+        "entry": {"id": str(entity.entry_id)} if entity.entry_id is not None else None,
+    }
+
+
+def entry_data(entry: Any) -> dict[str, Any]:  # noqa: ANN401 - an Entity
+    """A registry entry's identifiers (ADR 0115): never its values, nor who holds it."""
+    return {
+        "id": str(entry.pk),
+        "hrid": entry.hrid,
+        "type": entry.type,
+        "revision": entry.revision,
+        "registry": {"id": str(entry.registry_id)},
+        "superseded": entry.superseded_by_id is not None,
     }
 
 

@@ -96,6 +96,14 @@ project = Project.objects.create(team=team, name="Antibodies")
 blob = Blob.objects.create(sha256="a" * 64, size=10,
                            storage_uri="s3://iki/a")
 pdb = File.objects.create(blob=blob, name="a.pdb", media_type="chemical/x-pdb", project=project)
+
+
+# A registry entry (ADR 0115) and the project's record of it.
+def register(record_model, entry_model, entry, **values):
+    made = entry_model.objects.create(registry=project.registry, **entry)
+    return made, record_model.objects.create(
+        owner_project=project, entry=made, hrid=made.hrid, **values
+    )
 """
 
 
@@ -204,8 +212,16 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__dna_sequence__history",
         "acme__dna_dnasequence",
         "acme__dna_dnasequence__history",
+        "acme__dna_dnasequence__entry",
+        "acme__dna_dnasequence__entry__history",
         "acme__protein_protein",
         "acme__protein_protein__history",
+        "acme__protein_protein__entry",
+        "acme__protein_protein__entry__history",
+        "acme__prediction__acme__protein_protein",
+        "acme__prediction__acme__protein_protein__history",
+        "acme__prediction__acme__protein_protein__entry",
+        "acme__prediction__acme__protein_protein__entry__history",
         "acme__protein_proteinstructure",
         "acme__protein_proteinstructure__history",
         "acme__protein_proteinstructure__chains",
@@ -229,49 +245,71 @@ def test_generated_models_store_entities(migrated: Path, database: str) -> None:
         out,
         database,
         """
-        from iki_plugin_acme__dna.models import DNASequence
+        from iki_plugin_acme__dna.models import DNASequence, DNASequence_Entry
         from iki_plugin_acme__protein.models import (
             Protein,
+            Protein_Entry,
             ProteinStructure,
             ProteinStructure_chains,
         )
-        from iki_plugin_acme__prediction.models import Ext_acme_protein_ProteinStructure
+        from iki_plugin_acme__prediction.models import (
+            Ext_acme_protein_Protein_Entry,
+            Ext_acme_protein_ProteinStructure,
+        )
         from iki_server.entities.models import Entity
 
-        dna = DNASequence.objects.create(
-            type="acme/dna.DNASequence", hrid="DNA-000001", owner_project=project,
-            name="pUC19", bases="ACGTN", length=2686,
+        dna_entry, dna = register(
+            DNASequence,
+            DNASequence_Entry,
+            {"hrid": "DNA-000001", "bases": "ACGTN", "length": 2686},
+            name="pUC19",
         )
-        protein = Protein.objects.create(
-            type="acme/protein.Protein", hrid="PRT-000001", owner_project=project,
-            sequence="MKV", encoded_by=dna, source=dna, molecular_weight=12000.5,
+        # A reference to a type with an identity holds its entry.
+        protein_entry, protein = register(
+            Protein,
+            Protein_Entry,
+            {"hrid": "PRT-000001", "sequence": "MKV"},
+            encoded_by=dna_entry, source=dna_entry, molecular_weight=12000.5,
             uniprot_ids=["P69905"],
         )
+        Ext_acme_protein_Protein_Entry.objects.create(entity=protein_entry, disorder=0.25)
         structure = ProteinStructure.objects.create(
             type="acme/protein.ProteinStructure", hrid="PST-001", owner_project=project,
             structure=pdb,
         )
-        ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein)
+        ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein_entry)
         Ext_acme_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
         dna.refresh_from_db()
         result = {
             "topology": dna.topology,
+            "length": DNASequence_Entry.objects.get().length,
             "entities": sorted(Entity.objects.values_list("type", flat=True)),
+            "entries": sorted(
+                Entity.objects.filter(registry__isnull=False).values_list("hrid", flat=True)
+            ),
             "name": Protein.objects.get(pk=protein.pk).sequence_ptr.name,
             "chain": ProteinStructure_chains.objects.get().item.sequence,
+            "encoded by": Protein.objects.get().encoded_by.bases,
+            "disorder": Protein_Entry.objects.get().acme_prediction_Entry.disorder,
             "plddt": structure.acme_prediction_Ext.plddt_mean,
         }
         """,
     )
     assert result == {
         "topology": "linear",
+        "length": 2686.0,
         "entities": [
             "acme/dna.DNASequence",
+            "acme/dna.DNASequence",
+            "acme/protein.Protein",
             "acme/protein.Protein",
             "acme/protein.ProteinStructure",
         ],
+        "entries": ["DNA-000001", "PRT-000001"],
         "name": None,
         "chain": "MKV",
+        "encoded by": "ACGTN",
+        "disorder": 0.25,
         "plddt": 91.5,
     }
 
@@ -301,9 +339,9 @@ def test_a_deployment_built_from_its_lockfile(migrated: Path, database: str) -> 
         database,
         """
         from iki_server.entities import registry
-        from iki_plugin_acme__dna.models import DNASequence
+        from iki_plugin_acme__dna.models import DNASequence_Entry
 
-        made = DNASequence.objects.create(owner_project=project, bases="ACGT")
+        made = DNASequence_Entry.objects.create(registry=project.registry, bases="ACGT")
         result = {
             "settings": registry.settings("acme/dna"),
             "from": [
@@ -343,20 +381,23 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         out,
         database,
         """
-        from iki_plugin_acme__dna.models import DNASequence, Sequence
+        from iki_plugin_acme__dna.models import DNASequence, DNASequence_Entry, Sequence
         from iki_plugin_acme__protein.models import (
             Protein,
+            Protein_Entry,
             ProteinStructure,
             ProteinStructure_chains,
         )
         from iki_plugin_acme__prediction.models import Ext_acme_protein_ProteinStructure
         from iki_spec.identity import identity_hash
 
-        first = DNASequence.objects.create(owner_project=project, bases="ACGT", name="pUC19")
-        second = DNASequence.objects.create(owner_project=project, bases="ACGTT")
-        protein = Protein.objects.create(owner_project=project, sequence="MKV", encoded_by=first)
+        entry, first = register(DNASequence, DNASequence_Entry, {"bases": "ACGT"}, name="pUC19")
+        _, second = register(DNASequence, DNASequence_Entry, {"bases": "ACGTT"})
+        protein_entry, protein = register(
+            Protein, Protein_Entry, {"sequence": "MKV"}, encoded_by=entry
+        )
         structure = ProteinStructure.objects.create(owner_project=project, structure=pdb)
-        ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein)
+        ProteinStructure_chains.objects.create(entity=structure, position=0, item=protein_entry)
         Ext_acme_protein_ProteinStructure.objects.create(entity=structure, plddt_mean=91.5)
         try:
             Sequence.objects.create(owner_project=project, name="abstract")
@@ -366,22 +407,24 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         result = {
             "hrids": [first.hrid, second.hrid, protein.hrid, structure.hrid],
             "types": [first.type, protein.type],
-            "identity": first.identity_hash == identity_hash(
+            "identity": entry.identity_hash == identity_hash(
                 "acme/dna.DNASequence", {"bases": ("string", "ACGT")}
             ),
+            "record": first.identity_hash,
             "no identity": structure.identity_hash,
             "abstract": abstract,
-            "protein": str(protein.pk),
+            "protein": str(protein_entry.pk),
         }
         """,
     )
     assert result["hrids"] == ["DNA-000001", "DNA-000002", "PRT-000001", "PST-000001"]
     assert result["types"] == ["acme/dna.DNASequence", "acme/protein.Protein"]
     assert result["identity"] is True
-    assert result["no identity"] is None
+    assert result["record"] is None and result["no identity"] is None
     assert result["abstract"] == "acme/dna.Sequence is abstract: create one of its subtypes."
 
-    # Views join a type's tables, its parents' and extensions'.
+    # Views of each project's records join a type's tables, its parents' and extensions',
+    # and its registry entry's.
     assert query(
         database,
         "SELECT hrid, name, bases, topology FROM iki_views.acme__dna_dnasequence ORDER BY hrid",
@@ -396,8 +439,10 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     )
     assert (hrid, [str(c) for c in chains], plddt) == ("PST-000001", [result["protein"]], 91.5)
     assert query(
-        database, "SELECT encoded_by_id IS NOT NULL FROM iki_views.acme__protein_protein"
-    ) == [(True,)]
+        database,
+        "SELECT sequence, encoded_by_id IS NOT NULL, entry_id IS NOT NULL "
+        "FROM iki_views.acme__protein_protein",
+    ) == [("MKV", True, True)]
 
     def comment(table: str, column: str) -> str:
         ((text,),) = query(
@@ -422,6 +467,9 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     assert query(database, "SELECT obj_description('acme__dna_dnasequence'::regclass)") == [
         ("DNA sequence (acme/dna.DNASequence), schema version 2.",)
     ]
+    assert comment("acme__dna_dnasequence__entry", "length") == "Length. In {bp} (UCUM)."
+    assert comment("acme__dna_dnasequence__entry__history", "bases") == "Bases."
+    assert comment("iki_views.acme__dna_dnasequence", "bases") == "Bases."
 
 
 def test_history_is_append_only_for_every_role(migrated: Path, database: str) -> None:
@@ -473,13 +521,25 @@ def test_an_analyst_role_reads_only_the_views(migrated: Path, database: str) -> 
 
 #: Writes the database refuses, and the CHECK constraint that refuses each.
 VIOLATIONS = {
-    "bases": ("DNASequence", {"bases": "ACGU"}, "acme__dna_dnasequence__bases__format"),
-    "empty": ("DNASequence", {"bases": ""}, "acme__dna_dnasequence__bases__not_empty"),
+    "bases": (
+        "DNASequence_Entry",
+        {"bases": "ACGU"},
+        "acme__dna_dnasequence__entry__bases__format",
+    ),
+    "empty": (
+        "DNASequence_Entry",
+        {"bases": ""},
+        "acme__dna_dnasequence__entry__bases__not_empty",
+    ),
     "two lines": ("DNASequence", {"name": "pUC\n19"}, "iki__core_sequence__name__one_line"),
     "topology": ("DNASequence", {"topology": "knotted"}, "acme__dna_dnasequence__topology__values"),
     "gc": ("DNASequence", {"gc_content": 101.0}, "acme__dna_dnasequence__gc_content__max"),
     "nan": ("DNASequence", {"gc_content": "nan"}, "acme__dna_dnasequence__gc_content__finite"),
-    "inf": ("DNASequence", {"length": "inf"}, "acme__dna_dnasequence__length__finite"),
+    "inf": (
+        "DNASequence_Entry",
+        {"length": "inf"},
+        "acme__dna_dnasequence__entry__length__finite",
+    ),
     "uniprot": (
         "Protein",
         {"uniprot_ids": ["p69905"]},
@@ -508,12 +568,17 @@ def test_the_database_enforces_field_rules(migrated: Path, database: str) -> Non
         """
         import itertools
         from django.db import IntegrityError, DataError, transaction
-        from iki_plugin_acme__dna.models import DNASequence
+        from iki_plugin_acme__dna.models import DNASequence, DNASequence_Entry
         from iki_plugin_acme__protein.models import Protein
-        models = {"DNASequence": DNASequence, "Protein": Protein}
+        models = {
+            "DNASequence": DNASequence,
+            "DNASequence_Entry": DNASequence_Entry,
+            "Protein": Protein,
+        }
         base = {
-            "DNASequence": {"type": "acme/dna.DNASequence", "bases": "ACGT"},
-            "Protein": {"type": "acme/protein.Protein", "sequence": "MKV"},
+            "DNASequence": {"type": "acme/dna.DNASequence", "owner_project": project},
+            "DNASequence_Entry": {"bases": "ACGT", "registry": project.registry},
+            "Protein": {"type": "acme/protein.Protein", "owner_project": project},
         }
         numbers = itertools.count(1)
         result = {}
@@ -522,8 +587,7 @@ def test_the_database_enforces_field_rules(migrated: Path, database: str) -> Non
             try:
                 with transaction.atomic():
                     models[model].objects.create(
-                        owner_project=project, hrid=f"X{next(numbers):03}-001",
-                        **{**base[model], **values},
+                        hrid=f"X{next(numbers):03}-001", **{**base[model], **values}
                     )
                 result[name] = "saved"
             except (IntegrityError, DataError) as error:
@@ -531,7 +595,7 @@ def test_the_database_enforces_field_rules(migrated: Path, database: str) -> Non
         # Arrays the ORM never writes, but SQL could.
         from django.db import connection
         protein = Protein.objects.create(
-            owner_project=project, hrid="Y001-001", type="acme/protein.Protein", sequence="MKV"
+            owner_project=project, hrid="Y001-001", type="acme/protein.Protein"
         )
         for name, value in {"nested": "{{P69905},{P69906}}", "from 0": "[0:0]={P69905}"}.items():
             try:
@@ -1051,9 +1115,9 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
         active,
         database,
         """
-        from iki_plugin_acme__dna.models import DNASequence
+        from iki_plugin_acme__dna.models import DNASequence, DNASequence_Entry
         from iki_server.accounts.models import User
-        dna = DNASequence.objects.create(owner_project=project, name="pUC19", bases="ACGT")
+        _, dna = register(DNASequence, DNASequence_Entry, {"bases": "ACGT"}, name="pUC19")
         User.objects.create_user("admin@example.com", "Org Admin")
         result = str(dna.pk)
         """,
@@ -1067,12 +1131,6 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
         database,
         "INSERT INTO acme__dna_dnasequence__history (entity_id, revision) VALUES (%s, 1) "
         "RETURNING 1",
-        made,
-    )
-    query(
-        database,
-        "UPDATE iki_entity SET identity_hash = %s WHERE id = %s RETURNING 1",
-        "f" * 64,
         made,
     )
     deployed(detached, database)
@@ -1124,7 +1182,7 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
     assert query(database, "SELECT count(*) FROM acme__dna_dnasequence") == [(1,)]
 
     out = deployed(purged, database)
-    assert "Purged acme/dna: dropped 4 table(s); 1 entities keep their tombstones" in out
+    assert "Purged acme/dna: dropped 6 table(s); 2 entities keep their tombstones" in out
     assert "row(s) their entities had in other plugins' tables" in out
     left = "SELECT tablename FROM pg_tables WHERE tablename LIKE 'acme\\_\\_dna\\_%%'"
     assert query(database, left) == []
@@ -1134,11 +1192,14 @@ def test_a_purged_plugin_is_dropped_once_its_purge_is_due(migrated: Path, databa
         "SELECT count(*) FROM iki_unique_value WHERE entity_id = %s",
     ):
         assert query(database, gone, made) == [(0,)]
-    assert query(
-        database,
-        "SELECT e.hrid, e.type, e.purged_at IS NOT NULL, e.identity_hash, length(t.content_sha256)"
-        " FROM iki_entity e JOIN iki_tombstone t ON t.entity_id = e.id",
-    ) == [("DNA-000001", "acme/dna.DNASequence", True, None, 64)]
+    assert (
+        query(
+            database,
+            "SELECT e.hrid, e.type, e.purged_at IS NOT NULL, e.identity_hash, "
+            "length(t.content_sha256) FROM iki_entity e JOIN iki_tombstone t ON t.entity_id = e.id",
+        )
+        == [("DNA-000001", "acme/dna.DNASequence", True, None, 64)] * 2
+    )  # its entry and record
     assert applied(database, "acme__dna") == []
     assert query(database, "SELECT done_at IS NOT NULL FROM iki_plugin_purge") == [(True,)]
     assert query(database, "SELECT state FROM iki_plugin_state WHERE name = 'acme/dna'") == [

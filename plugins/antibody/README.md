@@ -8,8 +8,10 @@ structures.
   - A whole antibody (`igg`) or a Fab (`fab`) has a heavy chain and a light
     chain. A single domain (`vhh`, a camelid's or a nanobody) or both variable
     domains on one chain (`scfv`) has one chain, its `heavy_chain`.
-  - Its identity is its heavy chain and its light chain, if it has one, so
-    assembling the same chains again reuses it. A VHH and an antibody with the
+  - Its identity is its heavy chain and its light chain, if it has one: each
+    antibody is registered once in a registry (ADR 0115), with one ID, and
+    assembling the same chains again, in any project, finds that entry; its
+    format and isotype are the entry's. A VHH and an antibody with the
     same heavy chain and a light chain are different antibodies
     ([ADR 0104](../../docs/adr/0104-an-identity-can-name-an-optional-field.md)).
   - It keeps its format, its isotype (a constant region's, so only `igg` and
@@ -50,7 +52,7 @@ and on the [dna plugin](../dna), which the protein plugin depends on.
 
 | Action                                 | What it does                                                                 | Tier      |
 | -------------------------------------- | ---------------------------------------------------------------------------- | --------- |
-| `assemble`                             | Registers the antibody its chains make, or reuses the one in Iki.            | backend   |
+| `assemble`                             | Registers the antibody its chains make, or finds its registry entry.         | backend   |
 | `number_chains`                        | Numbers proteins' variable domains with ANARCI: CDRs, species and humanness. | container |
 | `find_liabilities`                     | Finds the sequence liabilities a developability screen reports in a chain.   | backend   |
 | `predict_structure_with_immunebuilder` | Predicts an antibody's structure with ImmuneBuilder, and how sure it is.     | container |

@@ -7,7 +7,7 @@ YAML, so every rule `iki plugin validate` enforces holds for them.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from dataclasses import dataclass, field, fields
 from typing import Any
 
@@ -91,8 +91,12 @@ class Field:
     required: bool = False
     immutable: bool = False
     computed: bool = False
+    #: For a type with an identity: ``derived`` or ``fact``, a field of its registry entry
+    #: rather than of each project's record (ADR 0115). None for a record's own field.
+    registry: str | None = None
     indexed: bool = False
-    #: No two entities in a project share a value (ADR 0082).
+    #: No two entities in a project share a value (ADR 0082); for a registry fact, no two
+    #: entries in a registry.
     unique: bool = False
     #: Where the value leads in another system: a URL with `{value}` (ADR 0082).
     link: str | None = None
@@ -129,6 +133,7 @@ class Field:
             required=bool(data.get("required", False)),
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
+            registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
             unique=bool(data.get("unique", False)),
             link=data.get("link"),
@@ -156,6 +161,21 @@ class Field:
         )
 
 
+def in_entry(f: Field, identity: Collection[str] = ()) -> bool:
+    """Whether a field is its registry entry's (ADR 0115): part of the identity, or marked
+    ``registry: derived`` or ``registry: fact``. Every other field is each project's record's."""
+    return f.name in identity or f.registry is not None
+
+
+def split_entry(
+    fields: Mapping[str, Field], identity: Collection[str] = ()
+) -> tuple[dict[str, Field], dict[str, Field]]:
+    """A type's own fields (or an extension's) as (its records', its entries')."""
+    record = {n: f for n, f in fields.items() if not in_entry(f, identity)}
+    entry = {n: f for n, f in fields.items() if in_entry(f, identity)}
+    return record, entry
+
+
 @dataclass(frozen=True)
 class EntityType:
     plugin: str
@@ -168,8 +188,8 @@ class EntityType:
     abstract: bool = False
     hrid_prefix: str | None = None
     hrid_digits: int = 6
+    #: The fields that make two of its entities one registry entry (ADR 0115).
     identity: tuple[str, ...] = ()
-    on_duplicate: str | None = None
     fields: dict[str, Field] = field(default_factory=dict)
     display_title: str | None = None
     viewers: tuple[Viewer, ...] = ()
@@ -495,10 +515,11 @@ class Workflow:
         return done
 
 
-#: What fires a trigger: an entity of its type created, or changed, or its schedule.
-TRIGGER_EVENTS = ("entity.created", "entity.updated", "schedule")
+#: What fires a trigger: an entity of its type created, a new registry entry of it
+#: registered (ADR 0115), an entity changed, or its schedule.
+TRIGGER_EVENTS = ("entity.created", "entity.registered", "entity.updated", "schedule")
 #: The events that fire a trigger for an entity.
-ENTITY_EVENTS = ("entity.created", "entity.updated")
+ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.updated")
 
 
 @dataclass(frozen=True)

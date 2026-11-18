@@ -441,6 +441,22 @@ def api_call(
     return session.request(method, f"{IKI}/api/v1{path}", json=body, headers=headers)
 
 
+def entry_of(entity: dict[str, Any]) -> str:
+    """What a reference to an entity holds: for a type with an identity, its registry
+    entry's ID (ADR 0115), which every project's record of it shares; otherwise its own."""
+    entry = entity.get("entry")
+    return str(entry["id"] if entry else entity["id"])
+
+
+def record(session: requests.Session, entity_id: str) -> dict[str, Any]:
+    """A record, by its own ID: an entry's HRID can name several projects' records."""
+    got = api_call(session, "GET", f"/entities/{entity_id}")
+    if got.status_code != 200:
+        fail(f"reading {entity_id} answered HTTP {got.status_code}: {got.text[:300]}")
+    found: dict[str, Any] = got.json()
+    return found
+
+
 def rest_api(admin: requests.Session) -> None:
     """The REST API: problems, CSRF, rate-limit headers, service accounts and project access."""
     anonymous = browser().get(f"{IKI}/api/v1/me")
@@ -1082,6 +1098,8 @@ def actions() -> None:
         if made.status_code not in (200, 201):
             fail(f"registering a {kind} answered HTTP {made.status_code}: {made.text[:300]}")
         entity = made.json()
+        if not entity.get("registered") or not entity.get("entry"):
+            fail(f"a new {kind} wasn't registered: {entity}")
         launched = api_call(
             alice,
             "POST",
@@ -1182,7 +1200,8 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     if [e["type"] for e in created] != ["iki/core.Alignment"]:
         fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
     values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
-    if values["reference"] != reference["id"] or values["members"] != [reference["id"]]:
+    plasmid_entry = entry_of(reference)
+    if values["reference"] != plasmid_entry or values["members"] != [plasmid_entry]:
         fail(f"{created[0]['hrid']} is {values}")
     (kept,) = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
@@ -1295,9 +1314,9 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     created = [e for e in run["effects"] if e["kind"] in ("created", "reused")]
     if [e["type"] for e in created] != ["iki/protein.Protein"]:
         fail(f"{run['hrid']} (iki/protein.translate) made {run['effects']}, not one protein")
-    protein = api_call(alice, "GET", f"/entities/{created[0]['entity']}").json()
+    protein = record(alice, created[0]["entity"])
     values = protein["values"]
-    if len(values.get("sequence", "")) != 30 or values.get("encoded_by") != dna["id"]:
+    if len(values.get("sequence", "")) != 30 or values.get("encoded_by") != entry_of(dna):
         fail(f"{run['hrid']} made {values}, not 30 residues encoded by {dna['hrid']}")
     ok(f"iki/protein.translate made {protein['hrid']} from {dna['hrid']} ({run['hrid']})")
     run = launch(alice, project, "iki/protein.compute_properties", {"protein": protein["id"]})
@@ -1351,7 +1370,7 @@ def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
     lots = [e for e in made if e["type"] == "iki/small_molecule.CompoundBatch"]
     if len(found) != 1 or len(lots) != 2 or run["metrics"] != {"lines": 2, "skipped": 0}:
         fail(f"{run['hrid']} ({action}) made {run['effects']}, not one compound and two batches")
-    compound = api_call(alice, "GET", f"/entities/{found[0]['entity']}").json()
+    compound = record(alice, found[0]["entity"])
     if (compound["values"]["inchikey"], compound["values"]["smiles"]) != (ASPIRIN_KEY, ASPIRIN):
         fail(f"{run['hrid']} registered aspirin as {compound['values']}")
     salts = sorted(
@@ -1364,7 +1383,8 @@ def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
             api_call(alice, "GET", f"/entities/{lot['entity']}").json()["values"] for lot in lots
         )
     )
-    if salts != [("", 180.159, compound["id"]), ("sodium", 202.141, compound["id"])]:
+    aspirin = entry_of(compound)
+    if salts != [("", 180.159, aspirin), ("sodium", 202.141, aspirin)]:
         fail(f"{run['hrid']}'s batches of {compound['hrid']} are {salts}")
     making = api_call(alice, "GET", f"/entities/{compound['id']}/making").json()
     if not any(m["by"] == "iki" and m["software"] == "RDKit" for m in making):
@@ -1398,7 +1418,7 @@ def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{run['hrid']} made {run['effects']}, not {compound['hrid']} reused")
     ok(f"aspirin drawn another way is {compound['hrid']}, reused ({run['hrid']})")
     caffeine = pubchem(alice, project)
-    substructure(alice, project, compound["id"], caffeine["id"])
+    substructure(alice, project, compound, caffeine)
 
 
 def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
@@ -1416,7 +1436,7 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     made = [e for e in run["effects"] if e["type"] == "iki/small_molecule.Compound"]
     if len(made) != 1:
         fail(f"{run['hrid']} ({action}) made {run['effects']}, not caffeine")
-    compound: dict[str, Any] = api_call(alice, "GET", f"/entities/{made[0]['entity']}").json()
+    compound = record(alice, made[0]["entity"])
     values = compound["values"]
     expected = {
         "inchikey": CAFFEINE_KEY,
@@ -1442,18 +1462,23 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
 
 
 def substructure(
-    alice: requests.Session, project: dict[str, Any], aspirin: str, caffeine: str
+    alice: requests.Session,
+    project: dict[str, Any],
+    aspirin: dict[str, Any],
+    caffeine: dict[str, Any],
 ) -> None:
     """iki/small_molecule.substructure_search over aspirin and caffeine: a carboxylic acid,
     which only aspirin has, saved as a collection of it."""
     action = "iki/small_molecule.substructure_search"
     smarts = "[CX3](=O)[OX2H1]"
-    run = launch(alice, project, action, {"compounds": [aspirin, caffeine]}, {"smarts": smarts})
+    run = launch(
+        alice, project, action, {"compounds": [aspirin["id"], caffeine["id"]]}, {"smarts": smarts}
+    )
     made = [e for e in run["effects"] if e["type"] == "iki/core.Collection"]
     if len(made) != 1 or run["metrics"] != {"hits": 1, "searched": 2}:
         fail(f"{run['hrid']} ({action}) made {run['effects']} with {run['metrics']}")
-    collection = api_call(alice, "GET", f"/entities/{made[0]['entity']}").json()
-    if collection["values"].get("members") != [aspirin]:
+    collection = record(alice, made[0]["entity"])
+    if collection["values"].get("members") != [entry_of(aspirin)]:
         fail(f"{run['hrid']} made {collection['hrid']} of {collection['values']}, not aspirin")
     ok(
         f"{action} found the carboxylic acid ({smarts}) in aspirin, not caffeine, and saved "
@@ -1516,12 +1541,11 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
     created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
     if [e["type"] for e in created] != ["iki/core.Alignment"]:
         fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
-    alignment = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()
+    alignment = record(alice, created[0]["entity"])
     values = alignment["values"]
-    if (
-        values["members"] != [chains[0]["id"], chains[1]["id"]]
-        or values["reference"] != chains[1]["id"]
-    ):
+    if values["members"] != [entry_of(chains[0]), entry_of(chains[1])] or values[
+        "reference"
+    ] != entry_of(chains[1]):
         fail(f"{created[0]['hrid']} aligns {values['members']} to {values['reference']}")
     fasta = next(k for k in kept if k["path"] == "alignment.fasta")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
@@ -1587,8 +1611,8 @@ def reads_on_protein(alice: requests.Session, project: dict[str, Any], hbb: dict
     created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
     if [e["type"] for e in created] != ["iki/core.Alignment"]:
         fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
-    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
-    if values["reference"] != hbb["id"] or values["members"] != [hbb["id"]]:
+    values = record(alice, created[0]["entity"])["values"]
+    if values["reference"] != entry_of(hbb) or values["members"] != [entry_of(hbb)]:
         fail(f"{created[0]['hrid']} is {values}")
     ok(
         f"{action} found haemoglobin beta's code in a read's frame on the other strand "
@@ -1795,7 +1819,7 @@ def relatives_app(alice: requests.Session, project: dict[str, Any]) -> str:
     found = api_call(alice, "POST", "/entities/search", search).json()["items"]
     if not found:
         fail("HBB_HUMAN wasn't found for its app")
-    tabs = api_call(alice, "GET", f"/entities/{found[0]['hrid']}/apps").json()
+    tabs = api_call(alice, "GET", f"/entities/{found[0]['id']}/apps").json()
     if made.json()["hrid"] not in [t["hrid"] for t in tabs]:
         fail(f"HBB_HUMAN's page doesn't list its app: {tabs}")
     ok(f"{made.json()['hrid']}: an app about a protein, a tab on {found[0]['hrid']}'s page")
@@ -1833,10 +1857,10 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     effects = [e for e in run.get("effects") or [] if e["kind"] in ("created", "reused")]
     if [e["type"] for e in effects] != ["iki/antibody.Antibody"]:
         fail(f"{run['hrid']} made {effects}, not one iki/antibody.Antibody")
-    antibody = api_call(alice, "GET", f"/entities/{effects[0]['hrid']}").json()["values"]
+    antibody = record(alice, effects[0]["entity"])["values"]
     if (antibody["heavy_chain"], antibody.get("light_chain"), antibody["isotype"]) != (
-        heavy["id"],
-        light["id"],
+        entry_of(heavy),
+        entry_of(light),
         "igg1",
     ):
         fail(f"{effects[0]['hrid']} is {antibody}")
@@ -1964,11 +1988,11 @@ def predicted(
     made = [e for e in run.get("effects") or [] if e["kind"] == "created"]
     if [e["type"] for e in made] != ["iki/protein.ProteinStructure"]:
         fail(f"{run['hrid']} made {made}, not one iki/protein.ProteinStructure")
-    structure = api_call(alice, "GET", f"/entities/{made[0]['hrid']}").json()["values"]
+    structure = record(alice, made[0]["entity"])["values"]
     error = structure.get("predicted_error")
     if (
         structure.get("method") != "predicted"
-        or structure.get("chains") != [heavy["id"], light["id"]]
+        or structure.get("chains") != [entry_of(heavy), entry_of(light)]
         or structure.get("chain_ids") != ["H", "L"]
         or not isinstance(error, (int, float))
         or not 0 < error < 2
@@ -2019,10 +2043,10 @@ def aligned_many(
     created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
     if [e["type"] for e in created] != ["iki/core.Alignment"]:
         fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
-    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
+    values = record(alice, created[0]["entity"])["values"]
     if (
-        values["members"] != [alpha["id"], beta["id"], myoglobin["id"]]
-        or values["reference"] != alpha["id"]
+        values["members"] != [entry_of(alpha), entry_of(beta), entry_of(myoglobin)]
+        or values["reference"] != entry_of(alpha)
         or not values["method"].startswith("MAFFT v7.505")
     ):
         fail(f"{created[0]['hrid']} is {values}")
@@ -2159,10 +2183,11 @@ def structures(alice: requests.Session, project: dict[str, Any]) -> None:
         alice, "GET", f"/entities/{made['iki/protein.ProteinStructure']['entity']}"
     ).json()
     values = structure["values"]
-    protein = made["iki/protein.Protein"]["entity"]
-    if values.get("chains") != [protein, protein] or values.get("structure") != file_id:
-        fail(f"{run['hrid']} made {values}, not two chains of {protein} in {file_id}")
-    sequence = api_call(alice, "GET", f"/entities/{protein}").json()["values"]["sequence"]
+    protein = record(alice, made["iki/protein.Protein"]["entity"])
+    chains = [entry_of(protein)] * 2
+    if values.get("chains") != chains or values.get("structure") != file_id:
+        fail(f"{run['hrid']} made {values}, not two chains of {protein['hrid']} in {file_id}")
+    sequence = protein["values"]["sequence"]
     if sequence != "".join(RESIDUES[name] for name in chain):
         fail(f"{run['hrid']} read the chains' sequence as {sequence}")
     ok(
@@ -2190,7 +2215,7 @@ def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
     ref = made["iki/protein.ProteinStructure"]["entity"]
     structure = api_call(alice, "GET", f"/entities/{ref}").json()
     values = structure["values"]
-    protein = made["iki/protein.Protein"]["entity"]
+    protein = entry_of(record(alice, made["iki/protein.Protein"]["entity"]))
     if (
         values.get("name") != "AF-P01542-F1"
         or values.get("method") != "predicted"

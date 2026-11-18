@@ -87,12 +87,13 @@ name: Protein
 schema_version: 3 # increase it whenever the fields change
 extends: iki/dna.Sequence # optional parent type (multi-table inheritance)
 hrid: { prefix: PRT, digits: 6 } # PRT-000123, never reused
-identity: [sequence] # what makes two entities the same
-on_duplicate: reuse # reuse (default) | warn | allow
+identity: [sequence] # what makes two entities the same: registered once
 fields:
   sequence: { type: string, format: protein_sequence, required: true, immutable: true }
-  molecular_weight: { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true }
-  organism: { type: string, max_length: 200, indexed: true }
+  molecular_weight:
+    { type: quantity, unit: u, display_unit: ku, computed: true, indexed: true, registry: derived }
+  uniprot_accession: { type: string, pattern: "^[A-Z0-9]{6,10}$", registry: fact }
+  organism: { type: string, max_length: 200, indexed: true } # each project's own
   source: { type: ref, to: iki/core.Entity } # any entity
 display:
   title: "{{ name or hrid }}"
@@ -107,14 +108,45 @@ display:
 | `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.           |
 | `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12).        |
 | `identity`              | Fields that make an entity the same as another. Each must be `immutable`, and one `required`. See below. |
-| `on_duplicate`          | When someone creates a duplicate: `reuse` the existing entity, `warn` and let them choose, `allow`.      |
 | `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                       |
 | `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.          |
 
-### Identities
+### Identities and registries
 
-Iki stores a hash of each entity's identity values, to find duplicates.
-Subtypes share the identity of the type that declares it. The hash is the
+A type with an identity is registered (ADR 0115). Each identity is one
+**registry entry**: its identity fields, the fields marked `registry`, and its
+citable ID, such as `CPD-000123`. The entry belongs to no project. Each project
+that has the entity has its own **record** of the entry, with the type's other
+fields, which it keeps, revises and archives on its own; the record shares the
+entry's ID. Creating an entity whose identity is registered already gives the
+project a record of that entry, telling the creator only that it exists and its
+ID: never who registered it, when, or which projects have it. A project has one
+record of each entry. A type without an identity has no entries: its entities
+are its project's.
+
+The registry is the deployment's boundary of identity: every project is in
+one, and an organization that keeps some programs apart (a CRO's clients, say)
+has more than one. References to a type with an identity hold its entry, and
+a project refers only to entries it has a record of.
+
+A field marked `registry` is the entry's, the same for every project:
+
+- `registry: derived` comes from the identity alone, such as a compound's
+  molecular weight from its structure, usually `computed`. It's set once, by
+  whoever registers the entity or the action that computes it, and then never
+  changes: registering the identity again with another value keeps the entry's.
+- `registry: fact` is curated, such as an INN or a UniProt accession: an enum,
+  a number, a date, a reference to another entry, or a string or list of
+  strings with a `pattern` (never free text). Whoever registers it may set it
+  while it's empty; after that only the registry's registrars change it, with a
+  reason, audited and told to every project with a record of it.
+
+Only the type that declares the identity, or an extension of it, has registry
+fields, and they refer only to other entries. Everything else (an organism, a
+project's notes, a LIMS ID) is each project's own.
+
+Iki stores a hash of each entry's identity values, to find it again.
+Subtypes share the identity of the type that declares it, and its entries. The hash is the
 SHA-256, in lower-case hex, of UTF-8 JSON with sorted keys and no spaces:
 
 ```json
@@ -170,7 +202,8 @@ are also fast to search for text they contain), `default` and
 `removed`.
 
 A string field that's indexed may also be `unique`: no two entities in a
-project have the same value, such as the ID a LIMS or ELN gives the record
+project have the same value (no two entries in a registry, for a field marked
+`registry`), such as the ID a LIMS or ELN gives the record
 it keeps for an entity (ADR 0082). The database refuses a second one,
 whatever writes it. Another project may have an entity with the same value,
 since projects are kept apart. A field can be made unique after entities
@@ -549,8 +582,12 @@ ordering comparisons take numbers. No step may come before itself.
 ## Triggers
 
 A trigger runs one of the plugin's actions by itself when an entity of a type
-(or a subtype) is created (`entity.created`) or changed (`entity.updated`),
-on that entity (ADR 0080). Installing the plugin doesn't turn it on: a
+(or a subtype) is created (`entity.created`, for each project's new record),
+registered (`entity.registered`, once for each new registry entry of a type
+with an identity, by the record that registered it: ADR 0115) or changed
+(`entity.updated`), on that entity (ADR 0080). Computing what's derived from
+an identity belongs on `entity.registered`: the entry keeps it for every
+project. Installing the plugin doesn't turn it on: a
 project's Admins do, project by project, and its runs are theirs. They're
 launched as the Admin who turned it on, recorded as started by the trigger,
 and a run on the container or VM tier waits for that Admin's approval first.
@@ -560,7 +597,7 @@ apiVersion: iki/v1
 kind: Trigger
 name: compute_new_protein_properties
 label: Compute each new protein's properties
-on: entity.created
+on: entity.registered
 type: Protein
 run: compute_properties # the plugin's action
 input: protein # which input takes the entity; left out when only one can
@@ -1169,13 +1206,15 @@ An import from a LIMS or ELN matches its records to entities with
 `match_on`, one of the type's unique fields (ADR 0082). A create whose value
 an entity of the run's project has already updates that entity instead: a
 revision by the run, with its origin, setting the values the create gives.
-One that changes nothing is found again, as a reused duplicate is. Only the
-project's own entities match, never one linked in from elsewhere. In a
-creates file, a record may come only once.
+One that changes nothing is found again, as the project's own record is when
+its identity is registered again. Only the project's own entities match,
+never one linked in from elsewhere; for a field marked `registry`, the
+project's record of the registry entry that has the value. In a creates
+file, a record may come only once.
 
-A record with no match yet, of a type that reuses duplicates, claims the
-project's own entity it would reuse, if that entity has no value for the
-field yet: a protein registered before the LIMS knew it takes the record's
+A record with no match yet, of a type with an identity, claims the
+project's own record of that identity's registry entry, if it has no value
+for the field yet: a protein registered before the LIMS knew it takes the record's
 ID. If it's another record's already, the run fails, naming both, since one
 entity can't be two records; so does a file with two records of one entity.
 
@@ -1213,7 +1252,8 @@ field (or an item of a list of refs) `{"$create": "<key>"}`:
 ]
 ```
 
-It becomes the ID of the entity that create made, or the one it reused. A
+It becomes the ID of the entity that create made, or the project's record it
+found; a reference to a type with an identity holds its registry entry. A
 create can refer only to those before it, and, in a job that runs several
 runs at once, only to its own run's.
 
@@ -1370,7 +1410,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                          | Names                           |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                    | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                  | HRIDs                           |
-| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `on-duplicate-without-identity`                                                                                                                                                                                                                                                                                                                         | Identities                      |
+| `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                     | Identities                      |
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                          | Field options                   |
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                      | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                      | Units                           |

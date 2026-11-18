@@ -26,6 +26,10 @@ have none, so the double underscore marks what Iki adds to a name:
                                                        files, one row per item
 ``acme__lims__iki__protein_protein``                   the fields ``acme/lims``
                                                        adds to ``iki/protein.Protein``
+``iki__protein_protein__entry``                        the registry entries' fields
+                                                       of a type with an identity
+                                                       (ADR 0115), with history and
+                                                       lists of their own
 =====================================================  ==============================
 
 Django's field and reverse names can't hold a double underscore, so where a
@@ -49,6 +53,9 @@ __all__ = [
     "MAX_INDEX_NAME",
     "app_label",
     "constraint_name",
+    "entry_model",
+    "entry_related_name",
+    "entry_table",
     "extension_model",
     "extension_related_name",
     "extension_table",
@@ -172,6 +179,22 @@ def extension_model(target: str) -> str:
     """The model class, in the extending plugin's app, for its fields on ``target``."""
     plugin, name = target.split(".")
     return f"Ext_{identifier(plugin)}_{name}"
+
+
+def entry_table(table: str) -> str:
+    """The table of a type's (or an extension's) registry entry fields (ADR 0115)."""
+    return f"{table}__entry"
+
+
+def entry_model(model: str) -> str:
+    """The model of a type's (or an extension's) registry entry fields: ``Protein_Entry``.
+    Type names have no underscore, so it can't be another type's name."""
+    return f"{model}_Entry"
+
+
+def entry_related_name(plugin: str) -> str:
+    """From an entry's row to the entry fields ``plugin`` adds: ``acme_lims_Entry``."""
+    return f"{identifier(plugin)}_Entry"
 
 
 def history_model(model: str) -> str:

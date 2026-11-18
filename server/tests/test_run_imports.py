@@ -362,7 +362,9 @@ def test_a_record_that_comes_again_updates_its_entity(world: World) -> None:
         "ABL1 kinase",
         "Homo sapiens",
     )
-    assert Entity.objects.filter(type="acme/protein.Protein").count() == 1
+    assert (
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count() == 1
+    )
     revisions = api_as(world).get(f"/entities/{made['hrid']}/revisions").json()["items"]
     assert (revisions[0]["number"], revisions[0]["via"]) == (2, "run")
     later, first = api_as(world).get(f"/entities/{made['hrid']}/origins").json()
@@ -404,7 +406,9 @@ def test_a_record_claims_the_same_entity_without_one(world: World) -> None:
     again, answer = imported(world, lims("ABL1"))
     (effect,) = api_as(world).get(f"/runs/{again['id']}").json()["effects"]
     assert (effect["hrid"], effect["kind"]) == (hrid, "reused")
-    assert Entity.objects.filter(type="acme/protein.Protein").count() == 1
+    assert (
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count() == 1
+    )
 
 
 def test_two_records_cant_be_one_entity(world: World) -> None:
@@ -428,11 +432,11 @@ def test_two_records_cant_be_one_entity(world: World) -> None:
 def test_a_match_that_cant_change_fails_the_run(world: World) -> None:
     run, _ = imported(world, lims("ABL1"))
     (made,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
-    entity = Entity.objects.get(hrid=made["hrid"])
+    entity = Entity.objects.get(hrid=made["hrid"], owner_project=world.project)
     services.set_archived(world.users["editor"], entity, True)
     _, answer = imported(world, lims("ABL1 kinase"))
     assert answer["run_status"] == "failed", answer
-    failed = Entity.objects.get(hrid=made["hrid"])
+    failed = Entity.objects.get(hrid=made["hrid"], owner_project=world.project)
     assert failed.revision == entity.revision + 1  # archived, and nothing since
     _, answer = imported(world, lims("ABL1", sequence="MKKK", lims_id="LIMS-1"))
     assert answer["run_status"] == "failed"

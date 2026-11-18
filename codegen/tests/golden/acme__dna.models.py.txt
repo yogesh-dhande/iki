@@ -68,33 +68,15 @@ class DNASequence(Sequence):
         db_column='entity_id',
         related_name='+',
     )
-    bases = models.TextField()
     topology = models.TextField(null=True, db_default='linear')
-    length = QuantityField(unit='{bp}', null=True, db_index=True)
     gc_content = QuantityField(unit='%', null=True)
 
     class Meta:
         db_table = 'acme__dna_dnasequence'
         constraints = [
             models.CheckConstraint(
-                condition=GreaterThanOrEqual(Length('bases'), 1),
-                name='acme__dna_dnasequence__bases__not_empty',
-            ),
-            models.CheckConstraint(
-                condition=~Q(bases__regex='[\\r\\n]'),
-                name='acme__dna_dnasequence__bases__one_line',
-            ),
-            models.CheckConstraint(
-                condition=Q(bases__regex='^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]*$'),
-                name='acme__dna_dnasequence__bases__format',
-            ),
-            models.CheckConstraint(
                 condition=Q(topology__in=['linear', 'circular']),
                 name='acme__dna_dnasequence__topology__values',
-            ),
-            models.CheckConstraint(
-                condition=Q(length__gt=float('-inf'), length__lt=float('inf')),
-                name='acme__dna_dnasequence__length__finite',
             ),
             models.CheckConstraint(
                 condition=Q(gc_content__gt=float('-inf'), gc_content__lt=float('inf')),
@@ -120,10 +102,63 @@ class DNASequence_History(models.Model):
     pk = models.CompositePrimaryKey('entity_id', 'revision')
     entity_id = models.UUIDField()
     revision = models.PositiveIntegerField()
-    bases = models.TextField(null=True)
     topology = models.TextField(null=True)
-    length = QuantityField(unit='{bp}', null=True)
     gc_content = QuantityField(unit='%', null=True)
 
     class Meta:
         db_table = 'acme__dna_dnasequence__history'
+
+
+class DNASequence_Entry(Entity):
+    """Registry entries of DNA sequence (acme/dna.DNASequence), ADR 0115."""
+
+    IKI_TYPE = 'acme/dna.DNASequence'
+    IKI_ENTRY = True
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    bases = models.TextField()
+    length = QuantityField(unit='{bp}', null=True, db_index=True)
+
+    class Meta:
+        db_table = 'acme__dna_dnasequence__entry'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('bases'), 1),
+                name='acme__dna_dnasequence__entry__bases__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(bases__regex='[\\r\\n]'),
+                name='acme__dna_dnasequence__entry__bases__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(bases__regex='^[ACGTRYSWKMBDHVNacgtryswkmbdhvn]*$'),
+                name='acme__dna_dnasequence__entry__bases__format',
+            ),
+            models.CheckConstraint(
+                condition=Q(length__gt=float('-inf'), length__lt=float('inf')),
+                name='acme__dna_dnasequence__entry__length__finite',
+            ),
+        ]
+
+
+class DNASequence_Entry_History(models.Model):
+    """The history of acme__dna_dnasequence__entry: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'DNASequence_Entry'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    bases = models.TextField(null=True)
+    length = QuantityField(unit='{bp}', null=True)
+
+    class Meta:
+        db_table = 'acme__dna_dnasequence__entry__history'

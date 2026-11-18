@@ -139,7 +139,7 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
         if validator == "enum" and isinstance(parent, dict) and isinstance(parent.get("type"), str):
             allowed = [str(v) for v in _values(error)]
             if path[:1] == ("settings",):
-                fields_only = ("immutable", "computed", "indexed", "unique")
+                fields_only = ("immutable", "computed", "registry", "indexed", "unique")
                 allowed = [a for a in allowed if a not in fields_only]
             yield SchemaIssue(
                 key_path,

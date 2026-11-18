@@ -1,12 +1,19 @@
 import { unwrap } from "@ikisci/sdk";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useState, type SubmitEvent } from "react";
 
 import { creatableTeamsQuery, iki, meQuery, useApiMutation } from "../api";
 import { required, useForm } from "../forms";
 import { usePageTitle } from "../layout";
+import { registriesQuery, type Registry } from "../registries";
 import { Button, buttonClass, PageTitle, SelectField, TextField, useMessages } from "../ui";
+
+/** The registry a new project of the team is in, unless it's given another: the
+ * deployment's default, if the team may use it. */
+function preferred(registries: Registry[]): string {
+  return (registries.find((r) => r.default) ?? registries[0])?.id ?? "";
+}
 
 export function ProjectNew() {
   usePageTitle("New project");
@@ -20,11 +27,21 @@ export function ProjectNew() {
   );
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  // The registries the team's projects may be in (ADR 0115): a choice only when there are
+  // several. Until they're listed, the project goes in the default one.
+  const registries = useQuery({ ...registriesQuery(team), enabled: Boolean(team) }).data ?? [];
+  const [picked, setPicked] = useState<{ team: string; registry: string }>();
+  const registry =
+    picked?.team === team && registries.some((r) => r.id === picked.registry)
+      ? picked.registry
+      : preferred(registries);
 
   const create = useApiMutation(
     async () =>
       unwrap(
-        await iki.POST("/api/v1/projects", { body: { team, name: name.trim(), description } }),
+        await iki.POST("/api/v1/projects", {
+          body: { team, name: name.trim(), description, ...(registry ? { registry } : {}) },
+        }),
       ),
     [["projects"], ["me"]],
   );
@@ -75,6 +92,27 @@ export function ProjectNew() {
               optional
               multiline
             />
+            {registries.length > 1 ? (
+              <SelectField
+                label="Registry"
+                value={registry}
+                onChange={(value) => {
+                  setPicked({ team, registry: value });
+                }}
+                options={registries.map((r) => ({
+                  value: r.id,
+                  label: r.default ? `${r.name} (the default)` : r.name,
+                }))}
+                error={errors["registry"]}
+                help={[
+                  "What the project registers, such as a compound or a sequence, has one ID in its registry, shared with the registry’s other projects. A separate registry keeps a client’s or partner’s work apart. It can’t change once the project has entities.",
+                  registries.find((r) => r.id === registry)?.description,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              />
+            ) : null}
+
             <div className="actions">
               <Button type="submit" variant="primary" busy={create.isPending} busyText="Creating…">
                 Create project

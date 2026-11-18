@@ -45,7 +45,9 @@ def report(plugin: str) -> dict[str, Any]:
     entities = entities_of(plugin)
     found = entities.values("pk")
     types = registry.plugins()[plugin].types
-    counts = dict(entities.values_list("type").annotate(n=Count("pk")).values_list("type", "n"))
+    # Projects' records, by type; their registry entries (ADR 0115) go with them.
+    records = entities.filter(registry__isnull=True)
+    counts = dict(records.values_list("type").annotate(n=Count("pk")).values_list("type", "n"))
     in_projects = Project.objects.filter(
         Q(pk__in=entities.values("owner_project"))
         | Q(pk__in=ProjectLink.objects.filter(entity__in=found).values("project"))
@@ -54,6 +56,7 @@ def report(plugin: str) -> dict[str, Any]:
     return {
         "plugin": plugin,
         "entities": sum(counts.values()),
+        "entries": entities.filter(registry__isnull=False).count(),
         "types": [
             {
                 "type": name,
@@ -87,6 +90,8 @@ def _references(plugin: str, found: QuerySet[Entity, Any]) -> list[dict[str, Any
             getattr(field.remote_field, "parent_link", False)
             or model in (ProjectLink, Revision)
             or model._meta.app_label == plugin
+            # A record's entry, and the entry that superseded another, are the plugin's own.
+            or (model is Entity and field.name in ("entry", "superseded_by"))
         ):
             continue
         count = model._default_manager.filter(**{f"{field.name}__in": found}).count()

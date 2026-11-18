@@ -167,6 +167,10 @@ class ImportEntity(models.Model):
     adds = models.PositiveIntegerField(default=0)
     #: Why it's skipped or a conflict, or what else happens to it, for people.
     why = models.TextField(blank=True, default="")
+    #: For a record of a registry entry (ADR 0115): the entry here, or the ID the import
+    #: registers it with, and whether it does.
+    entry_id = models.UUIDField(null=True, blank=True)
+    registers = models.BooleanField(default=False)
 
     class Meta:
         db_table = "iki_bundle_import_entity"

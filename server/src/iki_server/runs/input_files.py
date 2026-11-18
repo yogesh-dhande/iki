@@ -72,7 +72,8 @@ def of_run(run: ActionRun) -> set[uuid.UUID]:
     found = of_params(run)
     for row in RunInput.objects.filter(run=run).select_related("entity"):
         fields = shape(row.entity.type).fields()
-        for name, value in entities.values_at(row.entity, row.revision).items():
+        values = entities.values_at(row.entity, row.revision, row.entry_revision)
+        for name, value in values.items():
             if name in fields:
                 found |= file_ids(fields[name], value)
     return found

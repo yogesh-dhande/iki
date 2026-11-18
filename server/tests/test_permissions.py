@@ -44,7 +44,7 @@ EXPECTED: dict[str, tuple[set[Action], set[Action], set[Action]]] = {
     "outsider": (set(), set(), set()),
     "team_member": (set(), {A.TEAM_VIEW, A.PROJECT_CREATE}, set()),
     "org_admin": (
-        {A.ORG_MANAGE, A.TEAM_CREATE, A.COSTS_READ, A.ORG_WEBHOOKS_MANAGE},
+        {A.ORG_MANAGE, A.TEAM_CREATE, A.COSTS_READ, A.ORG_WEBHOOKS_MANAGE, A.REGISTRIES_MANAGE},
         {A.TEAM_VIEW, A.TEAM_MANAGE},
         {A.PROJECT_SEE, A.PROJECT_MEMBERS_MANAGE},
     ),
@@ -75,7 +75,12 @@ def test_every_principal_is_in_the_matrix() -> None:
 
 
 def test_every_action_has_a_scope() -> None:
-    scopes = (permissions.ORG_ACTIONS, permissions.TEAM_ACTIONS, permissions.PROJECT_ACTIONS)
+    scopes = (
+        permissions.ORG_ACTIONS,
+        permissions.TEAM_ACTIONS,
+        permissions.REGISTRY_ACTIONS,
+        permissions.PROJECT_ACTIONS,
+    )
     assert sum(len(s) for s in scopes) == len(Action)
     assert set().union(*scopes) == set(Action)
 
@@ -215,3 +220,22 @@ def test_importing_needs_an_org_admin_who_is_the_projects_admin(world: World) ->
     assert not permissions.can(org_admin, Action.PROJECT_IMPORT, world.project)
     # Archived projects are read-only: nothing comes in.
     assert not permissions.can(admin, Action.PROJECT_IMPORT, world.archived)
+
+
+def test_only_a_registrys_registrars_curate_it(world: World) -> None:
+    from iki_server.org import registries
+    from iki_server.org.models import Registry
+
+    main = Registry.default()
+    other = registries.create_registry(
+        "Client A", "", all_teams=True, teams=[], by=world.users["org_admin"]
+    )
+    registries.appoint(main, world.users["viewer"], by=world.users["org_admin"])
+    for principal in PRINCIPALS:
+        curates = permissions.can(subject(world, principal), A.REGISTRY_CURATE, main)
+        # Not the Org Admin, by their role: registrars are appointed (ADR 0115).
+        assert curates is (principal == "viewer"), principal
+        assert not permissions.can(subject(world, principal), A.REGISTRY_CURATE, other)
+    world.users["viewer"].is_active = False
+    world.users["viewer"].save()
+    assert not permissions.can(world.users["viewer"], A.REGISTRY_CURATE, main)

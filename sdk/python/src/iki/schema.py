@@ -509,17 +509,19 @@ class CreatedOut(TypedDict):
     can: EntityCan
     created_at: str
     created_by: UserOut | None
+    #: For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's.
+    entry: NotRequired[EntryRefOut | None]
     #: The files its values refer to that you can read, by ID.
     files: dict[str, FileRef]
     hrid: str
     id: str
-    #: The existing entity was added to the project.
-    linked: bool
     #: The project that owns it, and decides its changes. Null if you can't see it.
     owner_project: ProjectRef | None
     #: The entities its values refer to that you can read, by ID.
     refs: dict[str, RefOut]
-    #: An entity with the same identity existed, and is returned instead.
+    #: A new registry entry was made for it. False when the identity was registered already, by any project: then the project gets a record of that entry.
+    registered: bool
+    #: The project had a record of this identity already: it's returned as it is, unchanged.
     reused: bool
     #: Its latest revision. Send it back as If-Match to change it.
     revision: int
@@ -706,8 +708,6 @@ class EntityFilters(TypedDict):
 
 
 class EntityIn(TypedDict):
-    #: Create it even if its type warns about a duplicate.
-    allow_duplicate: NotRequired[bool]
     #: The project it belongs to. It needs you as an Editor.
     project: str
     #: Why, for the record.
@@ -723,6 +723,8 @@ class EntityOut(TypedDict):
     can: EntityCan
     created_at: str
     created_by: UserOut | None
+    #: For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's.
+    entry: NotRequired[EntryRefOut | None]
     #: The files its values refer to that you can read, by ID.
     files: dict[str, FileRef]
     hrid: str
@@ -766,14 +768,12 @@ class EntityTypeOut(TypedDict):
     extends: str | None
     fields: list[FieldOut]
     hrid_prefix: str | None
-    #: The fields that tell two entities apart.
+    #: The fields that tell two entities apart. With one, its entities are projects' records of registry entries (ADR 0115): one entry per identity in a registry, one record of it per project.
     identity: list[str]
     label: str
     label_plural: str
     #: Qualified: plugin.Type.
     name: str
-    #: What creating an entity with the same identity as another does.
-    on_duplicate: Literal['reuse', 'warn', 'allow'] | None
     plugin: str
     #: The types that extend it, at any depth.
     subtypes: list[str]
@@ -781,6 +781,72 @@ class EntityTypeOut(TypedDict):
     values_schema: dict[str, Any]
     #: Iki's own viewers on its entities' pages, each a tab: its own, or its nearest parent's.
     viewers: list[SequenceViewerOut | StructureViewerOut | AlignmentViewerOut]
+
+
+class EntryCan(TypedDict):
+    #: Change its facts and supersede it: its registrars.
+    curate: bool
+
+
+class EntryOut(TypedDict):
+    #: The projects you could add a record of it to (POST /entries/{ref}/records): those you edit in its registry that haven't one, where a project you read it in may share with them (ADR 0067).
+    add_to: list[ProjectRef]
+    can: EntryCan
+    created_at: str
+    files: dict[str, FileRef]
+    #: For its registrars: how many projects have a record of it. Never which.
+    holders: int | None
+    hrid: str
+    id: str
+    #: The records of it in projects you can read: yours, and those shared with them.
+    records: list[EntryRecordOut]
+    refs: dict[str, RefOut]
+    registry: RegistryRef
+    #: Its latest revision. Send it back as If-Match.
+    revision: int
+    superseded: EntrySupersededOut | None
+    type: str
+    #: Its identity, derived values and facts: every holding project's.
+    values: dict[str, Any]
+
+
+class EntryPatch(TypedDict):
+    #: Why: every holder is told.
+    reason: str
+    #: Only the facts to change; null clears one.
+    values: dict[str, Any]
+
+
+class EntryRecordIn(TypedDict):
+    #: The project to add it to. It needs you as an Editor.
+    project: str
+    reason: NotRequired[str]
+    #: The record's own values, as creating it takes.
+    values: NotRequired[dict[str, Any]]
+
+
+class EntryRecordOut(TypedDict):
+    #: Your record of it: GET /entities/{id}.
+    id: str
+    project: ProjectRef
+
+
+class EntryRefOut(TypedDict):
+    """A record's registry entry (ADR 0115): its identity, ID and registry values."""
+    hrid: str
+    id: str
+    registry: RegistryRef
+    #: The entry's latest revision.
+    revision: int
+    #: A registrar replaced it with another entry: move the record there.
+    superseded: SupersededOut | None
+
+
+class EntrySupersededOut(TypedDict):
+    at: str
+    by: RefOut
+    by_id: str
+    reason: str
 
 
 class EnvironmentVolumesOut(TypedDict):
@@ -885,6 +951,8 @@ class FieldOut(TypedDict):
     name: str
     #: The plugin that defines the field.
     plugin: str
+    #: Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
+    registry: NotRequired[Literal['identity', 'derived', 'fact'] | None]
     required: bool
     #: References: the type they refer to.
     to: str | None
@@ -1434,6 +1502,39 @@ class MetricOut(TypedDict):
     name: str
 
 
+class MoveIn(TypedDict):
+    #: Why, for the record.
+    reason: NotRequired[str]
+
+
+class MovedOut(TypedDict):
+    archived: bool
+    archived_at: str | None
+    can: EntityCan
+    created_at: str
+    created_by: UserOut | None
+    #: For a record of a type with an identity, its registry entry (ADR 0115): the values marked `registry` are the entry's.
+    entry: NotRequired[EntryRefOut | None]
+    #: The files its values refer to that you can read, by ID.
+    files: dict[str, FileRef]
+    hrid: str
+    id: str
+    #: The project that owns it, and decides its changes. Null if you can't see it.
+    owner_project: ProjectRef | None
+    #: The entities its values refer to that you can read, by ID.
+    refs: dict[str, RefOut]
+    #: The project's records whose references to the superseded entry now name its replacement.
+    repointed: list[RefOut]
+    #: Its latest revision. Send it back as If-Match to change it.
+    revision: int
+    #: What it's called: its type's display title, or its HRID.
+    title: str
+    type: str
+    updated_at: str
+    #: Its fields' values, as its type's schema says.
+    values: dict[str, Any]
+
+
 class NotificationActor(TypedDict):
     id: str
     name: str
@@ -1625,6 +1726,18 @@ class PageRegistrationOut(TypedDict):
     next_cursor: str | None
 
 
+class PageRegistryEntryOut(TypedDict):
+    items: list[RegistryEntryOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
+class PageRegistryOut(TypedDict):
+    items: list[RegistryOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
+
+
 class PageRevisionOut(TypedDict):
     items: list[RevisionOut]
     #: Pass as cursor for the next page; null at the end.
@@ -1734,6 +1847,8 @@ class ParamOut(TypedDict):
     pattern: str | None
     #: The plugin that defines the field.
     plugin: str
+    #: Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
+    registry: NotRequired[Literal['identity', 'derived', 'fact'] | None]
     required: bool
     #: References: the type they refer to.
     to: str | None
@@ -1784,6 +1899,8 @@ class PolicyOut(TypedDict):
 
 
 class ProjectCan(TypedDict):
+    #: Move it to another registry: an Org Admin, while it has no entities (ADR 0115).
+    change_registry: bool
     #: Add entities and files, and change its entities.
     edit: bool
     #: Export its entities, with their history, in a bundle for another deployment.
@@ -1830,6 +1947,8 @@ class ProjectFilters(TypedDict):
 class ProjectIn(TypedDict):
     description: NotRequired[str]
     name: str
+    #: Its registry (ADR 0115), one its team may use: the default one if not given. It's fixed once the project has entities.
+    registry: NotRequired[str | None]
     team: str
 
 
@@ -1855,6 +1974,8 @@ class ProjectOut(TypedDict):
     #: Your role, from your own grant or your teams'; null if you have none.
     my_role: Literal['viewer', 'editor', 'runner', 'admin'] | None
     name: str
+    #: Its registry (ADR 0115): what it registers is one entry, with one ID, with the same identity in every other project there.
+    registry: RegistryRef
     slug: str
     team: TeamRef
 
@@ -1873,6 +1994,8 @@ class ProjectPatch(TypedDict):
     archived: NotRequired[bool | None]
     description: NotRequired[str | None]
     name: NotRequired[str | None]
+    #: Move it to another registry its team may use: Org Admins, while it has no entities (ADR 0115).
+    registry: NotRequired[str | None]
 
 
 class ProjectRef(TypedDict):
@@ -2029,6 +2152,12 @@ class RefOut(TypedDict):
     type: str
 
 
+class RegistrarOut(TypedDict):
+    appointed_at: str
+    appointed_by: UserOut | None
+    user: UserOut
+
+
 class RegistrationIn(TypedDict):
     #: Such as text/csv; the object's own if empty.
     media_type: NotRequired[str]
@@ -2059,6 +2188,86 @@ class RegistrationOut(TypedDict):
     version: str
 
 
+class RegistryCan(TypedDict):
+    #: You're one of its registrars: see its entries, change their facts, supersede them.
+    curate: bool
+    #: Rename it, choose its teams, appoint its registrars.
+    manage: bool
+
+
+class RegistryEntryFilters(TypedDict):
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+    #: An HRID, or the start of one.
+    q: NotRequired[str | None]
+    superseded: NotRequired[bool | None]
+    #: Only this type's entries (and its subtypes').
+    type: NotRequired[str | None]
+
+
+class RegistryEntryOut(TypedDict):
+    created_at: str
+    #: How many projects have a record of it. Never which.
+    holders: int
+    hrid: str
+    id: str
+    revision: int
+    superseded: bool
+    type: str
+
+
+class RegistryFilters(TypedDict):
+    #: From the previous page's next_cursor.
+    cursor: NotRequired[str | None]
+    #: Items per page.
+    limit: NotRequired[int]
+    #: Only those this team's new projects may be in, to choose one.
+    team: NotRequired[str | None]
+
+
+class RegistryIn(TypedDict):
+    #: Every team's projects may be in it.
+    all_teams: NotRequired[bool]
+    description: NotRequired[str]
+    name: str
+    #: Otherwise, the teams whose projects may be.
+    teams: NotRequired[list[str]]
+
+
+class RegistryOut(TypedDict):
+    #: Every team's projects may be in it.
+    all_teams: bool
+    can: RegistryCan
+    created_at: str
+    #: New projects are in it unless they're given another.
+    default: bool
+    description: str
+    id: str
+    name: str
+    slug: str
+    #: Without all_teams, the teams whose projects may be in it. Listed to Org Admins only.
+    teams: list[TeamRef]
+
+
+class RegistryPatch(TypedDict):
+    all_teams: NotRequired[bool | None]
+    description: NotRequired[str | None]
+    name: NotRequired[str | None]
+    #: A team taken off keeps its projects in the registry: it can't put new ones there.
+    teams: NotRequired[list[str] | None]
+
+
+class RegistryRef(TypedDict):
+    """A registry (ADR 0115): an identity boundary. Within it, each identity is one entry
+with one ID, which each project holding it keeps its own record of.
+    """
+    id: str
+    name: str
+    slug: str
+
+
 class ReproduceIn(TypedDict):
     #: Why, for the record.
     reason: NotRequired[str]
@@ -2087,10 +2296,12 @@ class RevisionDetailOut(TypedDict):
     changes: dict[str, ChangeOut]
     #: The OAuth app it came through, such as an AI agent's MCP client, if any.
     client: str
-    created_at: str
+    created_at: str | None
+    #: It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.
+    entry: NotRequired[bool]
     #: The files its values and changes refer to that you can read, by ID.
     files: dict[str, FileRef]
-    kind: Literal['created', 'edited', 'archived', 'restored']
+    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved']
     number: int
     reason: str
     #: The entities its values and changes refer to that you can read, by ID.
@@ -2111,8 +2322,10 @@ class RevisionOut(TypedDict):
     changed_fields: list[str]
     #: The OAuth app it came through, such as an AI agent's MCP client, if any.
     client: str
-    created_at: str
-    kind: Literal['created', 'edited', 'archived', 'restored']
+    created_at: str | None
+    #: It's a revision of the record's registry entry (ADR 0115), not of the record. Who made it, how and when are told only to the project it was made through, and for a registrar's change, to every holder: for others they're empty.
+    entry: NotRequired[bool]
+    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved']
     number: int
     reason: str
     #: The run that made it, when `via` is `run` and you can read the run's project.
@@ -2732,6 +2945,21 @@ class SummaryOut(TypedDict):
     unread: int
 
 
+class SupersedeIn(TypedDict):
+    #: Why: its holders are told it.
+    reason: str
+    #: The entry that replaces it, by ID or HRID.
+    replacement: str
+
+
+class SupersededOut(TypedDict):
+    at: str
+    #: The entry that replaced it.
+    by: RefOut
+    by_id: str
+    reason: str
+
+
 class TeamFilters(TypedDict):
     archived: NotRequired[bool | None]
     #: true: only the teams you may create projects in.
@@ -3260,4 +3488,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'RefOut', 'RegistrationIn', 'RegistrationOut', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']
+__all__ = ['ActionFilters', 'ActionOut', 'ActionSecretOut', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'ApplyIn', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'ChangeOut', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ComponentOut', 'Condition', 'ConditionOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CreatedOut', 'CreatesOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EmailKindOut', 'EmailSettingsIn', 'EmailSettingsOut', 'EnableIn', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'FieldOut', 'FileFilters', 'FileOut', 'FileRef', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FreezeIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'InventoryOut', 'JobState', 'LastDelivery', 'LineageEntityOut', 'LineageGraphLinkOut', 'LineageGraphOut', 'LineageGraphParams', 'LineageLinkOut', 'LineageNodeOut', 'LineageOut', 'LineageRunOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'NotificationActor', 'NotificationOut', 'NotificationProject', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideRef', 'OverviewOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFileOut', 'PageFiringOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageParams', 'ParamOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonRef', 'PolicyIn', 'PolicyOut', 'ProjectCan', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'ReproduceIn', 'ReproductionOut', 'RerunIn', 'RevisionDetailOut', 'RevisionOut', 'RevokeIn', 'RoleIn', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRefOut', 'RunStatus', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScopeOut', 'ScopeSearch', 'SearchIn', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'SlotOut', 'SoftwareOut', 'SortIn', 'StartedOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepRunOut', 'StructureViewerOut', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UserFilters', 'UserOut', 'UserPatch', 'VersionOut', 'VolumeOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut']

@@ -490,7 +490,6 @@ describe("an app's draft", () => {
       type: "iki/core.App",
       project: KINASE.id,
       values: { name: "Atlas", spec: DRAFT.spec },
-      allow_duplicate: false,
       reason: "Saved from a draft Claude (abc) made.",
     });
     expect(await screen.findByText("Saved Atlas as APP-000001.")).toBeVisible();

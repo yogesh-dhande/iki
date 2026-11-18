@@ -291,6 +291,34 @@ def test_entities_are_looked_up_by_an_external_id(fake: FakeIki, client: Client)
     }
 
 
+def test_a_registry_id_names_one_of_your_projects_records(fake: FakeIki, client: Client) -> None:
+    fake.on("GET", "/api/v1/entities/CPD-000123", entity("CPD-000123"))
+    client.entities.get("CPD-000123", project=PROJECT)
+    assert dict(fake.requests[-1].url.params) == {"project": PROJECT}
+    fake.on("POST", "/api/v1/entities", {**entity("CPD-000123"), "registered": False})
+    client.entities.create("iki/small_molecule.Compound", {"smiles": "CCO"}, project=PROJECT)
+    assert fake.body("POST", "/api/v1/entities") == {
+        "type": "iki/small_molecule.Compound",
+        "project": PROJECT,
+        "values": {"smiles": "CCO"},
+        "reason": "",
+    }
+
+
+def test_registrars_curate_entries_on_the_revision_they_read(fake: FakeIki, client: Client) -> None:
+    fake.on("PATCH", "/api/v1/entries/CPD-000123", {"hrid": "CPD-000123"})
+    client.entries.curate("CPD-000123", {"inn": "imatinib"}, revision=2, reason="INN granted")
+    sent = fake.sent("PATCH", "/api/v1/entries/CPD-000123")[0]
+    assert sent.headers["If-Match"] == '"2"'
+    assert json.loads(sent.content) == {"values": {"inn": "imatinib"}, "reason": "INN granted"}
+    fake.on("POST", "/api/v1/entries/CPD-000123/supersede", {"hrid": "CPD-000123"})
+    client.entries.supersede("CPD-000123", replacement="CPD-000124", reason="Wrong salt form")
+    assert fake.body("POST", "/api/v1/entries/CPD-000123/supersede") == {
+        "replacement": "CPD-000124",
+        "reason": "Wrong salt form",
+    }
+
+
 def test_changes_name_the_revision_they_were_decided_on(fake: FakeIki, client: Client) -> None:
     fake.on("PATCH", "/api/v1/entities/PRT-000001", entity(name="ABL1"))
     client.entities.update("PRT-000001", {"name": "ABL1"}, revision=3, reason="Typo")

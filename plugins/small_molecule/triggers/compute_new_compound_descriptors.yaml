@@ -5,8 +5,9 @@ name: compute_new_compound_descriptors
 label: Compute each new compound's descriptors
 description: >-
   Computes a compound's molecular weight, logP, TPSA and its other descriptors as
-  soon as it's registered. Runs that compute them only fill in fields, so they never
-  fire a trigger again.
-on: entity.created
+  soon as it's registered: once for each identity, as they're its registry entry's,
+  which every project with a record of it shares. Runs that compute them only fill
+  in fields, so they never fire a trigger again.
+on: entity.registered
 type: Compound
 run: compute_descriptors

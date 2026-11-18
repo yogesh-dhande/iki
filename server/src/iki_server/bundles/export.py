@@ -26,6 +26,7 @@ from iki_server.audit import log as audit
 from iki_server.audit.models import Agent
 from iki_server.bundles import keys
 from iki_server.entities import access, registry
+from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Part, Shape, shape
 from iki_server.files import storage
@@ -85,6 +86,9 @@ class _Found:
     """What the picked entities, and what they refer to, come to."""
 
     entities: dict[uuid.UUID, Entity] = field(default_factory=dict)
+    #: The registry entries of the records going (ADR 0115): their values go, not their
+    #: history, which is the registry's, not the project's.
+    entries: dict[uuid.UUID, Entity] = field(default_factory=dict)
     #: Each entity's history rows, by table, oldest first.
     history: dict[uuid.UUID, list[tuple[Part, dict[str, Any]]]] = field(default_factory=dict)
     files: set[uuid.UUID] = field(default_factory=set)
@@ -161,6 +165,9 @@ def write(
                 _agent(a) for a in Agent.objects.filter(pk__in=agents).order_by("pk")
             ),
             "files.ndjson": (_file(f) for f in sorted(files, key=lambda f: f.pk)),
+            "entries.ndjson": (
+                _entry(e) for e in sorted(found.entries.values(), key=lambda e: e.pk)
+            ),
             "entities.ndjson": (
                 _entity(e, by_entity.get(e.pk, []), found.history[e.pk])
                 for e in sorted(found.entities.values(), key=lambda e: e.pk)
@@ -200,6 +207,7 @@ def write(
             "plugins": _plugins(found),
             "counts": {
                 "entities": len(found.entities),
+                "entries": len(found.entries),
                 "revisions": len(revisions),
                 "files": len(files),
                 "outside": len(found.outside),
@@ -264,17 +272,33 @@ def _find(project: Project, picked: list[Entity], by: User) -> _Found:
     referred: set[uuid.UUID] = set()
     while queue or (queue := _runs(project, found)):
         batch = [
-            i for i in dict.fromkeys(queue) if i not in found.entities and i not in found.outside
+            i
+            for i in dict.fromkeys(queue)
+            if i not in found.entities and i not in found.outside and i not in found.entries
         ]
         queue = []
-        for entity in Entity.objects.filter(pk__in=batch):
+        for entity in Entity.objects.filter(pk__in=batch).select_related("entry"):
             if entity.purged_at is not None:
                 found.outside[entity.pk] = "purged"
+                continue
+            if entity.registry_id is not None:
+                # A reference to a registry entry: the project's own record of it goes,
+                # and the entry's values with it.
+                record = Entity.objects.filter(entry=entity, owner_project=project).first()
+                if record is None:
+                    found.outside[entity.pk] = "another-project"
+                    continue
+                found.entries[entity.pk] = entity
+                queue.extend(_entry_refs(entity, found))
+                queue.append(record.pk)
                 continue
             if entity.owner_project_id != project.pk:
                 found.outside[entity.pk] = "another-project"
                 continue
             found.entities[entity.pk] = entity
+            if entity.entry is not None and entity.entry.pk not in found.entries:
+                found.entries[entity.entry.pk] = entity.entry
+                queue.extend(_entry_refs(entity.entry, found))
             rows = _history(shape(entity.type), entity.pk)
             found.history[entity.pk] = rows
             latest: dict[str, dict[str, Any]] = {}
@@ -297,16 +321,39 @@ def _find(project: Project, picked: list[Entity], by: User) -> _Found:
             }
             queue.extend(current)
             found.value_refs |= current
-        missing = set(batch) - set(found.entities) - set(found.outside)
+        missing = set(batch) - set(found.entities) - set(found.outside) - set(found.entries)
         for gone in missing:
             found.outside[gone] = "unreadable"
-    for target in referred - set(found.entities) - set(found.outside):
+    for target in referred - set(found.entities) - set(found.outside) - set(found.entries):
         found.outside[target] = "history"
     for target, why in list(found.outside.items()):
         if target in found.run_refs and target not in found.value_refs and why != "history":
             # Only a run read it: the run's record keeps it, and importing doesn't need it.
             found.outside[target] = "run"
     return found
+
+
+def _entry_values(entry: Entity) -> dict[str, Any]:
+    form = shape(entry.type)
+    fields = form.entry_fields()
+    values = entity_services.current_values(entity_services.specific(entry))
+    return {n: v for n, v in values.items() if n in fields and not fields[n].removed}
+
+
+def _entry_refs(entry: Entity, found: _Found) -> list[uuid.UUID]:
+    """What an entry's values refer to (its files go; its references are entries too,
+    whose records go if the project has its own), noted as current values."""
+    fields = shape(entry.type).entry_fields()
+    refs: list[uuid.UUID] = []
+    for name, value in _entry_values(entry).items():
+        f = fields[name]
+        kind = f.items.type if f.type == "list" and f.items is not None else f.type
+        if kind == "file":
+            found.files |= _uuids(value)
+        elif kind == "ref":
+            refs.extend(_uuids(value))
+    found.value_refs |= set(refs)
+    return refs
 
 
 def _runs(project: Project, found: _Found) -> list[uuid.UUID]:
@@ -478,6 +525,7 @@ def _entity(
         "created_at": entity.created_at.isoformat(),
         "created_by": _json(entity.created_by_id),
         "archived_at": _json(entity.archived_at),
+        **({"entry": str(entity.entry_id)} if entity.entry_id is not None else {}),
         "revisions": [
             {
                 "id": str(r.pk),
@@ -501,6 +549,17 @@ def _entity(
             }
             for part, row in rows
         ],
+    }
+
+
+def _entry(entry: Entity) -> dict[str, Any]:
+    """A registry entry the bundle's records are of: its identity, derived values and facts,
+    which an import registers, or finds registered, in its project's registry."""
+    return {
+        "id": str(entry.pk),
+        "type": entry.type,
+        "hrid": entry.hrid,
+        "values": {n: _json(v) for n, v in sorted(_entry_values(entry).items())},
     }
 
 

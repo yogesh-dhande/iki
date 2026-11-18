@@ -133,7 +133,11 @@ def test_a_run_imports_its_creates_from_a_file(world: World) -> None:
     assert body["status"] == "succeeded", body
     assert body["metrics"] == {"records": 4}
     assert [e["kind"] for e in body["effects"]] == ["created"] * 4
-    made = list(Entity.objects.filter(type="acme/protein.Protein").order_by("hrid"))
+    made = list(
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).order_by(
+            "hrid"
+        )
+    )
     assert [e.hrid for e in made] == [e["hrid"] for e in body["effects"]]
     hrids = [int(e.hrid.split("-")[1]) for e in made]
     assert hrids == sorted(hrids)
@@ -151,7 +155,10 @@ def test_a_run_imports_its_creates_from_a_file(world: World) -> None:
         "run",
         world.users["editor"],
     )
-    assert sorted(revision.changed_fields) == ["name", "sequence"]
+    # The sequence is its registry entry's (ADR 0115), in the entry's own first revision.
+    assert sorted(revision.changed_fields) == ["name"]
+    entry = Revision.objects.get(entity__records=made[0])
+    assert entry.changed_fields == ["sequence"]
     assert ProjectLink.objects.filter(entity=made[0], project=world.project).exists()
     found = ExternalOrigin.objects.get(entity=made[0])
     assert (found.source, found.identifier, found.revision) == ("FASTA file", "K0", 1)
@@ -190,7 +197,7 @@ def test_its_lines_take_every_kind_of_value_a_create_does(world: World) -> None:
     (effect,) = body["effects"]
     values = editor.get(f"/entities/{effect['hrid']}").json()["values"]
     assert values["organism"] == "Homo sapiens"
-    assert values["source"] == source["id"]
+    assert values["source"] == source["entry"]["id"]  # its registry entry (ADR 0115)
     assert values["temperature_optimum"] == pytest.approx(37.0)
     assert values["uniprot_ids"] == ["P00519", "Q59FK4"]
     assert values["summary"] == "A tyrosine kinase."
@@ -215,9 +222,11 @@ def test_duplicates_are_reused_as_one_at_a_time(world: World) -> None:
     kinds = {e["hrid"]: e["kind"] for e in body["effects"]}
     assert kinds[existing["hrid"]] == "reused"
     assert sorted(kinds.values()) == ["created", "created", "reused"]
-    assert Entity.objects.filter(type="acme/protein.Protein").count() == 3
+    assert (
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count() == 3
+    )
     imported = RunImport.objects.get(run_id=run["id"])
-    assert (imported.created, imported.reused, imported.linked) == (2, 1, 0)
+    assert (imported.created, imported.reused, imported.registered) == (2, 1, 2)
 
 
 def test_a_project_that_keeps_its_entities_has_none_reused_or_referred_to(world: World) -> None:
@@ -329,7 +338,9 @@ def test_lines_that_match_entities_update_them(world: World) -> None:
     assert body["status"] == "succeeded", body.get("error")
     imported = RunImport.objects.get(run_id=second["id"])
     assert (imported.created, imported.updated, imported.reused) == (1, 1, 1)
-    assert Entity.objects.filter(type="acme/protein.Protein").count() == 3
+    assert (
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count() == 3
+    )
     api = api_as(world, "editor")
     (one,) = api.get(
         "/entities/lookup", type="acme/protein.Protein", field="lims_id", value="LIMS-1"
@@ -499,7 +510,10 @@ def test_an_import_goes_on_from_where_it_was_interrupted(
     body = finished(world, run)
     assert body["status"] == "succeeded", body
     assert len(body["effects"]) == 20
-    assert Entity.objects.filter(type="acme/protein.Protein").count() == 20
+    assert (
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count()
+        == 20
+    )
 
 
 def test_an_import_that_keeps_failing_gives_up(

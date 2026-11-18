@@ -8,6 +8,9 @@ and shows the new plan. Otherwise it writes:
 - a placeholder for each person nobody here is, who can't sign in;
 - each agent its revisions name, matched by its key;
 - each file it names, with its bytes stored once by SHA-256 (or registered where it is);
+- each registry entry its records are of that the project's registry doesn't have
+  (ADR 0115), registered by the import's applier, with its ID and HRID when they're free
+  here; an entry the registry has gets the values it lacks, as registering it again would;
 - each new entity, with its ID, its HRID (or a new one, when its own is taken here), every
   revision with its author, time, means and reason, and each table's history; and, for an
   entity here from an earlier import, the revisions it doesn't have yet.
@@ -43,7 +46,7 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
-from iki_server.entities import hrids, identity, registry
+from iki_server.entities import hrids, registry
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -58,6 +61,7 @@ from iki_server.entities.values import Shape, shape
 from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files import storage
 from iki_server.files.models import Blob, File
+from iki_server.org.models import registry_of
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
 from iki_server.runs import makings
@@ -171,7 +175,7 @@ def _apply(made: BundleImport, bundle: reading.Bundle, tmp: Path) -> str:
         for type_name in sorted({t for p in bundle.manifest["plugins"] for t in p["types"]}):
             entity_type = registry.types().get(type_name)
             if entity_type is not None and not entity_type.abstract:
-                identity_lock(entity_type, shared=False)
+                identity_lock(entity_type, registry_of(locked.project), shared=False)
         ImportEntity.objects.filter(bundle_import=locked).delete()
         ImportPerson.objects.filter(bundle_import=locked).delete()
         confirmed = locked.plan
@@ -228,6 +232,8 @@ class _Writer:
     counts: Counter[str] = field(default_factory=Counter)
     #: The highest number kept from the source, by HRID sequence.
     kept: dict[str, int] = field(default_factory=dict)
+    #: Each registry entry's ID here, by its ID in the bundle, where they differ.
+    renamed: dict[uuid.UUID, uuid.UUID] = field(default_factory=dict)
 
     def write(self) -> dict[str, int]:
         self._people()
@@ -239,6 +245,7 @@ class _Writer:
                 bundle_import=self.made, action__in=[EntityPlan.NEW, EntityPlan.UPDATE]
             )
         }
+        self._entries(planned)
         for line in self.bundle.lines("entities.ndjson"):
             row = planned.get(line["id"])
             if row is None:
@@ -254,6 +261,7 @@ class _Writer:
             _advance(name, number)
         return {
             "created": self.counts["created"],
+            "registered": self.counts["registered"],
             "updated": self.counts["updated"],
             "revisions": self.counts["revisions"],
             "files": self.counts["files"],
@@ -343,17 +351,93 @@ class _Writer:
             local.unlink()
         return Blob.objects.create(sha256=f["sha256"], size=f["size"], storage_uri=storage.uri(key))
 
+    # Registry entries -------------------------------------------------------------------
+
+    def _entries(self, planned: dict[str, ImportEntity]) -> None:
+        """Registers the entries the plan registers, before the records of them; gives those
+        registered already the values they lack, as registering them again would."""
+        lines = {e["id"]: e for e in self.bundle.lines("entries.ndjson")}
+        rows = [
+            (r, lines[line_entry])
+            for line in self.bundle.lines("entities.ndjson")
+            if (r := planned.get(line["id"])) is not None
+            and r.entry_id is not None
+            and (line_entry := line.get("entry")) in lines
+        ]
+        for row, line in rows:
+            if uuid.UUID(line["id"]) != row.entry_id:
+                self.renamed[uuid.UUID(line["id"])] = row.entry_id  # type: ignore[assignment]
+        by = self.made.applied_by
+        assert by is not None  # noqa: S101 - it's being applied
+        project = self.made.project
+        reason = f"Imported from {self.made.trusted_as}: {self.made.reason}"
+        for row, line in rows:
+            form = shape(line["type"])
+            values = self._remap(form, _typed(form, line["values"]))
+            if row.registers:
+                entry, _ = entity_services._new_entry(
+                    by, form, project, values, reason, False, pk=row.entry_id, hrid=row.hrid_here
+                )
+                if row.hrid_here:
+                    self._keep(form.entity_type.hrid_prefix, entry.hrid)
+                else:
+                    row.hrid_here = entry.hrid
+                    row.save(update_fields=["hrid_here"])
+                self.counts["registered"] += 1
+            elif row.action == EntityPlan.NEW:
+                entry = Entity.objects.get(pk=row.entry_id or uuid.UUID(int=0))
+                fields = form.entry_fields()
+                entity_services.fill_entry(
+                    by,
+                    form,
+                    entry,
+                    {n: v for n, v in values.items() if n in fields and not fields[n].removed},
+                    project=project,
+                    reason=reason,
+                )
+
+    def _remap(self, form: Shape, values: dict[str, Any]) -> dict[str, Any]:
+        """Values whose references name a bundle's registry entry by its ID there, naming
+        it by its ID here."""
+        if not self.renamed:
+            return values
+        fields = form.fields()
+        out = dict(values)
+        for name, value in values.items():
+            f = fields.get(name)
+            if f is None or value is None:
+                continue
+            if f.type == "ref":
+                out[name] = self._renamed(value)
+            elif f.type == "list" and f.items is not None and f.items.type == "ref":
+                out[name] = [self._renamed(v) for v in value]
+        return out
+
+    def _renamed(self, value: Any) -> Any:  # noqa: ANN401 - a UUID, or its text
+        if value is None:
+            return None
+        found = self.renamed.get(value if isinstance(value, uuid.UUID) else uuid.UUID(str(value)))
+        if found is None:
+            return value
+        return found if isinstance(value, uuid.UUID) else str(found)
+
     # Entities ---------------------------------------------------------------------------
 
     def _create(self, line: dict[str, Any], row: ImportEntity) -> None:
         form = shape(line["type"])
-        values = _typed(form, _current(line))
+        values = self._remap(form, _typed(form, _current(line)))
         revisions = sorted(line["revisions"], key=lambda r: int(r["number"]))
         instance = form.model(
             owner_project=self.made.project, created_by=self._user(line["created_by"])
         )
         # Its root table's ID: each table below takes it from there.
         instance.id = uuid.UUID(line["id"])
+        if row.entry_id is not None:
+            # A record has its entry's HRID: the entry's here.
+            entry = Entity.objects.only("hrid").get(pk=row.entry_id)
+            instance.entry_id = entry.pk
+            row.hrid_here = entry.hrid
+            row.save(update_fields=["hrid_here"])
         instance.hrid = row.hrid_here
         instance.created_at = line["created_at"]
         instance.archived_at = line["archived_at"]
@@ -361,7 +445,9 @@ class _Writer:
         instance.updated_at = revisions[-1]["created_at"]
         self._set_values(form, instance, values)
         instance.save()
-        if row.hrid_here:
+        if row.entry_id is not None:
+            pass  # Its HRID is its entry's, kept as that was.
+        elif row.hrid_here:
             self._keep(form.entity_type.hrid_prefix, instance.hrid)
         else:
             row.hrid_here = instance.hrid
@@ -375,7 +461,7 @@ class _Writer:
 
     def _append(self, line: dict[str, Any], row: ImportEntity) -> None:
         form = shape(line["type"])
-        values = _typed(form, _current(line))
+        values = self._remap(form, _typed(form, _current(line)))
         revisions = sorted(line["revisions"], key=lambda r: int(r["number"]))
         instance = form.model._default_manager.select_for_update().get(pk=line["id"])
         had = instance.revision
@@ -387,14 +473,13 @@ class _Writer:
             revision=len(revisions),
             updated_at=revisions[-1]["created_at"],
             archived_at=line["archived_at"],
-            identity_hash=identity.hash_for(instance, form.entity_type),
         )
         self.counts["updated"] += 1
 
     @staticmethod
     def _set_values(form: Shape, instance: Any, values: dict[str, Any]) -> None:  # noqa: ANN401
         for part in form.parts:
-            if part.extension:
+            if part.extension or part.entry:
                 continue
             for name, f in part.fields.items():
                 if name in values and not _is_list(f) and not f.removed:
@@ -405,6 +490,8 @@ class _Writer:
         form: Shape, entity_id: uuid.UUID, values: dict[str, Any], *, fresh: bool
     ) -> None:
         for part in form.parts:
+            if part.entry:
+                continue  # The entry's: registered, or filled, with it.
             if part.extension and any(values.get(n) is not None for n in part.fields):
                 ext = part.model._default_manager.filter(entity_id=entity_id).first()
                 ext = ext or part.model(entity_id=entity_id)
@@ -454,13 +541,12 @@ class _Writer:
             if number <= after:
                 continue
             part = parts[h["table"]]
-            part.history._default_manager.create(
-                entity_id=entity_id, revision=number, **h["values"]
-            )
+            kept = self._remap(form, h["values"])
+            part.history._default_manager.create(entity_id=entity_id, revision=number, **kept)
             _use_files(
                 fields,
                 entity_id,
-                {k: v for k, v in h["values"].items() if k in fields},
+                {k: v for k, v in kept.items() if k in fields},
                 number,
             )
 

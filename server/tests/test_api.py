@@ -351,6 +351,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage_webhooks": False,
         "export": False,
         "import_bundles": False,
+        "change_registry": False,
         "run": [],
     }
     assert can("editor") == {
@@ -361,6 +362,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage_webhooks": False,
         "export": False,
         "import_bundles": False,
+        "change_registry": False,
         "run": ["self_hosted", "backend"],
     }
     assert can("admin") == {
@@ -371,6 +373,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage_webhooks": True,
         "export": True,
         "import_bundles": False,
+        "change_registry": False,
         "run": ["self_hosted", "backend", "container", "vm"],
     }
     # Org Admins see the project exists and can add themselves, but not read it.
@@ -382,6 +385,7 @@ def test_projects_say_what_you_may_do_with_them(world: World) -> None:
         "manage_webhooks": False,
         "export": False,
         "import_bundles": False,
+        "change_registry": True,
         "run": [],
     }
 

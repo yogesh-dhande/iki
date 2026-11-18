@@ -57,13 +57,21 @@ describe("the type browser", () => {
     expect(document.title).toBe("Protein structure · Example Bio");
   });
 
-  it("says what makes two the same, and what creating a duplicate does", async () => {
+  it("says what makes two the same, and where each field is kept", async () => {
     withTypes();
     await renderApp("/types/iki/protein.Protein/");
     expect(
-      screen.getByText(/Two are the same when their Sequence match\. Creating one that’s already/),
+      screen.getByText(
+        /Two are the same when their Sequence match\. Each is registered once in a registry, with one ID/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("Shown in ku")).toBeInTheDocument();
+    // Its registry entry's fields, and each project's own (ADR 0115).
+    const rows = within(screen.getByRole("table")).getAllByRole("row");
+    expect(within(nth(rows, 0)).getAllByRole("columnheader").at(-1)).toHaveTextContent("Kept in");
+    const kept = rows.slice(1).map((r) => r.querySelector("td:last-child .badge")?.textContent);
+    expect(kept).toEqual(["Project record", "Identity", "Registry: derived"]);
+    expect(screen.queryByText(/duplicate/i)).not.toBeInTheDocument();
   });
 
   it("says when there's no such type", async () => {
@@ -448,9 +456,10 @@ describe("an entity's page", () => {
     expect(file).toHaveAttribute("href", `/api/v1/files/${FILE_ID}/content`);
     expect(within(values).getByText("50 MiB · chemical/x-pdb")).toBeInTheDocument();
     expect(within(values).getByText("2.1 Å")).toBeInTheDocument();
+    // A protein is a registry entry's record (ADR 0115): the link opens this project's.
     expect(within(values).getByRole("link", { name: "ABL1 kinase" })).toHaveAttribute(
       "href",
-      "/entities/PRT-000001/",
+      "/entities/PRT-000001/?project=kinase-atlas",
     );
     expect(within(values).getByText("An entity you can’t read")).toBeInTheDocument();
     // An agent's change names the person it acted for and the app it came through.

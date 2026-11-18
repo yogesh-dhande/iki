@@ -118,6 +118,13 @@ export const ROLES: Schemas["ProjectRoleOut"][] = [
   { name: "admin", label: "Admin", description: "Also manages members and settings." },
 ];
 
+/** The deployment's default registry (ADR 0115). */
+export const MAIN_REGISTRY: Schemas["RegistryRef"] = {
+  id: "00000000-0000-7000-8000-0000000000r1",
+  name: "Main",
+  slug: "main",
+};
+
 export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas["ProjectOut"] {
   return {
     id: "00000000-0000-7000-8000-0000000000p1",
@@ -127,6 +134,7 @@ export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas
     team: TEAM,
     archived: false,
     allow_sharing: true,
+    registry: MAIN_REGISTRY,
     created_at: "2026-03-14T09:00:00Z",
     my_role: "admin",
     can: {
@@ -137,6 +145,7 @@ export function project(overrides: Partial<Schemas["ProjectOut"]> = {}): Schemas
       manage_webhooks: true,
       export: true,
       import_bundles: false,
+      change_registry: false,
       run: ["self_hosted", "backend", "container", "vm"],
     },
     ...overrides,

@@ -66,7 +66,8 @@ def test_the_dry_run_says_what_would_go_and_what_refers_to_it(
     sequences(world)
     deployed(*PLUGINS)
     found = purge.report("acme/dna")
-    assert found["entities"] == 2
+    # The project's records, and their registry entries (ADR 0115).
+    assert (found["entities"], found["entries"]) == (2, 2)
     assert found["types"] == [
         {"type": "acme/dna.DNASequence", "label": "DNA sequences", "count": 2}
     ]
@@ -139,6 +140,7 @@ def test_the_plugins_page(world: World, deployed: Callable[..., None]) -> None:
     assert "<dt>Works with</dt><dd>Iki <code>&gt;=0.1</code></dd>" in page
     assert "What a purge would delete" in page
     assert "2 DNA sequences" in page
+    assert "the 2 registry entries they’re records of" in page
 
     refused = post(
         admin, "/settings/plugins/acme/dna/", {"action": "purge", "reason": "Over", "confirm": "x"}
@@ -177,15 +179,17 @@ def test_each_entity_leaves_a_tombstone_that_proves_what_it_was(
 ) -> None:
     made, scheduled = due(world, deployed)
     expected = {e.pk: purge.fingerprint(e, services.current_values(e)) for e in made}
-    assert purge.tombstone_due() == 2
+    # Each record and its registry entry.
+    assert purge.tombstone_due() == 4
     assert purge.tombstone_due() == 0
     stones = {t.entity_id: t for t in Tombstone.objects.filter(purge=scheduled)}
-    assert {pk: t.content_sha256 for pk, t in stones.items()} == expected
+    assert set(stones) == set(expected) | {e.entry_id for e in made}
+    assert {pk: t.content_sha256 for pk, t in stones.items() if pk in expected} == expected
     assert all(e.purged_at is not None for e in Entity.objects.filter(pk__in=expected))
     scheduled.refresh_from_db()
     assert scheduled.tombstoned_at is not None
     event = AuditEvent.objects.get(action="plugin.purge_tombstoned")
-    assert event.data == {"plugin": "acme/dna", "entities": 2}
+    assert event.data == {"plugin": "acme/dna", "entities": 4}
     with pytest.raises(Refused, match="already purged"):
         purge.cancel(world.users["org_admin"], scheduled)
 
@@ -206,7 +210,8 @@ def test_a_purged_entity_is_gone_but_named(world: World, deployed: Callable[...,
     listed = api.get("/api/v1/entities", {"project": str(world.project.pk)}).json()["items"]
     assert hrid not in {e["hrid"] for e in listed}
     (collection,) = [e for e in listed if e["type"] == "iki/core.Collection"]
-    assert collection["refs"][str(made[0].pk)] == {
+    # Its member is the registry entry, purged with it.
+    assert collection["refs"][str(made[0].entry_id)] == {
         "hrid": hrid,
         "title": hrid,
         "type": "acme/dna.DNASequence",
@@ -228,7 +233,7 @@ def test_a_hold_placed_during_the_wait_stops_it(
     assert purge.tombstone_due() == 0
     assert not Tombstone.objects.exists()
     holds.release(world.users["org_admin"], hold)
-    assert purge.tombstone_due() == 2
+    assert purge.tombstone_due() == 4
 
 
 def test_a_purged_plugin_stays_on_record(world: World) -> None:

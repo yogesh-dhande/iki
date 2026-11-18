@@ -10,9 +10,11 @@ build installed (:mod:`iki_server.entities.registry`):
   units and what references point to. Database tools and data catalogs
   show them, and they change without a migration.
 - **Read-only views** for analysts and BI tools, in the schema ``iki_views``.
-  There is one per type (``iki_views.protein_protein``), joining the core
-  entity row, the type's table, its parents' tables and every installed
-  extension. Lists of references or files appear as arrays. The views use
+  There is one per type (``iki_views.protein_protein``), of each project's
+  records, joining the core entity row, the type's table, its parents' tables
+  and every installed extension, and for a type with an identity, its
+  registry entry's (ADR 0115): its identity and the values marked
+  ``registry``. Lists of references or files appear as arrays. The views use
   ``security_invoker``, so whoever queries one needs the right to read what
   it reads.
 - **Unique fields' triggers** (ADR 0082): each keeps ``iki_unique_value`` in
@@ -40,9 +42,10 @@ from psycopg import sql
 
 from iki_server.audit import log as audit
 from iki_server.entities import hrids, registry, unique
+from iki_server.entities.values import shape
 from iki_server.plugins.models import PluginState
 from iki_spec import naming
-from iki_spec.model import EntityType, Extension, Field
+from iki_spec.model import EntityType, Extension, Field, split_entry
 
 VIEWS_SCHEMA = "iki_views"
 
@@ -52,6 +55,7 @@ ENTITY_COLUMNS = (
     "hrid",
     "type",
     "owner_project_id",
+    "entry_id",
     "created_by_id",
     "created_at",
     "archived_at",
@@ -168,6 +172,11 @@ def _extension_model(e: Extension) -> type[models.Model]:
     return apps.get_model(naming.app_label(e.plugin), naming.extension_model(e.extends_type))
 
 
+def _entry_model(plugin: str, model_name: str) -> type[models.Model]:
+    """The table of registry entry fields (ADR 0115) beside a type's or an extension's."""
+    return apps.get_model(naming.app_label(plugin), naming.entry_model(model_name))
+
+
 def _history_model(plugin: str, model: type[models.Model]) -> type[models.Model]:
     return apps.get_model(naming.app_label(plugin), naming.history_model(model.__name__))
 
@@ -186,17 +195,40 @@ def _column(model: type[models.Model], name: str) -> str:
 
 
 def _tables() -> Iterable[tuple[str, type[models.Model], dict[str, Field], str]]:
-    """(plugin, model, fields, description) for every type's and extension's own table."""
+    """(plugin, model, fields, description) for every type's and extension's own tables:
+    of its records, and of its registry entries (ADR 0115) where it has any."""
     for t in registry.types().values():
         # The core plugin's types are generated like any plugin's, but iki/core.Entity is
         # the server's own model.
         if t.qualified_name == "iki/core.Entity":
             continue
+        record, entry = split_entry(t.fields, t.identity)
         described = f"{t.label} ({t.qualified_name}), schema version {t.schema_version}."
-        yield t.plugin, _type_model(t), t.fields, _sentence(described, t.description)
+        yield t.plugin, _type_model(t), record, _sentence(described, t.description)
+        if t.identity:
+            yield (
+                t.plugin,
+                _entry_model(t.plugin, t.name),
+                entry,
+                f"Registry entries of {t.label} ({t.qualified_name}): their identity and "
+                "the values every project holding one shares (ADR 0115).",
+            )
     for e in registry.extensions():
+        record, entry = split_entry(e.fields)
         described = f"Fields the {e.plugin} plugin adds to {e.extends_type}."
-        yield e.plugin, _extension_model(e), e.fields, _sentence(described, e.description)
+        if record or not entry:
+            yield e.plugin, _extension_model(e), record, _sentence(described, e.description)
+        if entry:
+            yield (
+                e.plugin,
+                _entry_model(e.plugin, naming.extension_model(e.extends_type)),
+                entry,
+                _sentence(
+                    f"Registry fields the {e.plugin} plugin adds to {e.extends_type}'s "
+                    "entries (ADR 0115).",
+                    e.description,
+                ),
+            )
 
 
 # --- Comments ----------------------------------------------------------------------------------
@@ -324,22 +356,17 @@ def _view(t: EntityType) -> tuple[str, sql.Composable, list[sql.Composable]]:
             schema=VIEWS_SCHEMA,
         )
     ]
-    chain = [*reversed(registry.ancestors(t)), t]
-    parts: list[tuple[str, type[models.Model], dict[str, Field], bool]] = [
-        (owner.plugin, _type_model(owner), owner.fields, True) for owner in chain
-    ]
-    names = {owner.qualified_name for owner in chain}
-    parts += [
-        (e.plugin, _extension_model(e), e.fields, False)
-        for e in registry.extensions()
-        if e.extends_type in names
-    ]
-    for index, (plugin, model, fields, inner) in enumerate(parts):
+    # A record's own parts join on its id; its registry entry's (ADR 0115) on its entry's,
+    # always there for a record of a type with an identity, so both are inner joins, but
+    # an extension's, which an entity may not have a row of, are left joins.
+    for index, part in enumerate(shape(t.qualified_name).parts):
+        plugin, model, fields = part.plugin, part.model, part.fields
         alias = sql.Identifier(f"t{index}")
-        join = sql.SQL("JOIN") if inner else sql.SQL("LEFT JOIN")
+        join = sql.SQL("LEFT JOIN") if part.extension else sql.SQL("JOIN")
+        on = sql.SQL("e.entry_id" if part.entry else "e.id")
         joins.append(
-            sql.SQL(" {} {} {} ON {}.entity_id = e.id").format(
-                join, sql.Identifier(model._meta.db_table), alias, alias
+            sql.SQL(" {} {} {} ON {}.entity_id = {}").format(
+                join, sql.Identifier(model._meta.db_table), alias, alias, on
             )
         )
         for f in fields.values():
@@ -348,16 +375,17 @@ def _view(t: EntityType) -> tuple[str, sql.Composable, list[sql.Composable]]:
             if _is_list_table(f):
                 items = _list_model(plugin, model, f)
                 column = sql.SQL(
-                    "ARRAY(SELECT l.item_id FROM {} l WHERE l.entity_id = e.id "
+                    "ARRAY(SELECT l.item_id FROM {} l WHERE l.entity_id = {} "
                     "ORDER BY l.position) AS {}"
-                ).format(sql.Identifier(items._meta.db_table), sql.Identifier(f.name))
+                ).format(sql.Identifier(items._meta.db_table), on, sql.Identifier(f.name))
                 label = f.name
             else:
                 label = _column(model, f.name)
                 column = sql.SQL("{}.{}").format(alias, sql.Identifier(label))
             columns.append(column)
             comments.append(_comment_on_column(name, label, field_comment(f), schema=VIEWS_SCHEMA))
-    select = sql.SQL("SELECT {} FROM iki_entity e{}").format(
+    # Each project's records alone: entries are seen through them.
+    select = sql.SQL("SELECT {} FROM iki_entity e{} WHERE e.owner_project_id IS NOT NULL").format(
         sql.SQL(", ").join(columns), sql.SQL("").join(joins)
     )
     return name, select, comments

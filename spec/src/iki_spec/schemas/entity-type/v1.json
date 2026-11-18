@@ -58,7 +58,7 @@
       "additionalProperties": false
     },
     "identity": {
-      "description": "The fields that make an entity the same as another. They must be immutable, and at least one required: an optional one without a value is null in the identity (ADR 0104).",
+      "description": "The fields that make an entity the same as another: its registry entry's identity (ADR 0115). They must be the type's own, immutable, and at least one required: an optional one without a value is null in the identity (ADR 0104).",
       "type": "array",
       "minItems": 1,
       "maxItems": 10,
@@ -66,10 +66,6 @@
       "items": {
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       }
-    },
-    "on_duplicate": {
-      "description": "What happens when someone creates an entity with the same identity as an existing one: `reuse` the existing one (the default), `warn` and let them choose, or `allow` a duplicate.",
-      "enum": ["reuse", "warn", "allow"]
     },
     "fields": {
       "description": "The type's fields, by name.",

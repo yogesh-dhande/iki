@@ -18,9 +18,15 @@ or an entity that refers to them, at any revision.
 A run reads only what belongs to its project: entities linked into it, and
 its files (ADR 0066).
 
-**Sharing** an entity with another project (linking it in, referring to it
-from that project's entities, or reusing it as their duplicate) takes its
-own project's leave: :func:`shareable_into` (ADR 0067).
+**Sharing** an entity with another project (linking it in, or referring to it
+from that project's entities) takes its own project's leave:
+:func:`shareable_into` (ADR 0067). Projects in different registries share
+nothing (ADR 0115).
+
+A **registry entry** (ADR 0115) belongs to no project: it's readable by whoever
+can read a record of it, and nobody else, so its ID alone grants nothing. The
+entities above (``visible`` and the rest) are records; :func:`visible_entries`
+are entries.
 """
 
 from typing import Any, cast
@@ -42,8 +48,43 @@ def readable_projects(user: Any) -> QuerySet[Project]:  # noqa: ANN401 - User or
 
 
 def visible(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
-    """The entities the user can read."""
+    """The entities the user can read: records, not registry entries."""
     return visible_of(user, Entity)
+
+
+def visible_entries(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
+    """The registry entries the user can read (ADR 0115): those with a record they can."""
+    projects = readable_projects(user).values("pk")
+    return Entity.objects.filter(registry__isnull=False).filter(_has_record_in(projects))
+
+
+def readable(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
+    """Records and registry entries the user can read: what a reference may show."""
+    projects = readable_projects(user).values("pk")
+    links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    return Entity.objects.filter(
+        Q(Exists(links), _views_they_read(Entity, projects)) | _has_record_in(projects),
+        purged_at__isnull=True,
+    )
+
+
+def _has_record_in(projects: QuerySet[Any]) -> Q:
+    """Of entries, those with a record in (or shared with) one of ``projects``."""
+    links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    records = Entity.objects.filter(entry=OuterRef("pk"), purged_at__isnull=True).filter(
+        Exists(links)
+    )
+    return Q(registry__isnull=False) & Q(Exists(records))
+
+
+def held_entries(project: Project) -> QuerySet[Entity]:
+    """The registry entries `project` holds: it has a record of each, its own or one shared
+    with it (ADR 0115). Its entities' references may name them."""
+    here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
+    records = Entity.objects.filter(entry=OuterRef("pk"), purged_at__isnull=True).filter(
+        Exists(here)
+    )
+    return Entity.objects.filter(registry__isnull=False).filter(Exists(records))
 
 
 def visible_of[E: Entity](user: Any, model: type[E]) -> QuerySet[E]:  # noqa: ANN401 - User or AnonymousUser
@@ -72,8 +113,13 @@ def _views_they_read(model: type[Entity], projects: QuerySet[Any]) -> Q:
     if model is not Entity and not issubclass(model, view):
         return Q()
     items = shape(VIEW).part_of("targets").list_model("targets")
-    readable = ProjectLink.objects.filter(entity=OuterRef("item_id"), project__in=projects)
-    hidden = items._default_manager.filter(entity_id=OuterRef("pk")).filter(~Exists(readable))
+    linked = ProjectLink.objects.filter(entity=OuterRef("item_id"), project__in=projects)
+    # A registry entry it shows is readable through a record of it (ADR 0115).
+    record_links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    records = Entity.objects.filter(entry=OuterRef("item_id")).filter(Exists(record_links))
+    hidden = items._default_manager.filter(entity_id=OuterRef("pk")).filter(
+        ~Exists(linked), ~Exists(records)
+    )
     return ~Q(type__in=subtypes(VIEW)) | Q(~Exists(hidden))
 
 
@@ -90,8 +136,13 @@ def tombstones(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or Anonymo
     and when, but no values."""
     projects = readable_projects(user).values("pk")
     links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    # A purged registry entry (ADR 0115), through a purged record of it they could read.
+    record_links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
+    records = Entity.objects.filter(entry=OuterRef("pk")).filter(Exists(record_links))
     return Entity.objects.filter(
-        Exists(links), _views_they_read(Entity, projects), purged_at__isnull=False
+        Q(Exists(links), _views_they_read(Entity, projects))
+        | Q(registry__isnull=False, owner_project__isnull=True) & Q(Exists(records)),
+        purged_at__isnull=False,
     )
 
 
@@ -118,11 +169,13 @@ def project_files(project: Project) -> QuerySet[File]:
 
 def shareable_into(user: Any, project: Project) -> QuerySet[Entity]:  # noqa: ANN401
     """The entities the user can read that `project` may use (ADR 0067): its own, those
-    already in it, and those whose project allows sharing. Others behave, for it, as if
-    the user couldn't read them."""
+    already in it, and those whose project allows sharing and is in its registry (ADR
+    0115). Others behave, for it, as if the user couldn't read them."""
     here = ProjectLink.objects.filter(entity=OuterRef("pk"), project=project)
     return visible(user).filter(
-        Q(owner_project__allow_sharing=True) | Q(owner_project=project) | Exists(here)
+        Q(owner_project__allow_sharing=True, owner_project__registry_id=project.registry_id)
+        | Q(owner_project=project)
+        | Exists(here)
     )
 
 
@@ -143,13 +196,22 @@ def refs_for(user: Any, project: Project) -> Refs:  # noqa: ANN401
         shareable_files(user, project),
         held=visible(user),
         held_files=readable_files(user),
+        entries=held_entries(project),
+        readable_entries=visible_entries(user),
+        project=project.name,
     )
 
 
 def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401
+    if entity.registry_id is not None:
+        return visible_entries(user).filter(pk=entity.pk).exists()
     return visible(user).filter(pk=entity.pk).exists()
 
 
 def can_edit(user: Any, entity: Entity) -> bool:  # noqa: ANN401
+    """Whether the user may change a record: Editor in its project. Nobody edits a registry
+    entry so: its facts are its registrars' (ADR 0115)."""
+    if entity.owner_project_id is None:
+        return False
     owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
     return permissions.can(user, Action.PROJECT_EDIT, owner)

@@ -8,10 +8,10 @@ extends: iki/core.Sequence
 schema_version: 1
 description: >-
   An oligonucleotide primer. Two with the same bases are the same primer, so
-  ordering one again reuses it.
+  ordering one again finds its
+  registry entry.
 hrid: { prefix: PRM }
 identity: [bases]
-on_duplicate: reuse
 fields:
   bases:
     type: string
@@ -22,10 +22,11 @@ fields:
     description: The bases, 5′ to 3′, in IUPAC codes.
   direction: { type: enum, values: [forward, reverse] }
   target: { type: ref, to: DNASequence, description: The sequence it binds. }
-  length: { type: quantity, unit: "{b}", computed: true, indexed: true }
-  gc_content: { type: quantity, unit: "%", computed: true, min: 0, max: 100 }
+  length: { registry: derived, type: quantity, unit: "{b}", computed: true, indexed: true }
+  gc_content: { registry: derived, type: quantity, unit: "%", computed: true, min: 0, max: 100 }
   melting_temperature:
     type: quantity
+    registry: derived
     unit: Cel
     computed: true
     indexed: true

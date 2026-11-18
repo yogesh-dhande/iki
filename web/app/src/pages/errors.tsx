@@ -1,5 +1,5 @@
 import { ApiError } from "@ikisci/sdk";
-import { Link, type ErrorComponentProps } from "@tanstack/react-router";
+import { Link, useParams, type ErrorComponentProps } from "@tanstack/react-router";
 
 import { usePageTitle } from "../layout";
 import { buttonClass, PageHeader } from "../ui";
@@ -81,6 +81,59 @@ function Gone({ error }: { error: ApiError }) {
             <code>{entity.content_sha256}</code>
           </p>
         ) : null}
+      </section>
+    </>
+  );
+}
+
+/** The records an HRID names, one in each of the reader's projects (ADR 0115). */
+export interface Choice {
+  entity: string;
+  project: { id: string; name: string; slug: string };
+}
+
+/** The records to choose between, when the API answered that an HRID names several. */
+export function choicesIn(error: unknown): Choice[] | null {
+  return error instanceof ApiError && error.problem.code === "choose_project"
+    ? ((error.problem as { records?: Choice[] }).records ?? [])
+    : null;
+}
+
+/** An entity page's error: when its HRID names several projects' records of a registry
+ * entry, which project's to open; anything else as any page's. */
+export function EntityError(props: ErrorComponentProps) {
+  const records = choicesIn(props.error);
+  return records ? <ChooseProject records={records} /> : <ErrorPage {...props} />;
+}
+
+export function ChooseProject({ records }: { records: Choice[] }) {
+  const { ref = "" } = useParams({ strict: false });
+  const hrid = ref.toUpperCase();
+  usePageTitle(`${hrid}: which project?`);
+  const sorted = [...records].sort((a, b) => a.project.name.localeCompare(b.project.name));
+  return (
+    <>
+      <PageHeader title={hrid} />
+      <section className="card" aria-labelledby="choose-project-title">
+        <h2 className="section-title" id="choose-project-title">
+          Which project’s record?
+        </h2>
+        <p>
+          {hrid} is in {sorted.length} of your projects. Each has its own record of it, with its own
+          values and history.
+        </p>
+        <ul className="rows">
+          {sorted.map((r) => (
+            <li className="row" key={r.entity}>
+              <div className="row-main">
+                {/* The same page (overview, history, …), as that project's record. */}
+                <Link className="row-title" to="./" search={{ project: r.project.slug }}>
+                  {r.project.name}
+                </Link>
+              </div>
+            </li>
+          ))}
+        </ul>
       </section>
     </>
   );

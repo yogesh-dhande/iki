@@ -5,6 +5,9 @@ is of kind ``bundle``, kept under its own key). Once its bytes are in, a task re
 trusting nothing until it checks out (:mod:`.reading`), and works out the plan (ADR 0096):
 
 - every type it holds is here, active, at its schema version or later, with the same units;
+- each registry entry its records are of (ADR 0115) is registered in the project's registry
+  already, which its record then refers to, or is registered by the import: its facts
+  must agree with the registry's, and it mustn't be superseded here;
 - each entity is new, here already (skipped), here at an earlier revision from an earlier
   import (its newer revisions are added), or a conflict: in another project here, changed
   here and there since, or sharing a unique value or an identity with an entity here;
@@ -40,14 +43,15 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
-from iki_server.entities import identity, registry, unique
+from iki_server.entities import access, identity, registry, unique
+from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, Revision, UniqueValue
 from iki_server.entities.services import frozen
 from iki_server.entities.values import Shape, shape
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Blob, File, Upload, UploadKind
-from iki_server.org.models import Project
+from iki_server.org.models import Project, registry_of
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun
@@ -260,6 +264,19 @@ class _Counts:
     runs: int = 0
     runs_here: int = 0
     runs_renumbered: int = 0
+    registered: int = 0
+    entries_here: int = 0
+
+
+@dataclass
+class _Entry:
+    """A bundle's registry entry, here: the entry it is, or the ID and HRID it's registered
+    with (blank: a new one, its own being another's here), and why it can't be."""
+
+    here: Entity | None
+    pk: uuid.UUID
+    hrid: str
+    why: str = ""
 
 
 @dataclass
@@ -271,11 +288,15 @@ class _Planner:
     #: Each file's SHA-256, by its ID, for identities that name a file.
     file_sha: dict[str, str] = field(default_factory=dict)
     ids: set[uuid.UUID] = field(default_factory=set)
+    #: The bundle's registry entries, by their ID there, and what each is here.
+    entries: dict[str, dict[str, Any]] = field(default_factory=dict)
+    resolved: dict[str, _Entry] = field(default_factory=dict)
 
     def plan(self) -> dict[str, Any]:
         types = self._types()
         people = self._people()
         stored = self._files()
+        self._entries()
         for batch in _batched(self.bundle.lines("entities.ndjson"), BATCH):
             self.ids |= {uuid.UUID(e["id"]) for e in batch}
             self._entities(batch)
@@ -296,6 +317,8 @@ class _Planner:
                 "skip": c.skip,
                 "conflict": c.conflict,
                 "renumbered": c.renumbered,
+                "registered": c.registered,
+                "entries_here": c.entries_here,
                 "revisions": c.revisions,
                 "people": people["people"],
                 "placeholders": people["placeholders"],
@@ -463,6 +486,97 @@ class _Planner:
             "registered": registered,
         }
 
+    # Registry entries ---------------------------------------------------------------------
+
+    def _entries(self) -> None:
+        """Finds each entry's identity in the project's registry, as registering it would."""
+        registry_id = registry_of(self.made.project)
+        lines = list(self.bundle.lines("entries.ndjson"))
+        self.entries = {e["id"]: e for e in lines}
+        digests: dict[str, str] = {}
+        for line in lines:
+            entity_type = registry.types().get(line["type"])
+            if entity_type is None or not shape(line["type"]).has_entries:
+                continue  # Its type's problem is the plan's already, or it isn't one.
+            form = shape(line["type"])
+            try:
+                digest = identity.hash_of(
+                    _typed(form, line["values"]),
+                    entity_type,
+                    lambda f: self.file_sha.get(str(f), ""),
+                )
+            except (ValueError, TypeError):
+                digest = None
+            if digest is not None:
+                digests[line["id"]] = digest
+        here = {
+            e.identity_hash: e
+            for e in Entity.objects.filter(
+                registry_id=registry_id, identity_hash__in=list(digests.values())
+            ).select_related("superseded_by")
+        }
+        taken_ids = {
+            str(pk)
+            for pk in Entity.objects.filter(pk__in=list(self.entries)).values_list("pk", flat=True)
+        }
+        taken_hrids = set(
+            Entity.objects.filter(
+                hrid__in=[e["hrid"] for e in lines], entry__isnull=True
+            ).values_list("hrid", flat=True)
+        )
+        for line in lines:
+            digest = digests.get(line["id"])
+            if digest is None:
+                self.resolved[line["id"]] = _Entry(
+                    None,
+                    uuid.uuid4(),
+                    "",
+                    f"{line['hrid']}'s identity can't be read here: is its type's plugin here?",
+                )
+                continue
+            found = here.get(digest)
+            if found is not None:
+                self.counts.entries_here += 1
+                self.resolved[line["id"]] = _Entry(
+                    found, found.pk, found.hrid, self._against_entry(line, found)
+                )
+                continue
+            self.counts.registered += 1
+            pk = uuid.UUID(line["id"]) if line["id"] not in taken_ids else uuid.uuid4()
+            hrid = line["hrid"] if line["hrid"] not in taken_hrids else ""
+            if not hrid:
+                self.counts.renumbered += 1
+            form = shape(line["type"])
+            why = next(iter(_entry_clashes(registry_id, form, _typed(form, line["values"]))), "")
+            self.resolved[line["id"]] = _Entry(None, pk, hrid, why)
+
+    @staticmethod
+    def _against_entry(line: dict[str, Any], here: Entity) -> str:
+        """Why the bundle's entry can't be the one here: another type, superseded, or a
+        fact with another value, which only its registrars change."""
+        if here.type != line["type"]:
+            return f"It's registered here already as a {here.type}, {here.hrid}."
+        if here.superseded_by is not None:
+            return (
+                f"It's registered here as {here.hrid}, which was superseded by "
+                f"{here.superseded_by.hrid}."
+            )
+        form = shape(here.type)
+        fields = form.entry_fields()
+        current = entity_services.current_values(entity_services.specific(here))
+        theirs = _typed(form, line["values"])
+        for name, value in theirs.items():
+            f = fields.get(name)
+            if f is None or f.registry != "fact" or value is None or value == []:
+                continue
+            mine = current.get(name)
+            if mine is not None and mine != [] and mine != value:
+                return (
+                    f"Its {f.label or name} isn't {here.hrid}'s here: a registry fact only its "
+                    "registrars change."
+                )
+        return ""
+
     # Entities -----------------------------------------------------------------------------
 
     def _entities(self, batch: list[dict[str, Any]]) -> None:
@@ -480,7 +594,13 @@ class _Planner:
             .exclude(pk__in=ids)
             .values_list("hrid", flat=True)
         )
-        rows = [self._entity(line, existing, history, taken) for line in batch]
+        held = dict(
+            Entity.objects.filter(
+                owner_project=self.made.project,
+                entry_id__in=[r.pk for r in self.resolved.values() if r.here is not None],
+            ).values_list("entry_id", "hrid")
+        )
+        rows = [self._entity(line, existing, history, taken, held) for line in batch]
         ImportEntity.objects.bulk_create(rows, batch_size=BATCH)
 
     def _entity(
@@ -489,10 +609,14 @@ class _Planner:
         existing: dict[uuid.UUID, Entity],
         history: dict[uuid.UUID, list[uuid.UUID]],
         taken: set[str],
+        held: dict[uuid.UUID, str],
     ) -> ImportEntity:
         entity_id = uuid.UUID(line["id"])
         revisions = [uuid.UUID(r["id"]) for r in sorted(line["revisions"], key=_number)]
         values = _current(line)
+        entry = self.resolved.get(line.get("entry") or "")
+        if line.get("entry") and line["entry"] in self.entries:
+            values = {**self.entries[line["entry"]]["values"], **values}
         row = ImportEntity(
             bundle_import=self.made,
             entity_id=entity_id,
@@ -503,10 +627,40 @@ class _Planner:
             revisions=len(revisions),
         )
         here = existing.get(entity_id)
+        if line.get("entry") and entry is None:
+            raise reading.BundleError(
+                f"{line['hrid']} is a record of a registry entry the bundle doesn't have."
+            )
+        if entry is not None:
+            row.entry_id, row.registers = entry.pk, entry.here is None
+            row.hrid_here = entry.hrid
         if here is not None:
             row.hrid_here = here.hrid
             action, adds, why = self._against(here, history.get(entity_id, []), revisions)
+            if entry is not None and here.entry_id != entry.pk and action != EntityPlan.CONFLICT:
+                action, adds, why = (
+                    EntityPlan.CONFLICT,
+                    0,
+                    f"It's here already as {here.hrid}, a record of another registry entry.",
+                )
             row.action, row.adds, row.why = action, adds, why
+        elif entry is not None:
+            row.action, row.adds = EntityPlan.NEW, len(revisions)
+            if entry.why:
+                row.action, row.adds, row.why = EntityPlan.CONFLICT, 0, entry.why
+            elif entry.here is not None and entry.pk in held:
+                row.action, row.adds, row.why = (
+                    EntityPlan.CONFLICT,
+                    0,
+                    f"{self.made.project.name} has {held[entry.pk]} already, a record of the "
+                    "same registry entry: a project has one record of each.",
+                )
+            elif entry.here is not None:
+                row.why = f"Its registry entry here is {entry.hrid}."
+            elif not entry.hrid:
+                row.why = (
+                    f"{line['hrid']} is another entity's HRID here: it's registered with a new one."
+                )
         else:
             row.action, row.adds = EntityPlan.NEW, len(revisions)
             if line["hrid"] in taken:
@@ -555,33 +709,23 @@ class _Planner:
         )
 
     def _clash(self, entity_id: uuid.UUID, entity_type: EntityType, values: dict[str, Any]) -> str:
+        """A unique value of the record's own another record of the project has. (Its
+        entry's are the registry's, checked with the entry.)"""
         form = shape(entity_type.qualified_name)
         for message in _unique_clashes(self.made.project, form, values, entity_id, self.ids):
             return message
-        try:
-            wanted = identity.hash_of(
-                _typed(form, values), entity_type, lambda f: self.file_sha.get(str(f), "")
-            )
-        except (ValueError, TypeError):
-            return ""
-        if wanted is None:
-            return ""
-        same = (
-            Entity.objects.filter(identity_hash=wanted)
-            .exclude(pk=entity_id)
-            .values_list("hrid", flat=True)
-            .first()
-        )
-        if same is not None:
-            return f"It's the same as {same} here (their identity fields match)."
         return ""
 
     # Outside ------------------------------------------------------------------------------
 
     def _outside(self) -> dict[str, Any]:
         lines = list(self.bundle.lines("outside.ndjson"))
+        ids = [o["id"] for o in lines]
+        # A reference to a registry entry holds it only for a project with a record of it.
         here = set(
-            Entity.objects.filter(pk__in=[o["id"] for o in lines]).values_list("pk", flat=True)
+            Entity.objects.filter(pk__in=ids, registry__isnull=True).values_list("pk", flat=True)
+        ) | set(
+            access.held_entries(self.made.project).filter(pk__in=ids).values_list("pk", flat=True)
         )
         items = [{**o, "here": uuid.UUID(o["id"]) in here} for o in lines]
         # Values refer to them now (history's references needn't resolve): they must be here.
@@ -644,15 +788,23 @@ def _typed(form: Shape, values: dict[str, Any]) -> dict[str, Any]:
         f = fields.get(name)
         if f is None or value is None:
             out[name] = value
-        elif f.type == "ref":
-            out[name] = uuid.UUID(str(value))
-        elif f.type == "datetime":
-            out[name] = dt.datetime.fromisoformat(str(value))
-        elif f.type == "date":
-            out[name] = dt.date.fromisoformat(str(value))
+        elif f.type == "list" and f.items is not None and isinstance(value, list):
+            out[name] = [_one(f.items, v) for v in value]
         else:
-            out[name] = value
+            out[name] = _one(f, value)
     return out
+
+
+def _one(f: Field, value: Any) -> Any:  # noqa: ANN401 - JSON in, a database value out
+    if value is None:
+        return None
+    if f.type == "ref":
+        return uuid.UUID(str(value))
+    if f.type == "datetime":
+        return dt.datetime.fromisoformat(str(value))
+    if f.type == "date":
+        return dt.date.fromisoformat(str(value))
+    return value
 
 
 def _unique_clashes(
@@ -663,6 +815,8 @@ def _unique_clashes(
     bundled: set[uuid.UUID],
 ) -> Iterator[str]:
     for part in form.parts:
+        if part.entry:
+            continue
         for name, f in part.fields.items():
             value = values.get(name)
             if not f.unique or f.removed or value is None:
@@ -680,4 +834,23 @@ def _unique_clashes(
                 yield (
                     f"Its {f.label or name} {value} is {holder}'s here already: no two entities "
                     "in a project share it."
+                )
+
+
+def _entry_clashes(registry_id: uuid.UUID, form: Shape, values: dict[str, Any]) -> Iterator[str]:
+    """A unique registry value of a new entry's another entry has, in the project's registry:
+    which, it doesn't say, as registering doesn't."""
+    for part in form.parts:
+        if not part.entry:
+            continue
+        for name, f in part.fields.items():
+            value = values.get(name)
+            if not f.unique or f.removed or value is None:
+                continue
+            if UniqueValue.objects.filter(
+                registry_id=registry_id, key=unique.key(part.model, name), value=str(value)
+            ).exists():
+                yield (
+                    f"Its {f.label or name} {value} is another registry entry's here already: "
+                    "no two in a registry share it."
                 )

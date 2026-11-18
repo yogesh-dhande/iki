@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Registries{% endblock %}
+{% block main_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Registries</h1></div>
+{% include "web/_settings_tabs.html" %}
+<p class="muted">A registry keeps identities: each compound, sequence or antibody it has is registered once, with one ID, such as CPD-000123, which every project in it that has the thing shares. Projects keep their own data about it. A project is in one registry, chosen when it's made. Registering something another project in the registry has tells you it's there and its ID, never who has it or what they know about it. To keep a client's or partner's identities apart even from that, give them a registry of their own.</p>
+<div class="columns">
+  <section aria-labelledby="registries-title">
+    <h2 class="section-title" id="registries-title">Registries</h2>
+    <ul class="rows">
+      {% for registry in registries %}
+      <li class="row">
+        <div class="row-main">
+          <a class="row-title" href="{% url 'org:registry' registry.pk %}">{{ registry.name }}</a>{% if registry.is_default %} <span class="badge badge-muted">Default</span>{% endif %}
+          <span class="row-meta">{% if registry.all_teams %}Every team{% else %}{% for team in registry.teams.all %}{{ team.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %} · {{ registry.project_count }} project{{ registry.project_count|pluralize }} · {{ registry.registrar_count }} registrar{{ registry.registrar_count|pluralize }}</span>
+          {% if registry.description %}<span class="row-meta preserve-lines">{{ registry.description }}</span>{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="card" aria-labelledby="add-title">
+    <h2 class="section-title" id="add-title">Add a registry</h2>
+    {% include "web/_errors.html" %}
+    <form method="post" data-busy-form novalidate>
+      {% csrf_token %}
+      {% include "web/_field.html" with field=form.name %}
+      {% include "web/_field.html" with field=form.description %}
+      {% include "web/_field.html" with field=form.all_teams %}
+      {% include "web/_field.html" with field=form.teams %}
+      <button class="button button-primary" type="submit" data-busy-text="Adding…">Add registry</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

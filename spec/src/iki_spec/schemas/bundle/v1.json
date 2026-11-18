@@ -112,6 +112,10 @@
         "entities": {
           "$ref": "#/$defs/count"
         },
+        "entries": {
+          "description": "The registry entries its records are of (ADR 0115).",
+          "$ref": "#/$defs/count"
+        },
         "revisions": {
           "$ref": "#/$defs/count"
         },
@@ -163,7 +167,7 @@
       "required": ["path", "sha256", "size"],
       "properties": {
         "path": {
-          "description": "`people.ndjson`, `agents.ndjson`, `files.ndjson`, `entities.ndjson`, `outside.ndjson`, or `blobs/sha256/` and a file's SHA-256 for its bytes.",
+          "description": "`people.ndjson`, `agents.ndjson`, `files.ndjson`, `entries.ndjson`, `entities.ndjson`, `outside.ndjson`, `runs.ndjson`, or `blobs/sha256/` and a file's SHA-256 for its bytes.",
           "type": "string",
           "pattern": "^([a-z]+\\.ndjson|blobs/sha256/[0-9a-f]{64})$"
         },
@@ -446,6 +450,10 @@
             }
           ]
         },
+        "entry": {
+          "description": "For a record of a registry entry (ADR 0115), the entry's ID: a line of `entries.ndjson`. Its HRID is the entry's.",
+          "$ref": "#/$defs/uuid"
+        },
         "revisions": {
           "description": "Every revision, 1 first.",
           "type": "array",
@@ -487,7 +495,7 @@
           "minimum": 1
         },
         "kind": {
-          "enum": ["created", "edited", "archived", "restored"]
+          "enum": ["created", "edited", "archived", "restored", "moved"]
         },
         "changed_fields": {
           "type": "array",
@@ -548,6 +556,31 @@
         },
         "values": {
           "description": "Every field the table has had, by name: refs and files by UUID, dates and times in ISO 8601, quantities in their field's unit, removed fields as null.",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "entry": {
+      "description": "A line of `entries.ndjson`: a registry entry the bundle's records are of (ADR 0115), with its identity, derived values and facts as they are now. Its history is its registry's, so it doesn't go: an import registers the identity in its project's registry, or finds it registered there.",
+      "type": "object",
+      "required": ["id", "type", "hrid", "values"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "type": {
+          "description": "The type it's registered as, such as `iki/small_molecule.Compound`.",
+          "type": "string",
+          "maxLength": 81
+        },
+        "hrid": {
+          "description": "Its registry ID on the source deployment, such as `CPD-000123`.",
+          "type": "string",
+          "maxLength": 32
+        },
+        "values": {
+          "description": "Its fields, by name, as `history` gives them.",
           "type": "object"
         }
       },

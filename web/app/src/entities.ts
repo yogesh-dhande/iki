@@ -7,7 +7,7 @@
 import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { iki, projectQuery, queryClient } from "./api";
 import { validateFilters, type Filter } from "./filters";
 
 export type EntityType = Schemas["EntityTypeOut"];
@@ -18,6 +18,8 @@ export type RevisionDetail = Schemas["RevisionDetailOut"];
 export type EntityProject = Schemas["EntityProjectOut"];
 export type Origin = Schemas["OriginOut"];
 export type Making = Schemas["MakingOut"];
+export type EntryRef = Schemas["EntryRefOut"];
+export type Ref = Schemas["RefOut"];
 
 export const ENTITIES = ["entities"] as const;
 
@@ -150,13 +152,70 @@ export function projectFilesQuery(projectId: string) {
   });
 }
 
-/** By ID or HRID, as in the page's address. */
-export function entityQuery(ref: string) {
+/**
+ * By ID or HRID, as in the page's address. A registry entry's records share its HRID
+ * (ADR 0115), so `project` (a project's slug) says whose record; without it, an HRID that
+ * names records in several of the reader's projects answers 409 (`choose_project`).
+ */
+export function entityQuery(ref: string, project?: string) {
   return queryOptions({
-    queryKey: [...ENTITIES, "one", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}", { params: { path: { ref } } })),
+    queryKey: [...ENTITIES, "one", ref.toUpperCase(), project ?? null],
+    queryFn: async () => {
+      const id = project ? (await queryClient.query(projectQuery(project))).id : undefined;
+      return unwrap(
+        await iki.GET("/api/v1/entities/{ref}", {
+          params: { path: { ref }, query: id ? { project: id } : {} },
+        }),
+      );
+    },
   });
+}
+
+/** An entity by its ID, or a project's record of a registry entry by the entry's ID, in the
+ * project with ID `project`: a view's targets are entries, shown as its project's records. */
+export function recordQuery(ref: string, project?: string) {
+  return queryOptions({
+    queryKey: [...ENTITIES, "record", ref.toUpperCase(), project ?? null],
+    queryFn: async () =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}", {
+          params: { path: { ref }, query: project ? { project } : {} },
+        }),
+      ),
+  });
+}
+
+/** How the API names an entity unambiguously: a record of a registry entry by its ID, since
+ * other projects' records have its HRID too; anything else by its HRID. */
+export function apiRef(entity: Pick<Entity, "id" | "hrid" | "entry">): string {
+  return entity.entry ? entity.id : entity.hrid;
+}
+
+/** An entity page's `?project=`: a slug, for a record of a registry entry (ADR 0115). */
+export interface EntityPageSearch {
+  project?: string | undefined;
+}
+
+export function validateEntityPageSearch(search: Record<string, unknown>): EntityPageSearch {
+  return typeof search["project"] === "string" && search["project"]
+    ? { project: search["project"].slice(0, 100) }
+    : {};
+}
+
+/** The `?project=` a link to an entity carries: a record's project, so the link opens that
+ * project's record of the entry rather than asking which. Other entities need none. */
+export function recordSearch(
+  entity: { entry?: EntryRef | null | undefined; owner_project?: { slug: string } | null },
+  fallback?: string,
+): EntityPageSearch {
+  if (!entity.entry) return {};
+  const slug = entity.owner_project?.slug ?? fallback;
+  return slug ? { project: slug } : {};
+}
+
+/** Whether a type's entities are records of registry entries (ADR 0115). */
+export function hasIdentity(types: EntityType[] | undefined, name: string): boolean {
+  return Boolean(types?.find((t) => t.name === name)?.identity.length);
 }
 
 export function provenanceQuery(ref: string) {
@@ -220,13 +279,15 @@ export function revisionsQuery(ref: string) {
   });
 }
 
-export function revisionQuery(ref: string, number: number) {
+/** An entity at a revision. `project` (an ID) says whose record of a registry entry: a
+ * view's targets are entries, pinned in the view's own project (ADR 0115). */
+export function revisionQuery(ref: string, number: number, project?: string) {
   return queryOptions({
-    queryKey: [...ENTITIES, "revision", ref.toUpperCase(), number],
+    queryKey: [...ENTITIES, "revision", ref.toUpperCase(), number, project ?? null],
     queryFn: async () =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/revisions/{number}", {
-          params: { path: { ref, number } },
+          params: { path: { ref, number }, query: project ? { project } : {} },
         }),
       ),
     // A revision never changes.

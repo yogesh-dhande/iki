@@ -31,7 +31,7 @@ from real_server import Server, app_role, manage, run_tasks, serve, server_env
 from iki_server.accounts.models import User
 from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
-from iki_server.org.models import Project, ProjectRole
+from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.web import frontend
 from iki_server.webhooks import services as webhooks
 
@@ -277,6 +277,7 @@ PAGES = [
     ("compute_admin", "/compute/"),
     ("compute_admin", "/compute/workers/"),
     ("compute_admin", "/compute/quotas/"),
+    ("org_admin", "/settings/registries/"),
 ]
 
 
@@ -631,12 +632,16 @@ def test_creating_editing_and_archiving_an_entity(open_as: Any, world: World) ->
     page.get_by_role("textbox", name="Uniprot ids, item 1").fill("P00519")
     assert_clean(page)
     page.get_by_role("button", name="Create protein").click()
-    page.wait_for_url(re.compile(r"/entities/PRT-\d+/$"))
-    made = Entity.objects.get(type="acme/protein.Protein")
-    page.get_by_text(f"Created {made.hrid}.").wait_for()
+    # A registry entry's ID names its record in the project it was made in (ADR 0115).
+    page.wait_for_url(re.compile(r"/entities/PRT-\d+/\?project=kinase-atlas$"))
+    made = Entity.objects.get(type="acme/protein.Protein", owner_project=world.project)
+    page.get_by_text(
+        f"Registered {made.hrid}, a new entry in the Main registry. This is Kinase Atlas’s "
+        "record of it."
+    ).wait_for()
     values = entities.current_values_of([made])[made.pk]
     assert values["temperature_optimum"] == pytest.approx(37.0)
-    assert values["encoded_by"] == gene.pk and values["uniprot_ids"] == ["P00519"]
+    assert values["encoded_by"] == gene.entry_id and values["uniprot_ids"] == ["P00519"]
     assert_clean(page)
 
     page.get_by_role("link", name="Edit").click()
@@ -674,7 +679,7 @@ def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: S
     from iki_server.entities.models import Entity
     from iki_server.files.models import File
 
-    protein = entities.create(
+    protein: Any = entities.create(
         world.users["admin"],
         "acme/protein.Protein",
         world.project,
@@ -707,7 +712,7 @@ def test_uploading_a_file_into_a_file_field(open_as: Any, world: World, tasks: S
     page.wait_for_url(re.compile(r"/entities/PST-\d+/$"))
     made = Entity.objects.get(type="acme/protein.ProteinStructure")
     values = entities.current_values_of([made])[made.pk]
-    assert values["structure"] == stored.pk and values["chains"] == [protein.pk]
+    assert values["structure"] == stored.pk and values["chains"] == [protein.entry_id]
     page.get_by_role("link", name="1abc.pdb").wait_for()
     assert_clean(page)
 
@@ -778,7 +783,8 @@ def test_importing_a_bundle_and_reading_its_plan(
         made: Any = entities.create(
             admin, "acme/protein.Protein", world.project, {"sequence": "MKWWYYHH", "name": "ABL1"}
         ).entity
-        Entity.objects.filter(pk=made.pk).update(hrid="PRT-000900")
+        # Its registry entry's HRID, which its record has too (ADR 0115).
+        Entity.objects.filter(pk__in=[made.pk, made.entry_id]).update(hrid="PRT-000900")
         made.refresh_from_db()
         export.write(
             world.project, [made], out, by=admin, reason="For production", selection="ABL1"
@@ -1487,6 +1493,126 @@ def test_creating_a_project(open_as: Any, world: World) -> None:
     project = Project.objects.get(slug="fragment-screen")
     assert project.memberships.get(user=world.users["team_member"]).role == ProjectRole.ADMIN
     assert_clean(page)
+
+
+def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: World) -> None:
+    """Registering what another project has gives this one a record of the same registry
+    entry; its ID then asks which project's record, and the entry's page lists only the
+    records the person reads (ADR 0115)."""
+    from iki_server.entities import services as entities
+
+    admin = world.users["admin"]
+    antigens = Project.objects.create(team=world.team, name="Antigens")
+    ProjectMembership.objects.create(project=antigens, user=admin, role=ProjectRole.EDITOR)
+    first: Any = entities.create(
+        admin, "acme/protein.Protein", world.project, {"sequence": "MKVLAAGG", "name": "ABL1"}
+    )
+    again: Any = entities.create(
+        admin, "acme/protein.Protein", antigens, {"sequence": "MKVLAAGG", "name": "ABL1 antigen"}
+    )
+    assert again.registered is False and again.entity.entry_id == first.entity.entry_id
+    hrid = first.entity.hrid
+
+    page = open_as("admin", f"/entities/{hrid}/")
+    page.get_by_role("heading", name="Which project’s record?").wait_for()
+    # The API answers which with a 409, which Chromium and WebKit log as a failed load:
+    # that, and nothing else.
+    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
+    assert_clean(page)
+    page.get_by_role("link", name="Antigens", exact=True).click()
+    page.wait_for_url(re.compile(rf"/entities/{hrid}/\?project=antigens$"))
+    page.get_by_role("heading", name=f"Registry entry {hrid}").wait_for()
+    page.get_by_role("heading", name="Antigens’s values").wait_for()
+    page.get_by_text("ABL1 antigen").first.wait_for()
+    assert_clean(page)
+
+    page.get_by_role("link", name="Open the entry").click()
+    page.get_by_role("heading", level=1, name=hrid).wait_for()
+    records = page.locator("section", has=page.get_by_role("heading", name="Records you can read"))
+    records.get_by_role("link", name=re.compile("Antigens")).wait_for()
+    records.get_by_role("link", name=re.compile("Kinase Atlas")).wait_for()
+    assert_clean(page)
+
+    # Someone in only one of them reads its record, and nothing of the other's.
+    viewer = open_as("viewer", f"/entities/{hrid}/")
+    viewer.get_by_role("heading", name="Kinase Atlas’s values").wait_for()
+    assert viewer.get_by_text("ABL1 antigen").count() == 0
+    assert_clean(viewer)
+
+
+def test_a_registrar_supersedes_an_entry_and_a_project_moves_its_record(
+    open_as: Any, world: World
+) -> None:
+    """A registrar replaces a mistaken entry; the project with it is told on its record's
+    page, and an Editor moves the record to the right ID (ADR 0115)."""
+    from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
+    from iki_server.org import registries
+    from iki_server.org.models import Registry
+
+    admin = world.users["admin"]
+    antigens = Project.objects.create(team=world.team, name="Antigens")
+    ProjectMembership.objects.create(project=antigens, user=admin, role=ProjectRole.EDITOR)
+    wrong: Any = entities.create(
+        admin, "acme/protein.Protein", world.project, {"sequence": "MKVLAAGG"}
+    )
+    right: Any = entities.create(admin, "acme/protein.Protein", antigens, {"sequence": "MKVLAAGH"})
+    main = Registry.default()
+    registries.appoint(main, world.users["team_member"], by=world.users["org_admin"])
+    old, new = wrong.entity.hrid, right.entity.hrid
+
+    page = open_as("team_member", f"/registries/{main.pk}/entries/")
+    page.get_by_role("link", name=old, exact=True).wait_for()
+    assert_clean(page)
+    page.get_by_role("link", name=old, exact=True).click()
+    page.get_by_role("heading", level=1, name=old).wait_for()
+    assert_clean(page)
+    page.get_by_role("textbox", name="Replaced by").fill(new)
+    page.get_by_role("textbox", name="Reason").last.fill("Registered with a typo")
+    page.get_by_role("button", name=f"Supersede {old}…").click()
+    dialog = page.get_by_role("alertdialog", name=f"Supersede {old} with {new}?")
+    assert_clean(page)
+    dialog.get_by_role("button", name=f"Supersede {old}").click()
+    page.get_by_text(f"Superseded {old}. Every project with it has been told.").wait_for()
+    assert_clean(page)
+
+    record = open_as("admin", f"/entities/{old}/?project=kinase-atlas")
+    record.get_by_role("heading", name=f"{old} was superseded by {new}").wait_for()
+    assert_clean(record)
+    record.get_by_role("button", name=f"Move to {new}").click()
+    moving = record.get_by_role("alertdialog", name=f"Move to {new}?")
+    moving.get_by_role("textbox", name="Reason").fill("The registrar superseded it")
+    assert_clean(record)
+    moving.get_by_role("button", name=f"Move to {new}").click()
+    record.wait_for_url(re.compile(rf"/entities/{new}/\?project=kinase-atlas$"))
+    record.get_by_role("heading", name=f"Registry entry {new}").wait_for()
+    assert_clean(record)
+    assert Entity.objects.get(pk=wrong.entity.pk).entry_id == right.entity.entry_id
+
+
+def test_an_org_admin_adds_a_registry_and_a_new_project_goes_in_it(
+    open_as: Any, world: World
+) -> None:
+    """A registry of a client's own, its registrar, and a project made in it (ADR 0115)."""
+    page = open_as("org_admin", "/settings/registries/")
+    page.get_by_role("textbox", name="Name").fill("Client A")
+    page.get_by_role("checkbox", name="Every team's projects may be in it").check()
+    page.get_by_role("button", name="Add registry").click()
+    page.get_by_role("heading", level=1, name="Client A").wait_for()
+    assert_clean(page)
+    page.get_by_role("textbox", name="Email address").fill(world.users["team_member"].email)
+    page.get_by_role("button", name="Appoint").click()
+    remove = page.get_by_role("button", name="Remove Team Member as a registrar")
+    remove.wait_for()
+    assert_clean(page)
+
+    made = open_as("team_member", "/projects/new/")
+    made.get_by_role("textbox", name="Project name").fill("Client A Screen")
+    made.get_by_role("combobox", name="Registry").select_option(label="Client A")
+    assert_clean(made)
+    made.get_by_role("button", name="Create project").click()
+    made.wait_for_url("**/projects/client-a-screen/")
+    assert Project.objects.get(slug="client-a-screen").registry.name == "Client A"
 
 
 def test_dialogs_hold_focus_and_give_it_back(open_as: Any) -> None:

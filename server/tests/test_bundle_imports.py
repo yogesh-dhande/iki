@@ -134,15 +134,16 @@ def test_a_taken_hrid_is_renumbered_and_shared_values_are_conflicts(
     )
     first, second = sorted(registry_lines(path), key=lambda e: e["hrid"])
     here = protein(world, "MKVLEEFF", lims_id="LIMS-7")
-    Entity.objects.filter(pk=here.pk).update(hrid=first["hrid"])
+    # Its registry entry's HRID (ADR 0115), which its record has too.
+    Entity.objects.filter(pk__in=[here.pk, here.entry_id]).update(hrid=first["hrid"])
     here.refresh_from_db()
     same = protein(world, "MKVLAAGG")  # the first one's identity, as another entity
     made = upload(Api(world.browser("admin")), world.project, path)
     rows = {r["hrid"]: r for r in entities_of(Api(world.browser("admin")), made)}
     assert rows[first["hrid"]]["action"] == "conflict"
-    assert (
-        rows[first["hrid"]]["why"]
-        == f"It's the same as {same.hrid} here (their identity fields match)."
+    assert rows[first["hrid"]]["why"] == (
+        f"Kinase Atlas has {same.hrid} already, a record of the same registry entry: a "
+        "project has one record of each."
     )
     assert rows[second["hrid"]]["action"] == "conflict"
     assert rows[second["hrid"]]["why"] == (
@@ -162,11 +163,14 @@ def test_a_taken_hrid_alone_is_renumbered(world: World, tmp_path: Path) -> None:
     path = bundle_of(world, tmp_path, lambda: [protein(world, "MKQQRRSS")])
     (line,) = registry_lines(path)
     here = protein(world, "MKQQRRTT")
-    Entity.objects.filter(pk=here.pk).update(hrid=line["hrid"])
+    # Its registry entry's HRID (ADR 0115), which its record has too.
+    Entity.objects.filter(pk__in=[here.pk, here.entry_id]).update(hrid=line["hrid"])
     made = upload(Api(world.browser("admin")), world.project, path)
     (row,) = entities_of(Api(world.browser("admin")), made)
     assert row["action"] == "new" and row["hrid_here"] == ""
-    assert row["why"] == f"{line['hrid']} is another entity's HRID here."
+    assert row["why"] == (
+        f"{line['hrid']} is another entity's HRID here: it's registered with a new one."
+    )
     assert made["plan"]["counts"]["renumbered"] == 1 and made["plan"]["applicable"] is True
 
 
@@ -356,7 +360,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
     # Its file's bytes came in the bundle.
     structure = Entity.objects.get(pk=lines["acme/protein.ProteinStructure"]["id"])
     detail = api.get(f"/entities/{structure.hrid}").json()
-    assert detail["values"]["chains"] == [str(kinase.pk)]
+    assert detail["values"]["chains"] == [str(kinase.entry_id)]
     content = api.get(f"/files/{detail['values']['structure']}/content")
     assert content.status_code == 302
     assert requests.get(content["Location"], timeout=30).content == PDB
@@ -389,7 +393,8 @@ def test_applying_renumbers_taken_hrids_and_adds_later_revisions(
     path = bundle_of(world, tmp_path, changed)
     renumbered = next(e for e in registry_lines(path) if e["id"] != str(here.pk))
     taken = protein(world, "MKTAKEN")
-    Entity.objects.filter(pk=taken.pk).update(hrid=renumbered["hrid"])
+    # Its registry entry's HRID (ADR 0115), which its record has too.
+    Entity.objects.filter(pk__in=[taken.pk, taken.entry_id]).update(hrid=renumbered["hrid"])
     api = Api(world.browser("admin"))
     done = applied(api, upload(api, world.project, path))
     assert done["state"] == "applied", done
@@ -449,7 +454,8 @@ def test_what_changed_since_it_was_planned_stops_it(world: World, tmp_path: Path
     api = Api(world.browser("admin"))
     made = upload(api, world.project, path)
     taken = protein(world, "MKSLIPPEDIN")
-    Entity.objects.filter(pk=taken.pk).update(hrid=line["hrid"])
+    # Its registry entry's HRID (ADR 0115), which its record has too.
+    Entity.objects.filter(pk__in=[taken.pk, taken.entry_id]).update(hrid=line["hrid"])
     done = applied(api, made)
     assert done["state"] == "planned"
     assert done["error"].startswith("Something here changed since it was planned")
@@ -690,7 +696,8 @@ def test_an_apps_viewer_names_a_renumbered_entity_by_its_hrid_here(
     lines = {e["type"]: e for e in registry_lines(path)}
     source_hrid = lines["acme/protein.Protein"]["hrid"]
     taken = protein(world, "MKTAKENHERE")
-    Entity.objects.filter(pk=taken.pk).update(hrid=source_hrid)
+    # Its registry entry's HRID (ADR 0115), which its record has too.
+    Entity.objects.filter(pk__in=[taken.pk, taken.entry_id]).update(hrid=source_hrid)
     api = Api(world.browser("admin"))
     done = applied(api, upload(api, world.project, path))
     assert done["state"] == "applied", done
@@ -710,8 +717,9 @@ def test_an_apps_viewer_names_a_renumbered_entity_by_its_hrid_here(
     # What refers to it says what it was called there, so files made there still find it.
     referrer = protein(world, "MKREFERS", source=str(shown.pk))
     refs = api.get(f"/entities/{referrer.hrid}").json()["refs"]
-    assert refs[str(shown.pk)]["hrid"] == shown.hrid
-    assert refs[str(shown.pk)]["formerly"] == [source_hrid]
+    # It refers to the registry entry (ADR 0115), which had that HRID there too.
+    assert refs[str(shown.entry_id)]["hrid"] == shown.hrid
+    assert refs[str(shown.entry_id)]["formerly"] == [source_hrid]
 
 
 def test_hrid_sequences_move_past_kept_hrids_as_the_app_role() -> None:

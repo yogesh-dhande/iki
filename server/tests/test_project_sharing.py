@@ -103,8 +103,11 @@ def test_entities_shared_before_stay_shared(world: World, cro: Project) -> None:
     cro.save()
 
     assert editor.get(f"/entities/{theirs['id']}").status_code == 200
+    # Registering it gives the project a record of its own (ADR 0115): the shared one stays
+    # the other project's.
     again = create(editor, world.project, {"sequence": "MKVSRC"}, "acme/protein.Protein")
-    assert again.status_code == 200 and again.json()["id"] == theirs["id"]
+    assert again.status_code == 201 and again.json()["id"] != theirs["id"]
+    assert again.json()["entry"]["id"] == theirs["entry"]["id"]
     ran = launch(editor, world.project, {"protein": theirs["id"]})
     assert ran.status_code == 201, ran.content
     # Taken out, it can't come back.

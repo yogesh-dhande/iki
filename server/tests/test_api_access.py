@@ -428,6 +428,36 @@ def editors(status: int) -> dict[str, int]:
     return readers(403, **dict.fromkeys(ENTITY_EDITORS, status))
 
 
+def registry(suffix: str = "", body: Any = None) -> Build:
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.org.models import Registry
+
+        return f"/registries/{Registry.default().pk}{suffix}", body
+
+    return build
+
+
+def entry(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Build:
+    """A registry entry (ADR 0115): the editor's DNA sequence's, which no one is a registrar
+    of. Its ID alone grants nothing: only those who read a record of it see it."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.entities.models import Entity
+
+        record = _entity(w)
+        found = Entity.objects.get(pk=record.entry_id)
+        headers = {"If-Match": f'"{found.revision}"'} if if_match else None
+        given = body(w, found) if callable(body) else body
+        return f"/entries/{found.pk}{suffix}", given, headers
+
+    return build
+
+
+def readers_of_entries(status: int, **overrides: int) -> dict[str, int]:
+    """Who reads the entry: those who read a record of it; the rest get 404."""
+    return readers(status, **overrides)
+
+
 PDB = b"HEADER    TEST\nEND\n"
 
 
@@ -1094,6 +1124,70 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver",
         delivery("/redeliver"),
         row(404, admin=202),
+    ),
+    # --- Registries (ADR 0115) ---
+    ("GET", "/registries", fixed("/registries"), row(200)),
+    (
+        "POST",
+        "/registries",
+        fixed("/registries", {"name": "Client A", "all_teams": True}),
+        row(403, org_admin=201),
+    ),
+    ("GET", "/registries/{registry_id}", registry(), row(200)),
+    (
+        "PATCH",
+        "/registries/{registry_id}",
+        registry(body={"description": "The organization's."}),
+        row(403, org_admin=200),
+    ),
+    ("GET", "/registries/{registry_id}/registrars", registry("/registrars"), row(200)),
+    (
+        "PUT",
+        "/registries/{registry_id}/registrars/{user_id}",
+        lambda w: (registry(f"/registrars/{w.users['viewer'].pk}")(w)[0], None),
+        row(403, org_admin=201),
+    ),
+    (
+        "DELETE",
+        "/registries/{registry_id}/registrars/{user_id}",
+        lambda w: (registry(f"/registrars/{w.users['viewer'].pk}")(w)[0], None),
+        row(403, org_admin=204),
+    ),
+    # Only its registrars list a registry's entries, and nobody here is one.
+    ("GET", "/registries/{registry_id}/entries", registry("/entries"), row(403)),
+    ("GET", "/entries/{ref}", entry(), readers_of_entries(200)),
+    (
+        "PATCH",
+        "/entries/{ref}",
+        entry(body={"values": {"accession": "L09137"}, "reason": "NCBI"}, if_match=True),
+        readers_of_entries(403),
+    ),
+    (
+        "POST",
+        "/entries/{ref}/supersede",
+        entry("/supersede", body=lambda w, e: {"replacement": e.hrid, "reason": "Mistyped"}),
+        readers_of_entries(403),
+    ),
+    ("GET", "/entries/{ref}/revisions", entry("/revisions"), readers_of_entries(200)),
+    (
+        "GET",
+        "/entries/{ref}/revisions/{number}",
+        entry("/revisions/1"),
+        readers_of_entries(200),
+    ),
+    (
+        "POST",
+        "/entries/{ref}/records",
+        entry("/records", body=lambda w, e: {"project": str(w.project.pk)}),
+        # The project has its record already: it's returned as it is.
+        readers_of_entries(403, **dict.fromkeys(ENTITY_EDITORS, 200)),
+    ),
+    (
+        "POST",
+        "/entities/{ref}/move",
+        entity("/move", {"reason": "Superseded"}),
+        # Its entry wasn't superseded, so there's nowhere to move it.
+        editors(409),
     ),
 ]
 

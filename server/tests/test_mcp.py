@@ -150,6 +150,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "search_entities",
         "lookup_entities",
         "get_entity",
+        "get_registry_entry",
         "get_entity_history",
         "get_lineage",
         "create_entity",
@@ -486,7 +487,11 @@ async def test_an_agent_drafts_and_places_apps_only_where_its_grant_reaches(
 def _created(hrid: str) -> Any:
     from iki_server.entities.models import Revision
 
-    return Revision.objects.select_related("agent").get(entity__hrid=hrid, number=1).agent
+    return (
+        Revision.objects.select_related("agent")
+        .get(entity__hrid=hrid, entity__owner_project__isnull=False, number=1)
+        .agent
+    )
 
 
 def _create(name: str, sequence: str, project: Project) -> dict[str, Any]:
@@ -580,7 +585,8 @@ async def test_agents_save_views_of_several_entities_each_at_a_revision(world: W
     )
     read = data(await tool(token, "get_entity", ref=made["hrid"]))
     values = read["entity"]["values"] if "entity" in read else read["values"]
-    assert values["targets"] == [first["id"], second["id"]]
+    # Each the protein's registry entry (ADR 0115), pinned at the project's record's revision.
+    assert values["targets"] == [first["entry"]["id"], second["entry"]["id"]]
     assert values["target_revisions"] == [first["revision"], 1]
     assert values["viewers"] == ["sequence", "sequence"]
     assert values["state"] == {"version": 2, "targets": [{"label": "kinase"}, {}]}

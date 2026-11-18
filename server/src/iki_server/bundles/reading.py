@@ -32,6 +32,7 @@ _LINES = {
     "people.ndjson": "person",
     "agents.ndjson": "agent",
     "files.ndjson": "file",
+    "entries.ndjson": "entry",
     "entities.ndjson": "entity",
     "outside.ndjson": "outside",
     "runs.ndjson": "run",

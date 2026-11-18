@@ -107,7 +107,9 @@ def test_an_agent_acts_for_the_person_who_delegated_to_it(world: World) -> None:
 
     # The change is the person's, through the agent, under the delegation.
     made = create(world, token)
-    revision = Revision.objects.select_related("agent").get(entity__hrid=made["hrid"])
+    revision = Revision.objects.select_related("agent").get(
+        entity__hrid=made["hrid"], entity__owner_project__isnull=False
+    )
     assert revision.user == world.users["editor"]
     assert revision.agent is not None
     assert (revision.agent.client_id, revision.agent.grant) == (

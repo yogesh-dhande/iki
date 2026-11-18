@@ -335,7 +335,9 @@ def test_a_reproduction_says_where_its_results_differ(world: World) -> None:
         {"pointer": "#/metrics/records", "original": 2, "reproduced": 3},
     ]
     # Nothing was imported.
-    assert Entity.objects.filter(type="acme/protein.Protein").count() == 2
+    assert (
+        Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count() == 2
+    )
 
 
 def test_a_reused_run_is_reproduced_as_the_run_it_reused(world: World) -> None:

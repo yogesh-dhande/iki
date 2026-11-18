@@ -204,7 +204,8 @@ describe("a view of several structures", () => {
       ["PST-000001", APO, FILE, "apo.cif"],
       ["PST-000002", HOLO, HOLO_FILE, "holo.cif"],
     ] as const) {
-      answer(`GET /api/v1/entities/${hrid}/revisions/1`, {
+      // By ID, as the view holds them.
+      answer(`GET /api/v1/entities/${id}/revisions/1`, {
         number: 1,
         kind: "created",
         values: { structure: file },
@@ -213,7 +214,7 @@ describe("a view of several structures", () => {
         files: files(file, name),
       });
       answer(
-        `GET /api/v1/entities/${hrid}`,
+        `GET /api/v1/entities/${id}`,
         entity({
           id,
           hrid,

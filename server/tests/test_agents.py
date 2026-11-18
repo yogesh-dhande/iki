@@ -62,7 +62,9 @@ def test_an_agents_change_names_the_person_and_the_agent(world: World) -> None:
     token = tokens["access_token"]
     made = create(world, token, **{"Iki-Agent-Model": "claude-opus-5-5\x00 "})
 
-    revision = Revision.objects.select_related("agent").get(entity__hrid=made["hrid"])
+    revision = Revision.objects.select_related("agent").get(
+        entity__hrid=made["hrid"], entity__owner_project__isnull=False
+    )
     assert revision.user == world.users["editor"]  # the person
     agent = revision.agent
     assert agent is not None
@@ -113,7 +115,12 @@ def test_changes_in_the_web_app_name_no_agent(world: World) -> None:
         },
     )
     assert made.status_code == 201, made.content
-    assert Revision.objects.get(entity__hrid=made.json()["hrid"]).agent is None
+    assert (
+        Revision.objects.get(
+            entity__hrid=made.json()["hrid"], entity__owner_project__isnull=False
+        ).agent
+        is None
+    )
     revisions = api.get(f"/entities/{made.json()['hrid']}/revisions").json()
     assert revisions["items"][0]["agent"] is None
 
@@ -131,7 +138,9 @@ def test_a_service_accounts_own_credential_has_no_grant(world: World) -> None:
         Authorization=basic(credential.client.client_id, credential.secret),
     ).json()
     made = create(world, tokens["access_token"])
-    agent = Revision.objects.get(entity__hrid=made["hrid"]).agent
+    agent = Revision.objects.get(
+        entity__hrid=made["hrid"], entity__owner_project__isnull=False
+    ).agent
     assert agent is not None
     assert (agent.client_id, agent.grant) == (credential.client.client_id, None)
 

@@ -177,7 +177,6 @@ function SaveView({
             },
           },
           reason: "",
-          allow_duplicate: false,
         },
       }),
     );
@@ -198,7 +197,8 @@ function SaveView({
     setPickError(undefined);
     if (!picked) return;
     try {
-      const found = await client.query(entityQuery(picked.hrid));
+      // By its ID: other projects' records of a registry entry have its HRID too.
+      const found = await client.query(entityQuery(picked.id));
       const type = (types.data ?? []).find((t) => t.name === found.type);
       const viewers = type?.viewers ?? [];
       const choice = viewers.find((v) => v.viewer === viewer.viewer) ?? viewers[0];

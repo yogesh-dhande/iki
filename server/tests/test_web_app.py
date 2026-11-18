@@ -56,6 +56,7 @@ SAMPLES = {
     "webhookId": "01a1c452-a14b-7195-acd0-4b6ba266a652",
     "draft": "01a1c452-a14b-7195-acd0-4b6ba266a653",
     "importId": "01a1c452-a14b-7195-acd0-4b6ba266a654",
+    "registryId": "01a1c452-a14b-7195-acd0-4b6ba266a655",
     # A splat, `$`, takes the rest of the path: a name with its `/`, as a type's or a
     # component's has (ADR 0113).
     "": "acme/protein.Protein",
