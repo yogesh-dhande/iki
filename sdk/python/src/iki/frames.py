@@ -57,6 +57,9 @@ def _readable(value: Any, refs: Mapping[str, Any]) -> Any:  # noqa: ANN401 - a v
         return refs[value].get("hrid", value)
     if isinstance(value, list):
         return [_readable(v, refs) for v in value]
+    if isinstance(value, Mapping):
+        # A list's row (ADR 0137): its references by their HRIDs too.
+        return {k: _readable(v, refs) for k, v in value.items()}
     return value
 
 

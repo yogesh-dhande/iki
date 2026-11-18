@@ -266,7 +266,9 @@ def _list_model(plugin: str, owner: type[models.Model], f: Field) -> type[models
 
 
 def _is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in ("ref", "file", "person")
+    from iki_server.entities.values import is_list_table
+
+    return is_list_table(f)
 
 
 def _column(model: type[models.Model], name: str) -> str:
@@ -371,6 +373,14 @@ def _comments() -> list[sql.Composable]:
                         f"Items of {table}.{f.name}, one row each, in order of position. {text}",
                     )
                 )
+                if f.is_rows:
+                    assert f.items is not None  # noqa: S101 - lists have items
+                    out.extend(
+                        _comment_on_column(
+                            items._meta.db_table, _column(items, n), field_comment(cell)
+                        )
+                        for n, cell in f.items.fields.items()
+                    )
             else:
                 out.append(_comment_on_column(table, _column(model, f.name), text))
     return out
@@ -453,7 +463,20 @@ def _view(t: EntityType) -> tuple[str, sql.Composable, list[sql.Composable]]:
         for f in fields.values():
             if f.removed:
                 continue
-            if _is_list_table(f):
+            if f.is_rows:
+                # Each row an object of its fields (ADR 0137); its table has a column each.
+                assert f.items is not None  # noqa: S101 - lists have items
+                items = _list_model(plugin, model, f)
+                pairs = sql.SQL(", ").join(
+                    sql.SQL("{}, l.{}").format(sql.Literal(n), sql.Identifier(_column(items, n)))
+                    for n in f.items.fields
+                )
+                column = sql.SQL(
+                    "COALESCE((SELECT jsonb_agg(jsonb_build_object({}) ORDER BY l.position) "
+                    "FROM {} l WHERE l.entity_id = {}), '[]'::jsonb) AS {}"
+                ).format(pairs, sql.Identifier(items._meta.db_table), on, sql.Identifier(f.name))
+                label = f.name
+            elif _is_list_table(f):
                 items = _list_model(plugin, model, f)
                 column = sql.SQL(
                     "ARRAY(SELECT l.item_id FROM {} l WHERE l.entity_id = {} "

@@ -150,6 +150,19 @@ class Field:
     initial: str | None = None
     #: A removed state field's: where its records' states go (ADR 0125).
     moved_to: StateMove | None = None
+    #: A list's item that's a row (``type: row``, ADR 0137): its fields, in order.
+    fields: dict[str, Field] = field(default_factory=dict)
+    #: A row's fields that tell two rows apart in its type's identity (ADR 0138); all of
+    #: them when empty.
+    identity: tuple[str, ...] = ()
+    #: A row's enum field whose value is its role, and what each role takes.
+    by: str | None = None
+    roles: dict[str, RowRole] = field(default_factory=dict)
+
+    @property
+    def is_rows(self) -> bool:
+        """Whether it's a list of rows (ADR 0137)."""
+        return self.type == "list" and self.items is not None and self.items.type == "row"
 
     @property
     def live_states(self) -> tuple[str, ...]:
@@ -222,6 +235,24 @@ class Field:
             )
             if isinstance(moved, dict) and isinstance(moved.get("field"), str)
             else None,
+            fields={
+                n: cls.from_manifest(n, cell, plugin=plugin)
+                for n, cell in (data.get("fields") or {}).items()
+                if isinstance(cell, dict)
+            }
+            if data.get("type") == "row"
+            else {},
+            identity=tuple(data.get("identity") or ())
+            if data.get("type") == "row" and isinstance(data.get("identity"), list)
+            else (),
+            by=data.get("by") if data.get("type") == "row" else None,
+            roles={
+                n: RowRole.from_manifest(n, r, plugin=plugin)
+                for n, r in (data.get("roles") or {}).items()
+                if isinstance(r, dict)
+            }
+            if data.get("type") == "row"
+            else {},
         )
 
 
@@ -480,6 +511,38 @@ class Rule:
             else (),
             fields=tuple(data.get("fields") or ()),
             extension=extension,
+        )
+
+
+@dataclass(frozen=True)
+class RowRole:
+    """What a list's rows of one role take (ADR 0137): how many, and for each of the row's
+    references, the types a row with this role may refer to."""
+
+    name: str
+    label: str = ""
+    min: int | None = None
+    max: int | None = None
+    #: A reference of the row's → the types, qualified, it may refer to in this role.
+    to: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    @classmethod
+    def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> RowRole:
+        to = data.get("to") or {}
+        return cls(
+            name=name,
+            label=data.get("label") or name.replace("_", " ").capitalize(),
+            min=data.get("min"),
+            max=data.get("max"),
+            to={
+                cell: (qualify(t, plugin),)
+                if isinstance(t, str)
+                else tuple(qualify(x, plugin) for x in t if isinstance(x, str))
+                for cell, t in to.items()
+                if isinstance(t, str | list)
+            }
+            if isinstance(to, dict)
+            else {},
         )
 
 
@@ -1297,6 +1360,7 @@ def parse_duration(text: str) -> int:
 
 _DATACLASSES = (
     Field,
+    RowRole,
     State,
     Signature,
     Guard,
@@ -1610,6 +1674,14 @@ def _field(data: dict[str, Any]) -> Field:
             )
             if moved
             else None,
+            # Plugins built before rows (ADR 0137) have none.
+            "fields": {n: _field(c) for n, c in (data.get("fields") or {}).items()},
+            "identity": tuple(data.get("identity") or ()),
+            "by": data.get("by"),
+            "roles": {
+                n: RowRole(**{**r, "to": {c: tuple(t) for c, t in (r.get("to") or {}).items()}})
+                for n, r in (data.get("roles") or {}).items()
+            },
         }
     )
 

@@ -784,17 +784,178 @@
       ]
     },
     "item": {
-      "description": "A list item: a value type and its options, without the field's flags.",
+      "description": "A list item: a value type and its options, without the field's flags; or a row of typed fields (`type: row`, ADR 0137).",
+      "type": "object",
+      "required": ["type"],
+      "if": {
+        "properties": {
+          "type": {
+            "const": "row"
+          }
+        },
+        "required": ["type"]
+      },
+      "then": {
+        "$ref": "#/$defs/row"
+      },
+      "else": {
+        "$ref": "#/$defs/typed",
+        "properties": {
+          "type": {
+            "not": {
+              "enum": ["list", "json"]
+            }
+          }
+        },
+        "unevaluatedProperties": false
+      }
+    },
+    "row": {
+      "description": "A list's item that's a row of typed fields (ADR 0137), such as a complex's component: its part, its copies, its chain and its role. Rows can say per role what each may refer to and how many rows each role takes.",
+      "type": "object",
+      "required": ["type", "fields"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "row"
+        },
+        "fields": {
+          "description": "Each row's fields, by name, in the order they're shown.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 30,
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/cell"
+          }
+        },
+        "identity": {
+          "description": "For a list that's part of its type's identity (ADR 0138): the row fields that tell two rows apart, all of them if it's left out. A chain's label, say, can be left out, so two complexes of the same parts are one whatever their chains are called.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/fieldName"
+          }
+        },
+        "by": {
+          "description": "The row field, an enum, whose value is each row's role, which `roles` says more of.",
+          "$ref": "#/$defs/fieldName"
+        },
+        "roles": {
+          "description": "Per role (a value of `by`): how many rows take it, and what their references may refer to. A role it doesn't name takes any number of rows, and refers to what its fields do. Anything subtler is a rule's.",
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 100,
+          "propertyNames": {
+            "$ref": "#/$defs/enumValue"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/rowRole"
+          }
+        }
+      },
+      "dependentRequired": {
+        "roles": ["by"],
+        "by": ["roles"]
+      }
+    },
+    "cell": {
+      "description": "One of a row's fields: a value type and its options, with a label, a description, whether it's required, and a default.",
       "type": "object",
       "$ref": "#/$defs/typed",
       "properties": {
         "type": {
           "not": {
-            "enum": ["list", "json"]
+            "enum": ["list", "json", "state"]
           }
+        },
+        "label": {
+          "$ref": "#/$defs/label"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Every row must have a value."
+        },
+        "default": {
+          "description": "The value a new row gets when none is given."
         }
       },
+      "propertyNames": {
+        "enum": [
+          "type",
+          "label",
+          "description",
+          "required",
+          "default",
+          "format",
+          "pattern",
+          "min_length",
+          "max_length",
+          "min",
+          "max",
+          "values",
+          "unit",
+          "display_unit",
+          "media_types",
+          "max_size",
+          "to",
+          "role"
+        ]
+      },
       "unevaluatedProperties": false
+    },
+    "rowRole": {
+      "description": "What rows of one role take.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "$ref": "#/$defs/label"
+        },
+        "min": {
+          "description": "The fewest rows with this role: 2 heavy chains, say. 0 if it's left out.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "max": {
+          "description": "The most rows with this role. 0 forbids it.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "to": {
+          "description": "For each of the row's references, by name: the types a row with this role may refer to, among those the field names.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/typeRef"
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 20,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/typeRef"
+                }
+              }
+            ]
+          }
+        }
+      }
     },
     "state": {
       "description": "One of a state field's states (ADR 0125).",

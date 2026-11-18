@@ -140,6 +140,10 @@ export function fieldKind(field: FieldDef, types: EntityType[]): string {
         return type;
     }
   };
+  if (field.type === "list" && field.items === "row") {
+    // A list of rows (ADR 0137): each row's fields.
+    return `List of rows, each with: ${(field.row?.fields ?? []).map((c) => c.label).join(", ")}`;
+  }
   if (field.type === "list") return `List of: ${kind(field.items ?? "")}`;
   return kind(field.type);
 }

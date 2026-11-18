@@ -9,7 +9,8 @@ For each entity type:
   type ever had (removed fields included) and no constraints or foreign keys,
   so history survives whatever happens to what it pointed to;
 - a table per list of references, files or people, one row per item, so each
-  item has a real foreign key. Other lists are arrays.
+  item has a real foreign key; and per list of rows (ADR 0137), a column per row
+  field, each with its foreign key and checks. Other lists are arrays.
 
 A field naming a person (ADR 0122) is a foreign key to ``iki_user``, which never
 loses a row: people are deactivated, never deleted, so a record keeps whoever it
@@ -368,9 +369,15 @@ def _list_model(
                 ),
             ),
             ("position", _call("models.PositiveIntegerField")),
-            ("item", _column(f.items, plugin, types, required=True)),
         ],
     )
+    if f.items.type == "row":
+        # A row's fields are columns, checked as a type's are (ADR 0137).
+        for cell in f.items.fields.values():
+            model.fields.append((cell.name, _column(cell, plugin, types)))
+            model.constraints.extend(_checks(table, cell))
+    else:
+        model.fields.append(("item", _column(f.items, plugin, types, required=True)))
     if f.max_items is not None:
         model.constraints.append(
             _check(
@@ -385,7 +392,11 @@ def _list_model(
 
 
 def _is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in ("ref", "file", "person")
+    return f.type == "list" and f.items is not None and f.items.type in LIST_TABLES
+
+
+#: Lists of these get a table of their own.
+LIST_TABLES = ("ref", "file", "person", "row")
 
 
 def _column(
@@ -523,6 +534,9 @@ def _indexes(table: str, f: Field) -> list[str]:
 def _history_column(f: Field) -> str:
     """History columns take any value the field ever allowed: wide types, no checks, no FKs."""
     options: dict[str, Any] = {"null": True}
+    if f.is_rows:
+        # Each row an object of its fields' values, as the API gives them (ADR 0137).
+        return _call("models.JSONField", **options)
     if f.type == "list":
         assert f.items is not None  # noqa: S101 - lists have items
         return _call("ArrayField", _raw(_history_type(f.items)), **options)

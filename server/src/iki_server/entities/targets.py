@@ -90,6 +90,12 @@ def tables(
                 if types is not None:
                     table = list_model(plugin, model, f.name)._meta.db_table
                     out.setdefault(table, []).append(("item_id", _literal(types)))
+            elif f.is_rows and f.items is not None:
+                # A list of rows' references (ADR 0137), each in its own column.
+                table = list_model(plugin, model, f.name)._meta.db_table
+                for name, cell in f.items.fields.items():
+                    if cell.type == "ref" and (types := allowed(cell)) is not None:
+                        out.setdefault(table, []).append((f"{name}_id", _literal(types)))
     return [Table(name, tuple(columns)) for name, columns in sorted(out.items())]
 
 

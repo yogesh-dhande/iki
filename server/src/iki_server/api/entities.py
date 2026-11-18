@@ -205,6 +205,27 @@ class StateOut(Schema):
     )
 
 
+class RowRoleOut(Schema):
+    name: str = Field(description="The role: one of the row's `by` field's values.")
+    label: str
+    min: int | None = Field(description="The fewest rows with this role, or null for none.")
+    max: int | None = Field(description="The most rows with this role, or null for any.")
+    to: dict[str, list[str]] = Field(
+        description="For each of the row's references, by name: the types a row with this "
+        "role may refer to, each with its subtypes."
+    )
+
+
+class RowOut(Schema):
+    fields: list["FieldOut"] = Field(description="Each row's fields, in order.")
+    identity: list[str] = Field(
+        description="For a list in its type's identity (ADR 0138): the row fields that tell "
+        "two rows apart. Empty: all of them."
+    )
+    by: str | None = Field(description="The row field, an enum, that holds each row's role.")
+    roles: list[RowRoleOut] = Field(description="What each role's rows take, in order.")
+
+
 class FieldOut(Schema):
     name: str
     label: str
@@ -274,6 +295,14 @@ class FieldOut(Schema):
         "identity, derived from it, or a fact its registrars curate. A fact is set while it's "
         "empty; after that only a registrar changes it. Null: each project's own.",
     )
+    row: RowOut | None = Field(
+        None,
+        description="A list of rows (`items` is `row`, ADR 0137): each row's fields, and what "
+        "each role takes. Its value is a list of objects, one per row. Null otherwise.",
+    )
+
+
+RowOut.model_rebuild()
 
 
 class TrackOut(Schema):
@@ -958,6 +987,25 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "states": [_state_out(st) for st in f.states.values() if not st.removed]
         if f.type == "state"
         else [],
+        "row": _row_out(f.items, plugin) if f.is_rows and f.items is not None else None,
+    }
+
+
+def _row_out(row: SpecField, plugin: str) -> dict[str, Any]:
+    return {
+        "fields": [field_out(n, cell, plugin) for n, cell in row.fields.items()],
+        "identity": list(row.identity),
+        "by": row.by,
+        "roles": [
+            {
+                "name": r.name,
+                "label": r.label,
+                "min": r.min,
+                "max": r.max,
+                "to": {c: list(t) for c, t in r.to.items()},
+            }
+            for r in row.roles.values()
+        ],
     }
 
 
@@ -1527,6 +1575,14 @@ def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any
     found: dict[str, set[Any]] = {"ref": set(), "file": set(), "person": set()}
     for name, value in values.items():
         f = fields[name]
+        if f.is_rows and f.items is not None and value:
+            # A list of rows' references, files and people (ADR 0137).
+            for cell_name, cell in f.items.fields.items():
+                if cell.type in found:
+                    found[cell.type].update(
+                        r[cell_name] for r in value if r.get(cell_name) is not None
+                    )
+            continue
         kind = f.items.type if f.type == "list" and f.items is not None else f.type
         if kind in found and value is not None:
             found[kind].update(value if isinstance(value, list) else [value])

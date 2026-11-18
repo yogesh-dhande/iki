@@ -512,6 +512,39 @@ def test_the_people_a_record_names_come_with_it(world: World, tmp_path: Path) ->
     assert [s["field"] for s in here["needs_reassigning"]] == ["helpers"]
 
 
+def test_rows_come_with_what_they_refer_to(world: World, tmp_path: Path) -> None:
+    """ADR 0137: a list of rows travels with each row's fields, and what they refer to."""
+    admin = world.users["admin"]
+
+    def made() -> list[Any]:
+        heavy = protein(world, "MKVHEAVY")
+        light = protein(world, "MKVLIGHT")
+        rows = [
+            {"part": str(heavy.pk), "role": "heavy", "chain": "H"},
+            {"part": str(heavy.pk), "role": "heavy", "chain": "H2"},
+            {"part": str(light.pk), "role": "light", "copies": 2},
+        ]
+        bispecific = services.create(
+            admin, "acme/protein.Bispecific", world.project, {"name": "BS-1", "components": rows}
+        ).entity
+        return [Entity.objects.get(pk=bispecific.pk)]
+
+    path = bundle_of(world, tmp_path, made)
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "applied", done
+    here = {e["type"]: e for e in entities_of(api, done)}
+    found = api.get(f"/entities/{here['acme/protein.Bispecific']['hrid_here']}").json()
+    rows = found["values"]["components"]
+    assert [(r["role"], r["chain"], r["copies"]) for r in rows] == [
+        ("heavy", "H", 1),
+        ("heavy", "H2", 1),
+        ("light", None, 2),
+    ]
+    named = [found["refs"][r["part"]]["title"] for r in rows]
+    assert len(set(named)) == 2
+
+
 def test_a_view_comes_with_the_entities_it_shows_each_at_its_revision(
     world: World, tmp_path: Path
 ) -> None:

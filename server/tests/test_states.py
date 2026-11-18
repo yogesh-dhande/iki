@@ -622,3 +622,28 @@ def test_who_may_set_a_state(world: World, field: str) -> None:
         )
         assert answer.status_code in (403, 409), (principal, answer.status_code)
     assert Revision.objects.filter(entity_id=theirs["id"]).count() == 1
+
+
+def test_an_import_writes_lists_of_rows_and_points_at_a_wrong_one(world: World, s3: Any) -> None:
+    """ADR 0137: a bulk import writes each row's fields to their columns and the history,
+    and a row that doesn't fit is named where it is."""
+    from test_runs import protein
+
+    abl1 = protein(api_as(world), world.project)
+    rows = [
+        {"material": abl1["id"], "amount": {"value": 2, "unit": "mg"}, "added_on": "2026-11-01"},
+        {"material": abl1["id"], "note": "Again"},
+    ]
+    done_ = imported_values(world, {"label": "S-1", "additions": rows})
+    assert done_["status"] == "succeeded", done_.get("error")
+    one = Entity.objects.get(type=SAMPLE)
+    found = api_as(world).get(f"/entities/{one.hrid}").json()["values"]["additions"]
+    assert [(r["amount"], r["added_on"], r["note"]) for r in found] == [
+        (2000.0, "2026-11-01", None),
+        (None, None, "Again"),
+    ]
+    first = api_as(world).get(f"/entities/{one.hrid}/revisions/1").json()["values"]
+    assert first["additions"] == found
+    wrong = imported_values(world, {"label": "S-2", "additions": [{"note": "No material"}]})
+    assert wrong["status"] == "failed", wrong
+    assert "additions/0/material" in str(wrong["error"]), wrong["error"]

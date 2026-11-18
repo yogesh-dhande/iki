@@ -102,6 +102,9 @@ MAX_INDEXED_LENGTH = 600
 MAX_FILE_SIZE = 5 * 1024**4
 
 # Columns and attributes every entity table or model already has.
+#: A row's table's own columns (ADR 0137), which its fields can't be named.
+ROW_COLUMNS = frozenset({"entity", "entity_id", "position", "pk", "id"})
+
 RESERVED_FIELD_NAMES = frozenset(
     {
         "id",
@@ -2266,7 +2269,10 @@ class _Semantics:
                     source,
                     (*path, "schema", *error.path),
                 )
-        if f.type == "list" and f.items is not None:
+        if f.is_rows:
+            assert f.items is not None  # noqa: S101 - lists have items
+            self.rows(f.items, source, (*path, "items"))
+        elif f.type == "list" and f.items is not None:
             if f.items.type == "state":
                 self.add(
                     "state-field-in-list",
@@ -2278,6 +2284,99 @@ class _Semantics:
         if f.has_default:
             for message in value_problems(f, f.default):
                 self.add("invalid-default", f"The default {message}", source, (*path, "default"))
+
+    def rows(self, row: Field, source: Document, path: Path) -> None:
+        """A list's rows (ADR 0137): each of their fields as a field, the one naming each
+        row's role an enum, and each role's counts and references within the fields'."""
+        for name, cell in row.fields.items():
+            at = (*path, "fields", name)
+            if name in ROW_COLUMNS:
+                self.add(
+                    "reserved-name",
+                    f"`{name}` is reserved in a row: each row's table has it already.",
+                    source,
+                    at,
+                    key=True,
+                    hint="Choose a more specific name.",
+                )
+            self.field(cell, source, at, siblings=row.fields)
+        for name in row.identity:
+            if name not in row.fields:
+                self.add(
+                    "unknown-row-field",
+                    f"The row has no field `{name}`.",
+                    source,
+                    (*path, "identity", row.identity.index(name)),
+                    hint=f"Its fields are: {', '.join(row.fields)}.",
+                )
+        if row.by is None:
+            return
+        by = row.fields.get(row.by)
+        if by is None or by.type != "enum":
+            self.add(
+                "row-role-not-enum",
+                f"`by` names the row's field that holds its role, an enum, and `{row.by}` "
+                + ("isn't one of its fields." if by is None else f"is a {by.type} field."),
+                source,
+                (*path, "by"),
+                hint="Add an enum field, such as `role: { type: enum, values: [heavy, light] }`.",
+            )
+            return
+        if not by.required:
+            self.add(
+                "row-role-optional",
+                f"Every row has a role, so `{row.by}` must be required.",
+                source,
+                (*path, "fields", row.by, "required"),
+                hint="Add `required: true`.",
+            )
+        for name, role in row.roles.items():
+            at = (*path, "roles", name)
+            if name not in by.values:
+                self.add(
+                    "unknown-row-role",
+                    f"`{name}` isn't one of `{row.by}`'s values.",
+                    source,
+                    at,
+                    key=True,
+                    hint=f"Its values are: {', '.join(by.values)}.",
+                )
+            if role.min is not None and role.max is not None and role.min > role.max:
+                self.add(
+                    "min-above-max",
+                    f"`min` ({role.min}) is more than `max` ({role.max}).",
+                    source,
+                    (*at, "min"),
+                )
+            for cell_name, types in role.to.items():
+                ref = row.fields.get(cell_name)
+                if ref is None or ref.type != "ref":
+                    self.add(
+                        "row-role-not-reference",
+                        f"A role says what a row's references may refer to, and "
+                        f"`{cell_name}` "
+                        + ("isn't one of its fields." if ref is None else "isn't a reference."),
+                        source,
+                        (*at, "to", cell_name),
+                        key=True,
+                    )
+                    continue
+                for index, target in enumerate(types):
+                    where = (*at, "to", cell_name, *((index,) if len(types) > 1 else ()))
+                    named = self.reference(target, source, where)
+                    if named is None or naming.ENTITY in ref.to:
+                        continue
+                    lineage = {named.qualified_name} | {
+                        a.qualified_name for a in self.ancestors(named)
+                    }
+                    if not lineage & set(ref.to):
+                        self.add(
+                            "row-role-type-not-allowed",
+                            f"`{target}` isn't one of the types `{cell_name}` refers to "
+                            f"({', '.join(ref.to)}), or one of their subtypes.",
+                            source,
+                            where,
+                        )
 
     def targets(self, f: Field, source: Document, path: Path) -> None:
         """A reference's types (ADR 0136): each one the plugin can name, and none of them
@@ -2560,6 +2659,17 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
         return (
             [] if isinstance(value, str) and _is_date(value) else ["must be a date (YYYY-MM-DD)."]
         )
+    if kind == "row":
+        if not isinstance(value, dict):
+            return ["must be an object of the row's fields."]
+        problems = [f"has no field `{k}`." for k in value if k not in f.fields]
+        for name, cell in f.fields.items():
+            if value.get(name) is None:
+                if cell.required and not cell.has_default:
+                    problems.append(f"needs `{name}`.")
+                continue
+            problems.extend(f"`{name}` {m}" for m in value_problems(cell, value[name]))
+        return problems
     if kind == "list":
         if not isinstance(value, list):
             return ["must be a list."]
@@ -2576,11 +2686,11 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
 
 
 def _list_tables(fields: dict[str, Field]) -> list[Field]:
-    """Lists of references and files, which get a table of their own."""
+    """Lists of references, files, people and rows, which get a table of their own."""
     return [
         f
         for f in fields.values()
-        if f.type == "list" and f.items and f.items.type in ("ref", "file", "person")
+        if f.type == "list" and f.items and f.items.type in ("ref", "file", "person", "row")
     ]
 
 

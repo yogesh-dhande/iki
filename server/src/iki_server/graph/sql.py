@@ -223,3 +223,40 @@ DROP_REFS = """
 DROP FUNCTION IF EXISTS iki_graph_refs() CASCADE;
 DROP FUNCTION IF EXISTS iki_graph_items() CASCADE;
 """
+
+# A list of rows' references (ADR 0137): each pair of arguments a column of the rows'
+# table and its field (``components.part``), an edge per row and column, found by where
+# it's held: the column and the row's position.
+ROWS = """
+CREATE OR REPLACE FUNCTION iki_graph_rows() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+    i integer := 0;
+    col text;
+    src text;
+BEGIN
+    WHILE i < TG_NARGS LOOP
+        col := TG_ARGV[i];
+        src := TG_TABLE_NAME || '.' || col;
+        IF TG_OP IN ('DELETE', 'UPDATE') THEN
+            EXECUTE format(
+                'DELETE FROM %1$I.iki_graph_edge g USING removed o '
+                'WHERE g.kind = ''reference'' AND g.source = $1 AND g.node_id = o.entity_id '
+                'AND g.position = o.position',
+                TG_TABLE_SCHEMA) USING src;
+        END IF;
+        IF TG_OP IN ('INSERT', 'UPDATE') THEN
+            EXECUTE format(
+                'INSERT INTO %1$I.iki_graph_edge (node_id, on_id, kind, field, source, position) '
+                'SELECT n.entity_id, n.%2$I, ''reference'', $2, $1, n.position FROM added n '
+                'WHERE n.%2$I IS NOT NULL AND n.%2$I <> n.entity_id',
+                TG_TABLE_SCHEMA, col) USING src, TG_ARGV[i + 1];
+        END IF;
+        i := i + 2;
+    END LOOP;
+    RETURN NULL;
+END
+$$;
+"""
+
+DROP_ROWS = "DROP FUNCTION IF EXISTS iki_graph_rows() CASCADE;"

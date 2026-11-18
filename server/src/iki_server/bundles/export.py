@@ -366,6 +366,13 @@ def _entry_refs(entry: Entity, found: _Found) -> list[uuid.UUID]:
     refs: list[uuid.UUID] = []
     for name, value in _entry_values(entry).items():
         f = fields[name]
+        if f.is_rows:
+            for cell, values in _cells(f, value, ("ref", "file")):
+                if cell.type == "file":
+                    found.files |= _uuids(values)
+                else:
+                    refs.extend(_uuids(values))
+            continue
         kind = f.items.type if f.type == "list" and f.items is not None else f.type
         if kind == "file":
             found.files |= _uuids(value)
@@ -429,10 +436,21 @@ def _history(form: Shape, entity: uuid.UUID) -> list[tuple[Part, dict[str, Any]]
 
 
 def _of(part: Part, row: dict[str, Any]) -> Iterator[tuple[Field, Any]]:
-    """Each ref or file field of a history row, with its value."""
+    """Each ref or file field of a history row, with its value; a list of rows' (ADR 0137)
+    as each such row field with its values in every row."""
     for name, f in part.fields.items():
         if f.type in ("ref", "file") or (f.items is not None and f.items.type in ("ref", "file")):
             yield f, row.get(name)
+        elif f.is_rows:
+            yield from _cells(f, row.get(name), ("ref", "file"))
+
+
+def _cells(f: Field, rows: Any, kinds: tuple[str, ...]) -> Iterator[tuple[Field, Any]]:  # noqa: ANN401 - JSON
+    """A list of rows' fields of these kinds, each with its values in every row."""
+    assert f.items is not None  # noqa: S101 - lists have items
+    for name, cell in f.items.fields.items():
+        if cell.type in kinds:
+            yield cell, [r.get(name) for r in rows or () if isinstance(r, dict)]
 
 
 def _named(part: Part, row: dict[str, Any]) -> Iterator[tuple[Field, Any]]:
@@ -440,6 +458,8 @@ def _named(part: Part, row: dict[str, Any]) -> Iterator[tuple[Field, Any]]:
     for name, f in part.fields.items():
         if names_people(f):
             yield f, row.get(name)
+        elif f.is_rows:
+            yield from _cells(f, row.get(name), ("person",))
 
 
 def _uuids(value: Any) -> set[uuid.UUID]:  # noqa: ANN401 - a column's value
@@ -496,6 +516,9 @@ def _json(value: Any) -> Any:  # noqa: ANN401 - a column's value
         return value.isoformat()
     if isinstance(value, list):
         return [_json(v) for v in value]
+    if isinstance(value, dict):
+        # A list's row (ADR 0137).
+        return {k: _json(v) for k, v in value.items()}
     return value
 
 

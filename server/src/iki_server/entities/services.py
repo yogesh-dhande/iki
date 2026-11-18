@@ -73,9 +73,13 @@ from iki_server.entities.values import (
     Part,
     Refs,
     Shape,
+    history_value,
+    problems_of,
     read_value,
+    row_columns,
     shape,
     to_db,
+    to_history,
 )
 from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
@@ -625,7 +629,7 @@ def prepare(
             try:
                 given[name] = to_db(f, value, refs)
             except ValueError as error:
-                errors[name] = [str(error)]
+                errors.update(problems_of(name, error))
     for name, f in fields.items():
         if name in kept:
             continue
@@ -633,7 +637,7 @@ def prepare(
             given[name] = f.initial  # Where new records start (ADR 0125).
         elif name not in values and f.has_default and not f.computed:
             given[name] = to_db(f, f.default, refs)
-        if f.required and given.get(name) is None and name not in errors:
+        if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
     if not errors:
         errors = requests.check_result(project, type_name, given)
@@ -650,6 +654,11 @@ def prepare(
     ]
     holding = checking.raise_broken(found, hold_reason=hold_reason)
     return form, given, holding
+
+
+def _wrong(errors: Mapping[str, list[str]], name: str) -> bool:
+    """Whether ``errors`` say what's wrong with a field, or with one of its rows' (ADR 0137)."""
+    return name in errors or any(k.startswith(f"{name}/") for k in errors)
 
 
 def identity_lock(entity_type: EntityType, registry_id: Any, *, shared: bool) -> None:  # noqa: ANN401 - a UUID
@@ -766,7 +775,7 @@ def update(
                 try:
                     converted = to_db(f, value, refs)
                 except ValueError as error:
-                    errors[name] = [str(error)]
+                    errors.update(problems_of(name, error))
                     continue
                 if converted == current:
                     continue
@@ -786,7 +795,7 @@ def update(
                 with using.namer.keeping(_named_in(f, current)):
                     converted = to_db(f, value, using)
             except ValueError as error:
-                errors[name] = [str(error)]
+                errors.update(problems_of(name, error))
                 continue
             if converted == current:
                 continue
@@ -876,7 +885,12 @@ def update(
 
 
 def _named_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value
-    """Whom a field naming people names now: they may stay named."""
+    """Whom a field naming people names now, or a list of rows' people (ADR 0137): they
+    may stay named."""
+    if f.is_rows and current:
+        assert f.items is not None  # noqa: S101 - lists have items
+        people = [n for n, cell in f.items.fields.items() if cell.type == "person"]
+        return {row[n] for row in current for n in people if row.get(n) is not None}
     if not names_people(f) or current is None:
         return set()
     return set(current) if isinstance(current, list) else {current}
@@ -1089,10 +1103,16 @@ def current_values_of(entities: Sequence[Entity]) -> dict[Any, dict[str, Any]]:
                 if _is_list(f) and not f.removed:
                     items: dict[Any, list[Any]] = defaultdict(list)
                     rows = part.list_model(name)._default_manager.filter(entity_id__in=ids)
-                    for entity_id, item in rows.order_by("entity_id", "position").values_list(
-                        "entity_id", "item_id"
-                    ):
-                        items[entity_id].append(item)
+                    rows = rows.order_by("entity_id", "position")
+                    if f.is_rows:
+                        columns = row_columns(f)
+                        for found in rows.values("entity_id", *columns.values()):
+                            items[found["entity_id"]].append(
+                                {n: found[c] for n, c in columns.items()}
+                            )
+                    else:
+                        for entity_id, item in rows.values_list("entity_id", "item_id"):
+                            items[entity_id].append(item)
                     lists[name] = items
         for entity in of_type:
             values: dict[str, Any] = {}
@@ -1180,7 +1200,7 @@ def values_at(entity: Entity, number: int, entry_revision: int | None = None) ->
         )
         for name, f in part.fields.items():
             if not f.removed:
-                out[name] = getattr(row, name) if row is not None else None
+                out[name] = history_value(row, f) if row is not None else None
     return out
 
 
@@ -1265,6 +1285,10 @@ def _use_files(
             found.add(value)
         elif f.type == "list" and f.items is not None and f.items.type == "file":
             found.update(value)
+        elif f.is_rows:
+            assert f.items is not None  # noqa: S101 - lists have items
+            files = [n for n, cell in f.items.fields.items() if cell.type == "file"]
+            found.update(row[n] for row in value for n in files if row.get(n) is not None)
     if found:
         FileUse.objects.bulk_create(
             [FileUse(file_id=i, entity_id=entity_id, revision=revision) for i in sorted(found)],
@@ -1274,6 +1298,13 @@ def _use_files(
 
 def _write_list(part: Part, f: Field, entity_id: Any, items: list[Any]) -> None:  # noqa: ANN401
     model = part.list_model(f.name)
+    if f.is_rows:
+        columns = row_columns(f)
+        model._default_manager.bulk_create(
+            model(entity_id=entity_id, position=index, **{c: row[n] for n, c in columns.items()})
+            for index, row in enumerate(items)
+        )
+        return
     model._default_manager.bulk_create(
         model(entity_id=entity_id, position=index, item_id=item) for index, item in enumerate(items)
     )
@@ -1464,5 +1495,8 @@ def _write_history(touched: list[Part], rows: Rows, number: int) -> None:
     for part in touched:
         owner = rows.owner(part)
         assert owner is not None  # noqa: S101
-        data = {name: None if f.removed else rows.value(part, f) for name, f in part.fields.items()}
+        data = {
+            name: None if f.removed else to_history(f, rows.value(part, f))
+            for name, f in part.fields.items()
+        }
         part.history._default_manager.create(entity_id=owner.pk, revision=number, **data)

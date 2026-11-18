@@ -470,7 +470,11 @@ def test_a_record_is_watched_or_muted(fake: FakeIki, client: Client) -> None:
 
 def test_entities_make_a_dataframe_a_row_each(fake: FakeIki, client: Client) -> None:
     linked = entity(
-        "PRT-000002", name="SRC", length=536, parent="00000000-0000-7000-8000-000000000001"
+        "PRT-000002",
+        name="SRC",
+        length=536,
+        parent="00000000-0000-7000-8000-000000000001",
+        parts=[{"part": "00000000-0000-7000-8000-000000000001", "copies": 2}],
     )
     linked["refs"] = {"00000000-0000-7000-8000-000000000001": {"hrid": "PRT-000001"}}
     fake.on(
@@ -484,6 +488,8 @@ def test_entities_make_a_dataframe_a_row_each(fake: FakeIki, client: Client) -> 
     assert frame.loc["PRT-000002", "length"] == 536
     # References read as the HRIDs they refer to.
     assert frame.loc["PRT-000002", "parent"] == "PRT-000001"
+    # So do a list of rows' (ADR 0137).
+    assert frame.loc["PRT-000002", "parts"] == [{"part": "PRT-000001", "copies": 2}]
     # A field named like one of every entity's columns keeps both.
     assert frame.loc["PRT-000001", "type"] == "iki/protein.Protein"
     assert frame.loc["PRT-000001", "values.type"] == "kinase"

@@ -157,6 +157,7 @@ function Fields({
             setDraft(field.name, draft);
           }}
           error={errors[`values/${field.name}`]}
+          errors={errors}
           note={notes[field.name]}
           disabled={locked.has(field.name)}
           projectId={typeof projectId === "string" ? projectId : projectId(field)}

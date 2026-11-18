@@ -6731,6 +6731,8 @@ export interface components {
              * @description What people call that role.
              */
             role_label: string | null;
+            /** @description A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise. */
+            row?: components["schemas"]["RowOut"] | null;
             /**
              * States
              * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
@@ -9100,6 +9102,8 @@ export interface components {
              * @description What people call that role.
              */
             role_label: string | null;
+            /** @description A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise. */
+            row?: components["schemas"]["RowOut"] | null;
             /**
              * States
              * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
@@ -10487,6 +10491,56 @@ export interface components {
              * @enum {string}
              */
             role: "viewer" | "editor" | "runner" | "admin";
+        };
+        /** RowOut */
+        RowOut: {
+            /**
+             * By
+             * @description The row field, an enum, that holds each row's role.
+             */
+            by: string | null;
+            /**
+             * Fields
+             * @description Each row's fields, in order.
+             */
+            fields: components["schemas"]["FieldOut"][];
+            /**
+             * Identity
+             * @description For a list in its type's identity (ADR 0138): the row fields that tell two rows apart. Empty: all of them.
+             */
+            identity: string[];
+            /**
+             * Roles
+             * @description What each role's rows take, in order.
+             */
+            roles: components["schemas"]["RowRoleOut"][];
+        };
+        /** RowRoleOut */
+        RowRoleOut: {
+            /** Label */
+            label: string;
+            /**
+             * Max
+             * @description The most rows with this role, or null for any.
+             */
+            max: number | null;
+            /**
+             * Min
+             * @description The fewest rows with this role, or null for none.
+             */
+            min: number | null;
+            /**
+             * Name
+             * @description The role: one of the row's `by` field's values.
+             */
+            name: string;
+            /**
+             * To
+             * @description For each of the row's references, by name: the types a row with this role may refer to, each with its subtypes.
+             */
+            to: {
+                [key: string]: string[];
+            };
         };
         /**
          * RuleOut

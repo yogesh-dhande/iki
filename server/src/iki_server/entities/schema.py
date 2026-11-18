@@ -133,6 +133,15 @@ def _value(f: Field) -> dict[str, Any]:
         if f.max_size is not None:
             out["x-iki-max-size"] = f.max_size
         return out
+    if kind == "row":
+        # A list's row (ADR 0137): an object of its fields; roles are checked on save.
+        return {
+            "type": "object",
+            "properties": {n: field_schema(cell) for n, cell in f.fields.items()},
+            "required": [n for n, c in f.fields.items() if c.required and not c.has_default],
+            "additionalProperties": False,
+            **({"x-iki-role-field": f.by} if f.by else {}),
+        }
     if kind == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
         out = {"type": "array", "items": _value(f.items)}

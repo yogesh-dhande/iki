@@ -25,7 +25,12 @@ export interface QuantityDraft {
   other: string;
 }
 
-export type Draft = string | QuantityDraft | Picked | null | Draft[];
+/** A list's row (ADR 0137): each of its fields' drafts, by name. */
+export interface RowDraft {
+  cells: Record<string, Draft>;
+}
+
+export type Draft = string | QuantityDraft | Picked | RowDraft | null | Draft[];
 
 export const OTHER_UNIT = "__other";
 
@@ -43,6 +48,15 @@ export function formFields(type: EntityType): FieldDef[] {
 
 export function itemField(field: FieldDef): FieldDef {
   return { ...field, type: field.items ?? "string", required: false };
+}
+
+/** A list of rows' fields (ADR 0137), in order: none for other fields. */
+export function rowFields(field: FieldDef): FieldDef[] {
+  return field.row?.fields ?? [];
+}
+
+function isRow(draft: Draft): draft is RowDraft {
+  return draft !== null && typeof draft === "object" && "cells" in draft;
 }
 
 // --- JSON → draft -----------------------------------------------------------------
@@ -65,9 +79,31 @@ export function defaultUnit(field: FieldDef): string {
 
 export function emptyDraft(field: FieldDef): Draft {
   if (field.type === "list") return [];
+  if (field.type === "row") {
+    return { cells: Object.fromEntries(rowFields(field).map((c) => [c.name, emptyDraft(c)])) };
+  }
   if (field.type === "quantity") return { number: "", unit: defaultUnit(field), other: "" };
   if (field.type === "ref" || field.type === "file" || field.type === "person") return null;
   return "";
+}
+
+/** A new item's draft for a list: a row's fields start at their defaults (ADR 0137). */
+export function newItem(field: FieldDef, type: Schemaed): Draft {
+  const item = itemField(field);
+  if (item.type !== "row") return emptyDraft(item);
+  const properties = propertySchema(type, field.name).items?.properties ?? {};
+  const none = { refs: {}, files: {}, people: {} };
+  return {
+    cells: Object.fromEntries(
+      rowFields(field).map((c) => {
+        const given = properties[c.name]?.default;
+        return [
+          c.name,
+          given === undefined || given === null ? emptyDraft(c) : toDraft(c, given, none),
+        ];
+      }),
+    ),
+  };
 }
 
 /** A field's draft from its default, for a new entity. */
@@ -87,6 +123,14 @@ export function toDraft(
   if (field.type === "list") {
     const item = itemField(field);
     return (value as unknown[]).map((v) => toDraft(item, v, entity));
+  }
+  if (field.type === "row") {
+    const row = value as Record<string, unknown>;
+    return {
+      cells: Object.fromEntries(
+        rowFields(field).map((c) => [c.name, toDraft(c, row[c.name] ?? null, entity)]),
+      ),
+    };
   }
   switch (field.type) {
     case "quantity": {
@@ -136,6 +180,7 @@ interface PropertySchema {
   minItems?: number;
   maxItems?: number;
   items?: PropertySchema;
+  properties?: Record<string, PropertySchema>;
   "x-iki-format"?: string;
   "x-iki-media-types"?: string[];
   "x-iki-max-size"?: number;
@@ -220,6 +265,9 @@ const fail = (error: string): Encoded => ({ ok: false, error });
 export function isBlank(field: FieldDef, draft: Draft): boolean {
   if (draft === null) return true;
   if (Array.isArray(draft)) return draft.every((d) => isBlank(itemField(field), d));
+  if (isRow(draft)) {
+    return rowFields(field).every((c) => isBlank(c, draft.cells[c.name] ?? null));
+  }
   if (typeof draft === "string") return draft.trim() === "";
   if ("number" in draft) return draft.number.trim() === "";
   return false;
@@ -246,7 +294,8 @@ function encodeWith(field: FieldDef, draft: Draft, schema: PropertySchema): Enco
     const items = (draft as Draft[]).filter((d) => !isBlank(item, d));
     for (const [index, d] of items.entries()) {
       const one = encodeWith(item, d, schema.items ?? {});
-      if (!one.ok) return fail(`Item ${String(index + 1)}: ${one.error}`);
+      const where = item.type === "row" ? "Row" : "Item";
+      if (!one.ok) return fail(`${where} ${String(index + 1)}: ${one.error}`);
       values.push(one.value);
     }
     if (schema.minItems != null && values.length < schema.minItems) {
@@ -257,6 +306,7 @@ function encodeWith(field: FieldDef, draft: Draft, schema: PropertySchema): Enco
     }
     return ok(values);
   }
+  if (field.type === "row") return encodeRow(field, draft as RowDraft, schema);
   switch (field.type) {
     case "string": {
       const value = (draft as string).trim();
@@ -325,6 +375,26 @@ function encodeWith(field: FieldDef, draft: Draft, schema: PropertySchema): Enco
     default:
       return ok(draft);
   }
+}
+
+/** A row (ADR 0137) as the API takes it: each field's value, a blank one left out. */
+function encodeRow(field: FieldDef, draft: RowDraft, schema: PropertySchema): Encoded {
+  const out: Record<string, unknown> = {};
+  for (const cell of rowFields(field)) {
+    const d = draft.cells[cell.name] ?? null;
+    if (isBlank(cell, d)) {
+      const given = schema.properties?.[cell.name];
+      const optional = given?.default !== undefined || !cell.required;
+      if (!optional) return fail(`${cell.label}: ${blankMessage(cell)}`);
+      continue;
+    }
+    const property = schema.properties?.[cell.name] ?? {};
+    const value = property.anyOf?.find((s) => (s as { type?: string }).type !== "null");
+    const one = encodeWith(cell, d, value ? { ...value, default: property.default } : property);
+    if (!one.ok) return fail(`${cell.label}: ${one.error}`);
+    out[cell.name] = one.value;
+  }
+  return ok(out);
 }
 
 /** Whether two JSON values are the same (an edit sends only what changed). */

@@ -33,7 +33,8 @@ from iki_spec.validate import value_problems
 
 
 class Invalid(Exception):  # noqa: N818 - reads as "the values are invalid"
-    """Values that don't fit their fields: field name → what's wrong, as sentences."""
+    """Values that don't fit their fields: field name → what's wrong, as sentences. A row's
+    field of a list of rows (ADR 0137) is keyed by its path, ``components/1/part``."""
 
     def __init__(self, errors: Mapping[str, list[str]], *, broken: Iterable[Any] = ()) -> None:
         self.errors = dict(errors)
@@ -41,6 +42,33 @@ class Invalid(Exception):  # noqa: N818 - reads as "the values are invalid"
         #: message is, and the fields it points at.
         self.broken = list(broken)
         super().__init__("; ".join(f"{k}: {' '.join(v)}" for k, v in self.errors.items()))
+
+
+class RowProblems(ValueError):  # noqa: N818 - reads as "the rows have problems"
+    """What's wrong with a list of rows (ADR 0137), each where it is: ``""`` for the list,
+    ``"1/part"`` for the second row's ``part``."""
+
+    def __init__(self, errors: Mapping[str, list[str]]) -> None:
+        self.errors = dict(errors)
+        super().__init__(
+            " ".join(
+                " ".join(v) if not k else f"row {_row_number(k)} {' '.join(v)}"
+                for k, v in self.errors.items()
+            )
+        )
+
+
+def _row_number(key: str) -> str:
+    index, _, cell = key.partition("/")
+    return f"{int(index) + 1}" + (f" `{cell}`" if cell else "")
+
+
+def problems_of(name: str, error: ValueError) -> dict[str, list[str]]:
+    """``error`` about field ``name`` as :class:`Invalid`'s errors: one entry, or for a list
+    of rows, one per row's field that's wrong."""
+    if isinstance(error, RowProblems):
+        return {f"{name}/{k}" if k else name: v for k, v in error.errors.items()}
+    return {name: [str(error)]}
 
 
 @dataclass(frozen=True)
@@ -176,7 +204,15 @@ def list_model(plugin: str, owner: type[models.Model], name: str) -> type[models
 
 
 def is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in FOREIGN_KEYS
+    """Whether a list has a table of its own: of references, files or people, an item per
+    row; or of rows (ADR 0137), a column per row's field."""
+    return f.type == "list" and f.items is not None and f.items.type in (*FOREIGN_KEYS, "row")
+
+
+def row_columns(f: Field) -> dict[str, str]:
+    """A list of rows' fields, each with the column of its table holding it."""
+    assert f.items is not None  # noqa: S101 - lists have items
+    return {n: f"{n}_id" if cell.type in FOREIGN_KEYS else n for n, cell in f.items.fields.items()}
 
 
 def subtypes(qualified: str) -> set[str]:
@@ -323,6 +359,8 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
     """``value`` from JSON as the database stores it. Raises ``ValueError`` with what's wrong."""
     if value is None:
         return None
+    if f.is_rows:
+        return _rows(f, value, refs)
     if f.type == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
         problems = value_problems(f, value) if isinstance(value, list) else ["must be a list."]
@@ -381,6 +419,108 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
     if f.type == "date":
         return dt.date.fromisoformat(value)
     return value
+
+
+def _rows(f: Field, value: Any, refs: Refs) -> list[dict[str, Any]]:  # noqa: ANN401 - JSON
+    """A list of rows (ADR 0137), each an object of its fields' values, as stored: each
+    field checked as a type's is, then each role's count and what its rows refer to.
+    Raises :class:`RowProblems` with each problem where it is."""
+    row = f.items
+    assert row is not None  # noqa: S101 - lists always have items
+    if not isinstance(value, list):
+        raise RowProblems({"": ["must be a list of rows."]})
+    errors: dict[str, list[str]] = {}
+    own: list[str] = []
+    if f.min_items is not None and len(value) < f.min_items:
+        own.append(f"needs at least {f.min_items} row{'s' if f.min_items != 1 else ''}.")
+    if f.max_items is not None and len(value) > f.max_items:
+        own.append(f"can have at most {f.max_items} row{'s' if f.max_items != 1 else ''}.")
+    given = [item for item in value if isinstance(item, dict)]
+    references = [n for n, cell in row.fields.items() if cell.type == "ref"]
+    # One query for every row's references, not one per row.
+    refs.types(_uuids(item.get(n) for item in given for n in references))
+    if refs.namer is not None and refs.namer.project is not None:
+        for n, cell in row.fields.items():
+            if cell.type == "person":
+                found = [item.get(n) for item in given]
+                refs.namer.look_up(cell.role, [v for v in found if isinstance(v, str)])
+    out: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            errors[str(index)] = ["must be an object of the row's fields."]
+            continue
+        stored: dict[str, Any] = {}
+        for name in item:
+            if name not in row.fields:
+                errors[f"{index}/{name}"] = [
+                    f"isn't one of the row's fields: {', '.join(row.fields)}."
+                ]
+        for name, cell in row.fields.items():
+            cell_value = item.get(name)
+            if cell_value is None and cell.has_default:
+                cell_value = cell.default
+            if cell_value is None:
+                if cell.required:
+                    errors[f"{index}/{name}"] = ["is required."]
+                stored[name] = None
+                continue
+            try:
+                stored[name] = to_db(cell, cell_value, refs)
+            except ValueError as error:
+                errors[f"{index}/{name}"] = [str(error)]
+        out.append(stored)
+    if row.by is not None and not errors:
+        _roles(row, value, out, refs, own, errors)
+    if own:
+        errors = {"": own, **errors}
+    if errors:
+        raise RowProblems(errors)
+    return out
+
+
+def _roles(
+    row: Field,
+    given: list[Any],
+    rows: list[dict[str, Any]],
+    refs: Refs,
+    own: list[str],
+    errors: dict[str, list[str]],
+) -> None:
+    """Each role's count of rows, and what its rows' references refer to (ADR 0137)."""
+    assert row.by is not None  # noqa: S101 - roles are by a field
+    counts: dict[str, int] = {}
+    for stored in rows:
+        counts[stored[row.by]] = counts.get(stored[row.by], 0) + 1
+    for name, role in row.roles.items():
+        n = counts.get(name, 0)
+        if role.min is not None and n < role.min:
+            own.append(
+                f"needs at least {role.min} {name} row{'s' if role.min != 1 else ''}, and has {n}."
+            )
+        if role.max is not None and n > role.max:
+            own.append(
+                f"can't have a {name} row."
+                if role.max == 0
+                else f"can have at most {role.max} {name} row{'s' if role.max != 1 else ''}, "
+                f"and has {n}."
+            )
+    for index, stored in enumerate(rows):
+        taken = row.roles.get(stored[row.by])
+        if taken is None:
+            continue
+        for cell, types in taken.to.items():
+            named = given[index].get(cell)
+            if named is None:
+                continue
+            found = refs.types(_uuids([named]))
+            kind = next(iter(found.values()), None)
+            allowed: set[str] = set()
+            for t in types:
+                allowed |= subtypes(t)
+            if kind is not None and kind not in allowed:
+                errors[f"{index}/{cell}"] = [
+                    f"must refer to {_one_of(types)} in a {taken.name} row, not a {kind}."
+                ]
 
 
 def _quantity(f: Field, value: Any) -> float:  # noqa: ANN401 - JSON
@@ -506,6 +646,10 @@ def _either(choices: tuple[str, ...]) -> str:
 def to_json(f: Field, value: Any) -> Any:  # noqa: ANN401 - a model value in, JSON out
     if value is None:
         return None
+    if f.is_rows:
+        assert f.items is not None  # noqa: S101 - lists always have items
+        cells = f.items.fields
+        return [{n: to_json(cell, row.get(n)) for n, cell in cells.items()} for row in value]
     if f.type == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
         return [to_json(f.items, item) for item in value]
@@ -521,6 +665,13 @@ def to_json(f: Field, value: Any) -> Any:  # noqa: ANN401 - a model value in, JS
 
 def read_value(instance: models.Model, f: Field, part: Part) -> Any:  # noqa: ANN401 - a model value
     """A field's current value, from the model instance (or extension row) that holds it."""
+    if f.is_rows:
+        columns = row_columns(f)
+        found = part.list_model(f.name)._default_manager.filter(entity_id=instance.pk)
+        return [
+            {n: r[c] for n, c in columns.items()}
+            for r in found.order_by("position").values(*columns.values())
+        ]
     if is_list_table(f):
         rows = part.list_model(f.name)._default_manager.filter(entity_id=instance.pk)
         return list(rows.order_by("position").values_list("item_id", flat=True))
@@ -530,4 +681,36 @@ def read_value(instance: models.Model, f: Field, part: Part) -> Any:  # noqa: AN
 
 
 def history_value(row: models.Model, f: Field) -> Any:  # noqa: ANN401 - a model value
-    return getattr(row, f.name)
+    """A field's value in a row of its history table, as :func:`read_value` gives it."""
+    value = getattr(row, f.name)
+    if f.is_rows and value is not None:
+        return from_history(f, value)
+    return value
+
+
+def to_history(f: Field, value: Any) -> Any:  # noqa: ANN401 - a model value
+    """A value as its history table keeps it: a list of rows as JSON (ADR 0137)."""
+    return to_json(f, value) if f.is_rows else value
+
+
+def from_history(f: Field, value: Any) -> Any:  # noqa: ANN401 - JSON
+    """A list of rows from its history's JSON, as :func:`read_value` gives it."""
+    assert f.items is not None  # noqa: S101 - lists have items
+    cells = f.items.fields
+    return [
+        {n: _cell_from_json(cell, row.get(n)) for n, cell in cells.items() if n in row}
+        | {n: None for n in cells if n not in row}
+        for row in value
+    ]
+
+
+def _cell_from_json(f: Field, value: Any) -> Any:  # noqa: ANN401 - JSON
+    if value is None:
+        return None
+    if f.type in FOREIGN_KEYS:
+        return uuid.UUID(value)
+    if f.type == "date":
+        return dt.date.fromisoformat(value)
+    if f.type == "datetime":
+        return dt.datetime.fromisoformat(value)
+    return value

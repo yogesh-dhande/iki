@@ -659,7 +659,7 @@ type's history. Identity fields can't be removed.
 | `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).                                             |
 | `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any. Or a list of types: any one of them. |
 | `person`   | `role`, `assignment`                            | Someone in the record's project. See [People in records](#people-in-records).                                 |
-| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.                                      |
+| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags, or a row (below). No lists of lists.                    |
 | `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.                                        |
 | `state`    | `initial`, `states` (both required)             | One of its states, set on its own by their lab roles. See States.                                             |
 
@@ -669,6 +669,52 @@ each with its subtypes (ADR 0136), such as a complex's part:
 list can't name `iki/core.Entity` beside others, nor a type beside one of
 its subtypes. The database holds every reference to its types, whatever
 writes it.
+
+### Lists of rows
+
+A list's items can be rows of typed fields (ADR 0137), such as a
+complex's components, a mixture's ingredients or a sample's additions.
+Each row's fields are fields as a type's are, with a `label`,
+`description`, `required` and `default`, but no flags, lists, JSON or
+states. A row's fields can't be named `entity`, `position`, `id` or `pk`.
+
+```yaml
+components:
+  type: list
+  min_items: 3
+  max_items: 8
+  items:
+    type: row
+    fields:
+      part: { type: ref, to: [Protein, acme/dna.DNASequence], required: true }
+      copies: { type: int, min: 1, required: true, default: 1 }
+      chain: { type: string, max_length: 10 }
+      role: { type: enum, values: [heavy, light, linker], required: true }
+    by: role
+    roles:
+      heavy: { min: 2, max: 2, to: { part: Protein } }
+      light: { label: Light chain, min: 1, max: 2, to: { part: Protein } }
+      linker: { max: 1, to: { part: acme/dna.DNASequence } }
+```
+
+`by` names the row's required enum field holding each row's role, and
+`roles` says, per role, how many rows take it (`min`, `max`; `max: 0`
+forbids it) and what each of the row's references may refer to in that
+role, among the types the field names. A record that doesn't fit is
+refused when it's saved, each problem pointing at its row and field
+(`#/values/components/1/part`). Anything subtler than a role's count and
+types is a rule's. `identity` names the row fields that tell two rows
+apart when the list is part of its type's identity (see Identities).
+
+A list of rows is stored in its own table, a row per row and a column per
+row field, each with its foreign key and checks. Its value is a list of
+objects, one per row, always with every field (`null` where it's empty);
+it changes as a whole. Its history keeps the rows as JSON, a lock freezes
+them, and its references are the graph's edges (`components.part`).
+Search takes `has` with an object of row fields, which one row must all
+match: `{field: components, op: has, value: {part: PRT-000001, role:
+heavy}}`, or `components.part:PRT-000001 components.role:heavy` in the
+web app's search box.
 
 String formats, checked by the database too: `dna_sequence`,
 `rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email`,
@@ -694,6 +740,7 @@ label, `namespace__name`, so a table says whose it is.
 | `iki__protein_protein`                            | `iki/protein.Protein`'s own fields, keyed by `entity_id`  |
 | `iki__protein_protein__history`                   | Its values at each revision, removed fields included      |
 | `iki__protein_proteinstructure__chains`           | A list of references or files: one row per item, in order |
+| `acme__protein_bispecific__components`            | A list of rows: one row per row, a column per row field   |
 | `acme__prediction__iki__protein_proteinstructure` | The fields `acme/prediction` adds to that type            |
 
 Other lists are arrays. PostgreSQL checks every rule it can (formats,

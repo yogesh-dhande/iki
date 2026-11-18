@@ -38,7 +38,7 @@ from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.entities import access, registry, services, states, unique
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
-from iki_server.entities.values import Invalid, shape, to_db, to_json
+from iki_server.entities.values import Invalid, problems_of, row_columns, shape, to_db, to_json
 from iki_server.org import permissions
 from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
 from iki_server.org.permissions import Action
@@ -150,7 +150,7 @@ def curate(
             try:
                 converted = to_db(f, value, refs)
             except ValueError as error:
-                errors[name] = [str(error)]
+                errors.update(problems_of(name, error))
                 continue
             if converted != rows.get(name):
                 new[name] = converted
@@ -370,7 +370,11 @@ def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str
                 if f.removed:
                     continue
                 kind = f.items.type if f.type == "list" and f.items is not None else f.type
-                if kind != "ref":
+                if kind == "row":
+                    assert f.items is not None  # noqa: S101 - lists have items
+                    if not any(c.type == "ref" for c in f.items.fields.values()):
+                        continue
+                elif kind != "ref":
                     continue
                 ids = _referring(part, f, name, old.pk) & set(
                     own.filter(type=qualified).values_list("pk", flat=True)
@@ -382,6 +386,13 @@ def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str
 
 
 def _referring(part: Any, f: Any, name: str, target: Any) -> set[Any]:  # noqa: ANN401
+    if f.is_rows:
+        found = Q()
+        for cell, column in row_columns(f).items():
+            if f.items.fields[cell].type == "ref":
+                found |= Q(**{column: target})
+        rows = part.list_model(name)._default_manager.filter(found)
+        return set(rows.values_list("entity_id", flat=True))
     if f.type == "list":
         rows = part.list_model(name)._default_manager.filter(item_id=target)
         return set(rows.values_list("entity_id", flat=True))
@@ -406,7 +417,13 @@ def _repoint_one(
     locked = Entity.objects.select_for_update().get(pk=pk)
     rows = services.Rows.of(services.specific(locked))
     current = rows.value(part, f)
-    value = [new if item == old else item for item in current] if f.type == "list" else new
+    if f.is_rows:
+        refs = [n for n, cell in f.items.fields.items() if cell.type == "ref"]
+        value = [{n: new if n in refs and v == old else v for n, v in r.items()} for r in current]
+    elif f.type == "list":
+        value = [new if item == old else item for item in current]
+    else:
+        value = new
     touched = services._write(form, rows, {name: value}, locked.pk)
     revision = services._revise(locked, RevisionKind.EDITED, [name], user, reason)
     services._write_history(touched, rows, revision.number)

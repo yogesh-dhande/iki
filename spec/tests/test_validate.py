@@ -1,3 +1,4 @@
+import json
 import shutil
 import textwrap
 from pathlib import Path
@@ -421,6 +422,77 @@ def test_a_reference_can_name_several_types(tmp_path: Path) -> None:
     one = make(tmp_path, fields("part: { type: ref, to: Assay }\n"))
     assert one.plugin is not None
     assert one.plugin.types["acme/lab.Assay"].fields["part"].to == ("acme/lab.Assay",)
+
+
+ROWS = """\
+parts:
+  type: list
+  items:
+    type: row
+    fields:
+      part: { type: ref, to: [Assay, Batch], required: true }
+      copies: { type: int, min: 1, default: 1 }
+      role: { type: enum, values: [heavy, light], required: true }
+    by: role
+    roles:
+      heavy: { min: 2, max: 2, to: { part: Assay } }
+      light: { label: Light chain, max: 2 }
+"""
+
+
+def test_a_list_can_have_rows_of_typed_fields(tmp_path: Path) -> None:
+    """ADR 0137: each row's fields, and per role its count and what it refers to."""
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    result = make(tmp_path, fields(ROWS) + "---\n" + batch)
+    assert codes(result) == []
+    assert result.plugin is not None
+    parts = result.plugin.types["acme/lab.Assay"].fields["parts"]
+    assert parts.is_rows
+    assert parts.items is not None
+    row = parts.items
+    assert list(row.fields) == ["part", "copies", "role"]
+    assert row.fields["part"].to == ("acme/lab.Assay", "acme/lab.Batch")
+    assert row.by == "role"
+    assert row.roles["heavy"].min == 2
+    assert row.roles["heavy"].to == {"part": ("acme/lab.Assay",)}
+    assert row.roles["light"].label == "Light chain"
+    # It survives the manifest.
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+
+
+def test_rows_roles_name_the_rows_fields(tmp_path: Path) -> None:
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+
+    def problems(change: tuple[str, str]) -> list[str]:
+        return codes(make(tmp_path, fields(ROWS.replace(*change)) + "---\n" + batch))
+
+    assert problems(("by: role", "by: copies")) == ["row-role-not-enum"]
+    assert problems(("by: role", "by: colour")) == ["row-role-not-enum"]
+    assert problems(("values: [heavy, light], required: true", "values: [heavy, light]")) == [
+        "row-role-optional"
+    ]
+    assert problems(("light: {", "medium: {")) == ["unknown-row-role"]
+    assert problems(("min: 2, max: 2", "min: 3, max: 2")) == ["min-above-max"]
+    assert problems(("to: { part: Assay }", "to: { copies: Assay }")) == ["row-role-not-reference"]
+    assert problems(("to: { part: Assay }", "to: { part: Thing }")) == ["unknown-type"]
+    assert problems(("part: { type: ref, to: [Assay, Batch]", "part: { type: ref, to: Batch")) == [
+        "row-role-type-not-allowed"
+    ]
+    assert problems(("copies:", "position:")) == ["reserved-name"]
+    assert problems(("copies: { type: int, min: 1, default: 1 }", "copies: { type: list }")) == [
+        "schema"
+    ]
+
+
+def test_settings_cant_be_rows(tmp_path: Path) -> None:
+    result = make(
+        tmp_path,
+        plugin=PLUGIN
+        + "settings:\n"
+        + "  hosts: { type: list, items: { type: row, fields: { a: { type: int } } } }\n",
+    )
+    # Only entity types' fields have rows.
+    assert codes(result) == ["schema"]
 
 
 def test_a_reference_to_several_types_names_each_once(tmp_path: Path) -> None:

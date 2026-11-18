@@ -452,6 +452,18 @@ export function valueText(
   entity?: Pick<Entity, "refs" | "files" | "people">,
 ): string {
   if (value === null || value === undefined) return "";
+  if (Array.isArray(value) && field.items === "row") {
+    // A list of rows (ADR 0137): each row's values, rows apart by semicolons.
+    const cells = field.row?.fields ?? [];
+    return value
+      .map((row) =>
+        cells
+          .map((c) => valueText(c, (row as Record<string, unknown>)[c.name], entity))
+          .filter(Boolean)
+          .join(" · "),
+      )
+      .join("; ");
+  }
   if (Array.isArray(value)) {
     const item: FieldDef = { ...field, type: field.items ?? "string" };
     return value.map((v) => valueText(item, v, entity)).join(", ");

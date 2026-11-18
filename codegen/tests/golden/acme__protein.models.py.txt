@@ -337,6 +337,95 @@ class Batch_History(models.Model):
         db_table = 'acme__protein_batch__history'
 
 
+class Bispecific(Entity):
+    """Bispecific antibody (acme/protein.Bispecific), schema version 1. Two heavy chains, one or two light chains and at most one linker, a row each."""
+
+    IKI_TYPE = 'acme/protein.Bispecific'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=200)
+
+    class Meta:
+        db_table = 'acme__protein_bispecific'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__protein_bispecific__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__protein_bispecific__name__one_line',
+            ),
+        ]
+
+
+class Bispecific_History(models.Model):
+    """The history of acme__protein_bispecific: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Bispecific'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    components = models.JSONField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_bispecific__history'
+
+
+class Bispecific_components(models.Model):
+    """The items of acme/protein.Bispecific.components, in order."""
+
+    IKI_LIST_OF = ('Bispecific', 'components')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'Bispecific',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    part = models.ForeignKey(Entity, models.PROTECT, related_name='+')
+    copies = models.BigIntegerField(db_default=1)
+    chain = models.CharField(max_length=10, null=True)
+    role = models.TextField()
+
+    class Meta:
+        db_table = 'acme__protein_bispecific__components'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(copies__gte=1),
+                name='acme__protein_bispecific__components__copies__min',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('chain'), 1),
+                name='acme__protein_bispecific__components__chain__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(chain__regex='[\\r\\n]'),
+                name='acme__protein_bispecific__components__chain__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(role__in=['heavy', 'light', 'linker']),
+                name='acme__protein_bispecific__components__role__values',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=8),
+                name='acme__protein_bispecific__components__position__max_items',
+            ),
+        ]
+
+
 class Lot(Entity):
     """Lot (acme/protein.Lot), schema version 1. A lot of protein, signed for at each step under 21 CFR Part 11."""
 
@@ -809,6 +898,7 @@ class Sample_History(models.Model):
     material = models.UUIDField(db_column='material_id', null=True)
     purity = models.FloatField(null=True)
     tags = ArrayField(models.TextField(), null=True)
+    additions = models.JSONField(null=True)
     notes = models.TextField(null=True)
     analyst = models.UUIDField(db_column='analyst_id', null=True)
     reviewer = models.UUIDField(db_column='reviewer_id', null=True)
@@ -820,6 +910,45 @@ class Sample_History(models.Model):
 
     class Meta:
         db_table = 'acme__protein_sample__history'
+
+
+class Sample_additions(models.Model):
+    """The items of acme/protein.Sample.additions, in order."""
+
+    IKI_LIST_OF = ('Sample', 'additions')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey('Sample', models.CASCADE, db_column='entity_id', related_name='+')
+    position = models.PositiveIntegerField()
+    material = models.ForeignKey(Entity, models.PROTECT, related_name='+')
+    amount = QuantityField(unit='ug', null=True)
+    added_on = models.DateField(null=True)
+    note = models.CharField(max_length=200, null=True)
+
+    class Meta:
+        db_table = 'acme__protein_sample__additions'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=float('-inf'), amount__lt=float('inf')),
+                name='acme__protein_sample__additions__amount__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(amount__gte=0),
+                name='acme__protein_sample__additions__amount__min',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('note'), 1),
+                name='acme__protein_sample__additions__note__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(note__regex='[\\r\\n]'),
+                name='acme__protein_sample__additions__note__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=20),
+                name='acme__protein_sample__additions__position__max_items',
+            ),
+        ]
 
 
 class Sample_helpers(models.Model):

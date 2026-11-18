@@ -1,0 +1,27 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Bispecific
+label: Bispecific antibody
+schema_version: 1
+description: Two heavy chains, one or two light chains and at most one linker, a row each.
+hrid: { prefix: BSP }
+fields:
+  name: { type: string, required: true, max_length: 200 }
+  # Its parts (ADR 0137): each role says how many rows take it and what they refer to.
+  components:
+    type: list
+    required: true
+    min_items: 3
+    max_items: 8
+    items:
+      type: row
+      fields:
+        part: { type: ref, to: [Protein, acme/dna.DNASequence], required: true }
+        copies: { type: int, min: 1, required: true, default: 1 }
+        chain: { type: string, max_length: 10 }
+        role: { type: enum, values: [heavy, light, linker], required: true }
+      by: role
+      roles:
+        heavy: { min: 2, max: 2, to: { part: Protein } }
+        light: { label: Light chain, min: 1, max: 2, to: { part: Protein } }
+        linker: { max: 1, to: { part: acme/dna.DNASequence } }

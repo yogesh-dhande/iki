@@ -55,7 +55,16 @@ from iki_server.entities.hrids import sequence_name
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import Entity
 from iki_server.entities.people import Namer
-from iki_server.entities.values import Invalid, Part, Refs, is_list_table, shape, to_db
+from iki_server.entities.values import (
+    Invalid,
+    Part,
+    Refs,
+    is_list_table,
+    problems_of,
+    row_columns,
+    shape,
+    to_db,
+)
 from iki_server.files import storage
 from iki_server.files.models import File
 from iki_server.org.models import registry_of
@@ -75,7 +84,7 @@ from iki_server.runs.models import (
 )
 from iki_server.runs.services import is_a
 from iki_spec import schemas
-from iki_spec.model import Software
+from iki_spec.model import Field, Software
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -546,6 +555,9 @@ def _look_up_refs(refs: Refs, parsed: list[_Line]) -> None:
                 values = [value]
             elif f.type == "list" and f.items is not None and f.items.type == "ref":
                 values = value if isinstance(value, list) else []
+            elif f.is_rows and f.items is not None and isinstance(value, list):
+                cells = [n for n, c in f.items.fields.items() if c.type == "ref"]
+                values = [r.get(n) for r in value if isinstance(r, dict) for n in cells]
             else:
                 continue
             for given in values:
@@ -608,6 +620,9 @@ def _json(value: Any) -> Any:  # noqa: ANN401 - a database value
         return value.isoformat()
     if isinstance(value, list):
         return [_json(v) for v in value]
+    if isinstance(value, dict):
+        # A list's row (ADR 0137).
+        return {k: _json(v) for k, v in value.items()}
     return value
 
 
@@ -1264,11 +1279,14 @@ def _fill_entries(run: ActionRun, fills: list[tuple[Any, ...]]) -> None:
                 try:
                     given[name] = to_db(fields[name], value, refs)
                 except ValueError as error:
-                    errors.append(
+                    errors.extend(
                         {
-                            "pointer": results.pointer("creates_file", line, "values", name),
-                            "detail": f"It {error}",
+                            "pointer": results.pointer(
+                                "creates_file", line, "values", *key.split("/")
+                            ),
+                            "detail": f"It {' '.join(messages)}",
                         }
+                        for key, messages in problems_of(name, error).items()
                     )
             try:
                 entities.fill_entry(
@@ -1283,7 +1301,9 @@ def _fill_entries(run: ActionRun, fills: list[tuple[Any, ...]]) -> None:
                 for name, messages in error.errors.items():
                     errors.append(
                         {
-                            "pointer": results.pointer("creates_file", line, "values", name),
+                            "pointer": results.pointer(
+                                "creates_file", line, "values", *name.split("/")
+                            ),
                             "detail": f"It {' '.join(messages)}",
                         }
                     )
@@ -1347,6 +1367,9 @@ def _insert_part(
         if not is_list_table(f) or f.removed:
             continue
         items = part.list_model(name)._meta
+        if f.is_rows:
+            _insert_rows(cursor, f, items, key, key_column, table, condition, type_name)
+            continue
         item = _column(items.get_field("item"))
         cursor.execute(
             f"INSERT INTO {_q(items.db_table)} (entity_id, position, {_q(item)})"  # noqa: S608
@@ -1357,6 +1380,39 @@ def _insert_part(
             f" WHERE {condition} AND s.type = %s",
             [type_name],
         )
+
+
+def _insert_rows(
+    cursor: Any,  # noqa: ANN401 - Django's cursor
+    f: Field,
+    items: Any,  # noqa: ANN401 - a model's _meta
+    key: str,
+    key_column: str,
+    table: str,
+    condition: str,
+    type_name: str,
+) -> None:
+    """A list of rows' table (ADR 0137), each row's fields from its staged object, a
+    reference's or person's into its `<name>_id` column."""
+    columns = row_columns(f)
+    renames = "".join(
+        f" || jsonb_build_object({_literal(column)}, e.item->{_literal(name)})"
+        for name, column in columns.items()
+        if column != name
+    )
+    names = ", ".join(_q(c) for c in columns.values())
+    selected = ", ".join(f"(p).{_q(c)}" for c in columns.values())
+    cursor.execute(
+        f"INSERT INTO {_q(items.db_table)} (entity_id, position, {names})"  # noqa: S608
+        f" SELECT owner, position, {selected} FROM ("
+        f" SELECT {key_column} AS owner, e.position - 1 AS position,"
+        f" jsonb_populate_record(NULL::{_q(items.db_table)}, e.item{renames}) AS p"
+        f" FROM {table} s JOIN iki_import_resolved r USING (line)"
+        f" CROSS JOIN LATERAL jsonb_array_elements(s.parts->{_literal(key)}->"
+        f"{_literal(f.name)}) WITH ORDINALITY AS e(item, position)"
+        f" WHERE {condition} AND s.type = %s) q",
+        [type_name],
+    )
 
 
 def _column(field: object) -> str:

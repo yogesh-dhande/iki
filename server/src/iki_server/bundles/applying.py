@@ -88,6 +88,7 @@ from iki_server.runs.models import (
     RunOutput,
 )
 from iki_server.tasks import task
+from iki_spec.model import Field
 
 logger = structlog.get_logger("iki.bundles")
 
@@ -423,7 +424,9 @@ class _Writer:
             f = fields.get(name)
             if f is None or value is None:
                 continue
-            if f.type == "person":
+            if f.is_rows and f.items is not None:
+                out[name] = [self._row(f.items, r) for r in value]
+            elif f.type == "person":
                 out[name] = self._person(value)
             elif f.type == "list" and f.items is not None and f.items.type == "person":
                 out[name] = [p for p in (self._person(v) for v in value) if p is not None]
@@ -433,6 +436,18 @@ class _Writer:
                 out[name] = self._renamed(value)
             elif f.type == "list" and f.items is not None and f.items.type == "ref":
                 out[name] = [self._renamed(v) for v in value]
+        return out
+
+    def _row(self, row: Field, values: dict[str, Any]) -> dict[str, Any]:
+        """A list's row (ADR 0137), its people and references as :meth:`_remap` has them."""
+        out = dict(values)
+        for name, cell in row.fields.items():
+            if values.get(name) is None:
+                continue
+            if cell.type == "person":
+                out[name] = self._person(values[name])
+            elif cell.type == "ref" and self.renamed:
+                out[name] = self._renamed(values[name])
         return out
 
     def _person(self, value: Any) -> Any:  # noqa: ANN401 - a UUID, or its text

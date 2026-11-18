@@ -495,7 +495,21 @@ export function toFilter(
 export function searchWords(q: string): { text: string; conditions: Filter[] } {
   const conditions: Filter[] = [];
   const rest: string[] = [];
+  // A list of rows' fields (ADR 0137), `components.part:PRT-000001`: one row with every
+  // value the words give for that list.
+  const rows = new Map<string, Record<string, string>>();
   for (const word of q.split(/\s+/).filter(Boolean)) {
+    const inRow = /^([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*):(.+)$/i.exec(word);
+    if (inRow?.[1] && inRow[2] && inRow[3]) {
+      const list = inRow[1].toLowerCase();
+      const row = rows.get(list) ?? {};
+      if (!rows.has(list)) {
+        rows.set(list, row);
+        conditions.push({ field: list, op: "has", value: row });
+      }
+      row[inRow[2].toLowerCase()] = inRow[3];
+      continue;
+    }
     const match = /^([a-z_][a-z0-9_]*):(.+)$/i.exec(word);
     const name = match?.[1]?.toLowerCase();
     const said = match?.[2] ?? "";

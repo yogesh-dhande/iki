@@ -2264,6 +2264,20 @@ a.lineage-node:focus-visible {
   padding-left: 1.1rem;
 }
 
+/* A list of rows (ADR 0137): a small table, a column per row field. */
+.value-rows {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.value-rows th,
+.value-rows td {
+  padding: 0.25rem 0.75rem 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
 .row-stacked {
   align-items: flex-start;
 }
@@ -2349,6 +2363,24 @@ input.input-number {
 .list-input-item > .field {
   flex: 1;
   margin-bottom: 0;
+}
+
+/* A row's fields side by side where they fit, each under its own label. */
+.row-input {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+
+.row-input > .field {
+  flex: 1 1 12rem;
+  margin-bottom: 0.5rem;
 }
 
 /* A file chosen in a list of files: its name and size, on one line beside Remove. */

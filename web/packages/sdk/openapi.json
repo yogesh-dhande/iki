@@ -5440,6 +5440,17 @@
             "description": "What people call that role.",
             "title": "Role Label"
           },
+          "row": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RowOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
+          },
           "states": {
             "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
             "items": {
@@ -10626,6 +10637,17 @@
             "description": "What people call that role.",
             "title": "Role Label"
           },
+          "row": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RowOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A list of rows (`items` is `row`, ADR 0137): each row's fields, and what each role takes. Its value is a list of objects, one per row. Null otherwise."
+          },
           "states": {
             "description": "State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
             "items": {
@@ -13735,6 +13757,111 @@
           "role"
         ],
         "title": "RoleIn",
+        "type": "object"
+      },
+      "RowOut": {
+        "properties": {
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The row field, an enum, that holds each row's role.",
+            "title": "By"
+          },
+          "fields": {
+            "description": "Each row's fields, in order.",
+            "items": {
+              "$ref": "#/components/schemas/FieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "identity": {
+            "description": "For a list in its type's identity (ADR 0138): the row fields that tell two rows apart. Empty: all of them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity",
+            "type": "array"
+          },
+          "roles": {
+            "description": "What each role's rows take, in order.",
+            "items": {
+              "$ref": "#/components/schemas/RowRoleOut"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fields",
+          "identity",
+          "by",
+          "roles"
+        ],
+        "title": "RowOut",
+        "type": "object"
+      },
+      "RowRoleOut": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The most rows with this role, or null for any.",
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The fewest rows with this role, or null for none.",
+            "title": "Min"
+          },
+          "name": {
+            "description": "The role: one of the row's `by` field's values.",
+            "title": "Name",
+            "type": "string"
+          },
+          "to": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "For each of the row's references, by name: the types a row with this role may refer to, each with its subtypes.",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "min",
+          "max",
+          "to"
+        ],
+        "title": "RowRoleOut",
         "type": "object"
       },
       "RuleOut": {

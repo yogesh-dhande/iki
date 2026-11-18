@@ -61,7 +61,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "description": {
             "name": "description",
@@ -100,7 +104,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "reference": {
             "name": "reference",
@@ -141,7 +149,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "members": {
             "name": "members",
@@ -213,14 +225,22 @@
               "schema": null,
               "states": {},
               "initial": null,
-              "moved_to": null
+              "moved_to": null,
+              "fields": {},
+              "identity": [],
+              "by": null,
+              "roles": {}
             },
             "min_items": null,
             "max_items": 10000,
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "aligned": {
             "name": "aligned",
@@ -263,7 +283,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "method": {
             "name": "method",
@@ -302,7 +326,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           }
         },
         "display_title": "{{ name }}",
@@ -376,7 +404,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "description": {
             "name": "description",
@@ -415,7 +447,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "spec": {
             "name": "spec",
@@ -780,7 +816,11 @@
             },
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           }
         },
         "display_title": "{{ name }}",
@@ -842,7 +882,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "description": {
             "name": "description",
@@ -881,7 +925,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "members": {
             "name": "members",
@@ -953,14 +1001,22 @@
               "schema": null,
               "states": {},
               "initial": null,
-              "moved_to": null
+              "moved_to": null,
+              "fields": {},
+              "identity": [],
+              "by": null,
+              "roles": {}
             },
             "min_items": null,
             "max_items": 10000,
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "search": {
             "name": "search",
@@ -1033,7 +1089,11 @@
             },
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           }
         },
         "display_title": "{{ name }}",
@@ -1117,7 +1177,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "description": {
             "name": "description",
@@ -1156,7 +1220,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "organism": {
             "name": "organism",
@@ -1195,7 +1263,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           }
         },
         "display_title": null,
@@ -1257,7 +1329,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "description": {
             "name": "description",
@@ -1296,7 +1372,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "target": {
             "name": "target",
@@ -1337,7 +1417,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "target_revision": {
             "name": "target_revision",
@@ -1376,7 +1460,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "viewer": {
             "name": "viewer",
@@ -1419,7 +1507,11 @@
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "targets": {
             "name": "targets",
@@ -1491,14 +1583,22 @@
               "schema": null,
               "states": {},
               "initial": null,
-              "moved_to": null
+              "moved_to": null,
+              "fields": {},
+              "identity": [],
+              "by": null,
+              "roles": {}
             },
             "min_items": 1,
             "max_items": 20,
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "target_revisions": {
             "name": "target_revisions",
@@ -1568,14 +1668,22 @@
               "schema": null,
               "states": {},
               "initial": null,
-              "moved_to": null
+              "moved_to": null,
+              "fields": {},
+              "identity": [],
+              "by": null,
+              "roles": {}
             },
             "min_items": 1,
             "max_items": 20,
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "viewers": {
             "name": "viewers",
@@ -1649,14 +1757,22 @@
               "schema": null,
               "states": {},
               "initial": null,
-              "moved_to": null
+              "moved_to": null,
+              "fields": {},
+              "identity": [],
+              "by": null,
+              "roles": {}
             },
             "min_items": 1,
             "max_items": 20,
             "schema": null,
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           },
           "state": {
             "name": "state",
@@ -1977,7 +2093,11 @@
             },
             "states": {},
             "initial": null,
-            "moved_to": null
+            "moved_to": null,
+            "fields": {},
+            "identity": [],
+            "by": null,
+            "roles": {}
           }
         },
         "display_title": "{{ name }}",

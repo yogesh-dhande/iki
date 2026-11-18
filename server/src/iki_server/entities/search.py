@@ -348,6 +348,8 @@ class _Compiler:
             return Q(**{f"{col.path}__in": converted})
         if op == "has" and col.kind == "making":
             return self.making(value, at)
+        if op == "has" and col.field is not None and col.field.is_rows:
+            return self.row(col, value, at)
         if op == "has":
             assert col.field is not None and col.field.items is not None  # noqa: S101 - lists
             item = Column(col.name, col.field.items.type, col.path, col.field.items)
@@ -530,6 +532,36 @@ class _Compiler:
             kind = "that holds them for review" if holding else "they can break once saved"
             self.fail(at, f"isn't a rule {kind}: {what} have {_either(tuple(known))}.")
         return None
+
+    def row(self, col: Column, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
+        """Entities a row of whose list of rows (ADR 0137) has every value ``value`` gives:
+        one row, so "a heavy chain of PRT-000001" can't match PRT-000001 as a light chain
+        beside another heavy chain."""
+        assert col.field is not None and col.field.items is not None  # noqa: S101 - rows
+        assert col.items is not None  # noqa: S101 - rows have a table
+        cells = col.field.items.fields
+        if not isinstance(value, Mapping) or not value:
+            return self.fail(at, f"must be an object with any of {_either(tuple(cells))}.")
+        extra = sorted(set(value) - set(cells))
+        if extra:
+            return self.fail(f"{at}/{extra[0]}", f"isn't one: give {_either(tuple(cells))}.")
+        rows = col.items._default_manager.filter(entity=OuterRef("pk"))
+        for key, given in value.items():
+            cell = cells[key]
+            path = f"{key}_id" if cell.type in FOREIGN_KEYS else key
+            item = Column(key, cell.type, path, cell)
+            if cell.type not in _CONVERT or cell.type in ("text", "file"):
+                return self.fail(f"{at}/{key}", f"`{key}` can't be searched for in a row.")
+            converted = self.value(item, given, f"{at}/{key}")
+            if converted is _BAD:
+                return Q()
+            if cell.type in ("float", "quantity"):
+                margin = abs(converted) * RELATIVE_TOLERANCE
+                rows = rows.filter(**{f"{path}__gte": converted - margin})
+                rows = rows.filter(**{f"{path}__lte": converted + margin})
+            else:
+                rows = rows.filter(**{path: converted})
+        return Q(Exists(rows))
 
     def making(self, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
         """Entities one of whose makings (ADR 0106) has every key ``value`` gives: one row,

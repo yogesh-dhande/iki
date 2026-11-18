@@ -203,6 +203,10 @@ export function Value({
   if (value === null || value === undefined) {
     return <span className="muted">Not set</span>;
   }
+  if (Array.isArray(value) && field.items === "row") {
+    if (value.length === 0) return <span className="muted">None</span>;
+    return <Rows field={field} rows={value as Record<string, unknown>[]} entity={entity} />;
+  }
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="muted">None</span>;
     const item: FieldDef = { ...field, type: field.items ?? "string" };
@@ -278,6 +282,51 @@ export function Value({
     default:
       return <>{valueText(field, value, entity)}</>;
   }
+}
+
+/** A list of rows (ADR 0137) as a table: a column per row field, a row per row. */
+function Rows({
+  field,
+  rows,
+  entity,
+}: {
+  field: FieldDef;
+  rows: Record<string, unknown>[];
+  entity: Parameters<typeof Value>[0]["entity"];
+}) {
+  const cells = field.row?.fields ?? [];
+  return (
+    <div className="table-scroll">
+      <table className="value-rows">
+        <caption className="visually-hidden">{field.label}</caption>
+        <thead>
+          <tr>
+            {cells.map((c) => (
+              <th key={c.name} scope="col">
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            // Rows can repeat; their position tells them apart.
+            <tr key={index}>
+              {cells.map((c) => (
+                <td key={c.name}>
+                  {row[c.name] === null || row[c.name] === undefined ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <Value field={c} value={row[c.name]} entity={entity} />
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /** One record an import read it from: which, where, when, by which run, and its checksum. */

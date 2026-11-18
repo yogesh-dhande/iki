@@ -788,6 +788,13 @@ def _typed(form: Shape, values: dict[str, Any]) -> dict[str, Any]:
         f = fields.get(name)
         if f is None or value is None:
             out[name] = value
+        elif f.is_rows and f.items is not None and isinstance(value, list):
+            cells = f.items.fields
+            out[name] = [
+                {n: _one(cell, row.get(n)) for n, cell in cells.items()}
+                for row in value
+                if isinstance(row, dict)
+            ]
         elif f.type == "list" and f.items is not None and isinstance(value, list):
             out[name] = [_one(f.items, v) for v in value]
         else:

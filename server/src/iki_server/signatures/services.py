@@ -725,6 +725,10 @@ def content_of(
             is_file = f.type == "file" or (f.items is not None and f.items.type == "file")
             if is_file and value:
                 file_ids.update(value if isinstance(value, list) else [value])
+            elif f.is_rows and value and f.items is not None:
+                # A list of rows' files (ADR 0137), kept in its history as their IDs.
+                cells = [n for n, c in f.items.fields.items() if c.type == "file"]
+                file_ids.update(r[n] for r in value for n in cells if r.get(n))
     files = dict(
         File.objects.filter(pk__in=file_ids).values_list("pk", "blob__sha256").order_by("pk")
     )

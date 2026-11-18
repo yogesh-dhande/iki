@@ -39,10 +39,13 @@ import {
 } from "./entities";
 import {
   emptyDraft,
+  newItem,
   OTHER_UNIT,
   propertySchema,
+  rowFields,
   type Draft,
   type Picked,
+  type RowDraft,
   type Schemaed,
   type QuantityDraft,
 } from "./entity-values";
@@ -67,6 +70,10 @@ export interface InputProps {
   projectId: string;
   /** In a list: the item's label, which screen readers hear but the page doesn't show. */
   itemLabel?: string | undefined;
+  /** The API's messages by where they point (`values/components/1/part`), for a list of
+   * rows' fields (ADR 0137), and where this input's value is among them. */
+  errors?: Record<string, string> | undefined;
+  path?: string | undefined;
 }
 
 function describedBy(...ids: (string | false | undefined)[]): string | undefined {
@@ -132,9 +139,47 @@ export function FieldInput(props: InputProps) {
       return <PersonInput {...props} />;
     case "file":
       return <FileInput {...props} />;
+    case "row":
+      return <RowInput {...props} />;
     default:
       return <TextInput {...props} />;
   }
+}
+
+/**
+ * A list's row (ADR 0137): an input for each of its fields, each with what the API said
+ * of it. The row's own schema checks them as the type's checks its fields.
+ */
+function RowInput(props: InputProps) {
+  const { field, draft, onChange, type, itemLabel, errors, path } = props;
+  const row = draft as RowDraft;
+  const schema = { values_schema: propertySchema(type, field.name).items ?? {} } as Schemaed;
+  const latest = useRef(row);
+  useLayoutEffect(() => {
+    latest.current = row;
+  }, [row]);
+  return (
+    <fieldset className="row-input">
+      <legend className="visually-hidden">{itemLabel ?? field.label}</legend>
+      {rowFields(field).map((cell) => (
+        <FieldInput
+          {...props}
+          key={cell.name}
+          field={cell}
+          type={schema}
+          draft={row.cells[cell.name] ?? null}
+          error={path ? errors?.[`${path}/${cell.name}`] : undefined}
+          note={undefined}
+          itemLabel={undefined}
+          onChange={(next) => {
+            const changed = { cells: { ...latest.current.cells, [cell.name]: next } };
+            latest.current = changed;
+            onChange(changed);
+          }}
+        />
+      ))}
+    </fieldset>
+  );
 }
 
 function TextInput({ field, draft, onChange, error, note, disabled, type, itemLabel }: InputProps) {
@@ -1020,6 +1065,8 @@ function ListInput(props: InputProps) {
   const id = useId();
   const items = draft as Draft[];
   const item: FieldDef = { ...field, type: field.items ?? "string", required: false };
+  const rows = field.items === "row";
+  const noun = rows ? "row" : "item";
   const files = field.items === "file";
   const itemSchema = propertySchema(type, field.name).items ?? {};
   // What each file may be, said once for the list rather than for each file.
@@ -1077,9 +1124,10 @@ function ListInput(props: InputProps) {
               {...props}
               field={item}
               draft={d}
-              error={undefined}
+              error={rows ? props.errors?.[`values/${field.name}/${String(index)}`] : undefined}
               note={undefined}
-              itemLabel={`${field.label}, item ${String(index + 1)}`}
+              itemLabel={`${field.label}, ${noun} ${String(index + 1)}`}
+              path={`values/${field.name}/${String(index)}`}
               onChange={(next) => {
                 change(latest.current.map((old, i) => (i === index ? next : old)));
               }}
@@ -1090,7 +1138,7 @@ function ListInput(props: InputProps) {
               label={
                 files && (d as Picked | null)?.id
                   ? `Remove ${(d as Picked).title}`
-                  : `Remove ${field.label}, item ${String(index + 1)}`
+                  : `Remove ${field.label}, ${noun} ${String(index + 1)}`
               }
               onClick={() => {
                 setTooMany(null);
@@ -1106,9 +1154,9 @@ function ListInput(props: InputProps) {
       <div className="list-input-add">
         <Button
           disabled={disabled ?? false}
-          label={`Add ${field.label}`}
+          label={rows ? `Add a row to ${field.label}` : `Add ${field.label}`}
           onClick={() => {
-            change([...latest.current, emptyDraft(item)]);
+            change([...latest.current, newItem(field, type)]);
             focusItem(items.length);
           }}
         >
