@@ -684,6 +684,17 @@ def free_port() -> int:
         return port
 
 
+def stop(process: subprocess.Popen[bytes], grace: float = 30) -> None:
+    """Ends a process this run started, and reaps it: one terminated but never waited for
+    is still running as far as Python knows, and pytest fails the run over its warning."""
+    process.terminate()
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=30)
+
+
 def until(what: str, check: Callable[[], Any], within: float, every: float = 10) -> Any:
     """check's first truthy answer, asked every few seconds."""
     deadline = time.monotonic() + within
@@ -723,7 +734,7 @@ class Deployment:
         self.torn_down = True
         s, gcp = self.settings, self.gcp
         for forward in self.forwards:
-            forward.terminate()
+            stop(forward)
         steps: list[tuple[str, Callable[[], object]]] = [
             ("a fresh token", gcp.mint),
             ("the facts the cost report needs", lambda: record_facts(gcp, s)),
