@@ -50,11 +50,24 @@ document.addEventListener("securitypolicyviolation", (event) => {
 });
 """
 
-# Finite animations (fades) have finished; spinners run for ever.
+# What's on screen has settled: finite animations (fades) have finished, and spinners run
+# for ever. React Aria marks a dialog or popover with data-entering or data-exiting until
+# its fade ends. That's the signal to trust, not an animation's playState alone: WebKit
+# works playState out from the clock when asked, but applies an animation to styles only
+# at the next frame, so between frames a fade can say it's finished while its element is
+# still drawn part-way, and when frames are far apart (a busy CI machine) axe saw a dialog
+# just opened at a fraction of its opacity and its text failing contrast.
 FADES_DONE = """
-() => document.getAnimations().every(
-  (a) => a.playState !== "running" || a.effect.getComputedTiming().endTime === Infinity,
-)
+() => !document.querySelector("[data-entering], [data-exiting]")
+  && document.getAnimations().every(
+    (a) => !a.pending
+      && (a.playState !== "running" || a.effect.getComputedTiming().endTime === Infinity),
+  )
+"""
+
+# Two frames: the browser has worked out styles at least once since the fades finished.
+NEXT_FRAMES = """
+() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))
 """
 
 RUN_AXE = """
@@ -69,7 +82,8 @@ async (tags) => {
     id: v.id,
     impact: v.impact,
     help: v.help,
-    nodes: v.nodes.map((n) => n.target.join(" ")),
+    // With what axe measured (a contrast ratio and its colours, say), for when it's flaky.
+    nodes: v.nodes.map((n) => [n.target.join(" "), n.failureSummary].join(": ")),
   }));
 }
 """
@@ -263,7 +277,10 @@ def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
     browser = page.context.browser
     if not axe_in_firefox and browser and browser.browser_type.name == "firefox":
         return
-    # Mid-fade text has less contrast than it ends up with: check the end state.
+    # Mid-fade text has less contrast than it ends up with: check the end state, once it's
+    # drawn, and still settled then.
+    page.wait_for_function(FADES_DONE)
+    page.evaluate(NEXT_FRAMES)
     page.wait_for_function(FADES_DONE)
     page.evaluate(AXE.read_text())
     violations = page.evaluate(RUN_AXE, WCAG_22_AA)
