@@ -223,6 +223,20 @@ if [[ -n $purge ]]; then
     --query "DBInstanceAutomatedBackups[?DBInstanceIdentifier=='$deployment'].DBInstanceAutomatedBackupsArn" --output text); do
     aws rds delete-db-instance-automated-backup --region "$dr_region" --db-instance-automated-backups-arn "$arn" >/dev/null || true
   done
+  # RDS deletes a deleted backup's snapshots after it, minutes later (and the DR copy's
+  # later still): done means they're gone, so wait for them.
+  automated_snapshots() {
+    for where in "$region" "$dr_region"; do
+      aws rds describe-db-snapshots --region "$where" --snapshot-type automated \
+        --query "DBSnapshots[?DBInstanceIdentifier=='$deployment'].DBSnapshotIdentifier" --output text
+    done | tr '\t' '\n' | grep . || true
+  }
+  for _ in $(seq 120); do
+    [[ -z $(automated_snapshots) ]] && break
+    sleep 30
+  done
+  left=$(automated_snapshots)
+  [[ -z $left ]] || { echo "RDS still has the database's automated snapshots after an hour: $left" >&2; exit 1; }
 
   log "The secrets, without waiting out their recovery window"
   for secret in $(aws secretsmanager list-secrets --include-planned-deletion --filters "Key=name,Values=$deployment/" \
