@@ -95,3 +95,13 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "external_dns" {
+  description = "A role for ExternalDNS, which names the load balancer in a private hosted zone: the zone's ARN (null: no role), and ExternalDNS's service account."
+  type = object({
+    zone_arn        = optional(string)
+    namespace       = optional(string, "kube-system")
+    service_account = optional(string, "external-dns")
+  })
+  default = {}
+}

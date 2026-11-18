@@ -79,6 +79,37 @@ that AWS accepts it. Each check Checkov skips says why, in the code.
 The AWS provider is pinned in each module's `.terraform.lock.hcl`, with
 checksums for Linux and macOS.
 
+That AWS accepts it is what the live test checks, on request only:
+
+```console
+IKI_AWS_ROLE_ARN=<role> IKI_AWS_TOKEN_COMMAND=<command> make check-aws-live
+```
+
+It acts as the role, assumed with a web identity token the command prints
+(no AWS keys, and none of your AWS configuration). It follows the
+production runbook in the role's account, small (two `m7i-flex.large`
+system nodes, a runs pool from none to one, a Multi-AZ `db.t4g.micro`, one
+NAT gateway), served only by an internal ALB named in the VPC's private
+zone; checks Iki's readiness, the setup link, a project and entity, a file
+through presigned URLs, a backend worker's run through the ALB, the bucket,
+the ALB and the database's private TLS; then always tears it down with
+`scripts/teardown.sh` and fails if anything of its own is left but what AWS
+keeps (KMS keys pending deletion, and the service-linked roles AWS makes
+for its services). It bills the account a few US dollars, stops at two
+hours whatever it's doing, and never runs on CI. Last, it reports what the
+run cost at list prices (`make aws-live-cost` does again;
+`ESTIMATE=1 make aws-live-cost` prices a run before it). Its settings are
+in `tests/test_aws_live.py`; what it shares with the Google Cloud one is in
+[`../live`](../live).
+
+It doesn't run on every commit. Run it when `make live-due` says AWS is
+due: something it tests (`deploy/aws/`, the chart, the images, the server's
+AWS code, the harness; `live_runs.py` lists them) changed since its last
+passing run. A run that passes whole, of a clean tree, appends to
+`deploy/live-runs.json`: commit it. A release tag needs one, of a commit it
+descends from with nothing it tests changed since
+([the release gate](../../docs/supply-chain.md#before-a-release)).
+
 ## What to know before you rely on them
 
 - **Expired files stay in the DR copy.** Iki deletes an expired artifact

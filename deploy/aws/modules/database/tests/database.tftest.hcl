@@ -145,3 +145,68 @@ run "refuses_a_single_zone" {
   }
   expect_failures = [var.subnet_ids]
 }
+
+run "it_refuses_to_be_deleted_unless_told" {
+  assert {
+    condition     = aws_db_instance.this.deletion_protection && !aws_db_instance.this.skip_final_snapshot
+    error_message = "The database should refuse deletion, and keep a final snapshot when deleted."
+  }
+}
+
+run "teardown_turns_deletion_protection_off" {
+  variables {
+    deletion_protection = false
+  }
+  assert {
+    condition     = !aws_db_instance.this.deletion_protection && !aws_db_instance.this.skip_final_snapshot
+    error_message = "Turning deletion protection off should let it go, still with a final snapshot."
+  }
+}
+
+run "a_small_database_for_tests" {
+  variables {
+    instance_class            = "db.t4g.micro"
+    allocated_storage_gib     = 20
+    max_allocated_storage_gib = 40
+    backup_retention_days     = 7
+  }
+  assert {
+    condition     = aws_db_instance.this.instance_class == "db.t4g.micro" && aws_db_instance.this.allocated_storage == 20 && aws_db_instance.this.backup_retention_period == 7
+    error_message = "The size given should be the size made."
+  }
+  assert {
+    condition     = aws_db_instance.this.multi_az && aws_db_instance.this.storage_encrypted
+    error_message = "A small database is still Multi-AZ and encrypted."
+  }
+}
+
+run "null_keeps_the_defaults" {
+  variables {
+    instance_class            = null
+    allocated_storage_gib     = null
+    max_allocated_storage_gib = null
+    backup_retention_days     = null
+  }
+  assert {
+    condition     = aws_db_instance.this.instance_class == "db.r7g.large" && aws_db_instance.this.allocated_storage == 100 && aws_db_instance.this.max_allocated_storage == 1000 && aws_db_instance.this.backup_retention_period == 35
+    error_message = "A root passing null should get the module's defaults."
+  }
+}
+
+run "refuses_storage_that_cant_grow" {
+  command = plan
+  variables {
+    allocated_storage_gib     = 100
+    max_allocated_storage_gib = 100
+  }
+  expect_failures = [var.max_allocated_storage_gib]
+}
+
+run "refuses_less_than_gp3s_least" {
+  command = plan
+  variables {
+    allocated_storage_gib     = 10
+    max_allocated_storage_gib = 40
+  }
+  expect_failures = [var.allocated_storage_gib]
+}

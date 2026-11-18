@@ -178,3 +178,24 @@ run "the_autoscaler_scales_only_this_clusters_node_groups" {
     error_message = "The autoscaler should change only node groups tagged as this cluster's."
   }
 }
+
+run "no_external_dns_role_without_a_zone" {
+  assert {
+    condition     = length(aws_iam_role.external_dns) == 0 && output.external_dns_role_arn == null
+    error_message = "Without a zone, ExternalDNS gets no role."
+  }
+}
+
+run "external_dns_changes_only_its_zone" {
+  variables {
+    external_dns = { zone_arn = "arn:aws:route53:::hostedzone/Z0123456789" }
+  }
+  assert {
+    condition     = one([for s in data.aws_iam_policy_document.external_dns[0].statement : s.resources if s.sid == "NameTheLoadBalancerInItsZone"]) == toset(["arn:aws:route53:::hostedzone/Z0123456789"])
+    error_message = "ExternalDNS should change records in its zone alone."
+  }
+  assert {
+    condition     = "${aws_eks_pod_identity_association.external_dns[0].namespace}/${aws_eks_pod_identity_association.external_dns[0].service_account}" == "kube-system/external-dns"
+    error_message = "Bound to ExternalDNS's own service account."
+  }
+}

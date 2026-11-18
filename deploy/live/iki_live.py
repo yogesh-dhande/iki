@@ -30,6 +30,7 @@ import re
 import secrets
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -924,6 +925,10 @@ class Live:
     cost_usd: float | None = None
     forwards: list[subprocess.Popen[bytes]] = field(default_factory=list)
     teardown_errors: list[str] = field(default_factory=list)
+    #: The most a run may take before tearing down starts, in seconds (None: no cap). At the
+    #: cap, whatever runs is stopped (CapReachedError), the checks left fail, and the last, which
+    #: tears down, runs.
+    cap_seconds: float | None = None
 
     # What each cloud says.
 
@@ -958,6 +963,7 @@ class Live:
         if self.torn_down:
             return self.leftovers(self.before, self.after) if self.before and self.after else []
         self.torn_down = True
+        _stop_cap()  # tearing down is never cut short
         for forward in self.forwards:
             stop(forward)
         for what, step in [("a fresh token", self.tools.mint), *self.teardown_steps()]:
@@ -969,6 +975,40 @@ class Live:
         self.after.write(self.workdir / f"{self.cloud}-after.txt")
         problems = self.leftovers(self.before, self.after) if self.before else []
         return [*self.teardown_errors, *problems]
+
+
+class CapReachedError(Exception):
+    """The run reached its cap (Live.cap_seconds): tear down now."""
+
+
+#: Set when a run reaches its cap: a conftest's pytest_runtest_setup fails the checks left
+#: (fail_if_capped), all but the one that tears down.
+CAPPED = threading.Event()
+
+
+def _start_cap(seconds: float | None) -> None:
+    if not seconds:
+        return
+
+    def reached(signum: int, frame: object) -> None:
+        CAPPED.set()
+        signal.alarm(0)
+        raise CapReachedError(f"the run reached its cap of {seconds / 3600:g} hours: tearing down")
+
+    signal.signal(signal.SIGALRM, reached)
+    signal.alarm(max(1, round(seconds)))
+
+
+def _stop_cap() -> None:
+    signal.alarm(0)
+    signal.signal(signal.SIGALRM, signal.SIG_DFL)
+
+
+def fail_if_capped(item: pytest.Item) -> None:
+    """For a conftest's pytest_runtest_setup: once the cap is reached, only the check that
+    tears down still runs."""
+    if CAPPED.is_set() and "tearing_down" not in item.name:
+        pytest.fail("the run reached its cap: tearing down instead", pytrace=False)
 
 
 #: Each live test's outcome, by its node ID: the module fixture reads them as it ends.
@@ -1004,7 +1044,9 @@ def lifecycle[D: Live](d: D, request: pytest.FixtureRequest) -> Iterator[D]:
         raise
     started = datetime.datetime.now(datetime.UTC)
     (d.workdir / f"{d.cloud}-window.json").write_text(json.dumps({"start": started.isoformat()}))
+    CAPPED.clear()
     try:
+        _start_cap(d.cap_seconds)
         try:
             d.stand_up()
         except BaseException:
@@ -1012,6 +1054,7 @@ def lifecycle[D: Live](d: D, request: pytest.FixtureRequest) -> Iterator[D]:
             raise
         yield d
     finally:
+        _stop_cap()
         problems = d.tear_down()
         up = datetime.datetime.now(datetime.UTC) - started
         (d.workdir / f"{d.cloud}-summary.txt").write_text(

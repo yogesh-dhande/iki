@@ -30,6 +30,12 @@ variable "vpc_cidr" {
   default     = "10.40.0.0/16"
 }
 
+variable "single_nat_gateway" {
+  description = "One NAT gateway for every zone, rather than one in each: cheaper, but losing its zone cuts the others off from the internet. For staging and tests, not production."
+  type        = bool
+  default     = false
+}
+
 variable "kubernetes_version" {
   description = "The EKS version, such as \"1.35\": one in standard support."
   type        = string
@@ -50,6 +56,30 @@ variable "node_pools" {
   description = "The cluster module's node pools, if not its defaults (system, runs, gpu)."
   type        = any
   default     = null
+}
+
+variable "database" {
+  description = "The database's size, if not the database module's defaults (db.r7g.large, 100 GiB growing to 1000, 35 days of backups). Each is optional."
+  type = object({
+    instance_class            = optional(string)
+    allocated_storage_gib     = optional(number)
+    max_allocated_storage_gib = optional(number)
+    backup_retention_days     = optional(number)
+  })
+  default  = {}
+  nullable = false
+}
+
+variable "deletion_protection" {
+  description = "Refuse to delete the database and the load balancer. Turn it off only to tear the deployment down: deploy/aws/scripts/teardown.sh does, with -var deletion_protection=false."
+  type        = bool
+  default     = true
+}
+
+variable "secrets_recovery_window_days" {
+  description = "How long a deleted secret can still be restored: 7 to 30 days."
+  type        = number
+  default     = 30
 }
 
 variable "state_kms_key_arn" {
@@ -137,6 +167,12 @@ variable "internal" {
   description = "Put the ALB in the private subnets, reachable only from your network (through a VPN, Direct Connect or peering), rather than the internet."
   type        = bool
   default     = false
+}
+
+variable "internal_dns" {
+  description = "With internal, name public_host inside the VPC: a private Route 53 zone for that name alone, which ExternalDNS points at the internal ALB (the runbook installs it). Backend workers, run pods and the VM tier's machines reach Iki at publicUrl through it. Turn it off where your own DNS already names it in the VPC."
+  type        = bool
+  default     = true
 }
 
 variable "ingress_cidrs" {

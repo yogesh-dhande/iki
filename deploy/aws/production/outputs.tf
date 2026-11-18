@@ -52,7 +52,7 @@ output "helm_values" {
         # Idle connections close here first: the chart's web.keepAliveSeconds is 75.
         "alb.ingress.kubernetes.io/load-balancer-attributes" = join(",", [
           "routing.http.drop_invalid_header_fields.enabled=true",
-          "deletion_protection.enabled=true",
+          "deletion_protection.enabled=${var.deletion_protection}",
           "idle_timeout.timeout_seconds=60",
         ])
       }, var.waf_acl_arn == null ? {} : { "alb.ingress.kubernetes.io/wafv2-acl-arn" = var.waf_acl_arn })
@@ -66,11 +66,15 @@ output "helm_values" {
     networkPolicy = {
       # The ALB sends to web pods' addresses from its own, in its subnets.
       ingressFrom = [for c in(var.internal ? module.network.private_subnet_cidrs : module.network.public_subnet_cidrs) : { ipBlock = { cidr = c } }]
-      egress = {
+      egress = merge({
         database = { to = [for c in module.network.database_subnet_cidrs : { ipBlock = { cidr = c } }] }
         # Pods with an AWS role reach the node's Pod Identity agent for its credentials.
         podIdentity = { to = [{ ipBlock = { cidr = "169.254.170.23/32" } }, { ipBlock = { cidr = "fd00:ec2::23/128" } }] }
-      }
+        }, var.internal ? {
+        # Backend workers reach the server at publicUrl: an internal ALB, whose addresses
+        # are in the private subnets (and change), not the public ones the chart allows.
+        server = { ports = [443], to = [for c in module.network.private_subnet_cidrs : { ipBlock = { cidr = c } }] }
+      } : {})
     }
   })
 }
@@ -141,7 +145,26 @@ output "controller_roles" {
     external_secrets         = module.access.external_secrets_role_arn
     load_balancer_controller = module.access.load_balancer_controller_role_arn
     cluster_autoscaler       = module.access.cluster_autoscaler_role_arn
+    external_dns             = module.access.external_dns_role_arn
   }
+}
+
+output "external_dns_values" {
+  description = "ExternalDNS's chart values, with internal_dns: it names the internal ALB public_host in the private zone, and only there (the runbook). Null otherwise."
+  value = length(aws_route53_zone.internal) == 0 ? null : yamlencode({
+    provider      = { name = "aws" }
+    env           = [{ name = "AWS_DEFAULT_REGION", value = var.region }]
+    sources       = ["ingress"]
+    domainFilters = [var.public_host]
+    # The private zone alone, and only records ExternalDNS made itself.
+    extraArgs = ["--aws-zone-type=private", "--zone-id-filter=${aws_route53_zone.internal[0].zone_id}"]
+    policy    = "sync"
+    registry  = "txt"
+    # Its ownership records beside the name, inside the zone: public_host is the zone's apex.
+    txtPrefix      = "extdns-%%{record_type}."
+    txtOwnerId     = var.name
+    serviceAccount = { name = "external-dns" }
+  })
 }
 
 output "vm_tier" {

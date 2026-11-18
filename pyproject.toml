@@ -120,6 +120,7 @@ mypy_path = [
   "sdk/python/tests",
   "deploy/live",
   "deploy/gcp/tests",
+  "deploy/aws/tests",
 ]
 plugins = ["mypy_django_plugin.main"]
 files = [
@@ -139,6 +140,11 @@ files = [
   "deploy/gcp/tests/gcp_cost.py",
   "deploy/gcp/tests/test_gcp_cost.py",
   "deploy/gcp/tests/test_gcp_live.py",
+  "deploy/aws/tests/aws_cost.py",
+  "deploy/aws/tests/aws_inventory.py",
+  "deploy/aws/tests/test_aws_cost.py",
+  "deploy/aws/tests/test_aws_inventory.py",
+  "deploy/aws/tests/test_aws_live.py",
   "deploy/dev/sso.py",
 ]
 explicit_package_bases = true
@@ -214,7 +220,7 @@ django_settings_module = "iki_typecheck_settings"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "iki_test_settings"
-pythonpath = ["server/tests", "sdk/python/tests", "deploy/live", "deploy/gcp/tests"]
+pythonpath = ["server/tests", "sdk/python/tests", "deploy/live", "deploy/gcp/tests", "deploy/aws/tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
 testpaths = [
   "server/tests",
@@ -225,6 +231,7 @@ testpaths = [
   "deploy/helm/iki/tests",
   "deploy/live",
   "deploy/gcp/tests",
+  "deploy/aws/tests",
   "docs/tests",
 ]
 xfail_strict = true
@@ -235,6 +242,7 @@ markers = [
   "worker_e2e: runs the iki-worker binary (built with cargo) against the real server",
   "scale: a load test, such as importing 10M entities; runs only with --scale (make check-scale)",
   "gcp_live: deploys to a real Google Cloud project, which it bills; runs only with --gcp-live and IKI_GCP_PROJECT, never on CI (make check-gcp-live)",
+  "aws_live: deploys to a real AWS account, which it bills; runs only with --aws-live, IKI_AWS_ROLE_ARN and IKI_AWS_TOKEN_COMMAND, never on CI (make check-aws-live)",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

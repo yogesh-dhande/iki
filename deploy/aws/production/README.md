@@ -47,6 +47,7 @@ aws eks update-kubeconfig --name "$(out cluster_name)"
 helm repo add eks https://aws.github.io/eks-charts
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo add autoscaler https://kubernetes.github.io/autoscaler
+helm repo add external-dns https://kubernetes-sigs.github.io/external-dns
 
 helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --namespace kube-system --set clusterName="$(out cluster_name)" \
@@ -59,9 +60,25 @@ helm install cluster-autoscaler autoscaler/cluster-autoscaler \
   --set awsRegion="$(out region)" --set rbac.serviceAccount.name=cluster-autoscaler
 ```
 
-Pin each with `--version`, to the release you qualified. They need no
-annotations: the `access` module bound each one's service account to its
-role through EKS Pod Identity (`tofu output controller_roles`).
+With `internal = true`, ExternalDNS too: it names the internal ALB
+`public_host` in a private zone of this VPC alone, so backend workers, run
+pods and the VM tier's machines reach Iki at its URL from inside
+(`internal_dns`; turn that off if your own DNS already does).
+
+```console
+out external_dns_values | helm install external-dns external-dns/external-dns \
+  --namespace kube-system -f -
+```
+
+Pin each with `--version`, to the release you qualified (the live test,
+`make check-aws-live`, qualifies those in `tests/test_aws_live.py`). They
+need no annotations: the `access` module bound each one's service account
+to its role through EKS Pod Identity (`tofu output controller_roles`).
+
+The key that encrypts the nodes' volumes lets EC2 Auto Scaling's
+service-linked role use it, so the account needs that role before the first apply. AWS makes it
+when the account first uses Auto Scaling; in a new account, make it with
+`aws iam create-service-linked-role --aws-service-name autoscaling.amazonaws.com`.
 
 ## 4. Secrets and the database's roles, once
 

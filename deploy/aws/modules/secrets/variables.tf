@@ -23,6 +23,7 @@ variable "recovery_window_days" {
   description = "How long a deleted secret can still be restored."
   type        = number
   default     = 30
+  nullable    = false
 
   validation {
     condition     = var.recovery_window_days >= 7 && var.recovery_window_days <= 30

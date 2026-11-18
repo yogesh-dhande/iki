@@ -22,3 +22,8 @@ output "cluster_autoscaler_role_arn" {
   description = "The Cluster Autoscaler's role, or null."
   value       = one(aws_iam_role.cluster_autoscaler[*].arn)
 }
+
+output "external_dns_role_arn" {
+  description = "ExternalDNS's role, or null."
+  value       = one(aws_iam_role.external_dns[*].arn)
+}

@@ -3,10 +3,12 @@ skip rules and the shape of a run's life. No cloud, no credentials."""
 
 import datetime
 import os
+import signal
 import stat
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -284,6 +286,43 @@ def test_a_process_that_ignores_terminate_is_killed() -> None:
         process.stdout.readline()
         iki_live.stop(process, grace=0.5)
     assert process.returncode is not None
+
+
+class Slow(Fake):
+    """Standing up takes longer than the cap."""
+
+    def stand_up(self) -> None:
+        self.step("stand up")
+        time.sleep(5)
+        self.step("stood up")
+
+
+def test_at_the_cap_it_stops_and_tears_down(tmp_path: Path) -> None:
+    d = Slow(tmp_path, fake_tools(tmp_path))
+    d.cap_seconds = 1
+    life = iki_live.lifecycle(d, Request)  # type: ignore[arg-type]
+    with pytest.raises(iki_live.CapReachedError):
+        next(life)
+    assert "stood up" not in d.done and d.done[-2:] == ["teardown", "inventory"]
+    assert iki_live.CAPPED.is_set()
+
+    class Item:
+        name = "test_a_check"
+
+    with pytest.raises(pytest.fail.Exception, match="cap"):
+        iki_live.fail_if_capped(Item)  # type: ignore[arg-type]
+    Item.name = "test_tearing_down_leaves_nothing"
+    iki_live.fail_if_capped(Item)  # type: ignore[arg-type]
+    iki_live.CAPPED.clear()
+
+
+def test_without_a_cap_nothing_is_cut_short(tmp_path: Path) -> None:
+    d = Fake(tmp_path, fake_tools(tmp_path))
+    life = iki_live.lifecycle(d, Request)  # type: ignore[arg-type]
+    next(life)
+    next(life, None)
+    assert not iki_live.CAPPED.is_set()
+    assert signal.getsignal(signal.SIGALRM) == signal.SIG_DFL
 
 
 def test_the_cost_frameworks_lines_add_up() -> None:

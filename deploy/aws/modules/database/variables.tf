@@ -38,29 +38,56 @@ variable "instance_class" {
   description = "The instance class. Memory-optimised Graviton suits Iki's mix of reads and writes."
   type        = string
   default     = "db.r7g.large"
+  # Null keeps the default, so a root can pass its own optional value through.
+  nullable = false
+
+  validation {
+    condition     = can(regex("^db\\.[a-z0-9]+\\.[a-z0-9]+$", var.instance_class))
+    error_message = "Give an RDS instance class, such as db.r7g.large."
+  }
 }
 
 variable "allocated_storage_gib" {
   description = "Storage to start with."
   type        = number
   default     = 100
+  nullable    = false
+
+  validation {
+    condition     = var.allocated_storage_gib >= 20
+    error_message = "gp3 storage starts at 20 GiB."
+  }
 }
 
 variable "max_allocated_storage_gib" {
   description = "How far RDS may grow storage by itself as it fills."
   type        = number
   default     = 1000
+  nullable    = false
+
+  validation {
+    condition     = var.max_allocated_storage_gib > var.allocated_storage_gib
+    error_message = "max_allocated_storage_gib must be more than allocated_storage_gib, so storage can grow."
+  }
 }
 
 variable "backup_retention_days" {
   description = "How far back point-in-time recovery reaches, in days. 35 is RDS's most."
   type        = number
   default     = 35
+  nullable    = false
 
   validation {
     condition     = var.backup_retention_days >= 7 && var.backup_retention_days <= 35
     error_message = "Keep 7 to 35 days of backups."
   }
+}
+
+variable "deletion_protection" {
+  description = "Refuse to delete the database. Turn it off only to tear the deployment down (deploy/aws/scripts/teardown.sh does)."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "dr_backup_retention_days" {

@@ -13,11 +13,12 @@ locals {
 }
 
 module "network" {
-  source = "../modules/network"
-  name   = var.name
-  cidr   = var.vpc_cidr
-  zones  = var.zones
-  tags   = var.tags
+  source             = "../modules/network"
+  name               = var.name
+  cidr               = var.vpc_cidr
+  zones              = var.zones
+  single_nat_gateway = var.single_nat_gateway
+  tags               = var.tags
 }
 
 module "cluster" {
@@ -39,6 +40,11 @@ module "database" {
   vpc_id                    = module.network.vpc_id
   subnet_ids                = module.network.database_subnet_ids
   client_security_group_ids = [module.cluster.security_group_id]
+  instance_class            = var.database.instance_class
+  allocated_storage_gib     = var.database.allocated_storage_gib
+  max_allocated_storage_gib = var.database.max_allocated_storage_gib
+  backup_retention_days     = var.database.backup_retention_days
+  deletion_protection       = var.deletion_protection
   restore_from = var.recovery == null ? null : {
     automated_backups_arn = var.recovery.database_backups_arn
     restore_time          = var.recovery.restore_time
@@ -55,11 +61,12 @@ module "storage" {
 }
 
 module "secrets" {
-  source           = "../modules/secrets"
-  providers        = { aws = aws, aws.dr = aws.dr }
-  name             = var.name
-  optional_secrets = var.optional_secrets
-  tags             = var.tags
+  source               = "../modules/secrets"
+  providers            = { aws = aws, aws.dr = aws.dr }
+  name                 = var.name
+  optional_secrets     = var.optional_secrets
+  recovery_window_days = var.secrets_recovery_window_days
+  tags                 = var.tags
 }
 
 module "vm_tier" {
@@ -110,5 +117,6 @@ module "access" {
     disk_kms_key_arn = module.vm_tier[0].disk_kms_key_arn
     regions          = [var.region]
   } : null
-  tags = var.tags
+  external_dns = { zone_arn = one(aws_route53_zone.internal[*].arn) }
+  tags         = var.tags
 }

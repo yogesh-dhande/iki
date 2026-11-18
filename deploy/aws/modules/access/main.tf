@@ -473,3 +473,46 @@ resource "aws_eks_pod_identity_association" "cluster_autoscaler" {
   role_arn        = aws_iam_role.cluster_autoscaler[0].arn
   tags            = local.tags
 }
+
+# --- ExternalDNS -------------------------------------------------------------------------
+
+# Names Iki's load balancer in one private hosted zone, and only there: an internal
+# deployment's public_host inside the VPC, for backend workers and the VM tier's machines.
+data "aws_iam_policy_document" "external_dns" {
+  count = var.external_dns.zone_arn == null ? 0 : 1
+  statement {
+    sid       = "NameTheLoadBalancerInItsZone"
+    actions   = ["route53:ChangeResourceRecordSets", "route53:ListResourceRecordSets", "route53:ListTagsForResources"]
+    resources = [var.external_dns.zone_arn]
+  }
+  statement {
+    #checkov:skip=CKV_AWS_356:Route 53's list of zones can't be scoped to one; ExternalDNS then changes only the zone above.
+    sid       = "FindTheZone"
+    actions   = ["route53:ListHostedZones"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role" "external_dns" {
+  count              = var.external_dns.zone_arn == null ? 0 : 1
+  name               = "${var.name}-external-dns"
+  description        = "ExternalDNS: ${var.name}'s private zone only"
+  assume_role_policy = data.aws_iam_policy_document.assume.json
+  tags               = local.tags
+}
+
+resource "aws_iam_role_policy" "external_dns" {
+  count  = var.external_dns.zone_arn == null ? 0 : 1
+  name   = "name-the-load-balancer"
+  role   = aws_iam_role.external_dns[0].id
+  policy = data.aws_iam_policy_document.external_dns[0].json
+}
+
+resource "aws_eks_pod_identity_association" "external_dns" {
+  count           = var.external_dns.zone_arn == null ? 0 : 1
+  cluster_name    = var.cluster_name
+  namespace       = var.external_dns.namespace
+  service_account = var.external_dns.service_account
+  role_arn        = aws_iam_role.external_dns[0].arn
+  tags            = local.tags
+}

@@ -44,6 +44,9 @@ mock_provider "aws" {
   mock_resource "aws_db_instance" {
     defaults = { arn = "arn:aws:rds:eu-west-1:123456789012:db:iki-test" }
   }
+  mock_resource "aws_route53_zone" {
+    defaults = { arn = "arn:aws:route53:::hostedzone/Z0123456789", zone_id = "Z0123456789" }
+  }
   # Recovering: the lost deployment's copy of the files, here.
   mock_data "aws_s3_bucket" {
     defaults = { id = "iki-lost-files-dr-123456789012", arn = "arn:aws:s3:::iki-lost-files-dr-123456789012" }
@@ -171,4 +174,66 @@ run "refuses_the_same_region_for_dr" {
     dr_region = "eu-west-1"
   }
   expect_failures = [var.dr_region]
+}
+
+# The modules' own tests check the sizes and protections they're given; here, that the
+# load balancer, which only the chart's values make, follows deletion_protection too.
+run "the_load_balancer_refuses_deletion_by_default" {
+  assert {
+    condition     = strcontains(yamldecode(output.helm_values).ingress.annotations["alb.ingress.kubernetes.io/load-balancer-attributes"], "deletion_protection.enabled=true")
+    error_message = "The ALB should refuse deletion."
+  }
+}
+
+run "teardown_lets_the_load_balancer_go" {
+  variables {
+    database                     = { instance_class = "db.t4g.micro", allocated_storage_gib = 20, max_allocated_storage_gib = 40, backup_retention_days = 7 }
+    single_nat_gateway           = true
+    deletion_protection          = false
+    secrets_recovery_window_days = 7
+  }
+  assert {
+    condition     = strcontains(yamldecode(output.helm_values).ingress.annotations["alb.ingress.kubernetes.io/load-balancer-attributes"], "deletion_protection.enabled=false")
+    error_message = "With deletion_protection off, the ALB should let itself be deleted."
+  }
+}
+
+run "an_internal_deployment_is_named_inside_its_vpc" {
+  variables {
+    internal = true
+  }
+  assert {
+    condition     = length(aws_route53_zone.internal) == 1 && aws_route53_zone.internal[0].name == "iki.example.com" && one(aws_route53_zone.internal[0].vpc).vpc_id == module.network.vpc_id
+    error_message = "A private zone for public_host alone, in this VPC only."
+  }
+  assert {
+    condition     = output.controller_roles.external_dns != null && yamldecode(output.external_dns_values).domainFilters == ["iki.example.com"]
+    error_message = "ExternalDNS gets a role, and values that keep it to that name."
+  }
+  assert {
+    condition     = contains(yamldecode(output.external_dns_values).extraArgs, "--zone-id-filter=Z0123456789") && contains(yamldecode(output.external_dns_values).extraArgs, "--aws-zone-type=private")
+    error_message = "And to that zone, which is private."
+  }
+  assert {
+    condition     = [for r in yamldecode(output.helm_values).networkPolicy.egress.server.to : r.ipBlock.cidr] == module.network.private_subnet_cidrs
+    error_message = "Workers should reach the internal ALB, in the private subnets."
+  }
+}
+
+run "an_internal_deployment_named_by_your_own_dns" {
+  variables {
+    internal     = true
+    internal_dns = false
+  }
+  assert {
+    condition     = length(aws_route53_zone.internal) == 0 && output.external_dns_values == null && output.controller_roles.external_dns == null
+    error_message = "Without internal_dns, no zone and no ExternalDNS."
+  }
+}
+
+run "an_internet_facing_deployment_has_no_private_zone" {
+  assert {
+    condition     = length(aws_route53_zone.internal) == 0 && !contains(keys(yamldecode(output.helm_values).networkPolicy.egress), "server")
+    error_message = "Its workers reach the public ALB as the chart allows by default."
+  }
 }

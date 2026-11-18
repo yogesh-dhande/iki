@@ -224,7 +224,7 @@ resource "aws_db_instance" "this" {
   maintenance_window        = var.maintenance_window
   copy_tags_to_snapshot     = true
   delete_automated_backups  = false
-  deletion_protection       = true
+  deletion_protection       = var.deletion_protection
   skip_final_snapshot       = false
   final_snapshot_identifier = "${var.name}-final"
 

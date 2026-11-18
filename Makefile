@@ -164,6 +164,17 @@ gcp-live-cost: ## What the last check-gcp-live run cost: lifetimes from the audi
 	@test -n "$(IKI_GCP_PROJECT)" || (echo "Set IKI_GCP_PROJECT: the project the run deployed in." && false)
 	PYTHONPATH=deploy/live uv run python deploy/gcp/tests/gcp_cost.py
 
+.PHONY: check-aws-live
+check-aws-live: ## Deploy Iki to AWS as IKI_AWS_ROLE_ARN for real, check it, tear it all down. Bills that account: a few US dollars a run. Never on CI.
+	@test -n "$(IKI_AWS_ROLE_ARN)" || (echo "Set IKI_AWS_ROLE_ARN: the role to deploy as, whose account is billed." && false)
+	@test -n "$(IKI_AWS_TOKEN_COMMAND)" || (echo "Set IKI_AWS_TOKEN_COMMAND: it prints a web identity token the role trusts." && false)
+	uv run pytest deploy/aws/tests/test_aws_live.py --aws-live -p no:xdist -v -s
+
+.PHONY: aws-live-cost
+aws-live-cost: ## What the last check-aws-live run cost: lifetimes from CloudTrail, list prices from the AWS Price List (ESTIMATE=1: before a run)
+	@test -n "$(IKI_AWS_ROLE_ARN)" || (echo "Set IKI_AWS_ROLE_ARN: the role the run deployed as." && false)
+	PYTHONPATH=deploy/live:deploy/aws/tests uv run python deploy/aws/tests/aws_cost.py $(if $(ESTIMATE),--estimate)
+
 .PHONY: check-rust
 check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo fmt --all --check
