@@ -145,6 +145,7 @@ files = [
   "deploy/aws/tests/test_aws_cost.py",
   "deploy/aws/tests/test_aws_inventory.py",
   "deploy/aws/tests/test_aws_live.py",
+  "deploy/aws/tests/test_aws_live_helpers.py",
   "deploy/dev/sso.py",
 ]
 explicit_package_bases = true

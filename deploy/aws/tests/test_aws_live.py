@@ -368,6 +368,7 @@ def record_facts(aws: Aws, s: Settings) -> None:
                     group["logGroupName"],
                     window["start"],
                 )
+    facts["builds"] = stop_and_time_builds(aws, s)
     facts["image_bytes"] = 0
     for image in IMAGES:
         listed = aws.run(
@@ -385,6 +386,49 @@ def record_facts(aws: Aws, s: Settings) -> None:
                 d.get("imageSizeInBytes", 0) for d in json.loads(listed.stdout)["imageDetails"]
             )
     path.write_text(json.dumps(facts, indent=1))
+
+
+def stop_and_time_builds(aws: Aws, s: Settings, within: float = 600) -> list[dict[str, Any]]:
+    """Every build of the run's project, each stopped first if it still runs: a stand-up
+    that failed before the images were done leaves CodeBuild building, and billing by the
+    minute, until it ends."""
+    project = build_names(aws, s)["project"]
+    listed = aws.run(
+        "aws",
+        "codebuild",
+        "list-builds-for-project",
+        "--project-name",
+        project,
+        "--output",
+        "json",
+        check=False,
+    )
+    ids = json.loads(listed.stdout)["ids"] if listed.returncode == 0 else []
+    if not ids:
+        return []
+
+    def builds() -> list[dict[str, Any]]:
+        found: list[dict[str, Any]] = aws.aws_json("codebuild", "batch-get-builds", "--ids", *ids)[
+            "builds"
+        ]
+        return found
+
+    for build in builds():
+        if build["buildStatus"] == "IN_PROGRESS":
+            aws.run("aws", "codebuild", "stop-build", "--id", build["id"], check=False)
+
+    def all_ended() -> list[dict[str, Any]] | None:
+        found = builds()
+        return found if all(b["buildStatus"] != "IN_PROGRESS" for b in found) else None
+
+    ended = until("CodeBuild to stop the run's builds", all_ended, within, every=15)
+    return [{"id": b["id"], "seconds": build_seconds(b)} for b in ended]
+
+
+def build_seconds(build: dict[str, Any]) -> int:
+    started = datetime.datetime.fromisoformat(build["startTime"])
+    ended = datetime.datetime.fromisoformat(build["endTime"])
+    return round((ended - started).total_seconds())
 
 
 def metric_sum(
@@ -729,7 +773,8 @@ def build_status(aws: Aws, build: str) -> dict[str, Any]:
 
 
 def finish_build(d: Deployment, build: str) -> dict[str, str]:
-    """Waits for the build, records its minutes, and returns each image's digest."""
+    """Waits for the build and returns each image's digest. (Its minutes are recorded as
+    tearing down starts, with any other build's: stop_and_time_builds.)"""
     s, aws = d.settings, d.aws
     status = until(
         "CodeBuild",
@@ -737,12 +782,6 @@ def finish_build(d: Deployment, build: str) -> dict[str, str]:
         5400,
         every=30,
     )
-    facts_path = s.workdir / "aws-facts.json"
-    facts = json.loads(facts_path.read_text()) if facts_path.exists() else {}
-    started = datetime.datetime.fromisoformat(status["startTime"])
-    ended = datetime.datetime.fromisoformat(status["endTime"])
-    facts["builds"] = [{"id": build, "seconds": round((ended - started).total_seconds())}]
-    facts_path.write_text(json.dumps(facts, indent=1))
     logs = build_names(aws, s)["logs"]
     assert status["buildStatus"] == "SUCCEEDED", (
         f"build {build}: {status['buildStatus']} (its log: CloudWatch {logs})"
