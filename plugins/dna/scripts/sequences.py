@@ -9,8 +9,10 @@ G, T, U, S and W); other IUPAC codes, such as N, are left out of it. A sequence 
 none has no GC content.
 
 Melting temperature uses SantaLucia's unified nearest-neighbour parameters (PNAS 95,
-1460; 1998) with his salt correction, at 50 mM Na+ and 50 nM primer, as Primer3 does
-by default. It's computed only for primers of A, C, G and T alone.
+1460; 1998) with his salt correction, at 50 mM Na+ and 50 nM primer, sodium alone: no
+Mg2+ or dNTPs. That's not Primer3's default buffer, which adds 1.5 mM Mg2+ and 0.6 mM
+dNTPs and gives a Tm some 5 to 6 °C higher; a PCR buffer's Tm needs those. It's computed
+only for primers of A, C, G and T alone.
 """
 
 import json

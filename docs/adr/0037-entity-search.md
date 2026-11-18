@@ -55,8 +55,8 @@ updated and archived times) can be named without a type.
 
 **Conditions compile to the ORM over the type's own table.** A type's table
 holds its subtypes' rows (multi-table inheritance), so a condition on
-`dna.Sequence.name` finds proteins too, by joining, with no union across
-types. Extension fields join their plugin's table; lists of references
+`core.Sequence.name` finds proteins and DNA sequences, both its subtypes,
+by joining, with no union across types. Extension fields join their plugin's table; lists of references
 check their item table with `EXISTS`. Only entities the caller can read
 are searched: the same `EXISTS` on project links as every read.
 

@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/dna
-version: 0.6.0
+version: 0.6.1
 title: DNA
 description: DNA sequences, with their features, and primers.
 license: Apache-2.0

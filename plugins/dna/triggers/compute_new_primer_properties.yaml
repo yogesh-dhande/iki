@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_new_primer_properties
+label: Compute each new primer's length, GC content and Tm
+description: >-
+  Computes a primer's length, GC content and melting temperature as soon as
+  it's registered: once for each identity, as they're its registry entry's,
+  which every project with a record of it shares. Runs that compute them only
+  fill in fields, so they never fire a trigger again.
+on: entity.registered
+type: Primer
+run: primer_properties

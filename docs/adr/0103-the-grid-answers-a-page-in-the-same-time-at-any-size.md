@@ -8,9 +8,9 @@
 
 The grid shows a type's entities a page at a time (at most 100 rows), by
 cursor, and never counts them (it says "100+"). A type's entities are a
-join: the type's table, its parents' (a protein is a DNA sequence's kind
-of sequence), Entity's, the projects it's in, and what its caller may
-read.
+join: the type's table, its parents' (a protein's is Sequence's, as a
+DNA sequence's is: they're siblings), Entity's, the projects it's in, and
+what its caller may read.
 
 A load test filled a project with 100M proteins and opened the grid's
 pages as a Viewer. At 1M rows, three kinds of page already took time in

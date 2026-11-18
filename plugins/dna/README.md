@@ -12,12 +12,14 @@ them.
     registry fact only its registrars change once it's set.
   - Its features are kept as GenBank lists them: type, location, strand and
     qualifiers.
-  - Its length and GC content are computed by the plugin's actions, once,
-    when it's registered.
+  - Its length and GC content are computed by the plugin's
+    `compute_composition` action, which a trigger runs once, when it's
+    registered.
 - **`iki/dna.Primer`** (`PRM-000001`): an oligonucleotide, up to 200 bases,
   optionally bound to the sequence it targets. Its identity is its bases,
   registered as a sequence's is. Its length, GC content and melting
-  temperature are computed when it's registered, and are its entry's.
+  temperature are computed by `primer_properties`, which a trigger runs
+  when it's registered, and are its entry's.
 
 Both extend `iki/core.Sequence`, so a search for sequences finds them alongside
 proteins and other plugins' sequences.
@@ -75,8 +77,11 @@ makes is recorded as made with it
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
 T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
 temperature uses SantaLucia's unified nearest-neighbour parameters (1998) with
-his salt correction, at 50 mM Na⁺ and 50 nM primer, as Primer3 does by
-default. It's computed only for primers of A, C, G and T alone.
+his salt correction, at 50 mM Na⁺ and 50 nM primer, with sodium alone: no Mg²⁺
+or dNTPs. That isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM dNTPs as
+well), under which the same primer's Tm is some 5 to 6 °C higher, so compare it
+with Tms computed for sodium alone. It's computed only for primers of A, C, G
+and T alone.
 
 GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.

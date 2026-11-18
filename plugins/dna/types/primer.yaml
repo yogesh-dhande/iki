@@ -30,7 +30,9 @@ fields:
     unit: Cel
     computed: true
     indexed: true
-    description: Its melting temperature (Tm), as computed by the plugin's action.
+    description: >-
+      Its melting temperature (Tm) by SantaLucia's nearest-neighbour model, at
+      50 mM Na+ and 50 nM primer, with no Mg2+ or dNTPs.
   vendor: { type: string, max_length: 200 }
   order_number: { type: string, max_length: 100 }
 display:

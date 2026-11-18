@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_new_sequence_composition
+label: Compute each new DNA sequence's length and GC content
+description: >-
+  Computes a DNA sequence's length and GC content as soon as it's
+  registered: once for each identity, as they're its registry entry's, which
+  every project with a record of it shares. Runs that compute them only fill
+  in fields, so they never fire a trigger again.
+on: entity.registered
+type: DNASequence
+run: compute_composition
