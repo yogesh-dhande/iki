@@ -1031,6 +1031,8 @@ def stand_up(d: Deployment) -> None:
         str(production / "values-live.yaml"),
     )
     aws.helm(*chart, "--wait", "--timeout", "20m")
+    # The bucket's CORS and lifecycle rules, which Iki sets itself on S3 (the runbook).
+    aws.server("setup_storage")
     # The ALB, which the controller makes from Iki's Ingress, and its name in the VPC.
     until(
         "the internal ALB",

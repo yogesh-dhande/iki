@@ -106,6 +106,12 @@ Secrets' names, the ALB, the networks pods may reach. Change those in
 OpenTofu and write it again. `values-production.yaml` holds the choices
 that are yours (replicas, the egress proxy); pin the image by digest there.
 
+Then let Iki set the bucket's CORS rule (browsers send files to it directly)
+and its lifecycle rule for abandoned uploads, which OpenTofu leaves to it:
+`kubectl -n iki exec deploy/iki-web -- iki-server setup_storage`. Run it
+again if `publicUrl` changes; `--check` reports what's missing and changes
+nothing.
+
 Point your DNS name at the ALB (`kubectl -n iki get ingress iki-web`), then
 open the one-time setup link
 `kubectl -n iki exec deploy/iki-web -- iki-server setup_link` prints.
