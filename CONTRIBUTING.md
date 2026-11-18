@@ -29,7 +29,9 @@ and what a change must include before it merges.
    approach can be agreed before you write it.
 2. Branch from `main`.
 3. Run `make check` before pushing. CI runs the same checks, and the single
-   required status check is **CI passed**.
+   required status check is **CI passed**. A change to documentation alone
+   (Markdown, or anything under `docs/`, but not a plugin's files) runs only
+   Prettier and `docs/tests`; `scripts/ci/changes.sh` decides.
 4. Open a pull request using the template. Describe what changed, why, and how
    you verified it.
 
