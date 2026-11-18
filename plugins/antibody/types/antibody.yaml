@@ -9,7 +9,9 @@ description: >-
   An antibody, by the proteins that are its chains: a heavy chain and a light
   chain, or for a single-domain antibody (a VHH) or an scFv, one chain. Two with
   the same chains are the same antibody, so assembling one again finds its
-  registry entry.
+  registry entry. Its format and isotype are its chains': an IgG1 and an IgG4 of
+  the same variable domains have different heavy chains, so they're different
+  antibodies, and a heavy and a light variable domain alone are an Fv.
 hrid: { prefix: ABY }
 identity: [heavy_chain, light_chain]
 fields:
@@ -31,19 +33,26 @@ fields:
   format:
     type: enum
     registry: derived
-    values: [igg, fab, scfv, vhh, other]
+    values: [igg, fab, fv, scfv, vhh, other]
     default: igg
     required: true
     indexed: true
     description: >-
-      igg is a whole antibody, fab one arm of it, scfv the two variable domains
-      on one chain, vhh a single domain (a camelid's, or a nanobody).
+      What its chains make: igg a whole IgG (heavy chains with CH1, hinge, CH2
+      and CH3, and light chains with their constant domain), fab one arm of
+      one (CH1 but no Fc), fv the heavy and light variable domains alone, on
+      two chains, scfv both on one chain, vhh a single domain (a camelid's, or
+      a nanobody), and other anything else.
   isotype:
     type: enum
-    registry: derived
+    registry: fact
     values: [igg1, igg2, igg3, igg4, iga1, iga2, igm, ige, igd]
     indexed: true
-    description: Its heavy chain's constant region, for a whole antibody or a Fab.
+    description: >-
+      Its heavy chain constant region's class and subclass, which its heavy
+      chain's sequence carries: one of IgG's subclasses for an IgG, any for a
+      Fab or another format with a constant region, none for an Fv, scFv or
+      VHH. A registry fact: given once, then changed only by its registrars.
   target:
     type: string
     max_length: 255

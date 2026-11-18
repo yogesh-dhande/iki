@@ -3,18 +3,24 @@ apiVersion: iki/v1
 kind: ActionTest
 name: trastuzumab
 description: >-
-  Trastuzumab's variable domains (PDB 1N8Z): a heavy chain and a light chain
-  make an IgG1, named after them, from both.
+  Trastuzumab (KEGG D03257): its whole heavy chain, an IgG1's, 120 residues of
+  variable domain then CH1, hinge, CH2 and CH3, and its whole kappa light chain.
+  The chains are numbered as number_chains leaves them (their residues' numbers
+  left out), which says where the variable domains end.
 action: assemble
 inputs:
   heavy_chain:
     - values:
-        name: trastuzumab VH
-        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSS
+        name: trastuzumab heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
   light_chain:
     - values:
-        name: trastuzumab VL
-        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIK
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
 params: { isotype: igg1, target: HER2 }
 expect:
   output:
@@ -23,7 +29,7 @@ expect:
         values:
           heavy_chain: 00000000-0000-7000-8003-000000000001
           light_chain: 00000000-0000-7000-8003-000000000002
-          name: trastuzumab VH / trastuzumab VL
+          name: trastuzumab heavy chain / trastuzumab light chain
           format: igg
           isotype: igg1
           target: HER2
@@ -33,14 +39,207 @@ expect:
 ---
 apiVersion: iki/v1
 kind: ActionTest
+name: trastuzumabs_fv
+description: >-
+  Trastuzumab's variable domains alone (PDB 1N8Z's): an Fv, with no constant
+  region, so no isotype.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab VH
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSS
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab VL
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIK
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: fv, target: HER2 }
+expect:
+  output:
+    creates:
+      - values:
+          heavy_chain: 00000000-0000-7000-8003-000000000001
+          light_chain: 00000000-0000-7000-8003-000000000002
+          name: trastuzumab VH / trastuzumab VL
+          format: fv
+          target: HER2
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: trastuzumabs_fab
+description: >-
+  Trastuzumab's Fab: its heavy chain to the cysteine that bonds the light chain
+  (H223, KEGG D03257), so CH1 but no Fc, and its whole light chain.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab Fd
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSC
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: fab, isotype: igg1 }
+expect:
+  output:
+    creates:
+      - values:
+          heavy_chain: 00000000-0000-7000-8003-000000000001
+          light_chain: 00000000-0000-7000-8003-000000000002
+          name: trastuzumab Fd / trastuzumab light chain
+          format: fab
+          isotype: igg1
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: variable_domains_arent_an_igg
+description: >-
+  Two variable domains have no constant regions, so they can't be an IgG1: the
+  same chains would be one antibody whatever isotype each assembly claimed.
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab VH
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSS
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab VL
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIK
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { isotype: igg1 }
+expect:
+  error: "A whole antibody (IgG) has a light chain with a constant domain, and trastuzumab VL has 0 residues after its variable domain: if it's the variable domains alone, choose fv."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_fv_has_no_constant_region
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab VL
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIK
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: fv }
+expect:
+  error: "trastuzumab heavy chain has 329 residues after its variable domain, a constant region, which an Fv hasn't. Choose fab, igg or other."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_fab_has_no_fc
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { format: fab }
+expect:
+  error: "A Fab's heavy chain has CH1 but no Fc, and trastuzumab heavy chain has 329 residues after its variable domain: choose igg for a whole antibody."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: an_iggs_isotype_is_an_igg_subclass
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+params: { isotype: igm }
+expect:
+  error: "An IgG's isotype is one of its subclasses (igg1 to igg4), not igm"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: the_chains_are_numbered_first
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        {
+          name: trastuzumab heavy chain,
+          sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG,
+        }
+  light_chain:
+    - values:
+        {
+          name: trastuzumab light chain,
+          sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC,
+        }
+params: { isotype: igg1 }
+expect:
+  error: "trastuzumab heavy chain and trastuzumab light chain haven't been numbered: number the chains first"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_light_chain_given_as_the_heavy_one
+action: assemble
+inputs:
+  heavy_chain:
+    - values:
+        name: trastuzumab light chain
+        sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+        variable_domains:
+          - { chain: K, start: 1, end: 107, numbering: [], closest: {}, human: {} }
+  light_chain:
+    - values:
+        name: trastuzumab heavy chain
+        sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+        variable_domains:
+          - { chain: H, start: 1, end: 120, numbering: [], closest: {}, human: {} }
+expect:
+  error: "The heavy chain of a whole antibody (IgG) has a heavy variable domain, and numbering found K in trastuzumab light chain."
+---
+apiVersion: iki/v1
+kind: ActionTest
 name: a_vhh
-description: A single domain is one chain, with no light chain and no isotype.
+description: >-
+  A single domain is one chain, with no light chain and no isotype.
 action: assemble
 inputs:
   heavy_chain:
     - values:
         name: caplacizumab domain
         sequence: EVQLVESGGGLVQPGGSLRLSCAASGRTFSYNPMGWFRQAPGKGRELVAAISRTGGSTYYPDSVEGRFTISRDNAKRMVYLQMNSLRAEDTAVYYCAAAGVRAEDGRVRTLPSEYTFWGQGTQVTVSS
+        variable_domains:
+          - { chain: H, start: 1, end: 128, numbering: [], closest: {}, human: {} }
 params: { format: vhh, name: caplacizumab }
 expect:
   output:

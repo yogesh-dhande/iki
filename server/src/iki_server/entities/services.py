@@ -268,13 +268,16 @@ def _create(
         return _new_record(user, form, project, given, reason, by_run)
     entry = _find_entry(form, project, given)
     if entry is not None:
-        existing = Entity.objects.filter(owner_project=project, entry=entry).first()
-        if existing is not None:
-            return Saved(_specific(existing), reused=True)
+        # What's given for the entry fills what it hasn't got, and a fact that differs is
+        # refused, whether or not the project has a record of it already: a second
+        # registration never drops what it says about the identity unnoticed.
         named = {n: given[n] for n in values if n in form.entry_fields()}
         entry_revision = fill_entry(
             user, form, entry, named, project=project, reason=reason, by_run=by_run
         )
+        existing = Entity.objects.filter(owner_project=project, entry=entry).first()
+        if existing is not None:
+            return Saved(_specific(existing), reused=True, entry_revision=entry_revision)
         saved = _new_record(user, form, project, given, reason, by_run, entry=entry)
         saved.entry_revision = entry_revision
         return saved

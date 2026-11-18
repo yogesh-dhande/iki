@@ -6,7 +6,9 @@ label: Assemble an antibody
 description: >-
   Registers the antibody that a heavy chain and a light chain make, or that one
   chain is for a VHH or an scFv. An antibody already in Iki with the same chains
-  is reused.
+  is reused. The chains must have been numbered (number_chains): where their
+  variable domains end says whether they have the constant regions the format
+  and isotype say they do.
 inputs:
   heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
   light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
@@ -17,11 +19,18 @@ params:
     description: Its name. Without one, it's named after its chains.
   format:
     type: enum
-    values: [igg, fab, scfv, vhh, other]
+    values: [igg, fab, fv, scfv, vhh, other]
     default: igg
+    description: >-
+      igg a whole IgG, fab one arm of one, fv the heavy and light variable
+      domains alone, scfv both on one chain, vhh a single domain, other
+      anything else.
   isotype:
     type: enum
     values: [igg1, igg2, igg3, igg4, iga1, iga2, igm, ige, igd]
+    description: >-
+      Its heavy chain constant region's class: one of IgG's subclasses for an
+      IgG; none for an Fv, scFv or VHH.
   target: { type: string, max_length: 255, description: What it binds. }
 effects:
   creates: [{ type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain] }]

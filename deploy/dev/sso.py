@@ -2068,8 +2068,8 @@ def relatives_app(alice: requests.Session, project: dict[str, Any]) -> str:
 
 
 def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
-    """The antibody plugin: trastuzumab assembled from its chains, on the backend; then its
-    chains numbered by ANARCI, in a pod of their own with the plugin's image."""
+    """The antibody plugin: trastuzumab's chains numbered by ANARCI, in a pod of their own
+    with the plugin's image; then its Fv assembled from them, on the backend."""
     chains = []
     for name, sequence in (("Trastuzumab VH", TRASTUZUMAB_VH), ("Trastuzumab VL", TRASTUZUMAB_VL)):
         made = api_call(
@@ -2086,28 +2086,6 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
             fail(f"registering {name} answered HTTP {made.status_code}: {made.text[:300]}")
         chains.append(made.json())
     heavy, light = chains
-    params = {"name": "Trastuzumab", "format": "igg", "isotype": "igg1", "target": "HER2"}
-    run = launch(
-        alice,
-        project,
-        "iki/antibody.assemble",
-        {"heavy_chain": heavy["id"], "light_chain": light["id"]},
-        params,
-    )
-    effects = [e for e in run.get("effects") or [] if e["kind"] in ("created", "reused")]
-    if [e["type"] for e in effects] != ["iki/antibody.Antibody"]:
-        fail(f"{run['hrid']} made {effects}, not one iki/antibody.Antibody")
-    antibody = record(alice, effects[0]["entity"])["values"]
-    if (antibody["heavy_chain"], antibody.get("light_chain"), antibody["isotype"]) != (
-        entry_of(heavy),
-        entry_of(light),
-        "igg1",
-    ):
-        fail(f"{effects[0]['hrid']} is {antibody}")
-    ok(
-        f"iki/antibody.assemble made {effects[0]['hrid']} of {heavy['hrid']} and {light['hrid']} "
-        f"({run['hrid']})"
-    )
     expected = {
         heavy["id"]: ("heavy", "cdr_h3", "SRWGGDGFYAMDY", "heavy_v_gene", "IGHV3-66*01"),
         light["id"]: ("kappa", "cdr_l3", "QQHYTTPPT", "light_v_gene", "IGKV1-39*01"),
@@ -2137,6 +2115,30 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
             f"iki/antibody.number_chains ran ANARCI in a pod of its own ({run['hrid']}): "
             f"{chain['hrid']} is a {kind} chain, CDR3 {cdr3}, {v_gene} ({identity}%)"
         )
+    # Its variable domains alone, numbered first: an Fv, with no constant region, so no
+    # isotype.
+    params = {"name": "Trastuzumab", "format": "fv", "target": "HER2"}
+    run = launch(
+        alice,
+        project,
+        "iki/antibody.assemble",
+        {"heavy_chain": heavy["id"], "light_chain": light["id"]},
+        params,
+    )
+    effects = [e for e in run.get("effects") or [] if e["kind"] in ("created", "reused")]
+    if [e["type"] for e in effects] != ["iki/antibody.Antibody"]:
+        fail(f"{run['hrid']} made {effects}, not one iki/antibody.Antibody")
+    antibody = record(alice, effects[0]["entity"])["values"]
+    if (antibody["heavy_chain"], antibody.get("light_chain"), antibody["format"]) != (
+        entry_of(heavy),
+        entry_of(light),
+        "fv",
+    ):
+        fail(f"{effects[0]['hrid']} is {antibody}")
+    ok(
+        f"iki/antibody.assemble made {effects[0]['hrid']} of {heavy['hrid']} and {light['hrid']} "
+        f"({run['hrid']})"
+    )
     screened(alice, project, heavy, light)
     predicted(alice, project, effects[0]["entity"], heavy, light)
 

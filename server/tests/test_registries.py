@@ -164,6 +164,12 @@ def test_a_fact_is_set_once_and_then_only_by_a_registrar(world: World, rival: Pr
     )
     assert "1.1.1.1" not in str(refused)
     assert "registrars" in str(refused["errors"])
+    # So is registering it again with another value where it has a record already.
+    problem(
+        create(editor, world.project, {"sequence": SEQUENCE, "ec_number": "2.7.11.1"}),
+        422,
+        "validation_failed",
+    )
     # A holder may set a fact the entry hasn't got.
     theirs = create(outsider, rival, {"sequence": SEQUENCE, "hazard": "bsl1"}).json()
     assert theirs["values"]["hazard"] == "bsl1"

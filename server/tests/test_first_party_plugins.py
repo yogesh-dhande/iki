@@ -122,8 +122,18 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         )
         fab = make(
             "iki/antibody.Antibody", heavy_chain=str(bla.pk), light_chain=str(light.pk),
-            format="fab",
+            format="fab", isotype="igg1",
         )
+        # Its isotype is a registry fact: the same chains claimed as another isotype are
+        # refused, not dropped, even where the project holds the antibody already.
+        try:
+            make(
+                "iki/antibody.Antibody", heavy_chain=str(bla.pk), light_chain=str(light.pk),
+                format="fab", isotype="igg4",
+            )
+            other_isotype = None
+        except services.Invalid as invalid:
+            other_isotype = sorted(invalid.errors)
         entries = {e.pk: e for e in Entity.objects.filter(registry__isnull=False)}
         # Giving the VHH a light chain would make it another antibody: it's refused.
         try:
@@ -148,7 +158,8 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
                   "identities": [
                       entries[vhh.entry_id].identity_hash, entries[fab.entry_id].identity_hash
                   ],
-                  "refused": refused, "numbering": numbering}
+                  "refused": refused, "numbering": numbering,
+                  "other_isotype": other_isotype}
         """,
     )
     assert result["types"] == [
@@ -182,6 +193,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         identity_hash("iki/antibody.Antibody", paired),
     ]
     assert result["numbering"] == ["kabat", "kabat", "DTYIH", "heavy"]
+    assert result["other_isotype"] == ["isotype"]
     assert result["refused"] == {
         "light_chain": [
             "is part of what makes it this one, so it can't be added later: "

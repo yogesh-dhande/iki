@@ -5,17 +5,25 @@ chains, what their variable domains say about them, and their predicted
 structures.
 
 - **`iki/antibody.Antibody`** (`ABY-000001`): an antibody, by its chains.
-  - A whole antibody (`igg`) or a Fab (`fab`) has a heavy chain and a light
-    chain. A single domain (`vhh`, a camelid's or a nanobody) or both variable
-    domains on one chain (`scfv`) has one chain, its `heavy_chain`.
+  - A whole IgG (`igg`), a Fab (`fab`) or an Fv (`fv`, the two variable
+    domains alone) has a heavy chain and a light chain. A single domain
+    (`vhh`, a camelid's or a nanobody) or both variable domains on one chain
+    (`scfv`) has one chain, its `heavy_chain`.
   - Its identity is its heavy chain and its light chain, if it has one: each
     antibody is registered once in a registry (ADR 0115), with one ID, and
-    assembling the same chains again, in any project, finds that entry; its
-    format and isotype are the entry's. A VHH and an antibody with the
-    same heavy chain and a light chain are different antibodies
+    assembling the same chains again, in any project, finds that entry. A VHH
+    and an antibody with the same heavy chain and a light chain are different
+    antibodies
     ([ADR 0104](../../docs/adr/0104-an-identity-can-name-an-optional-field.md)).
-  - It keeps its format, its isotype (a constant region's, so only `igg` and
-    `fab` take one) and what it binds (`target`).
+  - Its format and isotype are what its chains are, so they don't need to be
+    in its identity: an IgG1 and an IgG4 of the same variable domains have
+    different heavy chains (their constant regions differ), and an IgG and a
+    Fab differ in how much of the heavy chain there is. Two variable domains
+    alone are an Fv, which has no isotype. `assemble` checks the format and
+    isotype against the chains.
+  - It keeps its format (`registry: derived`), its isotype (a registry fact:
+    given once, then changed only by a registrar, so a second assembly that
+    claims another is refused) and what it binds (`target`).
 
 - **Proteins' numbering** (an extension of `iki/protein.Protein`): what numbering a
   chain finds, in the plugin's own table.
@@ -74,10 +82,27 @@ ANARCI 2026.2.13.2 and HMMER 3.4, and for the structure ImmuneBuilder 1.2,
 OpenMM 8.6.1 and PDBFixer 1.12.0 as well. `assemble` and `find_liabilities` are
 the plugin's own code, in pure Python, so they run none.
 
-`assemble` checks that the format and the chains agree: an IgG or a Fab needs a
-light chain, a VHH or an scFv has none, and only a format with a constant
-region has an isotype. It names the antibody after its chains unless it's given
-a name.
+`assemble` checks that the format and the chains agree, from where their
+variable domains end, so the chains must have been numbered first
+(`number_chains`):
+
+| Format  | Chains                                                                 | Isotype          |
+| ------- | ---------------------------------------------------------------------- | ---------------- |
+| `igg`   | A heavy chain with CH1, hinge, CH2 and CH3; a light chain with its CL  | `igg1` to `igg4` |
+| `fab`   | A heavy chain with CH1 but no Fc; a light chain with its CL            | Any class        |
+| `fv`    | A heavy and a light variable domain, with no constant domain           | None             |
+| `scfv`  | One chain with a heavy and a light variable domain, no constant domain | None             |
+| `vhh`   | One chain with one heavy variable domain, no constant domain           | None             |
+| `other` | Not checked                                                            | Any, given a CH1 |
+
+An immunoglobulin constant domain is about 100 residues (human IGKC's is 107,
+IGHG1's CH1 98) and an IgG heavy chain's constant region 326 to 377 (IGHG2's to
+IGHG3's), so fewer than 90 residues after a variable domain count as no
+constant domain, and 300 or more as an IgG's whole constant region. Which class
+a constant region is isn't read from its sequence: the isotype given is
+checked against the format and that there's a constant region. These checks
+are `assemble`'s: an antibody registered directly, through the API, isn't
+checked. It names the antibody after its chains unless it's given a name.
 
 `number_chains` runs [ANARCI](https://github.com/oxpig/ANARCI) (BSD-3-Clause)
 with HMMER's hmmscan, in the plugin's `numbering-tools` image
