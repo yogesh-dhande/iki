@@ -22,14 +22,16 @@ import json
 import re
 import sys
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+import live_cost
 import requests
+from live_cost import Life, Line
 
-HOURS_PER_MONTH = 730
-GIB = 1024**3
+GIB = live_cost.GIB
+_time = live_cost.parse_time
 
 
 class Cloud(Protocol):
@@ -62,54 +64,26 @@ class Price:
 
 
 @dataclass
-class Line:
-    resource: str
-    lifetime_hours: float
-    quantity: float
-    unit: str
-    sku: str
-    description: str
-    unit_price: float
-    cost: float
-    note: str = ""
-
-
-@dataclass
-class Report:
-    window: dict[str, str]
-    lines: list[Line] = field(default_factory=list)
+class Report(live_cost.Report):
     billing_export: list[dict[str, Any]] | str = ""
 
-    @property
-    def total(self) -> float:
-        return sum(line.cost for line in self.lines)
-
-    def text(self) -> str:
-        out = [
+    def heading(self) -> str:
+        return (
             f"Cost of {self.window['name']} in {self.window['project']}, "
-            f"{self.window['start']} to {self.window['end']} (list prices, USD)",
-            "",
-            f"{'resource':<44} {'hours':>6} {'quantity':>12} {'unit price':>12} {'cost':>8}  SKU",
-        ]
-        for line in self.lines:
-            quantity = f"{line.quantity:.3f} {line.unit}"
-            out.append(
-                f"{line.resource[:44]:<44} {line.lifetime_hours:>6.2f} {quantity:>12} "
-                f"{line.unit_price:>12.6f} {line.cost:>8.4f}  {line.sku} {line.description}"
-            )
-            if line.note:
-                out.append(f"{'':<44}   {line.note}")
-        out += ["", f"{'total':<44} {'':>6} {'':>12} {'':>12} {self.total:>8.4f}", ""]
+            f"{self.window['start']} to {self.window['end']} (list prices, USD)"
+        )
+
+    def footer(self) -> list[str]:
         if isinstance(self.billing_export, str):
-            out.append(f"Billing export: {self.billing_export}")
-        else:
-            out.append("Billing export (labelled rows; lags up to a day):")
-            for row in self.billing_export:
-                out.append(
-                    f"  {row['service']}: {row['sku']} ({row['sku_id']}): "
-                    f"{row['usage']} {row['unit']}, {row['cost']} {row['currency']}"
-                )
-        return "\n".join(out) + "\n"
+            return [f"Billing export: {self.billing_export}"]
+        return [
+            "Billing export (labelled rows; lags up to a day):",
+            *(
+                f"  {row['service']}: {row['sku']} ({row['sku_id']}): "
+                f"{row['usage']} {row['unit']}, {row['cost']} {row['currency']}"
+                for row in self.billing_export
+            ),
+        ]
 
 
 # --- Prices ----------------------------------------------------------------------------------
@@ -249,24 +223,6 @@ METHODS = (
 )
 
 
-@dataclass
-class Life:
-    kind: str
-    name: str
-    start: datetime.datetime | None = None
-    end: datetime.datetime | None = None
-    request: dict[str, Any] = field(default_factory=dict)
-
-    def hours(self, window: Window) -> float:
-        start = self.start or window.start
-        end = self.end or window.end
-        return max(0.0, (end - start).total_seconds() / 3600)
-
-
-def _time(value: str) -> datetime.datetime:
-    return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
 def lifetimes(cloud: Cloud, window: Window) -> dict[str, Life]:
     """Each resource of the deployment's that's billed by the hour: its first create and
     its last delete entry (an operation logs a few), in the Admin Activity audit log."""
@@ -297,13 +253,8 @@ def lifetimes(cloud: Cloud, window: Window) -> dict[str, Life]:
             resource = resource.split("/cryptoKeyVersions/")[0]
         key = f"{kind}:{resource.rstrip('/')}"
         life = found.setdefault(key, Life(kind, resource.rsplit("/", 1)[-1]))
-        when = _time(entry["timestamp"])
-        if re.search(r"(Create|create|insert)", method.rsplit(".", 1)[-1]):
-            if life.start is None or when < life.start:
-                life.start = when
-                life.request = payload.get("request") or {}
-        elif life.end is None or when > life.end:
-            life.end = when
+        made = bool(re.search(r"(Create|create|insert)", method.rsplit(".", 1)[-1]))
+        life.saw(_time(entry["timestamp"]), made=made, request=payload.get("request"))
     return found
 
 
@@ -346,9 +297,7 @@ def _sql_tier(tier: str) -> tuple[float, float] | None:
 
 def _per_hour(price: Price, quantity_hours: float) -> float:
     """The cost of quantity_hours of a unit-hour (h, GiBy.h) or unit-month SKU."""
-    if price.unit.endswith("mo"):
-        return price.usd * quantity_hours / HOURS_PER_MONTH
-    return price.usd * quantity_hours
+    return live_cost.prorate(price.usd, price.unit, quantity_hours)
 
 
 def report(
@@ -620,12 +569,7 @@ def _parameter(name: str, kind: str, value: str) -> dict[str, Any]:
 
 
 def write(result: Report, workdir: Path) -> str:
-    text = result.text()
-    (workdir / "gcp-cost.txt").write_text(text)
-    (workdir / "gcp-cost.json").write_text(
-        json.dumps({**asdict(result), "total": result.total}, indent=1, default=str)
-    )
-    return text
+    return live_cost.write(result, workdir, "gcp")
 
 
 def main() -> None:
@@ -642,6 +586,7 @@ def main() -> None:
         _time(saved["end"]) if saved.get("end") else datetime.datetime.now(datetime.UTC),
     )
     gcp = live.Gcp(settings)
+    gcp.token.start()
     try:
         variables = json.loads(
             (settings.workdir / "deploy/gcp/production/terraform.tfvars.json").read_text()

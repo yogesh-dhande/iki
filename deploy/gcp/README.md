@@ -123,7 +123,8 @@ of its own is left but what Google Cloud keeps. It bills the project a few
 US dollars, and never runs on CI. Last, it reports what the run cost at list
 prices (`make gcp-live-cost` does again). Its settings, including
 `IKI_GCP_TOKEN_COMMAND` for the identity it acts as, are in
-`tests/test_gcp_live.py`.
+`tests/test_gcp_live.py`; what it shares with the AWS one is in
+[`../live`](../live).
 
 ## What to know before you rely on them
 

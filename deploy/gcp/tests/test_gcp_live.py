@@ -16,7 +16,7 @@ log bucket and custom roles pending deletion) or an API it turned on.
 It costs: a regional GKE cluster's fee and three or four small nodes, a highly
 available Cloud SQL Enterprise Plus instance (2 vCPUs), Cloud NAT, an internal load
 balancer and two Cloud Build builds: a few US dollars for its hour or two. It never runs
-on CI (conftest.py).
+on CI (conftest.py). What it shares with the AWS one is deploy/live/iki_live.py.
 
 Who it acts as is one OAuth access token, for gcloud, OpenTofu, kubectl and Helm alike
 (``Gcp`` below): IKI_GCP_TOKEN_COMMAND prints one, and is run again every 20 minutes. By
@@ -43,38 +43,27 @@ unused and unchanged. Other settings:
 """
 
 import datetime
-import hashlib
-import http.cookiejar
 import ipaddress
 import json
 import os
 import re
-import secrets
-import shlex
 import shutil
-import socket
-import subprocess
-import sys
-import tarfile
-import tempfile
-import threading
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import gcp_cost
+import iki_live
 import pytest
 import requests
 import yaml
+from iki_live import REPO, Iki, until
 
 pytestmark = pytest.mark.gcp_live
 
-REPO = Path(__file__).resolve().parents[3]
-#: External Secrets' chart, as the runbook installs it: pinned to a release qualified here.
-EXTERNAL_SECRETS = ("https://charts.external-secrets.io", "2.15.0")
 #: Services whose Data Access audit logs are on in a project of Iki's own (the logs
 #: module's default), less Cloud Storage's: a shared project's other workloads read there.
 # Cloud SQL's audit logs are cloudsql.googleapis.com's (sqladmin has no audit config).
@@ -91,11 +80,6 @@ _CREDENTIAL_VARIABLES = {
     "CLOUDSDK_CONFIG",
     "KUBECONFIG",
 }
-#: The protein the backend run computes the properties of: human haemoglobin's beta chain.
-HBB = (
-    "MVHLTPEEKSAVTALWGKVNVDEVGGEALGRLLVVYPWTQRFFESFGDLSTPDAVMGNPKVKAHGKKVLGAFSDGLAHLD"
-    "NLKGTFATLSELHCDKLHVDPENFRLLGNVLVCVLAHHFGKEFTPPVQAAYQKVVAGVANALAHKYH"
-)
 
 
 # --- Settings ------------------------------------------------------------------------------
@@ -116,17 +100,9 @@ class Settings:
     @classmethod
     def from_env(cls, *, new: bool = False) -> "Settings":
         """The run's settings. Unless IKI_GCP_NAME names it, a new run (new) gets a name of
-        its own, iki-test-<month><day><hour><minute> in UTC, and is remembered as the last
-        run, which a later look (the cost report) takes."""
+        its own (iki_live.run_name), and a later look (the cost report) takes the last."""
         env = os.environ
-        last = REPO / "build" / "gcp-live" / "last-run"
-        name = env.get("IKI_GCP_NAME", "")
-        if not name and new:
-            name = "iki-test-" + datetime.datetime.now(datetime.UTC).strftime("%m%d%H%M")
-            last.parent.mkdir(parents=True, exist_ok=True)
-            last.write_text(name)
-        elif not name:
-            name = last.read_text().strip()
+        name = iki_live.run_name("gcp", env.get("IKI_GCP_NAME", ""), new=new)
         region = env.get("IKI_GCP_REGION", "us-central1")
         zones = env.get("IKI_GCP_ZONES", f"{region}-b,{region}-c")
         return cls(
@@ -156,89 +132,41 @@ class Settings:
 # --- The one place gcloud, OpenTofu, kubectl and Helm run ------------------------------------
 
 
-class TokenError(RuntimeError):
-    """No access token could be had: stop making anything."""
-
-
-class Gcp:
-    """Runs the command-line tools in the work directory's copy of deploy/gcp, all as one
-    identity: an OAuth access token from IKI_GCP_TOKEN_COMMAND, minted again every 20
-    minutes, kept in a file only this user can read. gcloud reads it from that file
+class Gcp(iki_live.Tools):
+    """The tools in the work directory's copy of deploy/gcp, all as one identity: an OAuth
+    access token from IKI_GCP_TOKEN_COMMAND (iki_live.Token). gcloud reads it from its file
     (CLOUDSDK_AUTH_ACCESS_TOKEN_FILE) with a gcloud configuration of its own, so the
     caller's accounts and settings are never used or changed; kubectl from the same file
     (the kubeconfig's tokenFile); OpenTofu from GOOGLE_OAUTH_ACCESS_TOKEN, set fresh for
-    each run. Helm has its own repositories here too. The token is never in a command
-    line, a log or an error message."""
-
-    #: How often the token is minted again: an hour's token then has 40 minutes left at
-    #: worst, longer than any one apply or destroy here.
-    REFRESH = 20 * 60
+    each run."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.root = settings.workdir
-        self.secret_dir = Path(tempfile.mkdtemp(prefix="iki-gcp-live-"))
-        self.secret_dir.chmod(0o700)
-        self.token_file = self.secret_dir / "token"
-        self.minted = 0.0
-        self.lock = threading.Lock()
-        self.stopped = threading.Event()
-        env = {k: v for k, v in os.environ.items() if k not in _CREDENTIAL_VARIABLES}
-        env.update(
-            CLOUDSDK_CONFIG=str(self.secret_dir / "gcloud"),
-            CLOUDSDK_AUTH_ACCESS_TOKEN_FILE=str(self.token_file),
-            CLOUDSDK_CORE_PROJECT=settings.project,
-            CLOUDSDK_CORE_DISABLE_PROMPTS="1",
-            KUBECONFIG=str(self.root / "kubeconfig"),
-            HELM_CONFIG_HOME=str(self.root / "helm" / "config"),
-            HELM_CACHE_HOME=str(self.root / "helm" / "cache"),
-            HELM_DATA_HOME=str(self.root / "helm" / "data"),
-            TF_IN_AUTOMATION="1",
-            TF_INPUT="0",
-            IKI_TEARDOWN_YES="1",
+        token = iki_live.Token(
+            settings.token_command, "IKI_GCP_TOKEN_COMMAND", prefix="iki-gcp-live-"
         )
-        self.env = env
-        self.mint()
-        self.refresher = threading.Thread(target=self._refresh, daemon=True)
-        self.refresher.start()
+        super().__init__(
+            settings.workdir,
+            token,
+            {
+                "CLOUDSDK_CONFIG": str(token.dir / "gcloud"),
+                "CLOUDSDK_AUTH_ACCESS_TOKEN_FILE": str(token.path),
+                "CLOUDSDK_CORE_PROJECT": settings.project,
+                "CLOUDSDK_CORE_DISABLE_PROMPTS": "1",
+            },
+            _CREDENTIAL_VARIABLES,
+        )
 
-    def mint(self) -> None:
-        """A new token in the token file, trying for five minutes before giving up."""
-        with self.lock:
-            command = self.settings.token_command
-            for attempt in range(11):
-                result = subprocess.run(  # noqa: S603 - the caller's own command
-                    shlex.split(command), capture_output=True, text=True, check=False, timeout=120
-                )
-                token = result.stdout.strip().splitlines()[-1:] if result.returncode == 0 else []
-                if token and re.fullmatch(r"[A-Za-z0-9._\-~+/]+=*", token[0]):
-                    # Written beside it and renamed over it: a reader (gcloud, tofu)
-                    # never finds it empty or half written.
-                    fresh = self.token_file.with_name("token.new")
-                    descriptor = os.open(fresh, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                    with os.fdopen(descriptor, "w") as out:
-                        out.write(token[0])
-                    fresh.replace(self.token_file)
-                    self.minted = time.monotonic()
-                    return
-                if attempt < 10:
-                    time.sleep(30)
-            # Neither the output nor the error: either might hold a token.
-            raise TokenError(
-                f"IKI_GCP_TOKEN_COMMAND failed (exit {result.returncode}) for five minutes"
-            )
+    @property
+    def token_file(self) -> Path:
+        return self.token.path
 
-    def _refresh(self) -> None:
-        while not self.stopped.wait(self.REFRESH):
-            try:
-                self.mint()
-            except TokenError:
-                return
+    def extra_env(self) -> dict[str, str]:
+        return {"GOOGLE_OAUTH_ACCESS_TOKEN": self.token.path.read_text()}
 
     def access_token(self) -> str:
         """The current token, for a REST call of the test's own (gcp_cost.py)."""
-        self._env()
-        return self.token_file.read_text()
+        return self.token.read()
 
     def identity(self) -> str:
         """Whom the token is for: Google's token info, the token in the body, not the URL."""
@@ -250,71 +178,6 @@ class Gcp:
         assert info.status_code == 200, f"the token's info: HTTP {info.status_code}"
         email: str = info.json().get("email", "")
         return email
-
-    def stop(self) -> None:
-        self.stopped.set()
-        shutil.rmtree(self.secret_dir, ignore_errors=True)
-
-    def _env(self) -> dict[str, str]:
-        if time.monotonic() - self.minted > 50 * 60:
-            raise TokenError(
-                "the access token is older than 50 minutes and couldn't be minted again"
-            )
-        return {**self.env, "GOOGLE_OAUTH_ACCESS_TOKEN": self.token_file.read_text()}
-
-    def run(
-        self,
-        *argv: str,
-        input: str | None = None,
-        check: bool = True,
-        timeout: float = 600,
-        cwd: Path | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(  # noqa: S603 - argv built here, never a shell
-            list(argv),
-            input=input,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout,
-            cwd=cwd or self.root,
-            env=self._env(),
-        )
-        if check and result.returncode != 0:
-            raise AssertionError(
-                f"{' '.join(argv[:4])} ... exited {result.returncode}:\n"
-                f"{result.stdout[-4000:]}\n{result.stderr[-4000:]}"
-            )
-        return result
-
-    def stream(self, *argv: str, log: str, timeout: float = 3600, cwd: Path | None = None) -> None:
-        """Runs a long command with its output in a log file of the work directory."""
-        path = self.root / "logs" / log
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a") as out:
-            out.write(f"\n$ {' '.join(argv)}\n")
-            out.flush()
-            result = subprocess.run(  # noqa: S603 - argv built here
-                list(argv),
-                stdout=out,
-                stderr=subprocess.STDOUT,
-                check=False,
-                timeout=timeout,
-                cwd=cwd or self.root,
-                env=self._env(),
-            )
-        if result.returncode != 0:
-            tail = path.read_text()[-6000:]
-            raise AssertionError(f"{' '.join(argv[:4])} ... exited {result.returncode}:\n{tail}")
-
-    def popen(self, *argv: str, log: str) -> subprocess.Popen[bytes]:
-        path = self.root / "logs" / log
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # The child holds its own copy of the log's descriptor: this one closes now.
-        with path.open("ab") as out:
-            return subprocess.Popen(  # noqa: S603 - argv built here
-                list(argv), stdout=out, stderr=subprocess.STDOUT, cwd=self.root, env=self._env()
-            )
 
     def gcloud(self, *args: str, **kwargs: Any) -> str:
         return self.run("gcloud", *args, "--project", self.settings.project, **kwargs).stdout
@@ -329,28 +192,6 @@ class Gcp:
 
     def output(self, name: str) -> str:
         return self.run("tofu", "-chdir=deploy/gcp/production", "output", "-raw", name).stdout
-
-    def kubectl(self, *args: str, **kwargs: Any) -> str:
-        return self.run("kubectl", *args, **kwargs).stdout
-
-    def helm(self, *args: str, timeout: float = 1800) -> None:
-        self.stream("helm", *args, log="helm.log", timeout=timeout)
-
-    def shell(self, code: str) -> str:
-        """Python in a web pod, as the server: iki-server shell."""
-        return self.kubectl(
-            "-n",
-            "iki",
-            "exec",
-            "deploy/iki-web",
-            "-c",
-            "web",
-            "--",
-            "iki-server",
-            "shell",
-            "-c",
-            code,
-        )
 
 
 # --- What's in the project, before and after -----------------------------------------------
@@ -405,15 +246,13 @@ class Inventory:
     binauthz: Any
 
     def write(self, path: Path) -> None:
-        lines: list[str] = []
-        for section, found in self.listings.items():
-            lines += [f"=== {section}", *sorted(found), ""]
+        sections = dict(self.listings)
         for key, versions in sorted(self.key_versions.items()):
-            lines += [f"=== kms key versions of {key}", *sorted(versions), ""]
-        lines += ["=== project IAM (role member)", *sorted(" ".join(b) for b in self.bindings), ""]
-        lines += ["=== audit configs", json.dumps(self.audit_configs, indent=1, sort_keys=True)]
-        lines += ["", "=== binary authorization policy", json.dumps(self.binauthz, sort_keys=True)]
-        path.write_text("\n".join(lines) + "\n")
+            sections[f"kms key versions of {key}"] = versions
+        sections["project IAM (role member)"] = {" ".join(b) for b in self.bindings}
+        tail = ["=== audit configs", json.dumps(self.audit_configs, indent=1, sort_keys=True)]
+        tail += ["", "=== binary authorization policy", json.dumps(self.binauthz, sort_keys=True)]
+        iki_live.write_sections(path, sections, tail)
 
 
 def inventory(gcp: Gcp, rings: list[str]) -> Inventory:
@@ -540,208 +379,41 @@ def leftovers(before: Inventory, after: Inventory, s: Settings) -> list[str]:
     return problems
 
 
-# --- A certificate for the internal load balancer -------------------------------------------
-
-
-def make_certificate(root: Path, host: str) -> tuple[Path, Path, Path]:
-    """A CA of the test's own, and a certificate it signs for host: openssl, as the
-    runbook's readers would. Returns the CA, the certificate with its chain, and the key."""
-    tls = root / "tls"
-    tls.mkdir(parents=True, exist_ok=True)
-    ca, ca_key, key, csr, cert = (
-        tls / n for n in ("ca.crt", "ca.key", "tls.key", "tls.csr", "tls.crt")
-    )
-    if cert.exists():
-        return ca, tls / "chain.crt", key
-
-    def openssl(*args: str) -> None:
-        subprocess.run(["openssl", *args], check=True, capture_output=True, timeout=60)  # noqa: S603, S607
-
-    openssl(
-        "req",
-        "-x509",
-        "-newkey",
-        "rsa:2048",
-        "-nodes",
-        "-days",
-        "2",
-        "-subj",
-        f"/CN={host} test CA",
-        "-keyout",
-        str(ca_key),
-        "-out",
-        str(ca),
-        "-addext",
-        "basicConstraints=critical,CA:TRUE",
-        "-addext",
-        "keyUsage=critical,keyCertSign,cRLSign",
-    )
-    openssl(
-        "req",
-        "-newkey",
-        "rsa:2048",
-        "-nodes",
-        "-subj",
-        f"/CN={host}",
-        "-keyout",
-        str(key),
-        "-out",
-        str(csr),
-    )
-    extensions = tls / "leaf.ext"
-    extensions.write_text(
-        f"subjectAltName=DNS:{host}\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n"
-    )
-    openssl(
-        "x509",
-        "-req",
-        "-in",
-        str(csr),
-        "-CA",
-        str(ca),
-        "-CAkey",
-        str(ca_key),
-        "-CAcreateserial",
-        "-days",
-        "2",
-        "-extfile",
-        str(extensions),
-        "-out",
-        str(cert),
-    )
-    (tls / "chain.crt").write_text(cert.read_text() + ca.read_text())
-    return ca, tls / "chain.crt", key
-
-
-# --- Iki, through a port-forward ------------------------------------------------------------
-
-
-class Iki:
-    """HTTP to a web pod through kubectl port-forward, as a browser at publicUrl would
-    send it: the Host it names, HTTPS as the load balancer forwards it. Iki's cookies are
-    __Host- (Secure), so they're kept here and sent by hand over the forward's plain HTTP."""
-
-    def __init__(self, port: int, host: str) -> None:
-        self.base = f"http://127.0.0.1:{port}"
-        self.public = f"https://{host}"
-        self.host = host
-        self.cookies: dict[str, str] = {}
-        self.http = requests.Session()
-        self.http.trust_env = False
-        # The cookies above, not the session's: it wouldn't send Secure ones over HTTP.
-        self.http.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
-
-    def request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
-        headers = {
-            "Host": self.host,
-            "X-Forwarded-Proto": "https",
-            "Origin": self.public,
-            "Referer": f"{self.public}{path}",
-            **kwargs.pop("headers", {}),
-        }
-        if self.cookies:
-            headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
-        response = self.http.request(
-            method,
-            f"{self.base}{path}",
-            headers=headers,
-            allow_redirects=False,
-            timeout=60,
-            **kwargs,
-        )
-        for cookie in response.cookies:
-            if cookie.value:
-                self.cookies[cookie.name] = cookie.value
-        return response
-
-    def page(self, path: str) -> requests.Response:
-        """GET, following redirects within Iki."""
-        response = self.request("GET", path)
-        for _ in range(5):
-            if response.status_code not in (301, 302, 303):
-                break
-            response = self.request("GET", urlsplit(response.headers["Location"]).path or "/")
-        return response
-
-    def csrf(self, page: requests.Response) -> str:
-        match = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text) or re.search(
-            r'<meta name="csrf-token" content="([^"]+)"', page.text
-        )
-        assert match, f"{page.url} carries no CSRF token"
-        return match.group(1)
-
-    def api(self, method: str, path: str, body: Any = None) -> requests.Response:
-        headers = {}
-        if method != "GET":
-            headers["X-CSRFToken"] = self.csrf(self.page("/projects/"))
-        return self.request(method, f"/api/v1{path}", json=body, headers=headers)
-
-
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-        return port
-
-
-def stop(process: subprocess.Popen[bytes], grace: float = 30) -> None:
-    """Ends a process this run started, and reaps it: one terminated but never waited for
-    is still running as far as Python knows, and pytest fails the run over its warning."""
-    process.terminate()
-    try:
-        process.wait(timeout=grace)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=30)
-
-
-def until(what: str, check: Callable[[], Any], within: float, every: float = 10) -> Any:
-    """check's first truthy answer, asked every few seconds."""
-    deadline = time.monotonic() + within
-    while True:
-        found = check()
-        if found:
-            return found
-        if time.monotonic() > deadline:
-            raise AssertionError(f"{what}: not within {within:.0f} seconds (last: {found!r})")
-        time.sleep(every)
-
-
 # --- The deployment --------------------------------------------------------------------------
 
 
 @dataclass
-class Deployment:
-    settings: Settings
-    gcp: Gcp
-    before: Inventory | None = None
-    after: Inventory | None = None
-    torn_down: bool = False
-    torn_down_checked: bool = False
-    iki: Iki | None = None
-    team: str = ""
-    forwards: list[subprocess.Popen[bytes]] = field(default_factory=list)
-    teardown_errors: list[str] = field(default_factory=list)
+class Deployment(iki_live.Live):
+    settings: Settings = None  # type: ignore[assignment]
 
-    def tear_down(self) -> list[str]:
-        """Deletes everything, once, and lists what's left that shouldn't be."""
-        if self.torn_down:
-            return (
-                leftovers(self.before, self.after, self.settings)
-                if self.before and self.after
-                else []
-            )
-        self.torn_down = True
+    @property
+    def gcp(self) -> Gcp:
+        assert isinstance(self.tools, Gcp)
+        return self.tools
+
+    def inventory(self) -> Inventory:
+        return inventory(self.gcp, key_rings(self.gcp, self.settings))
+
+    def preconditions(self) -> None:
+        check_preconditions(self.gcp, self.settings, self.before)
+
+    def stand_up(self) -> None:
+        stand_up(self)
+
+    def diagnose(self) -> None:
+        iki_live.diagnose(self.gcp, "mirror.gcr.io/library/postgres:17")
+
+    def leftovers(self, before: Inventory, after: Inventory) -> list[str]:
+        return leftovers(before, after, self.settings)
+
+    def cost_report(self, start: datetime.datetime) -> str:
+        return cost_report(self, start)
+
+    def teardown_steps(self) -> list[tuple[str, Callable[[], object]]]:
         s, gcp = self.settings, self.gcp
-        for forward in self.forwards:
-            stop(forward)
         steps: list[tuple[str, Callable[[], object]]] = [
-            ("a fresh token", gcp.mint),
             ("the facts the cost report needs", lambda: record_facts(gcp, s)),
-            (
-                "teardown.sh",
-                lambda: run_teardown(gcp, s),
-            ),
+            ("teardown.sh", lambda: run_teardown(gcp, s)),
             (
                 "the internal certificate",
                 lambda: gcp.run(
@@ -784,15 +456,7 @@ class Deployment:
                     ),
                 )
             )
-        for what, step in steps:
-            try:
-                step()
-            except Exception as error:
-                self.teardown_errors.append(f"{what}: {error}")
-        self.after = inventory(gcp, key_rings(gcp, s))
-        self.after.write(s.workdir / "gcp-after.txt")
-        problems = leftovers(self.before, self.after, s) if self.before else []
-        return [*self.teardown_errors, *problems]
+        return steps
 
 
 def run_teardown(gcp: Gcp, s: Settings) -> None:
@@ -834,8 +498,9 @@ def record_facts(gcp: Gcp, s: Settings) -> None:
     (s.workdir / "gcp-facts.json").write_text(json.dumps(facts, indent=1))
 
 
-def cost_report(gcp: Gcp, s: Settings, start: datetime.datetime) -> str:
+def cost_report(d: Deployment, start: datetime.datetime) -> str:
     """What the run cost, at list prices (gcp_cost.py), in the work directory."""
+    s, gcp = d.settings, d.gcp
     end = datetime.datetime.now(datetime.UTC)
     window_file = s.workdir / "gcp-window.json"
     window_file.write_text(json.dumps({"start": start.isoformat(), "end": end.isoformat()}))
@@ -844,15 +509,15 @@ def cost_report(gcp: Gcp, s: Settings, start: datetime.datetime) -> str:
     facts_file = s.workdir / "gcp-facts.json"
     facts = json.loads(facts_file.read_text()) if facts_file.exists() else {}
     window = gcp_cost.Window(s.project, s.name, s.region, start, end)
-    return gcp_cost.write(
-        gcp_cost.report(gcp, window, variables, facts, s.workdir / "skus"), s.workdir
-    )
+    result = gcp_cost.report(gcp, window, variables, facts, s.workdir / "skus")
+    d.cost_usd = result.total
+    return gcp_cost.write(result, s.workdir)
 
 
 def check_preconditions(gcp: Gcp, s: Settings, before: Inventory) -> None:
     """Refuses to start where applying would change what isn't the test's."""
-    for tool in ("gcloud", "tofu", "kubectl", "helm", "jq", "curl", "openssl", "uv"):
-        assert shutil.which(tool), f"{tool} is needed"
+    for name in ("gcloud", "tofu", "kubectl", "helm", "jq", "curl", "openssl", "uv"):
+        iki_live.tool(name)
     gcp.gcloud("projects", "describe", s.project, "--format=value(projectId)")
     # The identity it runs as may be named for the deployment too (iki-test-deployer@...).
     me = gcp.identity()
@@ -928,86 +593,6 @@ def variables(s: Settings, gcp: Gcp, state_key: str, writers: list[str]) -> dict
     }
 
 
-def _tool(name: str) -> str:
-    found = shutil.which(name)
-    assert found, f"{name} is needed"
-    return found
-
-
-def source_archive(root: Path) -> Path:
-    """The repository at HEAD, and the plugins built for this deployment, for Cloud Build."""
-    archive = root / "source.tar"
-    subprocess.run(  # noqa: S603 - argv built here
-        [_tool("git"), "-C", str(REPO), "archive", "--format=tar", "-o", str(archive), "HEAD"],
-        check=True,
-        timeout=300,
-    )
-    with tarfile.open(archive, "a") as tar:
-        tar.add(root / "plugins-build", arcname="build/gcp-live")
-    gz = root / "source.tar.gz"
-    subprocess.run(["gzip", "-f", str(archive)], check=True, timeout=300)  # noqa: S603, S607
-    return gz
-
-
-def build_plugins(root: Path) -> None:
-    """The server's and the worker's plugins: iki/dna and iki/protein, their tools bound
-    to the backend workers (as deploy/dev builds them)."""
-    out = root / "plugins-build"
-    shutil.rmtree(out, ignore_errors=True)
-    out.mkdir(parents=True)
-    (out / "plugins.lock.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "apiVersion": "iki/v1",
-                "kind": "PluginLock",
-                "plugins": [
-                    {"name": f"iki/{n}", "local": str(REPO / "plugins" / n), "state": "active"}
-                    for n in ("dna", "protein")
-                ],
-            }
-        )
-    )
-    documents = [
-        {
-            "apiVersion": "iki/v1",
-            "kind": "ComputeTemplate",
-            "name": "backend-small",
-            "provisioner": "backend_pool",
-            "capacity": {"cpu": 0.25, "memory": "2Gi", "scratch_disk": "2Gi"},
-        },
-        *(
-            {
-                "apiVersion": "iki/v1",
-                "kind": "EnvironmentBinding",
-                "environment": e,
-                "templates": [{"template": "backend-small"}],
-            }
-            for e in ("iki/dna.sequence-tools", "iki/protein.protein-tools")
-        ),
-    ]
-    (out / "compute.yaml").write_text(yaml.safe_dump_all(documents))
-    subprocess.run(  # noqa: S603 - argv built here
-        [
-            _tool("uv"),
-            "run",
-            "--frozen",
-            "iki",
-            "deploy",
-            "build",
-            str(out),
-            "--output",
-            str(out / "server" / "plugins"),
-            "--workers",
-            str(out / "worker"),
-            "--allow-local",
-        ],
-        check=True,
-        cwd=REPO,
-        timeout=1200,
-        capture_output=True,
-    )
-
-
 #: Cloud Build's own Docker daemon has a BuildKit too old for deploy/worker.Dockerfile's
 #: secret mount into an environment variable (exec.secretenv), so every image builds in
 #: a BuildKit container of its own (buildx's docker-container driver), which pushes it:
@@ -1060,60 +645,6 @@ def digest(gcp: Gcp, ref: str) -> str:
         "artifacts", "docker", "images", "describe", ref, "--format=value(image_summary.digest)"
     )
     return found.strip()
-
-
-def diagnose(gcp: Gcp) -> None:
-    """What the cluster says, in logs/diagnose.log, when standing up fails: once it's torn
-    down, nothing tells why a pod never started."""
-    if not (gcp.root / "kubeconfig").exists():
-        return
-    for args in (
-        ("get", "nodes", "-o", "wide"),
-        ("get", "pods", "-A", "-o", "wide"),
-        ("get", "events", "-A", "--sort-by=.lastTimestamp"),
-        ("describe", "pods", "-n", "external-secrets"),
-        ("describe", "pods", "-n", "iki"),
-    ):
-        try:
-            gcp.stream("kubectl", *args, log="diagnose.log", timeout=120)
-        except Exception as error:  # whatever it says, the teardown goes on
-            sys.stdout.write(f"kubectl {' '.join(args)}: {error!r}\n")
-    # Whether a pod resolves public names and reaches them (an image allowed in, which
-    # Google's own registry serves through the VPC's private zones).
-    probe = (
-        "getent ahosts ghcr.io; getent ahosts github.com;"
-        " timeout 10 bash -c '</dev/tcp/ghcr.io/443' && echo ghcr.io:443 reached"
-    )
-    probing: tuple[tuple[str, ...], ...] = (
-        (
-            "-n",
-            "default",
-            "run",
-            "iki-probe",
-            "--image=mirror.gcr.io/library/postgres:17",
-            "--restart=Never",
-            "--command",
-            "--",
-            "bash",
-            "-c",
-            probe,
-        ),
-        (
-            "-n",
-            "default",
-            "wait",
-            "--for=jsonpath={.status.phase}=Succeeded",
-            "pod/iki-probe",
-            "--timeout=120s",
-        ),
-        ("-n", "default", "logs", "iki-probe"),
-        ("-n", "default", "describe", "pod", "iki-probe"),
-    )
-    for step in probing:
-        try:
-            gcp.stream("kubectl", *step, log="diagnose.log", timeout=180)
-        except Exception as error:  # whatever it says, the teardown goes on
-            sys.stdout.write(f"kubectl {' '.join(step[:4])}: {error!r}\n")
 
 
 def write_kubeconfig(gcp: Gcp, s: Settings) -> None:
@@ -1174,7 +705,7 @@ def stand_up(d: Deployment) -> None:
     ).stdout
 
     # The internal load balancer's certificate, uploaded as the runbook's reader would.
-    ca, chain, key = make_certificate(work, s.host)
+    ca, chain, key = iki_live.make_certificate(work, s.host)
     gcp.gcloud(
         "compute",
         "ssl-certificates",
@@ -1211,8 +742,8 @@ def stand_up(d: Deployment) -> None:
     )
     server, worker = f"{images['server']}/iki-server:live", f"{images['worker']}/iki-worker:live"
     registry = images["server"].split("/", 1)[0]
-    build_plugins(work)
-    archive = source_archive(work)
+    iki_live.build_plugins(work)
+    archive = iki_live.source_archive(work, "build/gcp-live")
     # Tagged, so the cost report finds its builds.
     (work / "cloudbuild.yaml").write_text(f"{CLOUDBUILD}tags: [{s.name}]\n")
     # Started, not followed: each look at it is a new gcloud call, with the current token.
@@ -1260,14 +791,14 @@ def stand_up(d: Deployment) -> None:
 
     # 3. The cluster's controllers.
     write_kubeconfig(gcp, s)
-    gcp.helm("repo", "add", "external-secrets", EXTERNAL_SECRETS[0])
+    gcp.helm("repo", "add", "external-secrets", iki_live.EXTERNAL_SECRETS[0])
     gcp.helm(
         "upgrade",
         "--install",
         "external-secrets",
         "external-secrets/external-secrets",
         "--version",
-        EXTERNAL_SECRETS[1],
+        iki_live.EXTERNAL_SECRETS[1],
         "--namespace",
         "external-secrets",
         "--create-namespace",
@@ -1280,24 +811,17 @@ def stand_up(d: Deployment) -> None:
     gcp.run("sh", "-c", gcp.output("put_secrets"), timeout=300)
     gcp.run("sh", "-c", gcp.output("create_database_roles"), timeout=600)
     gcp.kubectl("apply", "-f", "-", input=gcp.output("external_secrets"))
-    for secret in (
-        "iki-secret-key",
-        "iki-encryption-keys",
-        "iki-bundle-signing-key",
-        "iki-database",
-        "iki-database-migrator",
-        # Not iki-run-secrets: with no plugin secrets, External Secrets makes no Secret.
-    ):
-        until(
-            f"Secret {secret}",
-            lambda n=secret: (
-                gcp.run(  # type: ignore[misc]
-                    "kubectl", "-n", "iki", "get", "secret", n, check=False
-                ).returncode
-                == 0
-            ),
-            300,
-        )
+    # Not iki-run-secrets: with no plugin secrets, External Secrets makes no Secret.
+    iki_live.wait_for_secrets(
+        gcp,
+        (
+            "iki-secret-key",
+            "iki-encryption-keys",
+            "iki-bundle-signing-key",
+            "iki-database",
+            "iki-database-migrator",
+        ),
+    )
 
     # 5. Iki, then its Gateway.
     values = work / "deploy/gcp/production"
@@ -1344,20 +868,8 @@ def stand_up(d: Deployment) -> None:
 
     # Backend workers: a registration token a Compute admin makes, kept in Secret Manager
     # and copied in by External Secrets; they trust the test's CA and the public ones.
-    token = gcp.kubectl(
-        "-n",
-        "iki",
-        "exec",
-        "deploy/iki-web",
-        "-c",
-        "web",
-        "--",
-        "iki-server",
-        "create_registration_token",
-        "--tier",
-        "backend",
-        "--label",
-        "GCP live test",
+    token = gcp.server(
+        "create_registration_token", "--tier", "backend", "--label", "GCP live test"
     ).strip()
     gcp.gcloud(
         "secrets", "versions", "add", f"{s.name}-backend-worker-token", "--data-file=-", input=token
@@ -1371,16 +883,7 @@ def stand_up(d: Deployment) -> None:
         f"force-sync={int(time.time())}",
         "--overwrite",
     )
-    until(
-        "Secret iki-backend-worker-token",
-        lambda: (
-            gcp.run(
-                "kubectl", "-n", "iki", "get", "secret", "iki-backend-worker-token", check=False
-            ).returncode
-            == 0
-        ),
-        300,
-    )
+    iki_live.wait_for_secrets(gcp, ("iki-backend-worker-token",))
     import certifi  # the public CAs, for Cloud Storage's signed URLs
 
     bundle = work / "tls" / "workers-ca.crt"
@@ -1402,150 +905,44 @@ def stand_up(d: Deployment) -> None:
 @pytest.fixture(scope="module")
 def deployment() -> Iterator[Deployment]:
     s = Settings.from_env(new=True)
-    s.workdir.mkdir(parents=True, exist_ok=True)
-    gcp = Gcp(s)
-    d = Deployment(s, gcp)
-    try:
-        d.before = inventory(gcp, key_rings(gcp, s))
-        d.before.write(s.workdir / "gcp-before.txt")
-        check_preconditions(gcp, s, d.before)
-    except BaseException:
-        gcp.stop()
-        raise
-    started = datetime.datetime.now(datetime.UTC)
-    (s.workdir / "gcp-window.json").write_text(json.dumps({"start": started.isoformat()}))
-    try:
-        try:
-            stand_up(d)
-        except BaseException:
-            diagnose(gcp)
-            raise
-        yield d
-    finally:
-        problems = d.tear_down()
-        up = datetime.datetime.now(datetime.UTC) - started
-        (s.workdir / "gcp-summary.txt").write_text(f"resources up for {up}\n" + "\n".join(problems))
-        try:
-            sys.stdout.write("\n" + cost_report(gcp, s, started))
-        except Exception as error:
-            sys.stdout.write(f"\nThe cost report failed: {error!r}\n")
-        gcp.stop()
-        if problems and not d.torn_down_checked:
-            pytest.fail("tearing down left:\n" + "\n".join(problems))
+    d = Deployment(
+        cloud="gcp",
+        name=s.name,
+        workdir=s.workdir,
+        tools=Gcp(s),
+        settings=s,
+    )
+    yield from iki_live.lifecycle(d)
 
 
 @pytest.fixture(scope="module")
 def iki(deployment: Deployment) -> Iki:
     """A web pod, through a port-forward, with no one signed in."""
-    gcp = deployment.gcp
-    pods = json.loads(
-        gcp.kubectl(
-            "-n", "iki", "get", "pods", "-l", "app.kubernetes.io/component=web", "-o", "json"
-        )
-    )
-    ready = [
-        p["metadata"]["name"]
-        for p in pods["items"]
-        if p["metadata"].get("deletionTimestamp") is None
-        and all(c["ready"] for c in p["status"].get("containerStatuses", [{"ready": False}]))
-    ]
-    assert ready, "no web pod is ready"
-    port = free_port()
-    deployment.forwards.append(
-        gcp.popen(
-            "kubectl",
-            "-n",
-            "iki",
-            "port-forward",
-            f"pod/{ready[0]}",
-            f"{port}:8000",
-            log="port-forward.log",
-        )
-    )
-
-    def listening() -> bool:
-        with socket.socket() as probe:
-            return probe.connect_ex(("127.0.0.1", port)) == 0
-
-    until("the port-forward", listening, 30, every=0.5)
-    return Iki(port, deployment.settings.host)
+    return iki_live.forward_to_web(deployment.gcp, deployment.forwards, deployment.settings.host)
 
 
 @pytest.fixture(scope="module")
 def admin(deployment: Deployment, iki: Iki) -> Iki:
-    """The same, signed in as an Org Admin in a team of their own. The deployment has no
-    identity provider, so the session is made in a web pod, as Django's test client makes
-    one (force_login): real sign-in isn't exercised here."""
-    email = f"gcp-live-{secrets.token_hex(4)}@example.com"
-    made = deployment.gcp.shell(f"""
-import json
-from django.conf import settings
-from django.test import Client
-from django.utils import timezone
-from iki_server.accounts.models import User
-from iki_server.org.models import OrgRole, OrgRoleAssignment, Team, TeamMembership
-from iki_server.setup.models import Installation
-Installation.objects.update_or_create(
-    pk=1,
-    defaults={{"organization_name": "Iki live test", "setup_completed_at": timezone.now()}},
-)
-user = User.objects.create_user({email!r}, "GCP live test")
-OrgRoleAssignment.objects.create(user=user, role=OrgRole.ORG_ADMIN)
-team, _ = Team.objects.get_or_create(name="GCP live test")
-TeamMembership.objects.get_or_create(team=team, user=user)
-client = Client()
-client.force_login(user)
-name = settings.SESSION_COOKIE_NAME
-print(json.dumps({{"name": name, "value": client.cookies[name].value, "team": str(team.id)}}))
-""")
-    session = json.loads(made.strip().splitlines()[-1])
-    signed_in = Iki(int(iki.base.rsplit(":", 1)[1]), deployment.settings.host)
-    signed_in.cookies[session["name"]] = session["value"]
-    deployment.team = session["team"]
+    """The same, signed in as an Org Admin in a team of their own (iki_live.sign_in_admin)."""
+    signed_in, deployment.team = iki_live.sign_in_admin(deployment.gcp, iki, "GCP live test")
     return signed_in
 
 
 @pytest.fixture(scope="module")
 def project(deployment: Deployment, admin: Iki) -> dict[str, Any]:
-    created = admin.api("POST", "/projects", {"team": deployment.team, "name": "Live check"})
-    assert created.status_code == 201, created.text[:500]
-    found: dict[str, Any] = created.json()
-    assert found["my_role"] == "admin"
-    return found
+    return iki_live.make_project(admin, deployment.team)
 
 
 # --- The checks ------------------------------------------------------------------------------
 
 
 def test_web_pods_are_ready_with_their_database(iki: Iki) -> None:
-    alive = iki.request("GET", "/healthz/live")
-    assert alive.status_code == 200, alive.text
-    ready = iki.request("GET", "/healthz/ready")
-    assert ready.json() == {
-        "status": "ok",
-        "checks": {"database": "ok", "migrations": "ok", "database_role": "ok"},
-    }
+    iki_live.check_ready(iki)
 
 
 def test_the_database_is_reached_privately_and_over_verified_tls(deployment: Deployment) -> None:
     gcp, s = deployment.gcp, deployment.settings
-    found = json.loads(
-        gcp.shell("""
-import json
-from django.db import connection
-with connection.cursor() as cursor:
-    cursor.execute("SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
-    ssl, version = cursor.fetchone()
-    cursor.execute("SELECT host(inet_server_addr())")
-    (address,) = cursor.fetchone()
-print(json.dumps({"ssl": ssl, "version": version, "address": address,
-                  "sslmode": connection.get_connection_params().get("sslmode")}))
-""")
-        .strip()
-        .splitlines()[-1]
-    )
-    assert found["ssl"] and found["version"].startswith("TLSv1."), found
-    assert found["sslmode"] == "verify-full", found
+    found = iki_live.database_connection(gcp)
     # The range the network module peers with Google's managed services: the last /20 of
     # vpc_cidr's default, 10.40.0.0/16.
     managed = ipaddress.IPv4Network("10.40.240.0/20")
@@ -1556,136 +953,35 @@ print(json.dumps({"ssl": ssl, "version": version, "address": address,
 
 
 def test_the_setup_link_opens_the_wizard(deployment: Deployment, iki: Iki) -> None:
-    out = deployment.gcp.kubectl(
-        "-n", "iki", "exec", "deploy/iki-web", "-c", "web", "--", "iki-server", "setup_link"
-    )
-    match = re.search(rf"https://{re.escape(deployment.settings.host)}/setup/#(\S+)", out)
-    assert match, out
-    start = iki.page("/setup/")
-    assert start.status_code == 200, start.text[:500]
-    sent = iki.request(
-        "POST", "/setup/", data={"csrfmiddlewaretoken": iki.csrf(start), "token": match.group(1)}
-    )
-    assert sent.status_code == 302 and sent.headers["Location"].endswith("/setup/organization/"), (
-        sent.text[:500]
-    )
-    organization = iki.page("/setup/organization/")
-    assert organization.status_code == 200 and "organization_name" in organization.text
+    iki_live.check_setup_link(deployment.gcp, iki, deployment.settings.host)
 
 
 def test_an_org_admin_creates_a_project_and_an_entity(admin: Iki, project: dict[str, Any]) -> None:
-    me = admin.api("GET", "/me")
-    assert me.status_code == 200 and "org_admin" in me.json()["org_roles"], me.text[:300]
-    made = admin.api(
-        "POST",
-        "/entities",
-        {"type": "iki/protein.Protein", "project": project["id"], "values": {"sequence": HBB}},
-    )
-    assert made.status_code in (200, 201), made.text[:500]
-    got = admin.api("GET", f"/entities/{made.json()['id']}")
-    assert got.json()["values"]["sequence"] == HBB
+    iki_live.check_project_and_entity(admin, project)
 
 
 def test_a_file_goes_up_and_comes_down_through_urls_iam_signed(
     admin: Iki, project: dict[str, Any]
 ) -> None:
-    body = os.urandom(6 * 1024 * 1024) + b"iki live"
-    sha = hashlib.sha256(body).hexdigest()
-    started = admin.api(
-        "POST",
-        "/uploads",
-        {
-            "project": project["id"],
-            "name": "live.bin",
-            "media_type": "application/octet-stream",
-            "size": len(body),
-            "sha256": sha,
-        },
-    )
-    assert started.status_code == 201, started.text[:500]
-    upload = started.json()
-    offset = 0
-    for part in upload["parts"]:
+    def upload(url: str) -> None:
         # Signed by IAM's signBlob, as the server's service account: no key anywhere.
-        assert urlsplit(part["url"]).hostname == "storage.googleapis.com", part["url"]
-        assert "X-Goog-Algorithm=GOOG4-RSA-SHA256" in part["url"], part["url"]
-        sent = requests.put(part["url"], data=body[offset : offset + part["size"]], timeout=120)
-        assert sent.status_code == 200, sent.text[:500]
-        offset += part["size"]
-    done = admin.api("POST", f"/uploads/{upload['id']}/complete")
-    assert done.status_code in (200, 202), done.text[:500]
-    ready = until(
-        "the upload's check",
-        lambda: (
-            u
-            if (u := admin.api("GET", f"/uploads/{upload['id']}").json())["state"]
-            in ("ready", "failed")
-            else None
-        ),
-        300,
-        every=3,
-    )
-    assert ready["state"] == "ready", ready
-    link = admin.api("GET", f"/files/{ready['file']['id']}/content-url").json()["url"]
-    assert urlsplit(link).hostname == "storage.googleapis.com"
-    downloaded = requests.get(link, timeout=120)
-    assert downloaded.status_code == 200 and hashlib.sha256(downloaded.content).hexdigest() == sha
+        assert urlsplit(url).hostname == "storage.googleapis.com", url
+        assert "X-Goog-Algorithm=GOOG4-RSA-SHA256" in url, url
+
+    def download(url: str) -> None:
+        assert urlsplit(url).hostname == "storage.googleapis.com", url
+
+    iki_live.check_file_round_trip(admin, project, upload, download)
 
 
 def test_a_backend_worker_computes_a_proteins_properties(
     admin: Iki, project: dict[str, Any]
 ) -> None:
-    made = admin.api(
-        "POST",
-        "/entities",
-        {"type": "iki/protein.Protein", "project": project["id"], "values": {"sequence": HBB}},
-    )
-    protein = made.json()
-    launched = admin.api(
-        "POST",
-        "/actions/iki/protein.compute_properties/runs",
-        {
-            "project": project["id"],
-            "inputs": {"protein": protein["id"]},
-            "params": {},
-        },
-    )
-    assert launched.status_code == 201, launched.text[:500]
-    run_id = launched.json()["id"]
-    # The runs pool starts at no nodes: the autoscaler adds one for the worker first.
-    run = until(
-        "the run",
-        lambda: (
-            r
-            if (r := admin.api("GET", f"/runs/{run_id}").json())["status"]
-            in ("succeeded", "failed", "cancelled")
-            else None
-        ),
-        1500,
-        every=15,
-    )
-    assert run["status"] == "succeeded", run
-    values = admin.api("GET", f"/entities/{protein['id']}").json()["values"]
-    assert values["length"] == len(HBB), values
-    assert 0 < values["isoelectric_point"] < 14, values
+    iki_live.check_backend_run(admin, project)
 
 
 def test_setup_storage_finds_the_bucket_as_iki_needs_it(deployment: Deployment) -> None:
-    checked = deployment.gcp.run(
-        "kubectl",
-        "-n",
-        "iki",
-        "exec",
-        "deploy/iki-web",
-        "-c",
-        "web",
-        "--",
-        "iki-server",
-        "setup_storage",
-        "--check",
-        check=False,
-    )
-    assert checked.returncode == 0, checked.stdout + checked.stderr
+    iki_live.check_setup_storage(deployment.gcp)
 
 
 def test_tearing_down_leaves_only_what_google_cloud_keeps(deployment: Deployment) -> None:

@@ -5,8 +5,7 @@ it down: an hour or more, billed to that project. So it needs all three of ``--g
 ``IKI_GCP_PROJECT``, and no ``CI`` variable (every CI service sets it).
 """
 
-import os
-
+import iki_live
 import pytest
 
 
@@ -21,20 +20,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def gcp_live_skip_reason(config: pytest.Config) -> str | None:
     """Why the live test doesn't run here, or None if it does."""
-    if os.environ.get("CI"):
-        return "the live Google Cloud test never runs on CI: it bills a real project"
-    if not config.getoption("--gcp-live"):
-        return "the live Google Cloud test: run it with --gcp-live (make check-gcp-live)"
-    if not os.environ.get("IKI_GCP_PROJECT"):
-        return "the live Google Cloud test needs IKI_GCP_PROJECT, the project to deploy in"
-    return None
+    return iki_live.skip_reason(
+        config,
+        cloud="Google Cloud",
+        flag="--gcp-live",
+        required={"IKI_GCP_PROJECT": "the project to deploy in"},
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    reason = gcp_live_skip_reason(config)
-    if reason is None:
-        return
-    skip = pytest.mark.skip(reason=reason)
-    for item in items:
-        if "gcp_live" in item.keywords:
-            item.add_marker(skip)
+    iki_live.skip_unless_asked(config, items, "gcp_live", gcp_live_skip_reason(config))

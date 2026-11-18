@@ -152,7 +152,7 @@ check-gcp-live: ## Deploy Iki to the Google Cloud project IKI_GCP_PROJECT for re
 .PHONY: gcp-live-cost
 gcp-live-cost: ## What the last check-gcp-live run cost: lifetimes from the audit logs, list prices from the Billing Catalog
 	@test -n "$(IKI_GCP_PROJECT)" || (echo "Set IKI_GCP_PROJECT: the project the run deployed in." && false)
-	uv run python deploy/gcp/tests/gcp_cost.py
+	PYTHONPATH=deploy/live uv run python deploy/gcp/tests/gcp_cost.py
 
 .PHONY: check-rust
 check-rust: ## rustfmt, clippy (warnings denied) and cargo test
