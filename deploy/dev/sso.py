@@ -1763,8 +1763,14 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
     if run["status"] != "succeeded":
         fail(f"{run['hrid']} (iki/protein.align_pair) {run['status']}: {run['error']}")
     metrics = run.get("metrics") or {}
-    if metrics.get("identity_percent") != 43.6 or metrics.get("length") != 149:
-        fail(f"{run['hrid']} measured {metrics}, not 43.6% identity over 149 columns")
+    # The run keeps percentages unrounded: 65 identical of 149 columns.
+    identity = metrics.get("identity_percent")
+    if (
+        not isinstance(identity, (int, float))
+        or abs(identity - 100 * 65 / 149) > 1e-9
+        or metrics.get("length") != 149
+    ):
+        fail(f"{run['hrid']} measured {metrics}, not 65/149 identical columns (43.6%)")
     kept = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
     if sorted((k["path"], k["state"]) for k in kept) != [
         ("alignment.fasta", "kept"),
@@ -1793,7 +1799,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
         fail(f"{run['hrid']}'s alignment.txt says {got.content[:400]!r}")
     ok(
         f"iki/protein.align_pair aligned haemoglobin's chains ({run['hrid']}): "
-        f"{metrics['identity_percent']}% identical, kept {len(kept)} artifacts "
+        f"{identity:.1f}% identical, kept {len(kept)} artifacts "
         f"until {text['expires_at'][:10]}, and made {created[0]['hrid']} of the two"
     )
     return chains
