@@ -91,12 +91,13 @@ def test_aligns_two_proteins_as_needle_and_keeps_the_alignment(tmp_path: Path) -
 
     assert result.returncode == 0, result.stderr
     assert output is not None
+    # Unrounded shares of the 149 columns: 65 identical, 90 similar, 9 gapped.
     assert output["metrics"] == {
         "score": 292.5,
         "length": 149,
-        "identity_percent": 43.6,
-        "similarity_percent": 60.4,
-        "gaps_percent": 6.0,
+        "identity_percent": pytest.approx(100 * 65 / 149),
+        "similarity_percent": pytest.approx(100 * 90 / 149),
+        "gaps_percent": pytest.approx(100 * 9 / 149),
     }
     text = (tmp_path / "out" / "alignment.txt").read_text()
     assert "# Matrix: BLOSUM62" in text and "# Identity:   65/149 (43.6%)" in text
@@ -146,6 +147,50 @@ def test_penalties_and_matrices_change_the_alignment(tmp_path: Path) -> None:
     assert default is not None and costly is not None and pam is not None
     assert costly["metrics"]["score"] < default["metrics"]["score"]
     assert pam["metrics"]["score"] != default["metrics"]["score"]
+
+
+def test_identity_is_kept_unrounded_so_a_threshold_compares_the_true_share(
+    tmp_path: Path,
+) -> None:
+    # 899 of 999 columns identical is 89.98999%: under a 90% threshold, though it rounds
+    # to 90.0. One W for an A in each of 100 places changes nothing else.
+    query = "A" * 999
+    target = "".join("W" if i % 10 == 5 else "A" for i in range(999))
+    _, output = aligned(tmp_path, query, target, gap_open=100)
+    assert output is not None
+    assert target.count("W") == 100
+    assert output["metrics"]["identity_percent"] == pytest.approx(100 * 899 / 999)
+    assert output["metrics"]["identity_percent"] < 90
+    assert "# Identity:   899/999 (90.0%)" in (tmp_path / "out" / "alignment.txt").read_text()
+
+
+def test_similar_columns_are_those_the_matrix_scores_above_zero(tmp_path: Path) -> None:
+    # BLOSUM62 scores X with X -1: identical, but not similar, as EMBOSS counts it.
+    _, output = aligned(tmp_path, "WWXWW", "WWXWW")
+    assert output is not None
+    assert output["metrics"]["identity_percent"] == 100
+    assert output["metrics"]["similarity_percent"] == 80
+
+
+def test_selenocysteine_pyrrolysine_and_j_align_as_any_residue(tmp_path: Path) -> None:
+    query = HBA[:40] + "U" + HBA[41:80] + "O" + HBA[81:120] + "J" + HBA[121:]
+    _, output = aligned(tmp_path, query, query)
+    assert output is not None
+    assert output["metrics"]["identity_percent"] == 100
+    assert output["metrics"]["similarity_percent"] == 100
+    fasta = (tmp_path / "out" / "alignment.fasta").read_text().split(">")[1:]
+    assert ["".join(record.splitlines()[1:]) for record in fasta] == [query, query]
+
+
+def test_a_local_alignment_with_nothing_above_zero_is_none(tmp_path: Path) -> None:
+    result, output = aligned(tmp_path, "AAAA", "WWWW", mode="local")
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert output["creates"] == []
+    assert output["metrics"]["identity_percent"] == 0
+    assert [m["text"] for m in output["messages"]] == [
+        "X-1 and X-2 have no local alignment: no part of one scores above zero against the other."
+    ]
 
 
 @pytest.mark.parametrize(

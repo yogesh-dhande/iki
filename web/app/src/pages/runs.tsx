@@ -150,6 +150,10 @@ export function StatusBadge({ status }: { status: RunStatus | Attempt["state"] }
 
 // --- A project's runs ------------------------------------------------------------------
 
+/** A metric's number, rounded for reading: the run keeps it unrounded, so a workflow's
+ * threshold compares its true value. */
+const metricNumber = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 });
+
 const STATUS_CHOICES = [
   { value: "all", label: "Every status" },
   ...Object.entries(STATUS).map(([value, label]) => ({ value, label })),
@@ -1250,7 +1254,11 @@ export function RunPage() {
               {metrics.map(([name, value]) => (
                 <div key={name} className="value-row">
                   <dt>{metricLabels.get(name) ?? name}</dt>
-                  <dd>{value}</dd>
+                  <dd>
+                    {typeof value === "number" && Number.isFinite(value)
+                      ? metricNumber.format(value)
+                      : value}
+                  </dd>
                 </div>
               ))}
             </dl>

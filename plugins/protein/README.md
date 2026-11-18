@@ -91,7 +91,12 @@ they list none.
   otherwise: BLOSUM62, a gap opening penalty of 10 and an extension penalty
   of 0.5, and, globally, gaps at the ends free. It records the score, the
   alignment's length, and its identity, similarity and gaps as percentages of
-  it, and keeps the alignment as two artifacts
+  it, unrounded, so a workflow's threshold compares the true share (899 of 999
+  is under 90%). Similar columns are those the matrix scores above zero, as
+  EMBOSS counts them, so X with X is identical but not similar. U, O and J,
+  which the matrices lack, are aligned as X, and counted by their own letters.
+  A local alignment with nothing scoring above zero is none: the run says so
+  and creates no alignment. It keeps the alignment as two artifacts
   ([ADR 0068](../../docs/adr/0068-runs-keep-artifacts-for-a-while.md)):
   `alignment.txt` in EMBOSS's pair format, and `alignment.fasta`. The FASTA
   is also an `iki/core.Alignment` of the two, the target its reference, which
@@ -134,9 +139,13 @@ codes: substitutions (`T315I`), stops (`Q45*`), deletions (`K12del`,
 `K12_L14del`), insertions (`K12_L13insG`), duplications (`K12dup`) and
 frameshifts, a deletion or insertion in repeated residues named at its
 C-terminal-most place, with the reads that show it and their quality (the
-least of its codon's bases). Where the protein has an ambiguous residue (B,
-Z, J, X), a residue it may be isn't a difference; U (selenocysteine) is
-coded by a stop's codon, TGA, so a stop there isn't one either.
+least of its codon's bases). Each codon is compared as the residues it could
+code for, by every codon its bases could be: it differs if it can be none of
+what the protein's residue stands for (B is D or N, Z is E or Q, J is I or L,
+X anything), so RAY (Asp or Asn) at an Ala is `A42B`. A codon that could be
+either, such as NNN, says nothing: it covers nothing, and the run lists
+where. UGA is selenocysteine where the protein has U, and UAG pyrrolysine
+where it has O; any other stop there (`U42*`) is a stop.
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 

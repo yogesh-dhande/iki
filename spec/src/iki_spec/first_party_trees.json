@@ -6,7 +6,8 @@
     ],
     "iki/dna": [
       "40397192fc2432cf43b2c249c3db77cab5afce6d",
-      "ff600bae8843c6d5a2fc91d0388bf175c909597f"
+      "ff600bae8843c6d5a2fc91d0388bf175c909597f",
+      "5156a13a398ca149a7c27c852086930857efa3c3"
     ],
     "iki/example_lims": [
       "51ee81013451aafb10f4a1f377049d01ba0ee19c",
@@ -26,7 +27,8 @@
     "iki/protein": [
       "25079b3b2f8236772c7b7fc514e00d0d93499027",
       "258b824b4ea36ceb4771e8f06aac626209bec045",
-      "a4fbd193cfb2dce5a35adf086d29c68850686c44"
+      "a4fbd193cfb2dce5a35adf086d29c68850686c44",
+      "a82c47c843ac38c8d65518867c2e5793cc334436"
     ],
     "iki/small_molecule": [
       "c37cd0b7ca39aa3ce2d99d989b5a04de828d496b",

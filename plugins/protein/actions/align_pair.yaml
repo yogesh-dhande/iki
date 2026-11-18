@@ -8,7 +8,9 @@ description: >-
   does with its defaults: BLOSUM62, a gap opening penalty of 10 and an
   extension penalty of 0.5, with gaps at the ends free in a global alignment.
   The run keeps the alignment, in EMBOSS's pair format and as aligned FASTA,
-  and records its score, identity, similarity and gaps. The FASTA is also an
+  and records its score, identity, similarity and gaps. U, O and J, which the
+  matrices lack, are aligned as X. A local alignment with nothing scoring
+  above zero is none, and the run says so. The FASTA is also an
   alignment of the two in Iki, the target its reference, for the alignment
   viewer.
 inputs:
@@ -49,8 +51,12 @@ metrics:
   score: { label: Score, description: The alignment's score under the matrix and penalties chosen. }
   length: { label: Length, description: "The alignment's length, gaps included." }
   identity_percent:
-    { label: Identity (%), description: The share of the alignment's columns that are identical. }
+    label: Identity (%)
+    description: The share of the alignment's columns that are identical, unrounded.
   similarity_percent:
-    { label: Similarity (%), description: The share of columns the matrix scores above zero. }
-  gaps_percent: { label: Gaps (%), description: The share of columns with a gap. }
+    label: Similarity (%)
+    description: >-
+      The share of columns the matrix scores above zero (U, O and J scored as X,
+      but similar to themselves), unrounded.
+  gaps_percent: { label: Gaps (%), description: "The share of columns with a gap, unrounded." }
 timeout: 10m

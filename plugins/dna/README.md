@@ -102,12 +102,20 @@ Aligning reads: each file's format is read from its first bytes. A read with
 qualities (AB1, FASTQ) is trimmed to its best stretch by Mott's algorithm,
 as phred does (limit 0.05), unless the run says not to. Each is aligned
 locally to the sequence on both strands, and the better kept, with BLASTN's
-scores (match 2, mismatch -3, gap opening 5, extension 2) and N matching
-anything at no score. A circular sequence is aligned as if it went round
+match and mismatch scores (2 and -3), a gap of n bases costing 5 + 2(n - 1),
+and N matching anything at no score. (BLASTN's gap opening 5 and extension 2
+would charge 5 + 2n: Iki's opening cost is the first base's, as EMBOSS and
+Biopython count it.) A circular sequence is aligned as if it went round
 again, so a read across its origin aligns in one piece. A read aligns if at
 least half its trimmed bases do (and 20); others are left out, and the run
-says so. The run says where the reads cover the sequence, and lists each
-difference from it in its numbering, as HGVS names them: substitutions
+says so, as is one with nothing scoring above zero (all N, say). The run says
+where the reads cover the sequence: a read's base covers its place only when
+it says what's there, so N, or another ambiguity code that could be the
+sequence's base, covers nothing, and the run lists where reads have only such
+bases. Bases compare as the sets their IUPAC codes stand for: a read's Y where
+the sequence has R is a difference, and where the sequence is itself
+ambiguous, the base a read has there is listed apart (`R31A`). It lists each
+difference from the sequence in its numbering, as HGVS names them: substitutions
 (`C1234T`), deletions (`1240delA`, `1240_1242del`), insertions
 (`1250_1251insG`) and duplications (`1250dupG`), a deletion or insertion in
 repeated bases named at its 3′-most place, with the reads that show it and

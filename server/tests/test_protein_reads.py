@@ -263,6 +263,74 @@ def test_ambiguous_and_unusual_residues_differ_only_from_what_they_cant_be(
     assert texts(output)[1] == "Differences from PRT-000001: O43K (r)."
 
 
+@pytest.mark.parametrize(
+    ("site", "codon", "named"),
+    [
+        # UGA is selenocysteine's codon; UAA and UAG are stops in the standard code.
+        ("U", "TGA", None),
+        ("U", "TAA", "U42*"),
+        ("U", "TAG", "U42*"),
+        # UAG is pyrrolysine's; UGA is a stop.
+        ("O", "TAG", None),
+        ("O", "TGA", "O42*"),
+    ],
+)
+def test_a_stop_codon_is_selenocysteine_or_pyrrolysine_only_where_it_recodes_one(
+    tmp_path: Path, site: str, codon: str, named: str | None
+) -> None:
+    protein = PROTEIN[:41] + site + PROTEIN[42:]
+    code = coding(PROTEIN[:41]) + codon + coding(PROTEIN[42:200])
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=protein)
+
+    assert output is not None
+    said = (
+        f"Differences from PRT-000001: {named} (r)."
+        if named
+        else ("No differences from PRT-000001 where the reads cover it.")
+    )
+    assert texts(output)[1] == said
+    # The read's row says what it codes for there: the recoded residue, or a stop.
+    assert rows(tmp_path)[1][1][41] == (site if named is None else "*")
+
+
+@pytest.mark.parametrize(
+    ("codon", "named"),
+    [
+        # IUBMB: RAY is GAC, GAT, AAC or AAT, so Asp or Asn (B), never Ala.
+        ("RAY", "B"),
+        ("SAR", "Z"),
+        ("WTA", "J"),
+    ],
+)
+def test_an_ambiguous_codon_that_cant_be_the_residue_is_a_difference(
+    tmp_path: Path, codon: str, named: str
+) -> None:
+    protein = PROTEIN[:41] + "A" + PROTEIN[42:]
+    code = coding(PROTEIN[:41]) + codon + coding(PROTEIN[42:200])
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()}, sequence=protein)
+
+    assert output is not None
+    assert texts(output)[1] == f"Differences from PRT-000001: A42{named} (r)."
+
+
+def test_codons_too_ambiguous_to_tell_cover_nothing(tmp_path: Path) -> None:
+    # Residues 1-100, with residues 41-50 read as NNN: they say nothing of 41-50.
+    code = coding(PROTEIN[:40]) + "NNN" * 10 + coding(PROTEIN[50:100])
+
+    _, output = run(tmp_path, {"r.fasta": f">r\n{code}\n".encode()})
+
+    assert output is not None
+    assert texts(output)[:3] == [
+        "The reads cover 1–40, 51–100 of Kinase's 250 residues (36.0%). Not covered: 41–50, "
+        "101–250.",
+        "No differences from PRT-000001 where the reads cover it.",
+        "Codons too ambiguous to tell (such as NNN) say nothing there, so they don't cover it: "
+        "41–50 (r).",
+    ]
+
+
 def test_reads_that_dont_code_for_it_are_left_out_saying_so(tmp_path: Path) -> None:
     files = {
         "good.fastq": fastq(("good", coding(PROTEIN[50:250]), 40)),

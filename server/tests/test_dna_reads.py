@@ -172,8 +172,8 @@ def test_a_trace_is_trimmed_aligned_and_its_difference_named(tmp_path: Path) -> 
     assert values["name"] == "1 read on pTEST"
     assert values["aligned"] == {"$file": "alignment.fasta", "media_type": "chemical/seq-na-fasta"}
     assert values["method"] == (
-        "Biopython PairwiseAligner, local, on both strands: match 2, mismatch -3, gap opening "
-        "5, extension 2; reads trimmed by Mott's algorithm, limit 0.05"
+        "Biopython PairwiseAligner, local, on both strands: match 2, mismatch -3, a gap of n "
+        "bases costing 5 + 2(n - 1); reads trimmed by Mott's algorithm, limit 0.05"
     )
     (ref_header, ref_row), (read_header, read_row) = rows(tmp_path)
     assert (ref_header, ref_row) == ("DNA-000001 pTEST", PLASMID)
@@ -274,6 +274,69 @@ def test_a_read_across_a_circular_references_origin_aligns_in_one_piece(tmp_path
         "No differences from DNA-000001 where the reads cover it.",
     ]
     assert ", round the origin" in output["creates"][0]["values"]["method"]
+
+
+def test_uncalled_bases_cover_nothing_and_hide_no_difference(tmp_path: Path) -> None:
+    # Twenty N where the clone may carry a mutation: they say nothing of bases 141-160, so
+    # those aren't covered, and no difference is claimed for or against them.
+    read = PLASMID[100:140] + "N" * 20 + PLASMID[160:200]
+
+    _, output = run(tmp_path, {"n.fasta": f">n\n{read}\n".encode()})
+
+    assert output is not None
+    assert texts(output)[:3] == [
+        "The reads cover 101–140, 161–200 of pTEST's 600 bases (13.3%). Not covered: 1–100, "
+        "141–160, 201–600.",
+        "No differences from DNA-000001 where the reads cover it.",
+        "Ambiguous bases (such as N) say nothing there, so they don't cover it: 141–160 (n).",
+    ]
+    assert output["metrics"]["coverage_percent"] == 13.3
+
+
+def test_bases_compare_as_the_sets_their_iupac_codes_stand_for() -> None:
+    reads = script()
+    # IUBMB: R is A or G, Y is C or T, N any.
+    assert reads.call("Y", "R") == "differs"
+    assert reads.call("A", "R") == "resolves"
+    assert reads.call("R", "A") == "unresolved"
+    assert reads.call("N", "C") == "unresolved"
+    assert reads.call("A", "A") == "same"
+    assert reads.call("T", "A") == "differs"
+
+
+def test_an_ambiguous_read_base_that_cant_be_the_references_is_a_difference(
+    tmp_path: Path,
+) -> None:
+    reference = PLASMID[:30] + "R" + PLASMID[31:]
+    disjoint = reference[:30] + "Y" + reference[31:120]
+    resolving = reference[:30] + "A" + reference[31:120]
+
+    _, output = run(
+        tmp_path,
+        {"r.fasta": f">disjoint\n{disjoint}\n>resolving\n{resolving}\n".encode()},
+        bases=reference,
+    )
+
+    assert output is not None
+    assert texts(output)[1:3] == [
+        "Differences from DNA-000001: R31Y (disjoint).",
+        "Where DNA-000001 is ambiguous, the reads have: R31A (resolving).",
+    ]
+
+
+def test_a_read_with_nothing_scoring_above_zero_is_left_out_and_the_others_kept(
+    tmp_path: Path,
+) -> None:
+    files = {"r.fasta": f">blank\n{'N' * 24}\n>good\n{PLASMID[0:100]}\n".encode()}
+
+    _, output = run(tmp_path, files)
+
+    assert output is not None
+    warnings = [m["text"] for m in output["messages"] if m["level"] == "warning"]
+    assert warnings == [
+        "blank doesn't align to DNA-000001: no stretch of it scores above zero. It's left out."
+    ]
+    assert output["metrics"]["aligned"] == 1
 
 
 def test_reads_that_dont_align_or_have_nothing_good_are_left_out_saying_so(tmp_path: Path) -> None:

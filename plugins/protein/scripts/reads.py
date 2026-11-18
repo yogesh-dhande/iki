@@ -25,6 +25,14 @@ stops (Q45*), deletions (K12del, K12_L14del), insertions (K12_L13insG), duplicat
 (K12dup) and frameshifts (K12fs), with the reads that show each and their quality there
 (the least of its codon's bases). A deletion or insertion in repeated residues is named
 at its C-terminal-most place, as HGVS asks.
+
+Each codon is compared with the protein as the residues it could code for, by every codon
+its bases could be (IUBMB codes): it differs if it can be none of what the protein's
+residue stands for (B is D or N, Z is E or Q, J is I or L, X anything), and is the same
+if it can only be that. A codon that could be either, such as NNN, says nothing there:
+it covers nothing, and the run lists where. UGA is selenocysteine where the protein has
+U, and UAG pyrrolysine where it has O, as the read shows them; any other stop there is a
+stop. A read can't tell whether a recoding codon was read through, only that it's there.
 """
 
 from __future__ import annotations
@@ -40,6 +48,7 @@ from typing import Any, NoReturn
 
 from Bio import Align, SeqIO
 from Bio.Align import substitution_matrices
+from Bio.Data import CodonTable
 from Bio.Seq import Seq
 
 #: The most reads a run aligns.
@@ -60,9 +69,20 @@ MAX_CELLS = 100_000_000
 MAX_PARTS = 4
 #: The most differences the run lists.
 MAX_LISTED = 100
-#: What a read's residue may be where the protein has an ambiguous or unusual one, and be
-#: no different: selenocysteine's codon is a stop's, TGA.
-SAME = {"B": "DN", "Z": "EQ", "J": "IL", "X": "ACDEFGHIKLMNPQRSTVWY*", "U": "U*"}
+#: The residues an ambiguous one in the protein stands for (IUPAC-IUB).
+STANDS_FOR = {"B": "DN", "Z": "EQ", "J": "IL", "X": "ACDEFGHIKLMNPQRSTVWYUO"}
+#: The bases each IUPAC code stands for (IUBMB, 1985).
+IUPAC = {
+    "A": "A", "C": "C", "G": "G", "T": "T",
+    "R": "AG", "Y": "CT", "S": "CG", "W": "AT", "K": "GT", "M": "AC",
+    "B": "CGT", "D": "AGT", "H": "ACT", "V": "ACG", "N": "ACGT",
+}  # fmt: skip
+#: Stop codons read through where the protein has the residue they recode: UGA as
+#: selenocysteine, UAG as pyrrolysine. Any other stop there is a stop.
+RECODED = {"U": "TGA", "O": "TAG"}
+#: The letter for a set of residues a codon could be.
+LETTER = {frozenset("DN"): "B", frozenset("EQ"): "Z", frozenset("IL"): "J"}
+STANDARD = CodonTable.standard_dna_table
 
 
 def fail(why: str) -> NoReturn:
@@ -199,6 +219,8 @@ class Placed:
     parts: list[Part] = field(default_factory=list)
     #: Protein position (0-based) → the read's residue there, or "-" where it has none.
     at: dict[int, str] = field(default_factory=dict)
+    #: Protein position → the residues the read's codon there could code for.
+    could_be: dict[int, frozenset[str]] = field(default_factory=dict)
     #: Protein position → the read's quality there (its codon's least), where it has one.
     quality_at: dict[int, int] = field(default_factory=dict)
     #: Protein position → residues the read codes for before it that the protein doesn't.
@@ -230,11 +252,46 @@ def aligner() -> Align.PairwiseAligner:
 
 def translated(bases: str) -> str:
     """The bases' translation by the standard code, whole codons only, `*` for a stop and
-    `X` for a codon whose bases are too unsure to tell."""
+    `X` for a codon whose bases are too unsure to tell, as the aligner scores them."""
     whole = bases[: len(bases) - len(bases) % 3]
     protein = str(Seq(whole).translate()) if whole else ""
     # Ambiguous codons can translate to B, Z or J; only X is in every matrix's sense "any".
     return re.sub(r"[BZJ]", "X", protein)
+
+
+def could_be(codon: str, site: str) -> frozenset[str]:
+    """The residues a codon could code for, by every codon its bases could be, where the
+    protein has `site`: a stop codon that recodes the site's selenocysteine or pyrrolysine
+    is it."""
+    found = set()
+    for a in IUPAC.get(codon[0], "ACGT"):
+        for b in IUPAC.get(codon[1], "ACGT"):
+            for c in IUPAC.get(codon[2], "ACGT"):
+                each = a + b + c
+                if RECODED.get(site) == each:
+                    found.add(site)
+                else:
+                    found.add(STANDARD.forward_table.get(each, "*"))
+    return frozenset(found)
+
+
+def letter(residues: frozenset[str]) -> str:
+    """One letter for the residues a codon could be: the residue, B, Z, J, or X."""
+    if len(residues) == 1:
+        return next(iter(residues))
+    return LETTER.get(residues, "X")
+
+
+def call(residues: frozenset[str], site: str) -> str:
+    """How what a read's codon could be compares with the protein's residue there: `same`,
+    when it can only be what the site allows; `differs`, when it can't be any of it; or
+    `unresolved`, an ambiguous codon that could be either, which says nothing of it."""
+    allowed = set(STANDS_FOR.get(site, site))
+    if residues <= allowed:
+        return "same"
+    if not residues & allowed:
+        return "differs"
+    return "unresolved"
 
 
 def expect(score: float, protein: int, residues: int) -> float:
@@ -282,9 +339,12 @@ def best_part(
     return found
 
 
-def lay(placed: Placed, query: str, quality: list[int] | None, found: Found) -> None:
-    """Fills in where a part's residues lie on the protein."""
-    coded = translated(query[found.start :])
+def lay(placed: Placed, query: str, quality: list[int] | None, found: Found, protein: str) -> None:
+    """Fills in where a part's residues lie on the protein, and what each codon could be."""
+
+    def codon(index: int) -> str:
+        at = found.start + 3 * index
+        return query[at : at + 3]
 
     def codon_quality(index: int) -> int | None:
         if not quality:
@@ -298,15 +358,19 @@ def lay(placed: Placed, query: str, quality: list[int] | None, found: Found) -> 
         t0, q0, t1, q1 = int(t0) + offset, int(q0), int(t1) + offset, int(q1)
         if t1 > t0 and q1 > q0:
             for step in range(t1 - t0):
-                placed.at[t0 + step] = coded[q0 + step]
+                spot = t0 + step
+                residues = could_be(codon(q0 + step), protein[spot])
+                placed.could_be[spot] = residues
+                placed.at[spot] = letter(residues)
                 got = codon_quality(q0 + step)
                 if got is not None:
-                    placed.quality_at[t0 + step] = got
+                    placed.quality_at[spot] = got
         elif t1 > t0:
             for spot in range(t0, t1):
                 placed.at[spot] = "-"
         else:
-            placed.inserted[t0] = placed.inserted.get(t0, "") + coded[q0:q1]
+            shown = "".join(letter(could_be(codon(i), "")) for i in range(q0, q1))
+            placed.inserted[t0] = placed.inserted.get(t0, "") + shown
             got = [q for q in (codon_quality(i) for i in range(q0, q1)) if q is not None]
             if got:
                 placed.inserted_quality[t0] = min(got)
@@ -327,7 +391,7 @@ def place(read: Read, protein: str, scorer: Align.PairwiseAligner) -> Placed | N
     reverse, query, found = chosen
     quality = (read.quality[::-1] if reverse else read.quality) if read.quality else None
     placed = Placed(read, reverse, [found.part])
-    lay(placed, query, quality, found)
+    lay(placed, query, quality, found, protein)
     left = right = True
     while (left or right) and len(placed.parts) < MAX_PARTS:
         if left:
@@ -336,7 +400,7 @@ def place(read: Read, protein: str, scorer: Align.PairwiseAligner) -> Placed | N
             more = best_part(query, frames, (0, first.start), protein, (0, first.first), scorer)
             if more:
                 placed.parts.insert(0, more.part)
-                lay(placed, query, quality, more)
+                lay(placed, query, quality, more, protein)
             left = more is not None
         if right and len(placed.parts) < MAX_PARTS:
             last = placed.parts[-1]
@@ -346,7 +410,7 @@ def place(read: Read, protein: str, scorer: Align.PairwiseAligner) -> Placed | N
             )
             if more:
                 placed.parts.append(more.part)
-                lay(placed, query, quality, more)
+                lay(placed, query, quality, more, protein)
             right = more is not None
     return placed
 
@@ -376,6 +440,25 @@ def insertion(protein: str, spot: int, residues: str) -> str:
     return f"{protein[spot - 1]}{spot}_{protein[spot]}{spot + 1}ins{residues}"
 
 
+def covered_by(placed: Placed, protein: str) -> set[int]:
+    """The protein's residues the read says what's at: a deletion, or a codon that isn't
+    unresolved there (NNN covers nothing)."""
+    return {
+        spot
+        for spot, residue in placed.at.items()
+        if residue == "-" or call(placed.could_be[spot], protein[spot]) != "unresolved"
+    }
+
+
+def unresolved(placed: Placed, protein: str) -> list[int]:
+    """Where the read's codon is ambiguous and could be the protein's residue."""
+    return [
+        spot
+        for spot, residue in sorted(placed.at.items())
+        if residue != "-" and call(placed.could_be[spot], protein[spot]) == "unresolved"
+    ]
+
+
 def differences(placed: Placed, protein: str) -> list[tuple[int, str, int | None]]:
     """The read's differences from the protein: (where, as HGVS names it, its quality
     there)."""
@@ -395,7 +478,7 @@ def differences(placed: Placed, protein: str) -> list[tuple[int, str, int | None
             deleted.append(spot)
             continue
         close_deletion()
-        if residue != "X" and residue not in SAME.get(protein[spot], protein[spot]):
+        if call(placed.could_be[spot], protein[spot]) == "differs":
             out.append((spot, f"{protein[spot]}{spot + 1}{residue}", placed.quality_at.get(spot)))
     close_deletion()
     for spot, residues in placed.inserted.items():
@@ -496,7 +579,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
 
-    covered = sorted({spot for each in placed for spot in each.at})
+    covered = sorted({spot for each in placed for spot in covered_by(each, protein)})
     missing = sorted(set(range(size)) - set(covered))
     title = entity["values"].get("name") or hrid
     coverage = (
@@ -523,6 +606,22 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     else:
         none = f"No differences from {hrid} where the reads cover it."
         messages.insert(1, {"level": "info", "text": none})
+    unsure = [
+        (spans(ranges(spots)), each.read.name)
+        for each in placed
+        if (spots := unresolved(each, protein))
+    ]
+    if unsure:
+        messages.insert(
+            2,
+            {
+                "level": "info",
+                "text": "Codons too ambiguous to tell (such as NNN) say nothing there, so they "
+                "don't cover it: "
+                + "; ".join(f"{where} ({name})" for where, name in unsure[:MAX_LISTED])
+                + ".",
+            },
+        )
     print(f"::progress {len(reads)}/{len(reads)} Aligned {len(placed)} of {len(reads)}", flush=True)
 
     name = (run["params"].get("name") or "").strip() or (

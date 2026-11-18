@@ -10,13 +10,25 @@ format, and `alignment.fasta`, aligned, gaps as `-`, each record headed by its p
 HRID. That file is also an `iki/core.Alignment` it creates (ADR 0088), of the two proteins,
 the target its reference, so Iki's alignment viewer shows it and lineage leads back to
 both. Its metrics are the score, the alignment's length, and its identity, similarity
-and gaps as percentages of that length, as EMBOSS reports them.
+and gaps as percentages of that length, as EMBOSS reports them: identical columns have
+the same residue, similar ones a pair the matrix scores above zero (so X with X, which
+BLOSUM62 scores -1, is identical but not similar), and gapped ones a gap. The
+percentages are kept unrounded, so a workflow's threshold compares the true share;
+pages and the EMBOSS file round them.
+
+The matrices have no selenocysteine (U), pyrrolysine (O) or J (I or L): they're aligned
+as X, any residue, as BLAST scores letters its matrix lacks, and counted by their own
+letters, a pair of one with itself identical and similar.
+
+A local alignment with nothing scoring above zero (AAAA with WWWW) is none: the run
+says so, creates no alignment, and its metrics are zero.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, NoReturn
@@ -47,18 +59,32 @@ def aligner(mode: str, matrix: str, gap_open: float, gap_extend: float) -> Align
     return found
 
 
-def marks(matrix: Any, top: str, bottom: str) -> str:  # noqa: ANN401 - Biopython's Array
+#: Residues the matrices lack, aligned as X.
+UNSCORED = re.compile("[UOJ]")
+
+
+def scored(a: str, b: str, matrix: Any) -> float:  # noqa: ANN401 - Biopython's Array
+    """The matrix's score for a pair, U, O and J as X, a pair of one with itself as similar
+    as can be."""
+    if a == b and UNSCORED.match(a):
+        return 1.0
+    return float(matrix[UNSCORED.sub("X", a)][UNSCORED.sub("X", b)])
+
+
+def marks(matrix: Any, top: str, bottom: str) -> tuple[str, int, int]:  # noqa: ANN401 - Array
     """EMBOSS's line between the two: `|` identical, `:` similar (scoring above zero), `.`
-    other pairs, and nothing at a gap."""
+    other pairs, and nothing at a gap; and how many columns are identical, and similar."""
     out = []
+    identical = similar = 0
     for a, b in zip(top, bottom, strict=True):
         if "-" in (a, b):
             out.append(" ")
-        elif a == b:
-            out.append("|")
-        else:
-            out.append(":" if matrix[a][b] > 0 else ".")
-    return "".join(out)
+            continue
+        positive = scored(a, b, matrix) > 0
+        identical += a == b
+        similar += positive
+        out.append("|" if a == b else ":" if positive else ".")
+    return "".join(out), identical, similar
 
 
 def emboss(
@@ -86,7 +112,24 @@ def emboss(
 
 
 def percent(part: int, whole: int) -> float:
-    return round(100 * part / whole, 1) if whole else 0.0
+    """The share, unrounded: rounding is for showing it."""
+    return 100 * part / whole if whole else 0.0
+
+
+def shown(value: float) -> str:
+    return f"{value:.1f}"
+
+
+def rows_of(a: str, b: str, coordinates: Any) -> tuple[str, str]:  # noqa: ANN401 - an array
+    """The two aligned rows, gaps as `-`, from the alignment's coordinates, with the
+    sequences' own letters."""
+    top, bottom = [], []
+    for (a0, b0), (a1, b1) in zip(coordinates.T[:-1], coordinates.T[1:], strict=True):
+        a0, b0, a1, b1 = int(a0), int(b0), int(a1), int(b1)
+        width = max(a1 - a0, b1 - b0)
+        top.append(a[a0:a1] if a1 > a0 else "-" * width)
+        bottom.append(b[b0:b1] if b1 > b0 else "-" * width)
+    return "".join(top), "".join(bottom)
 
 
 def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
@@ -107,17 +150,36 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         )
     found = aligner(mode, matrix, gap_open, gap_extend)
     try:
-        best = found.align(a, b)[0]
+        # The matrices lack U, O and J: they're aligned as X, and kept for what's shown.
+        alignments = found.align(UNSCORED.sub("X", a), UNSCORED.sub("X", b))
+        best = next(iter(alignments), None)
     except ValueError as error:
         fail(f"Couldn't align them: {error}.")
-    top, bottom = best[0], best[1]
+    if best is None or (mode == "local" and best.score <= 0):
+        return {
+            "creates": [],
+            "metrics": {
+                "score": 0.0,
+                "length": 0,
+                "identity_percent": 0.0,
+                "similarity_percent": 0.0,
+                "gaps_percent": 0.0,
+            },
+            "messages": [
+                {
+                    "level": "warning",
+                    "text": f"{query['hrid']} and {target['hrid']} have no local alignment: no "
+                    "part of one scores above zero against the other.",
+                }
+            ],
+        }
+    coordinates = best.coordinates
+    top, bottom = rows_of(a, b, coordinates)
     scores = found.substitution_matrix
-    line = marks(scores, top, bottom)
+    line, identical, similar = marks(scores, top, bottom)
     length = len(top)
-    identical = line.count("|")
-    similar = identical + line.count(":")
     gaps = sum("-" in pair for pair in zip(top, bottom, strict=True))
-    starts = (int(best.coordinates[0][0]) + 1, int(best.coordinates[1][0]) + 1)
+    starts = (int(coordinates[0][0]) + 1, int(coordinates[1][0]) + 1)
     names = (query["hrid"], target["hrid"])
     header = [
         "Aligned by Iki's protein.align_pair, with Biopython's PairwiseAligner",
@@ -131,9 +193,9 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         f"2: {names[1]} {target['values'].get('name') or ''}".rstrip(),
         "",
         f"Length: {length}",
-        f"Identity:   {identical}/{length} ({percent(identical, length)}%)",
-        f"Similarity: {similar}/{length} ({percent(similar, length)}%)",
-        f"Gaps:       {gaps}/{length} ({percent(gaps, length)}%)",
+        f"Identity:   {identical}/{length} ({shown(percent(identical, length))}%)",
+        f"Similarity: {similar}/{length} ({shown(percent(similar, length))}%)",
+        f"Gaps:       {gaps}/{length} ({shown(percent(gaps, length))}%)",
         f"Score: {best.score:.1f}",
     ]
     (out_dir / "alignment.txt").write_text(
@@ -147,7 +209,8 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
     print(
-        f"{names[0]} vs {names[1]}: score {best.score:.1f}, {percent(identical, length)}% identical"
+        f"{names[0]} vs {names[1]}: score {best.score:.1f}, "
+        f"{shown(percent(identical, length))}% identical"
     )
     titles = [e["values"].get("name") or e["hrid"] for e in (query, target)]
     return {
@@ -157,8 +220,8 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 "values": {
                     "name": f"{titles[0]} and {titles[1]}"[:200],
                     "description": (
-                        f"{percent(identical, length)}% identical and "
-                        f"{percent(similar, length)}% similar over {length} columns, "
+                        f"{shown(percent(identical, length))}% identical and "
+                        f"{shown(percent(similar, length))}% similar over {length} columns, "
                         f"scoring {best.score:.1f}."
                     ),
                     "reference": target["id"],

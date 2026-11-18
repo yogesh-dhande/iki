@@ -462,6 +462,7 @@ describe("a run's page", () => {
         },
       ],
       effect_counts: { created: 0, updated: 1, reused: 0 },
+      metrics: { identity_percent: (100 * 899) / 999 },
       messages: [{ level: "warning", text: "pI is outside the usual range." }],
     });
     attempts = [attempt({ state: "succeeded", finished_at: "2026-03-14T09:01:00Z", log_size: 13 })];
@@ -478,6 +479,8 @@ describe("a run's page", () => {
     expect(within(results).getByText(/^Updated/)).toHaveTextContent(
       "Updated PRT-000001 Protein, revision 3",
     );
+    // Kept unrounded (89.98999…), shown rounded.
+    expect(within(results).getByText("identity_percent").nextSibling).toHaveTextContent(/^89\.99$/);
     expect(screen.getByRole("region", { name: "Messages" })).toHaveTextContent(
       "Warning pI is outside the usual range.",
     );

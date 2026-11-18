@@ -8,19 +8,28 @@ read from its first bytes, so a file's extension or media type doesn't matter.
 Each read with qualities (AB1 and FASTQ) is first trimmed of its poor ends by Mott's
 algorithm, as phred and Biopython do: the stretch where the sum of (limit - error
 probability) is greatest, with a limit of 0.05. Then it's aligned locally to the
-reference on both strands, and the better is kept, with BLASTN's scores (match 2,
-mismatch -3, gap opening 5, extension 2) and N matching anything at no score. A circular
-reference is aligned as if it went round again, so a read across its origin aligns in
-one piece. A read aligns if at least half its trimmed bases (and 20) do; others are left
-out and the run says so.
+reference on both strands, and the better is kept, with BLASTN's match and mismatch
+scores (2 and -3), a gap of n bases costing 5 + 2(n - 1), and N matching anything at no
+score. (BLASTN's gap opening 5 and extension 2 would charge 5 + 2n: here the opening
+cost is the first base's, as in EMBOSS and Biopython.) A circular reference is aligned
+as if it went round again, so a read across its origin aligns in one piece. A read
+aligns if at least half its trimmed bases (and 20) do; others are left out and the run
+says so, as is one with no stretch that scores above zero.
 
 The alignment's first row is the reference, headed by its HRID; each read's row follows,
 headed by its name, as it lies on the reference (its reverse complement if it read the
 other strand). Bases a read has that the reference doesn't get columns of their own.
 
 The run reports where the reads cover the reference, and each difference from it, in
-the reference's numbering: substitutions (C1234T), deletions (1240delA, 1240_1242del)
-and insertions (1250_1251insG), with the reads that show it and their quality there. As
+the reference's numbering. A base covers its place when it says what's there: a base
+of A, C, G or T, a deletion, or an ambiguity code whose bases can't be the reference's.
+N, or another ambiguity code that could be the reference's base, resolves nothing, so
+it covers nothing, and the run lists where reads have only such bases. Bases are
+compared as the sets of bases their IUPAC codes stand for: a difference is a read base
+none of whose bases the reference's code allows. Where the reference itself is
+ambiguous (R, N, ...), the base a read has there is listed apart, as resolving it.
+Differences are substitutions (C1234T), deletions (1240delA, 1240_1242del) and
+insertions (1250_1251insG), with the reads that show it and their quality there. As
 HGVS asks, a deletion or insertion in repeated bases is named at its 3'-most place, and
 an insertion that repeats the bases before it is a duplication (1250dupG). The rows show
 them where the aligner put them.
@@ -51,6 +60,12 @@ LIMIT = 0.05
 LEAST_SHARE, LEAST_BASES = 0.5, 20
 #: The most differences the run lists.
 MAX_LISTED = 100
+#: The bases each IUPAC code stands for (IUBMB, 1985).
+IUPAC = {
+    "A": "A", "C": "C", "G": "G", "T": "T", "U": "T",
+    "R": "AG", "Y": "CT", "S": "CG", "W": "AT", "K": "GT", "M": "AC",
+    "B": "CGT", "D": "AGT", "H": "ACT", "V": "ACG", "N": "ACGT",
+}  # fmt: skip
 
 
 def fail(why: str) -> NoReturn:
@@ -167,8 +182,11 @@ def aligner() -> Align.PairwiseAligner:
     return found
 
 
-def place(read: Read, reference: str, circular: bool, scorer: Align.PairwiseAligner) -> Placed:
-    """Where the read lies on the reference, on its better strand."""
+def place(
+    read: Read, reference: str, circular: bool, scorer: Align.PairwiseAligner
+) -> Placed | None:
+    """Where the read lies on the reference, on its better strand; None if no stretch of it
+    scores above zero there (all N, say), when a local alignment has nothing to give."""
     size = len(reference)
     target = reference + reference[: len(read.bases) - 1] if circular else reference
     if len(target) * len(read.bases) > MAX_CELLS:
@@ -178,7 +196,10 @@ def place(read: Read, reference: str, circular: bool, scorer: Align.PairwiseAlig
         )
     forward = read.bases
     backward = str(Seq(read.bases).reverse_complement())
-    reverse = scorer.score(target, backward) > scorer.score(target, forward)
+    scores = scorer.score(target, forward), scorer.score(target, backward)
+    if max(scores) <= 0:
+        return None
+    reverse = scores[1] > scores[0]
     query = backward if reverse else forward
     quality = (read.quality[::-1] if reverse else read.quality) if read.quality else None
     best = scorer.align(target, query)[0]
@@ -231,6 +252,31 @@ def insertion(reference: str, spot: int, bases: str) -> str:
     return f"{before}_{spot % size + 1}ins{bases}"
 
 
+def call(base: str, reference: str) -> str:
+    """How a read's base compares with the reference's there, by the bases their IUPAC codes
+    stand for: `same`; `differs`, where none of the read's bases is one the reference's
+    allows; `resolves`, a single base the reference's ambiguous code allows; or `unresolved`,
+    an ambiguous base that could be the reference's, which says nothing of it."""
+    mine, theirs = set(IUPAC.get(base, "ACGT")), set(IUPAC.get(reference, "ACGT"))
+    if not mine & theirs:
+        return "differs"
+    if base == reference and len(mine) == 1:
+        return "same"
+    if len(mine) == 1:
+        return "resolves"
+    return "unresolved"
+
+
+def covered_by(placed: Placed, reference: str) -> set[int]:
+    """The reference's places the read says what's at: a deletion, or a base that isn't
+    unresolved there (an N covers nothing)."""
+    return {
+        spot
+        for spot, base in placed.at.items()
+        if base == "-" or call(base, reference[spot]) != "unresolved"
+    }
+
+
 def differences(placed: Placed, reference: str) -> list[tuple[int, str, int | None]]:
     """The read's differences from the reference: (where, as HGVS names it, its quality
     there)."""
@@ -250,12 +296,40 @@ def differences(placed: Placed, reference: str) -> list[tuple[int, str, int | No
             deleted.append(spot)
             continue
         close_deletion()
-        if base != reference[spot] and base in "ACGT":
+        if call(base, reference[spot]) == "differs":
             out.append((spot, f"{reference[spot]}{spot + 1}{base}", placed.quality_at.get(spot)))
     close_deletion()
     for spot, bases in placed.inserted.items():
         out.append((spot, insertion(reference, spot, bases), placed.inserted_quality.get(spot)))
     return out
+
+
+def resolved(placed: Placed, reference: str) -> list[tuple[int, str]]:
+    """Where the reference is ambiguous and the read has one of the bases it allows: (where,
+    such as R31A)."""
+    return [
+        (spot, f"{reference[spot]}{spot + 1}{base}")
+        for spot, base in sorted(placed.at.items())
+        if base != "-" and call(base, reference[spot]) == "resolves"
+    ]
+
+
+def unresolved(placed: Placed, reference: str) -> list[int]:
+    """Where the read's base is ambiguous (N, ...) and could be the reference's."""
+    return [
+        spot
+        for spot, base in sorted(placed.at.items())
+        if base != "-" and call(base, reference[spot]) == "unresolved"
+    ]
+
+
+def listing(found: dict[str, tuple[int, list[str]]]) -> tuple[str, int]:
+    """Names, each with the reads that show it, in the reference's order; and how many."""
+    listed = sorted(found.items(), key=lambda item: (item[1][0], item[0]))
+    text = "; ".join(f"{name} ({', '.join(showing)})" for name, (_, showing) in listed[:MAX_LISTED])
+    if len(listed) > MAX_LISTED:
+        text += f"; and {len(listed) - MAX_LISTED} more"
+    return text, len(listed)
 
 
 def ranges(spots: list[int]) -> list[tuple[int, int]]:
@@ -320,6 +394,12 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         except ValueError as error:
             warn(f"{read.name} is left out: {error}.")
             continue
+        if found is None:
+            warn(
+                f"{read.name} doesn't align to {hrid}: no stretch of it scores above zero. "
+                "It's left out."
+            )
+            continue
         aligned = found.end - found.start
         if aligned < max(LEAST_BASES, LEAST_SHARE * len(read.bases)):
             warn(
@@ -359,7 +439,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         encoding="utf-8",
     )
 
-    covered = sorted({spot for each in placed for spot in each.at})
+    covered = sorted({spot for each in placed for spot in covered_by(each, reference)})
     found_ranges = ranges(covered)
     missing = sorted(set(range(size)) - set(covered))
     title = entity["values"].get("name") or hrid
@@ -376,17 +456,37 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         for spot, name, quality in differences(each, reference):
             _, shown = seen.setdefault(name, (spot, []))
             shown.append(each.read.name + (f" Q{quality}" if quality is not None else ""))
-    listed = sorted(seen.items(), key=lambda item: (item[1][0], item[0]))
-    if listed:
-        text = "; ".join(
-            f"{name} ({', '.join(showing)})" for name, (_, showing) in listed[:MAX_LISTED]
-        )
-        if len(listed) > MAX_LISTED:
-            text += f"; and {len(listed) - MAX_LISTED} more"
+    text, count = listing(seen)
+    if count:
         messages.insert(1, {"level": "info", "text": f"Differences from {hrid}: {text}."})
     else:
         none = f"No differences from {hrid} where the reads cover it."
         messages.insert(1, {"level": "info", "text": none})
+    unsure = [
+        (f"{spans(ranges(spots))}", each.read.name)
+        for each in placed
+        if (spots := unresolved(each, reference))
+    ]
+    if unsure:
+        messages.insert(
+            2,
+            {
+                "level": "info",
+                "text": "Ambiguous bases (such as N) say nothing there, so they don't cover it: "
+                + "; ".join(f"{where} ({name})" for where, name in unsure[:MAX_LISTED])
+                + ".",
+            },
+        )
+    settled: dict[str, tuple[int, list[str]]] = {}
+    for each in placed:
+        for spot, name in resolved(each, reference):
+            settled.setdefault(name, (spot, []))[1].append(each.read.name)
+    if settled:
+        text, _ = listing(settled)
+        messages.insert(
+            2 + bool(unsure),
+            {"level": "info", "text": f"Where {hrid} is ambiguous, the reads have: {text}."},
+        )
     print(f"::progress {len(reads)}/{len(reads)} Aligned {len(placed)} of {len(reads)}", flush=True)
 
     name = (run["params"].get("name") or "").strip() or (
@@ -400,8 +500,8 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                     "name": name[:200],
                     "description": (
                         f"{len(placed)} of {len(reads)} reads aligned to {hrid}, covering "
-                        f"{percent(len(covered), size)}% of it, with {len(listed)} "
-                        f"difference{'s' if len(listed) != 1 else ''}."
+                        f"{percent(len(covered), size)}% of it, with {count} "
+                        f"difference{'s' if count != 1 else ''}."
                     ),
                     "reference": entity["id"],
                     "members": [entity["id"]],
@@ -409,7 +509,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                     "method": (
                         "Biopython PairwiseAligner, local, on both strands"
                         + (", round the origin" if circular else "")
-                        + ": match 2, mismatch -3, gap opening 5, extension 2"
+                        + ": match 2, mismatch -3, a gap of n bases costing 5 + 2(n - 1)"
                         + (f"; reads trimmed by Mott's algorithm, limit {LIMIT}" if trim else "")
                     ),
                 },
@@ -420,7 +520,7 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             "reads": len(reads),
             "aligned": len(placed),
             "coverage_percent": percent(len(covered), size),
-            "differences": len(listed),
+            "differences": count,
         },
         "messages": messages,
     }
