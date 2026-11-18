@@ -367,8 +367,31 @@ function clean(value: number): number {
 }
 
 const number = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 20 });
+const SUPERSCRIPT: Record<string, string> = {
+  "-": "⁻",
+  "0": "⁰",
+  "1": "¹",
+  "2": "²",
+  "3": "³",
+  "4": "⁴",
+  "5": "⁵",
+  "6": "⁶",
+  "7": "⁷",
+  "8": "⁸",
+  "9": "⁹",
+};
 
+/**
+ * A number as people read it. Below a millionth, it's in scientific notation with
+ * every digit it has (1.5 × 10⁻²¹), since decimals would show it as 0 or drop digits.
+ */
 export function formatNumber(value: number): string {
+  if (value !== 0 && Math.abs(value) < 1e-6) {
+    // toExponential gives the shortest digits that read back as the same number.
+    const [mantissa = "", exponent = ""] = value.toExponential().split("e");
+    const power = exponent.replace(/[-0-9]/g, (c) => SUPERSCRIPT[c] ?? c);
+    return `${number.format(Number(mantissa))} × 10${power}`;
+  }
   return number.format(value);
 }
 

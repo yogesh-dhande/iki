@@ -19,6 +19,7 @@ import {
   revision,
   withTypes,
 } from "./entity-fixtures";
+import { formatNumber, quantity } from "./entities";
 import { MAX_BATCH } from "./runs";
 import { answer, calls, ME, page, problem, project, respond } from "./test-server";
 
@@ -782,5 +783,37 @@ describe("an entity's page", () => {
     expect(
       screen.getByText("There’s nothing here, or you don’t have access to it."),
     ).toBeInTheDocument();
+  });
+});
+
+describe("numbers", () => {
+  it("shows small nonzero values in scientific notation, not as 0", () => {
+    expect(formatNumber(0)).toBe("0");
+    expect(formatNumber(1e-21)).toBe("1 × 10⁻²¹");
+    expect(formatNumber(-6.02214076e-7)).toBe("-6.02214076 × 10⁻⁷");
+    // Every digit survives: decimals capped at 20 places would drop the last ones.
+    expect(formatNumber(1.234567890123e-16)).toBe("1.234567890123 × 10⁻¹⁶");
+    expect(formatNumber(1.234567e-18)).toBe("1.234567 × 10⁻¹⁸");
+    expect(formatNumber(0.000001)).toBe("0.000001");
+    expect(formatNumber(52.341)).toBe("52.341");
+    expect(formatNumber(1234567)).toBe("1,234,567");
+  });
+
+  it("shows a tiny concentration as itself, in both units", () => {
+    const molar = field({
+      name: "concentration",
+      label: "Concentration",
+      type: "quantity",
+      unit: "mol/L",
+      unit_symbol: "mol/L",
+      display_unit: "umol/L",
+      display_unit_symbol: "μmol/L",
+      display_scale: 1e6,
+    });
+    expect(quantity(molar, 1e-21)).toEqual({
+      shown: "1 × 10⁻¹⁵ μmol/L",
+      stored: "1 × 10⁻²¹ mol/L",
+    });
+    expect(quantity(molar, 0)).toEqual({ shown: "0 μmol/L", stored: "0 mol/L" });
   });
 });
