@@ -1275,9 +1275,16 @@ def lims() -> None:
     signatures(alice, project, first)
 
 
-def signing(session: requests.Session, sample: dict[str, Any], state: str, as_user: str) -> Any:  # noqa: ANN401
-    """Starts signing for a state, signs in again at Keycloak as `as_user`, and returns
-    what came of it."""
+def signing(
+    session: requests.Session,
+    sample: dict[str, Any],
+    state: str,
+    as_user: str,
+    *,
+    someone_else: bool = False,
+) -> Any:  # noqa: ANN401
+    """Starts signing for a state, signs in again at Keycloak as `as_user` (someone other
+    than the session's person, if `someone_else`), and returns what came of it."""
     etag = api_call(session, "GET", f"/entities/{sample['id']}").headers["ETag"]
     started = api_call(
         session,
@@ -1293,8 +1300,20 @@ def signing(session: requests.Session, sample: dict[str, Any], state: str, as_us
     )
     if started.status_code != 201:
         fail(f"signing {sample['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
+    # Keycloak's own session is the signer's, and its form for signing in again keeps
+    # their username, whatever is typed: to have someone else really sign in there, set
+    # that session aside, as signing out of Keycloak first (or another browser) would.
+    host = urlsplit(ISSUER).hostname or ""
+    kept = [c for c in session.cookies if someone_else and host in c.domain]
+    for cookie in kept:
+        session.cookies.clear(cookie.domain, cookie.path, cookie.name)
     # Keycloak asks for the password again, though the person signed in minutes ago.
     response = keycloak_sign_in(session, session.get(IKI + started.json()["sign_in_url"]), as_user)
+    if kept:
+        for cookie in [c for c in session.cookies if host in c.domain]:
+            session.cookies.clear(cookie.domain, cookie.path, cookie.name)
+        for cookie in kept:
+            session.cookies.set_cookie(cookie)
     signing_id = started.json()["id"]
     if f"signing={signing_id}" not in response.url:
         fail(f"signing in again came back to {response.url}, not the sample's page")
@@ -1370,7 +1389,7 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if not signature["verification"]["valid"]:
         fail(f"{sample['hrid']}'s signature doesn't verify: {signature['verification']}")
     ok(f"{sample['hrid']}: {signature['manifestation']} (signed in again at Keycloak, verified)")
-    refused = signing(alice, sample, "approved", "bob")
+    refused = signing(alice, sample, "approved", "bob", someone_else=True)
     if refused["status"] != "failed" or "Someone else" not in refused["message"]:
         fail(f"signing in at Keycloak as bob to sign as alice gave {refused}")
     ok(f"signing in at Keycloak as bob gave no signature of alice's: {refused['message']}")
