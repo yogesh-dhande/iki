@@ -17,6 +17,14 @@ fields:
     required: true
     immutable: true
     description: The compound it's a batch of, its parent structure without salts or solvents.
+  name:
+    type: string
+    max_length: 255
+    indexed: true
+    description: >-
+      What the material was called when it was registered, such as its supplier's name
+      for it: aspirin sodium, for a batch of aspirin's sodium salt. Its compound is
+      named for the parent, not the salt.
   structure_as_drawn:
     type: string
     max_length: 20000

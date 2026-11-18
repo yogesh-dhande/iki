@@ -131,14 +131,15 @@ def fetch(run: dict[str, Any]) -> dict[str, Any]:
             messages.add(
                 "warning",
                 f"CID {cid} ({identifier}) is {registered.as_drawn}; its parent was "
-                f"registered, which isn't that CID, so it doesn't take it.",
+                "registered, which isn't that CID, so it doesn't take it, its names or its "
+                "CAS number.",
             )
         else:
             values["pubchem_cid"] = str(cid)
         kept = [cut(s, LIMITS["name"]) for s in [row.get("IUPACName") or "", *names] if s]
         title = str(values.get("name") or "").lower()
         kept = [s for s in dict.fromkeys(kept) if s.lower() != title][:SYNONYMS]
-        if kept:
+        if kept and not (parent and stripped):
             values["synonyms"] = kept[:MAX_SYNONYMS]
         cas = next((c for c in map(cas_number, names) if c), None)
         if cas is not None and not (parent and stripped):

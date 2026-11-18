@@ -441,15 +441,34 @@ def cut(text: str, limit: int) -> str:
     return " ".join(text.split())[:limit]
 
 
+def stripped(registered: Registered) -> bool:
+    """Whether the compound registered isn't the structure given, but its parent: salts,
+    solvents or other parts taken off, or neutralised."""
+    return registered.as_drawn != registered.smiles
+
+
 def compound_values(registered: Registered, name: str = "") -> dict[str, Any]:
+    """A compound's values, named `name` unless that's the name of what was drawn and the
+    compound is its parent: "aspirin sodium" isn't aspirin's name."""
     values: dict[str, Any] = {
         "smiles": registered.smiles,
         "inchikey": registered.inchikey,
         "inchi": registered.inchi,
     }
-    if name:
+    if name and not stripped(registered):
         values["name"] = cut(name, LIMITS["name"])
     return values
+
+
+def name_left_out(registered: Registered, name: str, batches: bool) -> str | None:
+    """What to say when `name` is what was drawn, not its parent's, so its compound
+    isn't given it."""
+    if not name or not stripped(registered):
+        return None
+    return (
+        f"Its name, {cut(name, LIMITS['name'])}, is its structure's as drawn, not its "
+        "parent's, so its compound wasn't given it" + ("; its batch was." if batches else ".")
+    )
 
 
 def batch_values(registered: Registered) -> dict[str, Any]:

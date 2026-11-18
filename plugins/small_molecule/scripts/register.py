@@ -17,13 +17,16 @@ import re
 from typing import Any
 
 from chemistry import (
+    LIMITS,
     Creates,
     Messages,
     UnreadableError,
     batch_values,
     compound_values,
+    cut,
     fail,
     from_smiles,
+    name_left_out,
     run_input,
     standardise,
     write_output,
@@ -84,8 +87,11 @@ def register(run: dict[str, Any]) -> dict[str, Any]:
         )
         if batches:
             values = {"compound": {"$create": key}, **batch_values(registered)}
+            if name:
+                values["name"] = cut(name, LIMITS["name"])
             creates.add({"type": "iki/small_molecule.CompoundBatch", "values": values})
-        for warning in registered.warnings:
+        left_out = name_left_out(registered, name, batches)
+        for warning in [*registered.warnings, *([left_out] if left_out else [])]:
             messages.add("warning", f"Line {number}: {warning}")
         taken = ", ".join(
             f"{getattr(registered, kind)} x{getattr(registered, kind + '_equivalents'):g}"

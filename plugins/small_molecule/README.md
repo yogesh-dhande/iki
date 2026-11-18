@@ -32,8 +32,9 @@ salt form, with RDKit's standardisation and descriptors.
     others) and how many.
   - Its formula weight, the weight of the material for each of the compound,
     is computed: weigh doses out by it.
-  - It keeps its structure as drawn, salts and all, its purity, amount,
-    supplier, catalogue number, supplier's lot and when it arrived.
+  - It keeps its structure as drawn, salts and all, its name as registered
+    (such as aspirin sodium), its purity, amount, supplier, catalogue number,
+    supplier's lot and when it arrived.
   - It has no identity: every batch is a batch of its own.
 
 - **`iki/small_molecule.ConformerSet`** (`CNF-000001`): 3D conformers of a
@@ -179,7 +180,10 @@ compound, and its batch says `sodium`, one equivalent. Equivalents count for
 each parent: a calcium salt of two aspirins is half a calcium each. A part
 that isn't a salt or solvent Iki knows is left out, and the run warns which;
 two different salts, or solvents, in one structure fail its line, since a
-batch records one of each.
+batch records one of each. A name given with a structure is that structure's,
+so when the parent registered isn't the structure (aspirin from "aspirin
+sodium"), its compound isn't given it, nor, from PubChem or ChEMBL, the
+record's synonyms or IDs; with batches, the name is its batch's.
 
 A batch's formula weight is its compound's molecular weight, with each
 equivalent of its salt and solvent. An acid or a base forms its salt whole (an

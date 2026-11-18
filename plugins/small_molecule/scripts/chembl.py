@@ -128,7 +128,8 @@ def fetch(run: dict[str, Any]) -> dict[str, Any]:
             messages.add(
                 "warning",
                 f"{chembl_id} ({identifier}) is {registered.as_drawn}; its parent was "
-                "registered, which isn't that molecule, so it doesn't take its ChEMBL ID"
+                "registered, which isn't that molecule, so it doesn't take its ChEMBL ID or "
+                "names"
                 + (
                     f" (ChEMBL's parent is {hierarchy['parent_chembl_id']})."
                     if hierarchy.get("parent_chembl_id")
@@ -144,7 +145,7 @@ def fetch(run: dict[str, Any]) -> dict[str, Any]:
             if s.get("molecule_synonym")
         ]
         names = [n for n in dict.fromkeys(names) if n.lower() != values.get("name", "").lower()]
-        if names:
+        if names and not (parent and stripped):
             values["synonyms"] = names[:MAX_SYNONYMS]
         theirs = (found.get("molecule_structures") or {}).get("standard_inchi_key")
         if theirs and theirs != registered.inchikey and not (parent and stripped):

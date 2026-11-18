@@ -5,8 +5,9 @@ kind: ActionTest
 name: a_stockrooms_sdf_file
 description: >-
   Two records with their batches: aspirin's sodium salt, registered as its parent,
-  aspirin, its salt's CAS number left out; and pheniramine, drawn as its free base,
-  whose Salt field makes its batch a hydrochloride.
+  aspirin, its salt's name and CAS number left off it (the name is its batch's);
+  and pheniramine, drawn as its free base, whose Salt field makes its batch a
+  hydrochloride.
 action: import_sdf
 params:
   file: { $file: stockroom }
@@ -18,14 +19,10 @@ expect:
   output:
     creates:
       - type: iki/small_molecule.Compound
-        values:
-          {
-            inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N,
-            smiles: CC(=O)Oc1ccccc1C(=O)O,
-            name: aspirin sodium,
-          }
+        values: { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, smiles: CC(=O)Oc1ccccc1C(=O)O }
       - type: iki/small_molecule.CompoundBatch
         values:
+          name: aspirin sodium
           salt: sodium
           salt_equivalents: 1
           formula_weight: 202.141

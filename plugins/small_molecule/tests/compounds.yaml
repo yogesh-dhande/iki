@@ -5,7 +5,8 @@ name: aspirin_and_its_sodium_salt
 description: >-
   Aspirin, and its sodium salt registered as its parent: the same compound
   (BSYNRYMUTXBXSQ-UHFFFAOYSA-N, PubChem CID 2244), the salt's batch weighing
-  202.14 g/mol, as sodium aspirinate does.
+  202.14 g/mol, as sodium aspirinate does, and named aspirin sodium: the name is
+  the salt's, so its parent compound isn't given it.
 action: register_compounds
 params:
   smiles: |
@@ -20,11 +21,11 @@ expect:
         values:
           { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, smiles: CC(=O)Oc1ccccc1C(=O)O, name: aspirin }
       - type: iki/small_molecule.CompoundBatch
-        values: { formula_weight: 180.159 }
+        values: { name: aspirin, formula_weight: 180.159 }
       - type: iki/small_molecule.Compound
-        values: { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, name: aspirin sodium }
+        values: { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N }
       - type: iki/small_molecule.CompoundBatch
-        values: { salt: sodium, salt_equivalents: 1, formula_weight: 202.141 }
+        values: { name: aspirin sodium, salt: sodium, salt_equivalents: 1, formula_weight: 202.141 }
     metrics: { lines: 2, skipped: 0 }
 ---
 apiVersion: iki/v1

@@ -134,11 +134,15 @@ def test_the_parent_takes_salts_and_solvents_off_and_batches_record_them(
     free, sodium, calcium, pheniramine = (b["values"] for b in batches)
     assert free == {
         "compound": {"$create": "line-1"},
+        "name": "aspirin",
         "structure_as_drawn": ASPIRIN,
         "formula_weight": 180.159,
     }
+    # The salt's name is its batch's: its compound is aspirin, not aspirin sodium.
+    assert [c["values"].get("name") for c in compounds] == ["aspirin", None, None, None]
     assert sodium == {
         "compound": {"$create": "line-2"},
+        "name": "aspirin sodium",
         "structure_as_drawn": "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]",
         "salt": "sodium",
         "salt_equivalents": 1.0,
@@ -171,14 +175,12 @@ def test_a_batchs_formula_weight_is_its_drawn_materials(tmp_path: Path) -> None:
     assert citrate["salt_equivalents"] == pytest.approx(1 / 3, rel=1e-15)
     # 12.011·9 + 1.008·23 + 14.007·3 + 15.999·7 = 285.297, IUPAC's abridged weights.
     assert citrate["formula_weight"] == pytest.approx(285.297 / 3, abs=1e-3)
-    assert output["messages"] == []
+    assert not [m for m in output["messages"] if "formula weight" in m["text"]]
 
 
 def test_a_drawing_whose_charges_dont_balance_says_so(tmp_path: Path) -> None:
     # An amine with a chloride ion but no proton: 1.008 g/mol less than its hydrochloride.
-    output = registered(
-        tmp_path, "CN(C)CCC(c1ccccc1)c1ccccn1.[Cl-] pheniramine", parent=True, batches=True
-    )
+    output = registered(tmp_path, "CN(C)CCC(c1ccccc1)c1ccccn1.[Cl-]", parent=True, batches=True)
     assert output["messages"] == [
         {
             "level": "warning",
@@ -506,9 +508,11 @@ def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> No
         output["creates"][3],
     )
     assert compound["values"]["inchikey"] == ASPIRIN_KEY
-    assert compound["values"]["name"] == "aspirin sodium"
+    # Its name is the salt's, so it's the batch's, not its parent compound's.
+    assert "name" not in compound["values"]
     assert salt["values"] == {
         "compound": {"$create": "record-1"},
+        "name": "aspirin sodium",
         "structure_as_drawn": "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]",
         "salt": "sodium",
         "salt_equivalents": 1.0,
@@ -571,9 +575,14 @@ def test_a_salts_ids_arent_given_to_its_parent(tmp_path: Path) -> None:
     assert output["messages"] == [
         {
             "level": "warning",
+            "text": "Record 1 (aspirin sodium): Its name, aspirin sodium, is its structure's "
+            "as drawn, not its parent's, so its compound wasn't given it.",
+        },
+        {
+            "level": "warning",
             "text": "Record 1 (aspirin sodium): Its CAS number and PubChem CID are its "
             "structure's as drawn, not its parent's, so they were left out.",
-        }
+        },
     ]
 
 
@@ -890,6 +899,39 @@ def test_chembl_gives_a_compound_its_id_and_names_from_its_release(
     assert not list(
         schemas.check("run-output", {"apiVersion": "iki/v1", "kind": "RunOutput", **output})
     )
+
+
+def test_a_chembl_salts_parent_takes_neither_its_id_nor_its_names(
+    scripts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    salt = {
+        "molecule_chembl_id": "CHEMBL2260549",
+        "pref_name": "ASPIRIN SODIUM",
+        "molecule_type": "Small molecule",
+        "molecule_structures": {"canonical_smiles": "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]"},
+        "molecule_synonyms": [{"molecule_synonym": "Sodium acetylsalicylate"}],
+        "molecule_hierarchy": {"parent_chembl_id": "CHEMBL25"},
+    }
+    fake(
+        monkeypatch,
+        {
+            f"{CHEMBL}/status.json": [Answer({"chembl_db_version": "ChEMBL_37"})],
+            f"{CHEMBL}/molecule/CHEMBL2260549.json": [Answer(salt)],
+        },
+    )
+    chembl = scripts.import_module("chembl")
+    output = chembl.fetch({"params": {"identifiers": "CHEMBL2260549", "parent": True}})
+    (create,) = output["creates"]
+    assert create["values"]["inchikey"] == ASPIRIN_KEY
+    assert {"name", "synonyms", "chembl_id"}.isdisjoint(create["values"])
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "CHEMBL2260549 (CHEMBL2260549) is CC(=O)Oc1ccccc1C(=O)[O-].[Na+]; its "
+            "parent was registered, which isn't that molecule, so it doesn't take its ChEMBL "
+            "ID or names (ChEMBL's parent is CHEMBL25).",
+        }
+    ]
 
 
 def test_a_chembl_molecule_without_a_structure_fails_the_fetch(

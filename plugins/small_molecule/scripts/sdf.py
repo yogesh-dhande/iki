@@ -44,9 +44,11 @@ from chemistry import (
     drawn_salts,
     fail,
     from_smiles,
+    name_left_out,
     rdkit_messages,
     run_input,
     standardise,
+    stripped,
     why_not,
     write_output,
 )
@@ -362,7 +364,10 @@ def _creates(
     standardised structure; and the SD fields it left out."""
     compound, batch, left = field_values(record, batches)
     registered = standardise(structure(record), parent)
-    if registered.as_drawn != registered.smiles:
+    left_out = name_left_out(registered, name, batches)
+    if left_out:
+        record.warnings.append(left_out)
+    if stripped(registered):
         # The record's IDs are its structure's, such as a salt's CAS number: the parent
         # registered isn't that structure, so they aren't its.
         theirs = [IDS[k] for k in IDS if compound.pop(k, None) is not None]
@@ -386,9 +391,10 @@ def _creates(
     if not batches:
         return [made], registered, left
     key = f"record-{record.number}"
+    named = {"name": name} if name else {}
     lot = {
         "type": "iki/small_molecule.CompoundBatch",
-        "values": {"compound": {"$create": key}, **_batch(registered, batch)},
+        "values": {"compound": {"$create": key}, **named, **_batch(registered, batch)},
         "origin": origin,
     }
     return [{**made, "key": key}, lot], registered, left
@@ -430,6 +436,8 @@ def import_file(run: dict[str, Any]) -> dict[str, Any]:
                 messages.add("warning", f"{label(record, name)} was left out: {why}.")
             continue
         for sd_name in left:
+            if name_field and _key(sd_name) == _key(name_field):
+                continue  # it's the name
             left_out[sd_name] = left_out.get(sd_name, 0) + 1
         for create in made:
             creates.add(create)
