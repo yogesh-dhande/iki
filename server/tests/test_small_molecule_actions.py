@@ -1160,6 +1160,36 @@ def test_similar_compounds_are_a_collection_most_similar_first(tmp_path: Path) -
     assert len(table) == 6
 
 
+def test_similarity_is_compared_with_the_threshold_unrounded(tmp_path: Path) -> None:
+    from rdkit import Chem, DataStructs
+    from rdkit.Chem import rdFingerprintGenerator
+
+    salicylic = "O=C(O)c1ccccc1O"
+    # Morgan radius 2, 2,048 bits: aspirin and salicylic acid share 13 of the 29 bits
+    # either sets, a Tanimoto of 13/29 = 0.44828 (c / (a + b - c)), under 0.4483.
+    generator = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+    a, b = (generator.GetFingerprint(Chem.MolFromSmiles(s)) for s in (ASPIRIN, salicylic))
+    assert ((a & b).GetNumOnBits(), (a | b).GetNumOnBits()) == (13, 29)
+    assert DataStructs.TanimotoSimilarity(a, b) == 13 / 29
+    query = entity(1, smiles=ASPIRIN, inchikey=ASPIRIN_KEY, name="aspirin")
+    library = [query, entity(2, smiles=salicylic, inchikey="YGSDEFSMJLZEOE-UHFFFAOYSA-N")]
+    found = {}
+    for threshold in (0.4482, 0.4483):
+        result, output = script(
+            tmp_path,
+            "search.py",
+            {
+                "params": {"threshold": threshold},
+                "inputs": {"compounds": library, "query": [query]},
+            },
+            "similar",
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert output is not None
+        found[threshold] = output["metrics"]["hits"]
+    assert found == {0.4482: 2, 0.4483: 1}
+
+
 def test_a_query_is_a_compound_or_a_smiles_not_both(tmp_path: Path) -> None:
     result, _ = script(
         tmp_path,

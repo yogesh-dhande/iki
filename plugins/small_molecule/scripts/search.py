@@ -85,7 +85,8 @@ def similar(run: dict[str, Any]) -> dict[str, Any]:
     scored = []
     for entity, mol in compounds:
         similarity = DataStructs.TanimotoSimilarity(wanted, generator.GetFingerprint(mol))
-        scored.append((round(similarity, 4), entity))
+        # Compared and ranked whole: rounded first, 13/29 (0.44828) would pass 0.4483.
+        scored.append((similarity, entity))
     scored.sort(key=lambda s: -s[0])
     hits = [(s, e) for s, e in scored if s >= threshold]
     if len(hits) > MAX_MEMBERS:
@@ -116,7 +117,7 @@ def similar(run: dict[str, Any]) -> dict[str, Any]:
         "metrics": {
             "hits": len(hits),
             "searched": len(compounds),
-            "best": scored[0][0] if scored else 0.0,
+            "best": round(scored[0][0], 4) if scored else 0.0,
         },
         "messages": messages.output(),
     }
