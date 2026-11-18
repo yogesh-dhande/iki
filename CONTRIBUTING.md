@@ -52,6 +52,19 @@ contribution model.
 
 Python code supports 3.12 and later. Servers run 3.14, and CI tests both.
 
+CI runs the Python tests in shards side by side, whole test files at a time
+(`scripts/ci/pytest_shards.py`). Each kind of test has shards of its own with
+only the setup it needs: `browser` (marked `built_web_app`) the built web app
+and browsers, `worker` (marked `worker_e2e`) iki-worker, and `plain` neither.
+Every shard builds iki-wasm, which saves evaluate plugins' rules with.
+3.12 runs the plain tests; 3.14 runs every kind. The **Python tests (summary)**
+job fails if any test ran in no shard or in two, and combines the shards'
+coverage. To run a shard locally:
+`uv run pytest -p pytest_shards --shard plain:2/4`. Shards are balanced by
+`scripts/ci/test-durations.json`; when they drift apart, replace it with the
+`test-durations` artifact of a recent run, and add shards to the matrix in
+`.github/workflows/ci.yml` when the suite outgrows them.
+
 ## Dependencies
 
 - Lockfiles (`uv.lock`, `pnpm-lock.yaml`, `worker/Cargo.lock`) are committed and
