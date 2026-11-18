@@ -152,6 +152,61 @@ def test_the_parent_takes_salts_and_solvents_off_and_batches_record_them(
     assert pheniramine["formula_weight"] == pytest.approx(240.35 + 36.461 + 2 * 18.015, abs=0.01)
 
 
+def test_a_batchs_formula_weight_is_its_drawn_materials(tmp_path: Path) -> None:
+    output = registered(
+        tmp_path,
+        # Choline chloride: a quaternary ammonium keeps its charge, so the salt adds Cl, not
+        # HCl. C5H14ClNO is 139.62 g/mol (PubChem CID 6209).
+        "C[N+](C)(C)CCO.[Cl-] choline chloride\n"
+        # Methylamine citrate, three to one: a third of a citrate each, kept whole. The
+        # drawn C9H23N3O7 is 285.30 g/mol, so 95.099 for each methylamine.
+        "CN.CN.CN.OC(=O)CC(O)(CC(=O)O)C(=O)O methylamine citrate",
+        parent=True,
+        batches=True,
+    )
+    choline, citrate = (
+        c["values"] for c in output["creates"] if c["type"] == "iki/small_molecule.CompoundBatch"
+    )
+    assert (choline["salt"], choline["formula_weight"]) == ("hydrochloride", 139.626)
+    assert citrate["salt_equivalents"] == pytest.approx(1 / 3, rel=1e-15)
+    # 12.011·9 + 1.008·23 + 14.007·3 + 15.999·7 = 285.297, IUPAC's abridged weights.
+    assert citrate["formula_weight"] == pytest.approx(285.297 / 3, abs=1e-3)
+    assert output["messages"] == []
+
+
+def test_a_drawing_whose_charges_dont_balance_says_so(tmp_path: Path) -> None:
+    # An amine with a chloride ion but no proton: 1.008 g/mol less than its hydrochloride.
+    output = registered(
+        tmp_path, "CN(C)CCC(c1ccccc1)c1ccccn1.[Cl-] pheniramine", parent=True, batches=True
+    )
+    assert output["messages"] == [
+        {
+            "level": "warning",
+            "text": "Line 1: Its formula weight from its parent, salt and solvent is 276.811 "
+            "g/mol, but its structure as drawn weighs 275.803 g/mol for each parent: its "
+            "charges may not balance.",
+        }
+    ]
+
+
+def test_a_charged_parents_batch_recomputes_to_the_same_weight(tmp_path: Path) -> None:
+    def batch(i: int, smiles: str, **values: Any) -> dict[str, Any]:
+        return {**entity(i, **values), "included": {"compound": [entity(100 + i, smiles=smiles)]}}
+
+    batches = [
+        batch(1, "C[N+](C)(C)CCO", salt="hydrochloride", salt_equivalents=1),
+        # Tetramethylammonium bromide, C4H12BrN: 154.05 g/mol.
+        batch(2, "C[N+](C)(C)C", salt="hydrobromide"),
+        # A cation alone, with no salt, is just itself.
+        batch(3, "C[N+](C)(C)CCO"),
+    ]
+    result, output = script(tmp_path, "descriptors.py", {"inputs": {"batch": batches}}, "batches")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    weights = [u["values"]["formula_weight"] for u in output["updates"]["batch"]]
+    assert weights == pytest.approx([139.626, 154.051, 104.173], abs=1e-3)
+
+
 def test_without_the_parent_a_salt_is_its_own_compound(tmp_path: Path) -> None:
     output = registered(tmp_path, "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]")
     # Sodium aspirinate's standard InChIKey, not aspirin's.
@@ -474,6 +529,34 @@ def test_records_name_from_a_field_and_batches_from_theirs(tmp_path: Path) -> No
     assert base["values"]["name"] == "pheniramine"
 
 
+def test_a_salt_field_isnt_counted_again_on_a_salt_registered_whole(tmp_path: Path) -> None:
+    # Sodium aspirinate, C9H7NaO4, is 202.14 g/mol: its Salt field doesn't add sodium again.
+    sodium = "CC(=O)Oc1ccccc1C(=O)[O-].[Na+]"
+    result, output = imported(
+        tmp_path, sdf_text((sodium, "aspirin sodium", {"Salt": "sodium"})), batches=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output is not None
+    batch = output["creates"][1]["values"]
+    assert "salt" not in batch
+    assert batch["formula_weight"] == 202.141
+    assert {
+        "level": "warning",
+        "text": "Record 1 (aspirin sodium): Its salt field says sodium, which its structure, "
+        "registered whole, already has, so its batch doesn't add it again. Register its "
+        "parent to record the salt on its batch.",
+    } in output["messages"]
+    # One it doesn't have contradicts it.
+    result, _ = imported(
+        tmp_path, sdf_text((sodium, "aspirin sodium", {"Salt": "K"})), batches=True
+    )
+    assert result.returncode == 1
+    assert (
+        "its salt field says potassium, but its structure, registered whole, is a sodium salt"
+        in last_error(result)
+    )
+
+
 def test_a_salts_ids_arent_given_to_its_parent(tmp_path: Path) -> None:
     text = sdf_text(
         ("CC(=O)Oc1ccccc1C(=O)[O-].[Na+]", "aspirin sodium", {"CAS": "493-53-8", "CID": "10176596"})
@@ -533,6 +616,10 @@ def test_a_record_that_cant_be_read_fails_the_import_naming_it(tmp_path: Path) -
         ({"Salt": "unobtainium"}, "its salt 'unobtainium' isn't one Iki knows"),
         ({"Received": "last week"}, "its received date 'last week' isn't a date"),
         ({"Salt": "HCl"}, "its salt field says hydrochloride, but its structure is a sodium salt"),
+        (
+            {"Salt": "Na", "Salt_Eq": "2"},
+            "its salt equivalents field says 2, but its structure has 1 sodium for each parent",
+        ),
     ],
 )
 def test_batch_fields_that_cant_be_read_name_their_record(

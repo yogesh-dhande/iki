@@ -25,7 +25,6 @@ from chemistry import (
     run_input,
     write_output,
 )
-from rdkit.Chem import Descriptors
 
 
 def compounds(run: dict[str, Any]) -> dict[str, Any]:
@@ -76,7 +75,7 @@ def batches(run: dict[str, Any]) -> dict[str, Any]:
             messages.add("error", f"{found[0]['hrid']}: {why}.", entity["id"])
             continue
         weight = formula_weight(
-            Descriptors.MolWt(mol),
+            mol,
             values.get("salt"),
             values.get("salt_equivalents"),
             values.get("solvate"),

@@ -86,9 +86,11 @@ given, so it's recorded as made with them.
   compound's or a batch's fields are kept, matched whatever their case, spaces
   and underscores, and by the names suppliers and PubChem give them (`CAS`,
   `PUBCHEM_COMPOUND_CID`, `Catalog_No`, `Lot`, `Purity`…); the run says which
-  others it left out. A salt an SD field gives must agree with the structure's;
-  one only the field gives (an HCl salt drawn as its free base) is the
-  batch's. A record's CAS number, PubChem CID and ChEMBL ID are its drawn
+  others it left out. A salt an SD field gives must agree with the structure's,
+  and so must its equivalents; one only the field gives (an HCl salt drawn as
+  its free base) is the batch's. Without the parent, a salt drawn whole is the
+  compound itself, so a Salt field naming it adds nothing to its batch, and
+  the run says so. A record's CAS number, PubChem CID and ChEMBL ID are its drawn
   structure's, so a parent registered from a salt doesn't take them. Each
   records the file and record it came from, with the record's SHA-256. A record that can't be imported fails the run, naming each, or with
   `on_error: skip` is left out.
@@ -183,7 +185,13 @@ A batch's formula weight is its compound's molecular weight, with each
 equivalent of its salt and solvent. An acid or a base forms its salt whole (an
 amine's hydrochloride adds HCl, 36.46 g/mol); a metal takes the place of its
 acid's hydrogens (a sodium salt adds Na less H, 21.98 g/mol; a calcium salt,
-for each calcium, Ca less two H).
+for each calcium, Ca less two H). A parent that keeps a charge, such as a
+quaternary ammonium, is already the salt's ion, so each unit of its charge is a
+hydrogen the salt doesn't add: choline chloride is 139.63 g/mol, choline's
+cation and Cl. Equivalents are kept whole (a third for a citrate of three
+amines), not rounded. When a structure is drawn whole, salt and all, its
+formula weight for each parent must be what the drawing weighs; when it isn't
+(its charges don't balance), the run warns.
 
 ### Descriptors
 

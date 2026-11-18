@@ -41,6 +41,7 @@ from chemistry import (
     cas_number,
     compound_values,
     cut,
+    drawn_salts,
     fail,
     from_smiles,
     rdkit_messages,
@@ -308,17 +309,37 @@ def field_values(record: Record, batches: bool) -> tuple[dict[str, Any], dict[st
 
 def _batch(registered: Registered, given: dict[str, Any]) -> dict[str, Any]:
     """The batch's values: what the structure says of its salt form, with what its SD
-    fields give, which must agree."""
+    fields give, which must agree. A salt is counted once: from the structure when it
+    shows one, else from the fields."""
     drawn = registered.salt
     if given.get("salt") and drawn and given["salt"] != drawn:
         raise UnreadableError(
             f"its salt field says {given['salt']}, but its structure is a {drawn} salt"
         )
+    if "salt_equivalents" in given and drawn:
+        each = registered.salt_equivalents or 0.0
+        if abs(given["salt_equivalents"] - each) > 0.01:
+            raise UnreadableError(
+                f"its salt equivalents field says {given['salt_equivalents']:g}, but its "
+                f"structure has {each:g} {drawn} for each parent"
+            )
     if given.get("salt") and not drawn:
-        registered.salt = given["salt"]
-        registered.salt_equivalents = given.get("salt_equivalents", 1.0)
-    elif "salt_equivalents" in given and drawn:
-        registered.salt_equivalents = given["salt_equivalents"]
+        whole = drawn_salts(registered.mol)
+        if whole and given["salt"] not in whole:
+            raise UnreadableError(
+                f"its salt field says {given['salt']}, but its structure, registered whole, "
+                f"is a {', '.join(sorted(whole))} salt"
+            )
+        if whole:
+            # Registered whole, the compound is the salt already: its batch adds nothing.
+            registered.warnings.append(
+                f"Its salt field says {given['salt']}, which its structure, registered whole, "
+                "already has, so its batch doesn't add it again. Register its parent to "
+                "record the salt on its batch."
+            )
+        else:
+            registered.salt = given["salt"]
+            registered.salt_equivalents = given.get("salt_equivalents", 1.0)
     rest = {k: v for k, v in given.items() if k not in ("salt", "salt_equivalents")}
     return {**batch_values(registered), **rest}
 

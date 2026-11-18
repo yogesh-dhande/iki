@@ -212,6 +212,16 @@ def _known() -> dict[str, tuple[str, Counterion]]:
 KNOWN = _known()
 
 
+def drawn_salts(mol: Chem.Mol) -> set[str]:
+    """The salts Iki knows among a structure's parts, by name."""
+    found = set()
+    for fragment in Chem.GetMolFrags(mol, asMols=True):
+        known = KNOWN.get(_neutral(fragment))
+        if known is not None and known[0] == "salt":
+            found.add(known[1].name)
+    return found
+
+
 def contribution(counterion: Counterion) -> float:
     """What one equivalent adds to the parent's formula weight, in g/mol."""
     if counterion.metal:
@@ -223,18 +233,26 @@ def contribution(counterion: Counterion) -> float:
 
 
 def formula_weight(
-    parent_weight: float,
+    parent: Chem.Mol,
     salt: str | None,
     salt_equivalents: float | None,
     solvate: str | None,
     solvate_equivalents: float | None,
 ) -> float:
-    """A batch's formula weight: its parent's, with its salt and solvate."""
-    weight = parent_weight
+    """A batch's formula weight: its parent's, with its salt and solvate.
+
+    A salt's contribution is what it adds to a neutral parent. A parent that keeps a charge
+    (a quaternary ammonium, which no proton can neutralise) is already the salt's ion, so
+    each unit of its charge stands for a hydrogen the salt doesn't add: choline chloride
+    is choline's cation and Cl, not choline's cation and HCl.
+    """
+    weight = float(Descriptors.MolWt(parent))
     if salt:
         weight += contribution(SALTS[salt]) * (
             1.0 if salt_equivalents is None else salt_equivalents
         )
+        hydrogen = Chem.GetPeriodicTable().GetAtomicWeight("H")
+        weight -= Chem.GetFormalCharge(parent) * hydrogen
     if solvate:
         each = contribution(SOLVENTS[solvate])
         weight += each * (1.0 if solvate_equivalents is None else solvate_equivalents)
@@ -275,7 +293,9 @@ def identify(mol: Chem.Mol) -> tuple[str, str, list[str]]:
 
 
 def _equivalents(count: int, parents: int) -> float:
-    return round(count / parents, 3)
+    # Kept whole, not rounded: a citrate of three amines is a third of one each, and
+    # 0.333 would put the formula weight out in its second decimal.
+    return count / parents
 
 
 def standardise(mol: Chem.Mol, parent: bool) -> Registered:
@@ -337,6 +357,19 @@ def _parent(cleaned: Chem.Mol) -> Registered:
                 found.salt, found.salt_equivalents = names[0], equivalents
             else:
                 found.solvate, found.solvate_equivalents = names[0], equivalents
+    if not others:
+        # Everything drawn is the parent, its salt and its solvent, so the formula weight
+        # from them must be the drawn structure's, for each parent.
+        drawn = Descriptors.MolWt(cleaned) / parents
+        computed = formula_weight(
+            neutral, found.salt, found.salt_equivalents, found.solvate, found.solvate_equivalents
+        )
+        if abs(drawn - computed) > 0.01:
+            found.warnings.append(
+                f"Its formula weight from its parent, salt and solvent is {computed:.3f} g/mol, "
+                f"but its structure as drawn weighs {drawn:.3f} g/mol for each parent: its "
+                "charges may not balance."
+            )
     return found
 
 
@@ -429,7 +462,7 @@ def batch_values(registered: Registered) -> dict[str, Any]:
             values[name] = getattr(registered, name)
     values["formula_weight"] = round(
         formula_weight(
-            Descriptors.MolWt(registered.mol),
+            registered.mol,
             registered.salt,
             registered.salt_equivalents,
             registered.solvate,
