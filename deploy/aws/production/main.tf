@@ -117,6 +117,6 @@ module "access" {
     disk_kms_key_arn = module.vm_tier[0].disk_kms_key_arn
     regions          = [var.region]
   } : null
-  external_dns = { zone_arn = one(aws_route53_zone.internal[*].arn) }
+  external_dns = var.internal && var.internal_dns ? { zone_arn = aws_route53_zone.internal[0].arn } : null
   tags         = var.tags
 }

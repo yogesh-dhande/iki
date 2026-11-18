@@ -199,3 +199,10 @@ run "external_dns_changes_only_its_zone" {
     error_message = "Bound to ExternalDNS's own service account."
   }
 }
+
+run "external_dns_plans_before_its_zone_exists" {
+  command = plan
+  module {
+    source = "./tests/zone_made_alongside"
+  }
+}
