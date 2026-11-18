@@ -1,6 +1,6 @@
 # 0035. Entity revisions, provenance, edit rules, duplicates and projects
 
-- Status: Accepted
+- Status: Accepted (duplicates and linking amended by [0115](0115-registries-keep-identities-projects-keep-records.md))
 - Date: 2026-11-10
 - Refines: [0007](0007-typed-table-per-type-entity-storage.md),
   [0008](0008-archive-first-deletion-with-purge-and-tombstones.md),

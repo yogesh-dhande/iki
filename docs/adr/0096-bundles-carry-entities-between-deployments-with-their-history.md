@@ -1,6 +1,6 @@
 # 0096. Bundles carry entities between deployments, with their history
 
-- Status: Accepted
+- Status: Accepted (identities amended by [0115](0115-registries-keep-identities-projects-keep-records.md))
 - Date: 2026-11-15
 - Refines: [0015](0015-gitops-config-and-export-import-bundles.md)
 

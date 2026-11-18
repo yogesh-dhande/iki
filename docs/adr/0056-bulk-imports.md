@@ -1,6 +1,6 @@
 # 0056. A run's creates can come from a file, checked in resumable chunks and written all at once
 
-- Status: Accepted
+- Status: Accepted (duplicates amended by [0115](0115-registries-keep-identities-projects-keep-records.md))
 - Date: 2026-11-11
 - Refines: [0044](0044-run-results-are-written-all-or-nothing.md), [0052](0052-imports-file-params-and-origins.md)
 

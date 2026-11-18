@@ -1,6 +1,6 @@
 # 0067. A project can keep its entities to itself
 
-- Status: Accepted
+- Status: Accepted (duplicates amended by [0115](0115-registries-keep-identities-projects-keep-records.md))
 - Date: 2026-11-12
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),
   [0057](0057-reuse-reproduce-exactly-and-seeds.md),
