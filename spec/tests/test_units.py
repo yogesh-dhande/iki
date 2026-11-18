@@ -1,5 +1,6 @@
 import hashlib
 import math
+from fractions import Fraction
 from importlib.resources import files
 
 import pytest
@@ -117,6 +118,85 @@ def test_division_and_multiplication_read_left_to_right() -> None:
     assert parse("m/(s.s)").dimension == parse("m/s2").dimension
 
 
+# UCUM 2.2's own examples (https://ucum.org/ucum), section by section. Expected values are
+# what the specification states, not what Iki computes.
+
+
+@pytest.mark.parametrize(
+    ("code", "same_as", "ratio"),
+    [
+        # §3: "10*" ends in a non-digit, so it is a symbol; the table gives it the value 10.
+        ("10*", "1", 10),
+        # §6: g% is a metric atom, so mg% is a thousandth of it.
+        ("mg%", "g%", Fraction(1, 1000)),
+        # §6, §12: annotations don't change the unit, and one on its own is the unity.
+        ("%{vol}", "%", 1),
+        ("kg{total}", "kg", 1),
+        ("{RBC}", "1", 1),
+        # §7: a leading solidus inverts the unit that directly follows it.
+        ("/m", "m-1", 1),
+        # §7: …only that unit; the rest reads left to right, so /s.m is s⁻¹·m.
+        ("/s.m", "m/s", 1),
+        ("/s.m", "m.s-1", 1),
+        ("/s/m", "s-1.m-1", 1),
+        ("/(s.m)", "s-1.m-1", 1),
+        # §7: strictly left to right, so a/b.c is (a/b)·c; parentheses give a/(b·c) (§10).
+        ("m/s.s", "m", 1),
+        ("m/(s.s)", "m/s2", 1),
+        # §8: "123" is a positive integer; the period only multiplies, so "2.5" is 2 times 5.
+        ("123", "1", 123),
+        ("2.5", "1", 10),
+        # §9: the prefix is raised with the atom, so 1 cm3 is 10⁻⁶ m³, not 10⁻² m³.
+        ("cm3", "m3", Fraction(1, 10**6)),
+        # §9: "2+10 means 2¹⁰ = 1024"; a sign delimits an integer's exponent.
+        ("2+10", "1", 1024),
+        ("2+10.m", "m", 1024),
+        ("2-1", "1", Fraction(1, 2)),
+        ("10+3/uL", "10*3/uL", 1),
+        ("23", "1", 23),  # no sign: twenty-three, not 2³
+    ],
+)
+def test_ucum_specification_examples(code: str, same_as: str, ratio: Fraction | int) -> None:
+    unit, reference = parse(code), parse(same_as)
+    assert unit.is_commensurable(reference)
+    assert unit.factor / reference.factor == ratio
+    assert convert(1, code, same_as) == pytest.approx(float(ratio), rel=1e-15)
+    assert convert(float(ratio), same_as, code) == pytest.approx(1, rel=1e-15)
+
+
+def test_a_leading_solidus_in_the_table_inverts_one_unit() -> None:
+    # The table defines the oersted as 250 /[pi].A/m: (250/π) A/m, the CGS unit of magnetic
+    # field strength (NIST SP 811, B.8: 1 Oe = (1000/4π) A/m ≈ 79.577 47 A/m).
+    assert parse("Oe").is_commensurable(parse("A/m"))
+    assert convert(1, "Oe", "A/m") == pytest.approx(1000 / (4 * math.pi), rel=1e-15)
+
+
+def test_the_tables_leading_solidus_definitions_have_the_right_dimension() -> None:
+    # The gilbert is defined as Oe.cm, so it follows the oersted: (10/4π) A (NIST SP 811,
+    # B.8: 1 Gb = (10/4π) A ≈ 0.795 774 7 A).
+    assert convert(1, "Gb", "A") == pytest.approx(10 / (4 * math.pi), rel=1e-15)
+
+
+def test_arbitrary_units_never_convert_to_one_another() -> None:
+    # UCUM 2.2 §24 ■3: arbitrary units "are not 'commensurable with' any other unit", and
+    # §25 ■1: a term with one "is not comparable with any other arbitrary unit or term".
+    # So [IU] and [iU] stay apart although the table relates them: an IU of one substance
+    # isn't an IU of another.
+    with pytest.raises(UnitError, match="measure different things"):
+        convert(1, "[IU]", "[iU]")
+    assert not parse("[iU]").is_commensurable(parse("[arb'U]"))
+    assert not parse("[iU]").is_commensurable(parse("1"))
+    # Within one code, prefixes still scale.
+    assert convert(1000, "m[IU]", "[IU]") == pytest.approx(1)
+
+
+@pytest.mark.parametrize("code", ["0", "00", "0.m", "m/0", "0+2", "10*3.0"])
+def test_zero_is_not_a_unit(code: str) -> None:
+    # §8 allows a *positive* integer in place of a unit; 0 would map every value to 0.
+    with pytest.raises(UnitError, match="must be positive"):
+        parse(code)
+
+
 @pytest.mark.parametrize(
     ("code", "message", "hint", "position"),
     [
@@ -134,6 +214,8 @@ def test_division_and_multiplication_read_left_to_right() -> None:
         ("(m/s", "isn't closed", None, 0),
         ("(m/s)2", "parenthesised term to a power", "m2/s2", 5),
         ("5mg", "joined to a unit with `.`", None, 0),
+        ("2+10m", "joined to a unit with `.`", None, 0),
+        ("2+", "needs digits after it", None, 1),
         ("10*-", "needs digits after it", None, 3),
         ("m{cells", "isn't closed", None, 1),
         ("[in_i", "isn't closed", None, 0),

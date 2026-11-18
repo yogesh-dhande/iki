@@ -375,6 +375,10 @@ def _parse(code: str) -> Unit:
 #   component  := annotatable annotation? | annotation | factor | "(" term ")"
 #   annotatable:= simple-unit exponent?
 #   simple-unit:= atom | prefix metric-atom
+#   factor     := positive-integer (("+" | "-") digits)?
+#
+# The leading "/" of a main-term inverts only the component after it (§7), so /s.m
+# is s⁻¹·m. A factor's signed exponent is §9's: 2+10 is 2¹⁰.
 #
 # Atoms may contain square brackets, inside which any character is literal
 # (for example `[m/s2/Hz^(1/2)]` or `B[10.nV]`).
@@ -450,11 +454,7 @@ class _Parser:
                 bad.start(),
                 hint or _hint_for(self.code),
             )
-        if self.peek() == "/":
-            self.pos += 1
-            term = _Term.one().combine(self.term(), -1)
-        else:
-            term = self.term()
+        term = self.main_term()
         if self.pos != len(self.code):
             raise self.fail(f"Unexpected `{self.peek()}`.")
         if term.special is not None and term.components > 1:
@@ -472,8 +472,16 @@ class _Parser:
             _special=term.special,
         )
 
-    def term(self) -> _Term:
-        result = self.component()
+    def main_term(self) -> _Term:
+        # UCUM §7: "a leading solidus will invert the unit that directly follows it", and
+        # the rest reads left to right, so /s.m is s⁻¹·m, not 1/(s·m).
+        if self.peek() == "/":
+            self.pos += 1
+            return self.term(_Term.one().combine(self.component(), -1))
+        return self.term()
+
+    def term(self, first: _Term | None = None) -> _Term:
+        result = self.component() if first is None else first
         while self.peek() in (".", "/") and self.peek():
             operator = self.peek()
             self.pos += 1
@@ -510,13 +518,21 @@ class _Parser:
             if digits == "10" and self.peek() in ("*", "^"):
                 self.pos += 1
                 return self.annotatable(f"10{self.code[self.pos - 1]}", start, self.exponent())
+            # UCUM §8: "A positive integer number may appear in place of a simple unit
+            # symbol", so 0 (in any spelling) isn't a unit: it would erase every value.
+            if int(digits) == 0:
+                raise self.fail("A number used as a unit must be positive.", start)
+            # UCUM §9: "The plus sign on positive exponents can be used to delimit
+            # exponents from integer numbers used as simple units. Thus, 2+10 means
+            # 2¹⁰ = 1024." A sign is needed: 23 is twenty-three.
+            exponent = self.exponent() if self.peek() in ("+", "-") else 1
             if self.peek() and self.peek() not in "./)":
                 raise self.fail(
                     "A number must be joined to a unit with `.`, as in "
                     f"`{digits}.{self.code[self.pos :]}`.",
                     start,
                 )
-            return _Term(Fraction(int(digits)), [0] * len(BASE_UNITS), {})
+            return _Term(Fraction(int(digits)), [0] * len(BASE_UNITS), {}).power(exponent)
         symbol = self.read_symbol()
         exponent_match = _EXPONENT.search(symbol)
         exponent = 1
@@ -623,6 +639,8 @@ def _resolve(code: str, seen: frozenset[str]) -> _Term:
         return _Term(Fraction(1), dimension, {})
     atom = table.atoms[code]
     if atom.arbitrary:
+        # UCUM 2.2 §24 ■3 and §25 ■1: an arbitrary unit isn't commensurable with any other,
+        # so each compares only with itself, even [IU] with [iU], which the table relates.
         return _Term(Fraction(1), [0] * len(BASE_UNITS), {code: 1})
     reference = _definition(atom.unit, seen | {code})
     term = _Term(Fraction(atom.value) * reference.factor, reference.dimension, reference.arbitrary)
@@ -644,11 +662,7 @@ def _resolve(code: str, seen: frozenset[str]) -> _Term:
 def _definition(expression: str, seen: frozenset[str]) -> _Term:
     # Definitions in the table are UCUM terms themselves. Resolve them with a
     # parser whose atoms resolve recursively (guarding against cycles).
-    parser = _DefinitionParser(expression, seen)
-    if parser.peek() == "/":
-        parser.pos += 1
-        return _Term.one().combine(parser.term(), -1)
-    return parser.term()
+    return _DefinitionParser(expression, seen).main_term()
 
 
 class _DefinitionParser(_Parser):
