@@ -36,6 +36,8 @@ OPERATORS: Mapping[str, tuple[str, ...]] = {
     "datetime": (*EQUALITY, *ORDER),
     "bool": ("eq",),
     "ref": EQUALITY,
+    # A person, by their ID, or `{{ me }}` (ADR 0122).
+    "person": EQUALITY,
     "file": ("eq", "ne"),
     "json": (),
     "list": ("has",),
@@ -61,4 +63,10 @@ BUILT_IN: Mapping[str, str] = {
     "updated_at": "datetime",
     "archived_at": "datetime",
     "made": "making",
+    # Who's assigned it now (ADR 0122): named in one of its assignment fields that counts in
+    # its state, and able to be named there.
+    "assigned": "person",
+    # Whether one of its assignment fields that counts in its state names someone who can't
+    # be named there any more: deactivated, gone from the project, or without its lab role.
+    "needs_reassigning": "bool",
 }

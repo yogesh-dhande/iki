@@ -39,6 +39,19 @@ It shows the parts of Iki such a plugin needs:
   Rejected lock it: its results can't change, by anyone or anything, until
   it's sent back or reopened, and each move is kept in its history with who
   made it and why.
+- **Who has each sample**
+  ([ADR 0122](../../docs/adr/0122-records-name-people-and-each-person-has-their-work.md)):
+  its `analyst`, `reviewer` and `qa`, each someone in the project with that
+  lab role, and its `due_on` date. Each is assigned the sample in its turn:
+  the analyst while it's Received or In testing, the reviewer while it's In
+  review, QA once it's Approved, and it's on their My work, soonest due
+  first. A received sample nobody has is open to everyone with the
+  Analyst role, who can take it. An approved sample is locked, its people
+  with it, so its QA is named before it's approved; if nobody is, it's open
+  to everyone with the QA role. Someone who leaves
+  the project, or loses the role, stays named, and the sample needs
+  reassigning: the project's Admins are told, and reassign it, or many at
+  once from the grid.
 
 Every trigger is off until a project's Admin turns it on there.
 

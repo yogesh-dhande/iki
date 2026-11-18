@@ -28,6 +28,31 @@
       "enum": ["derived", "fact"],
       "description": "For a type with an identity, or an extension of one: the field is its registry entry's, which every project holding the entry sees, rather than each project's record's (ADR 0115). `derived`: derived from the identity alone, set once at registration (a formula, a weight, a canonical form). `fact`: a curated fact the identity doesn't determine (a CAS number, an INN, a hazard class), which anyone holding the entry may set while it's empty, and only a registrar changes after."
     },
+    "assignment": {
+      "description": "For a field that names people (`type: person`, or a list of them): whoever it names is assigned the record, which is on their My work while it's in one of `states` (in any state, with `true`), and they're told (ADR 0122). A type can have several, such as an analyst and a reviewer.",
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "required": ["states"],
+          "additionalProperties": false,
+          "properties": {
+            "states": {
+              "description": "The states of the record's type in which it's their work: a sample's reviewer reviews it while it's in review.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 30,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/fieldName"
+              }
+            }
+          }
+        }
+      ]
+    },
     "indexed": {
       "type": "boolean",
       "description": "Keep a database index on this field, for fast filtering and sorting. Indexed strings are also fast to search for text they contain."
@@ -65,7 +90,9 @@
       "minLength": 1,
       "maxLength": 50,
       "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
-      "not": { "enum": ["viewer", "editor", "runner", "admin"] }
+      "not": {
+        "enum": ["viewer", "editor", "runner", "admin"]
+      }
     },
     "roleRef": {
       "description": "A lab role: `qa` for this plugin's own, or `namespace/plugin.role` (such as `acme/qms.qa`) for one a dependency declares.",
@@ -141,6 +168,7 @@
             "quantity",
             "file",
             "ref",
+            "person",
             "list",
             "json"
           ]
@@ -208,6 +236,10 @@
         "to": {
           "description": "The type of entity this refers to. `iki/core.Entity` accepts any entity.",
           "$ref": "#/$defs/typeRef"
+        },
+        "role": {
+          "description": "For a field naming people: only people who hold this lab role in the record's project can be named (ADR 0116), such as `analyst`, or `acme/qms.qa` from a dependency.",
+          "$ref": "#/$defs/roleRef"
         },
         "items": {
           "description": "What each item of the list is.",
@@ -583,6 +615,33 @@
           "if": {
             "properties": {
               "type": {
+                "const": "person"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "propertyNames": {
+              "enum": [
+                "type",
+                "label",
+                "description",
+                "required",
+                "immutable",
+                "computed",
+                "registry",
+                "assignment",
+                "indexed",
+                "removed",
+                "role"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "list"
               }
             },
@@ -599,6 +658,7 @@
                 "immutable",
                 "computed",
                 "registry",
+                "assignment",
                 "indexed",
                 "removed",
                 "default",

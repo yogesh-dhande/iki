@@ -4,7 +4,8 @@
  *
  * Filters live in the page's address (`?filters=[…]&sort=…`), so a filtered
  * grid can be bookmarked and shared. References are written by HRID there,
- * which the API takes too, so addresses stay readable.
+ * and people by email address, which the API takes too, so addresses stay
+ * readable. "Is me" is `{{ me }}`: a shared search finds each reader's own.
  */
 
 import type { EntityType, FieldDef } from "./entities";
@@ -39,8 +40,12 @@ export type Op =
   | "starts_with"
   | "matches"
   | "has"
+  | "me"
   | "set"
   | "unset";
+
+/** Whoever searches (ADR 0117, ADR 0122). */
+export const ME = "{{ me }}";
 
 export const MAX_FILTERS = 20;
 
@@ -67,6 +72,10 @@ function builtIn(name: string, label: string, type: string): FieldDef {
     items: null,
     to: null,
     values: [],
+    role: null,
+    role_label: null,
+    assignment: false,
+    assignment_states: [],
   };
 }
 
@@ -97,11 +106,28 @@ export function stateField(type: EntityType | undefined): FieldDef | null {
   return { ...builtIn("state", "State", "enum"), values };
 }
 
-/** What a grid can filter by: every entity's ID and times, its state, the type's fields,
- * and how each was made. */
+/** Who's assigned a record now (ADR 0122), in any assignment field counting in its state. */
+export const ASSIGNED: FieldDef = {
+  ...builtIn("assigned", "Assigned to", "person"),
+  required: false,
+};
+/** Records whose assignee can't be assigned them any more. */
+export const NEEDS_REASSIGNING = builtIn("needs_reassigning", "Needs reassigning", "bool");
+
+/** What a grid can filter by: every entity's ID and times, its state, who it's assigned
+ * to, the type's fields, and how each was made. */
 export function filterable(type: EntityType | undefined): FieldDef[] {
   const state = stateField(type);
-  return [HRID, ...(state ? [state] : []), ...(type?.fields ?? []), CREATED, UPDATED, MADE];
+  const assigned = type?.fields.some((f) => f.assignment) ? [ASSIGNED, NEEDS_REASSIGNING] : [];
+  return [
+    HRID,
+    ...(state ? [state] : []),
+    ...assigned,
+    ...(type?.fields ?? []),
+    CREATED,
+    UPDATED,
+    MADE,
+  ];
 }
 
 const ORDERED = new Set(["int", "float", "quantity", "date", "datetime"]);
@@ -144,8 +170,19 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
           ["eq", "is"],
           ["ne", "is not"],
         ];
+      case "person":
+        return [
+          ["me", "is me"],
+          ["eq", "is"],
+          ["ne", "is not"],
+        ];
       case "list":
-        return [["has", "has"]];
+        return field.items === "person"
+          ? [
+              ["me", "has me"],
+              ["has", "has"],
+            ]
+          : [["has", "has"]];
       case "making":
         return [
           ["has", "was"],
@@ -180,7 +217,7 @@ export function operators(field: FieldDef): { value: Op; label: string }[] {
 
 /** Whether the operator needs a value typed in. */
 export function takesValue(op: Op): boolean {
-  return op !== "set" && op !== "unset";
+  return op !== "set" && op !== "unset" && op !== "me";
 }
 
 /** The field a filter's value is typed into: a list's item, for `has`. */
@@ -223,7 +260,13 @@ export function toDrafts(filters: Filter[], fields: FieldDef[]): FilterDraft[] {
     const field = fields.find((d) => d.name === f.field);
     if (!field) continue;
     const op: Op | undefined =
-      f.op === "is_set" ? (f.value === false ? "unset" : "set") : (f.op as Op);
+      f.op === "is_set"
+        ? f.value === false
+          ? "unset"
+          : "set"
+        : (f.op === "eq" || f.op === "has") && f.value === ME
+          ? "me"
+          : (f.op as Op);
     if (!operators(field).some((o) => o.value === op)) continue;
     out.push({
       key: ++keys,
@@ -258,6 +301,11 @@ function draftOf(field: FieldDef, value: unknown): Draft {
       return typeof value === "string"
         ? ({ id: value, hrid: value, title: value } satisfies Picked)
         : null;
+    case "person":
+      // By email address, as the address holds it; the picker shows it as typed.
+      return typeof value === "string"
+        ? ({ id: value, hrid: value, title: value } satisfies Picked)
+        : null;
     case "bool":
       return value === true ? "true" : value === false ? "false" : "";
     case "datetime":
@@ -277,6 +325,9 @@ export function toFilter(
   if (row.op === "set" || row.op === "unset") {
     return { filter: { field: field.name, op: "is_set", value: row.op === "set" } };
   }
+  if (row.op === "me") {
+    return { filter: { field: field.name, op: field.type === "list" ? "has" : "eq", value: ME } };
+  }
   if (field.type === "making") {
     const [software, kind, by] = (row.draft ?? ["", "", ""]) as MakingDraft;
     const value = Object.fromEntries(
@@ -286,8 +337,8 @@ export function toFilter(
   }
   const typed = valueField(field);
   if (isBlank(typed, row.draft)) return null;
-  if (typed.type === "ref") {
-    // By HRID: the API takes it, and the address stays readable.
+  if (typed.type === "ref" || typed.type === "person") {
+    // By HRID or email address: the API takes them, and the address stays readable.
     const picked = row.draft as Picked;
     return { filter: { field: field.name, op: row.op, value: picked.hrid || picked.id } };
   }
@@ -295,6 +346,31 @@ export function toFilter(
   return encoded.ok
     ? { filter: { field: field.name, op: row.op, value: encoded.value } }
     : { error: encoded.error };
+}
+
+/** What the search box's words say of people (ADR 0122), as conditions: `assigned:me`,
+ * `assigned:none`, `assigned:@ana@example.com`, `needs:reassigning`, and a field naming
+ * people, such as `reviewer:me` or `reviewer:@ana@example.com`. The rest is text. */
+export function searchWords(q: string): { text: string; conditions: Filter[] } {
+  const conditions: Filter[] = [];
+  const rest: string[] = [];
+  for (const word of q.split(/\s+/).filter(Boolean)) {
+    const match = /^([a-z_][a-z0-9_]*):(.+)$/i.exec(word);
+    const name = match?.[1]?.toLowerCase();
+    const said = match?.[2] ?? "";
+    if (name === "needs" && said.toLowerCase() === "reassigning") {
+      conditions.push({ field: "needs_reassigning", op: "eq", value: true });
+    } else if (name === "assigned" && said.toLowerCase() === "none") {
+      conditions.push({ field: "assigned", op: "is_set", value: false });
+    } else if (name && (said.toLowerCase() === "me" || said.toLowerCase() === "@me")) {
+      conditions.push({ field: name, op: "eq", value: ME });
+    } else if (name && said.startsWith("@") && said.length > 1) {
+      conditions.push({ field: name, op: "eq", value: said.slice(1) });
+    } else {
+      rest.push(word);
+    }
+  }
+  return { text: rest.join(" "), conditions };
 }
 
 /** The address's `filters`, if it holds them. */

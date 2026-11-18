@@ -1,12 +1,58 @@
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import { meQuery, projectsQuery } from "../api";
+import { recordSearch } from "../entities";
 import { usePageTitle } from "../layout";
+import { dueText, workQuery } from "../people";
 import { registriesQuery } from "../registries";
 import { buttonClass, Loading, PageHeader } from "../ui";
 import { PluginSections } from "./plugin-sections";
 import { ProjectRows, sortProjects } from "./project-rows";
+
+/** How many of what's assigned to you the home page lists: the rest are on My work. */
+const WORK_SHOWN = 5;
+
+/** The first of what's assigned to you (ADR 0122), soonest due first, if there's any. */
+function YourWork() {
+  const work = useInfiniteQuery(workQuery({}));
+  const items = work.data?.pages[0]?.items ?? [];
+  if (!items.length) return null;
+  const more = items.length > WORK_SHOWN || Boolean(work.data?.pages[0]?.next_cursor);
+  return (
+    <section aria-labelledby="work-title">
+      <h2 id="work-title">Your work</h2>
+      <ul className="rows">
+        {items.slice(0, WORK_SHOWN).map(({ entity, due }) => (
+          <li className="row" key={entity.id}>
+            <div className="row-main">
+              <Link
+                className="row-title"
+                to="/entities/$ref/"
+                params={{ ref: entity.hrid }}
+                search={recordSearch(entity)}
+              >
+                {entity.title !== entity.hrid ? `${entity.title} (${entity.hrid})` : entity.hrid}
+              </Link>
+              <span className="row-meta">
+                {[
+                  entity.state?.label,
+                  entity.owner_project?.name,
+                  due ? `Due ${dueText(due).text}` : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p>
+        <Link to="/work/">{more ? "See all your work" : "Go to My work"}</Link>
+      </p>
+    </section>
+  );
+}
 
 export function Home() {
   usePageTitle("Home");
@@ -27,6 +73,7 @@ export function Home() {
   return (
     <>
       <PageHeader title={`Welcome, ${firstName}`} actions={newProject} />
+      <YourWork />
       {projects.isPending ? (
         <Loading label="Loading your projects…" />
       ) : mine.length > 0 ? (

@@ -44,16 +44,26 @@ from iki_server.api.schemas import (
     UserOut,
     agent_out,
 )
-from iki_server.entities import access, registry, schema, search, services, states, unique
+from iki_server.entities import (
+    access,
+    assignments,
+    people,
+    registry,
+    schema,
+    search,
+    services,
+    states,
+    unique,
+)
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
-from iki_server.org import permissions
+from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.plugins.operations import SyncStates
 from iki_server.runs.models import EntityMaking, ExternalOrigin, Lineage, MadeBy, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_spec import titles, units
-from iki_spec.model import EntityType, State, Track, Viewer
+from iki_spec.model import EntityType, State, Track, Viewer, names_people, person_role
 from iki_spec.model import Field as SpecField
 
 router = Router(tags=["entities"])
@@ -103,6 +113,19 @@ class FieldOut(Schema):
     to: str | None = Field(description="References: the type they refer to.")
     values: list[str] = Field(description="Enums: the allowed values.")
     items: str | None = Field(description="Lists: the type of each item.")
+    role: str | None = Field(
+        description="For a field naming people (`person`, or a list of them): the lab role "
+        "whoever it names must hold in the record's project (ADR 0116), or null for anyone "
+        "who can read it.",
+    )
+    role_label: str | None = Field(description="What people call that role.")
+    assignment: bool = Field(
+        description="Whoever it names is assigned the record (ADR 0122): it's on their My work "
+        "while the record is in one of `assignment_states`, and they're told.",
+    )
+    assignment_states: list[str] = Field(
+        description="The states in which it's their work. Empty: every state."
+    )
     registry: RegistryMark | None = Field(
         None,
         description="Its registry entry's (ADR 0115), every holding project's: part of its "
@@ -220,6 +243,11 @@ class EntityTypeOut(Schema):
         "its own, or the ancestor's that declares them. Empty if it has none."
     )
     transitions: list[TransitionOut] = Field(description="How records go between them.")
+    due: str | None = Field(
+        None,
+        description="The date or datetime field saying when its records are due (ADR 0122), "
+        "which My work sorts by.",
+    )
 
 
 class TransitionCan(Schema):
@@ -245,6 +273,31 @@ class EntityCan(Schema):
         description="The transitions from its state, each with whether you may make it and "
         "why not (ADR 0118). Empty for a type without states.",
     )
+    take: list[str] = Field(
+        default_factory=list,
+        description="The assignment fields you may take it in (ADR 0122), with `POST "
+        "/entities/{ref}/take`: each names nobody who can be named now, and you can be.",
+    )
+
+
+class PersonOut(Schema):
+    """Someone a record's values name (ADR 0122)."""
+
+    id: UUID = Field(description="Theirs for good: what a value names them by.")
+    name: str
+    email: str | None = Field(
+        description="Their email address, when you could see it on the record's project's "
+        "Members page: when you're both in it. Otherwise null."
+    )
+    active: bool = Field(description="False once they're deactivated.")
+
+
+class ReassignOut(Schema):
+    """Someone an assignment field names who can't be named there now (ADR 0122)."""
+
+    field: str
+    person: UUID
+    why: str = Field(description="Why: deactivated, no longer in the project, or the role.")
 
 
 class RefOut(Schema):
@@ -314,6 +367,14 @@ class EntityOut(Schema):
     )
     files: dict[str, FileRef] = Field(
         description="The files its values refer to that you can read, by ID."
+    )
+    people: dict[str, PersonOut] = Field(
+        default_factory=dict, description="The people its values name, by ID (ADR 0122)."
+    )
+    needs_reassigning: list[ReassignOut] = Field(
+        default_factory=list,
+        description="Who its assignment fields counting in its state name that can't be named "
+        "there any more (ADR 0122): for those who can read its project, who reassign it.",
     )
     entry: EntryRefOut | None = Field(
         None,
@@ -422,6 +483,10 @@ class RevisionDetailOut(RevisionOut):
     )
     files: dict[str, FileRef] = Field(
         description="The files its values and changes refer to that you can read, by ID."
+    )
+    people: dict[str, PersonOut] = Field(
+        default_factory=dict,
+        description="The people its values and changes name, by ID (ADR 0122).",
     )
 
 
@@ -535,6 +600,10 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "to": f.to,
         "values": list(f.values),
         "items": f.items.type if f.items is not None else None,
+        "role": person_role(f),
+        "role_label": lab_roles.label(role) if (role := person_role(f)) is not None else None,
+        "assignment": f.assignment and names_people(f),
+        "assignment_states": list(f.assignment_states),
     }
 
 
@@ -602,6 +671,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
         **_machine_out(name),
+        "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
     }
 
 
@@ -793,6 +863,8 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     entries = _entries_of(user, entities)
     current = states.states_of(entities)
     made = states.made_by(entities)
+    named, stale, take = _people_of(user, entities, values)
+    readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     out = []
     for entity in entities:
         state = states.state(entity.type, current.get(entity.pk))
@@ -819,6 +891,13 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 "values": shown,
                 "refs": {str(i): refs[i] for i in mine["ref"] if i in refs},
                 "files": {str(i): files[i] for i in mine["file"] if i in files},
+                "people": {str(i): named[i] for i in mine["person"] if i in named},
+                "needs_reassigning": [
+                    {"field": s.field, "person": s.person, "why": s.why}
+                    for s in stale.get(entity.pk, [])
+                ]
+                if entity.owner_project_id in readers
+                else [],
                 "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
                 "can": {
                     "edit": entity.owner_project_id in editable
@@ -827,6 +906,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     "transitions": _transitions_can(
                         user, entity, current.get(entity.pk), made.get(entity.pk)
                     ),
+                    "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
         )
@@ -893,9 +973,27 @@ def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]
     return out
 
 
+def _people_of(
+    user: User, entities: list[Entity], values: dict[Any, dict[str, Any]]
+) -> tuple[dict[Any, dict[str, Any]], dict[Any, list[assignments.Stale]], dict[Any, list[str]]]:
+    """The people a page of records names, as ``people`` has them; who of them needs
+    reassigning; and the fields ``user`` may take each record in (ADR 0122)."""
+    where: dict[Any, set[Any]] = {}
+    for entity in entities:
+        for person in _ids_in(shape(entity.type).fields(), values[entity.pk])["person"]:
+            where.setdefault(person, set()).add(entity.owner_project_id)
+    found = people.shown(user, where, where)
+    named = {
+        pk: {"id": p.id, "name": p.name, "email": p.email, "active": p.active}
+        for pk, p in found.items()
+    }
+    stale = assignments.stale_of(entities, values)
+    return named, stale, assignments.takeable(user, entities, values, stale)
+
+
 def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any]]:
-    """The entity and file IDs these values refer to."""
-    found: dict[str, set[Any]] = {"ref": set(), "file": set()}
+    """The entity, file and person IDs these values refer to."""
+    found: dict[str, set[Any]] = {"ref": set(), "file": set(), "person": set()}
     for name, value in values.items():
         f = fields[name]
         kind = f.items.type if f.type == "list" and f.items is not None else f.type
@@ -911,7 +1009,8 @@ def _referenced(
     wanted: dict[str, set[Any]] = {"ref": set(), "file": set()}
     for entity in entities:
         for kind, ids in _ids_in(shape(entity.type).fields(), values[entity.pk]).items():
-            wanted[kind] |= ids
+            if kind in wanted:
+                wanted[kind] |= ids
     return _lookup(user, wanted)
 
 
@@ -1399,6 +1498,16 @@ def get_revision(
         },
         "refs": {str(i): r for i, r in refs.items()},
         "files": {str(i): f for i, f in files.items()},
+        "people": _people_out(me, wanted["person"], entity),
+    }
+
+
+def _people_out(me: User, ids: set[Any], entity: Entity) -> dict[str, dict[str, Any]]:
+    """The people these IDs name, as a record's ``people`` has them (ADR 0122)."""
+    found = people.shown(me, ids, {i: {entity.owner_project_id} for i in ids})
+    return {
+        str(pk): {"id": p.id, "name": p.name, "email": p.email, "active": p.active}
+        for pk, p in found.items()
     }
 
 

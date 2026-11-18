@@ -10,6 +10,13 @@ fields:
   purity: { type: float, min: 0, max: 100 }
   tags: { type: list, items: { type: string, max_length: 40 } }
   notes: { type: text }
+  # People in records (ADR 0122): who tests it, who reviews it, and when it's due.
+  analyst: { type: person, role: analyst, assignment: { states: [received, in_testing] } }
+  reviewer: { type: person, role: reviewer, assignment: { states: [in_review] } }
+  helpers: { type: list, items: { type: person }, assignment: true, max_items: 5 }
+  received_by: { type: person }
+  due_on: { type: date }
+due: due_on
 states:
   received: { label: Received, initial: true }
   in_testing: { label: In testing }

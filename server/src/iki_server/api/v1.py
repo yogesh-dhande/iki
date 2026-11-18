@@ -35,6 +35,7 @@ from iki_server.api import (
     triggers,
     users,
     webhooks,
+    work,
     workflows,
 )
 from iki_server.api.problems import Problem, from_validation, response
@@ -63,6 +64,8 @@ for module in (
     service_accounts,
     teams,
     projects,
+    # Before entities: its `/entities/assign` would otherwise be read as `/entities/{ref}`.
+    work,
     entities,
     registries,
     collections,

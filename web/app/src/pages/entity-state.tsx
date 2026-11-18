@@ -9,6 +9,7 @@ import { useId, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { ENTITIES, entityQuery, type Entity, type EntityType } from "../entities";
+import { WORK } from "../people";
 import { Badge, Button, ConfirmDialog, TextField, useMessages } from "../ui";
 
 type TransitionCan = Schemas["TransitionCan"];
@@ -134,7 +135,8 @@ function TransitionDialog({
           body: { reason: reason.trim() },
         }),
       ),
-    [ENTITIES],
+    // Its new state may make it someone's work, or no longer (ADR 0122).
+    [ENTITIES, WORK],
   );
   const problem = make.error ? problemOf(make.error) : undefined;
   const stale = make.error instanceof ApiError && make.error.problem.code === "stale";

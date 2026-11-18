@@ -8,7 +8,7 @@ import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 
 import { iki, projectQuery, queryClient } from "./api";
-import { validateFilters, type Filter } from "./filters";
+import { searchWords, validateFilters, type Filter } from "./filters";
 
 export type EntityType = Schemas["EntityTypeOut"];
 export type FieldDef = Schemas["FieldOut"];
@@ -66,6 +66,9 @@ export interface EntityFilter {
 /** The search the grid runs, without its paging: a component that shows the grid's
  * results is given the same (ADR 0117). */
 export function gridSearch(filter: EntityFilter) {
+  // Words such as `assigned:me` are conditions (ADR 0122); the rest is text.
+  const words = searchWords(filter.q ?? "");
+  const conditions = [...(filter.filters ?? []), ...words.conditions];
   return {
     exact_type: false,
     ...(filter.collection
@@ -75,8 +78,8 @@ export function gridSearch(filter: EntityFilter) {
         : {}),
     ...(filter.type ? { type: filter.type } : {}),
     ...(filter.archived === undefined ? {} : { archived: filter.archived }),
-    ...(filter.q?.trim() ? { q: filter.q.trim() } : {}),
-    ...(filter.filters?.length ? { where: { all: filter.filters as Schemas["Condition"][] } } : {}),
+    ...(words.text.trim() ? { q: words.text.trim() } : {}),
+    ...(conditions.length ? { where: { all: conditions as Schemas["Condition"][] } } : {}),
     ...(filter.sort
       ? { sort: { field: filter.sort, descending: filter.descending ?? false } }
       : {}),
@@ -406,7 +409,7 @@ export function formatSize(bytes: number): string {
 export function valueText(
   field: FieldDef,
   value: unknown,
-  entity?: Pick<Entity, "refs" | "files">,
+  entity?: Pick<Entity, "refs" | "files" | "people">,
 ): string {
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) {
@@ -429,6 +432,11 @@ export function valueText(
       return entity?.refs[value as string]?.hrid ?? "An entity you can’t read";
     case "file":
       return entity?.files[value as string]?.name ?? "A file you can’t read";
+    case "person": {
+      const found = entity?.people?.[value as string];
+      if (!found) return "Someone you can’t see";
+      return found.active ? found.name : `${found.name} (deactivated)`;
+    }
     case "json":
       return JSON.stringify(value);
     default:

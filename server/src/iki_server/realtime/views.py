@@ -421,6 +421,9 @@ async def _prepare(user: User, item: dict[str, Any]) -> bytes | None:
         if not await db(_visible, user, notification_id):
             return None
         return sse(event, {"id": notification_id, "unread": await db(_unread, user)})
+    if event == "work":
+        # Whose My work changed (ADR 0122): nothing in it, so the page reads its own again.
+        return sse(event, {})
     if event in ("notifications_read", "resync"):
         # A resync may follow events that were missed: the count is read afresh too.
         return sse(event, {"unread": await db(_unread, user)})

@@ -7,7 +7,9 @@ schema_version: 1
 description: >-
   A sample of a protein, as the lab tests it: received, tested by an analyst,
   reviewed by another, then released by QA. Once it's approved its results
-  can't change, unless it's sent back or reopened, with a reason.
+  can't change, unless it's sent back or reopened, with a reason. Its analyst,
+  reviewer and QA are assigned it in turn, and each has it on My work while
+  it's theirs.
 hrid: { prefix: SAM }
 fields:
   protein:
@@ -52,6 +54,32 @@ fields:
   notes:
     type: text
     description: What the analyst saw, and anything a reviewer should know.
+  due_on:
+    type: date
+    label: Due
+    description: When its results are due, which My work sorts by.
+  # People in records (ADR 0122): each is assigned the sample in its turn.
+  analyst:
+    type: person
+    role: analyst
+    assignment: { states: [received, in_testing] }
+    description: Who tests it. Received samples nobody has are open to analysts.
+  reviewer:
+    type: person
+    role: reviewer
+    assignment: { states: [in_review] }
+    description: >-
+      Who checks its results, named before it's submitted. In review samples
+      nobody has are open to reviewers.
+  qa:
+    type: person
+    label: QA
+    role: qa
+    assignment: { states: [approved] }
+    description: >-
+      Who releases or rejects it, named before it's approved: an approved sample
+      is locked, its people with it. Approved samples nobody has are open to QA.
+due: due_on
 states:
   registered:
     label: Registered

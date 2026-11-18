@@ -49,7 +49,7 @@ from iki_server.runs.models import (
     RunOutput,
 )
 from iki_spec import releases
-from iki_spec.model import Field
+from iki_spec.model import Field, names_people
 
 #: How much of a blob is read at a time.
 CHUNK = 1024 * 1024
@@ -92,6 +92,8 @@ class _Found:
     #: Each entity's history rows, by table, oldest first.
     history: dict[uuid.UUID, list[tuple[Part, dict[str, Any]]]] = field(default_factory=dict)
     files: set[uuid.UUID] = field(default_factory=set)
+    #: Whom their values name (ADR 0122): they go as the bundle's people.
+    named: set[uuid.UUID] = field(default_factory=set)
     #: Entities referred to that aren't going, and why.
     outside: dict[uuid.UUID, str] = field(default_factory=dict)
     #: The project's finished runs that made or changed them.
@@ -150,6 +152,7 @@ def write(
                 ]
                 if u is not None
             }
+            | found.named
         )
         agents = {
             a for a in [*(r.agent_id for r in revisions), *(f.agent_id for f in files)] if a
@@ -304,6 +307,7 @@ def _find(project: Project, picked: list[Entity], by: User) -> _Found:
             latest: dict[str, dict[str, Any]] = {}
             for part, values in rows:
                 latest[part.name] = values
+                found.named |= {p for f, value in _named(part, values) for p in _uuids(value)}
                 for f, value in _of(part, values):
                     targets = _uuids(value)
                     if f.type == "file" or (f.items is not None and f.items.type == "file"):
@@ -413,6 +417,13 @@ def _of(part: Part, row: dict[str, Any]) -> Iterator[tuple[Field, Any]]:
     """Each ref or file field of a history row, with its value."""
     for name, f in part.fields.items():
         if f.type in ("ref", "file") or (f.items is not None and f.items.type in ("ref", "file")):
+            yield f, row.get(name)
+
+
+def _named(part: Part, row: dict[str, Any]) -> Iterator[tuple[Field, Any]]:
+    """Each field of a history row naming people (ADR 0122), with its value."""
+    for name, f in part.fields.items():
+        if names_people(f):
             yield f, row.get(name)
 
 

@@ -347,6 +347,48 @@ def test_transitions_name_the_revision_they_were_decided_on(fake: FakeIki, clien
     assert frame.loc["SMP-000001", "state"] == "in_testing"
 
 
+def test_a_record_is_taken(fake: FakeIki, client: Client) -> None:
+    taken = "/api/v1/entities/SMP-000001/take"
+    fake.on("POST", taken, entity("SMP-000001", name="S1"))
+    client.entities.take("SMP-000001", "qa", revision=5)
+    sent = fake.sent("POST", taken)[0]
+    assert sent.headers["If-Match"] == '"5"'
+    assert json.loads(sent.content) == {"field": "qa", "reason": ""}
+
+
+def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> None:
+    first, second = entity("SMP-000001"), entity("SMP-000002")
+    fake.on("GET", "/api/v1/entities/SMP-000002", second)
+    done = {"changed": [first["id"]], "skipped": [], "group": "g"}
+    fake.on("POST", "/api/v1/entities/assign", done)
+    answer = client.entities.assign(
+        [first, "SMP-000002"], "analyst", "ana@example.com", reason="Away"
+    )
+    assert answer == done
+    assert fake.body("POST", "/api/v1/entities/assign") == {
+        "entities": [first["id"], second["id"]],
+        "field": "analyst",
+        "person": "ana@example.com",
+        "op": "set",
+        "reason": "Away",
+    }
+
+
+def test_work_is_listed_page_by_page(fake: FakeIki, client: Client) -> None:
+    item = {"entity": entity("SMP-000001"), "fields": ["analyst"], "due": "2026-12-01"}
+    fake.on("GET", "/api/v1/me/work", page([item], "next"), page([item]))
+    found = list(client.work.mine(project=PROJECT, type="acme/lims.Sample", state=["received"]))
+    assert found == [item, item]
+    first, second = fake.sent("GET", "/api/v1/me/work")
+    assert first.url.params.get_list("project") == [PROJECT]
+    assert first.url.params.get_list("type") == ["acme/lims.Sample"]
+    assert first.url.params.get_list("state") == ["received"]
+    assert (first.url.params["sort"], second.url.params["cursor"]) == ("due", "next")
+    fake.on("GET", "/api/v1/me/work/open", page([]))
+    assert list(client.work.open(sort="updated")) == []
+    assert fake.sent("GET", "/api/v1/me/work/open")[0].url.params["sort"] == "updated"
+
+
 def test_entities_make_a_dataframe_a_row_each(fake: FakeIki, client: Client) -> None:
     linked = entity(
         "PRT-000002", name="SRC", length=536, parent="00000000-0000-7000-8000-000000000001"

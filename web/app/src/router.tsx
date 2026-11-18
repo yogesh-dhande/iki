@@ -27,6 +27,7 @@ import {
   validateNewEntitySearch,
 } from "./entities";
 import { validateLineageSearch } from "./lineage";
+import { validateWorkSearch, Work } from "./pages/work";
 import { entryQuery } from "./registries";
 
 import { validateCostsSearch } from "./costs-search";
@@ -125,6 +126,14 @@ const notificationsRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { show?: "unread" } =>
     search["show"] === "unread" ? { show: "unread" } : {},
   component: Notifications,
+});
+
+const workRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "work",
+  // ?open=true: work open to your lab roles; ?project=, ?type=, ?state=, ?sort=updated.
+  validateSearch: validateWorkSearch,
+  component: Work,
 });
 
 const costsRoute = createRoute({
@@ -482,6 +491,7 @@ const orgWebhookRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   homeRoute,
   notificationsRoute,
+  workRoute,
   costsRoute,
   computeRoute.addChildren([
     computeOverviewRoute,

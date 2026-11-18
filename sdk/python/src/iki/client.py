@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import date
 from importlib import metadata
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import quote
 
 import httpx2
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from iki.schema import (
         ActionOut,
+        AssignOut,
         AttemptLogOut,
         BudgetOut,
         CostSummaryOut,
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
         RunArtifactOut,
         RunAttemptOut,
         RunOut,
+        WorkItemOut,
     )
 
 __all__ = ["Client", "Results"]
@@ -124,7 +126,7 @@ class Client:
     ``IKI_URL`` and ``IKI_TOKEN``.
 
     Its parts follow the API: ``entities``, ``entries``, ``types``, ``projects``, ``actions``,
-    ``runs`` and ``files``. For anything else, ``request`` calls the API directly.
+    ``runs``, ``files`` and ``work``. For anything else, ``request`` calls the API directly.
 
     An AI agent using it may say what model it is, ``agent_model="claude-opus-5-5"``
     (or ``IKI_AGENT_MODEL``): what it changes then records that, as the agent's own word.
@@ -175,6 +177,7 @@ class Client:
         self.runs = Runs(self)
         self.files = Files(self)
         self.costs = Costs(self)
+        self.work = Work(self)
 
     # --- The connection -------------------------------------------------------------
 
@@ -480,6 +483,46 @@ class Entities(_Part):
             ),
         )
 
+    def take(self, ref: str, field: str, *, revision: int, reason: str = "") -> EntityOut:
+        """Assigns you a record nobody is assigned, in an assignment field limited to one
+        of your lab roles: those its ``can["take"]`` lists. ``revision`` as for
+        :meth:`update`."""
+        return cast(
+            "EntityOut",
+            self._client.request(
+                "POST",
+                _path("/entities/{ref}/take", ref=ref),
+                json={"field": field, "reason": reason},
+                headers={"If-Match": f'"{revision}"'},
+            ),
+        )
+
+    def assign(
+        self,
+        refs: Sequence[str | Mapping[str, Any]],
+        field: str,
+        person: str | None,
+        *,
+        op: Literal["set", "add", "remove"] = "set",
+        reason: str = "",
+    ) -> AssignOut:
+        """Names `person` (an ID or email address; None to empty it) in assignment field
+        `field` of many records at once, each as its own revision. Records that can't
+        change (you can't edit them, their state locks them, the person can't be named in
+        their project) are left as they are: ``skipped`` says why::
+
+            done = iki.entities.assign(late, "analyst", "ana@example.com", reason="Away")
+            done["skipped"]
+        """
+        body = {
+            "entities": [self._client._entity_id(r) for r in refs],
+            "field": field,
+            "person": person,
+            "op": op,
+            "reason": reason,
+        }
+        return cast("AssignOut", self._client.request("POST", "/entities/assign", json=body))
+
     def _patch(self, ref: str, body: dict[str, Any], revision: int) -> EntityOut:
         return cast(
             "EntityOut",
@@ -522,6 +565,67 @@ class Entities(_Part):
                 params={"up": up, "down": down},
             ),
         )
+
+
+class Work(_Part):
+    """What's assigned to you (ADR 0122)."""
+
+    def mine(
+        self,
+        *,
+        project: str | Mapping[str, Any] | Sequence[str | Mapping[str, Any]] | None = None,
+        type: str | Sequence[str] | None = None,
+        state: str | Sequence[str] | None = None,
+        sort: Literal["due", "updated"] = "due",
+        page_size: int = 50,
+    ) -> Results[WorkItemOut]:
+        """Everything assigned to you now, across your projects: soonest due first, or
+        latest changed. Each has its ``entity``, the ``fields`` naming you and when it's
+        ``due``::
+
+            for item in iki.work.mine(type="iki/example_lims.Sample"):
+                print(item["entity"]["hrid"], item["due"])
+        """
+        return self._list("/me/work", project, type, state, sort, page_size)
+
+    def open(
+        self,
+        *,
+        project: str | Mapping[str, Any] | Sequence[str | Mapping[str, Any]] | None = None,
+        type: str | Sequence[str] | None = None,
+        state: str | Sequence[str] | None = None,
+        sort: Literal["due", "updated"] = "due",
+        page_size: int = 50,
+    ) -> Results[WorkItemOut]:
+        """Records nobody is assigned that one of your lab roles could take, with
+        :meth:`Entities.take`."""
+        return self._list("/me/work/open", project, type, state, sort, page_size)
+
+    def _list(
+        self,
+        path: str,
+        project: str | Mapping[str, Any] | Sequence[str | Mapping[str, Any]] | None,
+        type: str | Sequence[str] | None,
+        state: str | Sequence[str] | None,
+        sort: str,
+        page_size: int,
+    ) -> Results[WorkItemOut]:
+        client = self._client
+        projects = (
+            []
+            if project is None
+            else [project]
+            if isinstance(project, str | Mapping)
+            else list(project)
+        )
+        params: dict[str, Any] = {
+            "project": [client._project_id(p) for p in projects],
+            "type": [type] if isinstance(type, str) else list(type or []),
+            "state": [state] if isinstance(state, str) else list(state or []),
+            "sort": sort,
+            "limit": page_size,
+        }
+        return Results(lambda c: client.request("GET", path, params={**params, "cursor": c}))
 
 
 class Entries(_Part):

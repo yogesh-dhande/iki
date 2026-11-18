@@ -323,7 +323,9 @@ def test_me_is_a_person(tmp_path: Path) -> None:
     mine = made(tmp_path, search('{ field: created_by, op: eq, value: "{{ me }}" }'))
     assert mine.problems == []
     wrong = made(tmp_path, search('{ field: well, op: eq, value: "{{ me }}" }'))
-    assert "compared with `created_by`, not `well`" in only(wrong, "context-misplaced")
+    assert "compared with `created_by`, `assigned` or a field naming people, not `well`" in only(
+        wrong, "context-misplaced"
+    )
     for value in ('"{{ you }}"', '"{{ me }} and more"', '"{{ entity.hrid }}"'):
         found = made(tmp_path, search(f"{{ field: well, op: eq, value: {value} }}"))
         assert codes(found) == ["unknown-context"], value

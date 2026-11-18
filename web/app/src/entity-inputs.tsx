@@ -4,7 +4,7 @@
  * `aria-invalid` on invalid inputs. Numbers are text inputs with a decimal
  * keyboard (the browser's number input changes on scroll and reads "1,5"
  * differently by locale). References are picked with a combo box that
- * searches as people type.
+ * searches as people type; people with one that finds only those the field can name.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -48,6 +48,7 @@ import {
 } from "./entity-values";
 import { optionLabel } from "./filters";
 import { media } from "./media";
+import { nameableQuery } from "./people";
 import { upload, uploadError, type Progress } from "./uploads";
 import { Button } from "./ui";
 
@@ -127,6 +128,8 @@ export function FieldInput(props: InputProps) {
       return <EnumInput {...props} />;
     case "ref":
       return <RefInput {...props} />;
+    case "person":
+      return <PersonInput {...props} />;
     case "file":
       return <FileInput {...props} />;
     default:
@@ -554,6 +557,173 @@ function Option({ item, state }: { item: Node<Picked>; state: ComboBoxState<Pick
     >
       {item.rendered}
     </li>
+  );
+}
+
+/** A person, as a picker shows them: `hrid` holds their email address. */
+function personText(picked: Picked): string {
+  return picked.hrid && picked.hrid !== picked.title
+    ? `${picked.title} (${picked.hrid})`
+    : picked.title;
+}
+
+export interface PersonPickerProps {
+  label: string;
+  projectId: string;
+  /** Only those holding this lab role in the project: the field's. */
+  role?: string | null | undefined;
+  roleLabel?: string | null | undefined;
+  value: Picked | null;
+  onChange: (picked: Picked | null) => void;
+  error?: string | undefined;
+  help?: string | undefined;
+  required?: boolean;
+  disabled?: boolean;
+  /** In a list: the label screen readers hear, which the page doesn't show. */
+  hiddenLabel?: boolean;
+}
+
+/**
+ * Someone a record can name (ADR 0122): a combo box that finds, as people type, only those
+ * who can be named in the project, holding the field's lab role if it has one. Nobody else
+ * is listed, so nobody learns who else exists.
+ */
+export function PersonPicker({
+  label,
+  projectId,
+  role,
+  roleLabel,
+  value,
+  onChange,
+  error,
+  help,
+  required = false,
+  disabled = false,
+  hiddenLabel = false,
+}: PersonPickerProps) {
+  const [typing, setTyping] = useState({
+    text: value ? personText(value) : "",
+    over: value?.id,
+  });
+  const text = typing.over === value?.id ? typing.text : value ? personText(value) : "";
+  const typed = value && text === personText(value) ? "" : text;
+  const search = useDeferredValue(typed);
+  const found = useQuery(nameableQuery(projectId, role, search));
+  const items: Picked[] = (found.data ?? []).map((p) => ({
+    id: p.id,
+    hrid: p.email,
+    title: p.name,
+  }));
+  if (value && !items.some((i) => i.id === value.id)) items.unshift(value);
+  const shownHelp =
+    help ??
+    (roleLabel
+      ? `Type a name or email address: someone with the ${roleLabel} role in this project.`
+      : "Type a name or email address: someone in this project.");
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listBoxRef = useRef<HTMLUListElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const props = {
+    label,
+    description: shownHelp,
+    errorMessage: error,
+    isInvalid: Boolean(error),
+    isRequired: required,
+    isDisabled: disabled,
+    validationBehavior: "aria" as const,
+    items,
+    children: (item: Picked) => (
+      <Item key={item.id} textValue={personText(item)}>
+        <span>{item.title}</span>
+        {item.hrid && item.hrid !== item.title ? <span className="muted"> {item.hrid}</span> : null}
+      </Item>
+    ),
+    inputValue: text,
+    onInputChange: (next: string) => {
+      setTyping({ text: next, over: next === "" ? undefined : value?.id });
+      if (next === "") onChange(null);
+    },
+    value: value?.id ?? null,
+    onChange: (key: Key | null) => {
+      const chosen = items.find((i) => i.id === key) ?? null;
+      onChange(chosen);
+      if (chosen) setTyping({ text: personText(chosen), over: chosen.id });
+    },
+    menuTrigger: "focus" as const,
+    allowsEmptyCollection: true,
+  };
+  const state = useComboBoxState(props);
+  const { inputProps, listBoxProps, labelProps, descriptionProps, errorMessageProps } = useComboBox(
+    { ...props, inputRef, listBoxRef, popoverRef },
+    state,
+  );
+  return (
+    <div className={error ? "field field-invalid" : "field"}>
+      <label {...labelProps} className={hiddenLabel ? "visually-hidden" : undefined}>
+        {label}
+        {required || hiddenLabel ? null : <span className="optional"> (optional)</span>}
+      </label>
+      {error ? (
+        <p {...errorMessageProps} className="field-error">
+          {error}
+        </p>
+      ) : null}
+      <div className="combobox">
+        {/* Named by its <label for>, as references' are (see RefInput). */}
+        <input
+          {...inputProps}
+          aria-labelledby={undefined}
+          ref={inputRef}
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </div>
+      <p {...descriptionProps} className="field-help">
+        {shownHelp}
+      </p>
+      {state.isOpen ? (
+        <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
+          <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
+          {state.collection.size === 0 ? (
+            <p className="listbox-empty">
+              {found.isFetching
+                ? "Searching…"
+                : typed
+                  ? `Nobody here matches “${typed}”.`
+                  : "Nobody can be named here yet."}
+            </p>
+          ) : null}
+        </Popover>
+      ) : null}
+    </div>
+  );
+}
+
+function PersonInput({
+  field,
+  draft,
+  onChange,
+  error,
+  note,
+  disabled,
+  projectId,
+  itemLabel,
+}: InputProps) {
+  return (
+    <PersonPicker
+      label={itemLabel ?? field.label}
+      projectId={projectId}
+      role={field.role}
+      roleLabel={field.role_label}
+      value={draft as Picked | null}
+      onChange={onChange}
+      error={error}
+      help={helpText(field, note)}
+      required={field.required}
+      disabled={disabled ?? false}
+      hiddenLabel={itemLabel !== undefined}
+    />
   );
 }
 

@@ -44,6 +44,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("", include("iki_server.oauth.page_urls")),
     path("", include("iki_server.notifications.urls")),
     path("notifications/", web.app, name="notifications"),
+    path("work/", web.app, name="work"),  # My work (ADR 0122)
     path("costs/", web.app, name="costs"),
     # The web app's: the organization's webhooks (project ones are in org.urls).
     path("settings/webhooks/", web.app, name="webhook_settings"),

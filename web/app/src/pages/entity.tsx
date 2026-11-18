@@ -55,6 +55,7 @@ import { COLLECTION_FIELDS, CollectionMembers, isCollection } from "./collection
 import { DetachedNote } from "./types";
 import { SavedViewPanel } from "./view";
 import { EntityState, StateBadges } from "./entity-state";
+import { EntityWork } from "./entity-work";
 import {
   Badge,
   Button,
@@ -190,7 +191,7 @@ export function Value({
   field: FieldDef;
   value: unknown;
   /** With its owner project, references to registry entries open that project's records. */
-  entity: Pick<Entity, "refs" | "files"> & { owner_project?: { slug: string } | null };
+  entity: Pick<Entity, "refs" | "files" | "people"> & { owner_project?: { slug: string } | null };
 }) {
   if (value === null || value === undefined) {
     return <span className="muted">Not set</span>;
@@ -222,6 +223,19 @@ export function Value({
       const found = entity.refs[value as string];
       if (!found) return <span className="muted">An entity you can’t read</span>;
       return <RefLink found={found} project={entity.owner_project?.slug} />;
+    }
+    case "person": {
+      const found = entity.people?.[value as string];
+      if (!found) return <span className="muted">Someone you can’t see</span>;
+      return (
+        <span>
+          {found.name}
+          {found.email && found.email !== found.name ? (
+            <span className="muted"> {found.email}</span>
+          ) : null}
+          {found.active ? null : <span className="muted"> (deactivated)</span>}
+        </span>
+      );
     }
     case "file": {
       const found = entity.files[value as string];
@@ -896,6 +910,7 @@ export function EntityOverview() {
         </div>
       ) : null}
       {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
+      {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
       {type?.name === VIEW_TYPE ? <SavedViewPanel view={entity} types={types} /> : null}
       {app ? <AppPanel app={entity} types={types} /> : null}
       {entry ? (

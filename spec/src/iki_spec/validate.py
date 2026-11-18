@@ -52,6 +52,7 @@ from iki_spec.model import (
     Viewer,
     Workflow,
     matches_format,
+    names_people,
     qualify,
     split_entry,
 )
@@ -158,7 +159,7 @@ SECRET_WORDS = frozenset(
 SECRET_PAIRS = (("api", "key"), ("private", "key"), ("access", "key"), ("client", "secret"))
 
 INDEXABLE = frozenset(
-    {"string", "int", "float", "bool", "enum", "date", "datetime", "quantity", "ref"}
+    {"string", "int", "float", "bool", "enum", "date", "datetime", "quantity", "ref", "person"}
 )
 TITLE_TYPES = frozenset(
     {"string", "text", "int", "float", "enum", "date", "datetime", "quantity", "bool"}
@@ -674,6 +675,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         display_title=(body.get("display") or {}).get("title"),
         viewers=tuple(_viewer(v) for v in (body.get("display") or {}).get("viewers") or ()),
         file=document.file,
+        due=body.get("due"),
         states={
             n: State(
                 name=n,
@@ -1187,6 +1189,9 @@ class _Semantics:
             self.viewers(entity_type, source, present)
         if entity_type.states:
             self.states(entity_type, source)
+        self.assignments(entity_type.fields, entity_type, source)
+        if entity_type.due is not None:
+            self.due(entity_type, source, every)
 
     def states(self, entity_type: EntityType, source: Document) -> None:
         """A type's states and transitions (ADR 0118)."""
@@ -1289,6 +1294,71 @@ class _Semantics:
                         key=True,
                         hint="Add a transition to it, or mark it `removed: true` with `moved_to`.",
                     )
+
+    def machine(self, entity_type: EntityType) -> EntityType | None:
+        """The type whose states ``entity_type``'s records move through, if any (ADR 0118)."""
+        return next((t for t in [entity_type, *self.ancestors(entity_type)] if t.states), None)
+
+    def assignments(
+        self, fields: dict[str, Field], entity_type: EntityType, source: Document
+    ) -> None:
+        """Assignment fields' states are states of the records' type (ADR 0122)."""
+        machine = self.machine(entity_type)
+        for name, f in fields.items():
+            if not f.assignment_states:
+                continue
+            path: Path = ("fields", name, "assignment", "states")
+            if machine is None:
+                self.add(
+                    "assignment-without-states",
+                    f"`{entity_type.name}` has no states, so `{name}` can't be assigned only in "
+                    "some of them.",
+                    source,
+                    path,
+                    key=True,
+                    hint="Use `assignment: true`.",
+                )
+                continue
+            names = set(machine.live_states)
+            for index, state in enumerate(f.assignment_states):
+                if state not in names:
+                    self.state_ref(state, names, source, (*path, index))
+
+    def due(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """``due`` names a date the records are due by (ADR 0122)."""
+        name = entity_type.due
+        assert name is not None  # noqa: S101 - only called with one
+        found = every.get(name)
+        if found is None or found[0].removed:
+            self.add(
+                "unknown-field",
+                f"`{name}` isn't a field of `{entity_type.name}`.",
+                source,
+                ("due",),
+                hint=schemas._did_you_mean(
+                    name, [n for n, (f, _) in every.items() if not f.removed]
+                ),
+            )
+            return
+        f, owner = found
+        if f.type not in ("date", "datetime"):
+            self.add(
+                "due-not-a-date",
+                f"`{name}` is a {f.type} field: what's due is due on a date.",
+                source,
+                ("due",),
+                hint="Name a `date` or `datetime` field.",
+            )
+        elif f.registry is not None or name in owner.identity:
+            self.add(
+                "due-in-registry",
+                f"`{name}` is its registry entry's, every project's: when work is due is each "
+                "project's own.",
+                source,
+                ("due",),
+            )
 
     def state_ref(self, name: str, names: set[str], source: Document, path: Path) -> None:
         self.add(
@@ -1431,6 +1501,18 @@ class _Semantics:
         self, f: Field, source: Document, path: Path, *, identity: bool = False
     ) -> None:
         """What a field of a registry entry (an identity, derived or fact field) must be."""
+        if names_people(f) and not identity:
+            self.add(
+                "person-in-registry",
+                f"`{f.name}` names people, who are each project's own: it can't be its "
+                "registry entry's.",
+                source,
+                (*path, "registry"),
+                key=True,
+                hint="Leave `registry` off: who tests or reviews something is the project's "
+                "record of it (ADR 0122).",
+            )
+            return
         targets = [f.to] if f.type == "ref" else []
         if f.type == "list" and f.items is not None and f.items.type == "ref":
             targets = [f.items.to]
@@ -1746,6 +1828,8 @@ class _Semantics:
                     key=True,
                 )
             self.field(f, source, field_path, siblings=names)
+            if f.assignment_states:
+                self.assignments({name: f}, target, source)
             if f.registry is None:
                 continue
             if not any(t.identity for t in [target, *self.ancestors(target)]):
@@ -1787,14 +1871,25 @@ class _Semantics:
                     key=True,
                     hint="Choose a more specific name, such as `sample_type` instead of `type`.",
                 )
-            if f.type == "ref" and f"{f.name}_id" in siblings:
+            if f.type in ("ref", "person") and f"{f.name}_id" in siblings:
+                what = "reference" if f.type == "ref" else "person field"
                 self.add(
                     "column-conflict",
-                    f"The reference `{f.name}` is stored in a column named `{f.name}_id`, which "
+                    f"The {what} `{f.name}` is stored in a column named `{f.name}_id`, which "
                     "is also the name of another field.",
                     source,
                     path,
                     key=True,
+                )
+            if f.assignment and not names_people(f):
+                self.add(
+                    "assignment-not-people",
+                    f"`{f.name}` is a {f.type} field: only a field naming people assigns its "
+                    "records to them.",
+                    source,
+                    (*path, "assignment"),
+                    key=True,
+                    hint="Make it `type: person`, or a list with `items: { type: person }`.",
                 )
             if f.computed and f.has_default:
                 self.add(
@@ -1832,6 +1927,8 @@ class _Semantics:
             self.quantity(f, source, path)
         if f.type == "ref" and f.to is not None:
             self.reference(f.to, source, (*path, "to"))
+        if f.type == "person" and f.role is not None:
+            self.lab_role(f.role, source, (*path, "role"))
         if f.type == "file" and f.max_size is not None and f.max_size > MAX_FILE_SIZE:
             self.add(
                 "file-too-large",
@@ -2110,7 +2207,7 @@ def _list_tables(fields: dict[str, Field]) -> list[Field]:
     return [
         f
         for f in fields.values()
-        if f.type == "list" and f.items and f.items.type in ("ref", "file")
+        if f.type == "list" and f.items and f.items.type in ("ref", "file", "person")
     ]
 
 

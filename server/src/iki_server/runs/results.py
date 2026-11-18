@@ -28,7 +28,7 @@ from uuid import UUID
 
 from django.db import transaction
 
-from iki_server.entities import access, registry, unique
+from iki_server.entities import access, assignments, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import Entity, UniqueValue
@@ -176,7 +176,12 @@ def write(done: Checked) -> None:
     from iki_server.runs import triggers
 
     check = done.check
-    with transaction.atomic(), triggers.writing(check.run):
+    # Each person a run assigns records to is told once, of them all (ADR 0122).
+    with (
+        transaction.atomic(),
+        triggers.writing(check.run),
+        assignments.batch(check.run.requested_by),
+    ):
         _write_updates(check, done.updates)
         _write_creates(check, done.creates)
         if check.errors:

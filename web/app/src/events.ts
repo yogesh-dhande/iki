@@ -1,7 +1,7 @@
 /**
  * Live updates: one EventSource on `/api/v1/events` per tab, signed in with
  * the browser session. Events carry ids and counts, never content; they
- * update the bell's count and refresh the notification queries.
+ * update the bell's count and refresh the notification queries, and My work.
  *
  * - Each `ready`, the first included, refreshes the inbox. Only from then on
  *   does every change come as an event: the page reads what it shows while
@@ -20,6 +20,7 @@
 import { useEffect } from "react";
 
 import { iki, isSignedOut, markSignedOut, NOTIFICATIONS, queryClient, unreadQuery } from "./api";
+import { WORK } from "./people";
 
 export const EVENTS_URL = "/api/v1/events";
 /** How long a hidden tab keeps its stream. */
@@ -88,6 +89,10 @@ export function useLiveUpdates(enabled: boolean): void {
       stream.addEventListener("resync", (event: MessageEvent<string>) => {
         setUnread(parse(event));
         void refresh(NOTIFICATIONS);
+      });
+      // Someone's work changed (ADR 0122): My work, and the records on it, read again.
+      stream.addEventListener("work", () => {
+        void refresh(WORK);
       });
       stream.addEventListener("signed_out", () => {
         close();

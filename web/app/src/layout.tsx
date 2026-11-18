@@ -101,6 +101,9 @@ export function Layout() {
         {me ? (
           <>
             <nav className="site-nav" aria-label="Main">
+              <Link to="/work/" activeProps={{ "aria-current": "page" }}>
+                My work
+              </Link>
               <Link to="/projects/" activeProps={{ "aria-current": "page" }}>
                 Projects
               </Link>

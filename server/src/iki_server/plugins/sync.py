@@ -191,7 +191,7 @@ def _list_model(plugin: str, owner: type[models.Model], f: Field) -> type[models
 
 
 def _is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in ("ref", "file")
+    return f.type == "list" and f.items is not None and f.items.type in ("ref", "file", "person")
 
 
 def _column(model: type[models.Model], name: str) -> str:

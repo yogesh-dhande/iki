@@ -70,6 +70,18 @@ describe("createIkiClient", () => {
       `${BASE}/api/v1/entities/a%2Fb`,
     ]);
   });
+
+  it("lists your work by project, type and state, each repeated", async () => {
+    const { requests, fetch } = recorder({ items: [], next_cursor: null });
+    const iki = createIkiClient({ baseUrl: BASE, fetch });
+    const project = "01a1c33f-ee39-74dc-a04f-4b57bb940194";
+    await iki.GET("/api/v1/me/work", {
+      params: { query: { project: [project], type: ["a/b.S"], state: ["x", "y"], sort: "due" } },
+    });
+    expect(requests[0]?.url).toBe(
+      `${BASE}/api/v1/me/work?project=${project}&type=a%2Fb.S&state=x&state=y&sort=due`,
+    );
+  });
 });
 
 describe("encodeName", () => {

@@ -16,7 +16,7 @@ import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from conftest import S3_ACCESS_KEY, S3_SECRET_KEY
@@ -29,6 +29,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from real_server import Server, app_role, manage, run_tasks, serve, server_env
 
 from iki_server.accounts.models import User
+from iki_server.entities.models import Entity
 from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
@@ -280,6 +281,8 @@ PAGES = [
     ("org_admin", "/teams/"),
     ("org_admin", "/teams/structural-biology/"),
     ("admin", "/notifications/"),
+    ("admin", "/work/"),
+    ("admin", "/work/?open=true"),
     ("admin", "/account/apps/"),
     ("admin", "/account/notifications/"),
     ("org_admin", "/settings/email/"),
@@ -1840,6 +1843,81 @@ def test_a_record_moves_through_its_states(open_as: Any, world: World) -> None:
     page.get_by_text("Send back: In review to In testing by Editor").wait_for()
     page.get_by_text("“Purity looks off”").wait_for()
     assert_clean(page)
+    page.context.close()
+
+
+def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, world: World) -> None:
+    """People in records (ADR 0122): open work taken from My work, a reviewer named with
+    the picker, their work once it's in review, and reassigning from the grid. By role,
+    never by label, and each card by its heading (Firefox; see above)."""
+    from iki_server.entities import services as entities
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    for who, roles in (
+        ("editor", ("analyst",)),
+        ("admin", ("reviewer",)),
+        ("viewer", ("analyst",)),
+    ):
+        grant = world.project.memberships.get(user=world.users[who])
+        for role in roles:
+            LabRoleGrant.objects.create(
+                membership=grant, role=f"acme/protein.{role}", granted_by=world.users["admin"]
+            )
+        permissions.forget(world.users[who])
+    made = entities.create(
+        world.users["admin"], "acme/protein.Sample", world.project, {"label": "Lot 9"}
+    )
+    hrid = cast("Entity", made.entity).hrid
+
+    # Nobody has it yet: it's open to the editor's Analyst role.
+    page = open_as("editor", "/work/?open=true")
+    page.get_by_role("list", name="Open work").wait_for()
+    assert_clean(page)
+    page.get_by_role("button", name=f"Take {hrid} as Analyst").click()
+    page.get_by_text(f"{hrid} is yours, as Analyst.").wait_for()
+    page.get_by_role("link", name="Assigned to me").click()
+    page.get_by_role("list", name="Your work").get_by_role("link", name=hrid, exact=True).click()
+
+    page.get_by_role("heading", name="State: Received").wait_for()
+    # Whoever reviews it is named before it's theirs.
+    page.get_by_role("link", name="Edit", exact=True).click()
+    page.get_by_role("combobox", name="Reviewer").fill("adm")
+    page.get_by_role("option").filter(has_text="admin@example.com").click()
+    page.get_by_role("listbox").wait_for(state="hidden")
+    assert_clean(page)
+    page.get_by_role("button", name="Save changes").click()
+    page.get_by_text(f"Saved revision 3 of {hrid}.").wait_for()
+    page.get_by_role("listitem").filter(has_text="Reviewer: Admin").wait_for()
+    page.get_by_role("button", name="Start testing").click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Start testing").click()
+    page.get_by_text(f"{hrid} is In testing now.").wait_for()
+    page.get_by_role("button", name="Submit for review").click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Submit for review").click()
+    page.get_by_role("heading", name="State: In review").wait_for()
+    page.context.close()
+
+    # It's the admin's now, and the grid finds it by whom it names.
+    page = open_as("admin", "/work/")
+    page.get_by_role("list", name="Your work").get_by_role("link", name=hrid, exact=True).wait_for()
+    assert_clean(page)
+    page.goto("/projects/kinase-atlas/entities/?type=acme/protein.Sample")
+    page.get_by_role("searchbox", name="Search").fill("assigned:me")
+    grid = page.get_by_role("table", name="1 sample match")
+    grid.get_by_role("link", name=hrid).wait_for()
+    grid.get_by_role("checkbox", name=f"Select {hrid}").check()
+    page.get_by_role("button", name="Reassign").click()
+    dialog = page.get_by_role("alertdialog", name="Reassign 1 sample")
+    dialog.get_by_role("combobox", name="Field").select_option("Analyst")
+    dialog.get_by_role("combobox", name="Analyst").fill("view")
+    page.get_by_role("option").filter(has_text="viewer@example.com").click()
+    page.get_by_role("listbox").wait_for(state="hidden")
+    dialog.get_by_role("textbox", name="Reason").fill("Editor is away")
+    assert_clean(page)
+    dialog.get_by_role("button", name="Reassign").click()
+    page.get_by_role("alertdialog", name="Reassigned 1 of 1").wait_for()
+    saved = type(made.entity)._default_manager.get(pk=made.entity.pk)
+    assert str(entities.current_values(saved)["analyst"]) == str(world.users["viewer"].pk)
     page.context.close()
 
 

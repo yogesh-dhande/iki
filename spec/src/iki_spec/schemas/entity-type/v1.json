@@ -78,6 +78,10 @@
         "$ref": "https://ikisci.org/schemas/field/v1"
       }
     },
+    "due": {
+      "description": "A date or datetime field of the type (or a parent's) saying when its records are due: My work sorts what's assigned to someone by it, soonest first (ADR 0122).",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
     "states": {
       "description": "The states its records move through, by name (ADR 0118): exactly one `initial`, and those that `lock` a record against change. Its subtypes have the same ones.",
       "type": "object",

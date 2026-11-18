@@ -99,6 +99,10 @@ interface Added {
 
 /** The picker the app uses for references, for any entity. */
 const ADD_FIELD: FieldDef = {
+  role: null,
+  role_label: null,
+  assignment: false,
+  assignment_states: [],
   name: "add",
   label: "Add another entity",
   description:

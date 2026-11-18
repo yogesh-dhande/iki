@@ -63,7 +63,15 @@ def test_lists_the_lab_roles_plugins_declare(world: World) -> None:
             "description": "approve “Weigh” in Release, then weigh",
         }
     ]
-    assert listed[0]["uses"] == []
+    # Fields naming people need them too (ADR 0122).
+    assert listed[0]["uses"] == [
+        {
+            "kind": "field",
+            "owner": "acme/protein.Sample",
+            "name": "analyst",
+            "description": "be named Analyst on samples",
+        }
+    ]
 
 
 # --- Giving them --------------------------------------------------------------------------------

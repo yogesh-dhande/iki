@@ -144,6 +144,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
     listed = (await rpc(token, "tools/list")).json()["result"]["tools"]
     assert [t["name"] for t in listed] == [
         "whoami",
+        "my_work",
         "list_projects",
         "list_lab_roles",
         "list_entity_types",
@@ -724,6 +725,67 @@ async def test_agents_move_records_through_their_states(world: World) -> None:
         )
     )
     assert "(409" in refused and "which locks it" in refused
+
+
+async def test_agents_read_their_persons_work_and_name_people(world: World) -> None:
+    """ADR 0122: my_work is the person's own, read-only; records name people by email
+    address or ID, and their state says whose work they are."""
+    from test_lab_roles import give, membership
+
+    def roles() -> None:
+        give(world, membership(world, "editor"), "acme/protein.analyst")
+        give(world, membership(world, "admin"), "acme/protein.reviewer")
+
+    await sync_to_async(roles)()
+    token = await token_for(world)
+    nobodys = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Sample",
+            project=str(world.project.pk),
+            values={"label": "Lot 7"},
+            reason="",
+        )
+    )
+    open_ = data(await tool(token, "my_work", open_to_my_roles=True))
+    assert [(i["entity"]["hrid"], i["fields"]) for i in open_["items"]] == [
+        (nobodys["hrid"], ["analyst"])
+    ]
+    made = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Sample",
+            project=str(world.project.pk),
+            values={
+                "label": "Lot 8",
+                "due_on": "2026-12-01",
+                "analyst": "editor@example.com",
+                "reviewer": "admin@example.com",
+            },
+            reason="",
+        )
+    )
+    assert made["values"]["analyst"] == str(world.users["editor"].pk)
+    assert made["people"][made["values"]["reviewer"]]["name"] == "Admin"
+    mine = data(await tool(token, "my_work"))
+    assert [(i["entity"]["hrid"], i["due"]) for i in mine["items"]] == [
+        (made["hrid"], "2026-12-01")
+    ]
+    for revision, transition in enumerate(("start", "submit"), start=1):
+        await tool(
+            token,
+            "transition_entity",
+            ref=made["hrid"],
+            revision=revision,
+            transition=transition,
+            reason="Bench 4",
+        )
+    # In review: the reviewer's now, not the analyst's.
+    assert data(await tool(token, "my_work"))["items"] == []
+    theirs = data(await tool(await token_for(world, "admin"), "my_work"))
+    assert [i["entity"]["hrid"] for i in theirs["items"]] == [made["hrid"]]
 
 
 async def test_writes_need_the_scope_and_the_role(world: World) -> None:

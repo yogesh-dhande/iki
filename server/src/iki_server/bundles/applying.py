@@ -399,20 +399,32 @@ class _Writer:
 
     def _remap(self, form: Shape, values: dict[str, Any]) -> dict[str, Any]:
         """Values whose references name a bundle's registry entry by its ID there, naming
-        it by its ID here."""
-        if not self.renamed:
-            return values
-        fields = form.fields()
+        it by its ID here; and the people they name, as they are here (ADR 0122): the same
+        person by their email address, or their placeholder."""
+        fields = {n: f for p in form.parts for n, f in p.fields.items()}
         out = dict(values)
         for name, value in values.items():
             f = fields.get(name)
             if f is None or value is None:
                 continue
-            if f.type == "ref":
+            if f.type == "person":
+                out[name] = self._person(value)
+            elif f.type == "list" and f.items is not None and f.items.type == "person":
+                out[name] = [p for p in (self._person(v) for v in value) if p is not None]
+            elif not self.renamed:
+                continue
+            elif f.type == "ref":
                 out[name] = self._renamed(value)
             elif f.type == "list" and f.items is not None and f.items.type == "ref":
                 out[name] = [self._renamed(v) for v in value]
         return out
+
+    def _person(self, value: Any) -> Any:  # noqa: ANN401 - a UUID, or its text
+        """Someone a value names, as they are here: by their ID, as the value had it."""
+        found = self._user(str(value))
+        if found is None:
+            return None
+        return found.pk if isinstance(value, uuid.UUID) else str(found.pk)
 
     def _renamed(self, value: Any) -> Any:  # noqa: ANN401 - a UUID, or its text
         if value is None:

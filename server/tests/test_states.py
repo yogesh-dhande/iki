@@ -357,6 +357,11 @@ def test_a_run_cant_change_a_locked_record(world: World) -> None:
 
 def imported(world: World, *rows: tuple[str, float]) -> dict[str, Any]:
     """An import_samples run whose command wrote a creates file of these (label, purity)."""
+    return imported_values(world, *({"label": label, "purity": purity} for label, purity in rows))
+
+
+def imported_values(world: World, *rows: dict[str, Any]) -> dict[str, Any]:
+    """An import_samples run whose command wrote a creates file of samples of these values."""
     upload_ = files.start(
         world.users["editor"],
         world.project,
@@ -375,10 +380,15 @@ def imported(world: World, *rows: tuple[str, float]) -> dict[str, Any]:
         *(
             {
                 "type": SAMPLE,
-                "values": {"label": label, "purity": purity},
-                "origin": {"source": "CSV file", "id": label, "file": file_id, "sha256": SHA},
+                "values": values,
+                "origin": {
+                    "source": "CSV file",
+                    "id": values["label"],
+                    "file": file_id,
+                    "sha256": SHA,
+                },
             }
-            for label, purity in rows
+            for values in rows
         )
     )
     answer = pod.report(job, "complete", output=output(creates_file=upload(pod, job, data)))

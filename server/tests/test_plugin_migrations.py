@@ -227,6 +227,7 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_proteinstructure__chains",
         "acme__protein_sample",
         "acme__protein_sample__history",
+        "acme__protein_sample__helpers",
         "acme__prediction__acme__protein_proteinstructure",
         "acme__prediction__acme__protein_proteinstructure__history",
     }

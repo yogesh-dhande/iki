@@ -47,14 +47,31 @@ from django.db.models.functions import Now
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
-from iki_server.entities import access, identity, registry, rules, states, unique
+from iki_server.entities import (
+    access,
+    assignments,
+    identity,
+    registry,
+    rules,
+    states,
+    unique,
+)
 from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
-from iki_server.entities.values import Invalid, Part, Refs, Shape, read_value, shape, to_db
+from iki_server.entities.values import (
+    FOREIGN_KEYS,
+    Invalid,
+    Part,
+    Refs,
+    Shape,
+    read_value,
+    shape,
+    to_db,
+)
 from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
-from iki_spec.model import EntityType, Field, Transition
+from iki_spec.model import EntityType, Field, Transition, names_people
 
 __all__ = [
     "Invalid",
@@ -280,6 +297,7 @@ def _new_record(
     _write_history(touched, rows, revision.number)
     _use_files(form.fields(), instance.pk, own, revision.number)
     ProjectLink.objects.create(entity_id=instance.pk, project=project, linked_by=user)
+    assignments.changed(instance, revision, assignments.diff(instance.type, {}, own), user)
     return Saved(_specific(instance), revision)
 
 
@@ -565,11 +583,13 @@ def update(
     expected_revision: int,
     reason: str = "",
     by_run: bool = False,
+    group: str = "",
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
 
-    ``by_run``: as for :func:`create`.
+    ``by_run``: as for :func:`create`. ``group``: a bulk change it's part of, which the audit
+    records of its assignments name (ADR 0122).
     """
     with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
@@ -633,7 +653,10 @@ def update(
                 )
                 continue
             try:
-                converted = to_db(f, value, refs)
+                # Whoever it names already may stay named, though they couldn't be named
+                # anew (ADR 0122): an edit of something else keeps them.
+                with refs.namer.keeping(_named_in(f, current)):
+                    converted = to_db(f, value, refs)
             except ValueError as error:
                 errors[name] = [str(error)]
                 continue
@@ -675,13 +698,24 @@ def update(
             )
         if not new:
             return Saved(_specific(locked), entry_revision=entry_revision)
+        before = {n: rows.get(n) for n in new if names_people(fields[n])}
         touched = _write(form, rows, new, instance.pk)
         revision = _revise(
             locked, RevisionKind.EDITED, sorted(new), user, reason, via="run" if by_run else None
         )
         _write_history(touched, rows, revision.number)
         _use_files(fields, locked.pk, new, revision.number)
+        assignments.changed(
+            locked, revision, assignments.diff(locked.type, before, new), user, group=group
+        )
     return Saved(_specific(locked), revision, entry_revision=entry_revision)
+
+
+def _named_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value
+    """Whom a field naming people names now: they may stay named."""
+    if not names_people(f) or current is None:
+        return set()
+    return set(current) if isinstance(current, list) else {current}
 
 
 def _write(form: Shape, rows: Rows, new: Mapping[str, Any], owner_id: Any) -> list[Part]:  # noqa: ANN401 - a UUID
@@ -897,7 +931,7 @@ def current_values_of(entities: Sequence[Entity]) -> dict[Any, dict[str, Any]]:
                 holder = holders.get(table, {}).get(key)
                 if holder is None:
                     values[name] = None
-                elif f.type in ("ref", "file"):
+                elif f.type in FOREIGN_KEYS:
                     values[name] = getattr(holder, f"{name}_id")
                 else:
                     values[name] = getattr(holder, name)
@@ -1026,7 +1060,7 @@ def discloses(revision: Revision, projects: Iterable[Any]) -> bool:
 
 
 def _set(instance: Model, f: Field, value: Any) -> None:  # noqa: ANN401 - a model value
-    if f.type in ("ref", "file"):
+    if f.type in FOREIGN_KEYS:
         setattr(instance, f"{f.name}_id", value)
     else:
         setattr(instance, f.name, value)
@@ -1111,8 +1145,9 @@ def transitioned(
     user: User,
     reason: str,
 ) -> Revision:
-    """The revision of a transition the record just made (see :func:`states.transition`)."""
-    return _revise(
+    """The revision of a transition the record just made (see :func:`states.transition`).
+    Whoever its new state makes it the work of is told (ADR 0122)."""
+    revision = _revise(
         entity,
         RevisionKind.TRANSITIONED,
         [],
@@ -1120,6 +1155,8 @@ def transitioned(
         reason,
         transition=(transition.name, state_from, transition.to),
     )
+    assignments.became(entity, revision, state_from, transition.to, user)
+    return revision
 
 
 _EVENTS = {

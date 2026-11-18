@@ -120,6 +120,10 @@ function Estimate({ estimate, runs }: { estimate: NonNullable<Action["estimate"]
 
 export function inputField(input: Input): FieldDef {
   return {
+    role: null,
+    role_label: null,
+    assignment: false,
+    assignment_states: [],
     name: input.name,
     label: input.label,
     description: input.description,

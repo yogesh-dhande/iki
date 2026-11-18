@@ -35,6 +35,7 @@ from django.db.models import Exists, OuterRef, Q, QuerySet
 
 from iki_server.entities import registry
 from iki_server.entities.models import Entity, ProjectLink
+from iki_server.entities.people import Namer
 from iki_server.entities.values import Refs, shape, subtypes
 from iki_server.files.models import File, FileUse
 from iki_server.org import permissions
@@ -44,7 +45,10 @@ from iki_server.org.permissions import Action
 
 def readable_projects(user: Any) -> QuerySet[Project]:  # noqa: ANN401 - User or AnonymousUser
     """Projects whose data the user can read (:attr:`Action.PROJECT_READ`)."""
-    return permissions.visible_projects(user).filter(my_role__isnull=False)  # type: ignore[misc]
+    projects = permissions.visible_projects(user)
+    if projects.query.is_empty():
+        return projects  # none, and so without ``my_role`` to filter by
+    return projects.filter(my_role__isnull=False)  # type: ignore[misc]
 
 
 def visible(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
@@ -199,6 +203,7 @@ def refs_for(user: Any, project: Project) -> Refs:  # noqa: ANN401
         entries=held_entries(project),
         readable_entries=visible_entries(user),
         project=project.name,
+        namer=Namer(project),
     )
 
 

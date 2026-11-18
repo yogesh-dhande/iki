@@ -35,9 +35,12 @@ import { MAX_BATCH } from "../runs";
 import { useProject } from "./project-overview";
 import { CollectionBanner, SaveAsCollection } from "./collections";
 import { PluginPlace } from "./plugin-place";
+import { ReassignDialog } from "./reassign";
 import { SavedSearches } from "./saved-searches";
 
 const ROW_HEIGHT = 44;
+/** The most records one reassignment changes, as the API takes. */
+const MAX_REASSIGN = 500;
 /** Fetch the next page when this many rows remain below the view. */
 const AHEAD = 30;
 
@@ -129,6 +132,15 @@ function columnsFor(type: EntityType | undefined, types: EntityType[]): Column[]
       if (f.type === "quantity" && typeof value === "number") {
         // The unit is in the column's heading.
         return valueText(f, value, e).replace(/\s\S+$/, "");
+      }
+      // Who's named and can't be any more (ADR 0122) says so beside them.
+      if (f.assignment && (e.needs_reassigning ?? []).some((s) => s.field === f.name)) {
+        return (
+          <>
+            {valueText(f, value, e)}
+            <span className="cell-meta">Needs reassigning</span>
+          </>
+        );
       }
       return valueText(f, value, e);
     },
@@ -228,7 +240,10 @@ export function ProjectEntities() {
     }
     setSelection({ list: listKey, hrids: next });
   };
-  const selectable = project.can.run.length > 0 && !project.archived;
+  // Picked to run an action on, or to reassign (ADR 0122).
+  const reassignable = Boolean(project.can.edit && type?.fields.some((f) => f.assignment));
+  const selectable = (project.can.run.length > 0 || reassignable) && !project.archived;
+  const [reassigning, setReassigning] = useState(false);
   const allPicked = rows.length > 0 && rows.every((e) => picked.has(e.hrid));
   const select: Column = {
     key: "select",
@@ -332,7 +347,13 @@ export function ProjectEntities() {
         <SearchBox
           key={search.q ?? ""}
           value={search.q ?? ""}
-          placeholder={type ? `ID or ${inSentence(type.label)} name` : "ID or name"}
+          placeholder={
+            type?.fields.some((f) => f.assignment)
+              ? `ID, name, or assigned:me`
+              : type
+                ? `ID or ${inSentence(type.label)} name`
+                : "ID or name"
+          }
           onSearch={(q) => {
             void navigate({ search: (prev) => ({ ...prev, q: q || undefined }), replace: true });
           }}
@@ -432,7 +453,18 @@ export function ProjectEntities() {
                   ? `: an action runs on at most ${String(MAX_BATCH)} at once`
                   : ""}
               </p>
-              {picked.size && picked.size <= MAX_BATCH ? (
+              {picked.size && reassignable ? (
+                <button
+                  type="button"
+                  className={buttonClass()}
+                  onClick={() => {
+                    setReassigning(true);
+                  }}
+                >
+                  Reassign
+                </button>
+              ) : null}
+              {picked.size && picked.size <= MAX_BATCH && project.can.run.length ? (
                 <Link
                   to="/projects/$slug/runs/new/"
                   params={{ slug: project.slug }}
@@ -454,6 +486,17 @@ export function ProjectEntities() {
                 </button>
               ) : null}
             </div>
+          ) : null}
+          {reassigning && type ? (
+            <ReassignDialog
+              type={type}
+              projectId={project.id}
+              picked={rows.filter((e) => picked.has(e.hrid)).slice(0, MAX_REASSIGN)}
+              onClose={(done) => {
+                setReassigning(false);
+                if (done) setSelection({ list: listKey, hrids: new Set() });
+              }}
+            />
           ) : null}
           <p className="muted" id={captionId}>
             {count} {noun}

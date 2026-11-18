@@ -54,6 +54,7 @@ from iki_server.entities import services as entities
 from iki_server.entities.hrids import sequence_name
 from iki_server.entities.identity import hash_of
 from iki_server.entities.models import Entity
+from iki_server.entities.people import Namer
 from iki_server.entities.values import Invalid, Part, Refs, is_list_table, shape, to_db
 from iki_server.files import storage
 from iki_server.files.models import File
@@ -478,6 +479,7 @@ def _stage_rows(
         entries=access.held_entries(run.project),
         readable_entries=access.visible_entries(user),
         project=run.project.name,
+        namer=Namer(run.project),
     )
     _look_up_refs(refs, parsed)
     rows: list[tuple[Any, ...]] = []
@@ -1293,11 +1295,18 @@ def _insert_part(
     ]
     selected = ", ".join(f"(p).{_q(c)}" for c in kept)
     names = ", ".join(_q(c) for c in kept)
+    # A reference's or person's history column is `<name>_id`, as its table's is.
+    history_renames = "".join(
+        f" || jsonb_build_object({_literal(_column(f))},"
+        f" s.parts->{_literal(key)}->{_literal(f.name)})"
+        for f in history.local_concrete_fields
+        if _column(f) != f.name and f.name not in ("entity", "revision")
+    )
     cursor.execute(
         f"INSERT INTO {_q(history.db_table)} (entity_id, revision{', ' if names else ''}{names})"  # noqa: S608
         f" SELECT owner, 1{', ' if selected else ''}{selected} FROM ("
         f" SELECT {key_column} AS owner, jsonb_populate_record(NULL::{_q(history.db_table)},"
-        f"  s.parts->{_literal(key)}) AS p {where}) q",
+        f"  s.parts->{_literal(key)}{history_renames}) AS p {where}) q",
         [type_name],
     )
     for name, f in part.fields.items():

@@ -132,6 +132,27 @@ def sample_transition(w: World) -> tuple[Any, ...]:
     )
 
 
+def sample_take(w: World) -> tuple[Any, ...]:
+    """Taking a received sample as its analyst (ADR 0122), which needs the role nobody has."""
+    from iki_server.entities import services as entities
+
+    found = entities.create(
+        w.users["editor"], "acme/protein.Sample", w.project, {"label": "S-take"}
+    )
+    return f"/entities/{found.entity.pk}/take", {"field": "analyst"}, {"If-Match": '"1"'}
+
+
+def samples_assign(w: World) -> tuple[Any, ...]:
+    """Emptying a sample's analyst: each record anyone can't change is skipped, with why."""
+    from iki_server.entities import services as entities
+
+    found = entities.create(
+        w.users["editor"], "acme/protein.Sample", w.project, {"label": "S-assign"}
+    )
+    body = {"entities": [str(found.entity.pk)], "field": "analyst", "person": None}
+    return "/entities/assign", body
+
+
 def dashboard(w: World) -> tuple[Any, ...]:
     from iki_server.entities import services as entities
 
@@ -717,6 +738,16 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     # Only those with one of its lab roles make a transition: nobody here has it.
     ("POST", "/entities/{ref}/transitions/{name}", sample_transition, readers(403)),
+    # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.
+    ("POST", "/entities/{ref}/take", sample_take, readers(403)),
+    # Reassigning many skips what you can't change, rather than refusing them all; what you
+    # can't read is 404.
+    ("POST", "/entities/assign", samples_assign, readers(200)),
+    # Whom its records can name is its data: an Org Admin sees the project, not its people.
+    ("GET", "/projects/{project_id}/people", project("/people"), readers(200, org_admin=403)),
+    # Each person's work is their own: there's always some, if only none.
+    ("GET", "/me/work", fixed("/me/work"), row(200)),
+    ("GET", "/me/work/open", fixed("/me/work/open"), row(200)),
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),

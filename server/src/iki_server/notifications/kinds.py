@@ -83,6 +83,42 @@ LAB_ROLES_CHANGED = register(
         group="Projects",
     )
 )
+ASSIGNED = register(
+    Kind(
+        "assignment.assigned",
+        "Assigned a record",
+        "Someone names you in a record's assignment field, such as a sample's analyst, and "
+        "it's your work in its state (ADR 0122).",
+        group="Work",
+    )
+)
+UNASSIGNED = register(
+    Kind(
+        "assignment.unassigned",
+        "Taken off a record",
+        "Someone takes you off a record you were assigned, or names someone else.",
+        group="Work",
+        email=False,
+    )
+)
+READY = register(
+    Kind(
+        "assignment.ready",
+        "A record is ready for you",
+        "A record you're assigned reaches a state where it's your work: a sample you review "
+        "comes into review, say.",
+        group="Work",
+    )
+)
+NEEDS_REASSIGNING = register(
+    Kind(
+        "assignment.needs_reassigning",
+        "Records need reassigning",
+        "In a project you're an Admin of, someone assigned records can't be any more: they "
+        "left it, lost the lab role, or were deactivated.",
+        group="Work",
+    )
+)
 TEAM_ADDED = register(
     Kind("team.added", "Added to a team", "Someone adds you to a team.", group="Teams")
 )

@@ -8,7 +8,7 @@ who holds one; this module knows which exist and what needs them.
 
 from dataclasses import dataclass
 
-from iki_spec.model import LabRole, is_lab_role
+from iki_spec.model import LabRole, is_lab_role, person_role
 
 __all__ = ["Use", "declared", "label", "uses"]
 
@@ -33,11 +33,12 @@ def label(role: str) -> str:
 class Use:
     """Something a lab role lets its holders do."""
 
-    #: ``approval``, a workflow step's (and ``transition``, a type's, with record states).
+    #: ``approval``, a workflow step's, or ``field``, a type's field naming people, who
+    #: must hold it (ADR 0122).
     kind: str
-    #: The workflow (or type) it's in, qualified.
+    #: The workflow or type it's in, qualified.
     owner: str
-    #: The step (or transition) it's for.
+    #: The step or field it's for.
     name: str
     #: What it lets them do, in a sentence's words: "approve “Weigh” in Review, then weigh".
     description: str
@@ -59,6 +60,18 @@ def uses(role: str) -> list[Use]:
                             owner=workflow.qualified_name,
                             name=step.id,
                             description=f"approve “{step.label}” in {workflow.label}",
+                        )
+                    )
+        for entity_type in plugin.types.values():
+            plural = (entity_type.label_plural or entity_type.name).lower()
+            for name, f in entity_type.fields.items():
+                if not f.removed and person_role(f) == role:
+                    out.append(
+                        Use(
+                            kind="field",
+                            owner=entity_type.qualified_name,
+                            name=name,
+                            description=f"be named {f.label or name} on {plural}",
                         )
                     )
     return out

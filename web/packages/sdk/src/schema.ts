@@ -812,6 +812,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reassign many records
+         * @description Names someone in an assignment field of many records at once (ADR 0122), such as a
+         *     grid's selection: each record you may edit changes as its own revision, and each person
+         *     is told once. Records that can't change are skipped, with why: you can't edit them,
+         *     their state locks them, their people with them, or the person can't be named
+         *     in their project. A record you can't read is 404, and changes nothing.
+         */
+        post: operations["iki_server_api_work_assign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/lookup": {
         parameters: {
             query?: never;
@@ -1156,6 +1180,28 @@ export interface paths {
         get: operations["iki_server_api_entities_get_revision"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/take": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign a record to yourself
+         * @description Names you in an assignment field limited to one of your lab roles (ADR 0122),
+         *     while it names nobody who can be named: open work, as `can.take` lists it. A revision,
+         *     like any edit. Send If-Match with the ETag you read.
+         */
+        post: operations["iki_server_api_work_take"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1595,6 +1641,51 @@ export interface paths {
         patch: operations["iki_server_api_notifications_change_email_settings"];
         trace?: never;
     };
+    "/api/v1/me/work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What's assigned to you
+         * @description Everything assigned to you now (ADR 0122), across the projects you read: records an
+         *     assignment field names you in, while their state is one it counts in. You drop off a
+         *     record's work when you can't be named in it any more (you left its project, say).
+         */
+        get: operations["iki_server_api_work_my_work"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/work/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Work open to your lab roles
+         * @description Records nobody is assigned that one of your lab roles could take (ADR 0122): an
+         *     assignment field limited to a role you hold in the record's project counts in its
+         *     state, and names nobody who can be named there now. Take one with `POST
+         *     /entities/{ref}/take`, or simply do it: a locked record's people can't change.
+         */
+        get: operations["iki_server_api_work_open_work"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications": {
         parameters: {
             query?: never;
@@ -1988,6 +2079,28 @@ export interface paths {
          *     told.
          */
         put: operations["iki_server_api_projects_set_lab_roles"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whom its records can name
+         * @description The people its records' fields can name (ADR 0122), for a picker: active people
+         *     who can read it, holding the field's lab role if it has one. Service accounts and
+         *     placeholders can't be named. Best matches first. It needs you to read the project.
+         */
+        get: operations["iki_server_api_work_nameable"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -3660,6 +3773,52 @@ export interface components {
              */
             note: string;
         };
+        /** AssignIn */
+        AssignIn: {
+            /** Entities */
+            entities: string[];
+            /**
+             * Field
+             * @description An assignment field of theirs.
+             */
+            field: string;
+            /**
+             * Op
+             * @description `set` names only them; for a list, `add` them or `remove` them. `remove` on a single person's field empties it if it names them.
+             * @default set
+             * @enum {string}
+             */
+            op: "set" | "add" | "remove";
+            /**
+             * Person
+             * @description Whom to name: an ID or email address; null to empty the field.
+             */
+            person: string | null;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
+            reason: string;
+        };
+        /** AssignOut */
+        AssignOut: {
+            /**
+             * Changed
+             * @description The records changed, each with a revision.
+             */
+            changed: string[];
+            /**
+             * Group
+             * @description Names this reassignment in each change's audit record (`entity.assigned`).
+             */
+            group: string;
+            /**
+             * Skipped
+             * @description Those left as they were, and why.
+             */
+            skipped: components["schemas"]["SkippedOut"][];
+        };
         /** AttemptImportOut */
         AttemptImportOut: {
             /** Created */
@@ -4440,8 +4599,20 @@ export interface components {
              * @description Its state locks it: nothing changes its values until a transition.
              */
             locked: boolean;
+            /**
+             * Needs Reassigning
+             * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
+             */
+            needs_reassigning?: components["schemas"]["ReassignOut"][];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * People
+             * @description The people its values name, by ID (ADR 0122).
+             */
+            people?: {
+                [key: string]: components["schemas"]["PersonOut"];
+            };
             /**
              * Refs
              * @description The entities its values refer to that you can read, by ID.
@@ -4812,6 +4983,11 @@ export interface components {
              */
             edit: boolean;
             /**
+             * Take
+             * @description The assignment fields you may take it in (ADR 0122), with `POST /entities/{ref}/take`: each names nobody who can be named now, and you can be.
+             */
+            take?: string[];
+            /**
              * Transitions
              * @description The transitions from its state, each with whether you may make it and why not (ADR 0118). Empty for a type without states.
              */
@@ -4917,8 +5093,20 @@ export interface components {
              * @description Its state locks it: nothing changes its values until a transition.
              */
             locked: boolean;
+            /**
+             * Needs Reassigning
+             * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
+             */
+            needs_reassigning?: components["schemas"]["ReassignOut"][];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * People
+             * @description The people its values name, by ID (ADR 0122).
+             */
+            people?: {
+                [key: string]: components["schemas"]["PersonOut"];
+            };
             /**
              * Refs
              * @description The entities its values refer to that you can read, by ID.
@@ -5000,6 +5188,11 @@ export interface components {
              * @description Its plugin is detached (ADR 0091): its entities can be read, not changed, and no new ones can be made.
              */
             detached: boolean;
+            /**
+             * Due
+             * @description The date or datetime field saying when its records are due (ADR 0122), which My work sorts by.
+             */
+            due?: string | null;
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -5365,6 +5558,16 @@ export interface components {
         /** FieldOut */
         FieldOut: {
             /**
+             * Assignment
+             * @description Whoever it names is assigned the record (ADR 0122): it's on their My work while the record is in one of `assignment_states`, and they're told.
+             */
+            assignment: boolean;
+            /**
+             * Assignment States
+             * @description The states in which it's their work. Empty: every state.
+             */
+            assignment_states: string[];
+            /**
              * Computed
              * @description Set only by actions.
              */
@@ -5423,6 +5626,16 @@ export interface components {
             registry?: ("identity" | "derived" | "fact") | null;
             /** Required */
             required: boolean;
+            /**
+             * Role
+             * @description For a field naming people (`person`, or a list of them): the lab role whoever it names must hold in the record's project (ADR 0116), or null for anyone who can read it.
+             */
+            role: string | null;
+            /**
+             * Role Label
+             * @description What people call that role.
+             */
+            role_label: string | null;
             /**
              * To
              * @description References: the type they refer to.
@@ -6188,18 +6401,18 @@ export interface components {
             description: string;
             /**
              * Kind
-             * @description approval: a workflow step's, which someone with the role approves.
-             * @constant
+             * @description approval: a workflow step's, which someone with the role approves. field: a type's field naming people, who must hold the role.
+             * @enum {string}
              */
-            kind: "approval";
+            kind: "approval" | "field";
             /**
              * Name
-             * @description The step.
+             * @description The step or field.
              */
             name: string;
             /**
              * Owner
-             * @description The workflow it's in, by name.
+             * @description The workflow or type it's in, by name.
              */
             owner: string;
         };
@@ -6678,8 +6891,20 @@ export interface components {
              * @description Its state locks it: nothing changes its values until a transition.
              */
             locked: boolean;
+            /**
+             * Needs Reassigning
+             * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
+             */
+            needs_reassigning?: components["schemas"]["ReassignOut"][];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * People
+             * @description The people its values name, by ID (ADR 0122).
+             */
+            people?: {
+                [key: string]: components["schemas"]["PersonOut"];
+            };
             /**
              * Refs
              * @description The entities its values refer to that you can read, by ID.
@@ -6718,6 +6943,44 @@ export interface components {
             values: {
                 [key: string]: unknown;
             };
+        };
+        /** NameableFilters */
+        NameableFilters: {
+            /** Field */
+            field?: string | null;
+            /**
+             * Limit
+             * @default 20
+             */
+            limit: number;
+            /**
+             * Q
+             * @description Part of their name or email address.
+             * @default
+             */
+            q: string;
+            /**
+             * Role
+             * @description Only those holding this lab role in the project, qualified.
+             */
+            role?: string | null;
+            /**
+             * Type
+             * @description With `field`: only those that field of this type can name.
+             */
+            type?: string | null;
+        };
+        /** NameableOut */
+        NameableOut: {
+            /** Email */
+            email: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** NotificationActor */
         NotificationActor: {
@@ -7194,6 +7457,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[WorkItemOut] */
+        Page_WorkItemOut_: {
+            /** Items */
+            items: components["schemas"]["WorkItemOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[WorkerOut] */
         Page_WorkerOut_: {
             /** Items */
@@ -7229,6 +7502,16 @@ export interface components {
          * @description A param is a field, as entity types' are, with its default and limits.
          */
         ParamOut: {
+            /**
+             * Assignment
+             * @description Whoever it names is assigned the record (ADR 0122): it's on their My work while the record is in one of `assignment_states`, and they're told.
+             */
+            assignment: boolean;
+            /**
+             * Assignment States
+             * @description The states in which it's their work. Empty: every state.
+             */
+            assignment_states: string[];
             /**
              * Computed
              * @description Set only by actions.
@@ -7304,6 +7587,16 @@ export interface components {
             /** Required */
             required: boolean;
             /**
+             * Role
+             * @description For a field naming people (`person`, or a list of them): the lab role whoever it names must hold in the record's project (ADR 0116), or null for anyone who can read it.
+             */
+            role: string | null;
+            /**
+             * Role Label
+             * @description What people call that role.
+             */
+            role_label: string | null;
+            /**
              * To
              * @description References: the type they refer to.
              */
@@ -7366,6 +7659,30 @@ export interface components {
              * @description The day after the last, in UTC. The first of next month unless given.
              */
             until?: string | null;
+        };
+        /**
+         * PersonOut
+         * @description Someone a record's values name (ADR 0122).
+         */
+        PersonOut: {
+            /**
+             * Active
+             * @description False once they're deactivated.
+             */
+            active: boolean;
+            /**
+             * Email
+             * @description Their email address, when you could see it on the record's project's Members page: when you're both in it. Otherwise null.
+             */
+            email: string | null;
+            /**
+             * Id
+             * Format: uuid
+             * @description Theirs for good: what a value names them by.
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /**
          * PersonRef
@@ -7951,6 +8268,24 @@ export interface components {
             /** Read */
             read: boolean;
         };
+        /**
+         * ReassignOut
+         * @description Someone an assignment field names who can't be named there now (ADR 0122).
+         */
+        ReassignOut: {
+            /** Field */
+            field: string;
+            /**
+             * Person
+             * Format: uuid
+             */
+            person: string;
+            /**
+             * Why
+             * @description Why: deactivated, no longer in the project, or the role.
+             */
+            why: string;
+        };
         /** RefOut */
         RefOut: {
             /** Archived */
@@ -8322,6 +8657,13 @@ export interface components {
             kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "transitioned";
             /** Number */
             number: number;
+            /**
+             * People
+             * @description The people its values and changes name, by ID (ADR 0122).
+             */
+            people?: {
+                [key: string]: components["schemas"]["PersonOut"];
+            };
             /** Reason */
             reason: string;
             /**
@@ -9537,6 +9879,18 @@ export interface components {
              */
             state: "creating" | "ready" | "failed" | "deleted";
         };
+        /** SkippedOut */
+        SkippedOut: {
+            /**
+             * Entity
+             * Format: uuid
+             */
+            entity: string;
+            /** Hrid */
+            hrid: string;
+            /** Why */
+            why: string;
+        };
         /** SlotOut */
         SlotOut: {
             /**
@@ -9771,6 +10125,20 @@ export interface components {
              */
             by_id: string;
             /** Reason */
+            reason: string;
+        };
+        /** TakeIn */
+        TakeIn: {
+            /**
+             * Field
+             * @description One of the record's `can.take` fields.
+             */
+            field: string;
+            /**
+             * Reason
+             * @description Why, for the record.
+             * @default
+             */
             reason: string;
         };
         /** TeamFilters */
@@ -10384,6 +10752,55 @@ export interface components {
             events?: string[] | null;
             /** Url */
             url?: string | null;
+        };
+        /** WorkFilters */
+        WorkFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Project
+             * @description Only these projects'.
+             */
+            project?: string[];
+            /**
+             * Sort
+             * @description `due`: soonest due first, undated ones last; `updated`: latest changed first.
+             * @default due
+             * @enum {string}
+             */
+            sort: "due" | "updated";
+            /**
+             * State
+             * @description Only records in these states.
+             */
+            state?: string[];
+            /**
+             * Type
+             * @description Only these types' records (and their subtypes').
+             */
+            type?: string[];
+        };
+        /** WorkItemOut */
+        WorkItemOut: {
+            /**
+             * Due
+             * @description When it's due, from its type's `due` field, if it has one.
+             */
+            due: string | null;
+            entity: components["schemas"]["EntityOut"];
+            /**
+             * Fields
+             * @description The assignment fields naming you that count in its state; for open work, the ones you could take it in.
+             */
+            fields: string[];
         };
         /** WorkerFilters */
         WorkerFilters: {
@@ -12092,6 +12509,30 @@ export interface operations {
             };
         };
     };
+    iki_server_api_work_assign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_lookup_entities: {
         parameters: {
             query: {
@@ -12516,6 +12957,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevisionDetailOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_work_take: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TakeIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityOut"];
                 };
             };
         };
@@ -13106,6 +13575,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmailSettingsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_work_my_work: {
+        parameters: {
+            query?: {
+                /** @description Only these projects'. */
+                project?: string[];
+                /** @description Only these types' records (and their subtypes'). */
+                type?: string[];
+                /** @description Only records in these states. */
+                state?: string[];
+                /** @description `due`: soonest due first, undated ones last; `updated`: latest changed first. */
+                sort?: "due" | "updated";
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WorkItemOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_work_open_work: {
+        parameters: {
+            query?: {
+                /** @description Only these projects'. */
+                project?: string[];
+                /** @description Only these types' records (and their subtypes'). */
+                type?: string[];
+                /** @description Only records in these states. */
+                state?: string[];
+                /** @description `due`: soonest due first, undated ones last; `updated`: latest changed first. */
+                sort?: "due" | "updated";
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WorkItemOut_"];
                 };
             };
         };
@@ -13731,6 +14264,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectMemberOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_work_nameable: {
+        parameters: {
+            query?: {
+                /** @description Part of their name or email address. */
+                q?: string;
+                /** @description Only those holding this lab role in the project, qualified. */
+                role?: string | null;
+                /** @description With `field`: only those that field of this type can name. */
+                type?: string | null;
+                field?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NameableOut"][];
                 };
             };
         };

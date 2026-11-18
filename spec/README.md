@@ -252,6 +252,48 @@ transitions:
   `iki_…` are reserved (`reserved-name`): a record's state is the column
   `iki_state` of its declaring type's table.
 
+### People in records
+
+A field can name people: `type: person` names one, and a list with
+`items: { type: person }` several, each once
+([ADR 0122](../docs/adr/0122-records-name-people-and-each-person-has-their-work.md)).
+Only someone who could do the work can be named: an active person (not a
+service account) who can read the record's project, holding the field's
+lab `role` there if it has one. The API takes a person's ID or email
+address and gives back their ID, with their name in the record's
+`people`.
+
+An `assignment` field assigns the record to whomever it names: it's on
+their My work, and they're told. `assignment: true` counts in every
+state; `assignment: { states: [...] }` only in those, so a reviewer has a
+sample only while it's in review. `due:` names a date or datetime field
+My work sorts by. A state that locks a record locks whom it names too,
+so name whoever has it next before it gets there.
+
+```yaml
+fields:
+  due_on: { type: date, label: Due }
+  analyst: { type: person, role: analyst, assignment: { states: [received, in_testing] } }
+  reviewer: { type: person, role: reviewer, assignment: { states: [in_review] } }
+  witnesses: { type: list, items: { type: person }, max_items: 5 }
+due: due_on
+```
+
+- `role` names a lab role, the plugin's own or a dependency's
+  (`unknown-role`).
+- Only a field naming people can be an `assignment`
+  (`assignment-not-people`), and its `states` are its type's
+  (`unknown-state`); a type without states uses `assignment: true`
+  (`assignment-without-states`).
+- `due` is a `date` or `datetime` field of the type's
+  (`unknown-field`, `due-not-a-date`), and not a registry's
+  (`due-in-registry`).
+- People are each project's: a person field can't be a registry's
+  (`person-in-registry`).
+- Someone who leaves the project, loses the role or is deactivated stays
+  named, as the history must say; the record needs reassigning, and the
+  project's Admins are told.
+
 ### Extensions
 
 A plugin adds fields to another plugin's type with an extension. The fields
@@ -308,21 +350,22 @@ A field is never deleted, because its history is kept. To stop using one,
 mark it `removed: true`: its column is dropped, and its values stay in the
 type's history. Identity fields can't be removed.
 
-| Type       | Options                                         | Notes                                                                      |
-| ---------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| `string`   | `format`, `pattern`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600. |
-| `text`     | `max_length`                                    | Long text. Not indexable: searched by its words (full text) instead.       |
-| `int`      | `min`, `max`                                    | 64-bit.                                                                    |
-| `float`    | `min`, `max`                                    | Double precision.                                                          |
-| `bool`     |                                                 |                                                                            |
-| `enum`     | `values` (required)                             | Letters, digits and `_ . + -`.                                             |
-| `date`     |                                                 | Defaults are written `YYYY-MM-DD`.                                         |
-| `datetime` |                                                 | Always with a time zone. No default.                                       |
-| `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.               |
-| `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).          |
-| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any.   |
-| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.   |
-| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.     |
+| Type       | Options                                         | Notes                                                                         |
+| ---------- | ----------------------------------------------- | ----------------------------------------------------------------------------- |
+| `string`   | `format`, `pattern`, `min_length`, `max_length` | One line. Never empty unless `min_length: 0`. Indexed: `max_length` ≤ 600.    |
+| `text`     | `max_length`                                    | Long text. Not indexable: searched by its words (full text) instead.          |
+| `int`      | `min`, `max`                                    | 64-bit.                                                                       |
+| `float`    | `min`, `max`                                    | Double precision.                                                             |
+| `bool`     |                                                 |                                                                               |
+| `enum`     | `values` (required)                             | Letters, digits and `_ . + -`.                                                |
+| `date`     |                                                 | Defaults are written `YYYY-MM-DD`.                                            |
+| `datetime` |                                                 | Always with a time zone. No default.                                          |
+| `quantity` | `unit` (required), `display_unit`, `min`, `max` | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.                  |
+| `file`     | `media_types`, `max_size`                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).             |
+| `ref`      | `to` (required)                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any.      |
+| `person`   | `role`, `assignment`                            | Someone in the record's project. See [People in records](#people-in-records). |
+| `list`     | `items` (required), `min_items`, `max_items`    | `items` is a type and its options, without the flags. No lists of lists.      |
+| `json`     | `schema`                                        | Opt-in. `schema` is a JSON Schema the value must match. Not indexable.        |
 
 String formats, checked by the database too: `dna_sequence`,
 `rna_sequence`, `protein_sequence` (IUPAC codes, either case), `email`,
@@ -1551,6 +1594,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                    | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Lab roles                       |
 | `states-inherited`, `state-initial`, `state-removed`, `unknown-state`, `transition-to-itself`, `unknown-transition`, `state-unreachable`                                                                                                                                                                                                                                                                                                                                                                                               | States                          |
+| `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                        | People in records               |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                               | Identities                      |

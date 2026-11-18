@@ -1,0 +1,344 @@
+/**
+ * People in records (ADR 0122) against a fake API: whom a record names and taking it,
+ * naming people in a transition, My work, finding records by whom they name, and
+ * reassigning many from the grid.
+ */
+
+import type { Schemas } from "@ikisci/sdk";
+import { screen, waitFor, within } from "@testing-library/react";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { entity, field, KINASE, nth, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { ME as SEARCHER, searchWords, validateFilters } from "./filters";
+import { answer, calls, ME, page } from "./test-server";
+
+const SAMPLE_ID = "00000000-0000-7000-8000-00000000e601";
+const ANA = "00000000-0000-7000-8000-0000000000a1";
+const BO = "00000000-0000-7000-8000-0000000000b0";
+
+const RECEIVED: Schemas["StateOut"] = {
+  name: "received",
+  label: "Received",
+  description: null,
+  locks: false,
+};
+const IN_TESTING: Schemas["StateOut"] = { ...RECEIVED, name: "in_testing", label: "In testing" };
+const IN_REVIEW: Schemas["StateOut"] = { ...RECEIVED, name: "in_review", label: "In review" };
+
+const ANALYST = field({
+  name: "analyst",
+  label: "Analyst",
+  type: "person",
+  role: "iki/lims.analyst",
+  role_label: "Analyst",
+  assignment: true,
+  assignment_states: ["received", "in_testing"],
+});
+const REVIEWER = field({
+  name: "reviewer",
+  label: "Reviewer",
+  type: "person",
+  role: "iki/lims.reviewer",
+  role_label: "Reviewer",
+  assignment: true,
+  assignment_states: ["in_review"],
+});
+
+const SAMPLE: Schemas["EntityTypeOut"] = {
+  ...PROTEIN,
+  name: "iki/lims.Sample",
+  plugin: "iki/lims",
+  label: "Sample",
+  label_plural: "Samples",
+  description: null,
+  hrid_prefix: "SMP",
+  identity: [],
+  fields: [nth(PROTEIN.fields, 0), ANALYST, REVIEWER],
+  states: [RECEIVED, IN_TESTING, IN_REVIEW],
+  transitions: [
+    {
+      name: "submit",
+      label: "Submit for review",
+      description: null,
+      from: ["in_testing"],
+      to: "in_review",
+      roles: ["iki/lims.analyst"],
+      reason: null,
+      not_by: [],
+    },
+  ],
+};
+
+function person(id: string, name: string, email: string | null = null): Schemas["PersonOut"] {
+  return { id, name, email, active: true };
+}
+
+function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"] {
+  return entity({
+    id: SAMPLE_ID,
+    hrid: "SMP-000001",
+    type: "iki/lims.Sample",
+    title: "Lot 7",
+    revision: 2,
+    values: { name: "Lot 7", analyst: ANA, reviewer: null },
+    people: { [ANA]: person(ANA, "Ana Lima", "ana@example.com") },
+    state: IN_TESTING,
+    needs_reassigning: [],
+    can: {
+      edit: true,
+      take: [],
+      transitions: [
+        {
+          name: "submit",
+          label: "Submit for review",
+          to: "in_review",
+          to_label: "In review",
+          reason: null,
+          allowed: true,
+          why_not: null,
+        },
+      ],
+    },
+    ...overrides,
+  });
+}
+
+function onSample(found: Schemas["EntityOut"] = sample()): void {
+  withTypes();
+  answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+  answer("GET /api/v1/entities/SMP-000001", found);
+  answer("GET /api/v1/entities/SMP-000001/provenance", {});
+  answer("GET /api/v1/entities/SMP-000001/projects", []);
+}
+
+describe("whom a record names", () => {
+  it("shows its assignees, whose work it is now, and who needs replacing", async () => {
+    onSample(
+      sample({
+        values: { name: "Lot 7", analyst: ANA, reviewer: BO },
+        people: {
+          [ANA]: person(ANA, "Ana Lima", "ana@example.com"),
+          [BO]: { ...person(BO, "Bo Chen"), active: false },
+        },
+        needs_reassigning: [{ field: "reviewer", person: BO, why: "They were deactivated." }],
+      }),
+    );
+    await renderApp("/entities/SMP-000001/");
+    const card = await screen.findByRole("region", { name: "Assigned" });
+    const rows = within(card).getAllByRole("listitem");
+    expect(nth(rows, 0)).toHaveTextContent("Analyst: Ana Lima");
+    expect(nth(rows, 0)).toHaveTextContent("Their work now: it’s In testing.");
+    expect(nth(rows, 1)).toHaveTextContent("Reviewer: Bo Chen (deactivated) Needs reassigning");
+    expect(nth(rows, 1)).toHaveTextContent("Their work once it’s In review.");
+    expect(within(card).getByRole("note")).toHaveTextContent(
+      "Bo Chen (deactivated) can’t be Reviewer any more (They were deactivated.)",
+    );
+  });
+
+  it("lets someone with the field's lab role take open work", async () => {
+    onSample(
+      sample({
+        state: IN_REVIEW,
+        values: { name: "Lot 7", analyst: ANA, reviewer: null },
+        can: { edit: true, take: ["reviewer"], transitions: [] },
+      }),
+    );
+    const taken = sample({
+      revision: 3,
+      state: IN_REVIEW,
+      values: { name: "Lot 7", analyst: ANA, reviewer: ME.id },
+      people: {
+        [ANA]: person(ANA, "Ana Lima", "ana@example.com"),
+        [ME.id]: person(ME.id, ME.name, ME.email),
+      },
+      can: { edit: true, take: [], transitions: [] },
+    });
+    answer(`POST /api/v1/entities/${SAMPLE_ID}/take`, taken);
+    const { user } = await renderApp("/entities/SMP-000001/");
+    const card = await screen.findByRole("region", { name: "Assigned" });
+    await user.click(within(card).getByRole("button", { name: "Take it as Reviewer" }));
+    expect(await screen.findByText("SMP-000001 is yours, as Reviewer.")).toBeInTheDocument();
+    const sent = calls("POST", `/api/v1/entities/${SAMPLE_ID}/take`);
+    expect(sent.at(-1)?.body).toEqual({ field: "reviewer", reason: "" });
+    expect(sent.at(-1)?.headers.get("If-Match")).toBe('"2"');
+  });
+});
+
+describe("naming someone", () => {
+  it("picks from the project's people with the field's role", async () => {
+    onSample();
+    answer(`GET /api/v1/entities/SMP-000001/provenance`, {});
+    answer(`GET /api/v1/entities/SMP-000001/projects`, []);
+    answer(`GET /api/v1/projects/${KINASE.id}/people`, [
+      { id: BO, name: "Bo Chen", email: "bo@example.com" },
+    ]);
+    answer(`PATCH /api/v1/entities/${SAMPLE_ID}`, sample({ revision: 3 }));
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
+    expect(picker).toHaveAccessibleDescription(
+      /^Type a name or email address: someone with the Reviewer role in this project\./,
+    );
+    await user.type(picker, "Bo");
+    await user.click(await screen.findByRole("option", { name: /Bo Chen/ }));
+    const asked = calls("GET", `/api/v1/projects/${KINASE.id}/people`);
+    expect(asked.at(-1)?.query.get("role")).toBe("iki/lims.reviewer");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Saved revision 3 of SMP-000001.");
+    const sent = calls("PATCH", `/api/v1/entities/${SAMPLE_ID}`);
+    expect(sent.at(-1)?.body).toEqual({ values: { reviewer: BO }, reason: "" });
+  });
+});
+
+describe("My work", () => {
+  it("lists what's assigned to you, soonest due first, and filters it", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(
+      "GET /api/v1/me/work",
+      page([
+        { entity: sample(), fields: ["analyst"], due: "2020-01-02" },
+        {
+          entity: sample({ id: `${SAMPLE_ID.slice(0, -1)}2`, hrid: "SMP-000002", title: "Lot 8" }),
+          fields: ["analyst"],
+          due: null,
+        },
+      ]),
+    );
+    const { router, user } = await renderApp("/work/");
+    const list = await screen.findByRole("list", { name: "Your work" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(nth(rows, 0)).toHaveTextContent("Lot 7 (SMP-000001) In testing Overdue");
+    expect(nth(rows, 0)).toHaveTextContent("You’re its Analyst · Due");
+    expect(within(nth(rows, 1)).queryByText("Overdue")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Assigned to me" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "Samples");
+    await user.selectOptions(screen.getByRole("combobox", { name: "State" }), "In testing");
+    await waitFor(() => {
+      expect(router.state.location.search).toEqual({
+        type: "iki/lims.Sample",
+        state: "in_testing",
+      });
+    });
+    const sent = calls("GET", "/api/v1/me/work");
+    expect(sent.at(-1)?.query.getAll("type")).toEqual(["iki/lims.Sample"]);
+    expect(sent.at(-1)?.query.getAll("state")).toEqual(["in_testing"]);
+    expect(sent.at(-1)?.query.get("sort")).toBe("due");
+  });
+
+  it("offers work open to your lab roles to take", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(
+      "GET /api/v1/me/work/open",
+      page([{ entity: sample({ state: IN_REVIEW }), fields: ["reviewer"], due: null }]),
+    );
+    answer(`POST /api/v1/entities/${SAMPLE_ID}/take`, sample({ revision: 3 }));
+    const { user } = await renderApp("/work/?open=true");
+    const list = await screen.findByRole("list", { name: "Open work" });
+    expect(list).toHaveTextContent("Open as Reviewer");
+    await user.click(within(list).getByRole("button", { name: "Take SMP-000001 as Reviewer" }));
+    expect(await screen.findByText("SMP-000001 is yours, as Reviewer.")).toBeInTheDocument();
+  });
+
+  it("says when nothing is yours", async () => {
+    withTypes();
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/me/work", page([]));
+    await renderApp("/work/");
+    expect(
+      await screen.findByRole("heading", { name: "Nothing’s assigned to you" }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("finding records by whom they name", () => {
+  it("reads people's words in the search box as conditions", () => {
+    expect(searchWords("assigned:me lot 7")).toEqual({
+      text: "lot 7",
+      conditions: [{ field: "assigned", op: "eq", value: SEARCHER }],
+    });
+    expect(searchWords("assigned:none needs:reassigning").conditions).toEqual([
+      { field: "assigned", op: "is_set", value: false },
+      { field: "needs_reassigning", op: "eq", value: true },
+    ]);
+    expect(searchWords("reviewer:@ana@example.com").conditions).toEqual([
+      { field: "reviewer", op: "eq", value: "ana@example.com" },
+    ]);
+    // Anything else is text, as typed.
+    expect(searchWords("http://x ratio:1:2 @ana")).toEqual({
+      text: "http://x ratio:1:2 @ana",
+      conditions: [],
+    });
+  });
+
+  it("keeps “is me” in the address, for whoever opens it", () => {
+    const filters = [{ field: "analyst", op: "eq", value: SEARCHER }];
+    expect(validateFilters(filters)).toEqual(filters);
+  });
+});
+
+describe("reassigning from the grid", () => {
+  const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
+  const saved: Record<string, PropertyDescriptor | undefined> = {};
+  beforeAll(() => {
+    for (const [name, value] of Object.entries(sizes)) {
+      saved[name] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
+    }
+  });
+  afterAll(() => {
+    for (const [name, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+    }
+  });
+
+  it("names someone in the picked records, and says what it left as it was", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    const second = sample({ id: `${SAMPLE_ID.slice(0, -1)}2`, hrid: "SMP-000002" });
+    answer(
+      "POST /api/v1/entities/search",
+      page([
+        sample({ needs_reassigning: [{ field: "analyst", person: ANA, why: "They left." }] }),
+        second,
+      ]),
+    );
+    answer(`GET /api/v1/projects/${KINASE.id}/people`, [
+      { id: BO, name: "Bo Chen", email: "bo@example.com" },
+    ]);
+    answer("POST /api/v1/entities/assign", {
+      changed: [SAMPLE_ID],
+      skipped: [{ entity: second.id, hrid: "SMP-000002", why: "Its state locks it." }],
+      group: "g1",
+    });
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=iki/lims.Sample");
+    const grid = await screen.findByRole("table", { name: "2 samples" });
+    const rows = within(grid).getAllByRole("row");
+    expect(nth(rows, 1)).toHaveTextContent("Ana LimaNeeds reassigning");
+    await user.click(within(nth(rows, 1)).getByRole("checkbox"));
+    await user.click(within(nth(rows, 2)).getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Reassign" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Reassign 2 samples" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Field" }), "Analyst");
+    await user.type(within(dialog).getByRole("combobox", { name: /^Analyst/ }), "Bo");
+    await user.click(await screen.findByRole("option", { name: /Bo Chen/ }));
+    await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "Ana left");
+    await user.click(within(dialog).getByRole("button", { name: "Reassign" }));
+    const done = await screen.findByRole("alertdialog", { name: "Reassigned 1 of 2" });
+    expect(done).toHaveTextContent("SMP-000002: Its state locks it.");
+    expect(calls("POST", "/api/v1/entities/assign").at(-1)?.body).toEqual({
+      entities: [SAMPLE_ID, second.id],
+      field: "analyst",
+      person: BO,
+      op: "set",
+      reason: "Ana left",
+    });
+  });
+});

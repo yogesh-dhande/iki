@@ -1469,6 +1469,104 @@ def test_a_subtype_has_its_parents_states(tmp_path: Path) -> None:
     assert "extends `acme/lab.Assay`, which has states" in message
 
 
+# --- People in records (ADR 0122) --------------------------------------------------------------
+
+PEOPLE = """\
+fields:
+  due_on: { type: date }
+  analyst: { type: person, role: analyst, assignment: { states: [received, testing] } }
+  helpers: { type: list, items: { type: person }, assignment: true, max_items: 5 }
+  received_by: { type: person }
+due: due_on
+"""
+
+
+def people(body: str = PEOPLE, machine: str = STATES) -> str:
+    return TYPE + body + machine
+
+
+def test_fields_name_people_and_assign_records_to_them(tmp_path: Path) -> None:
+    result = make(tmp_path, people(), ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"]
+    analyst = assay.fields["analyst"]
+    assert (analyst.type, analyst.role, analyst.assignment) == ("person", "acme/lab.analyst", True)
+    assert analyst.assignment_states == ("received", "testing")
+    helpers = assay.fields["helpers"]
+    assert helpers.items is not None and helpers.items.type == "person"
+    assert (helpers.assignment, helpers.assignment_states) == (True, ())
+    assert not assay.fields["received_by"].assignment
+    assert assay.due == "due_on"
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("body", "machine", "code", "message"),
+    [
+        (
+            PEOPLE.replace("role: analyst", "role: chemist"),
+            STATES,
+            "unknown-role",
+            "no lab role `chemist`",
+        ),
+        (
+            PEOPLE.replace("states: [received, testing]", "states: [received, tested]"),
+            STATES,
+            "unknown-state",
+            "`tested`",
+        ),
+        (PEOPLE, "", "assignment-without-states", "can't be assigned only in some"),
+        (
+            PEOPLE.replace(
+                "due: due_on",
+                "  tags: { type: list, items: { type: string }, assignment: true }\ndue: due_on",
+            ),
+            STATES,
+            "assignment-not-people",
+            "only a field naming people",
+        ),
+        (PEOPLE.replace("due: due_on", "due: due_by"), STATES, "unknown-field", "`due_by`"),
+        (
+            PEOPLE.replace("due: due_on", "due: received_by"),
+            STATES,
+            "due-not-a-date",
+            "what's due is due on a date",
+        ),
+    ],
+)
+def test_people_fields_are_checked(
+    tmp_path: Path, body: str, machine: str, code: str, message: str
+) -> None:
+    assert message in only(make(tmp_path, people(body, machine), ROLES), code)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        PEOPLE.replace("assignment: true", "assignment: { states: [] }"),
+        PEOPLE.replace("assignment: true", "assignment: always"),
+        PEOPLE.replace("due: due_on", "  code: { type: string, assignment: true }\ndue: due_on"),
+        PEOPLE.replace("received_by: { type: person }", "received_by: { type: string, role: qa }"),
+        PEOPLE.replace("{ type: person }", "{ type: person, min_length: 1 }"),
+        PEOPLE.replace(
+            "received_by: { type: person }", "received_by: { type: person, default: x }"
+        ),
+    ],
+)
+def test_people_fields_must_be_well_formed(tmp_path: Path, body: str) -> None:
+    assert "schema" in codes(make(tmp_path, people(body), ROLES))
+
+
+def test_people_are_each_projects_not_a_registrys(tmp_path: Path) -> None:
+    body = (
+        TYPE
+        + "identity: [code]\nfields:\n  code: { type: string, required: true, immutable: true }\n"
+        + "  owner: { type: person, registry: fact }\n"
+    )
+    assert "can't be its registry entry's" in only(make(tmp_path, body), "person-in-registry")
+
+
 def test_fields_named_iki_are_reserved(tmp_path: Path) -> None:
     body = TYPE + "fields:\n  iki_state: { type: string }\n"
     assert "`iki_state` is reserved" in only(make(tmp_path, body), "reserved-name")

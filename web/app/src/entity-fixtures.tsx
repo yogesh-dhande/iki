@@ -35,6 +35,10 @@ export type Field = Schemas["FieldOut"];
 
 export function field(overrides: Partial<Field> & Pick<Field, "name" | "label" | "type">): Field {
   return {
+    role: null,
+    role_label: null,
+    assignment: false,
+    assignment_states: [],
     description: null,
     plugin: "iki/protein",
     required: false,

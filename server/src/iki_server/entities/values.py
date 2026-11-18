@@ -162,8 +162,13 @@ def shape(qualified: str) -> Shape:
     return Shape(entity_type, tuple(parts + entries))
 
 
+#: Kinds of field stored as a foreign key, in a column named ``<field>_id``: an entity,
+#: a file, a person (ADR 0122).
+FOREIGN_KEYS = ("ref", "file", "person")
+
+
 def is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in ("ref", "file")
+    return f.type == "list" and f.items is not None and f.items.type in FOREIGN_KEYS
 
 
 def subtypes(qualified: str) -> set[str]:
@@ -210,6 +215,7 @@ class Refs:
         entries: Any = None,  # noqa: ANN401
         readable_entries: Any = None,  # noqa: ANN401
         project: str = "the project",
+        namer: Any = None,  # noqa: ANN401 - people.Namer
     ) -> None:
         self.readable = readable
         self.files = files
@@ -221,6 +227,8 @@ class Refs:
         self.entries = entries
         self.readable_entries = readable_entries
         self.project = project
+        #: Finds the people values name, in the project whose entities they are (ADR 0122).
+        self.namer = namer
         #: Already looked up: what to store, why it can't be referred to, or None for
         #: nothing the caller can read.
         self._found: dict[uuid.UUID, Target | str | None] = {}
@@ -315,6 +323,8 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
         if f.items.type == "ref":
             # One query for a whole list of references, not one per item.
             refs.types(_uuids(value))
+        if f.items.type == "person" and refs.namer is not None and refs.namer.project is not None:
+            refs.namer.look_up(f.items.role, [v for v in value if isinstance(v, str)])
         out = []
         for index, item in enumerate(value):
             if item is None:
@@ -326,6 +336,8 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
         own = [p for p in problems if not p.startswith("item ")]
         if own:
             raise ValueError(" ".join(own))
+        if f.items.type == "person" and len(set(out)) != len(out):
+            raise ValueError("names someone twice.")
         return out
     if f.type == "quantity":
         value = _quantity(f, value)
@@ -341,6 +353,10 @@ def to_db(f: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON in, a
         return _datetime(value)
     if f.type == "ref":
         return _ref(f, value, refs)
+    if f.type == "person":
+        if refs.namer is None:
+            raise ValueError("can't name anyone here.")
+        return refs.namer.person(f, value)
     if f.type == "file":
         return _file(f, value, refs)
     if f.type == "json":
@@ -476,7 +492,7 @@ def to_json(f: Field, value: Any) -> Any:  # noqa: ANN401 - a model value in, JS
         return utc.isoformat().replace("+00:00", "Z")
     if f.type == "date":
         return value.isoformat()
-    if f.type in ("ref", "file"):
+    if f.type in FOREIGN_KEYS:
         return str(value)
     return value
 
@@ -486,7 +502,7 @@ def read_value(instance: models.Model, f: Field, part: Part) -> Any:  # noqa: AN
     if is_list_table(f):
         rows = part.list_model(f.name)._default_manager.filter(entity_id=instance.pk)
         return list(rows.order_by("position").values_list("item_id", flat=True))
-    if f.type in ("ref", "file"):
+    if f.type in FOREIGN_KEYS:
         return getattr(instance, f"{f.name}_id")
     return getattr(instance, f.name)
 

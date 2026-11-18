@@ -42,6 +42,8 @@ __all__ = [
     "Workflow",
     "WorkflowStep",
     "action_from_dict",
+    "names_people",
+    "person_role",
     "plugin_from_dict",
     "plugin_to_dict",
     "workflow_from_dict",
@@ -59,6 +61,7 @@ FIELD_TYPES = (
     "quantity",
     "file",
     "ref",
+    "person",
     "list",
     "json",
 )
@@ -120,6 +123,13 @@ class Field:
     media_types: tuple[str, ...] = ()
     max_size: int | None = None  # bytes
     to: str | None = None  # a qualified type name
+    #: For a field naming people: the lab role they must hold in the record's project, by
+    #: its qualified name (ADR 0116). None names anyone who can read the project.
+    role: str | None = None
+    #: For a field naming people (or a list of them): whoever it names is assigned the
+    #: record (ADR 0122), while it's in one of ``assignment_states`` (any, if empty).
+    assignment: bool = False
+    assignment_states: tuple[str, ...] = ()
     items: Field | None = None
     min_items: int | None = None
     max_items: int | None = None
@@ -129,6 +139,8 @@ class Field:
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> Field:
         items = data.get("items")
         to = data.get("to")
+        role = data.get("role")
+        assignment = data.get("assignment", False)
         return cls(
             name=name,
             type=data["type"],
@@ -156,6 +168,11 @@ class Field:
             media_types=tuple(data.get("media_types", ())),
             max_size=parse_size(data["max_size"]) if "max_size" in data else None,
             to=qualify(to, plugin) if isinstance(to, str) else None,
+            role=(role if "." in role else f"{plugin}.{role}") if isinstance(role, str) else None,
+            assignment=bool(assignment),
+            assignment_states=tuple(assignment.get("states") or ())
+            if isinstance(assignment, dict)
+            else (),
             items=cls.from_manifest(name, items, plugin=plugin)
             if isinstance(items, dict)
             else None,
@@ -163,6 +180,20 @@ class Field:
             max_items=data.get("max_items"),
             schema=data.get("schema"),
         )
+
+
+def names_people(f: Field) -> bool:
+    """Whether a field names people: ``type: person``, or a list of them (ADR 0122)."""
+    return f.type == "person" or (
+        f.type == "list" and f.items is not None and f.items.type == "person"
+    )
+
+
+def person_role(f: Field) -> str | None:
+    """The lab role whoever a field names must hold, for a person field or a list of them."""
+    if f.type == "list" and f.items is not None:
+        return f.items.role
+    return f.role
 
 
 def in_entry(f: Field, identity: Collection[str] = ()) -> bool:
@@ -238,6 +269,9 @@ class EntityType:
     #: ancestor's: see :func:`state_machine`.
     states: dict[str, State] = field(default_factory=dict)
     transitions: dict[str, Transition] = field(default_factory=dict)
+    #: The date or datetime field saying when its records are due (ADR 0122): its own or a
+    #: parent's. Subtypes have their ancestor's unless they name their own.
+    due: str | None = None
 
     @property
     def qualified_name(self) -> str:
@@ -1017,5 +1051,6 @@ def _field(data: dict[str, Any]) -> Field:
             "values": tuple(data["values"]),
             "media_types": tuple(data["media_types"]),
             "items": _field(data["items"]) if data["items"] is not None else None,
+            "assignment_states": tuple(data.get("assignment_states") or ()),
         }
     )

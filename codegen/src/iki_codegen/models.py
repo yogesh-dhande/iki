@@ -8,8 +8,12 @@ For each entity type:
 - its history table, append-only, one row per revision, with every field the
   type ever had (removed fields included) and no constraints or foreign keys,
   so history survives whatever happens to what it pointed to;
-- a table per list of references or files, one row per item, so each item has
-  a real foreign key. Other lists are arrays.
+- a table per list of references, files or people, one row per item, so each
+  item has a real foreign key. Other lists are arrays.
+
+A field naming a person (ADR 0122) is a foreign key to ``iki_user``, which never
+loses a row: people are deactivated, never deleted, so a record keeps whoever it
+named.
 
 Extensions get the same, keyed by the extended type's ``entity_id``.
 
@@ -66,11 +70,18 @@ from iki_server.entities.models import Entity
 from iki_server.files.models import File
 '''
 
+#: What a model naming people imports, beside the header's.
+PEOPLE_IMPORT = "from iki_server.accounts.models import User\n"
+
 
 def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
     """``types`` holds every type the plugin can name, its dependencies' included."""
     every = {**types, **plugin.types}
-    out = [HEADER.format(plugin=plugin.name)]
+    header = HEADER.format(plugin=plugin.name)
+    if _names_people(plugin):
+        first = "from iki_server.entities import checks\n"
+        header = header.replace(first, PEOPLE_IMPORT + first, 1)
+    out = [header]
     imports = sorted(
         {
             t.extends.split(".")[0]
@@ -87,6 +98,16 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
     for extension in sorted(plugin.extensions, key=lambda e: e.extends_type):
         out.extend(_extension(extension, every))
     return "".join(out).rstrip() + "\n"
+
+
+def _names_people(plugin: Plugin) -> bool:
+    """Whether any of the plugin's tables has a field naming a person."""
+    fields = [f for t in plugin.types.values() for f in t.fields.values()]
+    fields += [f for e in plugin.extensions for f in e.fields.values()]
+    return any(
+        not f.removed and (f.type == "person" or (f.items is not None and f.items.type == "person"))
+        for f in fields
+    )
 
 
 def _in_order(plugin: Plugin) -> list[EntityType]:
@@ -394,7 +415,7 @@ def _list_model(
 
 
 def _is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in ("ref", "file")
+    return f.type == "list" and f.items is not None and f.items.type in ("ref", "file", "person")
 
 
 def _column(
@@ -412,7 +433,7 @@ def _column(
             options["null"] = True
         if f.has_default:
             options["db_default"] = _raw(_value(f, f.default))
-        if f.indexed and f.type not in ("ref",):
+        if f.indexed and f.type not in ("ref", "person"):
             options["db_index"] = True
     kind = f.type
     if kind == "string":
@@ -438,6 +459,11 @@ def _column(
     if kind == "file":
         return _call(
             "models.ForeignKey", _raw("File"), _raw("models.PROTECT"), related_name="+", **options
+        )
+    if kind == "person":
+        # People are deactivated, never deleted: PROTECT keeps that so.
+        return _call(
+            "models.ForeignKey", _raw("User"), _raw("models.PROTECT"), related_name="+", **options
         )
     if kind == "ref":
         assert f.to is not None  # noqa: S101 - refs have a target
@@ -511,11 +537,12 @@ _HISTORY_TYPES = {
     "json": "models.JSONField",
     "ref": "models.UUIDField",
     "file": "models.UUIDField",
+    "person": "models.UUIDField",
 }
 
 
 def _history_type(f: Field, **options: Any) -> str:  # noqa: ANN401 - literals
-    if f.type in ("ref", "file") and "null" in options:
+    if f.type in ("ref", "file", "person") and "null" in options:
         # The same column name as the live table's foreign key.
         options = {"db_column": f"{f.name}_id", **options}
     if f.type == "quantity":

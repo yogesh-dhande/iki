@@ -203,6 +203,44 @@ def build() -> MCPServer:
         """The person you act for, with their organization roles."""
         return answer(await call("GET", "/me"))
 
+    @server.tool(annotations=READ, title="My work")
+    async def my_work(
+        open_to_my_roles: Annotated[
+            bool,
+            Field(
+                description="true: records nobody is assigned that one of the person's lab "
+                "roles could take, rather than theirs."
+            ),
+        ] = False,
+        project: Annotated[list[UUID] | None, Field(description="Only these projects'.")] = None,
+        type: Annotated[
+            list[str] | None, Field(description="Only these types' records (and subtypes').")
+        ] = None,
+        state: Annotated[
+            list[str] | None, Field(description="Only records in these states.")
+        ] = None,
+        sort: Annotated[
+            Literal["due", "updated"],
+            Field(description="due: soonest due first; updated: latest changed first."),
+        ] = "due",
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
+    ) -> CallToolResult:
+        """What's assigned to the person you act for, across their projects (ADR 0122):
+        records an assignment field names them in, such as a sample's analyst, while the
+        record's state is one it's their work in. Each item has the record, the fields
+        naming them, and when it's due. Read-only: assigning someone is changing a record."""
+        query: dict[str, Any] = {
+            "project": [str(p) for p in project or []] or None,
+            "type": type or None,
+            "state": state or None,
+            "sort": sort,
+            "limit": limit,
+            "cursor": cursor,
+        }
+        where = "/me/work/open" if open_to_my_roles else "/me/work"
+        return answer(await call("GET", where, query=query))
+
     @server.tool(annotations=READ, title="List projects")
     async def list_projects(
         member: Annotated[
@@ -259,7 +297,9 @@ def build() -> MCPServer:
             Field(
                 description="Conditions on fields: {field, op, value}, or {all|any: [...]}, "
                 "or {not: ...}. Fields and their operators are in describe_entity_type; a type "
-                "with states takes state too, by a state's name."
+                "with states takes state too, by a state's name. Fields naming people take an "
+                "ID, an email address or {{ me }}; assigned finds what someone is assigned, "
+                "and needs_reassigning work whose assignee can't be any more."
             ),
         ] = None,
         sort: Annotated[SortIn | None, Field(description="A field to sort by.")] = None,

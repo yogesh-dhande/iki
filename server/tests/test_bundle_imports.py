@@ -463,6 +463,51 @@ def test_a_record_arrives_in_its_state_with_its_transitions(world: World, tmp_pa
     assert changed.status_code == 409, changed.content
 
 
+def test_the_people_a_record_names_come_with_it(world: World, tmp_path: Path) -> None:
+    """ADR 0122: whom a record names is kept, as they are here: the same person by their
+    email address, or a placeholder, whom the record needs reassigning from."""
+    from iki_server.org.models import LabRoleGrant
+
+    admin = world.users["admin"]
+    LabRoleGrant.objects.create(
+        membership=world.project.memberships.get(user=world.users["editor"]),
+        role="acme/protein.analyst",
+        granted_by=admin,
+    )
+
+    def named() -> list[Any]:
+        elsewhere = User.objects.create_user("rosalind@lab-a.example", "Rosalind Franklin")
+        world.project.memberships.create(user=elsewhere, role=ProjectRole.EDITOR)
+        made = services.create(
+            admin,
+            "acme/protein.Sample",
+            world.project,
+            {
+                "label": "S-1",
+                "analyst": str(world.users["editor"].pk),
+                "received_by": str(elsewhere.pk),
+                "helpers": [str(elsewhere.pk), str(admin.pk)],
+            },
+        )
+        return [made.entity]
+
+    path = bundle_of(world, tmp_path, named)
+    assert not User.objects.filter(email="rosalind@lab-a.example").exists()
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "applied", done
+    (row,) = entities_of(api, done)
+    here = api.get(f"/entities/{row['hrid_here']}").json()
+    placeholder = User.objects.get(email="rosalind@lab-a.example")
+    assert not placeholder.is_active
+    values = here["values"]
+    assert values["analyst"] == str(world.users["editor"].pk)
+    assert values["received_by"] == str(placeholder.pk)
+    assert values["helpers"] == [str(placeholder.pk), str(admin.pk)]
+    # Who isn't here can't be assigned it: the record says so.
+    assert [s["field"] for s in here["needs_reassigning"]] == ["helpers"]
+
+
 def test_a_view_comes_with_the_entities_it_shows_each_at_its_revision(
     world: World, tmp_path: Path
 ) -> None:

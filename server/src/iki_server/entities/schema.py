@@ -9,6 +9,9 @@ The schema describes the ``values`` object the API returns and accepts:
 - Quantities are numbers in ``x-iki-unit`` (UCUM). An input may instead be
   ``{"value": …, "unit": …}`` in any convertible unit.
 - References are entity IDs, of ``x-iki-ref`` or one of its subtypes.
+- People are user IDs (``x-iki-person``), and take an email address too; only
+  someone in the record's project, holding ``x-iki-role`` if it's given, can be
+  named (ADR 0122).
 - Files are file IDs (upload or register the file first), of
   ``x-iki-media-types`` and at most ``x-iki-max-size`` bytes.
 
@@ -112,6 +115,11 @@ def _value(f: Field) -> dict[str, Any]:
         return {"type": "string", "format": "date-time"}
     if kind == "ref":
         return {"type": "string", "format": "uuid", "x-iki-ref": f.to}
+    if kind == "person":
+        person: dict[str, Any] = {"type": "string", "x-iki-person": True}
+        if f.role is not None:
+            person["x-iki-role"] = f.role
+        return person
     if kind == "file":
         out = {"type": "string", "format": "uuid", "x-iki-file": True}
         if f.media_types:

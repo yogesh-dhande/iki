@@ -119,6 +119,13 @@ _register(
         project=True,
         org=True,
     ),
+    EventType(
+        "entity.assigned",
+        "Someone names people in a record's assignment field, or takes them off it (ADR "
+        "0122): `field`, and who was `added` and `removed`.",
+        project=True,
+        org=True,
+    ),
     EventType("entity.linked", "Someone adds an entity to the project.", project=True, org=True),
     EventType(
         "entity.unlinked", "Someone takes an entity out of the project.", project=True, org=True
@@ -364,8 +371,34 @@ def _budget(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[s
     }
 
 
+def _assigned(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:
+    from iki_server.entities.models import Entity
+
+    if not isinstance(target, Entity) or event.project is None:
+        return None
+    found = {
+        str(u.pk): u
+        for u in User.objects.filter(
+            pk__in=[p["id"] for k in ("added", "removed") for p in event.data.get(k, [])]
+        )
+    }
+    return event.action, {
+        "entity": entity_data(target),
+        "project": project_data(event.project),
+        "field": event.data.get("field"),
+        "label": event.data.get("label"),
+        **{
+            k: [user_data(found[p["id"]]) for p in event.data.get(k, []) if p["id"] in found]
+            for k in ("added", "removed")
+        },
+        "revision": event.data.get("revision"),
+        "group": event.data.get("group"),
+    }
+
+
 FROM_AUDIT: dict[str, Builder] = {
     "budget.threshold_reached": _budget,
+    "entity.assigned": _assigned,
     "entity.linked": _entity_link,
     "entity.unlinked": _entity_link,
     "project.created": _project("project.created"),

@@ -9,6 +9,12 @@ since each type's table holds its subtypes' rows. Without a type (or with
 against one making at a time, ``{"software": "AlphaFold", "by": "iki"}``.
 A type with states (ADR 0118) has ``state`` too: its records' state, by name.
 
+Fields naming people (ADR 0122) take a person's ID, their email address, or
+``{{ me }}``, whoever searches (so a saved search shared with a project means each
+of its people); ``created_by`` does too. ``assigned`` finds records someone is
+assigned now, in any of their type's assignment fields that counts in their state,
+and ``needs_reassigning`` those whose assignees can't be named there any more.
+
 Conditions are JSON, so the same search can be sent, saved and shared::
 
     {
@@ -51,7 +57,7 @@ from django.db.models.functions import Lower
 
 from iki_server.entities import access, registry, states
 from iki_server.entities.models import Entity
-from iki_server.entities.values import Shape, is_list_table, shape, subtypes
+from iki_server.entities.values import FOREIGN_KEYS, Shape, is_list_table, shape, subtypes
 from iki_spec import conditions, naming, titles, units
 from iki_spec.model import STATE_COLUMN, Field
 
@@ -121,7 +127,16 @@ _BUILT_IN = {
     "updated_at": Column("updated_at", "datetime", "updated_at"),
     "archived_at": Column("archived_at", "datetime", "archived_at"),
     "made": Column("made", "making", "pk"),
+    # Worked out by :mod:`iki_server.entities.assignments` (ADR 0122).
+    "assigned": Column("assigned", "person", "pk"),
+    "needs_reassigning": Column("needs_reassigning", "bool", "pk"),
 }
+
+#: Columns whose conditions :mod:`iki_server.entities.assignments` compiles.
+_ASSIGNMENT_COLUMNS = frozenset({"assigned", "needs_reassigning"})
+
+#: What a condition's value can say for the person searching (ADR 0117, ADR 0122).
+ME = "{{ me }}"
 
 
 @dataclass(frozen=True)
@@ -191,9 +206,12 @@ class _Compiler:
         user: Any,  # noqa: ANN401 - User
         form: Shape | None,
         templated: Callable[[Any], bool] | None = None,
+        within: Iterable[str] | None = None,
     ) -> None:
         self.user = user
         self.form = form
+        #: The types searched (with their subtypes), or None for every type.
+        self.within = within
         self.templated = templated
         self.errors: list[tuple[str, str]] = []
         self.count = 0
@@ -281,6 +299,8 @@ class _Compiler:
             # Worked out where it's used (an app's expression, checked on its own), so only
             # the field and operator are checked here.
             return Q()
+        if col.name in _ASSIGNMENT_COLUMNS and col.field is None:
+            return self.assignment(col, op, value, at)
         if op == "is_set":
             if not isinstance(value, bool):
                 return self.fail(at, "must be true or false.")
@@ -331,6 +351,24 @@ class _Compiler:
             )
             return equal if op == "eq" else ~equal
         return Q(**{f"{col.path}__{op}": converted})
+
+    def assignment(self, col: Column, op: str, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
+        """``assigned`` and ``needs_reassigning`` (ADR 0122)."""
+        from iki_server.entities import assignments
+
+        if op == "is_set" or col.name == "needs_reassigning":
+            if not isinstance(value, bool):
+                return self.fail(at, "must be true or false.")
+            return assignments.condition(self.within, col.name, op, value=value)
+        values = value if op == "in" else [value]
+        if op == "in" and (not isinstance(value, list) or not 1 <= len(value) <= MAX_VALUES):
+            return self.fail(at, f"must be a list of 1 to {MAX_VALUES} values.")
+        persons = [
+            self.value(col, v, f"{at}/{i}" if op == "in" else at) for i, v in enumerate(values)
+        ]
+        if any(p is _BAD for p in persons):
+            return Q()
+        return assignments.condition(self.within, col.name, op, persons)
 
     def making(self, value: Any, at: str) -> Q:  # noqa: ANN401 - JSON
         """Entities one of whose makings (ADR 0106) has every key ``value`` gives: one row,
@@ -474,6 +512,29 @@ def _uuid(_: _Compiler, __: Column, value: Any) -> uuid.UUID:  # noqa: ANN401 - 
         raise ValueError("must be an ID.") from None
 
 
+#: Someone nobody is: an email address no person has finds nothing, as one who's in no
+#: record does, so a search says nothing about who exists.
+_NOBODY = uuid.UUID(int=0)
+
+
+def _person(c: _Compiler, _: Column, value: Any) -> uuid.UUID:  # noqa: ANN401 - JSON
+    """A person, by their ID, their email address, or ``{{ me }}``."""
+    if isinstance(value, str) and value.replace(" ", "") == ME.replace(" ", ""):
+        return cast("uuid.UUID", c.user.pk)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("must name a person: their ID, their email address, or `{{ me }}`.")
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        pass
+    if "@" not in value:
+        raise ValueError("must name a person: their ID, their email address, or `{{ me }}`.")
+    from iki_server.accounts.models import User
+
+    found = User.objects.filter(email=value.strip()).values_list("pk", flat=True).first()
+    return found or _NOBODY
+
+
 def _ref(c: _Compiler, _: Column, value: Any) -> uuid.UUID:  # noqa: ANN401 - JSON
     if not isinstance(value, str):
         raise ValueError("must be an entity's ID or HRID.")
@@ -513,7 +574,8 @@ _CONVERT: Mapping[str, Callable[[_Compiler, Column, Any], Any]] = {
     "datetime": _datetime,
     "ref": _ref,
     "file": _uuid,
-    "user": _uuid,
+    "user": _person,
+    "person": _person,
     "project": _uuid,
     "type": _type,
 }
@@ -547,7 +609,7 @@ def column(form: Shape | None, name: str) -> Column | None:
         prefix = f"{naming.extension_related_name(part.plugin)}__" if part.extension else ""
     if is_list_table(f):
         return Column(name, f.type, prefix + name, f, items=part.list_model(name), entry=entry)
-    if f.type in ("ref", "file"):
+    if f.type in FOREIGN_KEYS:
         return Column(name, f.type, f"{prefix}{name}_id", f, entry=entry)
     return Column(name, f.type, prefix + name, f, entry=entry)
 
@@ -594,7 +656,12 @@ def queryset(
         found = found.filter(matching(search.q.strip(), names))
     errors: list[tuple[str, str]] = []
     if search.where is not None:
-        compiler = _Compiler(user, form, templated)
+        within = (
+            None
+            if search.type is None or search.type == "iki/core.Entity"
+            else ({search.type} if search.exact_type else subtypes(search.type))
+        )
+        compiler = _Compiler(user, form, templated, within)
         where = compiler.condition(search.where, "#/where")
         errors += compiler.errors
         found = found.filter(where)

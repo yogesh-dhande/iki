@@ -97,6 +97,20 @@ iki.entities.archive("PRT-000123", revision=2, reason="Duplicate of PRT-000099")
 sample = iki.entities.get("SMP-000012")
 iki.entities.transition("SMP-000012", "send_back", revision=sample["revision"], reason="Rerun")
 
+# Fields can name people (ADR 0122), by ID or email address; a state that locks
+# a record locks whom it names too.
+iki.entities.update("SAM-000013", {"reviewer": "ana@example.com"}, revision=4)
+for item in iki.work.mine(type="iki/example_lims.Sample"):  # yours now, soonest due first
+    print(item["entity"]["hrid"], item["fields"], item["due"])
+for item in iki.work.open():  # nobody's yet, and open to your lab roles
+    record = item["entity"]
+    iki.entities.take(record["hrid"], item["fields"][0], revision=record["revision"])
+# Many at once, each its own revision; what can't change is skipped, with why.
+bos = {"field": "analyst", "op": "eq", "value": "bo@example.com"}
+late = list(iki.entities.search("iki/example_lims.Sample", where=bos))
+iki.entities.assign(late, "analyst", "ana@example.com", reason="Bo is away")["skipped"]
+mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searches
+
 iki.entities.history("PRT-000123")  # who changed what, when, how and why
 iki.entities.provenance("PRT-000123")  # where each value came from
 iki.entities.origins("DNA-000042")  # the database record or file it was imported from

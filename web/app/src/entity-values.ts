@@ -7,7 +7,7 @@
 
 import { inSentence, type Entity, type EntityType, type FieldDef } from "./entities";
 
-/** A referenced entity, as a picker shows it. */
+/** A referenced entity, as a picker shows it; or a person, with their email in `hrid`. */
 export interface Picked {
   id: string;
   hrid: string;
@@ -65,7 +65,7 @@ export function defaultUnit(field: FieldDef): string {
 export function emptyDraft(field: FieldDef): Draft {
   if (field.type === "list") return [];
   if (field.type === "quantity") return { number: "", unit: defaultUnit(field), other: "" };
-  if (field.type === "ref" || field.type === "file") return null;
+  if (field.type === "ref" || field.type === "file" || field.type === "person") return null;
   return "";
 }
 
@@ -73,14 +73,14 @@ export function emptyDraft(field: FieldDef): Draft {
 export function initialDraft(field: FieldDef, type: Schemaed): Draft {
   const schema = propertySchema(type, field.name);
   if (schema.default === undefined || schema.default === null) return emptyDraft(field);
-  return toDraft(field, schema.default, { refs: {}, files: {} });
+  return toDraft(field, schema.default, { refs: {}, files: {}, people: {} });
 }
 
 /** A value from the API as a draft. Quantities show in the unit people read them in. */
 export function toDraft(
   field: FieldDef,
   value: unknown,
-  entity: Pick<Entity, "refs" | "files">,
+  entity: Pick<Entity, "refs" | "files" | "people">,
 ): Draft {
   if (value === null || value === undefined) return emptyDraft(field);
   if (field.type === "list") {
@@ -105,6 +105,11 @@ export function toDraft(
     case "file": {
       const id = value as string;
       return { id, hrid: "", title: entity.files[id]?.name ?? "A file you can’t read" };
+    }
+    case "person": {
+      const id = value as string;
+      const found = entity.people?.[id];
+      return { id, hrid: found?.email ?? "", title: found?.name ?? "Someone you can’t see" };
     }
     case "bool":
       return value === true ? "true" : "false";
@@ -304,6 +309,7 @@ function encodeWith(field: FieldDef, draft: Draft, schema: PropertySchema): Enco
       return ok(date.toISOString());
     }
     case "ref":
+    case "person":
       return ok((draft as Picked).id);
     case "file": {
       const file = draft as Picked;
@@ -345,6 +351,7 @@ export function blankMessage(field: FieldDef): string {
       return `Choose ${inSentence(field.label)}.`;
     case "ref":
     case "file":
+    case "person":
       return `Choose ${inSentence(field.label)}.`;
     case "list":
       return `Add at least one ${inSentence(field.label)}.`;

@@ -34,6 +34,7 @@ from iki_spec.model import (
     ComponentSlot,
     EntityType,
     Field,
+    names_people,
     qualify,
 )
 from iki_spec.problems import Path
@@ -48,9 +49,10 @@ MAX_MODULE_BYTES = 10 * 1024**2
 #: The context a condition's value can be: `{{ entity }}` or `{{ me }}`, and nothing else.
 _CONTEXT = re.compile(r"\{\{\s*([a-z_]+)\s*\}\}")
 #: The columns every entity has that a declared search can name.
-_COLUMNS = ("hrid", "created_by", "created_at", "updated_at")
-#: Fields `{{ me }}` can be compared with. Step 57's fields that name a person join it.
-_PEOPLE = ("created_by",)
+_COLUMNS = ("hrid", "created_by", "created_at", "updated_at", "assigned", "needs_reassigning")
+#: The columns `{{ me }}` can be compared with, beside the type's fields that name people
+#: (ADR 0122).
+_PEOPLE = ("created_by", "assigned")
 
 
 def context_of(value: Any) -> str | None:  # noqa: ANN401 - JSON
@@ -341,11 +343,12 @@ class _Search:
                 )
             elif context == "entity":
                 self.entity(node, kind, found, at)
-            elif node["field"] not in _PEOPLE:
+            elif node["field"] not in _PEOPLE and (found is None or not names_people(found)):
                 self.add(
                     "context-misplaced",
                     f"`{{{{ me }}}}` is a person, so it's compared with "
-                    f"{', '.join(f'`{p}`' for p in _PEOPLE)}, not `{node['field']}`.",
+                    f"{', '.join(f'`{p}`' for p in _PEOPLE)} or a field naming people, not "
+                    f"`{node['field']}`.",
                     self.source,
                     at,
                 )
