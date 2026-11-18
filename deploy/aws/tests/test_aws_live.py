@@ -1151,14 +1151,24 @@ def test_an_org_admin_creates_a_project_and_an_entity(admin: Iki, project: dict[
     iki_live.check_project_and_entity(admin, project)
 
 
+def s3_hosts(bucket: str, region: str) -> set[str]:
+    """The names a URL for the bucket is signed for: its region's, and in us-east-1 S3's
+    global one too, which the SDK signs for there."""
+    hosts = {f"{bucket}.s3.{region}.amazonaws.com"}
+    if region == "us-east-1":
+        hosts.add(f"{bucket}.s3.amazonaws.com")
+    return hosts
+
+
 def test_a_file_goes_up_and_comes_down_through_urls_signed_with_short_lived_credentials(
     deployment: Deployment, admin: Iki, project: dict[str, Any]
 ) -> None:
-    region = deployment.settings.region
+    s, aws = deployment.settings, deployment.aws
+    hosts = s3_hosts(f"{s.name}-files-{aws.account()}", s.region)
 
     def signed(url: str) -> None:
         parts = urlsplit(url)
-        assert parts.hostname and parts.hostname.endswith(f".s3.{region}.amazonaws.com"), url
+        assert parts.hostname in hosts, url
         query = parse_qs(parts.query)
         assert query.get("X-Amz-Algorithm") == ["AWS4-HMAC-SHA256"], url
         # The web pod's role, through Pod Identity: a session's key (ASIA...) and its token,

@@ -80,6 +80,14 @@ def test_no_builds_nothing_to_time() -> None:
     assert live.stop_and_time_builds(FakeCodeBuild([]), SETTINGS) == []  # type: ignore[arg-type]
 
 
+def test_a_url_is_signed_for_the_bucket_on_s3s_names_for_its_region() -> None:
+    """Live run iki-test-11180446's URLs named S3's global host, as the SDK signs in
+    us-east-1; anywhere else only the region's own."""
+    assert live.s3_hosts("b", "us-east-1") == {"b.s3.us-east-1.amazonaws.com", "b.s3.amazonaws.com"}
+    assert live.s3_hosts("b", "eu-west-1") == {"b.s3.eu-west-1.amazonaws.com"}
+    assert "other.s3.amazonaws.com" not in live.s3_hosts("b", "us-east-1")
+
+
 TEARDOWN = Path(__file__).resolve().parents[1] / "scripts" / "teardown.sh"
 
 FAKE_TOFU = """#!/usr/bin/env bash
