@@ -5,8 +5,10 @@ name: translate
 label: Translate DNA into protein
 description: >-
   Translates a DNA sequence, in the frame and with the genetic code chosen, and
-  registers the protein it encodes, linked to the DNA. A protein already in Iki
-  (the same sequence) is reused.
+  registers the translation as a protein, linked to the DNA. A frame is read
+  codon by codon; a complete coding sequence is read as NCBI's tables say of
+  one, its start codon giving methionine. A protein already in Iki (the same
+  sequence) is reused.
 inputs:
   sequence: { type: iki/dna.DNASequence, schema: ">=1" }
 params:
@@ -34,7 +36,18 @@ params:
     type: bool
     label: Stop at the first stop codon
     default: true
-    description: Otherwise each stop codon is kept, as *.
+    description: >-
+      Otherwise each stop codon is kept, as *. Genetic codes 27, 28 and 31,
+      whose stop codons can also code for amino acids, can't stop at the first.
+  complete_cds:
+    type: bool
+    label: Complete coding sequence
+    default: false
+    description: >-
+      Translate it as a whole coding sequence: its first codon must be one of
+      the genetic code's start codons, translated as methionine, and its last a
+      stop codon, left out, with no other stop and no bases left over. Stop at
+      the first stop codon doesn't apply.
 effects:
   creates: [{ type: Protein, cardinality: one, derived_from: [sequence] }]
 software:

@@ -20,6 +20,8 @@ from iki_spec import schemas
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "protein" / "scripts"
 #: Human haemoglobin's alpha chain (UniProt P69905).
+#: Human ubiquitin (UniProt P0CG48's first 76 residues).
+UBIQUITIN = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
 HBA = (
     "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAH"
     "KLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR"
@@ -180,7 +182,8 @@ def properties(tmp_path: Path, *sequences: str) -> tuple[dict[str, Any], list[di
 def test_properties_are_protparams(tmp_path: Path) -> None:
     found = properties(tmp_path, HBA)[0]["0"]
     profile = found.pop("hydropathy")
-    # ExPASy's ProtParam gives 15257.40 (its residue masses differ in the last digits),
+    # ExPASy's ProtParam gives 15257.55 Da: Iki sums Biopython's average residue masses
+    # (IUPACData.protein_weights), 12 ppm lower than ExPASy's table. ExPASy also gives
     # pI 8.72, 9970 M⁻¹cm⁻¹ (one cysteine: no cystine), GRAVY 0.048, instability 6.97.
     assert found == {
         "length": 142,
@@ -213,26 +216,71 @@ def test_cystines_add_to_the_oxidized_extinction_coefficient(tmp_path: Path) -> 
 def test_a_final_stop_is_left_out_and_other_residues_leave_only_the_length(
     tmp_path: Path,
 ) -> None:
-    found, messages = properties(tmp_path, "mkwv*", "MKXV", "MK*V")
-    assert (
-        found["0"]["molecular_weight"] == properties(tmp_path, "MKWV")[0]["0"]["molecular_weight"]
-    )
-    assert found["0"]["length"] == 5
+    found, messages = properties(tmp_path, "mkwv*", "MKXV", "MK*V", "*")
+    assert found["0"] == properties(tmp_path, "MKWV")[0]["0"]
+    # Its length is its amino acids: a stop is none (NCBI's tables; Biopython's to_stop).
+    assert found["0"]["length"] == 4
     assert found["1"] == {"length": 4}
-    assert found["2"] == {"length": 4}
+    assert found["2"] == {"length": 3}
+    assert found["3"] == {"length": 0}
+    everything = (
+        "molecular weight, isoelectric point, extinction coefficients, GRAVY, hydropathy and "
+        "instability index have"
+    )
     assert [(m["level"], m["entity"][-1], m["text"]) for m in messages] == [
         (
             "warning",
             "1",
-            "It has X at residue 3, so only its length was set: the other properties need "
-            "the 20 standard amino acids alone.",
+            f"Its {everything} no value for X at residue 3, so they weren't computed.",
         ),
         (
             "warning",
             "2",
-            "It has a stop (*) at residue 3, so only its length was set: the other "
-            "properties need the 20 standard amino acids alone.",
+            f"Its {everything} no value for a stop (*) at residue 3, so they weren't computed.",
         ),
+        ("warning", "3", "It has no residues, so only its length was set."),
+    ]
+
+
+def test_a_final_stop_leaves_the_hydropathy_one_value_a_residue(tmp_path: Path) -> None:
+    found, _ = properties(tmp_path, "AAAAAGGGG*")
+    assert found["0"]["length"] == 9
+    assert len(found["0"]["hydropathy"]) == 9
+
+
+def test_the_isoelectric_point_is_where_bjellqvists_charge_is_zero_however_acidic(
+    tmp_path: Path,
+) -> None:
+    found, _ = properties(tmp_path, "D" * 10, "R" * 10, UBIQUITIN)
+    # Bisection of Biopython's IsoelectricPoint.charge_at_pH (Bjellqvist's pK values)
+    # between pH 0 and 14 gives 3.0797 and 12.9542; its own pi() stops at 4.05 and 12.
+    # Ubiquitin is 6.56 either way, as ExPASy's Compute pI/Mw gives.
+    assert [found[k]["isoelectric_point"] for k in "012"] == [3.08, 12.95, 6.56]
+
+
+def test_selenocysteine_pyrrolysine_and_j_keep_the_properties_they_have_values_for(
+    tmp_path: Path,
+) -> None:
+    found, messages = properties(tmp_path, "MU", "MO", "MJ")
+    # Biopython's average residue masses (IUPACData.protein_weights) give MU 299.2492 and
+    # MO 386.5094 Da; MI and ML both weigh 262.3689 Da, so MJ does.
+    assert found["0"] == {"length": 2, "molecular_weight": 299.25}
+    assert found["1"] == {"length": 2, "molecular_weight": 386.51}
+    # Neither I nor L is charged or absorbs at 280 nm: MI and ML give pI 5.28 and none.
+    assert found["2"] == {
+        "length": 2,
+        "molecular_weight": 262.37,
+        "isoelectric_point": 5.28,
+        "extinction_coefficient_oxidized": 0,
+        "extinction_coefficient_reduced": 0,
+    }
+    assert [m["text"] for m in messages] == [
+        "Its isoelectric point, extinction coefficients, GRAVY, hydropathy and instability "
+        "index have no value for U at residue 2, so they weren't computed.",
+        "Its isoelectric point, extinction coefficients, GRAVY, hydropathy and instability "
+        "index have no value for O at residue 2, so they weren't computed.",
+        "Its GRAVY, hydropathy and instability index have no value for J at residue 2, so "
+        "they weren't computed.",
     ]
 
 
@@ -307,7 +355,8 @@ def test_ambiguous_codons_give_what_every_reading_agrees_on(tmp_path: Path) -> N
 
 def test_a_sequence_that_gives_no_residues_fails_its_own_run(tmp_path: Path) -> None:
     good, stop = entity(1, bases="ATGAAA"), entity(2, bases="TAAATG", name="pStop")
-    result, output = translated(tmp_path, [good, stop])
+    short = entity(3, bases="AC", name="pShort")
+    result, output = translated(tmp_path, [good, stop, short])
     assert result.returncode == 0, result.stderr
     assert output is not None
     assert [c["derived_from"] for c in output["creates"]] == [[good["id"]]]
@@ -316,8 +365,88 @@ def test_a_sequence_that_gives_no_residues_fails_its_own_run(tmp_path: Path) -> 
             "level": "error",
             "text": "pStop gives no residues in frame +1: it starts with a stop codon.",
             "entity": stop["id"],
-        }
+        },
+        {
+            "level": "error",
+            "text": "pShort gives no residues in frame +1: it has no whole codon.",
+            "entity": short["id"],
+        },
     ]
+
+
+def test_stop_codons_alone_are_no_protein(tmp_path: Path) -> None:
+    stops = entity(1, bases="TAATAA", name="pStops")
+    result, output = translated(tmp_path, [stops], to_stop=False)
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert output["creates"] == []
+    assert [m["text"] for m in output["messages"]] == [
+        "pStops gives no residues in frame +1: it has only stop codons."
+    ]
+
+
+def test_a_complete_coding_sequence_starts_with_methionine(tmp_path: Path) -> None:
+    # NCBI's table 11 lists GTG as an initiator, which a complete CDS starts with M
+    # (Biopython's translate(table=11, cds=True) gives MK); a frame reads it as V.
+    dna = [entity(1, bases="GTGAAATAA")]
+    _, frame = translated(tmp_path, dna, table=11)
+    _, cds = translated(tmp_path, dna, table=11, complete_cds=True)
+    assert frame is not None
+    assert cds is not None
+    assert frame["creates"][0]["values"]["sequence"] == "VK"
+    assert cds["creates"][0]["values"]["sequence"] == "MK"
+    assert cds["creates"][0]["values"]["description"] == (
+        "Translated from X-1, frame +1, as a complete coding sequence, with NCBI's genetic "
+        "code 11 (Bacterial)."
+    )
+
+
+def test_what_isnt_a_complete_coding_sequence_fails_its_own_run(tmp_path: Path) -> None:
+    good = entity(1, bases="ATGAAATAA")
+    no_start, no_stop, inner = (
+        entity(2, bases="AAAAAATAA", name="pNoStart"),
+        entity(3, bases="ATGAAAAAA", name="pNoStop"),
+        entity(4, bases="ATGTAAAAATAA", name="pInner"),
+    )
+    result, output = translated(tmp_path, [good, no_start, no_stop, inner], complete_cds=True)
+    assert result.returncode == 0, result.stderr
+    assert output is not None
+    assert [c["values"]["sequence"] for c in output["creates"]] == ["MK"]
+    assert [m["text"] for m in output["messages"]] == [
+        "pNoStart isn't a complete coding sequence in frame +1: First codon 'AAA' is not a "
+        "start codon.",
+        "pNoStop isn't a complete coding sequence in frame +1: Final codon 'AAA' is not a "
+        "stop codon.",
+        "pInner isn't a complete coding sequence in frame +1: Extra in frame stop codon 'TAA' "
+        "found.",
+    ]
+
+
+@pytest.mark.parametrize("table", [27, 28, 31])
+def test_codes_whose_stops_are_also_amino_acids_cant_stop_at_the_first(
+    tmp_path: Path, table: int
+) -> None:
+    result, output = translated(tmp_path, [entity(1, bases="ATGTGATGA")], table=table)
+    assert result.returncode == 1
+    assert output is None
+    assert "can't stop at the first stop codon" in result.stdout.splitlines()[-1]
+
+
+def test_a_frame_says_its_last_codon_could_have_been_a_stop(tmp_path: Path) -> None:
+    # Code 27: TGA is W, or a stop at a coding sequence's end. A frame keeps it as W
+    # (Biopython gives MWW); a complete CDS ends there (MW).
+    dna = [entity(1, bases="ATGTGATGA", name="pKaryo")]
+    _, frame = translated(tmp_path, dna, table=27, to_stop=False)
+    _, cds = translated(tmp_path, dna, table=27, complete_cds=True)
+    assert frame is not None
+    assert cds is not None
+    assert frame["creates"][0]["values"]["sequence"] == "MWW"
+    assert [m["text"] for m in frame["messages"]] == [
+        "pKaryo's last codon in frame +1, TGA, is W or a stop in genetic code 27, so it was "
+        "kept as W: translate it as a complete coding sequence to end it there."
+    ]
+    assert cds["creates"][0]["values"]["sequence"] == "MW"
+    assert cds["messages"] == []
 
 
 def test_a_genetic_code_ncbi_doesnt_use_fails_the_run(tmp_path: Path) -> None:

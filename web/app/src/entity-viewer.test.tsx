@@ -131,6 +131,42 @@ describe("the sequence viewer", () => {
     expect(bars[36]?.getAttribute("class")).toBe("track-below");
   });
 
+  it("counts a protein's residues without its final stop, and draws its track along them", async () => {
+    // AAAAAGGGG*: nine residues, so ProtScale's window of nine gives one value, the fifth's.
+    const profile = [null, null, null, null, 0.6, null, null, null, null];
+    withTypes();
+    answer("GET /api/v1/entity-types", [
+      {
+        ...PROTEIN,
+        fields: [
+          ...PROTEIN.fields,
+          field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
+        ],
+        viewers: [
+          {
+            viewer: "sequence" as const,
+            label: "Sequence",
+            sequence: "sequence",
+            alphabet: "protein" as const,
+            features: null,
+            tracks: [{ field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 }],
+          },
+        ],
+      },
+    ]);
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({
+        hrid: "PRT-000001",
+        values: { name: "Stop", sequence: "AAAAAGGGG*", hydropathy: profile },
+      }),
+    );
+    await renderApp("/entities/PRT-000001/viewers/sequence/");
+    expect(await screen.findByText("9 residues")).toBeInTheDocument();
+    const legend = screen.getByRole("list", { name: "Tracks" });
+    expect(legend).toHaveTextContent("highest 0.6 at 5");
+  });
+
   it("leaves out features it can't draw", async () => {
     onPlasmid([{ type: "CDS", start: 0, end: 500 }, "junk"]);
     await renderApp("/entities/DNA-000001/viewers/sequence/");

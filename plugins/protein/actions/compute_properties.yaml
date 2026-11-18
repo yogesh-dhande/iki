@@ -6,9 +6,11 @@ label: Compute protein properties
 description: >-
   A protein's length, molecular weight, isoelectric point, extinction
   coefficients, GRAVY and instability index, as ExPASy's ProtParam computes
-  them, and its hydropathy along its sequence, as ProtScale draws it. All but
-  its length need a sequence of the 20 standard amino acids alone; for others
-  the run says which residue stopped it.
+  them, and its hydropathy along its sequence, as ProtScale draws it. Each
+  property needs residues it has values for: the 20 standard amino acids, and
+  for molecular weight also U, O and J, and for the isoelectric point and
+  extinction coefficients also J. For others the run says which residue left
+  which properties out.
 inputs:
   protein: { type: Protein, schema: ">=2" }
 effects:

@@ -22,11 +22,18 @@ params:
     max: 33
     default: 1
     description: NCBI's translation table; 1 is the standard code.
+  complete_cds:
+    type: bool
+    label: Complete coding sequence
+    default: false
+    description: >-
+      Translate it as a whole coding sequence, from a start codon (methionine)
+      to a stop codon.
 steps:
   translate:
     action: translate
     inputs: { sequence: $inputs.sequence }
-    params: { frame: $params.frame, table: $params.table }
+    params: { frame: $params.frame, table: $params.table, complete_cds: $params.complete_cds }
   properties:
     action: compute_properties
     inputs: { protein: $steps.translate.created.Protein }

@@ -4,8 +4,10 @@ kind: ActionTest
 name: haemoglobin_alpha
 description: >-
   Human haemoglobin's alpha chain (UniProt P69905), against ExPASy's
-  ProtParam: 15257.40 Da (its residue masses differ in the last digits),
-  pI 8.72, 9970 M⁻¹cm⁻¹ with its one cysteine, GRAVY 0.048, instability 6.97.
+  ProtParam: pI 8.72, 9970 M⁻¹cm⁻¹ with its one cysteine, GRAVY 0.048,
+  instability 6.97. ExPASy gives 15257.55 Da; Iki sums Biopython's average
+  residue masses (Bio.Data.IUPACData.protein_weights), which give 15257.36,
+  12 ppm lower than ExPASy's table.
 action: compute_properties
 inputs:
   protein:
@@ -42,3 +44,23 @@ expect:
         - values:
             extinction_coefficient_reduced: 6990
             extinction_coefficient_oxidized: 7115
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: acidic_and_basic_peptides
+description: >-
+  Bjellqvist's charge model, as Biopython has it, is zero at pH 3.0797 for ten
+  aspartates and 12.9542 for ten arginines (bisection of
+  IsoelectricPoint.charge_at_pH between pH 0 and 14). Biopython's own search
+  stops at 4.05 and 12, where the charges are -4.24 and +4.00.
+action: compute_properties
+inputs:
+  protein:
+    - values: { sequence: DDDDDDDDDD }
+    - values: { sequence: RRRRRRRRRR }
+expect:
+  output:
+    updates:
+      protein:
+        - values: { isoelectric_point: 3.08 }
+        - values: { isoelectric_point: 12.95 }

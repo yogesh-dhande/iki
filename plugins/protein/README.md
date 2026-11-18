@@ -54,7 +54,8 @@ they list none.
   computes them, for many at once.
 - **`translate`**: translates a DNA sequence in the strand, frame and NCBI
   genetic code chosen, stopping at the first stop codon or keeping each as
-  `*`, and registers the protein, linked to the DNA. Many at once.
+  `*`, or as a complete coding sequence, and registers the protein, linked to
+  the DNA. Many at once.
 - **`import_proteins`**: registers each record of a FASTA file (up to 10
   million, and 1 GiB) as a protein. A protein already registered is found,
   and the project gets its record of it, or keeps the one it has. Each
@@ -139,10 +140,14 @@ coded by a stop's codon, TGA, so a stop there isn't one either.
 
 Properties are Biopython's ProtParam, which follows ExPASy's:
 
+- **Length**: its amino acids; a stop (`*`) is none.
 - **Molecular weight**: average isotopic masses of the residues, plus one
-  water.
-- **Isoelectric point**: Bjellqvist's pK values, with the terminal residues'
-  own.
+  water, from Biopython's table (`IUPACData.protein_weights`). It gives
+  haemoglobin α 15,257.36 Da, where ExPASy's own table gives 15,257.55: 12 ppm.
+- **Isoelectric point**: the pH at which Bjellqvist's charge model (his pK
+  values, with the terminal residues' own) gives no net charge, found by
+  bisection to 0.0001. Biopython's own search keeps between pH 4.05 and 12,
+  so Iki brackets the zero itself: ten aspartates are 3.08, not 4.05.
 - **Extinction coefficients**: at 280 nm in water, from Pace's values for W,
   Y and cystine (1995). One assumes every pair of cysteines forms a cystine;
   the other, that none does.
@@ -153,15 +158,26 @@ Properties are Biopython's ProtParam, which follows ExPASy's:
 - **Instability index**: Guruprasad's. Above 40, a protein is probably
   unstable in a test tube.
 
-They need a sequence of the 20 standard amino acids alone, and a final stop is
-left out. For a sequence with U, O, B, Z, J, X or an inner stop, the run warns
-which residue stopped it and sets the length alone.
+Each needs residues it has values for, and a final stop is left out. All
+take the 20 standard amino acids. Molecular weight also takes selenocysteine
+(U), pyrrolysine (O) and J (I or L, which weigh the same); the isoelectric
+point and extinction coefficients also take J, as neither I nor L is charged
+or absorbs at 280 nm. For B, Z, X, an inner stop, or a residue a property has
+no value for, the run warns which residue left which properties out.
 
 Translation uses NCBI's genetic codes (1, the standard code, by default). A
 codon with ambiguous bases becomes the amino acid every reading of it gives,
-or B, Z, J or X. Bases past the last whole codon are left out. A DNA
-sequence that gives no residues (one that starts with a stop codon, say)
-fails its own run and the rest go on.
+or B, Z, J or X. A frame is read codon by codon, bases past the last whole
+codon left out. A complete coding sequence is read as NCBI's tables say of
+one, as Biopython's `cds=True` does: its first codon must be one of the
+code's start codons, and gives methionine (so a bacterial GTG start is M, not
+V), its last a stop, with no other stop and no bases left over. In codes 27,
+28 and 31, a stop codon can also code for an amino acid, so only its place
+says which: those codes can't stop at the first stop codon, and a frame keeps
+such codons as amino acids, saying so of a last one that could have ended it.
+A DNA sequence that gives no residues (no whole codon, only stops, or a stop
+first), or isn't the complete coding sequence asked for, fails its own run
+and the rest go on.
 
 FASTA headers give a name (the first word) and a description (the rest).
 UniProt's (`>sp|P69905|HBA_HUMAN Hemoglobin subunit alpha OS=Homo sapiens

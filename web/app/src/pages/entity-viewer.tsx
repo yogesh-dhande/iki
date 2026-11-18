@@ -179,10 +179,14 @@ function SequenceViewer({
     () => (viewer.features ? readFeatures(source.values[viewer.features], sequence.length) : []),
     [source.values, viewer.features, sequence.length],
   );
+  // A protein's final stop (*) is no residue: its values are one a residue, none for it.
+  const residues =
+    viewer.alphabet === "protein" && sequence.endsWith("*") ? sequence.length - 1 : sequence.length;
   const tracks = useMemo(
     () =>
       viewer.tracks.map((track) => {
-        const values = readTrack(source.values[track.field], sequence.length);
+        const given = readTrack(source.values[track.field], residues);
+        const values = given && residues < sequence.length ? [...given, null] : given;
         return {
           ...track,
           given: source.values[track.field] != null,
@@ -191,7 +195,7 @@ function SequenceViewer({
             : null,
         };
       }),
-    [source.values, viewer.tracks, sequence.length],
+    [source.values, viewer.tracks, sequence.length, residues],
   );
   const drawn = useMemo(() => tracks.flatMap((t) => (t.drawn ? [t.drawn] : [])), [tracks]);
   const [shown, setShown] = useState<Feature | null>(() =>
@@ -213,7 +217,7 @@ function SequenceViewer({
   return (
     <>
       <p className="muted">
-        {number.format(sequence.length)} {unit}
+        {number.format(residues)} {unit}
         {viewer.features
           ? ` · ${String(features.length)} feature${features.length === 1 ? "" : "s"}`
           : ""}
